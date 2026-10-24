@@ -273,7 +273,7 @@ impl Host {
         Some(reload) => held_bundle(&reload.state, facts),
         None => bundle_id(facts),
       };
-      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle, &t.styles, t.dev_nonce.as_deref())));
+      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle, &t.styles, incoming.nonce.as_deref())));
     }
     if matches!(mode, RenderMode::Html) && !t.public.is_empty() {
       extra.push(snapfire_fsr_core::Node::raw(shell::public_config(&t.public)));

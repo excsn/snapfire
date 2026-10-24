@@ -19,6 +19,8 @@ pub(crate) struct Incoming {
   pub(crate) intercept: Option<Intercept>,
   /// What the request decided for the document's theme, when the application has themes.
   pub(crate) theme: Option<snapfire_fsr_runtime::DocumentTheme>,
+  /// The nonce a live document's policy names for this response.
+  pub(crate) nonce: Option<String>,
 }
 
 impl Incoming {
@@ -31,6 +33,7 @@ impl Incoming {
       host: None,
       intercept: None,
       theme: None,
+      nonce: None,
     }
   }
 }
@@ -211,6 +214,7 @@ impl Host {
       None => (None, None),
     };
     let mut ctx = RequestCtx::anonymous(params);
+    ctx.csp_nonce = incoming.nonce.clone();
     ctx.query = query;
     ctx.path = path.to_owned();
     ctx.document = document;
@@ -292,6 +296,7 @@ impl Host {
       host,
       intercept: None,
       theme: None,
+      nonce: None,
     }
   }
 
@@ -1030,7 +1035,7 @@ impl Host {
             .header("x-sf-prerendered", "preview")
             .body(http_body_util::Full::new(Bytes::from(text)).map_err(|never: std::convert::Infallible| match never {}).boxed_unsync())
             .expect("a response with a valid header");
-          set_csp(t, &mode, &mut response);
+          set_csp(t, &mode, None, &mut response);
           response
         }
         Err(why) => text_response(StatusCode::NOT_FOUND, why),
@@ -1054,7 +1059,7 @@ impl Host {
               .boxed_unsync(),
           )
           .expect("a response with a valid header");
-        set_csp(t, &mode, &mut response);
+        set_csp(t, &mode, None, &mut response);
         self.set_cookie(opened, &mut response).await;
         set_document_cache(opened, &mut response);
         return response;
@@ -1068,6 +1073,12 @@ impl Host {
       prefixed: visit.prefixed,
       set_cookie: None,
     };
+    let nonce = (matches!(mode, RenderMode::Html) && !intercepted && t.csp.iter().chain(&t.csp_report_only).any(|p| p.names_scripts())).then(snapfire_fsr_session::random_token);
+    let incoming = || {
+      let mut incoming = self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), theme.clone());
+      incoming.nonce = nonce.clone();
+      incoming
+    };
     let rendered = if intercepted {
       self
         .render_navigation_in(
@@ -1076,7 +1087,7 @@ impl Host {
           target_query,
           from.as_deref(),
           into.as_deref(),
-          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), theme.clone()),
+          incoming(),
         )
         .await
     } else {
@@ -1086,7 +1097,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), theme.clone()),
+          incoming(),
         )
         .await
     };
@@ -1098,7 +1109,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), theme.clone()),
+          incoming(),
         )
         .await
       {
@@ -1136,7 +1147,7 @@ impl Host {
           .header(header::CONTENT_TYPE, content_type)
           .body(body.boxed_unsync())
           .expect("a response with a valid header");
-        set_csp(t, &mode, &mut response);
+        set_csp(t, &mode, nonce.as_deref(), &mut response);
         self.set_cookie(opened, &mut response).await;
         set_document_cache(opened, &mut response);
         response

@@ -392,11 +392,9 @@ struct Tables {
   client_minified: bool,
   /// The `Content-Security-Policy` an HTML response carries, `document.csp`
   /// with the import map's source substituted. `None` sends no policy.
-  csp: Option<HeaderValue>,
+  csp: Option<bundle::Policy>,
   /// The same for `Content-Security-Policy-Report-Only`, `document.csp_report_only`.
-  csp_report_only: Option<HeaderValue>,
-  /// The nonce on the development refresh script, named by both policies.
-  dev_nonce: Option<String>,
+  csp_report_only: Option<bundle::Policy>,
   /// `trace.expose`: the paths whose requests a client may read its own trace of.
   trace_expose: builder::PathSet,
   /// `trace.inline`: the paths whose pages end with their own trace.

@@ -24,7 +24,7 @@ fsr dev app
 | `routes/page.tsx` | the shelves, filtered by `?category=`, with the filter chips as htmx regions |
 | `routes/tool/layout.tsx` | a second layout between the masthead and the tool |
 | `routes/tool/[id]/` | the tool, its actions, the reserve form and the boundary that catches an id off the shelves |
-| `routes/reserved/` | the session read back as a page, cached by nothing |
+| `routes/reserved/` | the session read back as a page, cached by nothing, with an inline script that runs under the policy by the response's `csp_nonce` |
 | `routes/slots/loans/` | a parallel segment with its own loader and fallback, polled by htmx |
 | `routes/slots/weather/` | the same, behind a service that fails |
 | `src/elements/shed-tally.ts` | the masthead count: a disclosure the element wires and a store key it follows |

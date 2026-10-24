@@ -260,6 +260,8 @@ pub struct RequestCtx {
   /// request, so a body reading only these still prerenders.
   pub config: ValueMap,
   pub csrf: CsrfHandle,
+  /// The nonce this live response's policy names, a page's or layout's `csp_nonce` prop for an inline script of its own; `None` for a render a file or the memo keeps.
+  pub csp_nonce: Option<String>,
   pub services: ServiceHandle,
   /// The application's own Rust, `ctx.native`. No wire, so no contract and no
   /// interceptors; the build read its shape off the Rust signature.
@@ -334,6 +336,7 @@ impl RequestCtx {
       failure: None,
       config: ValueMap::default(),
       csrf: CsrfHandle::default(),
+      csp_nonce: None,
       services: ServiceHandle::default(),
       natives: crate::natives::NativeHandle::default(),
       redirect: RedirectHandle::default(),

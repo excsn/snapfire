@@ -191,7 +191,17 @@ frame-src = ["https://www.youtube.com"]
 object-src = ["'none'"]
 ```
 
-The host merges in the sources only it knows. The inline import map's hash goes into `script-src`, because an import map has to be inline and the merged one matches no file on disk. Under `dev` a nonce for the refresh script goes in beside it, since that script carries the bundle id it was rendered against and has no stable hash. The scripts that fill a streamed segment go in by hash as well: each resolution's data rides in an inert JSON block, so what runs is the fill script and `__sfFill(n)` for each slot a route can stream, fixed text known at boot. The hash of each `<style>` a lowered component writes with literal content, a web component's shadow template among them, goes into `style-src`. A browser ignores `'unsafe-inline'` beside a hash or a nonce, so the host adds none of these to a directive that already allows `'unsafe-inline'`: the inline content runs under that instead and a policy written for inline third-party tags keeps them. Nothing in the policy names any of these. A development host enforces what a production one does, so a missing origin shows up in development.
+The host merges in the sources only it knows. The inline import map's hash goes into `script-src`, because an import map has to be inline and the merged one matches no file on disk. Each live HTML response under a policy that restricts scripts gets a fresh nonce in `script-src`, which the development refresh script carries, since that script holds the bundle id it was rendered against and has no stable hash. The scripts that fill a streamed segment go in by hash as well: each resolution's data rides in an inert JSON block, so what runs is the fill script and `__sfFill(n)` for each slot a route can stream, fixed text known at boot. The hash of each `<style>` a lowered component writes with literal content, a web component's shadow template among them, goes into `style-src`. A browser ignores `'unsafe-inline'` beside a hash or a nonce, so the host adds none of these to a directive that already allows `'unsafe-inline'`: the inline content runs under that instead and a policy written for inline third-party tags keeps them. Nothing in the policy names any of these. A development host enforces what a production one does, so a missing origin shows up in development.
+
+A page or layout with an inline script of its own reads the nonce as its `csp_nonce` prop and puts it on the tag:
+
+```tsx
+export default function Page({ csp_nonce }: IndexProps) {
+  return <script nonce={csp_nonce}>{"window.dataLayer = window.dataLayer || [];"}</script>;
+}
+```
+
+Reading `csp_nonce` renders that page or layout live on every request, since a nonce is good for one response, so it keeps the route out of the prerender list. A prerendered document and a preview carry no nonce and their inline scripts need a hash in the policy.
 
 A policy that restricts styles, through `style-src` or `default-src`, gets `style-src-attr 'unsafe-inline'` unless it declares `style-src-attr` itself. A lowered component's `style={{ width }}` is printed as a `style` attribute, which has no hash a policy written at boot can name. A fragment client navigation swaps in is checked against the first document's policy. The directive admits attributes only: a `<style>` whose content the render computes and every script stay as the policy wrote them. A policy that wants attributes blocked declares `style-src-attr = ["'none'"]` and gives up server-rendered inline styles.
 

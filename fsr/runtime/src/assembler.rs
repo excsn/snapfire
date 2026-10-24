@@ -936,6 +936,11 @@ impl Session {
         props.insert("identity".to_owned(), identity);
       }
     }
+    if class == Static::Dynamic {
+      if let Some(nonce) = &self.ctx.csp_nonce {
+        props.insert("csp_nonce".to_owned(), Value::str(nonce.as_str()));
+      }
+    }
     if class == Static::Dynamic && csrf {
       if let Some(csrf) = self.ctx.csrf.get() {
         props.insert("csrf_token".to_owned(), Value::str(csrf));

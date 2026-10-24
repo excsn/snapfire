@@ -190,25 +190,51 @@ pub(crate) fn preload_set(config: &Config, import_map: Option<&str>, twins: Opti
   urls
 }
 
-/// A payload and a fragment carry no policy: the document they belong to does.
-pub(crate) fn set_csp(t: &Tables, mode: &RenderMode, response: &mut Response<Body>) {
+/// A payload and a fragment carry no policy: the document they belong to does. `nonce` is the one this response's scripts carry.
+pub(crate) fn set_csp(t: &Tables, mode: &RenderMode, nonce: Option<&str>, response: &mut Response<Body>) {
   if !matches!(mode, RenderMode::Html) {
     return;
   }
   if let Some(policy) = &t.csp {
-    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, policy.clone());
+    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, policy.with_nonce(nonce));
   }
   if let Some(policy) = &t.csp_report_only {
-    response
-      .headers_mut()
-      .insert(header::CONTENT_SECURITY_POLICY_REPORT_ONLY, policy.clone());
+    response.headers_mut().insert(header::CONTENT_SECURITY_POLICY_REPORT_ONLY, policy.with_nonce(nonce));
   }
 }
 
-/// The nonce a development host puts on its refresh script. Per boot rather
-/// than per response, which a prerendered document or the render memo would
-/// otherwise replay; neither runs under `dev`.
-pub(crate) fn dev_nonce() -> String {
+/// A composed policy and the header it sends when the response has no nonce.
+#[derive(Debug, Clone)]
+pub(crate) struct Policy {
+  csp: crate::config::Csp,
+  header: HeaderValue,
+}
+
+impl Policy {
+  pub(crate) fn new(csp: crate::config::Csp) -> Option<Self> {
+    let header = csp.header().and_then(|text| HeaderValue::from_str(&text).ok())?;
+    Some(Self { csp, header })
+  }
+
+  pub(crate) fn header(&self) -> &HeaderValue {
+    &self.header
+  }
+
+  fn with_nonce(&self, nonce: Option<&str>) -> HeaderValue {
+    let Some(nonce) = nonce else { return self.header.clone() };
+    let mut csp = self.csp.clone();
+    csp.admit_inline("script-src", format!("'nonce-{nonce}'"));
+    csp.header().and_then(|text| HeaderValue::from_str(&text).ok()).unwrap_or_else(|| self.header.clone())
+  }
+
+  /// Whether the policy restricts scripts, so a nonce it names does something.
+  pub(crate) fn names_scripts(&self) -> bool {
+    self.csp.declares("script-src") || self.csp.declares("default-src")
+  }
+}
+
+/// A value no other boot of this host shares.
+pub(crate) fn boot_id() -> String {
   use base64::Engine;
   use sha2::Digest;
   let seed = std::time::SystemTime::now()

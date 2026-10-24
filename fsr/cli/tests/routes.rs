@@ -889,7 +889,7 @@ fn a_page_and_a_layout_props_type_carries_what_the_host_gives_every_page() {
   let built = build(&dir, &Options::default()).unwrap();
   let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
   assert!(
-    client.contains("export interface HostProps {\n  params?: Record<string, string>;\n  locale?: string;\n  identity?: { subject: string; claims: Record<string, unknown> };\n  csrf_token?: string;\n  action_failure?: { kind: string; message: string };\n}\n"),
+    client.contains("export interface HostProps {\n  params?: Record<string, string>;\n  locale?: string;\n  identity?: { subject: string; claims: Record<string, unknown> };\n  csrf_token?: string;\n  csp_nonce?: string;\n  action_failure?: { kind: string; message: string };\n}\n"),
     "{client}"
   );
   assert!(client.contains("export type PostsIdProps = Wire<Awaited<ReturnType<typeof import(\"../routes/posts/[id]/page.loader\")[\"load\"]>>> & HostProps;"), "{client}");

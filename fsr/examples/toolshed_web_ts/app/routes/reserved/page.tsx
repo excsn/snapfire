@@ -2,7 +2,7 @@ import { Link } from "@snapfire/fsr/components";
 
 import type { ReservedProps } from "@generated/client";
 
-export default function ReservedPage({ reserved, deposit }: ReservedProps) {
+export default function ReservedPage({ reserved, deposit, csp_nonce }: ReservedProps) {
   return (
     <section className="page reserved-page">
       <h2>Reserved</h2>
@@ -29,6 +29,8 @@ export default function ReservedPage({ reserved, deposit }: ReservedProps) {
         ))}
       </ol>
       <p className="note">This page reads the session. Nothing about it is cached.</p>
+      <p className="note" id="reserved-opened"></p>
+      <script nonce={csp_nonce}>{"document.getElementById('reserved-opened').textContent = 'Opened at ' + new Date().toLocaleTimeString();"}</script>
     </section>
   );
 }

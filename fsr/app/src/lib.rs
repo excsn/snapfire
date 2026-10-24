@@ -1477,7 +1477,7 @@ fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(S
   let module = plan.module.to_string();
   let mut class = Static::Fixed;
   for (_, component) in components.iter().filter(|(name, _)| *name == module) {
-    if component.reads_prop("csrf_token") {
+    if component.reads_prop("csrf_token") || component.reads_prop("csp_nonce") {
       class = Static::Dynamic;
     } else if component.reads_prop("identity") {
       class = class.max(Static::Anonymous);
@@ -1513,6 +1513,8 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
       if component.reads_prop("csrf_token") {
         class = Static::Dynamic;
         csrf = true;
+      } else if component.reads_prop("csp_nonce") {
+        class = Static::Dynamic;
       } else if component.reads_prop("identity") {
         class = class.max(Static::Anonymous);
       }

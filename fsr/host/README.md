@@ -57,7 +57,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Let a browser keep the application's modules across deploys | nothing: outside development the host names each bundle module by its content and serves that name `immutable` |
 | Flatten the module waterfall before the first island mounts | `document.module_preload` |
 | Serve the readable client instead of the minified one | `document.client = "readable"` or `auto` with `server.dev` on |
-| Send a Content-Security-Policy | `[document.csp]` as directives and sources; the host adds the import map's hash and the dev nonce itself |
+| Send a Content-Security-Policy | `[document.csp]` as directives and sources; the host adds the import map's hash and a nonce per response itself |
 | Try a policy before enforcing it | `[document.csp_report_only]`, the same shape, sent as report-only |
 | Serve `robots.txt` and a sitemap of what a signed-out visitor reaches | `[crawl]` with `document.origin` |
 | Make the application installable and readable offline | `[pwa]`: a manifest from its fields and a worker keeping what a visitor opened |

@@ -5781,6 +5781,40 @@ fn csp_host(policy: &str, dev: bool) -> Arc<Host> {
   )
 }
 
+const NONCE_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/nonce", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/nonce/page.tsx#default", "cache_key": "routes/nonce/page.tsx#default" } } ] } }
+  ],
+  "sources": [], "actions": [],
+  "components": [
+    { "module": "routes/nonce/page.tsx#default", "body": { "render": { "element": { "tag": "script", "attrs": [ { "field": [ "nonce", { "field": [ { "var": "$props" }, "csp_nonce" ] } ] } ], "children": [ { "text": "window.counted = 1" } ] } } } }
+  ]
+}"#;
+
+/// An application's own inline script carries the response's nonce: a fresh one per live response, named in that response's policy, which the development refresh script carries too.
+#[tokio::test]
+async fn each_live_response_carries_a_fresh_nonce_its_policy_names() {
+  for dev in [false, true] {
+    let dir = csp_app("[document.csp]\nscript-src = [\"'self'\"]", dev);
+    write_plan(&dir, NONCE_PLAN);
+    let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+      let response = host.handle(Request::get("/nonce").body(Bytes::new()).unwrap()).await;
+      let policy = response.headers().get(header::CONTENT_SECURITY_POLICY).and_then(|v| v.to_str().ok()).expect("a policy").to_owned();
+      let html = body_of(response).await;
+      let at = html.find("<script nonce=\"").map(|i| i + "<script nonce=\"".len()).unwrap_or_else(|| panic!("the page's script carries a nonce: {html}"));
+      let nonce = html[at..at + html[at..].find('"').unwrap()].to_owned();
+      assert!(policy.contains(&format!("'nonce-{nonce}'")), "dev {dev}: {policy}");
+      assert_eq!(html.matches(&format!("nonce=\"{nonce}\"")).count(), if dev { 2 } else { 1 }, "the refresh script carries the same nonce under dev: {html}");
+      seen.push(nonce);
+    }
+    assert_ne!(seen[0], seen[1], "dev {dev}: each response its own");
+  }
+}
+
 async fn csp_of(host: &Host, path: &str) -> Option<String> {
   let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
   response
@@ -5798,7 +5832,9 @@ async fn a_document_carries_the_configured_csp_with_the_import_map_substituted()
     policy.contains("script-src 'self' 'sha256-"),
     "the host did not add the import map's source: {policy}"
   );
-  assert_eq!(Some(policy), host.report().csp.clone());
+  let (boot, nonce) = policy.rsplit_once(" 'nonce-").expect("a live document's policy names its nonce");
+  assert!(nonce.ends_with('\'') && !nonce.contains(' '), "{policy}");
+  assert_eq!(Some(boot.to_owned()), host.report().csp.clone(), "the report shows the policy without a response's nonce");
 }
 
 #[tokio::test]
@@ -5892,9 +5928,10 @@ async fn a_payload_carries_no_csp() {
 #[tokio::test]
 async fn a_development_host_nonces_its_own_refresh_script() {
   let host = csp_host("[document.csp]\nscript-src = [\"'self'\"]", true);
-  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let policy = response.headers().get(header::CONTENT_SECURITY_POLICY).and_then(|v| v.to_str().ok()).expect("development still enforces the policy").to_owned();
+  let html = body_of(response).await;
   assert!(html.contains("EventSource"), "the fixture is not a development host: {html}");
-  let policy = csp_of(&host, "/").await.expect("development still enforces the policy");
   let nonce = html
     .split("<script nonce=\"")
     .nth(1)
@@ -5906,7 +5943,7 @@ async fn a_development_host_nonces_its_own_refresh_script() {
 #[tokio::test]
 async fn a_development_document_lists_its_policy_violations_and_a_production_one_does_not() {
   let dev = csp_host("[document.csp_report_only]\nscript-src = [\"'self'\"]", true);
-  let html = dev.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  let html = body_of(dev.handle(Request::get("/").body(Bytes::new()).unwrap()).await).await;
   let script = html.split("<script nonce=\"").nth(1).expect("the development script carries the nonce");
   assert!(script.contains("securitypolicyviolation") && script.contains("sf-dev-csp"), "{html}");
   assert!(script.contains("[document.\"+table(e)+\"]"), "a violation names the table that would admit it: {html}");

@@ -2592,7 +2592,7 @@ fn testing_module() -> String {
 
 /// What `inject_ctx_props` in the runtime gives every page and layout beside
 /// its loader's data.
-const HOST_PROPS: &str = "export interface HostProps {\n  params?: Record<string, string>;\n  locale?: string;\n  identity?: { subject: string; claims: Record<string, unknown> };\n  csrf_token?: string;\n  action_failure?: { kind: string; message: string };\n}\n\n";
+const HOST_PROPS: &str = "export interface HostProps {\n  params?: Record<string, string>;\n  locale?: string;\n  identity?: { subject: string; claims: Record<string, unknown> };\n  csrf_token?: string;\n  csp_nonce?: string;\n  action_failure?: { kind: string; message: string };\n}\n\n";
 
 /// `generated/client.ts`: the contract's types as the browser sees them, the
 /// props of every page inferred from its loader's return and one typed callable

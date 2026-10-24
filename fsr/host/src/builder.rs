@@ -948,13 +948,6 @@ impl HostBuilder {
     let dev = config.dev();
     let dev_bundle = dev.then(|| config.app.join("dist/.snapfire-build.json"));
 
-    // The development refresh script is inline and carries the bundle id it was
-    // rendered against, so its text changes per request and no source computed
-    // at boot covers it.
-    // The host owns the sources only it can know: the inline import map's hash,
-    // and in development the nonce on its own refresh script, whose text carries
-    // the bundle id it was rendered against and so has no stable hash.
-    let dev_nonce = dev.then(dev_nonce);
     let empty_icon = config.document.head.iter().any(|t| t.get("href").is_some_and(|href| href == "data:,"));
     let script_origins: Vec<String> = app.report.scripts.iter().filter_map(|(_, src)| src.as_deref().and_then(other_origin)).collect();
     let media_origins: Vec<String> = app.report.media.iter().filter_map(|(_, src)| other_origin(src)).collect();
@@ -975,9 +968,6 @@ impl HostBuilder {
         for slot in 1..=most_deferred {
           policy.admit_inline("script-src", inline_hash(&snapfire_fsr_runtime::stream::fill_call(slot)));
         }
-      }
-      if let Some(nonce) = &dev_nonce {
-        policy.admit_inline("script-src", format!("'nonce-{nonce}'"));
       }
       for origin in &script_origins {
         policy.widen("script-src", origin.clone());
@@ -1009,7 +999,7 @@ impl HostBuilder {
           policy.widen(directive, source);
         }
       }
-      policy.header().and_then(|text| HeaderValue::from_str(&text).ok())
+      crate::bundle::Policy::new(policy)
     };
     let csp = config.document.csp.as_ref().and_then(&compose);
     let csp_report_only = config.document.csp_report_only.as_ref().and_then(&compose);
@@ -1185,8 +1175,8 @@ impl HostBuilder {
       site: config.site.as_ref().map(|s| (s.name.clone(), s.at.clone())),
       sites: site_reports,
       import_map_csp: import_map.as_deref().map(inline_hash),
-      csp: csp.as_ref().and_then(|v| v.to_str().ok()).map(str::to_owned),
-      csp_report_only: csp_report_only.as_ref().and_then(|v| v.to_str().ok()).map(str::to_owned),
+      csp: csp.as_ref().and_then(|p| p.header().to_str().ok()).map(str::to_owned),
+      csp_report_only: csp_report_only.as_ref().and_then(|p| p.header().to_str().ok()).map(str::to_owned),
       config: config.sources.clone(),
       inferred: config.inferred.clone(),
       public: config.public.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(),
@@ -1225,7 +1215,6 @@ impl HostBuilder {
         client_minified,
         csp,
         csp_report_only,
-        dev_nonce,
         trace_expose: trace_paths(&config, |t| &t.expose)?,
         trace_inline: trace_paths(&config, |t| &t.inline)?,
         health: Some(config.server.health.clone()).filter(|p| !p.is_empty()),

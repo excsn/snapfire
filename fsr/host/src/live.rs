@@ -42,7 +42,7 @@ pub(crate) struct DevState {
 impl Reload {
   pub(crate) fn new(mailbox: usize) -> Self {
     let (tx, rx) = fibre::spmc::topic::channel_async(mailbox);
-    let state = DevState { boot: crate::bundle::dev_nonce(), ..DevState::default() };
+    let state = DevState { boot: crate::bundle::boot_id(), ..DevState::default() };
     Self { tx, rx, state: Arc::new(parking_lot::RwLock::new(state)) }
   }
 }
