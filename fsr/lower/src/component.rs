@@ -6480,7 +6480,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         renames.push((f.ident.sym.to_string(), bound));
       }
     }
-    self.declare_below(stmts, prefix);
+    renames.extend(self.declare_below(stmts, prefix).into_iter().filter(|(from, to)| from != to));
     for stmt in stmts {
       match stmt {
         js::Stmt::Decl(js::Decl::Var(var)) => {
@@ -6554,13 +6554,49 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.after_early(early, Returned::Value(Expr::Lit(Lit::Null)), Span::default())
   }
 
-  /// Declares each `const` and `let` of `stmts` for what runs after the body, as JavaScript binds them from the start of it: a value under the name it binds, `prefix` and its own in a custom hook, and a function as a handler function. A hook's result is declared where it is, since what it binds is known once the hook lowers.
-  fn declare_below(&mut self, stmts: &'p [js::Stmt], prefix: &str) {
+  /// Declares each `const` and `let` of `stmts` for what runs after the body, as JavaScript binds them from the start of it: a value under the name it binds, `prefix` and its own in a custom hook, and a function as a handler function. Of a hook's result, `useState` and `useStore` declare their value and their setter, `useRef` its ref, `useMemo` its value and `useCallback` its function; any other hook's is declared where it is, since what it binds is known once the hook lowers. Returns each name with the one it binds.
+  fn declare_below(&mut self, stmts: &'p [js::Stmt], prefix: &str) -> Vec<(String, String)> {
+    let mut bound = Vec::new();
+    let value = |this: &mut Self, bound: &mut Vec<(String, String)>, name: &str| {
+      let to = format!("{prefix}{name}");
+      this.lowerer.declared_below.push((name.to_owned(), to.clone()));
+      bound.push((name.to_owned(), to));
+    };
     for stmt in stmts {
       let js::Stmt::Decl(js::Decl::Var(var)) = stmt else { continue };
       for decl in &var.decls {
         let init = decl.init.as_deref().map(crate::meaning::bare);
-        if init.is_some_and(|init| hook_call(&self.meanings(), init).is_some()) {
+        if let Some((hook, call)) = init.and_then(|init| hook_call(&self.meanings(), init)) {
+          match (hook, &decl.name) {
+            ("useState" | "useStore", js::Pat::Array(arr)) => {
+              let mut names = arr.elems.iter().map(|e| match e {
+                Some(js::Pat::Ident(id)) => Some(id.id.sym.to_string()),
+                _ => None,
+              });
+              let (Some(Some(state)), setter) = (names.next(), names.next().flatten()) else { continue };
+              value(self, &mut bound, &state);
+              if let Some(setter) = setter {
+                bound.push((setter.clone(), format!("{prefix}{setter}")));
+                if !self.setters.iter().any(|(s, _)| *s == format!("{prefix}{setter}")) {
+                  self.setters.push((format!("{prefix}{setter}"), format!("{prefix}{state}")));
+                }
+              }
+            }
+            ("useRef", js::Pat::Ident(id)) => {
+              value(self, &mut bound, &id.id.sym);
+              if self.lowerer.reaches(Reach::Terminal) && !self.held_refs.contains(&format!("{prefix}{}", id.id.sym)) {
+                self.held_refs.push(format!("{prefix}{}", id.id.sym));
+              }
+            }
+            ("useMemo", js::Pat::Ident(id)) => value(self, &mut bound, &id.id.sym),
+            ("useCallback", js::Pat::Ident(id)) => {
+              if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) {
+                self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((arrow.params.clone(), arrow_body(arrow)));
+                bound.push((id.id.sym.to_string(), format!("{prefix}{}", id.id.sym)));
+              }
+            }
+            _ => {}
+          }
           continue;
         }
         match (&decl.name, init) {
@@ -6576,12 +6612,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             let mut names = Vec::new();
             crate::pattern_names(pattern, &mut names);
             for name in names {
-              self.lowerer.declared_below.push((name.sym.to_string(), format!("{prefix}{}", name.sym)));
+              value(self, &mut bound, &name.sym);
             }
           }
         }
       }
     }
+    bound
   }
 
   /// A hook's return taken when none of its early exits fired, each `(cond, value)` checked in order before it.
@@ -10158,9 +10195,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.reread_effect_locals(walk);
   }
 
-  /// Binds each effect `let` a handler has written to the value its patch holds, so a read after the write, or after the branch that made it, sees it.
+  /// Binds each effect `let` and each held ref a handler has written to the value its patch holds, so a read after the write, or after the branch that made it, sees it, as JavaScript's `ref.current` does.
   fn reread_effect_locals(&mut self, walk: &HandlerWalk) {
-    for (name, hidden) in self.effect_locals.clone() {
+    let refs: Vec<(String, String)> = self.held_refs.iter().map(|r| (r.clone(), r.clone())).collect();
+    for (name, hidden) in self.effect_locals.clone().into_iter().chain(refs) {
       if let Some(value) = walk.patch.iter().find_map(|entry| match entry {
         Entry::Field(field, value) if *field == hidden => Some(value.clone()),
         _ => None,
@@ -10443,6 +10481,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let Some(held) = held else { return Err(self.lowerer.residue(assign.span, "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")) };
         let value = self.lowerer.expr(&assign.right)?;
         walk.set(held, Expr::Object(vec![Entry::Field("current".to_owned(), value)]));
+        self.reread_effect_locals(walk);
         Ok(())
       }
       other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")),

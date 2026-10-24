@@ -592,6 +592,37 @@ fn a_handler_calls_an_arrow_and_filters_a_list_the_component_declares_below_it()
 }
 
 #[test]
+fn a_handler_uses_state_a_ref_and_a_callback_the_component_declares_below_it() {
+  let page = "import { useCallback, useRef, useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Count() {\n  useInput(() => {\n    presses.current = presses.current + 1;\n    bump();\n  });\n  const [n, setN] = useState(1);\n  const presses = useRef(0);\n  const bump = useCallback(() => setN(n + presses.current), [n]);\n  return <Text>{n}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "1");
+  assert_eq!(line(session.press(&x).unwrap()), "2");
+  assert_eq!(line(session.press(&x).unwrap()), "4");
+}
+
+#[test]
+fn a_handler_reads_a_ref_it_wrote_earlier_in_the_same_step() {
+  let page = "import { useCallback, useRef, useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Count() {\n  const [n, setN] = useState(1);\n  const presses = useRef(0);\n  const bump = useCallback(() => setN(n + presses.current), [n]);\n  useInput(() => {\n    presses.current = presses.current + 1;\n    setN(n + presses.current);\n  });\n  return <Text>{n}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "1");
+  assert_eq!(line(session.press(&x).unwrap()), "2");
+}
+
+#[test]
+fn a_custom_hooks_handler_sets_state_the_hook_declares_below_it() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nfunction useCounter() {\n  useInput(() => setCount(count + 10));\n  const [count, setCount] = useState(1);\n  return count;\n}\n\nexport default function Page() {\n  const count = useCounter();\n  return <Text>{count}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "1");
+  assert_eq!(line(session.press(&x).unwrap()), "11");
+}
+
+#[test]
 fn a_custom_hooks_handler_reads_a_const_the_hook_declares_below_it() {
   let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nfunction useCounter() {\n  const [count, setCount] = useState(1);\n  useInput(() => setCount(step + count));\n  const step = count * 10;\n  return count;\n}\n\nexport default function Page() {\n  const count = useCounter();\n  return <Text>{count}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
