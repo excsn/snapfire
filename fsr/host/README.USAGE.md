@@ -170,7 +170,7 @@ default = "en_US"                 # served unprefixed; the first supported one w
 remember = true                   # write the cookie when a prefix chose the locale
 
 [auth]                            # optional: without it there is no login and no /auth/ route
-provider = "file"                 # the accounts in config/auth.toml; "service" asks a client; oidc is planned
+provider = "file"                 # the accounts in config/auth.toml; "service" asks a client; "oidc" an issuer; "passkey" passkeys; or several as [[auth.methods]]
 login = "/login"                  # the application's login page, the default
 
 [typecheck]                       # optional: read by fsr, not by the host

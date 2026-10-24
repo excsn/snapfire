@@ -26,7 +26,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 
 - **`snapfire_fsr_service::Services`**, the registry: contract, interceptor chain, one transport per service or a default. `bind` gives a request its handle.
 - **`HttpTransport`**, **`GrpcTransport`**, **`LocalTransport`**, **`MockTransport`**, the four transports: over the wire, over the wire in protobuf, in process by function, canned with a recording of every call.
-- **`TraceInterceptor`**, **`IdentityInterceptor`**, **`CredentialInterceptor`**, the three that ship; `Interceptor` and `Next` to write another.
+- **`TraceInterceptor`**, **`IdentityInterceptor`**, **`CredentialInterceptor`**, the three that ship; `Interceptor` and `Next` to write another. `CredentialInterceptor::refreshing` with a **`Refresher`** renews an expired token before a call carries it.
 - **`Call`** and **`Credentials`**, what an interceptor sees, including the custody a body never does.
 
 ## I want to write or run a body
@@ -55,7 +55,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 
 ## I want to serve
 
-- **`snapfire_fsr_host::Host`** and **`HostBuilder`**, configuration in, a service over HTTP types out; `route`, `source`, `action`, each with an `_override`, `evaluator`, `shell`, `services_over`, `session_store`.
+- **`snapfire_fsr_host::Host`** and **`HostBuilder`**, configuration in, a service over HTTP types out; `route`, `source`, `action`, each with an `_override`, `evaluator`, `shell`, `services_over`, `session_store` and, with the `auth` feature, `identity`. Sign-in is the host's `auth` feature, with `oidc` and `passkey` for those methods; `fsr` carries all three.
 - **`snapfire_fsr_host::Loader`**, **`Artifact`**, **`Config`**, **`Deployment`**, **`Located`**, how an artifact is read, what was read, the configuration ladder and what it resolved; `Loader::secrets` for how a `.c5encval` decrypts.
 - **`snapfire_fsr_host::actix::serve`**, the shim that mounts the host in actix; `Host::serve` for hyper.
 - **`snapfire_fsr::App`** and **`AppBuilder`**, the binding layer under the host, for a host of your own.
@@ -65,15 +65,20 @@ Every block in every crate, one line each, sorted by what you would be looking f
 ## I want a session or an identity
 
 - **`snapfire_fsr_session::Sessions`**, open before matching, persist at the response; **`SessionConfig`** for the cookie name, TTL and `Secure`.
-- **`SessionStore`** and **`MemorySessionStore`**, the store trait and the stock bounded, expiring one.
-- **`HmacCodec`**, the signed cookie.
+- **`SessionStore`** and **`MemorySessionStore`**, the store trait and the stock bounded, expiring one; **`SessionRecord::encode`** and `decode` for a store of your own.
+- **`HmacCodec`**, the signed cookie; **`SealedCookie`** and `Sessions::sealed`, the whole record sealed into the cookie with no store.
 - **`TokenCell`**, custody: the tokens a body cannot reach.
 - **`snapfire_fsr_runtime::SessionCell`** and **`Identity`**, what a body sees.
-- **`snapfire_fsr_auth::IdentityProvider`**, `begin` and `callback`; **`DevProvider`** for development; **`Auth`** the facade.
+- **`snapfire_fsr_auth::IdentityProvider`**, `begin`, `advance` and `refresh`: a sign-in as steps that redirect, present data to the page or complete, as **`Next`**; **`Start`** says what a flow begins from. **`Auth`** is the facade and **`Step`** what it answers the adapter.
+- **`Methods`**, several providers on one login page by name; **`Sequence`**, a second factor after another provider.
+- **`DevProvider`**, a user table for development; its `stand_in` signs in with no passwords.
+- **`snapfire_fsr_oidc::OidcProvider`** over an **`OidcConfig`**, OpenID Connect against any issuer, with Google, Microsoft and Apple presets.
+- **`snapfire_fsr_passkey::Passkeys`** over a **`PasskeyStore`**, WebAuthn sign-in and enrolment; **`FilePasskeys`** and **`MemoryPasskeys`** keep them.
+- **`snapfire_fsr_host::ServiceProvider`**, any auth service as a provider over a client's `beginSignIn` and `advanceSignIn`.
 
 ## I want the browser to do its part
 
-- **`@snapfire/fsr-client`**: `boot` and `registerIsland` to mount islands, hydrating over server markup; `discard` to end the islands in a subtree before it is removed; `enableNavigation`, `navigate` and `refresh` for segment-preserving navigation; `action` and `ActionFailure` for calling actions by id; `parsePayload` and `renderSegment` for the wire form.
+- **`@snapfire/fsr-client`**: `signIn`, `enrol` and `answer` run a sign-in from the page, the passkey prompt included; `boot` and `registerIsland` to mount islands, hydrating over server markup; `discard` to end the islands in a subtree before it is removed; `enableNavigation`, `navigate` and `refresh` for segment-preserving navigation; `action` and `ActionFailure` for calling actions by id; `parsePayload` and `renderSegment` for the wire form.
 - **`@snapfire/fsr-client/react`**, the React mounter, patcher and unmounter.
 - **`@snapfire/fsr-authoring`**, `Ctx`, `ActionCtx`, `action` and `fail`, the types a body is written against, projected per application into `generated/fsr.ts`.
 

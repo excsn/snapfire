@@ -569,7 +569,7 @@ ctx.session = opened.cell.clone();
 assert_eq!(ctx.session.get("access_token"), None);
 ```
 
-The same split explains where auth flow state lives. A login's provider state is not the application's business and must be bound to the session that began the flow, so it rides custody under `_sf_auth`; the callback consumes it from there.
+The same split explains where auth flow state lives. A sign-in step's state is not the application's business and must be bound to the session that began the flow, so it rides custody under `_sf_auth`; each answer at the callback consumes the step it answers.
 
 ```rust
 opened.tokens.set("_sf_auth", Value::Map(state));
@@ -603,4 +603,4 @@ Three things behave in ways worth knowing before they surprise you.
 * `MemorySessionStore::new` and `sharded` panic if `fibre_cache` refuses the builder. Build the cache yourself and pass it to `with_cache` when you want to handle that.
 * `HmacCodec::new` accepts any key length without complaint, so a short key is a silent weakness rather than an error. Use thirty-two bytes or more.
 
-Errors raised further out belong to their own crates: `snapfire_fsr_auth` returns `AuthError` from the login callback; the service layer's failures surface through `snapfire_fsr_service`.
+Errors raised further out belong to their own crates: `snapfire_fsr_auth` returns `AuthError` from beginning a sign-in and from each answer; the service layer's failures surface through `snapfire_fsr_service`.
