@@ -92,6 +92,9 @@ toml = "0.8"
 version = "82"
 features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 snapfire_fsr_test_internal = { path = "../test_internal" }
 bolero = "0.13"

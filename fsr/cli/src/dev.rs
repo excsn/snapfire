@@ -606,6 +606,71 @@ pub(crate) struct Driven {
   /// The compiler's own lines, held rather than printed, for a caller that shows them only when a
   /// batch fails.
   held: Option<Vec<String>>,
+  /// The compiler's stderr, read beside stdout so a failed batch can name what it wrote there.
+  #[cfg(unix)]
+  stderr: Option<Stderr>,
+}
+
+/// What the compiler writes to stderr, kept for the batch under way and printed as it arrives when `live`.
+#[cfg(unix)]
+struct Stderr {
+  pipe: std::process::ChildStderr,
+  partial: Vec<u8>,
+  batch: Vec<String>,
+  live: bool,
+}
+
+#[cfg(unix)]
+impl Stderr {
+  fn new(pipe: std::process::ChildStderr, live: bool) -> Self {
+    use std::os::fd::AsRawFd;
+    let fd = pipe.as_raw_fd();
+    // SAFETY: `fd` is the open pipe `pipe` owns; F_GETFL and F_SETFL only change its flags.
+    unsafe {
+      let flags = libc::fcntl(fd, libc::F_GETFL);
+      libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
+    Self { pipe, partial: Vec::new(), batch: Vec::new(), live }
+  }
+
+  /// Reads what the pipe holds now without waiting. `false` once the compiler closed it.
+  fn drain(&mut self) -> bool {
+    use std::io::Read;
+    let mut buf = [0u8; 8192];
+    loop {
+      match self.pipe.read(&mut buf) {
+        Ok(0) => {
+          self.line_out(true);
+          return false;
+        }
+        Ok(n) => {
+          self.partial.extend_from_slice(&buf[..n]);
+          self.line_out(false);
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return true,
+        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+        Err(_) => return false,
+      }
+    }
+  }
+
+  fn line_out(&mut self, all: bool) {
+    while let Some(at) = self.partial.iter().position(|b| *b == b'\n') {
+      let line: Vec<u8> = self.partial.drain(..=at).collect();
+      self.keep(String::from_utf8_lossy(&line[..line.len() - 1]).into_owned());
+    }
+    if all && !self.partial.is_empty() {
+      let line = String::from_utf8_lossy(&std::mem::take(&mut self.partial)).into_owned();
+      self.keep(line);
+    }
+  }
+
+  fn keep(&mut self, line: String) {
+    if self.live {
+      eprintln!("{line}");
+    }
+    self.batch.push(line);
+  }
 }
 
 impl Driven {
@@ -622,6 +687,8 @@ impl Driven {
   pub(crate) fn spawn(mut command: Command, snapfirec: &Path, reconcile: &mut Reconcile<'_>, plugins: &mut Plugins, quiet: bool) -> Result<Self, BuildError> {
     crate::install::ensure(&crate::install::COMPILER, snapfirec)?;
     command.arg("--driven");
+    #[cfg(unix)]
+    command.stderr(Stdio::piped());
     let mut child = command
       .stdin(Stdio::piped())
       .stdout(Stdio::piped())
@@ -629,7 +696,17 @@ impl Driven {
       .map_err(|e| BuildError::Dev(format!("{}: {e}; pass --snapfirec or put it on PATH", snapfirec.display())))?;
     let stdin = child.stdin.take();
     let stdout = BufReader::new(child.stdout.take().expect("a piped stdout"));
-    let mut driven = Self { child, stdin, stdout, snapfirec: snapfirec.to_path_buf(), held: quiet.then(Vec::new) };
+    #[cfg(unix)]
+    let stderr = child.stderr.take().map(|pipe| Stderr::new(pipe, !quiet));
+    let mut driven = Self {
+      child,
+      stdin,
+      stdout,
+      snapfirec: snapfirec.to_path_buf(),
+      held: quiet.then(Vec::new),
+      #[cfg(unix)]
+      stderr,
+    };
     driven.hello()?;
     match driven.settled(reconcile, plugins) {
       Ok(()) => Ok(driven),
@@ -686,8 +763,48 @@ impl Driven {
     Ok(())
   }
 
+  /// Waits until stdout has something to read, printing and keeping what stderr gets meanwhile.
+  #[cfg(unix)]
+  fn await_stdout(&mut self) {
+    use std::os::fd::AsRawFd;
+    while self.stdout.buffer().is_empty() {
+      let Some(stderr) = self.stderr.as_mut() else { return };
+      let mut fds = [
+        libc::pollfd { fd: self.stdout.get_ref().as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        libc::pollfd { fd: stderr.pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+      ];
+      // SAFETY: `fds` is two valid pollfd entries for descriptors this process holds open.
+      let ready = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+      if ready < 0 {
+        if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+          continue;
+        }
+        return;
+      }
+      if fds[1].revents != 0 && !stderr.drain() {
+        self.stderr = None;
+      }
+      if fds[0].revents != 0 {
+        return;
+      }
+    }
+  }
+
+  /// What the compiler wrote to stderr for the batch that just ended, everything it wrote before
+  /// its answer on stdout included. The flag is whether those lines were printed as they came.
+  fn batch_errors(&mut self) -> (Vec<String>, bool) {
+    #[cfg(unix)]
+    if let Some(stderr) = self.stderr.as_mut() {
+      stderr.drain();
+      return (std::mem::take(&mut stderr.batch), stderr.live);
+    }
+    (Vec::new(), true)
+  }
+
   fn line(&mut self, line: &mut String) -> Result<(), BuildError> {
     line.clear();
+    #[cfg(unix)]
+    self.await_stdout();
     match self.stdout.read_line(line) {
       Ok(0) => {
         self.stdin = None;
@@ -712,13 +829,23 @@ impl Driven {
           if let Some(held) = self.held.as_mut() {
             held.clear();
           }
+          let (warnings, printed) = self.batch_errors();
+          if !printed {
+            for line in warnings {
+              eprintln!("{line}");
+            }
+          }
           return Ok(());
         }
         FAILED => {
-          return Err(BuildError::Dev(match self.held.as_mut() {
-            Some(held) => format!("snapfirec failed:\n{}", std::mem::take(held).join("\n")),
-            None => "snapfirec failed; see the errors above".to_owned(),
-          }))
+          let (errors, _) = self.batch_errors();
+          if let Some(held) = self.held.as_mut() {
+            held.clear();
+          }
+          return Err(BuildError::Dev(match errors.is_empty() {
+            false => format!("snapfirec failed:\n{}", errors.join("\n")),
+            true => "snapfirec failed; see the errors above".to_owned(),
+          }));
         }
         REFERENCES => {
           let mut paths = Vec::new();
@@ -1433,6 +1560,35 @@ mod tests {
     std::fs::write(&config, text).unwrap();
     std::fs::remove_file(root.join("config/development.toml")).unwrap();
     root
+  }
+
+  /// A stand-in for snapfirec that announces the protocol, prints a progress line, writes `error` to stderr and fails its first build.
+  fn failing_compiler(dir: &Path, error: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = dir.join("snapfirec");
+    let script = format!(
+      "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"snapfirec 99.0.0\"; exit 0; fi\necho \"{}\"\necho \"compiled 3 modules\"\necho \"{error}\" >&2\necho \"{FAILED}\"\ncat > /dev/null\n",
+      protocol::hello()
+    );
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+  }
+
+  /// DEFECTS 1.168.
+  #[test]
+  fn a_failed_build_names_what_the_compiler_wrote_to_stderr() {
+    let dir = std::env::temp_dir().join(format!("fsr-cli-dev-failing-{}", std::process::id()));
+    let compiler = failing_compiler(&dir, "snapfirec-vue is not installed");
+    let mut plugins = Plugins::new();
+    let error = match Driven::spawn(Command::new(&compiler), &compiler, &mut |_: &[String]| Ok(()), &mut plugins, true) {
+      Err(e) => e.to_string(),
+      Ok(_) => panic!("the build failed"),
+    };
+    assert!(error.contains("snapfirec-vue is not installed"), "{error}");
+    assert!(!error.contains("compiled 3 modules"), "progress is not the cause: {error}");
+    let _ = std::fs::remove_dir_all(&dir);
   }
 
   #[test]
