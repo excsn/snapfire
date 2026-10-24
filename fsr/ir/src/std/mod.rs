@@ -11,7 +11,8 @@ pub mod i18n;
 pub mod id;
 pub mod intl;
 pub mod log;
-pub mod node;
+pub mod path;
+pub mod system;
 pub mod terminal;
 pub mod text;
 pub mod time;
@@ -27,6 +28,7 @@ pub fn register(extensions: &mut Extensions) {
   id::register(extensions);
   i18n::register(extensions);
   terminal::register(extensions);
-  node::register(extensions);
+  path::register(extensions);
+  system::register(extensions);
   log::register(extensions);
 }

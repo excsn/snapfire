@@ -88,7 +88,7 @@ fn an_entry_that_declares_the_component_it_renders_is_kept_and_exports_it() {
     ("lrn.tsx", "import React, { useState } from 'react';\nimport { render, Text, useInput } from 'ink';\nimport { readFileSync } from 'node:fs';\n\nconst cards = readFileSync('cards.txt', 'utf8');\n\nfunction AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n\nrender(<AppMatch />);\n"),
   ]);
   let (out, report) = migrate(&t);
-  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React, { useState } from 'react';\nimport { Text, useInput } from 'ink';\nimport { readFileSync } from 'node:fs';\n\nconst cards = readFileSync('cards.txt', 'utf8');\n\nexport function AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React, { useState } from 'react';\nimport { Text, useInput } from 'ink';\nimport { file } from \"@snapfire/fsr-client/std\";\n\nconst cards = file.read('cards.txt');\n\nexport function AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n", "{:?}", report.notes);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
   assert!(report.notes.is_empty(), "{:?}", report.notes);
 }
@@ -185,7 +185,7 @@ fn an_entry_that_awaits_ink_and_its_component_from_dynamic_imports_gets_a_page_a
   let (out, report) = migrate(&t);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import type { RootProps } from \"@generated/client\";\nimport App from \"@src/app\";\n\nexport default function Page({ cwd }: RootProps) {\n  return <App cwd={cwd} />;\n}\n", "{:?}", report.notes);
   let loader = out.text("app/routes/page.loader.ts").unwrap();
-  assert!(loader.contains("export async function load({ params }: Ctx<\"/\">) {\n  const cwd = process.cwd();\n  return { cwd };\n}\n"), "the import binding is not a loader statement: {loader}");
+  assert!(loader.contains("export async function load({ params }: Ctx<\"/\">) {\n  const cwd = system.cwd();\n  return { cwd };\n}\n"), "the import binding is not a loader statement: {loader}");
 }
 
 #[test]

@@ -63,6 +63,66 @@ export declare const text: {
 export interface FrontMatterOptions {
 	delimiters?: string | [string, string];
 }
+/** What `file.stat` answers. */
+export interface FileStat {
+	isFile: boolean;
+	isDirectory: boolean;
+	size: number;
+	mtimeMs: number;
+}
+/** The files of the machine a terminal page runs on. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file. Terminal pages only. */
+export declare const file: {
+	/** The file as text, bytes that are not UTF-8 as U+FFFD. */
+	read(path: string): string;
+	/** Writes `data` as the file's text, a value that is not text as JSON. */
+	write(path: string, data: unknown): void;
+	/** Whether anything is at `path`. */
+	exists(path: string): boolean;
+	/** The names of a directory's entries, sorted. */
+	list(path: string): string[];
+	/** Makes the directory, its parents too with `recursive`. */
+	makeDir(path: string, options?: {
+		recursive?: boolean;
+	}): void;
+	/** What is at `path`: whether it is a file or a directory, its size in bytes and when it last changed. */
+	stat(path: string): FileStat;
+};
+/** POSIX paths as text. Terminal pages only. */
+export declare const path: {
+	/** The parts joined by `/` and normalized; `.` for none. */
+	join(...parts: string[]): string;
+	/** The parts right to left until one is absolute, the working directory before them otherwise. */
+	resolve(...parts: string[]): string;
+	/** `.` and empty segments dropped, `..` resolved against what precedes it. */
+	normalize(p: string): string;
+	/** Everything before the last segment. */
+	dirname(p: string): string;
+	/** The last segment, without `ext` when it ends with it. */
+	basename(p: string, ext?: string): string;
+	/** The last segment's extension from its last `.`, empty for none. */
+	extname(p: string): string;
+	/** The path from `from` to `to`, both resolved. */
+	relative(from: string, to: string): string;
+	/** Whether `p` starts with `/`. */
+	isAbsolute(p: string): boolean;
+};
+/** The machine a terminal page runs on. Terminal pages only. */
+export declare const system: {
+	/** The environment variable `name`, null when it is not set. */
+	env(name: string): string | null;
+	/** The home directory. */
+	home(): string;
+	/** The operating system: `macos`, `linux`, `windows` or another name Rust gives one. */
+	platform(): string;
+	/** The temporary directory, no trailing `/`. */
+	tempDir(): string;
+	/** The line ending: `"\r\n"` on Windows, `"\n"` elsewhere. */
+	lineEnd(): string;
+	/** The working directory. */
+	cwd(): string;
+	/** The resident set of the running page, in bytes. */
+	memory(): number;
+};
 export declare const time: {
 	/** Milliseconds since the time origin, as `performance.now()`; on the server, since the process started. */
 	monotonic(): number;

@@ -72,7 +72,28 @@ fn app_of(example: &Path, scratch: &Path) -> Result<(PathBuf, String), String> {
     std::fs::write(&path, source).unwrap();
   }
   let root = root.ok_or("no `render(…)` to say what it draws")?;
+  migrated(&dir.join("src"));
   Ok((dir, format!("src/{root}#default")))
+}
+
+/// The example's sources as `fsr migrate` writes them, Node's modules and `process` onto FSR's members among the rest.
+fn migrated(src: &Path) {
+  let mut tree = snapfire_fsr_migrate::Tree::new();
+  tree.insert("package.json", r#"{ "name": "example", "type": "module", "dependencies": { "ink": "^6", "react": "^19" } }"#);
+  let mut names = Vec::new();
+  for entry in std::fs::read_dir(src).unwrap().flatten() {
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if let Ok(source) = std::fs::read_to_string(entry.path()) {
+      tree.insert(format!("src/{name}"), source);
+      names.push(name);
+    }
+  }
+  let (out, _) = snapfire_fsr_migrate::migrate(&tree);
+  for name in names {
+    if let Some(text) = out.text(&format!("app/src/{name}")) {
+      std::fs::write(src.join(&name), text).unwrap();
+    }
+  }
 }
 
 fn outcome(example: &Path, scratch: &Path) -> String {

@@ -578,19 +578,33 @@ fn a_page_reads_a_file_and_the_paths_around_it() {
   let dir = host_dir("read");
   std::fs::write(dir.join("cards.txt"), "ace\nking\n").unwrap();
   unsafe { std::env::set_var("FSR_TEST_DIR", &dir); }
-  let page = "import { Text, Box } from \"ink\";\nimport { existsSync, readFileSync, readdirSync } from \"node:fs\";\nimport { basename, extname, join } from \"node:path\";\nimport { homedir } from \"node:os\";\n\nexport default function Cards() {\n  const dir = process.env.FSR_TEST_DIR;\n  const file = join(dir, \"cards.txt\");\n  const cards = readFileSync(file, \"utf8\").trim().split(\"\\n\");\n  return (\n    <Box flexDirection=\"column\">\n      <Text>{cards.length} cards from {basename(file)} {extname(file)}</Text>\n      <Text>{existsSync(join(dir, \"missing.txt\")) ? \"has\" : \"no\"} missing, {readdirSync(dir).join(\",\")}</Text>\n      <Text>{homedir().length > 0 ? \"home\" : \"nowhere\"} {process.cwd().length > 0 ? \"cwd\" : \"nowhere\"} {process.platform}</Text>\n    </Box>\n  );\n}\n";
+  let page = "import { Text, Box } from \"ink\";\nimport { file, path, system } from \"@snapfire/fsr-client/std\";\n\nexport default function Cards() {\n  const dir = system.env(\"FSR_TEST_DIR\");\n  const at = path.join(dir, \"cards.txt\");\n  const cards = file.read(at).trim().split(\"\\n\");\n  return (\n    <Box flexDirection=\"column\">\n      <Text>{cards.length} cards from {path.basename(at)} {path.extname(at)}</Text>\n      <Text>{file.exists(path.join(dir, \"missing.txt\")) ? \"has\" : \"no\"} missing, {file.list(dir).join(\",\")}</Text>\n      <Text>{system.home().length > 0 ? \"home\" : \"nowhere\"} {system.cwd().length > 0 ? \"cwd\" : \"nowhere\"} {system.platform()}</Text>\n    </Box>\n  );\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let lines = |node| snapfire_fsr_terminal::render(&node, 60).lines()[..3].iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
-  assert_eq!(lines(session.view().unwrap()), ["2 cards from cards.txt .txt".to_owned(), "no missing, cards.txt".to_owned(), format!("home cwd {}", std::env::consts::OS.replace("macos", "darwin").replace("windows", "win32"))]);
+  assert_eq!(lines(session.view().unwrap()), ["2 cards from cards.txt .txt".to_owned(), "no missing, cards.txt".to_owned(), format!("home cwd {}", std::env::consts::OS)]);
 }
 
 #[test]
-fn a_page_joins_lines_with_the_os_line_ending() {
-  let page = "import { Text } from \"ink\";\nimport os, { EOL } from \"node:os\";\n\nexport default function Lines() {\n  const text = [\"a\", \"b\"].join(EOL) + os.EOL;\n  return <Text>{JSON.stringify(text)}</Text>;\n}\n";
+fn a_page_joins_lines_with_the_systems_line_end() {
+  let page = "import { Text } from \"ink\";\nimport { system } from \"@snapfire/fsr-client/std\";\n\nexport default function Lines() {\n  const text = [\"a\", \"b\"].join(system.lineEnd()) + system.lineEnd();\n  return <Text>{JSON.stringify(text)}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
   let eol = if cfg!(windows) { "\\r\\n" } else { "\\n" };
   assert_eq!(line(session.view().unwrap()), format!("\"a{eol}b{eol}\""));
+}
+
+#[test]
+fn a_page_that_imports_a_node_module_is_refused_naming_fsrs() {
+  let page = "import { Text } from \"ink\";\nimport { readFileSync } from \"node:fs\";\n\nexport default function Read() {\n  return <Text>{readFileSync(\"cards.txt\", \"utf8\")}</Text>;\n}\n";
+  let refused = Session::open(&app(page)).err().expect("refused");
+  assert!(refused.contains("`readFileSync` from `node:fs`, which is not FSR's") && refused.contains("`file`, `path` and `system`"), "{refused}");
+}
+
+#[test]
+fn a_page_that_reads_process_is_refused_naming_fsrs() {
+  let page = "import { Text } from \"ink\";\n\nexport default function Home() {\n  return <Text>{process.env.HOME}</Text>;\n}\n";
+  let refused = Session::open(&app(page)).err().expect("refused");
+  assert!(refused.contains("`process`, which is not FSR's") && refused.contains("fsr migrate"), "{refused}");
 }
 
 #[test]
@@ -599,7 +613,7 @@ fn a_module_constant_that_reads_a_file_is_read_once_a_session() {
   let conf = dir.join("conf.json");
   std::fs::write(&conf, "{ \"n\": 1 }").unwrap();
   unsafe { std::env::set_var("FSR_TEST_CONF", &conf); }
-  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { readFileSync } from \"node:fs\";\n\nconst config = JSON.parse(readFileSync(process.env.FSR_TEST_CONF, \"utf8\"));\n\nexport default function Conf() {\n  const [presses, setPresses] = useState(0);\n  useInput(() => setPresses((n) => n + 1));\n  return <Text>n {config.n} after {presses}</Text>;\n}\n";
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { file, system } from \"@snapfire/fsr-client/std\";\n\nconst config = JSON.parse(file.read(system.env(\"FSR_TEST_CONF\")));\n\nexport default function Conf() {\n  const [presses, setPresses] = useState(0);\n  useInput(() => setPresses((n) => n + 1));\n  return <Text>n {config.n} after {presses}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
   assert_eq!(line(session.view().unwrap()), "n 1 after 0");
@@ -609,11 +623,11 @@ fn a_module_constant_that_reads_a_file_is_read_once_a_session() {
 }
 
 #[test]
-fn an_effect_awaits_a_file_read_from_fs_promises() {
+fn an_effect_awaits_a_file_read() {
   let dir = host_dir("promises");
   std::fs::write(dir.join("hello.txt"), "hello").unwrap();
   unsafe { std::env::set_var("FSR_TEST_HELLO", dir.join("hello.txt")); }
-  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\n\nexport default function Hello() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const read = await readFile(process.env.FSR_TEST_HELLO, \"utf8\");\n      setText(`loaded: ${read}`);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file, system } from \"@snapfire/fsr-client/std\";\n\nexport default function Hello() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const read = await file.read(system.env(\"FSR_TEST_HELLO\"));\n      setText(`loaded: ${read}`);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
   session.view().unwrap();
@@ -625,7 +639,7 @@ fn a_page_stats_a_file_and_catches_enoent_for_a_missing_one() {
   let dir = host_dir("stat");
   std::fs::write(dir.join("five.txt"), "hello").unwrap();
   unsafe { std::env::set_var("FSR_TEST_STAT_DIR", &dir); }
-  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport fs from \"node:fs/promises\";\nimport { statSync } from \"node:fs\";\n\nexport default function Stat() {\n  const [text, setText] = useState(\"checking\");\n  useEffect(() => {\n    const run = async () => {\n      const s = await fs.stat(`${process.env.FSR_TEST_STAT_DIR}/five.txt`);\n      try {\n        await fs.stat(`${process.env.FSR_TEST_STAT_DIR}/missing.txt`);\n        setText(\"found\");\n      } catch (error) {\n        setText(`${s.size} ${s.isFile ? \"file\" : \"other\"} ${error.code}`);\n      }\n    };\n    run();\n  }, []);\n  const d = statSync(process.env.FSR_TEST_STAT_DIR);\n  return <Text>{d.isDirectory ? \"dir\" : \"not\"} {text}</Text>;\n}\n";
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file, system } from \"@snapfire/fsr-client/std\";\n\nexport default function Stat() {\n  const [text, setText] = useState(\"checking\");\n  useEffect(() => {\n    const run = async () => {\n      const s = await file.stat(`${system.env(\"FSR_TEST_STAT_DIR\")}/five.txt`);\n      try {\n        await file.stat(`${system.env(\"FSR_TEST_STAT_DIR\")}/missing.txt`);\n        setText(\"found\");\n      } catch (error) {\n        setText(`${s.size} ${s.isFile ? \"file\" : \"other\"} ${error.code}`);\n      }\n    };\n    run();\n  }, []);\n  const d = file.stat(system.env(\"FSR_TEST_STAT_DIR\"));\n  return <Text>{d.isDirectory ? \"dir\" : \"not\"} {text}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
   session.view().unwrap();
@@ -642,8 +656,8 @@ fn an_await_of_a_value_that_is_not_a_promise_continues_with_it() {
 }
 
 #[test]
-fn process_exit_in_a_handler_ends_the_session_with_its_code() {
-  let page = "import { Text, useInput } from \"ink\";\n\nexport default function Quits() {\n  useInput((input) => {\n    if (input === \"q\") process.exit(3);\n  });\n  return <Text>running</Text>;\n}\n";
+fn exit_in_a_handler_ends_the_session_with_its_code() {
+  let page = "import { Text, useApp, useInput } from \"ink\";\n\nexport default function Quits() {\n  const { exit } = useApp();\n  useInput((input) => {\n    if (input === \"q\") exit(3);\n  });\n  return <Text>running</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   session.view().unwrap();
   let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
@@ -656,8 +670,8 @@ fn process_exit_in_a_handler_ends_the_session_with_its_code() {
 }
 
 #[test]
-fn process_stdout_columns_and_rows_are_the_terminals_size() {
-  let page = "import { Text } from \"ink\";\n\nexport default function Size() {\n  return <Text>{process.stdout.columns}x{process.stdout.rows}</Text>;\n}\n";
+fn stdout_columns_and_rows_are_the_terminals_size() {
+  let page = "import { Text, useStdout } from \"ink\";\n\nexport default function Size() {\n  const { stdout } = useStdout();\n  return <Text>{stdout.columns}x{stdout.rows}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
   assert_eq!(line(session.view().unwrap()), "80x24");
@@ -666,8 +680,8 @@ fn process_stdout_columns_and_rows_are_the_terminals_size() {
 }
 
 #[test]
-fn a_resize_runs_the_listener_process_stdout_on_added_with_a_function_the_effect_declares() {
-  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Sized() {\n  const [size, setSize] = useState({ columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 });\n  useEffect(() => {\n    function updateSize() {\n      setSize({ columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 });\n    }\n    process.stdout.on(\"resize\", updateSize);\n    return () => {\n      process.stdout.off(\"resize\", updateSize);\n    };\n  }, []);\n  return <Text>{size.columns}x{size.rows}</Text>;\n}\n";
+fn a_resize_runs_the_listener_stdout_on_added_with_a_function_the_effect_declares() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text, useStdout } from \"ink\";\n\nexport default function Sized() {\n  const { stdout } = useStdout();\n  const [size, setSize] = useState({ columns: stdout.columns || 80, rows: stdout.rows || 24 });\n  useEffect(() => {\n    function updateSize() {\n      setSize({ columns: stdout.columns || 80, rows: stdout.rows || 24 });\n    }\n    stdout.on(\"resize\", updateSize);\n    return () => {\n      stdout.off(\"resize\", updateSize);\n    };\n  }, []);\n  return <Text>{size.columns}x{size.rows}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
   assert_eq!(line(session.view().unwrap()), "80x24");
@@ -690,7 +704,7 @@ fn a_handler_calls_an_async_module_function_as_a_statement() {
   let dir = host_dir("save");
   unsafe { std::env::set_var("FSR_TEST_SAVE", dir.join("saved.txt")); }
   let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { save } from \"./save\";\n\nexport default function Saves() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    save(input);\n  });\n  return <Text>{last}</Text>;\n}\n";
-  let store = "import { writeFile } from \"node:fs/promises\";\n\nlet saves = 0;\n\nexport const save = async (text: string) => {\n  saves += 1;\n  await writeFile(process.env.FSR_TEST_SAVE, `${text} ${saves}`);\n};\n";
+  let store = "import { file, system } from \"@snapfire/fsr-client/std\";\n\nlet saves = 0;\n\nexport const save = async (text: string) => {\n  saves += 1;\n  await file.write(system.env(\"FSR_TEST_SAVE\"), `${text} ${saves}`);\n};\n";
   let app = app(page);
   std::fs::write(app.join("routes/save.ts"), store).unwrap();
   let mut session = Session::open(&app).unwrap();
@@ -707,7 +721,7 @@ fn a_handler_calls_an_async_module_function_whose_only_effect_is_an_act() {
   let dir = host_dir("act-only");
   unsafe { std::env::set_var("FSR_TEST_ACT_ONLY", dir.join("saved.txt")); }
   let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { update } from \"./save\";\n\nexport default function Saves() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    update((c) => `${c}${input}`);\n  });\n  return <Text>{last}</Text>;\n}\n";
-  let store = "import { writeFile } from \"node:fs/promises\";\n\nexport const update = async (fn: (c: string) => string) => {\n  const next = fn(\"a\");\n  await writeFile(process.env.FSR_TEST_ACT_ONLY, next);\n};\n";
+  let store = "import { file, system } from \"@snapfire/fsr-client/std\";\n\nexport const update = async (fn: (c: string) => string) => {\n  const next = fn(\"a\");\n  await file.write(system.env(\"FSR_TEST_ACT_ONLY\"), next);\n};\n";
   let app = app(page);
   std::fs::write(app.join("routes/save.ts"), store).unwrap();
   let mut session = Session::open(&app).unwrap();
@@ -722,7 +736,7 @@ fn a_callback_that_changes_the_object_it_is_passed_changes_the_callers_object() 
   let dir = host_dir("write-back");
   unsafe { std::env::set_var("FSR_TEST_WRITE_BACK", dir.join("config.json")); }
   let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { update } from \"./config\";\n\nexport default function Settings() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    update((cfg) => {\n      if (input === \"q\") return;\n      cfg.n = cfg.n + 1;\n      cfg.name = input;\n    });\n  });\n  return <Text>{last}</Text>;\n}\n";
-  let config = "import { writeFile } from \"node:fs/promises\";\n\nlet config = { n: 0, name: \"none\" };\n\nexport const update = async (fn: (c: { n: number; name: string }) => void) => {\n  fn(config);\n  await writeFile(process.env.FSR_TEST_WRITE_BACK, JSON.stringify(config));\n};\n";
+  let config = "import { file, system } from \"@snapfire/fsr-client/std\";\n\nlet config = { n: 0, name: \"none\" };\n\nexport const update = async (fn: (c: { n: number; name: string }) => void) => {\n  fn(config);\n  await file.write(system.env(\"FSR_TEST_WRITE_BACK\"), JSON.stringify(config));\n};\n";
   let app = app(page);
   std::fs::write(app.join("routes/config.ts"), config).unwrap();
   let mut session = Session::open(&app).unwrap();
@@ -790,11 +804,11 @@ fn performance_now_reads_a_clock_that_advances_within_a_loader() {
 }
 
 #[test]
-fn a_page_reads_the_process_memory_behind_a_guard_on_the_process_object() {
-  let page = "import { Text } from \"ink\";\nimport nodeProcess from \"node:process\";\n\nfunction safeMemory() {\n  if (nodeProcess && typeof nodeProcess.memoryUsage === \"function\") {\n    return nodeProcess.memoryUsage();\n  }\n  return { rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 };\n}\n\nexport default function Memory() {\n  const usage = safeMemory();\n  return <Text>{usage.rss > 0 ? \"rss\" : \"none\"} {typeof nodeProcess} {usage.heapUsed >= 0 ? \"heap\" : \"no\"}</Text>;\n}\n";
+fn a_page_reads_its_resident_memory() {
+  let page = "import { Text } from \"ink\";\nimport { system } from \"@snapfire/fsr-client/std\";\n\nexport default function Memory() {\n  return <Text>{system.memory() > 0 ? \"resident\" : \"none\"}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let node = session.view().unwrap();
-  assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "rss object heap");
+  assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "resident");
 }
 
 #[test]
@@ -844,7 +858,7 @@ fn an_async_function_awaits_inside_a_for_of_loop_and_a_counted_loop() {
   std::fs::write(dir.join("one.txt"), "one\n").unwrap();
   std::fs::write(dir.join("two.txt"), "two\n").unwrap();
   unsafe { std::env::set_var("FSR_TEST_LOOP_DIR", &dir); }
-  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\nimport { join } from \"node:path\";\n\nconst readAll = async (dir: string, names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await readFile(join(dir, name), \"utf8\");\n    out.push(text.trim());\n  }\n  let total = 0;\n  for (let i = 0; i < out.length; i++) {\n    const again = await readFile(join(dir, names[i]), \"utf8\");\n    total += again.length;\n  }\n  return `${out.join(\",\")} ${total}`;\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll(process.env.FSR_TEST_LOOP_DIR, [\"one.txt\", \"two.txt\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file, path, system } from \"@snapfire/fsr-client/std\";\n\nconst readAll = async (dir: string, names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await file.read(path.join(dir, name));\n    out.push(text.trim());\n  }\n  let total = 0;\n  for (let i = 0; i < out.length; i++) {\n    const again = await file.read(path.join(dir, names[i]));\n    total += again.length;\n  }\n  return `${out.join(\",\")} ${total}`;\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll(system.env(\"FSR_TEST_LOOP_DIR\"), [\"one.txt\", \"two.txt\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
   session.view().unwrap();
@@ -857,7 +871,7 @@ fn an_awaiting_loop_skips_an_item_with_continue() {
   std::fs::write(dir.join("one.txt"), "one\n").unwrap();
   std::fs::write(dir.join("two.txt"), "two\n").unwrap();
   unsafe { std::env::set_var("FSR_TEST_SKIP_DIR", &dir); }
-  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\nimport { join } from \"node:path\";\n\nconst readKept = async (dir: string, names: string[], skipped: Record<string, boolean | undefined>) => {\n  const out: string[] = [];\n  for (const name of names) {\n    if (skipped[name] === undefined) {\n      continue;\n    }\n    if (skipped[name]) continue;\n    const text = await readFile(join(dir, name), \"utf8\");\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Kept() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readKept(process.env.FSR_TEST_SKIP_DIR, [\"zero.txt\", \"one.txt\", \"two.txt\"], { \"one.txt\": true, \"two.txt\": false });\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file, path, system } from \"@snapfire/fsr-client/std\";\n\nconst readKept = async (dir: string, names: string[], skipped: Record<string, boolean | undefined>) => {\n  const out: string[] = [];\n  for (const name of names) {\n    if (skipped[name] === undefined) {\n      continue;\n    }\n    if (skipped[name]) continue;\n    const text = await file.read(path.join(dir, name));\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Kept() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readKept(system.env(\"FSR_TEST_SKIP_DIR\"), [\"zero.txt\", \"one.txt\", \"two.txt\"], { \"one.txt\": true, \"two.txt\": false });\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
   session.view().unwrap();
@@ -879,7 +893,7 @@ fn an_awaiting_loop_returns_early_from_its_body() {
   std::fs::write(dir.join("two.txt"), "two\n").unwrap();
   std::fs::write(dir.join("three.txt"), "three\n").unwrap();
   unsafe { std::env::set_var("FSR_TEST_EARLY_DIR", &dir); }
-  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\nimport { join } from \"node:path\";\n\nconst firstMatching = async (dir: string, names: string[], wanted: string) => {\n  let looked = 0;\n  for (const name of names) {\n    looked++;\n    const text = await readFile(join(dir, name), \"utf8\");\n    if (text.trim() === wanted) {\n      return `${name} after ${looked}`;\n    }\n  }\n  return `none after ${looked}`;\n};\n\nexport default function Found() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const hit = await firstMatching(process.env.FSR_TEST_EARLY_DIR, [\"one.txt\", \"two.txt\", \"three.txt\"], \"two\");\n      const miss = await firstMatching(process.env.FSR_TEST_EARLY_DIR, [\"one.txt\"], \"zero\");\n      setText(`${hit} | ${miss}`);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file, path, system } from \"@snapfire/fsr-client/std\";\n\nconst firstMatching = async (dir: string, names: string[], wanted: string) => {\n  let looked = 0;\n  for (const name of names) {\n    looked++;\n    const text = await file.read(path.join(dir, name));\n    if (text.trim() === wanted) {\n      return `${name} after ${looked}`;\n    }\n  }\n  return `none after ${looked}`;\n};\n\nexport default function Found() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const hit = await firstMatching(system.env(\"FSR_TEST_EARLY_DIR\"), [\"one.txt\", \"two.txt\", \"three.txt\"], \"two\");\n      const miss = await firstMatching(system.env(\"FSR_TEST_EARLY_DIR\"), [\"one.txt\"], \"zero\");\n      setText(`${hit} | ${miss}`);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 60).lines()[0].trim_end().to_owned();
   session.view().unwrap();
@@ -907,7 +921,7 @@ fn a_terminal_page_reads_and_writes_front_matter() {
 fn an_awaited_read_that_fails_inside_a_try_runs_its_catch() {
   let dir = host_dir("missing");
   unsafe { std::env::set_var("FSR_TEST_MISSING", &dir); }
-  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\n\nexport default function Stat() {\n  const [text, setText] = useState(\"checking\");\n  useEffect(() => {\n    const run = async () => {\n      try {\n        await readFile(`${process.env.FSR_TEST_MISSING}/missing.txt`, \"utf8\");\n        setText(\"found\");\n      } catch (error) {\n        setText(`${error.code}`);\n      }\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file, system } from \"@snapfire/fsr-client/std\";\n\nexport default function Stat() {\n  const [text, setText] = useState(\"checking\");\n  useEffect(() => {\n    const run = async () => {\n      try {\n        await file.read(`${system.env(\"FSR_TEST_MISSING\")}/missing.txt`);\n        setText(\"found\");\n      } catch (error) {\n        setText(`${error.code}`);\n      }\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
   let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
   session.view().unwrap();

@@ -327,7 +327,7 @@ fn ink_hooks_written_in_the_provided_module_are_inlined_like_an_apps_own() {
 
 #[test]
 fn a_file_read_on_a_web_page_is_refused_naming_what_it_needs() {
-  let page = "import { readFileSync } from \"node:fs\";\n\nexport default function Page() {\n  return <p>{readFileSync(\"/etc/hostname\", \"utf8\")}</p>;\n}\n";
+  let page = "import { file } from \"@snapfire/fsr-client/std\";\n\nexport default function Page() {\n  return <p>{file.read(\"/etc/hostname\")}</p>;\n}\n";
   let dir = std::env::temp_dir().join(format!("fsr_lower_terminal_web_fs_{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
@@ -339,7 +339,7 @@ fn a_file_read_on_a_web_page_is_refused_naming_what_it_needs() {
     Ok(()) => set.browser_only.first().map(|(_, r)| r.message.clone()).unwrap_or_default(),
     Err(e) => e,
   };
-  assert!(message.contains("`fs.readFileSync`, which needs a host with processes of its own"), "{message}");
+  assert!(message.contains("`file.read`, which needs a host with processes of its own"), "{message}");
 }
 
 #[test]
@@ -370,7 +370,7 @@ fn a_handler_calls_a_function_the_component_declares_below_it() {
   assert_eq!(plus.rendered.html, "<ink-text>1</ink-text>");
 }
 
-const LOOPED: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\n\nconst readAll = async (names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await readFile(name, \"utf8\");\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll([\"a\", \"b\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+const LOOPED: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file } from \"@snapfire/fsr-client/std\";\n\nconst readAll = async (names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await file.read(name);\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll([\"a\", \"b\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
 
 #[test]
 fn a_loop_that_awaits_lowers_to_a_head_continuation_run_from_the_function_and_from_the_end_of_its_pass() {

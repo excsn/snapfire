@@ -345,7 +345,6 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `terminal.ms` | terminal | `x`, `{ long? }?` | as the `ms` package: milliseconds as `1m` or `1 minute`, a string such as `2 days` as milliseconds, null for one it cannot read |
 | `terminal.stripAnsi` | terminal | `s` | `s` without the escape codes `ansi-regex` matches |
 | `terminal.stringWidth` | terminal | `s` | the terminal columns `s` takes once its escape codes are gone, a grapheme cluster at most two |
-| `terminal.env` | terminal | `name` | the environment variable `name`, null when it is not set |
 | `path.join` | terminal | `...parts` | the parts joined with `/` and normalized, POSIX; `.` for none |
 | `path.resolve` | terminal | `...parts` | the parts right to left until one is absolute, the working directory before them otherwise, normalized, no trailing `/` |
 | `path.normalize` | terminal | `path` | `.` and empty segments dropped, `..` resolved, a leading and a trailing `/` kept |
@@ -354,19 +353,20 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `path.extname` | terminal | `path` | from the last `.` of the last segment; empty for a dotfile or no dot |
 | `path.relative` | terminal | `from`, `to` | the path from `from` to `to`, both resolved |
 | `path.isAbsolute` | terminal | `path` | whether it starts with `/` |
-| `os.homedir` | process | | `HOME`; `USERPROFILE` when that is not set |
-| `os.platform` | process | | `darwin`, `linux`, `win32` or what Rust calls the OS |
-| `os.tmpdir` | process | | the temporary directory, no trailing `/` |
-| `os.EOL` | process | | `"\r\n"` on Windows, `"\n"` elsewhere; what `EOL` from `node:os` reads as |
-| `process.cwd` | process | | the working directory |
-| `process.memoryUsage` | process | | `{ rss, heapTotal, heapUsed, external, arrayBuffers }`; `rss` is the resident set in bytes and the rest are 0, there being no JavaScript heap |
+| `file.read` | process | `path` | the file as text, bytes that are not UTF-8 as U+FFFD; a missing file throws `{ name: "Error", message, code: "ENOENT", path }`, `code` the POSIX error name |
+| `file.write` | process | `path`, `data` | writes `data` as text, a value that is not text as JSON; null |
+| `file.exists` | process | `path` | whether anything is at `path` |
+| `file.list` | process | `path` | the entries' names, sorted |
+| `file.makeDir` | process | `path`, `{ recursive? }?` | makes the directory, its parents too with `recursive`; null |
+| `file.stat` | process | `path` | `{ isFile, isDirectory, size, mtimeMs }`; a missing path throws as `file.read` does |
+| `system.env` | process | `name` | the environment variable `name`, null when it is not set |
+| `system.home` | process | | `HOME`; `USERPROFILE` when that is not set |
+| `system.platform` | process | | the operating system as Rust names it: `macos`, `linux`, `windows` and the rest |
+| `system.tempDir` | process | | the temporary directory, no trailing `/` |
+| `system.lineEnd` | process | | `"\r\n"` on Windows, `"\n"` elsewhere |
+| `system.cwd` | process | | the working directory |
+| `system.memory` | process | | the resident set of the process in bytes, 0 where it cannot be read |
 | `log.trace`, `log.debug`, `log.info`, `log.warn`, `log.error`, `log.fatal` | render | `message`, `fields?` | a `tracing` event at that level under the target `fsr::app`, `fields` written as `console.log` writes a value; `fatal` is the error level; null |
-| `fs.existsSync` | process | `path` | whether anything is at `path` |
-| `fs.readFileSync`, `fs.readFile` | process | `path`, `encoding?` | the file as text, bytes that are not UTF-8 as U+FFFD; a missing file throws `{ name: "Error", message, code: "ENOENT", path }` |
-| `fs.writeFileSync`, `fs.writeFile` | process | `path`, `data` | writes `data` as text; null |
-| `fs.mkdirSync`, `fs.mkdir` | process | `path`, `{ recursive? }?` | makes the directory, its parents too with `recursive`; null |
-| `fs.readdirSync`, `fs.readdir` | process | `path` | the entries' names, sorted |
-| `fs.statSync`, `fs.stat` | process | `path` | `{ isFile, isDirectory, size, mtimeMs }`, Node's `isFile()` and `isDirectory()` as booleans; a missing path throws as `readFileSync` does |
 | `terminal.wrapAnsi` | terminal | `s`, `columns`, `{ hard?, trim?, wordWrap? }?` | the rows `wrap-ansi` 9 breaks `s` into; escape codes stay where they stand |
 | `i18n.t` | render | `key`, `{ count?, …}?` | the message under `key` in the ambient locale's catalog; with `count` a number, `key.<cardinal category>` then `key.other` then `key`; `{name}` filled from a scalar argument, left as written otherwise; the key itself when nothing matches or no catalogs are set. What `t` from the client's std module lowers to |
 

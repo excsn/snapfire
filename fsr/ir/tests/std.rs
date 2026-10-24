@@ -320,25 +320,35 @@ fn front_matter_writes_as_gray_matter_stringifies() {
 }
 
 #[test]
-fn stat_answers_the_kind_and_size_as_fields() {
+fn a_file_stat_answers_the_kind_and_size_as_fields() {
   let dir = std::env::temp_dir().join(format!("fsr-std-stat-{}", std::process::id()));
   std::fs::create_dir_all(&dir).unwrap();
   let file = dir.join("five.txt");
   std::fs::write(&file, "hello").unwrap();
-  for member in ["fs.stat", "fs.statSync"] {
+  for member in ["file.stat"] {
     let Ok(Value::Map(stats)) = call("", member, vec![s(file.to_str().unwrap())]) else { panic!("{member} answers a map") };
     assert_eq!(stats.get("isFile"), Some(&Value::Bool(true)), "{member}");
     assert_eq!(stats.get("isDirectory"), Some(&Value::Bool(false)), "{member}");
     assert_eq!(stats.get("size"), Some(&Value::Int(5)), "{member}");
     assert!(matches!(stats.get("mtimeMs"), Some(Value::F64(ms)) if *ms > 1.0e12), "{stats:?}");
   }
-  let Ok(Value::Map(stats)) = call("", "fs.stat", vec![s(dir.to_str().unwrap())]) else { panic!("a directory answers a map") };
+  let Ok(Value::Map(stats)) = call("", "file.stat", vec![s(dir.to_str().unwrap())]) else { panic!("a directory answers a map") };
   assert_eq!(stats.get("isDirectory"), Some(&Value::Bool(true)));
-  let missing = call("", "fs.stat", vec![s(dir.join("missing").to_str().unwrap())]).unwrap_err();
+  let missing = call("", "file.stat", vec![s(dir.join("missing").to_str().unwrap())]).unwrap_err();
   assert!(missing.contains("ENOENT"), "{missing}");
 }
 
 #[test]
-fn eol_is_this_platforms_line_ending() {
-  assert_eq!(call("", "os.EOL", vec![]), Ok(s(if cfg!(windows) { "\r\n" } else { "\n" })));
+fn the_line_end_is_this_platforms() {
+  assert_eq!(call("", "system.lineEnd", vec![]), Ok(s(if cfg!(windows) { "\r\n" } else { "\n" })));
+}
+
+#[test]
+fn system_reads_the_machine_by_its_own_names() {
+  assert_eq!(call("", "system.platform", vec![]), Ok(s(std::env::consts::OS)));
+  unsafe { std::env::set_var("FSR_STD_SYSTEM_ENV", "set") };
+  assert_eq!(call("", "system.env", vec![s("FSR_STD_SYSTEM_ENV")]), Ok(s("set")));
+  assert_eq!(call("", "system.env", vec![s("FSR_STD_SYSTEM_UNSET")]), Ok(Value::Null));
+  assert!(matches!(call("", "system.memory", vec![]), Ok(Value::Int(n)) if n > 0 || cfg!(not(any(target_os = "macos", target_os = "linux")))));
+  assert!(matches!(call("", "system.cwd", vec![]), Ok(Value::Str(cwd)) if !cwd.is_empty()));
 }

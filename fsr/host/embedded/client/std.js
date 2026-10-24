@@ -94,6 +94,107 @@ export const text = {
         ]);
     }
 };
+export const file = {
+    read (path) {
+        return terminalOnly("file.read", [
+            path
+        ]);
+    },
+    write (path, data) {
+        terminalOnly("file.write", [
+            path,
+            data
+        ]);
+    },
+    exists (path) {
+        return terminalOnly("file.exists", [
+            path
+        ]);
+    },
+    list (path) {
+        return terminalOnly("file.list", [
+            path
+        ]);
+    },
+    makeDir (path, options) {
+        terminalOnly("file.makeDir", [
+            path,
+            options ?? null
+        ]);
+    },
+    stat (path) {
+        return terminalOnly("file.stat", [
+            path
+        ]);
+    }
+};
+export const path = {
+    join (...parts) {
+        return terminalOnly("path.join", parts);
+    },
+    resolve (...parts) {
+        return terminalOnly("path.resolve", parts);
+    },
+    normalize (p) {
+        return terminalOnly("path.normalize", [
+            p
+        ]);
+    },
+    dirname (p) {
+        return terminalOnly("path.dirname", [
+            p
+        ]);
+    },
+    basename (p, ext) {
+        return terminalOnly("path.basename", ext === undefined ? [
+            p
+        ] : [
+            p,
+            ext
+        ]);
+    },
+    extname (p) {
+        return terminalOnly("path.extname", [
+            p
+        ]);
+    },
+    relative (from, to) {
+        return terminalOnly("path.relative", [
+            from,
+            to
+        ]);
+    },
+    isAbsolute (p) {
+        return terminalOnly("path.isAbsolute", [
+            p
+        ]);
+    }
+};
+export const system = {
+    env (name) {
+        return terminalOnly("system.env", [
+            name
+        ]);
+    },
+    home () {
+        return terminalOnly("system.home", []);
+    },
+    platform () {
+        return terminalOnly("system.platform", []);
+    },
+    tempDir () {
+        return terminalOnly("system.tempDir", []);
+    },
+    lineEnd () {
+        return terminalOnly("system.lineEnd", []);
+    },
+    cwd () {
+        return terminalOnly("system.cwd", []);
+    },
+    memory () {
+        return terminalOnly("system.memory", []);
+    }
+};
 function terminalOnly(name, args) {
     const sf = globalThis.__sf;
     if (!sf?.ext) throw new Error(`${name} runs in a terminal page only`);

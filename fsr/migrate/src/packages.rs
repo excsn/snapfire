@@ -18,7 +18,7 @@ pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
   vec![Box::new(GrayMatter), Box::new(Loggers)]
 }
 
-const STD: &str = "@snapfire/fsr-client/std";
+pub(crate) const STD: &str = "@snapfire/fsr-client/std";
 
 /// A name a file holds a package under: the default export itself or a namespace whose `default` is it.
 struct Held {
@@ -91,7 +91,7 @@ impl Visit for Dynamic<'_> {
 }
 
 /// The name the standard module's `member` is held under in `parsed` and the import to add when none is.
-fn std_member(parsed: &Parsed, member: &str) -> (String, Option<String>) {
+pub(crate) fn std_member(parsed: &Parsed, member: &str) -> (String, Option<String>) {
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
     if import.src.value.to_string_lossy() != STD {

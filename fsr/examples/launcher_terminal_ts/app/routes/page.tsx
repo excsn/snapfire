@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import process from "node:process";
+import { system } from "@snapfire/fsr-client/std";
 import { Suspense, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import ms from "ms";
@@ -7,7 +7,7 @@ import ms from "ms";
 type Command = { label: string; run: string; owns: boolean };
 
 const commands: Command[] = [
-  { label: "Edit a scratch file", run: `${process.env.EDITOR ?? "vi"} /tmp/fsr-scratch.txt`, owns: true },
+  { label: "Edit a scratch file", run: `${system.env("EDITOR") ?? "vi"} /tmp/fsr-scratch.txt`, owns: true },
   { label: "Page through the README", run: "less README.md", owns: true },
   { label: "Open a shell", run: "sh", owns: true },
   { label: "Show the date", run: "date", owns: false },

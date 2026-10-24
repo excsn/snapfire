@@ -1,6 +1,5 @@
-//! A `stat` result from `node:fs` or `node:fs/promises` read as FSR's `fs.stat`
-//! answers it: `isFile` and `isDirectory` are fields, so `s.isFile()` is written
-//! `s.isFile`.
+//! A `file.stat` result read as FSR answers it: `isFile` and `isDirectory` are
+//! fields, so the `s.isFile()` a Node stat was read with is written `s.isFile`.
 
 use std::collections::BTreeSet;
 
@@ -15,16 +14,16 @@ pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
   vec![Box::new(Stats)]
 }
 
-/// Each module that exports a `stat` and the names it exports it under.
-const MODULES: &[(&str, &[&str])] = &[("node:fs", &["statSync"]), ("fs", &["statSync"]), ("node:fs/promises", &["stat"]), ("fs/promises", &["stat"])];
+/// The member of the standard module's `file` that answers a stat.
+const STAT: &[&str] = &["stat"];
 
-/// The methods of Node's `Stats` that FSR's `stat` answers as fields.
+/// The methods of a Node stat that FSR's `file.stat` answers as fields.
 const FIELDS: &[&str] = &["isFile", "isDirectory"];
 
-/// The names of Node's `Stats` FSR's `stat` has no field for.
+/// The names of a Node stat FSR's `file.stat` has no field for.
 const MISSING: &[&str] = &["isSymbolicLink", "isBlockDevice", "isCharacterDevice", "isFIFO", "isSocket", "mtime", "atime", "ctime", "birthtime", "atimeMs", "ctimeMs", "birthtimeMs", "mode", "uid", "gid", "ino", "dev", "nlink", "rdev", "blksize", "blocks"];
 
-/// `isFile()` and `isDirectory()` on a `stat` result as the fields they are. A result that is passed on or read for a name FSR's `stat` has no field for is noted, since `fsr migrate` cannot follow it.
+/// `isFile()` and `isDirectory()` on a `stat` result as the fields they are. A result that is passed on or read for a name FSR's `file.stat` has no field for is noted, since `fsr migrate` cannot follow it.
 struct Stats;
 
 impl Pass for Stats {
@@ -62,30 +61,26 @@ impl Pass for Stats {
 
 /// The names `parsed` imports a `stat` function under and the names it imports a module that exports one under.
 fn imported(parsed: &Parsed) -> (BTreeSet<String>, Vec<(String, &'static [&'static str])>) {
-  let mut functions = BTreeSet::new();
   let mut namespaces = Vec::new();
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    let source = import.src.value.to_string_lossy();
-    let Some((_, exports)) = MODULES.iter().find(|(module, _)| *module == source) else { continue };
+    if import.src.value.to_string_lossy() != crate::packages::STD {
+      continue;
+    }
     for specifier in &import.specifiers {
-      match specifier {
-        js::ImportSpecifier::Default(d) => namespaces.push((d.local.sym.to_string(), *exports)),
-        js::ImportSpecifier::Namespace(n) => namespaces.push((n.local.sym.to_string(), *exports)),
-        js::ImportSpecifier::Named(n) => {
-          let imported = match &n.imported {
-            Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-            Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-            None => n.local.sym.to_string(),
-          };
-          if exports.contains(&imported.as_str()) {
-            functions.insert(n.local.sym.to_string());
-          }
+      if let js::ImportSpecifier::Named(n) = specifier {
+        let imported = match &n.imported {
+          Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
+          Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
+          None => n.local.sym.to_string(),
+        };
+        if imported == "file" {
+          namespaces.push((n.local.sym.to_string(), STAT));
         }
       }
     }
   }
-  (functions, namespaces)
+  (BTreeSet::new(), namespaces)
 }
 
 fn bare(e: &js::Expr) -> &js::Expr {
@@ -180,7 +175,7 @@ impl Visit for Uses<'_> {
     }
     if n.args.iter().any(|arg| matches!(bare(&arg.expr), js::Expr::Ident(i) if self.results.contains(&*i.sym))) {
       let written = self.written(n.span).to_owned();
-      self.note(n.span, format!("`{written}`: the `stat` result is passed on, so `fsr migrate` cannot rewrite an `isFile()` or `isDirectory()` call on it to the field FSR's `stat` answers"));
+      self.note(n.span, format!("`{written}`: the `stat` result is passed on, so `fsr migrate` cannot rewrite an `isFile()` or `isDirectory()` call on it to the field FSR's `file.stat` answers"));
     }
     n.visit_children_with(self);
   }
@@ -189,7 +184,7 @@ impl Visit for Uses<'_> {
     if let js::MemberProp::Ident(prop) = &n.prop {
       if self.result(&n.obj) && MISSING.contains(&&*prop.sym) {
         let written = self.written(n.span).to_owned();
-        self.note(n.span, format!("`{written}`: FSR's `stat` answers `isFile`, `isDirectory`, `size` and `mtimeMs` only"));
+        self.note(n.span, format!("`{written}`: FSR's `file.stat` answers `isFile`, `isDirectory`, `size` and `mtimeMs` only"));
       }
     }
     n.obj.visit_with(self);

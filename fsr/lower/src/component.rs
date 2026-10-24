@@ -10202,11 +10202,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         walk.effect(Stmt::Expr(logged));
         Ok(())
       }
-      js::Expr::Call(call) if self.lowerer.process_exit(call)?.is_some() => {
-        let Some(Stmt::Act { action, input }) = self.lowerer.process_exit(call)? else { unreachable!("checked") };
-        walk.act(action, input);
-        Ok(())
-      }
       js::Expr::Call(call) => {
         let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
         match &**callee {

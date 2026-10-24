@@ -155,6 +155,9 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [localeTag](#localetag)
   * [intl](#intl)
   * [text](#text)
+  * [file](#file)
+  * [path](#path)
+  * [system](#system)
   * [time](#time)
   * [crypto](#crypto)
   * [id](#id)
@@ -1333,6 +1336,35 @@ On `htmx:before:history:restore` on `document`, while `enableNavigation` has wir
 * `text.frontMatter<T>(source: string, options?: FrontMatterOptions): { data: T; content: string }`: the YAML block between two delimiter lines at the top of `source` as `data` and the rest as `content`, as gray-matter reads them. Terminal pages only; in a browser it throws.
 * `text.withFrontMatter(content: string, data: object, options?: FrontMatterOptions): string`: `data` as YAML between the delimiter lines, then `content`, as gray-matter's `stringify` writes them. Terminal pages only; in a browser it throws.
 * `interface FrontMatterOptions { delimiters?: string | [string, string] }`: one string for both lines or `[open, close]`, `---` by default.
+
+### file
+
+The files of the machine a terminal page runs on. Each member throws in a browser. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file.
+
+* `file.read(path: string): string`: the file as text, bytes that are not UTF-8 as U+FFFD.
+* `file.write(path: string, data: unknown): void`: `data` as the file's text, a value that is not text as JSON.
+* `file.exists(path: string): boolean`: whether anything is at `path`.
+* `file.list(path: string): string[]`: the names of a directory's entries, sorted.
+* `file.makeDir(path: string, options?: { recursive?: boolean }): void`: the directory, its parents too with `recursive`.
+* `file.stat(path: string): FileStat`; `interface FileStat { isFile: boolean; isDirectory: boolean; size: number; mtimeMs: number }`.
+
+### path
+
+POSIX paths as text. Terminal pages only; in a browser each member throws.
+
+* `path.join(...parts: string[]): string`: the parts joined by `/` and normalized; `.` for none.
+* `path.resolve(...parts: string[]): string`: the parts right to left until one is absolute, the working directory before them otherwise.
+* `path.normalize(p: string): string`, `path.dirname(p: string): string`, `path.basename(p: string, ext?: string): string`, `path.extname(p: string): string`, `path.relative(from: string, to: string): string` and `path.isAbsolute(p: string): boolean`.
+
+### system
+
+The machine a terminal page runs on. Terminal pages only; in a browser each member throws.
+
+* `system.env(name: string): string | null`: the environment variable, null when it is not set.
+* `system.home(): string`, `system.tempDir(): string` (no trailing `/`) and `system.cwd(): string`.
+* `system.platform(): string`: `macos`, `linux`, `windows` or another name Rust gives the operating system.
+* `system.lineEnd(): string`: `"\r\n"` on Windows, `"\n"` elsewhere.
+* `system.memory(): number`: the resident set of the running page, in bytes.
 
 ### time
 

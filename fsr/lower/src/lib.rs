@@ -118,11 +118,17 @@ pub enum LowerError {
 
 pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, UPLOAD};
 
+/// What a page reaching for Node's modules or its `process` global is told to use.
+pub(crate) const NOT_FSR: &str = "read files, paths and the machine through `file`, `path` and `system` from `@snapfire/fsr-client/std` and the terminal through Ink's `useStdout` and `useApp`; `fsr migrate` rewrites Node's onto them";
+
+/// Whether `source` is one of Node's own modules, `node:fs` or its bare name `fs`.
+pub(crate) fn node_module(source: &str) -> bool {
+  const NODE: [&str; 22] = ["fs", "fs/promises", "path", "os", "process", "child_process", "crypto", "async_hooks", "util", "events", "stream", "url", "http", "https", "net", "readline", "buffer", "zlib", "tty", "worker_threads", "timers", "assert"];
+  source.starts_with("node:") || NODE.contains(&source)
+}
+
 /// JavaScript's error constructors, which a `throw` and a `new` read as `{ name, message }`.
 pub(crate) const ERROR_CONSTRUCTORS: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
-
-/// The `process` methods a terminal page calls with no arguments, each the standard member of the same name.
-const PROCESS_CALLS: [&str; 2] = ["cwd", "memoryUsage"];
 
 /// The import aliases every fsr application has, each a prefix and the app
 /// directory it stands for. The build writes them into both tsconfigs, snapfirec
@@ -1719,9 +1725,6 @@ impl<'a> Lowerer<'a> {
       if let Some(listen) = self.listening(call)? {
         return Ok(listen);
       }
-      if let Some(exit) = self.process_exit(call)? {
-        return Ok(exit);
-      }
       if let Some(arrow) = self.async_iife(call) {
         let ran = match &*arrow.body {
           js::ArrowFunctionBody::FunctionBody(b) => self.async_stmts(&b.stmts)?,
@@ -1946,106 +1949,6 @@ impl<'a> Lowerer<'a> {
     let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return false };
     let settler = |e: &js::Expr| matches!(crate::meaning::bare(e), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym));
     settler(callee) || (self.reaches(Reach::Later) && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
-  }
-
-  /// Whether `e` is Node's `process`, the global or the default import of `node:process`.
-  pub(crate) fn is_process(&self, e: &js::Expr) -> bool {
-    match crate::meaning::bare(e) {
-      js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.as_ref() == "process",
-      other => self.meanings.as_ref().and_then(|meanings| meanings.of_expr(other)) == Some(meaning::Meaning::Library(meaning::Construct::NodeProcess)),
-    }
-  }
-
-  /// A read of a package export the standard library answers as a value, [`meaning::Construct::Constant`], under the member's reach.
-  fn constant(&mut self, meaning: Option<meaning::Meaning>, span: Span) -> Lowered<Option<Expr>> {
-    let Some(meaning::Meaning::Library(meaning::Construct::Constant(key))) = meaning else { return Ok(None) };
-    let (module, member) = key.split_once('.').expect("a constant is `module.member`");
-    let reach = standard_reach(module, member).expect("a package maps to a standard member");
-    self.check_reach(span, key, reach)?;
-    Ok(Some(Expr::Ext { module: module.to_owned(), name: member.to_owned(), args: Vec::new() }))
-  }
-
-  /// `process.env.NAME` or `process.env[name]` in a terminal page: the variable through `terminal.env`, null when it is not set. `process.platform` is `os.platform`. `process.stdout` is the terminal's output as `useStdout` gives it, its `columns` and `rows` the terminal's size.
-  fn env_read(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
-    if !self.reaches(Reach::Process) {
-      return Ok(None);
-    }
-    if self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("platform") {
-      return Ok(Some(Expr::Ext { module: "os".to_owned(), name: "platform".to_owned(), args: Vec::new() }));
-    }
-    if self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("stdout") {
-      let size = |key: &str, fallback: i128| Expr::Coalesce(Box::new(Expr::Store(key.to_owned())), Box::new(Expr::Lit(Lit::Int(fallback))));
-      return Ok(Some(Expr::Object(vec![
-        Entry::Field("columns".to_owned(), size(crate::TERMINAL_COLUMNS, 80)),
-        Entry::Field("rows".to_owned(), size(crate::TERMINAL_ROWS, 24)),
-        Entry::Field(snapfire_fsr_ir::host::PROCESS.to_owned(), Expr::lit_str(snapfire_fsr_ir::host::TERMINAL_OUTPUT)),
-      ])));
-    }
-    if let js::Expr::Member(out) = crate::meaning::bare(&member.obj) {
-      if matches!(self.member_name(out).as_deref(), Some("stdout" | "stderr")) && self.is_process(&out.obj) {
-        let size = match self.member_name(member).as_deref() {
-          Some("columns") => (crate::TERMINAL_COLUMNS, 80),
-          Some("rows") => (crate::TERMINAL_ROWS, 24),
-          _ => return Ok(None),
-        };
-        return Ok(Some(Expr::Coalesce(Box::new(Expr::Store(size.0.to_owned())), Box::new(Expr::Lit(Lit::Int(size.1))))));
-      }
-    }
-    let js::Expr::Member(env) = crate::meaning::bare(&member.obj) else { return Ok(None) };
-    if self.member_name(env).as_deref() != Some("env") || !self.is_process(&env.obj) {
-      return Ok(None);
-    }
-    let name = match &member.prop {
-      js::MemberProp::Ident(name) => Expr::lit_str(name.sym.to_string()),
-      js::MemberProp::Computed(key) => self.expr(&key.expr)?,
-      js::MemberProp::PrivateName(_) => return Ok(None),
-    };
-    Ok(Some(Expr::Ext { module: "terminal".to_owned(), name: "env".to_owned(), args: vec![name] }))
-  }
-
-  /// `process.exit(code?)` in a terminal page: the act [`snapfire_fsr_ir::host::Act::Exit`] with the code, null when none is given.
-  pub(crate) fn process_exit(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return Ok(None) };
-    if !self.reaches(Reach::Process) || !self.is_process(&member.obj) || self.member_name(member).as_deref() != Some("exit") {
-      return Ok(None);
-    }
-    let code = match call.args.first() {
-      Some(arg) => self.expr(&arg.expr)?,
-      None => Expr::Lit(Lit::Null),
-    };
-    Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Exit.name().to_owned(), input: code }))
-  }
-
-  /// `process.cwd()` or `process.memoryUsage()` in a terminal page: the member of the same name.
-  fn process_call(&self, call: &js::CallExpr) -> Option<Expr> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return None };
-    if !self.reaches(Reach::Process) || !self.is_process(&member.obj) || !call.args.is_empty() {
-      return None;
-    }
-    let name = self.member_name(member)?;
-    PROCESS_CALLS.contains(&name.as_str()).then(|| Expr::Ext { module: "process".to_owned(), name, args: Vec::new() })
-  }
-
-  /// What `typeof` answers for `process` or one of its members the build lowers, in a terminal page; `None` for anything else.
-  fn process_type(&self, e: &js::Expr) -> Option<&'static str> {
-    if !self.reaches(Reach::Process) {
-      return None;
-    }
-    if self.is_process(e) {
-      return Some("object");
-    }
-    let js::Expr::Member(member) = crate::meaning::bare(e) else { return None };
-    if !self.is_process(&member.obj) {
-      return None;
-    }
-    match self.member_name(member)?.as_str() {
-      name if PROCESS_CALLS.contains(&name) || name == "exit" => Some("function"),
-      "platform" => Some("string"),
-      "env" | "stdout" => Some("object"),
-      _ => None,
-    }
   }
 
   /// Whether `call` is `spawn` from `node:child_process`, named or through its default export.
@@ -2830,7 +2733,6 @@ impl<'a> Lowerer<'a> {
         js::UnaryOp::Tilde if self.kind_of(&u.arg) == Some(Kind::BigInt) => Err(self.residue(u.span, "the `~` operator on a `bigint`")),
         js::UnaryOp::Tilde => Ok(Expr::Arith(ArithOp::BitXor, Box::new(self.expr(&u.arg)?), Box::new(Expr::Lit(Lit::Float(-1.0))))),
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
-        js::UnaryOp::TypeOf if self.process_type(&u.arg).is_some() => Ok(Expr::lit_str(self.process_type(&u.arg).unwrap_or_default())),
         js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
           Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope) => Expr::lit_str("object"),
@@ -2839,7 +2741,6 @@ impl<'a> Lowerer<'a> {
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
       },
       js::Expr::Bin(bin) if bin.op == js::BinaryOp::InstanceOf => self.instance_of(bin),
-      js::Expr::Bin(bin) if bin.op == js::BinaryOp::LogicalAnd && self.reaches(Reach::Process) && self.is_process(&bin.left) => self.expr(&bin.right),
       js::Expr::Bin(bin) if is_bitwise(bin.op) && (self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt)) => Err(self.residue(bin.span, format!("the `{}` operator on a `bigint`", bin.op))),
       js::Expr::Bin(bin) => {
         let l = Box::new(self.expr(&bin.left)?);
@@ -2928,9 +2829,6 @@ impl<'a> Lowerer<'a> {
     if let Some(meaning::Meaning::Library(meaning::Construct::NamedKey(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) {
       return Ok(Expr::lit_str(*key));
     }
-    if let Some(read) = self.constant(self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).cloned(), id.span)? {
-      return Ok(read);
-    }
     match self.root_of(id) {
       Some(Root::Input) => Ok(Expr::Input),
       Some(Root::Now) => Ok(Expr::Now),
@@ -2953,9 +2851,11 @@ impl<'a> Lowerer<'a> {
         "Infinity" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(1.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
         "NaN" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
         _ if self.browser_functions.iter().any(|f| f == name) => Ok(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)),
+        "process" if id.ctxt == self.parsed.unresolved => Err(self.residue_with(id.span, "`process`, which is not FSR's", NOT_FSR)),
         _ => {
           self.unbound = Some(name.to_owned());
           match crate::component::find_import(self.parsed, name) {
+            Some((source, _)) if node_module(&source) => Err(self.residue_with(id.span, format!("`{name}` from `{source}`, which is not FSR's"), NOT_FSR)),
             Some((source, _)) => Err(self.residue(id.span, format!("`{name}` comes from `{source}`, which the build cannot follow"))),
             None => Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow or a name from outside the body"))),
           }
@@ -2985,16 +2885,6 @@ impl<'a> Lowerer<'a> {
 
   /// A member read. Context roots become reads; anything else is a field.
   fn member(&mut self, member: &js::MemberExpr) -> Lowered<Expr> {
-    let named = match &member.prop {
-      js::MemberProp::Ident(prop) => self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&member.obj)?.member(prop.sym.as_ref())),
-      _ => None,
-    };
-    if let Some(read) = self.constant(named, member.span)? {
-      return Ok(read);
-    }
-    if let Some(read) = self.env_read(member)? {
-      return Ok(read);
-    }
     if let (js::Expr::Ident(id), Some(key)) = (&*member.obj, self.member_name(member)) {
       if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.meanings.as_ref().and_then(|m| m.of_ident(id)) == Some(&crate::meaning::Meaning::Config(None)) {
         return Ok(Expr::Config(key));
@@ -3224,9 +3114,6 @@ impl<'a> Lowerer<'a> {
     if self.reaches(Reach::Process) && self.spawns(call) {
       return self.spawn_value(call);
     }
-    if let Some(cwd) = self.process_call(call) {
-      return Ok(cwd);
-    }
     if let Some(chained) = self.then_call(call)? {
       return Ok(chained);
     }
@@ -3410,6 +3297,9 @@ impl<'a> Lowerer<'a> {
           },
           _ => {
             self.unbound = Some(name.to_owned());
+            if let Some((source, _)) = crate::component::find_import(self.parsed, name).filter(|(source, _)| node_module(source)) {
+              return Err(self.residue_with(id.span, format!("`{name}` from `{source}`, which is not FSR's"), NOT_FSR));
+            }
             Err(self.residue_with(
               id.span,
               format!("a call to `{name}`, which the build cannot follow"),
