@@ -10,11 +10,11 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
-use snapfire_fsr_ir::{body_visit, Component, Entry, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore, Tmpl};
+use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore, Tmpl};
 use snapfire_fsr_runtime::store::Derived;
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, Reads, RequestCtx, Runtime, Static, SubtreeReads, TableResolver, subtree_shape,
+  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, Reads, RequestCtx, Runtime, Seeds, Static, SubtreeReads, TableResolver, subtree_shape,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -466,7 +466,7 @@ pub struct AppBuilder {
   lowered_metas: Vec<(String, snapfire_fsr_ir::Body)>,
   /// By source id: metadata a Rust host describes a segment with.
   rust_metas: Vec<(String, Arc<dyn Metadata>)>,
-  lowered_stores: Vec<(String, snapfire_fsr_ir::Body, Option<snapfire_fsr_ir::Body>, Option<Vec<String>>)>,
+  lowered_stores: Vec<(String, Option<snapfire_fsr_ir::Body>, Option<snapfire_fsr_ir::Body>, Option<Vec<String>>)>,
   /// The plan's `reads`: the store keys each island the server does not render reads.
   island_reads: std::collections::BTreeMap<String, Vec<String>>,
   /// By source id: the page loader module's `paths` body.
@@ -574,37 +574,7 @@ impl App {
   pub fn from_manifest(manifest: &str) -> Result<AppBuilder, BindError> {
     let parsed = snapfire_fsr_plan::Manifest::from_text(manifest)?;
     let mut builder = Self::builder(Routes::from_manifest(manifest)?);
-    builder.declared_actions = parsed.action_ids();
-    builder.lowered_sources = parsed
-      .lowered_sources()
-      .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body)))
-      .collect();
-    builder.lowered_metas = parsed
-      .lowered_sources()
-      .filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta)))
-      .collect();
-    builder.lowered_stores = parsed
-      .lowered_sources()
-      .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.defaults.clone(), row.store_keys.clone())))
-      .collect();
-    builder.island_reads = parsed.reads.clone();
-    builder.derives = parsed.derives.clone();
-    builder.lowered_paths = parsed
-      .lowered_sources()
-      .filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths)))
-      .collect();
-    builder.lowered_actions = parsed
-      .lowered_actions()
-      .filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body)))
-      .collect();
-    builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
-    builder.lowered_heads = parsed.components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())).collect();
-    builder.lowered_heads.extend(parsed.heads.iter().map(|row| (row.module.clone(), row.head.clone())));
-    builder.images = parsed.images.clone();
-    builder.clients = parsed.clients.clone();
-    if !parsed.consts.is_empty() {
-      builder.consts = Some(Arc::new(parsed.consts.clone()));
-    }
+    builder.add_rows(&parsed);
     builder.lowered_middleware = parsed.middleware.clone();
     if let Some(version) = parsed.frameworks.get("react") {
       builder.frameworks.react = Some(snapfire_fsr_ir::ReactMajor::of(version).ok_or_else(|| BindError::React { version: version.clone() })?);
@@ -614,12 +584,6 @@ impl App {
     }
     if let Some(version) = parsed.frameworks.get("svelte") {
       builder.frameworks.svelte = Some(snapfire_fsr_ir::SvelteMajor::of(version).ok_or_else(|| BindError::Svelte { version: version.clone() })?);
-    }
-    for row in &parsed.handlers {
-      match &row.body {
-        Some(body) => builder.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), body.clone())),
-        None => builder.declared_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone())),
-      }
     }
     Ok(builder)
   }
@@ -633,10 +597,21 @@ impl AppBuilder {
   pub fn mount_manifest(&mut self, manifest: &str) -> Result<(), BindError> {
     let parsed = snapfire_fsr_plan::Manifest::from_text(manifest)?;
     self.routes.extend_manifest(manifest)?;
+    self.add_rows(&parsed);
+    Ok(())
+  }
+
+  /// Every lowered row of `parsed` beside the ones this builder holds.
+  fn add_rows(&mut self, parsed: &snapfire_fsr_plan::Manifest) {
     self.declared_actions.extend(parsed.action_ids());
     self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body))));
     self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta))));
-    self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.defaults.clone(), row.store_keys.clone()))));
+    self.lowered_stores.extend(
+      parsed
+        .lowered_sources()
+        .filter(|row| row.store.is_some() || row.defaults.is_some())
+        .map(|row| (row.id.clone(), row.store.clone(), row.defaults.clone(), row.store_keys.clone())),
+    );
     self.island_reads.extend(parsed.reads.clone());
     self.derives.extend(parsed.derives.iter().cloned());
     self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
@@ -657,7 +632,6 @@ impl AppBuilder {
         None => self.declared_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone())),
       }
     }
-    Ok(())
   }
 
   pub fn source<F, Fut>(mut self, name: impl Into<String>, f: F) -> Self
@@ -913,7 +887,7 @@ impl AppBuilder {
         None => Ok(()),
       }
     };
-    let stores = self.lowered_stores.iter().flat_map(|(name, body, defaults, _)| std::iter::once((name, body)).chain(defaults.iter().map(move |defaults| (name, defaults))));
+    let stores = self.lowered_stores.iter().flat_map(|(name, store, defaults, _)| store.iter().chain(defaults).map(move |body| (name, body)));
     for (name, body) in self.lowered_sources.iter().chain(&self.lowered_metas).chain(&self.lowered_paths).map(|(name, body)| (name, body)).chain(stores) {
       check(name, body)?;
     }
@@ -1174,7 +1148,11 @@ impl AppBuilder {
         derived_sources(&mut entry.store_keys, &derives);
       }
     }
-    let seeders: HashMap<String, Option<Vec<String>>> = self.lowered_stores.iter().map(|(name, body, _, keys)| (name.clone(), keys.clone().or_else(|| seeded_keys(body)))).collect();
+    let seeders: HashMap<String, Option<Vec<String>>> = self
+      .lowered_stores
+      .iter()
+      .map(|(name, store, defaults, keys)| (name.clone(), IrStore::new(name.clone()).with_store(store.clone()).with_defaults(defaults.clone()).with_keys(keys.clone()).keys()))
+      .collect();
     let mut renderable: Vec<(String, PlanNode)> = Vec::new();
     for (pattern, plan, _) in &resolved {
       if prerenderable.contains(pattern) || (pattern.contains('{') && !paths.contains_key(pattern)) {
@@ -1298,7 +1276,7 @@ impl AppBuilder {
     }
     for (name, store, defaults, keys) in std::mem::take(&mut self.lowered_stores) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
-        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store).with_defaults(defaults).with_keys(keys).with_interpreter(interpreter.clone())));
+        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name).with_store(store).with_defaults(defaults).with_keys(keys).with_interpreter(interpreter.clone())));
       }
     }
 
@@ -1604,25 +1582,6 @@ fn derived_sources(keys: &mut Vec<String>, derives: &[snapfire_fsr_plan::DeriveE
     at += 1;
   }
   keys.sort();
-}
-
-/// The keys a `store` body seeds, when the build can read them: every field
-/// of every object literal in it. `None` for a computed key or a spread,
-/// which may seed anything.
-fn seeded_keys(body: &snapfire_fsr_ir::Body) -> Option<Vec<String>> {
-  let mut keys = Vec::new();
-  let mut unknown = false;
-  body_visit(body, &mut |e| {
-    if let Expr::Object(entries) = e {
-      for entry in entries {
-        match entry {
-          Entry::Field(name, _) => keys.push(name.clone()),
-          _ => unknown = true,
-        }
-      }
-    }
-  });
-  if unknown { None } else { Some(keys) }
 }
 
 /// The store keys `module`'s component reads, and every component it places

@@ -7,6 +7,7 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | It shows | Where |
 | --- | --- |
 | A store the whole document shares, seeded by two layouts, the inner one winning a key both set | `routes/layout.loader.ts`, `routes/agents/layout.loader.ts`, `src/store.ts` |
+| A key the visitor owns seeded under `defaults`: the agent page names the agent it shows until a click in the list picks another | `defaults` in `routes/agents/[id]/page.loader.ts`, `selected` in `src/store.ts` |
 | A key nothing seeds, written in one root and read in another | `fleet/selected`, written by the list, shown in the header |
 | A derived key the server computes and the browser keeps recomputing | `fleet/headline` in `src/main.ts` |
 | A setting held in the session, written optimistically, seeded back on every request | row density in `routes/settings/`, read by `src/ui/AgentRows.tsx` |

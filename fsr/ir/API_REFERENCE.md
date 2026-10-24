@@ -531,13 +531,15 @@ A lowered `paths` naming the parameter sets a route prerenders. Implements `snap
 
 ### IrStore
 
-A lowered `store` export. Implements `snapfire_fsr_runtime::Seeds`.
+A module's lowered `store` and `defaults` exports, either or both. Implements `snapfire_fsr_runtime::Seeds`.
 
-* `IrStore::new(source_id: impl Into<String>, body: Body) -> IrStore`
+* `IrStore::new(source_id: impl Into<String>) -> IrStore`
+* `IrStore::with_store(self, store: Option<Body>) -> IrStore`
+* `IrStore::with_defaults(self, defaults: Option<Body>) -> IrStore`
 * `IrStore::with_interpreter(self, interpreter: Interpreter) -> IrStore`
 * `IrStore::with_keys(self, keys: Option<Vec<String>>) -> IrStore`: the plan's `store-keys`, which `keys` answers with when set.
-* `seed` runs the body with the segment's data as `Input` and returns the `Value::Map` it returned. A non-map return or a `Fail` is a `LoadError`.
-* `keys`, without `with_keys`, is every field name a `return` of the body can hold, through branches, loops and a returned `let`: `None` when a return is anything but an object of named fields, a spread or a computed key among them, since its keys are then the data's.
+* `seed` runs the `store` body with the segment's data as `Input` and returns the `Value::Map` it returned. With no `store` it returns an empty map. `defaults` does the same with the `defaults` body. A non-map return or a `Fail` is a `LoadError`.
+* `keys`, without `with_keys`, is every field name a `return` of either body can hold, through branches, loops and a returned `let`: `None` when a return is anything but an object of named fields, a spread or a computed key among them, since its keys are then the data's.
 
 ### IrAction
 

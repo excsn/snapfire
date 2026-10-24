@@ -9,7 +9,7 @@ export const watching = key<number>("fleet/watching");
 /** The region in view: the root layout seeds `all`, the agents layout wins it with the query. */
 export const region = key<string>("fleet/region");
 
-/** Nothing seeds this one: the agent list writes it and the header reads it. */
+/** The agent page seeds its own id under `defaults`, the agent list writes it on a click and the header reads it. */
 export const selected = key<string>("fleet/selected");
 
 /** Computed from the two the server seeds, so the header line follows both. */

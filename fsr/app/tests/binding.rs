@@ -412,6 +412,20 @@ fn a_build_renders_ahead_the_outermost_fixed_subtrees_of_a_route_it_cannot_write
 }
 
 #[test]
+fn a_loader_with_defaults_and_no_store_seeds_its_keys() {
+  let manifest = CONSOLE.replacen(r#""store": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 2 } } ] } ] } } ] },"#, r#""defaults": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 2 } } ] } ] } } ] },"#, 1);
+  assert_ne!(manifest, CONSOLE);
+  let app = App::from_manifest(&manifest).unwrap().build().unwrap();
+  let seeds = app.runtime.stores.get("layout").expect("the layout's defaults are a store");
+  assert_eq!(seeds.keys(), Some(vec!["cart/count".to_owned()]));
+  let ctx = snapfire_fsr_runtime::RequestCtx::default();
+  let data = snapfire_fsr_core::ValueMap::default();
+  assert!(futures::executor::block_on(seeds.seed(&ctx, &data)).unwrap().is_empty(), "nothing is authoritative");
+  assert_eq!(futures::executor::block_on(seeds.defaults(&ctx, &data)).unwrap().get("cart/count"), Some(&snapfire_fsr_core::Value::int(2i64)));
+  assert!(!app.renderable.iter().any(|(p, _)| p == "/cart"), "the cart page reads a key the layout's defaults seed");
+}
+
+#[test]
 fn a_page_the_build_could_not_lower_is_reported_at_boot_with_its_cause() {
   let manifest = r#"{
     "version": 3,

@@ -6,7 +6,7 @@ use snapfire_fsr_ir::IrStore;
 use snapfire_fsr_runtime::Seeds;
 
 fn keys(body: Vec<Stmt>) -> Option<Vec<String>> {
-  IrStore::new("page", body).keys()
+  IrStore::new("page").with_store(Some(body)).keys()
 }
 
 fn field(name: &str) -> Entry {
@@ -22,7 +22,13 @@ fn an_object_of_named_fields_names_its_keys() {
 fn the_defaults_export_names_its_keys_beside_the_store_s() {
   let store = vec![Stmt::Return(Expr::Object(vec![field("cart/count")]))];
   let defaults = vec![Stmt::Return(Expr::Object(vec![field("cart/tip")]))];
-  assert_eq!(IrStore::new("page", store).with_defaults(Some(defaults)).keys(), Some(vec!["cart/count".to_owned(), "cart/tip".to_owned()]));
+  assert_eq!(IrStore::new("page").with_store(Some(store)).with_defaults(Some(defaults)).keys(), Some(vec!["cart/count".to_owned(), "cart/tip".to_owned()]));
+}
+
+#[test]
+fn a_defaults_export_alone_names_its_keys() {
+  let defaults = vec![Stmt::Return(Expr::Object(vec![field("shop/watched")]))];
+  assert_eq!(IrStore::new("layout").with_defaults(Some(defaults)).keys(), Some(vec!["shop/watched".to_owned()]));
 }
 
 #[test]
@@ -45,6 +51,6 @@ fn a_spread_or_a_computed_key_leaves_the_keys_to_the_data() {
 #[test]
 fn the_keys_the_build_inferred_win_over_reading_the_returns() {
   let spread = vec![Stmt::Return(Expr::Object(vec![Entry::Spread(Expr::Input)]))];
-  assert_eq!(IrStore::new("page", spread.clone()).keys(), None, "the returns alone do not say");
-  assert_eq!(IrStore::new("page", spread).with_keys(Some(vec!["repro/slot".to_owned()])).keys(), Some(vec!["repro/slot".to_owned()]), "the plan's `store-keys` does");
+  assert_eq!(IrStore::new("page").with_store(Some(spread.clone())).keys(), None, "the returns alone do not say");
+  assert_eq!(IrStore::new("page").with_store(Some(spread)).with_keys(Some(vec!["repro/slot".to_owned()])).keys(), Some(vec!["repro/slot".to_owned()]), "the plan's `store-keys` does");
 }

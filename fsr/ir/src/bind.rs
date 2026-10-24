@@ -219,7 +219,8 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
 /// it is a store key.
 pub struct IrStore {
   source_id: String,
-  body: Arc<Body>,
+  /// The lowered `store` export, when the module has one.
+  body: Option<Arc<Body>>,
   /// The lowered `defaults` export, when the module has one.
   defaults: Option<Arc<Body>>,
   /// The keys the build inferred the body returns, which win over reading its returns.
@@ -228,8 +229,13 @@ pub struct IrStore {
 }
 
 impl IrStore {
-  pub fn new(source_id: impl Into<String>, body: Body) -> Self {
-    Self { source_id: source_id.into(), body: Arc::new(body), defaults: None, keys: None, interpreter: Interpreter::default() }
+  pub fn new(source_id: impl Into<String>) -> Self {
+    Self { source_id: source_id.into(), body: None, defaults: None, keys: None, interpreter: Interpreter::default() }
+  }
+
+  pub fn with_store(mut self, store: Option<Body>) -> Self {
+    self.body = store.map(Arc::new);
+    self
   }
 
   pub fn with_defaults(mut self, defaults: Option<Body>) -> Self {
@@ -255,15 +261,17 @@ impl Seeds for IrStore {
       return Some(keys.clone());
     }
     let mut keys = std::collections::BTreeSet::new();
-    returned_keys(&self.body, &mut keys)?;
-    if let Some(defaults) = &self.defaults {
-      returned_keys(defaults, &mut keys)?;
+    for body in self.body.iter().chain(&self.defaults) {
+      returned_keys(body, &mut keys)?;
     }
     Some(keys.into_iter().collect())
   }
 
   fn seed(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
-    self.run_map(&self.body, "store", ctx, data)
+    match &self.body {
+      Some(body) => self.run_map(body, "store", ctx, data),
+      None => Box::pin(async { Ok(Data::default()) }),
+    }
   }
 
   fn defaults(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {

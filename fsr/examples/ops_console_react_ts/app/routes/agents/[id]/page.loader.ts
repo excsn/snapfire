@@ -10,3 +10,5 @@ export const meta = ({ data }: { data: { agent: { name: string } } }) => ({
   title: t("meta.agent", { name: data.agent.name }),
   description: t("meta.agent_description", { name: data.agent.name }),
 });
+
+export const defaults = ({ data }: { data: { agent: { id: bigint } } }) => ({ "fleet/selected": String(data.agent.id) });
