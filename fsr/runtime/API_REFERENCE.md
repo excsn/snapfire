@@ -591,6 +591,7 @@ Everything a loader or action may know about the request. `Clone + Default` and 
 * `pub params: Params`
 * `pub session: SessionCell`
 * `pub locale: Locale`: the request's locale as the host resolved it; the default `Locale` under a context nothing resolved.
+* `pub locales: Vec<String>`: the locales the application serves, `ctx.locales` in a body, in the order `[locales]` declares them; the same on every request. Empty under a context the host did not build.
 * `pub csrf: CsrfHandle`: the request's CSRF token, minted on first `get` and held for the request; `CsrfHandle::new(memo, mint)` binds one, `CsrfHandle::fixed(token)` holds a given token, `Default` is unbound and `get` answers `None`. `memo_key` is `Some("-")` unbound, `Some(memo)` when the session's token is stable and `None` when every mint differs, which keeps a subtree rendering the token out of the memo.
 * `pub services: ServiceHandle`
 * `pub natives: NativeHandle`: `ctx.native`, the application's own Rust in this process.

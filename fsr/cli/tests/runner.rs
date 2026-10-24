@@ -36,6 +36,18 @@ fn a_body_test_runs_a_loader_over_the_module_constant_it_imports() {
 }
 
 #[test]
+fn a_body_test_mocks_the_configured_locales_and_defaults_to_the_one_it_runs_under() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("routes/page.loader.ts", "export async function load(ctx: Ctx) {\n  return { others: ctx.locales.filter((tag) => tag !== ctx.locale) };\n}\n"),
+    ("tests/page.test.ts", "import { load } from \"@routes/page.loader\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"the other locales\", async () => {\n  const c = ctx({ locale: \"fr\", locales: [\"en\", \"fr\", \"de\"] });\n  const data = await load(c);\n  expect(data.others).toEqual([\"en\", \"de\"]);\n});\n\ntest(\"one locale by default\", async () => {\n  const c = ctx({});\n  const data = await load(c);\n  expect(data.others).toEqual([]);\n});\n"),
+  ]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (2, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
 fn a_body_test_sees_an_extension_in_the_session_trace() {
   let dir = app(&[
     ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),

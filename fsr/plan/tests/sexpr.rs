@@ -114,6 +114,7 @@ fn every_expr() -> Vec<Expr> {
     Expr::ModuleCell { key: Box::new(Expr::lit_str("src/C.svelte#made")), init: v("n") },
     Expr::ReadCell(v("n")),
     Expr::WriteCell(v("n"), v("n")),
+    Expr::Locales,
   ]
 }
 
@@ -473,6 +474,7 @@ fn small_expr() -> BoxedStrategy<Expr> {
     text().prop_map(Expr::Var),
     text().prop_map(Expr::Param),
     Just(Expr::Locale),
+    Just(Expr::Locales),
   ]
   .boxed()
 }
@@ -744,7 +746,7 @@ fn a_format_6_plan_still_reads() {
 /// Every marker, html and place node, every cell expression, the Svelte-owned component, the `svelte` framework and the module sheets dropped, which is what a plan written before format 7 carries.
 fn forget_svelte(manifest: &mut Manifest) {
   manifest.sheets.clear();
-  manifest.consts.retain(|_, expr| !matches!(expr, Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..)));
+  manifest.consts.retain(|_, expr| !matches!(expr, Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::Locales));
   manifest.components.retain(|entry| entry.body.owner != snapfire_fsr_ir::Owner::Svelte);
   manifest.frameworks.remove("svelte");
   for entry in &mut manifest.components {

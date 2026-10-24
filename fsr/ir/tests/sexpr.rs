@@ -84,6 +84,7 @@ fn expr() -> BoxedStrategy<Expr> {
     Just(Expr::ParamsAll),
     Just(Expr::QueryAll),
     Just(Expr::Locale),
+    Just(Expr::Locales),
     Just(Expr::Path),
     Just(Expr::Document),
     Just(Expr::Host),

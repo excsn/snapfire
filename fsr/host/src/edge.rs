@@ -188,6 +188,7 @@ impl Host {
     ctx.failure = incoming.session.remove(snapfire_fsr_runtime::FAILURE_KEY);
     ctx.session = incoming.session;
     ctx.locale = locale;
+    ctx.locales = t.locales.supported.clone();
     ctx.host = incoming.host;
     ctx.origin = t.origin.clone();
     ctx.config = t.public.clone();

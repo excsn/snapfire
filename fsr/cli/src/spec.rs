@@ -844,6 +844,7 @@ impl SpecHooks {
     ctx.path = spec.path.unwrap_or_default();
     ctx.session = SessionCell::new(session, identity);
     ctx.locale = locale;
+    ctx.locales = self.host.as_ref().map(|h| h.locales().supported).unwrap_or_else(|| vec!["en".to_owned()]);
     ctx.host = spec.host;
     ctx.config = config;
     ctx.services = handle;

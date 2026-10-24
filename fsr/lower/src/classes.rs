@@ -555,7 +555,7 @@ pub(crate) fn plain_root(e: &Expr) -> bool {
   match e {
     Expr::Field(inner, _) | Expr::Index(inner, _) => plain_root(inner),
     Expr::Var(name) => name == "$props",
-    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Config(_) | Expr::Locale | Expr::Input | Expr::Lit(_) => true,
+    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Config(_) | Expr::Locale | Expr::Locales | Expr::Input | Expr::Lit(_) => true,
     _ => false,
   }
 }

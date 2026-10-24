@@ -125,7 +125,7 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
   let mut pure = free.is_empty();
   let mut refs = Vec::new();
   expr.visit(&mut |e| match e {
-    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_) | Expr::After(_) | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
+    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Locales | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_) | Expr::After(_) | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
     Expr::Const(other) => refs.push(other.clone()),
     _ => {}
   });
@@ -1107,6 +1107,7 @@ impl Env {
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
       Expr::Locale => Ok(self.locale()),
+      Expr::Locales => Ok(Value::seq(self.ctx.locales.iter().map(|tag| Value::str(tag.clone())).collect::<Vec<_>>())),
       Expr::Path => Ok(Value::str(self.ctx.path.clone())),
       Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),
       Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),
@@ -1668,6 +1669,7 @@ impl Env {
         Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
         Expr::Locale => Ok(self.locale()),
+        Expr::Locales => Ok(Value::seq(self.ctx.locales.iter().map(|tag| Value::str(tag.clone())).collect::<Vec<_>>())),
         Expr::Path => Ok(Value::str(self.ctx.path.clone())),
         Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),
         Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),

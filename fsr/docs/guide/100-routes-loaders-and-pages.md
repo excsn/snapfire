@@ -116,7 +116,15 @@ export async function load({ locale, services }: Ctx) {
 }
 ```
 
-The ops console picks its language from the settings drawer, two document loads with a prefix each and the host remembers the choice in a cookie.
+`ctx.locales` is every tag `[locales]` declares, in its order, the same on every request, so a loader reading it still prerenders. A language switcher lists them rather than repeating the configuration in code:
+
+```ts
+export async function load({ locale, locales }: Ctx) {
+  return { current: locale, others: locales.filter((tag) => tag !== locale) };
+}
+```
+
+The ops console picks its language from the settings drawer, whose loader hands `locales` to the picker: a document load with a prefix for each and the host remembers the choice in a cookie.
 
 ## Host and origin
 

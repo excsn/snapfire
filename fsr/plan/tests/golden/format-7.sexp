@@ -262,6 +262,7 @@
 (const src/x.ts#c80 (module-cell "src/C.svelte#made" n))
 (const src/x.ts#c81 (read-cell n))
 (const src/x.ts#c82 (write-cell n n))
+(const src/x.ts#c83 (locales))
 (const src/x.ts#c9 (input))
 (component routes/page.tsx#default
   (owner react)

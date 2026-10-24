@@ -57,3 +57,13 @@ test("unwatching from the drawer moves the header count before the server answer
   expect(screen.getByLabelText("watching 0 agents")).toBeTruthy();
   await settle();
 });
+
+test("the language picker offers each locale the configuration serves, in its order, the request's marked", async () => {
+  const c = ctx({ session: { watching: {}, density: "comfortable" }, services: services() });
+  await load("/fr_FR/settings", { ctx: c });
+  await settle();
+  const choices = Array.from(document.querySelectorAll('[role="radiogroup"] a'));
+  expect(choices.map((a) => a.getAttribute("href"))).toEqual(["/en_US/settings", "/fr_FR/settings"]);
+  expect(choices.map((a) => a.textContent)).toEqual(["English", "Français"]);
+  expect(choices.filter((a) => a.classList.contains("seg-on")).map((a) => a.textContent)).toEqual(["Français"]);
+});

@@ -270,6 +270,7 @@ impl<'a> Inferer<'a> {
       },
       Expr::Store(_) | Expr::Context(_) => Ts::Unknown,
       Expr::Locale => Ts::Str,
+      Expr::Locales => Ts::List(Box::new(Ts::Str)),
       Expr::Identity(path) => match path.first().map(String::as_str) {
         Some("subject") => Ts::Str,
         _ => Ts::Unknown,

@@ -7303,3 +7303,20 @@ async fn a_routes_own_stylesheets_are_linked_on_its_documents_alone() {
   let payload = served(&host, "/where?__payload").await;
   assert!(!payload.contains("src/card.") && !payload.contains("Card.vue."), "{payload}");
 }
+
+#[tokio::test]
+async fn a_body_reads_the_configured_locales_in_their_declared_order() {
+  let dir = localised_dir();
+  let mut plan = read_plan(&dir);
+  for source in plan["sources"].as_array_mut().unwrap() {
+    if source["id"] == "where" {
+      source["body"] = serde_json::json!([{ "return": { "object": [{ "field": ["tags", "locales"] }] } }]);
+    }
+  }
+  write_plan_value(&dir, plan);
+  let host = tuned_host(&dir);
+  for path in ["/where", "/fr_FR/where"] {
+    let html = host.render_to_string(path, RenderMode::Html, SessionCell::default()).await.unwrap();
+    assert!(html.contains(r#"["en_US","fr_FR","de"]"#), "{path}: {html}");
+  }
+}

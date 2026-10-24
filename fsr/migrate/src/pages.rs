@@ -586,7 +586,7 @@ fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::Mod
 /// Fields of Next's context FSR's loader context has no counterpart for.
 /// Draft mode is off, so `preview` and `draftMode` are `false`; the others
 /// are notes.
-const UNREAD_CONTEXT: &[&str] = &["preview", "previewData", "draftMode", "locales", "defaultLocale", "req", "res", "resolvedUrl"];
+const UNREAD_CONTEXT: &[&str] = &["preview", "previewData", "draftMode", "defaultLocale", "req", "res", "resolvedUrl"];
 
 /// The data function's context parameter without the fields in
 /// `UNREAD_CONTEXT`: taken out of a destructuring, `preview` and `draftMode`
@@ -811,10 +811,10 @@ mod tests {
     let (out, report) = migrate(&input);
     assert_eq!(
       out.text("app/routes/[slug]/page.loader.ts").unwrap(),
-      "import { getPost } from \"../../src/lib/api\";\n\nexport async function load({ params }) {\n  const preview = false;\n  return { post: await getPost(params.slug, preview) };\n}\n"
+      "import { getPost } from \"../../src/lib/api\";\n\nexport async function load({ params, locales }) {\n  const preview = false;\n  return { post: await getPost(params.slug, preview) };\n}\n"
     );
     assert_eq!(out.text("app/routes/q/page.loader.ts").unwrap(), "export const load = async (context) => {\n  return { q: false ? 1 : 0 };\n};\n");
-    assert_eq!(report.notes.iter().filter(|n| n.message.contains("`locales`")).count(), 1, "{:?}", report.notes);
+    assert_eq!(report.notes.iter().filter(|n| n.message.contains("`locales`")).count(), 0, "`ctx.locales` reads them: {:?}", report.notes);
   }
 
   #[test]

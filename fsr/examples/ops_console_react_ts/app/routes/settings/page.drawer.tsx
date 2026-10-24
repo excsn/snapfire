@@ -4,11 +4,11 @@ import { t } from "@snapfire/fsr-client/std";
 import type { SettingsProps } from "@generated/client";
 import { SettingsPanel } from "@src/ui/SettingsPanel";
 
-export default function SettingsDrawer({ watched }: SettingsProps) {
+export default function SettingsDrawer({ watched, locales }: SettingsProps) {
   return (
     <div className="drawer">
       <h2>{t("settings.title")}</h2>
-      <SettingsPanel watched={watched} />
+      <SettingsPanel watched={watched} locales={locales} />
       <p className="drawer-foot">
         <Link href="/settings" full>
           {t("settings.open_page")}

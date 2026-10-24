@@ -34,6 +34,7 @@ pub mod sexpr;
 /// 6 reader refuses each by name.
 /// It also adds the bitwise operators `bit-and`, `bit-or`, `bit-xor`, `<<`, `>>` and `>>>`.
 /// It also adds the `module-sheets` rows: the stylesheets a route segment's module links.
+/// It also adds the `locales` expression, `ctx.locales`.
 ///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of

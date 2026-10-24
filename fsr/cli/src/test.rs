@@ -495,6 +495,16 @@ impl<'a> Run<'a> {
       },
       None => snapfire_fsr_runtime::Locale::new("en", true),
     };
+    let locales = match &mock.locales {
+      Some(expr) => match self.eval(expr).await.map_err(|f| format!("locales: {}", f.message))? {
+        Value::Seq(tags) => tags.iter().map(|tag| match tag {
+          Value::Str(tag) => Ok(tag.to_string()),
+          other => Err(format!("locales must be strings, got {}", show(other))),
+        }).collect::<Result<Vec<_>, _>>()?,
+        other => return Err(format!("locales must be an array of strings, got {}", show(&other))),
+      },
+      None => vec![locale.tag.clone()],
+    };
     let path = match &mock.path {
       Some(expr) => match self.eval(expr).await.map_err(|f| format!("path: {}", f.message))? {
         Value::Str(path) => path.to_string(),
@@ -527,6 +537,7 @@ impl<'a> Run<'a> {
     ctx.path = path;
     ctx.session = SessionCell::new(session, identity);
     ctx.locale = locale;
+    ctx.locales = locales;
     ctx.host = host;
     ctx.origin = origin;
     ctx.config = config;

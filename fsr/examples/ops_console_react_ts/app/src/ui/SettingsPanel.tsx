@@ -6,7 +6,7 @@ import { actions, type Agent } from "@generated/client";
 import { density, watching } from "@src/store";
 import { LanguagePicker } from "@src/ui/LanguagePicker";
 
-export function SettingsPanel({ watched }: { watched: Agent[] }) {
+export function SettingsPanel({ watched, locales }: { watched: Agent[]; locales: string[] }) {
   const [rows] = useStore(density, "comfortable");
 
   async function unwatch(id: bigint | number): Promise<void> {
@@ -21,7 +21,7 @@ export function SettingsPanel({ watched }: { watched: Agent[] }) {
     <div className="settings">
       <section>
         <h2>{t("settings.language")}</h2>
-        <LanguagePicker />
+        <LanguagePicker locales={locales} />
       </section>
       <section>
         <h2>{t("settings.rows")}</h2>

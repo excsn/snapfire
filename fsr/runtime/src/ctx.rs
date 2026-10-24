@@ -241,6 +241,9 @@ pub struct RequestCtx {
   pub address: Option<Address>,
   pub session: SessionCell,
   pub locale: Locale,
+  /// The locales the application serves, `ctx.locales`, in the order `[locales]` declares them.
+  /// The same on every request.
+  pub locales: Vec<String>,
   /// The host the request named, already matched against `[server] hosts`.
   /// `None` when that key is unset, so nothing a client sends reaches a body
   /// unless the deployment listed it.
@@ -325,6 +328,7 @@ impl RequestCtx {
       address: None,
       session: SessionCell::default(),
       locale: Locale::default(),
+      locales: Vec::new(),
       host: None,
       origin: None,
       failure: None,

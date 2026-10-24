@@ -384,6 +384,31 @@ export async function load(ctx: Ctx) {
 }
 
 #[test]
+fn a_loader_reads_the_configured_locales_whole_and_through_the_context() {
+  let src = r#"
+export async function getStaticProps({ locale, locales }: Ctx) {
+  return { locale, locales };
+}
+
+export async function load(ctx: Ctx) {
+  return { others: ctx.locales.filter((tag) => tag !== ctx.locale) };
+}
+"#;
+  let body = lower_loader("routes/help/page.loader.ts", &src.replace("export async function getStaticProps", "async function unused")).unwrap();
+  assert!(matches!(&body[..], [Stmt::Return(Expr::Object(_))]), "{body:?}");
+  assert!(format!("{body:?}").contains("Locales"), "{body:?}");
+  assert!(!snapfire_fsr_ir::body_reads_request(&body), "the configured locales leave a route prerenderable");
+
+  let whole = r#"
+export async function load({ locale, locales }: Ctx) {
+  return { locale, locales };
+}
+"#;
+  let body = lower_loader("routes/help/page.loader.ts", whole).unwrap();
+  assert_eq!(body, vec![Stmt::Return(Expr::object(vec![("locale", Expr::Locale), ("locales", Expr::Locales)]))]);
+}
+
+#[test]
 fn the_host_lowers_destructured_and_through_ctx() {
   let destructured = r#"
 export async function load({ host }: Ctx) {
