@@ -288,7 +288,8 @@ impl Host {
       }
     }
     let entry = site.and_then(SiteTables::entry);
-    let styles: Vec<String> = site.map(SiteTables::styles).unwrap_or_default();
+    let mut styles: Vec<String> = site.map(SiteTables::styles).unwrap_or_default();
+    segment_sheets(&t.sheets, plan, &mut styles);
     let catalog = t.catalogs.json(&visit.locale.tag);
     let mut payload_catalog = None;
     if let Some(json) = &catalog {
@@ -448,5 +449,20 @@ impl Host {
     S: AsRef<str>,
   {
     self.tables().app.services.invalidate_tags(tags);
+  }
+}
+
+/// The stylesheets the segments of `plan` link, its fallbacks and error boundaries included, each once, after `out`'s own.
+fn segment_sheets(sheets: &HashMap<String, Vec<String>>, plan: &PlanNode, out: &mut Vec<String>) {
+  let own = std::iter::once(&plan.module).chain(plan.fallback.iter()).chain(plan.error.iter()).chain(plan.error_kinds.iter().map(|(_, module)| module));
+  for module in own {
+    for url in sheets.get(&module.to_string()).into_iter().flatten() {
+      if !out.contains(url) {
+        out.push(url.clone());
+      }
+    }
+  }
+  for (_, child) in &plan.children {
+    segment_sheets(sheets, child, out);
   }
 }

@@ -7277,3 +7277,29 @@ fn a_pwa_section_naming_a_manifest_file_and_its_fields_or_neither_is_refused() {
     assert!(err.contains("pwa") && err.contains(says), "{err}");
   }
 }
+
+#[tokio::test]
+async fn a_routes_own_stylesheets_are_linked_on_its_documents_alone() {
+  let dir = minified_app(false, false);
+  let facts = std::fs::read_to_string(dir.join("dist/.snapfire-build.json")).unwrap();
+  std::fs::write(dir.join("dist/.snapfire-build.json"), facts.replace(r#""src/ui/Late.js"]"#, r#""src/ui/Late.js","src/card.css"]"#)).unwrap();
+  std::fs::create_dir_all(dir.join("dist/src/ui")).unwrap();
+  std::fs::write(dir.join("dist/src/card.css"), ".card { color: red; }").unwrap();
+  std::fs::write(dir.join("dist/src/ui/Card.vue.css"), ".card { color: red; }").unwrap();
+  let mut plan = read_plan(&dir);
+  plan["sheets"] = serde_json::json!([{ "module": "routes/index/page.tsx#default", "sheets": ["src/card.css", "src/ui/Card.vue.css", "src/ui/Plain.vue.css"] }]);
+  write_plan_value(&dir, plan);
+  let host = tuned_host(&dir);
+
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"data-sf-css="" href="/static/js/app/src/card."#), "{html}");
+  assert!(html.contains(r#"data-sf-css="" href="/static/js/app/src/ui/Card.vue."#), "{html}");
+  assert!(!html.contains("Plain.vue.css"), "a component with no style block compiles no sheet: {html}");
+  let payload = served(&host, "/?__payload").await;
+  assert!(payload.contains("/static/js/app/src/card.") && payload.contains("/static/js/app/src/ui/Card.vue."), "{payload}");
+
+  let html = host.render_to_string("/where", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(!html.contains("src/card.") && !html.contains("Card.vue."), "{html}");
+  let payload = served(&host, "/where?__payload").await;
+  assert!(!payload.contains("src/card.") && !payload.contains("Card.vue."), "{payload}");
+}

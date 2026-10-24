@@ -107,3 +107,21 @@ fn test_an_absolute_import_is_left_alone_in_both_graphs() {
     );
   }
 }
+
+#[test]
+fn a_stylesheet_imported_for_its_effect_leaves_the_module_and_is_listed_in_the_facts() {
+  let fixture = Fixture::new("sheet-imports");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--minify"));
+
+  let dist = fixture.root().join("dist");
+  for module in ["card.js", "card.min.js"] {
+    let emitted = fs::read_to_string(dist.join(module)).unwrap();
+    assert!(!emitted.contains("card.css") && !emitted.contains("card.min.css"), "{module}: {emitted}");
+    assert!(emitted.contains("label"), "{module}: {emitted}");
+  }
+  assert!(predicate::path::exists().eval(&dist.join("card.css")));
+  let facts: serde_json::Value = serde_json::from_str(&fs::read_to_string(dist.join(".snapfire-build.json")).unwrap()).unwrap();
+  assert_eq!(facts["sheets"], serde_json::json!({ "card.js": ["card.css"] }), "{facts}");
+}

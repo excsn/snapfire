@@ -627,24 +627,51 @@ impl ComponentSet {
   /// component's from its script. None when it does not parse. An imported asset is not a
   /// script and is left out.
   pub fn local_imports(&mut self, file: &str) -> Vec<String> {
-    let parsed = match self.described.get(file).and_then(|described| described.script.as_ref()).or_else(|| self.scripts_only.get(file)) {
-      Some(script) => match parse_with(file, &script.content, false) {
-        Ok(parsed) => Rc::new(parsed),
-        Err(_) => return Vec::new(),
-      },
-      None => {
-        if self.load(file).is_err() {
-          return Vec::new();
-        }
-        self.parsed[file].clone()
-      }
-    };
+    let Some(parsed) = self.script_of(file) else { return Vec::new() };
     let sources: Vec<String> = value_sources(&parsed.module).map(|src| src.value.to_atom_lossy().to_string()).chain(dynamic_sources(&parsed.module)).collect();
     sources
       .iter()
       .filter_map(|src| self.resolve_import(file, src))
       .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)) || is_transformed(target) || self.described.contains_key(target))
       .collect()
+  }
+
+  /// The stylesheets `file` brings, in source order: each local one it imports for its effect
+  /// (`import "./card.css"`) plus, for each Vue or Svelte component it imports, the sheet compiling
+  /// that component writes beside it (`Card.vue.css`), which exists only when it has a style block.
+  pub fn sheets(&mut self, file: &str) -> Vec<String> {
+    let Some(parsed) = self.script_of(file) else { return Vec::new() };
+    let sources: Vec<(bool, String)> = parsed
+      .module
+      .body
+      .iter()
+      .filter_map(|item| match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if !import.type_only => Some((import.specifiers.is_empty(), import.src.value.to_atom_lossy().to_string())),
+        _ => None,
+      })
+      .collect();
+    let mut out = Vec::new();
+    for (bare, src) in sources {
+      let Some(target) = self.resolve_import(file, &src) else { continue };
+      let ext = Path::new(&target).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+      if bare && ext == "css" {
+        out.push(target);
+      } else if snapfire_compiler_wire::claimed(&ext).is_some() {
+        out.push(format!("{target}.css"));
+      }
+    }
+    out
+  }
+
+  /// `file` parsed, a described foreign component's script for one. None when it does not parse.
+  fn script_of(&mut self, file: &str) -> Option<Rc<Parsed>> {
+    match self.described.get(file).and_then(|described| described.script.as_ref()).or_else(|| self.scripts_only.get(file)) {
+      Some(script) => parse_with(file, &script.content, false).ok().map(Rc::new),
+      None => {
+        self.load(file).ok()?;
+        Some(self.parsed[file].clone())
+      }
+    }
   }
 
   /// The value imports in `file` of components a plugin's language holds, a

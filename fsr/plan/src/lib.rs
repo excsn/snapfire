@@ -33,6 +33,7 @@ pub mod sexpr;
 /// owner and framework and the `quot` operator, a `bigint` division. A format
 /// 6 reader refuses each by name.
 /// It also adds the bitwise operators `bit-and`, `bit-or`, `bit-xor`, `<<`, `>>` and `>>>`.
+/// It also adds the `module-sheets` rows: the stylesheets a route segment's module links.
 ///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of
@@ -122,6 +123,11 @@ pub struct Manifest {
   /// component's own rows under the same module.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub heads: Vec<ModuleHead>,
+  /// The stylesheets a page rendering a route segment's module links: each
+  /// sheet a file the module reaches imports for its effect and each Vue or
+  /// Svelte component it reaches, by the path its compiled sheet would have.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub sheets: Vec<ModuleSheets>,
   /// One row per generated card image: an `opengraph-image.tsx` or
   /// `twitter-image.tsx` beside a page, answered at its own URL.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -186,6 +192,14 @@ pub const IMAGE_PARAM: &str = "__image";
 pub struct ModuleHead {
   pub module: String,
   pub head: Vec<HeadRow>,
+}
+
+/// The stylesheets one route segment's module links, as paths under the
+/// application's build output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleSheets {
+  pub module: String,
+  pub sheets: Vec<String>,
 }
 
 /// A derived store key: what it is computed from and how. A row without a
@@ -586,7 +600,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new(), heads: Vec::new(), images: Vec::new(), theme: None, themes: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new(), heads: Vec::new(), sheets: Vec::new(), images: Vec::new(), theme: None, themes: Vec::new() }
   }
 
   /// The constants bodies read by name.
@@ -657,6 +671,11 @@ impl Manifest {
 
   pub fn with_heads(mut self, heads: Vec<ModuleHead>) -> Self {
     self.heads = heads;
+    self
+  }
+
+  pub fn with_sheets(mut self, sheets: Vec<ModuleSheets>) -> Self {
+    self.sheets = sheets;
     self
   }
 
@@ -871,7 +890,7 @@ impl Manifest {
         row["pattern"] = serde_json::Value::String(under(at, &pattern));
       }
     }
-    for key in ["sources", "actions", "handlers", "components", "clients", "heads", "themes"] {
+    for key in ["sources", "actions", "handlers", "components", "clients", "heads", "sheets", "themes"] {
       for row in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
         for field in ["id", "module", "input"] {
           if let Some(value) = row.get_mut(field) {

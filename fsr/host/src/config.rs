@@ -2464,6 +2464,7 @@ impl Config {
           externals: facts.externals.clone(),
           minified: facts.minified.clone(),
           outputs: facts.outputs.iter().cloned().collect(),
+          styles: facts.styles.clone(),
           dir: app.join(&dir),
           hashed: Default::default(),
         });
@@ -2951,6 +2952,8 @@ pub struct Bundle {
   pub minified: Option<String>,
   /// Every file the compiler wrote, relative to the bundle's directory.
   pub outputs: BTreeSet<String>,
+  /// The stylesheets of the Vue and Svelte components it compiled, relative to the bundle's directory.
+  pub styles: Vec<String>,
   /// The directory the outputs are in.
   pub dir: PathBuf,
   hashed: std::sync::OnceLock<BTreeMap<String, String>>,

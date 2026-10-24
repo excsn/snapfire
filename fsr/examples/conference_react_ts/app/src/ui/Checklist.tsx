@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import "./checklist.css";
+
 const ITEMS = ["Badge", "Charger", "Coffee"];
 
 export default function Checklist() {

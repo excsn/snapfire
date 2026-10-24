@@ -460,10 +460,11 @@ impl Pass for Fonts {
   }
 }
 
-/// A stylesheet imported for its effect, `import "./globals.css"`, which
-/// Next applies to every page: moved under `app/styles/`, which FSR compiles
-/// into every document, with the import taken out. A sheet whose relative
-/// `url()`s the move would break is a note.
+/// A stylesheet imported for its effect, `import "./globals.css"`. FSR links
+/// it on the documents whose route reaches the importer, as Next loads it with
+/// the route, so it stays. One that uses Tailwind moves under `app/styles/`,
+/// where FSR compiles Tailwind, with the import taken out; a sheet whose
+/// relative `url()`s that move would break is a note.
 struct Stylesheets;
 
 impl Pass for Stylesheets {
@@ -494,6 +495,9 @@ impl Pass for Stylesheets {
           None
         };
         let Some(target) = target.filter(|t| tree.contains(t)) else { continue };
+        if !tree.text(&target).is_some_and(uses_tailwind) {
+          continue;
+        }
         if !moved.contains_key(&target) {
           let file = target.rsplit('/').next().unwrap_or(&target);
           let mut to = format!("app/styles/{file}");
@@ -536,6 +540,11 @@ impl Pass for Stylesheets {
       tree.insert(to, out);
     }
   }
+}
+
+/// Whether a stylesheet is a Tailwind entry: Tailwind 4's import or Tailwind 3's directives.
+fn uses_tailwind(css: &str) -> bool {
+  css.contains("@tailwind ") || css.contains("@import \"tailwindcss") || css.contains("@import 'tailwindcss")
 }
 
 /// Each relative `url()` in a stylesheet, the range of its path and the path: not a URL with a scheme, not root-relative, not `data:` and not a `var()`. A query or a fragment after the path is left out of both.
@@ -719,19 +728,24 @@ mod tests {
   }
 
   #[test]
-  fn a_stylesheet_imported_for_its_effect_moves_under_styles() {
+  fn a_stylesheet_imported_for_its_effect_stays_beside_its_importer_and_a_tailwind_one_moves_under_styles() {
     let input = tree(&[
       ("package.json", PACKAGE),
       ("app/layout.tsx", "import \"./globals.css\";\nimport styles from \"./page.module.css\";\n\nexport default function Layout({ children }) {\n  return <div className={styles.x}>{children}</div>;\n}\n"),
       ("app/globals.css", "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\nbody {\n  @apply bg-gray-50;\n}\n"),
       ("app/page.module.css", ".x {}\n"),
+      ("app/card.tsx", "import \"./card.css\";\n\nexport function Card() {\n  return <div className=\"card\" />;\n}\n"),
+      ("app/card.css", ".card {\n  background: url(\"./back.png\");\n}\n"),
+      ("app/back.png", "png"),
       ("Dockerfile.bun", "FROM oven/bun\n"),
       ("compose.yml", "services: {}\n"),
     ]);
     let (out, _) = migrate(&input);
     let paths: Vec<&str> = out.paths().collect();
-    assert_eq!(paths, ["app/routes/layout.tsx", "app/routes/page.module.css", "app/styles/globals.css"]);
+    assert_eq!(paths, ["app/routes/back.png", "app/routes/card.css", "app/routes/card.tsx", "app/routes/layout.tsx", "app/routes/page.module.css", "app/styles/globals.css"]);
     assert!(out.text("app/routes/layout.tsx").unwrap().starts_with("import styles from \"./page.module.css\";\n"));
+    assert!(out.text("app/routes/card.tsx").unwrap().starts_with("import \"./card.css\";\n"), "linked on the documents that place the component");
+    assert_eq!(out.text("app/routes/card.css").unwrap(), ".card {\n  background: url(\"./back.png\");\n}\n");
     assert_eq!(out.text("app/styles/globals.css").unwrap(), "@import \"tailwindcss\";\n\nbody {\n  @apply bg-gray-50;\n}\n", "Tailwind 3's directives are Tailwind 4's import");
   }
 

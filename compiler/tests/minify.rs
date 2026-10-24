@@ -46,7 +46,6 @@ fn test_the_minified_graph_only_references_itself() {
     "./widgets/index.min.js",
     "./already.min.js",
     "./typed.min.js",
-    "./theme.min.css",
   ] {
     assert!(minified.contains(specifier), "{specifier} missing");
     assert!(
@@ -56,7 +55,8 @@ fn test_the_minified_graph_only_references_itself() {
   }
 
   assert!(!minified.contains("\"./state.js\""));
-  assert!(!minified.contains("\"./theme.css\""));
+  assert!(!minified.contains("theme."), "a stylesheet imported for its effect is in neither graph: {minified}");
+  assert!(predicate::path::exists().eval(&dist.join("theme.min.css")), "its minified twin is still emitted");
 }
 
 #[test]

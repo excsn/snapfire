@@ -121,7 +121,7 @@ export function registerIslands(): void {
 
 A mounter is imported only when a registered module wants it, which is what keeps React off a page that has no React component on it.
 
-The stylesheets reach the head before the first island mounts. The compiler lists them in `dist/.snapfire-build.json` under `styles`; the host reads that file at boot and links each one after the application's own `styles/*.css`, so a component's rules come later in the cascade than the document's.
+The stylesheets reach the head before the first island mounts. `fsr build` names, under each route's layouts and page, the sheet of every Vue or Svelte component the module reaches through its imports. The host links on a document the ones its route names, after the application's own `styles/*.css`, so a component's rules come later in the cascade than the document's. A navigation adds the next route's sheets before it swaps the page and removes the ones it no longer names. A sheet no route names, a component placed only by its module's name, is linked on every document; the compiler lists every component sheet in `dist/.snapfire-build.json` under `styles`.
 
 Unchanged components are not compiled twice. The plugin's output is cached on the worker's own version, the source, the options and every sibling file the component read, in memory across a watch and on disk in the output directory. `fsr build --verbose` says how much of it the cache answered:
 

@@ -288,7 +288,7 @@ mod tests {
     assert!(report.notes.iter().any(|n| n.message.contains("`./env` names a file for node and another for the browser")), "{:?}", report.notes);
   }
   #[test]
-  fn a_package_stylesheet_brings_the_files_its_urls_name_and_names_them_from_where_it_lands() {
+  fn a_package_stylesheet_stays_beside_its_component_and_brings_the_files_its_urls_name() {
     let input = tree(&[
       ("package.json", r#"{ "dependencies": { "next": "15", "@shell/web": "workspace:*" } }"#),
       ("app/page.tsx", "import { Button } from \"@shell/web/button\";\nexport default function Page() { return <Button />; }\n"),
@@ -299,7 +299,8 @@ mod tests {
       (".workspace/@shell/web/src/ui/fonts/a.woff2", "woff"),
     ]);
     let (out, report) = migrate(&input);
-    assert_eq!(out.text("app/styles/button.css").unwrap(), ".b { background: url(\"../src/packages/@shell/web/src/images/bg.png\"); }\n@font-face { src: url(../src/packages/@shell/web/src/ui/fonts/a.woff2) format(\"woff2\"); }\n.c { mask: url(data:image/svg+xml,x); }\n");
+    assert_eq!(out.text("app/src/packages/@shell/web/src/ui/button.css").unwrap(), ".b { background: url(\"../images/bg.png\"); }\n@font-face { src: url(./fonts/a.woff2) format(\"woff2\"); }\n.c { mask: url(data:image/svg+xml,x); }\n");
+    assert!(out.text("app/src/packages/@shell/web/src/ui/Button.tsx").unwrap().starts_with("import \"./button.css\";\n"));
     assert!(out.contains("app/src/packages/@shell/web/src/images/bg.png"));
     assert!(out.contains("app/src/packages/@shell/web/src/ui/fonts/a.woff2"));
     assert!(!report.notes.iter().any(|n| n.message.contains("now resolve from")), "{:?}", report.notes);

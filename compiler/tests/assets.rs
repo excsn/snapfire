@@ -62,11 +62,12 @@ fn test_every_emitted_specifier_resolves_in_the_output() {
   let dist = fixture.root().join("dist");
   let content = fs::read_to_string(dist.join("index.js")).unwrap();
 
-  for specifier in ["./data/config.json", "./theme.css"] {
-    assert!(content.contains(specifier), "{specifier} missing from the emitted module");
-    assert!(
-      predicate::path::exists().eval(&dist.join(specifier.trim_start_matches("./"))),
-      "{specifier} is imported but was never delivered"
-    );
-  }
+  let specifier = "./data/config.json";
+  assert!(content.contains(specifier), "{specifier} missing from the emitted module");
+  assert!(predicate::path::exists().eval(&dist.join("data/config.json")), "{specifier} is imported but was never delivered");
+
+  assert!(!content.contains("./theme.css"), "a stylesheet imported for its effect leaves the module: {content}");
+  assert!(predicate::path::exists().eval(&dist.join("theme.css")), "and is still delivered");
+  let facts = fs::read_to_string(dist.join(".snapfire-build.json")).unwrap();
+  assert!(facts.contains(r#""index.js": ["theme.css"]"#), "{facts}");
 }

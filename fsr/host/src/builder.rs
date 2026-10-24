@@ -579,6 +579,7 @@ impl HostBuilder {
 
     let manifest =
       Manifest::from_text(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
+    let (mut sheets, attributed) = route_sheets(&manifest.sheets, config.bundle.as_ref(), served_bundle(&config));
     let shell_module = config.document.shell.clone();
     let shell_theme = manifest.theme.clone();
     let mut themes: HashMap<String, (String, bool)> = manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))).collect();
@@ -739,6 +740,8 @@ impl HostBuilder {
         ignored,
       });
       let site_bundle = served_under(mount.artifact.config.bundle.as_ref(), config.dev());
+      let (site_sheets, site_attributed) = route_sheets(&site_manifest.sheets, mount.artifact.config.bundle.as_ref(), site_bundle);
+      sheets.extend(site_sheets);
       hashed_names.extend(site_bundle.map(hashed_names_of));
       probes.extend(site.probe.iter().cloned().map(|probe| (mount.name.clone(), probe)));
       sites.push(SiteTables {
@@ -746,7 +749,7 @@ impl HostBuilder {
         at: site.at.clone(),
         middleware: None,
         theme: None,
-        styles: served_urls(mount.artifact.config.document.styles.clone().unwrap_or_default(), site_bundle),
+        styles: served_urls(unattributed(mount.artifact.config.document.styles.clone().unwrap_or_default(), mount.artifact.config.bundle.as_ref(), &site_attributed), site_bundle),
         entry: mount.artifact.config.document.entry.as_deref().map(|entry| served_url(entry, site_bundle)),
         preload: match config.document.module_preload {
           true => {
@@ -896,7 +899,7 @@ impl HostBuilder {
       templates_answered(plan, &app.runtime.evaluators, stock_templates.as_deref())?;
     }
 
-    let styles = served_urls(config.document.styles.clone().unwrap_or_default(), served_bundle(&config));
+    let styles = served_urls(unattributed(config.document.styles.clone().unwrap_or_default(), config.bundle.as_ref(), &attributed), served_bundle(&config));
     let entry = config.document.entry.as_deref().map(|entry| served_url(entry, served_bundle(&config)));
     let mut head = shell::head(
       config.document.title.literal(),
@@ -1163,6 +1166,7 @@ impl HostBuilder {
         origin: config.origin()?,
         dev_bundle,
         styles,
+        sheets,
         statics,
         favicon: config.favicon.clone(),
         static_cache,
@@ -1276,4 +1280,29 @@ fn other_origin(src: &str) -> Option<String> {
   let rest = src.strip_prefix("https://").map(|r| ("https", r)).or_else(|| src.strip_prefix("http://").map(|r| ("http", r)))?;
   let host = rest.1.split(['/', '?', '#']).next().filter(|host| !host.is_empty())?;
   Some(format!("{}://{host}", rest.0))
+}
+
+/// Each route segment module's stylesheets that `bundle` holds by the URL the host serves them
+/// at, with the bundle-relative path of every sheet some segment links. A sheet the bundle does
+/// not hold is a component with no style block.
+fn route_sheets(rows: &[snapfire_fsr_plan::ModuleSheets], bundle: Option<&config::Bundle>, served: Option<&config::Bundle>) -> (HashMap<String, Vec<String>>, std::collections::HashSet<String>) {
+  let mut by_module = HashMap::new();
+  let mut attributed = std::collections::HashSet::new();
+  let Some(bundle) = bundle else { return (by_module, attributed) };
+  for row in rows {
+    let held: Vec<&String> = row.sheets.iter().filter(|sheet| bundle.outputs.contains(*sheet)).collect();
+    if held.is_empty() {
+      continue;
+    }
+    attributed.extend(held.iter().map(|sheet| (*sheet).clone()));
+    by_module.insert(row.module.clone(), held.into_iter().map(|sheet| served_url(&format!("{}/{sheet}", bundle.route), served)).collect());
+  }
+  (by_module, attributed)
+}
+
+/// The document's stylesheets less each component sheet a route segment links on its own documents.
+fn unattributed(styles: Vec<String>, bundle: Option<&config::Bundle>, attributed: &std::collections::HashSet<String>) -> Vec<String> {
+  let Some(bundle) = bundle else { return styles };
+  let linked: std::collections::HashSet<String> = bundle.styles.iter().filter(|style| attributed.contains(*style)).map(|style| format!("{}/{style}", bundle.route)).collect();
+  styles.into_iter().filter(|url| !linked.contains(url)).collect()
 }

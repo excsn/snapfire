@@ -339,6 +339,13 @@ if (new globalThis.MouseEvent("click").button !== 0) {
 }
 // A browser adopts a node inserted from another document: the node takes the new one as its owner. linkedom does not. A module that captured `document` at import keeps creating nodes in the first page's document (Vue's runtime does), so without adoption the focus such a node records lands on that document.
 const INSERTS = ["appendChild", "insertBefore", "replaceChild", "append", "prepend", "before", "after", "replaceWith", "replaceChildren"];
+// linkedom fetches nothing, so a stylesheet link put in the document never loads. A browser fires `load` once the sheet arrives, which a navigation adding a page's sheets waits for.
+const loading = new WeakSet();
+const stylesheetLinks = (node) => {
+  if (!node || typeof node !== "object" || node.nodeType !== 1 && node.nodeType !== 11) return [];
+  const own = node.nodeType === 1 && node.localName === "link" && /(^|\s)stylesheet(\s|$)/i.test(node.getAttribute("rel") ?? "") ? [node] : [];
+  return [...own, ...Array.from(node.querySelectorAll?.("link[rel~=stylesheet]") ?? [])];
+};
 const adopt = (node, doc) => {
   node.ownerDocument = doc;
   for (let child = node.firstChild; child; child = child.nextSibling) adopt(child, doc);
@@ -359,7 +366,17 @@ if (typeof document.createElement === "function") {
             for (const node of nodes) {
               if (node && typeof node === "object" && node.ownerDocument && node.ownerDocument !== doc) adopt(node, doc);
             }
-            return insert.apply(this, nodes);
+            const sheets = nodes.flatMap(stylesheetLinks);
+            const result = insert.apply(this, nodes);
+            for (const link of sheets) {
+              if (!link.isConnected || loading.has(link)) continue;
+              loading.add(link);
+              queueMicrotask(() => {
+                loading.delete(link);
+                link.dispatchEvent(new Event("load"));
+              });
+            }
+            return result;
           };
           adopting.set(insert, wrapper);
           wrappers.add(wrapper);

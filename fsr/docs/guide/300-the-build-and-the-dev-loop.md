@@ -26,7 +26,7 @@ Not every route module is in it. A template the `--verbose` report marks `static
 
 A `.vue` file under `src/` is compiled by a plugin, `snapfirec-vue` on `PATH`, which snapfirec spawns once and keeps for the build; the file becomes a module and a scoped stylesheet beside it. The build's banner names the plugin and says how many of its files the plugin cache answered. Chapter 104 covers it in full.
 
-The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads to infer the public path, the entry script and the component stylesheets to link, so the two tools share a file instead of configuration.
+The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads to infer the public path, the entry script and the component stylesheets the bundle holds, so the two tools share a file instead of configuration. Which documents link a component's sheet the plan says: `fsr build` names under each layout and page the sheets its module reaches.
 
 They also share a second directory. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr/bundle/` with those calls turned into reads of what the server delivered and `fsr dev` passes `--overlay .fsr/bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
 

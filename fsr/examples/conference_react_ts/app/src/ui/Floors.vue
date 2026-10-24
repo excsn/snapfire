@@ -19,3 +19,13 @@ const shown = computed(() => props.talks.filter((t) => t.room === chosen.value))
     </ol>
   </div>
 </template>
+
+<style>
+.floors-room {
+  margin-right: 0.25rem;
+}
+
+.floors-chosen {
+  font-weight: 600;
+}
+</style>

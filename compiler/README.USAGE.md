@@ -19,6 +19,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
   * [Resolving Path Aliases](#resolving-path-aliases)
   * [Stripping Console Calls](#stripping-console-calls)
 * [Compiling CSS](#compiling-css)
+  * [Importing a Stylesheet From a Module](#importing-a-stylesheet-from-a-module)
   * [Targeting Browsers](#targeting-browsers)
   * [Building Tailwind Stylesheets](#building-tailwind-stylesheets)
 * [Compiling Framework Components](#compiling-framework-components)
@@ -733,6 +734,29 @@ body .container {
 
 Nesting flattening and vendor prefixing are driven by the browser targets and happen either way. `@import` is not inlined and files are not concatenated, so each input `.css` stays a separate output `.css`. A Tailwind stylesheet is the exception: Tailwind inlines what it imports.
 
+### Importing a Stylesheet From a Module
+
+A module may import a stylesheet for its effect. A browser cannot load CSS as a module, so the import leaves the emitted JavaScript and the sheet is listed in the build facts under the module that imported it, for whatever renders the page to link:
+
+```typescript
+// src/ui/card.ts
+import "./card.css";
+
+export function card(): string {
+  return "card";
+}
+```
+
+```json
+{
+  "sheets": {
+    "ui/card.js": ["ui/card.css"]
+  }
+}
+```
+
+The sheet compiles like any other `.css` file in the build. Only a relative specifier with nothing imported is taken this way; `import styles from "./card.module.css"` is left as written.
+
 ### Targeting Browsers
 
 Targets come from a `.browserslistrc`, searched for from the root upward, so one file at the top of a monorepo covers every package under it:
@@ -1351,7 +1375,7 @@ Every build writes `.snapfire-build.json`, whose `graph` names what each entry p
 }
 ```
 
-One file, for a page and for a packager alike. `entries` and `graph` are what a page preloads from. `outputs`, `externals`, `assets` and `minified` are what a tool that vendors this output would otherwise recover by parsing the JavaScript; the compiler already resolved every one of them. `assets` is described under [Emitting Images and Fonts](#emitting-images-and-fonts).
+One file, for a page and for a packager alike. `entries` and `graph` are what a page preloads from. `sheets`, written when a module imports a stylesheet, is described under [Importing a Stylesheet From a Module](#importing-a-stylesheet-from-a-module). `outputs`, `externals`, `assets` and `minified` are what a tool that vendors this output would otherwise recover by parsing the JavaScript; the compiler already resolved every one of them. `assets` is described under [Emitting Images and Fonts](#emitting-images-and-fonts).
 
 Paths stay in the output directory's own terms. `--public-path` is recorded as `publicPath` rather than prefixed onto every path, so one build is mountable anywhere and a consumer joins the two.
 

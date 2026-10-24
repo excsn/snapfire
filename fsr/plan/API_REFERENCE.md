@@ -22,6 +22,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
   * [ClientEntry](#cliententry)
   * [DeriveEntry](#deriveentry)
   * [ModuleHead](#modulehead)
+  * [ModuleSheets](#modulesheets)
   * [ImageEntry](#imageentry)
   * [ThemeEntry](#themeentry)
 * [5. The S-Expression Form](#5-the-s-expression-form)
@@ -43,7 +44,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub clients: Vec<ClientEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String>, pub reads: BTreeMap<String, Vec<String>>, pub derives: Vec<DeriveEntry>, pub heads: Vec<ModuleHead>, pub images: Vec<ImageEntry>, pub theme: Option<Body>, pub themes: Vec<ThemeEntry> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package. `reads` is, per island module the server does not render, the store keys the build read from its source, written as one `(reads module "key" ...)` form each and prefixed by `namespaced` like any module. `derives` is every store key a `derive` in the browser's files computes, absent from the file when empty. `heads` is the head rows the build knows for a module from a file beside it, absent when empty. `images` is one row per generated card image per page it covers, absent when empty. `theme` is the lowered `theme.ts`, absent when `None`; `themes` is one row per layout or page that sets a theme, absent when empty.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub clients: Vec<ClientEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String>, pub reads: BTreeMap<String, Vec<String>>, pub derives: Vec<DeriveEntry>, pub heads: Vec<ModuleHead>, pub sheets: Vec<ModuleSheets>, pub images: Vec<ImageEntry>, pub theme: Option<Body>, pub themes: Vec<ThemeEntry> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package. `reads` is, per island module the server does not render, the store keys the build read from its source, written as one `(reads module "key" ...)` form each and prefixed by `namespaced` like any module. `derives` is every store key a `derive` in the browser's files computes, absent from the file when empty. `heads` is the head rows the build knows for a module from a file beside it, absent when empty. `sheets` is the stylesheets each route segment's module links, absent when empty. `images` is one row per generated card image per page it covers, absent when empty. `theme` is the lowered `theme.ts`, absent when `None`; `themes` is one row per layout or page that sets a theme, absent when empty.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
@@ -145,6 +146,11 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 ### ModuleHead
 
 * `pub struct ModuleHead { pub module: String, pub head: Vec<HeadRow> }`: head rows a module carries whatever renders it, a route directory's `opengraph-image` and `twitter-image` among them; a host folds them in with a component's own rows under the same module. `Manifest::with_heads(self, Vec<ModuleHead>) -> Self` sets them and `namespaced` prefixes `module`. In the s-expression form each is `(module-head <module> (head <tag> "<name>" "<value>" ...) ...)`.
+
+
+### ModuleSheets
+
+* `pub struct ModuleSheets { pub module: String, pub sheets: Vec<String> }`: the stylesheets a page rendering a layout, page, fallback or error boundary module links, as paths under the application's build output: each sheet a file the module reaches imports for its effect and, for each Vue or Svelte component it reaches, the sheet compiling that component writes beside it, `Card.vue.css`. A host links the ones the bundle holds. `Manifest::with_sheets(self, Vec<ModuleSheets>) -> Self` sets them and `namespaced` prefixes `module`. In the s-expression form each is `(module-sheets <module> "<path>" ...)`.
 
 ### ImageEntry
 

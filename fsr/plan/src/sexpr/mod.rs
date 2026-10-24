@@ -66,6 +66,11 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
     rest.extend(entry.head.iter().map(head_row_to_sx));
     out.push(form("module-head", rest));
   }
+  for entry in &manifest.sheets {
+    let mut rest = vec![sym(entry.module.clone())];
+    rest.extend(entry.sheets.iter().map(|sheet| Sx::Str(sheet.clone())));
+    out.push(form("module-sheets", rest));
+  }
   for entry in &manifest.images {
     let mut rest = vec![sym(entry.pattern.clone()), sym(entry.module.clone())];
     rest.extend(opt_form("source", &entry.source));
@@ -159,6 +164,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     reads: Default::default(),
     derives: Vec::new(),
     heads: Vec::new(),
+    sheets: Vec::new(),
     images: Vec::new(),
     theme: None,
     themes: Vec::new(),
@@ -267,6 +273,12 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
           return Err(err("a module head is `(module-head module (head ...) ...)`"));
         }
         manifest.heads.push(crate::ModuleHead { module: as_sym(&items[1])?, head: items[2..].iter().map(head_row_from_sx).collect::<Res<Vec<_>>>()? });
+      }
+      "module-sheets" => {
+        if items.len() < 3 {
+          return Err(err("a module's sheets are `(module-sheets module \"path\" ...)`"));
+        }
+        manifest.sheets.push(crate::ModuleSheets { module: as_sym(&items[1])?, sheets: items[2..].iter().map(as_sym).collect::<Res<Vec<_>>>()? });
       }
       "image" => {
         if items.len() < 3 {

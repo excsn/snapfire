@@ -358,6 +358,7 @@ fn every_manifest() -> Manifest {
         snapfire_fsr_plan::HeadRow { tag: "meta".to_owned(), attrs: vec![("property".to_owned(), "og:image:alt".to_owned()), ("content".to_owned(), "A \"quoted\" line".to_owned())] },
       ],
     }],
+    sheets: vec![snapfire_fsr_plan::ModuleSheets { module: "routes/page.tsx#default".to_owned(), sheets: vec!["src/ui/card.css".to_owned(), "src/ui/Pantry.vue.css".to_owned()] }],
     images: vec![
       snapfire_fsr_plan::ImageEntry { pattern: "/notice/{id}/opengraph-image.png".to_owned(), module: "routes/notice/[id]/opengraph-image.tsx#default".to_owned(), source: Some("notice.$id".to_owned()), width: 1200, height: 630, content_type: "image/png".to_owned(), page: "routes/notice/[id]/page.tsx#default".to_owned(), card: "og".to_owned(), hash: "1a2b3c4d".to_owned(), alt: Some("A \"notice\"".to_owned()), images: None },
       snapfire_fsr_plan::ImageEntry { pattern: "/twitter-image.jpg".to_owned(), module: "routes/twitter-image.tsx#default".to_owned(), source: None, width: 800, height: 418, content_type: "image/jpeg".to_owned(), page: "routes/page.tsx#default".to_owned(), card: "twitter".to_owned(), hash: "5e6f7a8b".to_owned(), alt: None, images: Some(every_stmt()) },
@@ -582,6 +583,7 @@ fn manifest() -> BoxedStrategy<Manifest> {
       reads: Default::default(),
       derives: Vec::new(),
       heads: Vec::new(),
+      sheets: Vec::new(),
       images: Vec::new(),
       theme: None,
       themes: Vec::new(),
@@ -739,8 +741,9 @@ fn a_format_6_plan_still_reads() {
   assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
-/// Every marker, html and place node, every cell expression, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
+/// Every marker, html and place node, every cell expression, the Svelte-owned component, the `svelte` framework and the module sheets dropped, which is what a plan written before format 7 carries.
 fn forget_svelte(manifest: &mut Manifest) {
+  manifest.sheets.clear();
   manifest.consts.retain(|_, expr| !matches!(expr, Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..)));
   manifest.components.retain(|entry| entry.body.owner != snapfire_fsr_ir::Owner::Svelte);
   manifest.frameworks.remove("svelte");

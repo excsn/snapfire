@@ -246,7 +246,7 @@ From the app directory, each reported at boot under `inferred`:
 | a `/static/js/vendor` root for a site running alone | the shell's `app/vendor/`, beside the `generated/shell.json` that `[site] shell` names |
 | a `/static/css` root and `document.styles` | the `styles` directory `[dirs]` names, `styles/` by default, every `.css` in it linked from the head in name order: the copy the bundle compiled when the build facts list one, so it is minified outside development and its `url()`s are the asset map's, else the file in the directory |
 | the image policy, the font CSS and the preloads in the head | `generated/assets.json`, which `fsr build` writes from the images the components import and the fonts directory |
-| the component stylesheets in `document.styles` | the build facts' `styles`, the sheets a compiler plugin wrote beside its components, linked after the document's own |
+| the component stylesheets in `document.styles` | the build facts' `styles`, the sheets a compiler plugin wrote beside its components, linked after the document's own; a sheet the plan names under a route's layout or page is linked on that route's documents instead |
 | the named theme sheets in `document.styles` | every `.css` the build facts list under the styles directory's `themes/`, which `fsr build` writes for the named themes, linked after the directory's own sheets in name order |
 
 The build facts are read from `dist/` or, failing that, from whichever directory a `[[static]]` root already points at, since an application that writes its own root for the browser tree keeps the bundle elsewhere: a project rendering through Tera has `js/dist`, whose component stylesheets would otherwise never reach the head. The report names the directory it read.

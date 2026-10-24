@@ -1,0 +1,8 @@
+.checklist {
+  border: 1px solid #c8c8d0;
+  border-radius: 6px;
+}
+
+.checklist-count {
+  font-size: 0.875rem;
+}

@@ -62,7 +62,7 @@ Every import follows the file it names. A relative specifier is rewritten for bo
 | `next/image` | `Picture` from `@snapfire/fsr/components` |
 | `next/font/google` | a `[fonts.<key>]` table in `config/app.toml` and a `font-<key>` class over `--font-<key>` |
 | `<html>` and `<body>` in a route layout or in the layout component it re-exports (`export default BaseLayout`) | a fragment and a `<div>`, since the host writes the document |
-| a stylesheet imported for its effect, `import "./globals.css"`, in the app or a workspace package | moved under `app/styles/`, which every document links; the files its relative `url()`s name come with it and each `url()` is rewritten to reach them from there |
+| a stylesheet imported for its effect, `import "./globals.css"`, in the app or a workspace package | kept beside the module that imports it, which FSR links on the documents whose route reaches that module, as Next loads it with the route; a package sheet's relative `url()`s bring the files they name. One that uses Tailwind moves under `app/styles/`, which every document links, with each `url()` rewritten to reach its files from there |
 | `next/script`'s `<Script src>` in a page or layout | a `scriptTag` row in the route's `meta` head, `lazyOnload` loading on `idle` |
 | `GoogleMapsEmbed`, `YouTubeEmbed` from `@next/third-parties/google` | the `<iframe>` each renders |
 

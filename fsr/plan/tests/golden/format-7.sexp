@@ -351,6 +351,7 @@
     "content"
     "/static/js/app/routes/blog/opengraph-image.1a2b3c4d.png")
   (head meta "property" "og:image:alt" "content" "A \"quoted\" line"))
+(module-sheets routes/page.tsx#default "src/ui/card.css" "src/ui/Pantry.vue.css")
 (image
   |/notice/{id}/opengraph-image.png|
   routes/notice/[id]/opengraph-image.tsx#default

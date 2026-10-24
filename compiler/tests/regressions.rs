@@ -61,7 +61,7 @@ fn test_import_specifiers_resolve_to_loadable_paths() {
   assert!(content.contains(r#"from "./typed.js""#));
   assert!(content.contains("from './already.js'"));
   assert!(content.contains("from 'some-package'"));
-  assert!(content.contains("import './theme.css'"));
+  assert!(!content.contains("theme.css"), "a stylesheet imported for its effect leaves the module");
   assert!(content.contains(r#"export * from "./state.js""#));
 
   assert!(!content.contains("./theme.css.js"));

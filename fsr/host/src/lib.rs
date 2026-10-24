@@ -360,6 +360,8 @@ struct Tables {
   /// The document's own stylesheets as its head links them, which a dev event
   /// names so an open page can add a sheet a build added.
   styles: Vec<String>,
+  /// The stylesheets each route segment's module links on the documents that render it, by URL.
+  sheets: HashMap<String, Vec<String>>,
   statics: Vec<(String, ServeDir, PathBuf)>,
   /// The static path `/favicon.ico` is looked up as, `config.favicon`.
   favicon: Option<String>,

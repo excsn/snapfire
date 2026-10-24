@@ -68,6 +68,26 @@ impl Graph {
     found.into_iter().collect()
   }
 
+  /// Each module that imports stylesheets for their effect, with those sheets in import order. A
+  /// minified module is left out, since its sheets are the `.min` twins of the readable one's.
+  pub fn sheets(&self, out_dir: &Path) -> BTreeMap<String, Vec<String>> {
+    let mut out = BTreeMap::new();
+    for (module, targets) in &self.edges {
+      if module.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.contains(".min.")) {
+        continue;
+      }
+      let sheets: Vec<String> = targets
+        .iter()
+        .filter(|target| target.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("css")))
+        .filter_map(|target| url_for(target, out_dir, None))
+        .collect();
+      if let (false, Some(name)) = (sheets.is_empty(), url_for(module, out_dir, None)) {
+        out.insert(name, sheets);
+      }
+    }
+    out
+  }
+
   pub fn manifest(&self, out_dir: &Path, public_path: Option<&str>) -> Option<String> {
     let mut entries: BTreeMap<String, Vec<String>> = BTreeMap::new();
 

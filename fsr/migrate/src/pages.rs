@@ -798,9 +798,9 @@ mod tests {
     let (out, _) = migrate(&input);
     assert_eq!(
       out.text("app/routes/layout.tsx").unwrap(),
-      "export default function MyApp({ children }) {\n  return <Layout><>{children}</></Layout>;\n}\n"
+      "import \"../src/styles/globals.css\";\n\nexport default function MyApp({ children }) {\n  return <Layout><>{children}</></Layout>;\n}\n"
     );
-    assert_eq!(out.text("app/styles/globals.css").unwrap(), "body {}\n");
+    assert_eq!(out.text("app/src/styles/globals.css").unwrap(), "body {}\n", "the root layout links it on every document");
   }
 
   #[test]

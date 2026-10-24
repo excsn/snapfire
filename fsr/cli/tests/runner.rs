@@ -169,6 +169,30 @@ test("a symbol key is an ordinary property of the style", () => {
 }
 
 #[test]
+fn a_stylesheet_link_put_in_the_document_loads_as_in_a_browser() {
+  let spec = r#"import { expect, test } from "@snapfire/fsr-client/testing";
+
+test("the link fires load once it is in the document", async () => {
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "/static/sheet.css";
+  let loaded = 0;
+  link.addEventListener("load", () => loaded++);
+  await Promise.resolve();
+  expect(loaded, "not before it is inserted").toEqual(0);
+  document.head.appendChild(link);
+  await new Promise<void>((done) => link.addEventListener("load", () => done(), { once: true }));
+  expect(loaded).toEqual(1);
+});
+"#;
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/link.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 1, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
 fn a_listener_is_called_with_the_node_it_was_added_to_as_in_a_browser() {
   let spec = r#"import { expect, fireEvent, test } from "@snapfire/fsr-client/testing";
 

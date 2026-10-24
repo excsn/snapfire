@@ -379,6 +379,11 @@ impl Fold for ImportRewriter {
           Some(target) if !written.starts_with('.') => relative_specifier(&self.dir, &target),
           _ => written.into_owned(),
         };
+        if specifier.starts_with('.') && import.specifiers.is_empty() && specifier.to_ascii_lowercase().ends_with(".css") {
+          let mut src = (*import.src).clone();
+          self.rewrite(&mut src, false, Vec::new());
+          return ModuleItem::Stmt(Stmt::Empty(swc_core::ecma::ast::EmptyStmt { span: DUMMY_SP }));
+        }
         if !specifier.starts_with('.') || import.specifiers.len() != 1 {
           return item;
         }

@@ -1673,6 +1673,14 @@ fn write_build_facts(opts: &Options, build: &mut Build) {
   push_list(&mut body, "externals", &build.externals);
   push_list(&mut body, "outputs", &outputs(build));
   push_list(&mut body, "styles", &plugin_styles(build));
+  let sheets = build.graph.sheets(&build.out_dir);
+  if !sheets.is_empty() {
+    let rows: Vec<String> = sheets
+      .iter()
+      .map(|(module, sheets)| format!("    \"{}\": [{}]", escape(module), sheets.iter().map(|sheet| format!("\"{}\"", escape(sheet))).collect::<Vec<_>>().join(", ")))
+      .collect();
+    body.push_str(&format!("  \"sheets\": {{\n{}\n  }},\n", rows.join(",\n")));
+  }
   push_assets(&mut body, build);
 
   if opts.minify.is_some() {
