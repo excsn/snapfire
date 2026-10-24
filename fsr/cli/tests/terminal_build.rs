@@ -77,3 +77,21 @@ fn the_declarations_of_fsrs_terminal_typescript_follow_its_source() {
   assert_eq!(name, "hooks.d.ts");
   assert!(text.contains("export declare function useExtra(): number;") && text.contains("export declare function useWindowSize(): WindowSize;"), "{text}");
 }
+
+#[test]
+fn the_key_a_handler_gets_is_declared_from_the_fields_the_terminal_sets() {
+  let declared = snapfire_fsr_cli::terminal::key_declaration();
+  for field in snapfire_fsr_cli::terminal::KEYS {
+    assert!(declared.contains(&format!("  {field}: boolean;\n")), "{field} in {declared}");
+  }
+  use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+  let codes = [KeyCode::Up, KeyCode::Down, KeyCode::Left, KeyCode::Right, KeyCode::PageUp, KeyCode::PageDown, KeyCode::Enter, KeyCode::Esc, KeyCode::Tab, KeyCode::BackTab, KeyCode::Backspace, KeyCode::Delete, KeyCode::Char('x')];
+  for code in codes {
+    let Some(snapfire_fsr_cli::terminal::Press::Input(snapfire_fsr_core::Value::Map(press))) = snapfire_fsr_cli::terminal::key_event(KeyEvent::new(code, KeyModifiers::all())) else { panic!("{code:?} is input") };
+    let Some(snapfire_fsr_core::Value::Map(key)) = press.get("key") else { panic!("a key") };
+    let set: Vec<&String> = key.iter().filter(|(_, on)| **on == snapfire_fsr_core::Value::Bool(true)).map(|(name, _)| name).collect();
+    let own = if matches!(code, KeyCode::Char(_)) { 0 } else { 1 };
+    assert_eq!(set.len(), 3 + own, "{code:?} sets ctrl, shift and meta and a field of its own in KEYS: {set:?}");
+    assert_eq!(key.len(), snapfire_fsr_cli::terminal::KEYS.len(), "{code:?}");
+  }
+}

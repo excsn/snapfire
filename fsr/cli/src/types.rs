@@ -47,7 +47,7 @@ pub const TERMINAL_TYPES: &str = "@snapfire/fsr/terminal";
 /// The declarations of what FSR's terminal implements natively, which have no TypeScript source to declare them from; `core.d.ts` opens with the Box and Text props of `snapfire_fsr_terminal::prop_declarations`.
 #[cfg(feature = "terminal")]
 fn native_terminal() -> Vec<(String, String)> {
-  let core = format!("import type {{ ReactElement, ReactNode }} from \"react\";\n\n{}\n{}", snapfire_fsr_terminal::prop_declarations(), include_str!("../embedded/terminal/core.d.ts"));
+  let core = format!("import type {{ ReactElement, ReactNode }} from \"react\";\n\n{}\n{}\n{}", snapfire_fsr_terminal::prop_declarations(), crate::terminal::key_declaration(), include_str!("../embedded/terminal/core.d.ts"));
   vec![
     ("index.d.ts".to_owned(), include_str!("../embedded/terminal/index.d.ts").to_owned()),
     ("core.d.ts".to_owned(), core),

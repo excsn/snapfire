@@ -56,7 +56,17 @@ const RUNNING: Duration = Duration::from_millis(16);
 type Reported = (Spawn, Report, Value);
 
 /// The flags Ink's `useInput` hands a handler beside the input text.
-const KEYS: [&str; 14] = ["upArrow", "downArrow", "leftArrow", "rightArrow", "pageUp", "pageDown", "return", "escape", "ctrl", "shift", "tab", "backspace", "delete", "meta"];
+pub const KEYS: [&str; 14] = ["upArrow", "downArrow", "leftArrow", "rightArrow", "pageUp", "pageDown", "return", "escape", "ctrl", "shift", "tab", "backspace", "delete", "meta"];
+
+/// The TypeScript of `Key`, the flags of [`KEYS`].
+pub fn key_declaration() -> String {
+  let mut out = String::from("/** The key a press names, beside the text it typed. */\nexport interface Key {\n");
+  for field in KEYS {
+    out.push_str(&format!("  {field}: boolean;\n"));
+  }
+  out.push_str("}\n");
+  out
+}
 
 /// What a keypress asks for.
 pub enum Press {
