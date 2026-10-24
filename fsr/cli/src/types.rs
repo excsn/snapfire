@@ -44,17 +44,74 @@ const FSR_AUTHORING: &[(&str, &str)] = &[
 /// Where a terminal application's declarations of FSR's terminal modules go under `types/`, which `@snapfire/fsr/terminal` and its subpaths map to.
 pub const TERMINAL_TYPES: &str = "@snapfire/fsr/terminal";
 
-/// The declarations of FSR's terminal modules: `index.d.ts`, `core.d.ts` and `ink.d.ts` written for the natives,
-/// the rest `snapfirec --declaration` of `lower/terminal/`, `ink.tsx` as `hooks.d.ts`.
-const FSR_TERMINAL: &[(&str, &str)] = &[
+/// The declarations of what FSR's terminal implements natively, which have no TypeScript source to declare them from.
+const NATIVE_TERMINAL: &[(&str, &str)] = &[
   ("index.d.ts", include_str!("../embedded/terminal/index.d.ts")),
   ("core.d.ts", include_str!("../embedded/terminal/core.d.ts")),
   ("ink.d.ts", include_str!("../embedded/terminal/ink.d.ts")),
-  ("hooks.d.ts", include_str!("../embedded/terminal/hooks.d.ts")),
-  ("spinner.d.ts", include_str!("../embedded/terminal/spinner.d.ts")),
-  ("spinners.d.ts", include_str!("../embedded/terminal/spinners.d.ts")),
-  ("text-input.d.ts", include_str!("../embedded/terminal/text-input.d.ts")),
 ];
+
+/// The file under [`TERMINAL_TYPES`] holding a hash of what its declarations were written from.
+const TERMINAL_STAMP: &str = ".written-from";
+
+/// The TypeScript FSR provides a terminal page, each under the name its declaration takes: Ink's hooks as `hooks`, each companion under its file's name.
+fn terminal_sources() -> Vec<(String, &'static str)> {
+  let mut sources = vec![("hooks.tsx".to_owned(), snapfire_fsr_lower::terminal::INK_SOURCE)];
+  for (_, file, source) in snapfire_fsr_lower::terminal::COMPANIONS {
+    sources.push((file.rsplit('/').next().unwrap_or(file).to_owned(), source));
+  }
+  sources
+}
+
+/// `.d.ts` files for `sources`, each `(name, text)` of a TypeScript file, as `snapfirec --declaration` emits them, by name.
+pub fn declarations_of(sources: &[(String, &str)]) -> Result<Vec<(String, String)>, BuildError> {
+  static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+  let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let root = std::env::temp_dir().join(format!("fsr-declarations-{}-{n}", std::process::id()));
+  let src = root.join("src");
+  std::fs::create_dir_all(&src).map_err(|e| BuildError::Io(src.clone(), e))?;
+  for (name, text) in sources {
+    std::fs::write(src.join(name), text).map_err(|e| BuildError::Io(src.join(name), e))?;
+  }
+  let config = "{\n  \"compilerOptions\": { \"target\": \"es2022\", \"outDir\": \"dist\", \"rootDir\": \"src\", \"jsx\": \"react-jsx\", \"declaration\": true },\n  \"include\": [\"src/**/*\"]\n}\n";
+  std::fs::write(root.join("tsconfig.json"), config).map_err(|e| BuildError::Io(root.join("tsconfig.json"), e))?;
+  let snapfirec = crate::dev::find_snapfirec(None);
+  let ran = std::process::Command::new(&snapfirec).arg("--root").arg(&root).arg("--declaration").output();
+  let declared = match ran {
+    Ok(out) if out.status.success() => sources
+      .iter()
+      .map(|(name, _)| {
+        let stem = name.rsplit_once('.').map_or(name.as_str(), |(stem, _)| stem);
+        let file = root.join("dist").join(format!("{stem}.d.ts"));
+        std::fs::read_to_string(&file).map(|text| (format!("{stem}.d.ts"), text)).map_err(|e| BuildError::Io(file, e))
+      })
+      .collect(),
+    Ok(out) => Err(BuildError::Types(format!("{} --declaration failed: {}", snapfirec.display(), String::from_utf8_lossy(&out.stderr).trim()))),
+    Err(e) => Err(BuildError::Types(format!("{} could not run to declare FSR's terminal modules: {e}", snapfirec.display()))),
+  };
+  let _ = std::fs::remove_dir_all(&root);
+  declared
+}
+
+/// Writes the declarations of FSR's terminal modules under [`TERMINAL_TYPES`] when `always` holds or what they are written from changed since they were last written; true when it wrote them.
+fn write_terminal(app: &Path, layout: &Layout, always: bool) -> Result<bool, BuildError> {
+  use std::hash::{Hash, Hasher};
+  let dir = app.join(&layout.types).join(TERMINAL_TYPES);
+  let sources = terminal_sources();
+  let mut hasher = std::collections::hash_map::DefaultHasher::new();
+  (&sources, NATIVE_TERMINAL).hash(&mut hasher);
+  let stamp = format!("{:016x}\n", hasher.finish());
+  if !always && std::fs::read_to_string(dir.join(TERMINAL_STAMP)).is_ok_and(|held| held == stamp) {
+    return Ok(false);
+  }
+  let declared = declarations_of(&sources)?;
+  std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
+  for (name, text) in NATIVE_TERMINAL.iter().map(|(name, text)| ((*name).to_owned(), (*text).to_owned())).chain(declared) {
+    std::fs::write(dir.join(&name), text).map_err(|e| BuildError::Io(dir.join(&name), e))?;
+  }
+  std::fs::write(dir.join(TERMINAL_STAMP), stamp).map_err(|e| BuildError::Io(dir.join(TERMINAL_STAMP), e))?;
+  Ok(true)
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
@@ -269,12 +326,8 @@ pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   if recorded && root.join(TYPES_MANIFEST).is_file() {
     manifest.write(app, &layout)?;
   }
-  if crate::is_terminal_app(app) {
-    let dir = root.join(TERMINAL_TYPES);
-    if FSR_TERMINAL.iter().any(|(name, content)| std::fs::read_to_string(dir.join(name)).map(|held| held != *content).unwrap_or(true)) {
-      write_embedded(app, &layout, TERMINAL_TYPES, FSR_TERMINAL)?;
-      refreshed.push(dir);
-    }
+  if crate::is_terminal_app(app) && write_terminal(app, &layout, false)? {
+    refreshed.push(root.join(TERMINAL_TYPES));
   }
   Ok(refreshed)
 }
@@ -459,7 +512,7 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
     if let Some(files) = embedded {
       write_embedded(app, layout, &package, files)?;
       if package == "@snapfire/fsr-client" && crate::is_terminal_app(app) {
-        write_embedded(app, layout, TERMINAL_TYPES, FSR_TERMINAL)?;
+        write_terminal(app, layout, refresh)?;
       }
       manifest.packages.insert(package.clone(), embedded_record());
       report.fetched.push((package, env!("CARGO_PKG_VERSION").to_owned(), "fsr".to_owned()));

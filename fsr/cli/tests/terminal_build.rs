@@ -66,3 +66,43 @@ fn a_terminal_app_has_declarations_for_fsrs_terminal_modules_and_asks_for_react(
   assert!(!tsconfig.contains("jsxImportSource"), "a terminal page's JSX is React's: {tsconfig}");
   assert!(snapfire_fsr_cli::types::missing(&app).unwrap().contains(&"react".to_owned()));
 }
+
+#[test]
+fn the_declarations_of_fsrs_terminal_typescript_follow_its_source() {
+  let source = format!("{}\nexport function useExtra(): number {{\n  return 1;\n}}\n", snapfire_fsr_lower::terminal::INK_SOURCE);
+  let declared = snapfire_fsr_cli::types::declarations_of(&[("hooks.tsx".to_owned(), source.as_str())]).unwrap_or_else(|e| panic!("{e}"));
+  let (name, text) = &declared[0];
+  assert_eq!(name, "hooks.d.ts");
+  assert!(text.contains("export declare function useExtra(): number;") && text.contains("export declare function useWindowSize(): WindowSize;"), "{text}");
+}
+
+/// The camelCase props `interface` declares in `core.d.ts`, as the kebab attributes the markup carries them in, beside `children`, `key` and `ref`.
+fn declared_attributes(core: &str, interface: &str) -> std::collections::BTreeSet<String> {
+  let body = core.split(&format!("export interface {interface} {{")).nth(1).and_then(|rest| rest.split("\n}").next()).unwrap_or_else(|| panic!("{interface} in core.d.ts"));
+  body
+    .lines()
+    .filter_map(|line| line.trim().split_once("?:").map(|(name, _)| name.to_owned()))
+    .filter(|name| !["children", "key", "ref"].contains(&name.as_str()))
+    .map(|name| name.chars().flat_map(|c| if c.is_ascii_uppercase() { vec!['-', c.to_ascii_lowercase()] } else { vec![c] }).collect())
+    .collect()
+}
+
+/// The attributes the markup reader's `fn` named `function` handles, the arms of its attribute match.
+fn read_attributes(markup: &str, function: &str, end: &str) -> std::collections::BTreeSet<String> {
+  let body = markup.split(&format!("fn {function}(")).nth(1).and_then(|rest| rest.split(end).next()).unwrap_or_else(|| panic!("fn {function} in markup.rs"));
+  let arm = regex::Regex::new(r#"^ {6}("[a-z-]+"(?: \| "[a-z-]+")*) =>"#).unwrap();
+  body
+    .lines()
+    .filter_map(|line| arm.captures(line).map(|c| c[1].to_owned()))
+    .flat_map(|names| names.split(" | ").map(|name| name.trim_matches('"').to_owned()).collect::<Vec<_>>())
+    .filter(|name| name != "ink-ref")
+    .collect()
+}
+
+#[test]
+fn the_box_and_text_props_declared_are_the_ones_the_terminal_reads() {
+  let core = include_str!("../embedded/terminal/core.d.ts");
+  let markup = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../terminal/src/markup.rs")).unwrap();
+  assert_eq!(declared_attributes(core, "BoxProps"), read_attributes(&markup, "boxed", "\nfn kebab("));
+  assert_eq!(declared_attributes(core, "TextProps"), read_attributes(&markup, "text", "for child in el.children"));
+}
