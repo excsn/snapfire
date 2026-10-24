@@ -7751,3 +7751,54 @@ mod oidc_method {
     assert!(refused("[auth]\nprovider = \"oidc\"\npreset = \"google\"\nclient_id = \"app\"\nclient_secret = \"nowhere\"\n").contains("no [secrets.nowhere]"));
   }
 }
+
+mod passkey_method {
+  use super::*;
+
+  fn host(auth: &str) -> Host {
+    let dir = identified_dir(USERS);
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    let toml = toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", auth).replace("[document]\n", "[document]\norigin = \"https://shop.example\"\n");
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+    Host::from(dir.join("app.toml")).unwrap().build().unwrap()
+  }
+
+  async fn json(host: &Host, request: Request<Bytes>) -> (String, serde_json::Value) {
+    let response = host.handle(request).await;
+    let cookie = response.headers().get_all(header::SET_COOKIE).iter().filter_map(|v| v.to_str().ok()).find(|v| v.starts_with("sf_session=")).map(|v| v.split(';').next().unwrap().to_owned()).unwrap_or_default();
+    (cookie, serde_json::from_str(&body_of(response).await).unwrap())
+  }
+
+  #[tokio::test]
+  async fn a_passkey_sign_in_presents_a_discoverable_ceremony_for_the_origins_host() {
+    let host = host("[auth]\nprovider = \"passkey\"\n");
+    assert!(host.report().to_string().contains("passkey for shop.example"), "{}", host.report());
+    let (_, step) = json(&host, Request::get("/auth/login").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert_eq!(step["kind"], "webauthn.get");
+    assert_eq!(step["data"]["publicKey"]["rpId"], "shop.example");
+    assert_eq!(step["data"]["publicKey"]["allowCredentials"], serde_json::json!([]));
+  }
+
+  #[tokio::test]
+  async fn a_passkey_second_factor_after_a_password_creates_the_first_passkey() {
+    let host = host("[auth]\nlogin = \"/login\"\nsecond_factor = \"passkey\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\nverification = \"required\"\n");
+    let (cookie, step) = json(&host, Request::get("/auth/login").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert_eq!(step["kind"], "form");
+    let request = Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::ACCEPT, "application/json").header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap();
+    let (_, step) = json(&host, request).await;
+    assert_eq!(step["kind"], "webauthn.create", "{step}");
+    let public = &step["data"]["publicKey"];
+    assert_eq!(public["rp"]["id"], "shop.example");
+    assert_eq!(public["user"]["id"], "YWxpY2U", "alice, base64url");
+    assert_eq!(public["authenticatorSelection"]["userVerification"], "required");
+  }
+
+  #[test]
+  fn a_passkey_method_with_an_unknown_verification_is_refused() {
+    let dir = identified_dir(USERS);
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", "[auth]\nprovider = \"passkey\"\nverification = \"sometimes\"\n")).unwrap();
+    let error = Host::from(dir.join("app.toml")).err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(error.contains("verification is `required` or `preferred`"), "{error}");
+  }
+}

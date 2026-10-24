@@ -1178,6 +1178,16 @@ pub struct AuthSection {
   pub key_id: Option<String>,
   #[serde(default)]
   pub signing_key: Option<String>,
+  /// `passkey`: the JSON file the passkeys are kept in, relative to the configuration directory,
+  /// `passkeys.json` when absent.
+  #[serde(default)]
+  pub store: Option<String>,
+  /// `passkey`: what the browser's prompt calls the site, `document.title` when absent.
+  #[serde(default)]
+  pub rp_name: Option<String>,
+  /// `passkey`: `required` to insist the authenticator verifies the user; `preferred` when absent.
+  #[serde(default)]
+  pub verification: Option<String>,
 }
 
 /// One `[[auth.methods]]` entry.
@@ -1221,6 +1231,16 @@ pub struct MethodSection {
   pub key_id: Option<String>,
   #[serde(default)]
   pub signing_key: Option<String>,
+  /// `passkey`: the JSON file the passkeys are kept in, relative to the configuration directory,
+  /// `passkeys.json` when absent.
+  #[serde(default)]
+  pub store: Option<String>,
+  /// `passkey`: what the browser's prompt calls the site, `document.title` when absent.
+  #[serde(default)]
+  pub rp_name: Option<String>,
+  /// `passkey`: `required` to insist the authenticator verifies the user; `preferred` when absent.
+  #[serde(default)]
+  pub verification: Option<String>,
 }
 
 impl AuthSection {
@@ -1242,13 +1262,16 @@ impl AuthSection {
         team_id: self.team_id.clone(),
         key_id: self.key_id.clone(),
         signing_key: self.signing_key.clone(),
+        store: self.store.clone(),
+        rp_name: self.rp_name.clone(),
+        verification: self.verification.clone(),
       }],
       _ => self.methods.clone(),
     }
   }
 }
 
-pub const PROVIDERS: &[&str] = &["file", "service", "oidc"];
+pub const PROVIDERS: &[&str] = &["file", "service", "oidc", "passkey"];
 
 /// The issuers `[auth] preset` names.
 pub const PRESETS: &[&str] = &["google", "microsoft", "apple"];
@@ -2243,7 +2266,7 @@ impl Config {
     let auth: Option<AuthSection> =
       if store.path_exists("auth") || !store.key_paths_with_prefix(Some("auth")).is_empty() {
         let mut json = serde_json::Map::new();
-        for key in ["provider", "login", "users", "client", "methods", "second_factor", "issuer", "preset", "tenant", "client_id", "client_secret", "scopes", "claims", "team_id", "key_id", "signing_key"] {
+        for key in ["provider", "login", "users", "client", "methods", "second_factor", "issuer", "preset", "tenant", "client_id", "client_secret", "scopes", "claims", "team_id", "key_id", "signing_key", "store", "rp_name", "verification"] {
           if let Some(value) = store.get(&format!("auth.{key}")) {
             json.insert(key.to_owned(), to_json(&value));
           }
@@ -2281,6 +2304,9 @@ impl Config {
                 return Err(HostError::Config(at.clone(), format!("{at_key}: names `{named}`, which no [secrets.{named}] declares")));
               }
             }
+          }
+          if method.provider == "passkey" && method.verification.as_deref().is_some_and(|v| v != "required" && v != "preferred") {
+            return Err(HostError::Config(at.clone(), format!("{at_key}: verification is `required` or `preferred`")));
           }
           if method.provider == "service" {
             match &method.client {

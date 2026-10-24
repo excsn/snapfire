@@ -3,6 +3,7 @@
 use super::*;
 use base64::Engine;
 use snapfire_fsr_oidc::{ClientSecret, OidcConfig, OidcProvider};
+use snapfire_fsr_passkey::{FilePasskeys, PasskeyConfig, Passkeys};
 
 pub(crate) fn see_other(location: &str) -> Response<Body> {
   match Response::builder()
@@ -283,6 +284,7 @@ pub(crate) fn method_provider(method: &crate::config::MethodSection, config: &Co
       Ok((Arc::new(ServiceProvider::new(services.clone(), client)), name))
     }
     "oidc" => oidc_provider(method, config),
+    "passkey" => passkey_provider(method, config),
     other => Err(HostError::Value("auth.provider".to_owned(), other.to_owned())),
   }
 }
@@ -336,3 +338,22 @@ fn oidc_provider(method: &crate::config::MethodSection, config: &Config) -> Resu
   oidc = oidc.rename(method.claims.clone());
   Ok((Arc::new(OidcProvider::new(oidc)), format!("oidc {label}")))
 }
+
+/// A `passkey` method over its JSON file. The relying party is the origin's host; in development
+/// without `document.origin` it is `localhost` on the listening port, so the site is browsed at
+/// `http://localhost:<port>`, since a passkey is never bound to an IP address.
+fn passkey_provider(method: &crate::config::MethodSection, config: &Config) -> Result<(Arc<dyn IdentityProvider>, String), HostError> {
+  let origin = match config.origin()? {
+    Some(origin) => origin,
+    None if config.dev() => format!("http://localhost:{}", config.server.listen.rsplit(':').next().unwrap_or("80")),
+    None => return Err(HostError::Config(config.config_dir(), format!("auth.methods `{}`: a passkey method needs `document.origin`, the site its passkeys are bound to", method.name))),
+  };
+  let host = origin.split_once("://").map(|(_, rest)| rest).unwrap_or(&origin);
+  let rp_id = host.rsplit_once(':').filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit())).map_or(host, |(name, _)| name).to_owned();
+  let title = config.document.title.literal();
+  let rp_name = method.rp_name.clone().or_else(|| (!title.is_empty()).then(|| title.to_owned())).unwrap_or_else(|| rp_id.clone());
+  let store = config.config_dir().join(method.store.as_deref().unwrap_or("passkeys.json"));
+  let passkeys = PasskeyConfig::new(rp_id.clone(), rp_name, origin).require_verification(method.verification.as_deref() == Some("required"));
+  Ok((Arc::new(Passkeys::new(passkeys, Arc::new(FilePasskeys::new(store)))), format!("passkey for {rp_id}")))
+}
+

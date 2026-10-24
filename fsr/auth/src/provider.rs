@@ -39,6 +39,12 @@ impl Start {
     self.method = method;
     self
   }
+
+  /// Who the flow is for: set on a sign-in by a provider asking for a second factor.
+  pub fn identity(mut self, identity: Option<Identity>) -> Self {
+    self.identity = identity;
+    self
+  }
 }
 
 /// What the browser does next. `state` never leaves the server: `Auth` keeps it in token custody

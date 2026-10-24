@@ -84,6 +84,7 @@ What a flow starts from. Derives `Debug` and `Clone`. `#[non_exhaustive]`: build
 * `pub fn sign_in(return_to: impl Into<String>) -> Self`
 * `pub fn enrol(return_to: impl Into<String>, identity: Identity) -> Self`
 * `pub fn method(self, method: Option<String>) -> Self`
+* `pub fn identity(self, identity: Option<Identity>) -> Self`: who a sign-in is for, which a provider asking for a second factor sets.
 
 ### Intent
 

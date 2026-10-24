@@ -914,6 +914,22 @@ client_secret = "google"
 description = "the Google OAuth client secret"
 ```
 
+`provider = "passkey"` signs in with passkeys bound to `document.origin`'s host, kept in `config/passkeys.json` unless `store` names another file. As a `second_factor` after a password it asks for the identity's own passkeys. It creates the first one for an identity that holds none:
+
+```toml
+[auth]
+login = "/login"
+second_factor = "passkey"
+
+[[auth.methods]]
+name = "password"
+provider = "file"
+
+[[auth.methods]]
+name = "passkey"
+provider = "passkey"
+```
+
 Several methods on one login page are `[[auth.methods]]`, in the order the page lists them. A sign-in with `?method=<name>` runs that one; one with none presents a `choose` step naming them all. `second_factor` names a method every sign-in through the others must also pass for the same subject:
 
 ```toml
