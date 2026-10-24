@@ -408,8 +408,11 @@ What an extension call and the argument helpers fail with.
 
 * `pub kind: FailureKind`
 * `pub message: String`
+* `pub thrown: Option<Box<Value>>` - what a `throw` threw, which a `catch` binds.
+* `pub call: Option<String>` - the service call that raised it, `service.method`.
 * `pub fn new(kind: FailureKind, message: impl Into<String>) -> Fail`
 * `pub fn internal(message: impl Into<String>) -> Fail` - kind `Internal`.
+* `pub fn with_thrown(self, value: Value) -> Fail` and `pub fn with_call(self, call: impl Into<String>) -> Fail`.
 * `impl fmt::Display` - `kind: message`, the kind spelled as `as_str` spells it.
 * `impl std::error::Error` - no `source`.
 * Derives `Debug`, `Clone` and `PartialEq`.

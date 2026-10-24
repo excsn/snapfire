@@ -53,6 +53,6 @@ A call fails with a kind, one per HTTP error status: `unauthorized`, `forbidden`
 
 ## The lab
 
-Point the shopping client somewhere empty: in `config/app.toml` change `clients.shopping.base_url` to a port nothing listens on and start the host. The report still lists the service, since binding a transport does not open a socket. Load the catalog: the error page renders; its message names `shopping.listProducts` as `unavailable`. The body never saw a connection error, because transport errors become failure kinds before a body sees them.
+Point the shopping client somewhere empty: in `config/app.toml` change `clients.shopping.base_url` to a port nothing listens on and start the host. The report still lists the service, since binding a transport does not open a socket. Load the catalog: the error page renders with `data source $root: shopping.listProducts failed (unavailable): the backend did not answer`, which the log's `segment loader failed` line carries too. Under `fsr dev` the shopping binary starts its own backend on 8081, so point the client elsewhere with `C5_CLIENTS__SHOPPING__BASE_URL=http://127.0.0.1:9`. The body never saw a connection error, because transport errors become failure kinds before a body sees them.
 
 Put it back, then read [`storefront.rs`](../../examples/shopping_react_ts/tests/storefront.rs) and find `services_over`. Every test in the file runs the whole host over a mock transport with no backend running; the assertions on the transport's recorded calls are how a test says what the page asked for.

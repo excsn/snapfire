@@ -856,12 +856,14 @@ The failure shapes a UI has to render, shared by actions and services so no appl
 
 ### `LoadError`
 
-A data source failed. `Debug + Clone + thiserror::Error`, displayed as ``data source {source_id}: {message}``.
+A data source failed. `Debug + Clone + thiserror::Error`, displayed as ``data source {source_id}: {message}``. When a service call failed it is displayed as ``data source {source_id}: {call} failed ({kind}): {message}``, such as `data source $root: shopping.listProducts failed (unavailable): the backend did not answer`.
 
 * `pub source_id: String`
 * `pub message: String`
-* `pub kind: FailureKind`: the kind a body's `fail` named, `Internal` for anything else.
+* `pub kind: FailureKind`: the kind a body's `fail` or the failed call named, `Internal` for anything else.
+* `pub call: Option<String>`: the service call that failed, `service.method`.
 * `LoadError::new(source_id, message) -> Self`, kind `Internal`; `with_kind(self, kind) -> Self`.
+* `LoadError::failed(source_id, fail: Fail) -> Self`: a body's failure, keeping its kind and its call.
 
 Raised by a `DataSource`. In assembly it degrades one segment to its error module rather than failing the request. It disqualifies the whole enclosing subtree from being cached. Its display string is the `error` prop the error module receives. It is not a hard error unless a caller converts it into `AssembleError::Load` itself.
 

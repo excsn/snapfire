@@ -9,18 +9,33 @@ use snapfire_fsr_core::{Data, DataSourceId};
 use crate::ctx::RequestCtx;
 
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("data source {source_id}: {message}")]
 #[non_exhaustive]
 pub struct LoadError {
   pub source_id: String,
   pub message: String,
   /// What kind of failure: the `fail` a body raised names one, anything else is `Internal`.
   pub kind: FailureKind,
+  /// The service call that failed, `service.method`, when one did.
+  pub call: Option<String>,
+}
+
+impl std::fmt::Display for LoadError {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match &self.call {
+      Some(call) => write!(f, "data source {}: {call} failed ({}): {}", self.source_id, self.kind.as_str(), self.message),
+      None => write!(f, "data source {}: {}", self.source_id, self.message),
+    }
+  }
 }
 
 impl LoadError {
   pub fn new(source_id: impl Into<String>, message: impl Into<String>) -> Self {
-    Self { source_id: source_id.into(), message: message.into(), kind: FailureKind::Internal }
+    Self { source_id: source_id.into(), message: message.into(), kind: FailureKind::Internal, call: None }
+  }
+
+  /// What a body's failure is to the source it ran in, keeping its kind and the call that raised it.
+  pub fn failed(source_id: impl Into<String>, fail: snapfire_fsr_core::ext::Fail) -> Self {
+    Self { source_id: source_id.into(), message: fail.message, kind: fail.kind, call: fail.call }
   }
 
   pub fn with_kind(mut self, kind: FailureKind) -> Self {

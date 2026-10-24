@@ -118,11 +118,19 @@ pub struct Fail {
   pub message: String,
   /// What a `throw` threw, which a `catch` binds; `None` for a failure the interpreter or a call raised.
   pub thrown: Option<Box<Value>>,
+  /// The service call that failed, `service.method`, when a call raised it.
+  pub call: Option<String>,
 }
 
 impl Fail {
   pub fn new(kind: FailureKind, message: impl Into<String>) -> Self {
-    Self { kind, message: message.into(), thrown: None }
+    Self { kind, message: message.into(), thrown: None, call: None }
+  }
+
+  /// This failure as the one `call`, `service.method`, answered with.
+  pub fn with_call(mut self, call: impl Into<String>) -> Self {
+    self.call = Some(call.into());
+    self
   }
 
   /// This failure as the throw of `value`.

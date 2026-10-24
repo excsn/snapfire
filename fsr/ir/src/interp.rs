@@ -1884,7 +1884,7 @@ impl Env {
               }
             }
           }
-          self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
+          self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message).with_call(format!("{service}.{method}")))
         }
         Expr::Next(request) => {
           let request = self.eval(request).await?;

@@ -461,6 +461,20 @@ fn the_bound_source_and_action_answer_through_the_runtime_traits() {
   assert_eq!(err.kind, FailureKind::Invalid);
 }
 
+/// DEFECTS 1.158.
+#[test]
+fn a_loader_whose_call_fails_names_the_method_and_the_kind() {
+  let mock = Arc::new(Mock::default());
+  let rt = tokio::runtime::Runtime::new().unwrap();
+  let source = IrSource::new("routes/page.loader.ts#load", vec![
+    Stmt::Let { name: "products".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
+    Stmt::Return(Expr::object(vec![("products", Expr::var("products"))])),
+  ]);
+  let err = rt.block_on(source.load(&ctx(mock, &[], ValueMap::default()))).unwrap_err();
+  assert_eq!(err.kind, FailureKind::NotFound);
+  assert_eq!(err.to_string(), "data source routes/page.loader.ts#load: shopping.listProducts failed (not_found): no answer recorded");
+}
+
 #[test]
 fn a_guards_message_is_evaluated_when_it_fires() {
   let mock = Mock::returning("shopping.listProducts", Value::seq(vec![]));

@@ -108,7 +108,7 @@ impl DataSource for IrSource {
       let outcome = interpreter
         .run(&body, &ctx, None)
         .await
-        .map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
+        .map_err(|fail| LoadError::failed(id.clone(), fail))?;
       match outcome.value {
         Value::Map(data) => Ok(data),
         other => Err(LoadError::new(id, format!("a loader must return an object, got {}", kind_name(&other)))),
@@ -146,7 +146,7 @@ impl Metadata for IrMeta {
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
       let Value::Map(map) = outcome.value else {
         return Err(LoadError::new(id, format!("meta must return an object, got {}", kind_name(&outcome.value))));
       };
@@ -291,7 +291,7 @@ impl IrStore {
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
       match outcome.value {
         Value::Map(map) => Ok(map),
         other => Err(LoadError::new(id, format!("{export} must return an object, got {}", kind_name(&other))).with_kind(FailureKind::Internal)),
@@ -365,7 +365,7 @@ impl Paths for IrPaths {
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
+      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
       let Value::Seq(items) = outcome.value else {
         return Err(LoadError::new(id, format!("paths must return a list, got {}", kind_name(&outcome.value))));
       };
