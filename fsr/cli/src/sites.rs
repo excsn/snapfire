@@ -535,6 +535,7 @@ fn layer_file(config: &Config, layer: &str) -> Result<PathBuf, BuildError> {
 /// file is started and a missing header is appended; without, either is a
 /// refusal, since the table the header belongs to is written by hand.
 fn set_key(path: &Path, header: &str, key: &str, value: &str, create: bool) -> Result<(), BuildError> {
+  let _held = edit_lock(path)?;
   let text = match std::fs::read_to_string(path) {
     Ok(text) => text,
     Err(e) if create && e.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -565,9 +566,20 @@ fn set_key(path: &Path, header: &str, key: &str, value: &str, create: bool) -> R
   }
   let mut out = lines.join("\n");
   out.push('\n');
-  std::fs::write(path, &out).map_err(|e| BuildError::Io(path.to_path_buf(), e))?;
   toml::from_str::<toml::Value>(&out).map_err(|e| refuse(format!("{}: {e}", path.display())))?;
+  let fresh = path.with_file_name(format!(".{}.writing", path.file_name().and_then(|n| n.to_str()).unwrap_or("config")));
+  std::fs::write(&fresh, &out).map_err(|e| BuildError::Io(fresh.clone(), e))?;
+  std::fs::rename(&fresh, path).map_err(|e| BuildError::Io(path.to_path_buf(), e))?;
   Ok(())
+}
+
+/// The lock two writers of one configuration file take, under the system's temporary directory so the configuration directory gains no file.
+fn edit_lock(path: &Path) -> Result<snapfire_fsr_core::lock::Held, BuildError> {
+  use std::hash::{Hash, Hasher};
+  let mut hasher = std::collections::hash_map::DefaultHasher::new();
+  std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()).hash(&mut hasher);
+  let lock = std::env::temp_dir().join("fsr-locks").join(format!("{:016x}.lock", hasher.finish()));
+  snapfire_fsr_core::lock::exclusive(&lock).map_err(|e| BuildError::Io(lock, e))
 }
 
 /// Every version of every site the shell's cache holds, against what its table

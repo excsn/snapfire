@@ -152,7 +152,7 @@ Feature `http` adds `HttpStore`. Module constant `STAGING` is `".staging"`, the 
 * `pub struct Cache { pub root: PathBuf }`: `<root>/<name>/<version>` per installed version, where `name@version` resolves.
 * `path(name, version)`, `holds(name, version)`, `versions(name)` oldest install first.
 * `install(&self, store: &dyn Store, name, package, version, keep: Option<usize>) -> Result<Installed, InstallError>`: a held version is reported with `held: true` and not fetched; otherwise the store fills a staging directory, the manifest is verified and the directory renamed into place, then `keep` sweeps. `Mismatch` when the archive's manifest names another version.
-* `sweep(name, keep, hold: &[String])` removes the oldest versions beyond `keep`, never one in `hold`; `sweep_staging()` removes what a dead fetch left.
+* `sweep(name, keep, hold: &[String])` removes the oldest versions beyond `keep`, never one in `hold`; `sweep_staging()` removes what a dead fetch left. `install`, `sweep` and `sweep_staging` each hold an exclusive lock on `<root>/.lock` (`LOCK`), so hosts and commands sharing a cache never act on each other's half-finished install: the second installer of a version finds it held.
 
 ### Installed
 

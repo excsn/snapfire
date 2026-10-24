@@ -41,30 +41,34 @@ struct Deployed {
   fetched: bool,
 }
 
-/// The README's walkthrough, done once: billing packed and installed into the
-/// cache, status packed into a store and fetched by the first boot.
+/// The README's walkthrough, done once across every test process for the site sources as they stand: billing packed and installed into the cache, status packed into a store and fetched by the first boot. Each process serves its own copy of the store for the reloads that fetch from it.
 fn deployed() -> &'static Deployed {
   static DEPLOYED: OnceLock<Deployed> = OnceLock::new();
   DEPLOYED.get_or_init(|| {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let scratch = std::env::temp_dir().join(format!("portal-sites-{}", std::process::id()));
-    let cache = Cache::new(root.join("deploy/sites"));
-    let archive = scratch.join("billing-1.0.0.tar.gz");
-    pack(&root.join("sites/billing"), "1.0.0", &archive).unwrap();
-    let _ = std::fs::remove_dir_all(cache.path("billing", "1.0.0"));
-    cache.install(&ArchiveStore::new(archive), "billing", "billing", "1.0.0", None).unwrap();
-
     pack(&root.join("sites/status"), "1.0.0", &scratch.join("store/status-1.0.0.tar.gz")).unwrap();
-    let _ = std::fs::remove_dir_all(cache.path("status", "1.0.0"));
     let store = HttpStore::new(serve(scratch.join("store")));
-    // The pins `fsr sites install --layer local` writes, for the artifacts this
-    // run packed, so the table holds against what the cache holds.
-    let billing_hash = snapfire_fsr_sites::hash_dir(&cache.path("billing", "1.0.0")).unwrap();
-    std::fs::write(root.join("config/local.toml"), format!("[sites.billing]\nhash = \"{billing_hash}\"\n")).unwrap();
-    snapfire_fsr_sites::mount_all_with(Host::from(&root).unwrap(), &store).unwrap().build().unwrap();
-    let fetched = cache.holds("status", "1.0.0");
-    let status_hash = snapfire_fsr_sites::hash_dir(&cache.path("status", "1.0.0")).unwrap();
-    std::fs::write(root.join("config/local.toml"), format!("[sites.billing]\nhash = \"{billing_hash}\"\n\n[sites.status]\nhash = \"{status_hash}\"\n")).unwrap();
+    let markers = root.join("deploy/.once");
+    let key = format!("walkthrough-{}-{}", snapfire_fsr_sites::hash_dir(&root.join("sites/billing")).unwrap(), snapfire_fsr_sites::hash_dir(&root.join("sites/status")).unwrap());
+    snapfire_fsr_core::lock::once(&markers, &key, || -> Result<(), String> {
+      let cache = Cache::new(root.join("deploy/sites"));
+      let archive = scratch.join("billing-1.0.0.tar.gz");
+      pack(&root.join("sites/billing"), "1.0.0", &archive).map_err(|e| e.to_string())?;
+      let _ = std::fs::remove_dir_all(cache.path("billing", "1.0.0"));
+      cache.install(&ArchiveStore::new(archive), "billing", "billing", "1.0.0", None).map_err(|e| e.to_string())?;
+      let _ = std::fs::remove_dir_all(cache.path("status", "1.0.0"));
+      // The pins `fsr sites install --layer local` writes, for the artifacts this
+      // run packed, so the table holds against what the cache holds.
+      let billing_hash = snapfire_fsr_sites::hash_dir(&cache.path("billing", "1.0.0")).map_err(|e| e.to_string())?;
+      std::fs::write(root.join("config/local.toml"), format!("[sites.billing]\nhash = \"{billing_hash}\"\n")).map_err(|e| e.to_string())?;
+      snapfire_fsr_sites::mount_all_with(Host::from(&root).unwrap(), &store).map_err(|e| e.to_string())?.build().map_err(|e| e.to_string())?;
+      std::fs::write(markers.join(format!("{key}.fetched")), if cache.holds("status", "1.0.0") { "true" } else { "false" }).map_err(|e| e.to_string())?;
+      let status_hash = snapfire_fsr_sites::hash_dir(&cache.path("status", "1.0.0")).map_err(|e| e.to_string())?;
+      std::fs::write(root.join("config/local.toml"), format!("[sites.billing]\nhash = \"{billing_hash}\"\n\n[sites.status]\nhash = \"{status_hash}\"\n")).map_err(|e| e.to_string())
+    })
+    .unwrap();
+    let fetched = std::fs::read_to_string(markers.join(format!("{key}.fetched"))).is_ok_and(|text| text == "true");
     Deployed { store, fetched }
   })
 }

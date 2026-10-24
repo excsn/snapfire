@@ -15,6 +15,9 @@ use crate::artifact::{unpack, ArtifactError, Manifest};
 /// installs never crosses a filesystem.
 pub const STAGING: &str = ".staging";
 
+/// The file a cache's installs and sweeps lock, beside the sites.
+pub const LOCK: &str = ".lock";
+
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum InstallError {
@@ -245,6 +248,7 @@ impl Cache {
     version: &str,
     keep: Option<usize>,
   ) -> Result<Installed, InstallError> {
+    let _held = self.held()?;
     let destination = self.path(name, version);
     if destination.is_dir() {
       let manifest = Manifest::read(&destination)?;
@@ -281,7 +285,7 @@ impl Cache {
     })?;
 
     let swept = match keep {
-      Some(keep) => self.sweep(name, keep, &[version.to_owned()])?,
+      Some(keep) => self.sweep_held(name, keep, &[version.to_owned()])?,
       None => Vec::new(),
     };
     Ok(Installed {
@@ -336,6 +340,17 @@ impl Cache {
   /// Removes installed versions of `name` past the `keep` most recent, never
   /// one named in `hold`. Returns what it removed.
   pub fn sweep(&self, name: &str, keep: usize, hold: &[String]) -> Result<Vec<String>, InstallError> {
+    let _held = self.held()?;
+    self.sweep_held(name, keep, hold)
+  }
+
+  /// The cache's lock: an install, a sweep and a staging sweep each hold it, so two processes sharing the cache never act on each other's half-finished work.
+  fn held(&self) -> Result<snapfire_fsr_core::lock::Held, InstallError> {
+    let path = self.root.join(LOCK);
+    snapfire_fsr_core::lock::exclusive(&path).map_err(|e| InstallError::Io(path, e))
+  }
+
+  fn sweep_held(&self, name: &str, keep: usize, hold: &[String]) -> Result<Vec<String>, InstallError> {
     let versions = self.versions(name);
     let over = versions.len().saturating_sub(keep.max(1));
     let mut removed = Vec::new();
@@ -353,6 +368,7 @@ impl Cache {
   /// Removes every staging directory left by a fetch that died. Run at boot,
   /// where nothing else is staging.
   pub fn sweep_staging(&self) -> Result<usize, InstallError> {
+    let _held = self.held()?;
     let staging = self.root.join(STAGING);
     let Ok(read) = std::fs::read_dir(&staging) else {
       return Ok(0);

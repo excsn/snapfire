@@ -1,6 +1,7 @@
 pub mod duration;
 pub mod ext;
 pub mod json;
+pub mod lock;
 mod fingerprint;
 pub mod module_id;
 pub mod node;

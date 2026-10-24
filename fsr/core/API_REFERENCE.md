@@ -42,8 +42,12 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
 9. [Dates](#9-dates)
    * [iso_string](#iso_string)
    * [Calendar Arithmetic](#calendar-arithmetic)
-10. [Error Handling](#10-error-handling)
+10. [Locks](#10-locks)
+   * [exclusive and shared](#exclusive-and-shared)
+   * [once](#once)
+11. [Error Handling](#11-error-handling)
    * [Unwritable](#unwritable)
+   * [OnceError](#onceerror)
    * [FailureKind](#failurekind)
    * [Fail](#fail)
    * [ParseModuleIdError](#parsemoduleiderror)
@@ -362,11 +366,29 @@ Read an extension's arguments. A wrong kind fails as `Internal` with `what wants
 * `pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64` and `pub fn civil_from_days(z: i64) -> (i64, u32, u32)`: a date and its day count since 1970-01-01.
 * `pub fn civil_from_ms(ms: f64) -> (i64, u32, u32)` and `pub fn clock_from_ms(ms: f64) -> (u32, u32, u32, u32)`: the UTC date and the hours, minutes, seconds and milliseconds of an instant.
 
-## 10. Error Handling
+## 10. Locks
+
+`snapfire_fsr_core::lock`: a lock on a file, held the same across threads and processes, released when the holder drops it or the process ends.
+
+### exclusive and shared
+
+* `pub fn exclusive(path: impl AsRef<Path>) -> io::Result<Held>`: waits until no one else holds `path` and holds it alone. The file is made when absent and left in place.
+* `pub fn shared(path: impl AsRef<Path>) -> io::Result<Held>`: waits until no one holds it alone and holds it beside other shared holders.
+* `pub struct Held`: the lock, with `path()`; dropping it releases the lock.
+
+### once
+
+* `pub fn once<E>(dir: impl AsRef<Path>, key: &str, setup: impl FnOnce() -> Result<(), E>) -> Result<bool, OnceError<E>>`: runs `setup` once for `key` across every thread and process sharing `dir`, under `<dir>/<key>.lock`, recording `<dir>/<key>.done` when it succeeds. `true` when this call ran it. `key` names the inputs, so different inputs run it again.
+
+## 11. Error Handling
 
 ### Unwritable
 
 * `pub struct Unwritable(pub String)`: a value plain JSON has no form for under the rule given, a `BigInt` under `Integers::Refuse`.
+
+### OnceError
+
+* `pub enum OnceError<E> { Io(io::Error), Setup(E) }`: the lock or the marker failed (`Io`) or the setup did (`Setup`). A failed setup records nothing, so the next caller runs it again.
 
 ### FailureKind
 

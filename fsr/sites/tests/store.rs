@@ -199,3 +199,28 @@ fn a_reload_after_the_row_moves_fetches_the_new_version() {
   assert_eq!(host.report().sites[0].version, "1.1.0");
   assert!(root.join("sites/billing/1.1.0").is_dir());
 }
+
+/// Several hosts, `fsr sites install` and a boot's staging sweep share one cache: each install of a version the cache lacks must land once and none may fail on another's half-finished work.
+#[test]
+fn installs_racing_into_one_cache_all_land() {
+  let root = dir("race");
+  packed(&root.join("archives"), "1.0.0");
+  let archive = root.join("archives/billing-1.0.0.tar.gz");
+  let cache_dir = root.join("sites");
+  let racers: Vec<_> = (0..8)
+    .map(|i| {
+      let (archive, cache_dir) = (archive.clone(), cache_dir.clone());
+      std::thread::spawn(move || {
+        let cache = Cache::new(cache_dir);
+        if i % 4 == 3 {
+          cache.sweep_staging().map(|_| ()).map_err(|e| e.to_string())
+        } else {
+          cache.install(&snapfire_fsr_sites::ArchiveStore::new(archive), "billing", "billing", "1.0.0", Some(1)).map(|_| ()).map_err(|e| e.to_string())
+        }
+      })
+    })
+    .collect();
+  let outcomes: Vec<Result<(), String>> = racers.into_iter().map(|r| r.join().unwrap()).collect();
+  assert!(outcomes.iter().all(Result::is_ok), "{outcomes:?}");
+  assert!(Cache::new(root.join("sites")).holds("billing", "1.0.0"));
+}
