@@ -571,6 +571,37 @@ fn a_handler_reads_a_const_the_component_declares_below_its_use_input() {
 }
 
 #[test]
+fn an_effect_reads_a_const_the_component_declares_below_it() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Count() {\n  const [count, setCount] = useState(1);\n  useEffect(() => {\n    const timer = setTimeout(() => setCount(shown + 1), 100);\n    return () => clearTimeout(timer);\n  }, []);\n  const shown = count * 2;\n  return <Text>{shown}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "2");
+  let timers = session.take_started();
+  assert_eq!(line(session.fire(&timers[0]).unwrap()), "6");
+}
+
+
+#[test]
+fn a_handler_calls_an_arrow_and_filters_a_list_the_component_declares_below_it() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Picks() {\n  const [count, setCount] = useState(0);\n  useInput(() => {\n    bump(open.filter((item) => item !== \"b\").length);\n  });\n  const open = [\"a\", \"b\", \"c\"];\n  const bump = (by: number) => setCount(count + by);\n  return <Text>{count}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "0");
+  assert_eq!(line(session.press(&x).unwrap()), "2");
+}
+
+#[test]
+fn a_custom_hooks_handler_reads_a_const_the_hook_declares_below_it() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nfunction useCounter() {\n  const [count, setCount] = useState(1);\n  useInput(() => setCount(step + count));\n  const step = count * 10;\n  return count;\n}\n\nexport default function Page() {\n  const count = useCounter();\n  return <Text>{count}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "1");
+  assert_eq!(line(session.press(&x).unwrap()), "11");
+}
+
+#[test]
 fn a_state_setter_passed_as_a_prop_sets_the_parents_state_when_the_child_calls_it() {
   let page = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Typer({ value, onChange }: { value: string; onChange: (value: string) => void }) {\n  useInput((input) => onChange(value + input));\n  return <Text>typed {value}</Text>;\n}\n\nexport default function Page() {\n  const [query, setQuery] = useState(\"\");\n  return (\n    <Box flexDirection=\"column\">\n      <Typer value={query} onChange={setQuery} />\n      <Text>query {query}</Text>\n    </Box>\n  );\n}\n";
   let mut session = Session::open(&app(page)).unwrap();

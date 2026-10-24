@@ -772,7 +772,7 @@ impl Bindings {
 }
 
 /// Every name `pat` binds, in order.
-fn pattern_names<'p>(pat: &'p js::Pat, out: &mut Vec<&'p js::Ident>) {
+pub(crate) fn pattern_names<'p>(pat: &'p js::Pat, out: &mut Vec<&'p js::Ident>) {
   match pat {
     js::Pat::Ident(id) => out.push(&id.id),
     js::Pat::Array(array) => array.elems.iter().flatten().for_each(|p| pattern_names(p, out)),
@@ -1088,6 +1088,12 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) browser_value: Option<String>,
   /// The reaches this page may use besides `Render` and `Body`: [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`] for a terminal page, none for a web page.
   pub(crate) reaches: Vec<Reach>,
+  /// The names the body being lowered declares, each with the name it binds, which JavaScript binds from the start of the body: what runs after the body, a handler or an effect, reads one declared below it.
+  pub(crate) declared_below: Vec<(String, String)>,
+  /// While lowering what runs after the body: a handler, an effect or a continuation.
+  pub(crate) after_body: bool,
+  /// Each name read through [`Self::declared_below`], the name it binds, and where.
+  pub(crate) read_below: Vec<(String, Span)>,
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
   /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
@@ -1231,7 +1237,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, loop_tail: None, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), declared_below: Vec::new(), after_body: false, read_below: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, loop_tail: None, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -2949,6 +2955,11 @@ impl<'a> Lowerer<'a> {
         "Infinity" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(1.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
         "NaN" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
         _ if self.browser_functions.iter().any(|f| f == name) => Ok(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)),
+        _ if self.after_body && self.declared_below.iter().any(|(declared, _)| declared == name) => {
+          let (_, bound) = self.declared_below.iter().rev().find(|(declared, _)| declared == name).cloned().expect("checked");
+          self.read_below.push((bound.clone(), id.span));
+          Ok(Expr::Var(bound))
+        }
         "process" if id.ctxt == self.parsed.unresolved => Err(self.residue_with(id.span, "`process`, which is not FSR's", NOT_FSR)),
         _ => {
           self.unbound = Some(name.to_owned());

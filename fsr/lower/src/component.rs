@@ -6427,6 +6427,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let outer = self.lowerer.parsed;
     let hoisting = self.lowerer.hoisting.take();
     let depth = self.lowerer.scope.len();
+    let declared = self.lowerer.declared_below.len();
     self.lowerer.parsed = parsed;
     let outer_meanings = std::mem::replace(&mut self.lowerer.meanings, parsed.meanings.get().cloned());
     let returned = self.hook_body(&prefix, &params, body, args);
@@ -6434,6 +6435,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.lowerer.meanings = outer_meanings;
     self.lowerer.hoisting = hoisting;
     self.lowerer.scope.truncate(depth);
+    self.lowerer.declared_below.truncate(declared);
     let returned = match returned {
       Ok(returned) => returned,
       Err(residue) => {
@@ -6460,7 +6462,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let floor = self.lowerer.scope.len();
     let mut renames: Vec<(String, String)> = Vec::new();
-    let mut inputs = Vec::new();
     let mut early: Vec<(Expr, Expr)> = Vec::new();
     let guard = |early: &[(Expr, Expr)], expr: Expr| match early.iter().map(|(cond, _)| cond.clone()).reduce(|a, b| Expr::Logic(LogicOp::Or, Box::new(a), Box::new(b))) {
       None => expr,
@@ -6479,6 +6480,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         renames.push((f.ident.sym.to_string(), bound));
       }
     }
+    self.declare_below(stmts, prefix);
     for stmt in stmts {
       match stmt {
         js::Stmt::Decl(js::Decl::Var(var)) => {
@@ -6495,7 +6497,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         js::Stmt::Decl(js::Decl::Fn(_)) => {}
         js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
           let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
-          self.hold_input(call, &mut inputs);
+          let depth = self.hook_renames.len();
+          self.hook_renames.extend(renames.iter().cloned());
+          let result = self.input_hook(call);
+          self.hook_renames.truncate(depth);
+          result?;
         }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
           let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
@@ -6512,7 +6518,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           self.inline_hook(hook, call, None)?;
         }
         js::Stmt::Return(ret) => {
-          self.lower_hook_inputs(std::mem::take(&mut inputs), &renames)?;
           let returned = match ret.arg.as_deref() {
             Some(arg) => self.returned(arg, &renames)?,
             None => Returned::Value(Expr::Lit(Lit::Null)),
@@ -6546,17 +6551,37 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         other => return Err(self.lowerer.residue(other.span(), "a statement a custom hook cannot hold; it holds hooks, `const`s, `let`s, functions and a `return`")),
       }
     }
-    self.lower_hook_inputs(inputs, &renames)?;
     self.after_early(early, Returned::Value(Expr::Lit(Lit::Null)), Span::default())
   }
 
-  /// [`Self::lower_inputs`] for a custom hook's `useInput` calls, with the names its body bound read under the call's prefix.
-  fn lower_hook_inputs(&mut self, inputs: Vec<(usize, &'p js::CallExpr)>, renames: &[(String, String)]) -> Lowered<()> {
-    let depth = self.hook_renames.len();
-    self.hook_renames.extend(renames.iter().cloned());
-    let result = self.lower_inputs(inputs);
-    self.hook_renames.truncate(depth);
-    result
+  /// Declares each `const` and `let` of `stmts` for what runs after the body, as JavaScript binds them from the start of it: a value under the name it binds, `prefix` and its own in a custom hook, and a function as a handler function. A hook's result is declared where it is, since what it binds is known once the hook lowers.
+  fn declare_below(&mut self, stmts: &'p [js::Stmt], prefix: &str) {
+    for stmt in stmts {
+      let js::Stmt::Decl(js::Decl::Var(var)) = stmt else { continue };
+      for decl in &var.decls {
+        let init = decl.init.as_deref().map(crate::meaning::bare);
+        if init.is_some_and(|init| hook_call(&self.meanings(), init).is_some()) {
+          continue;
+        }
+        match (&decl.name, init) {
+          (js::Pat::Ident(id), Some(js::Expr::Arrow(arrow))) => {
+            self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((arrow.params.clone(), arrow_body(arrow)));
+          }
+          (js::Pat::Ident(id), Some(js::Expr::Fn(f))) => {
+            if let Some(body) = &f.function.body {
+              self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((patterns(&f.function), FunctionBody::Block(&body.stmts)));
+            }
+          }
+          (pattern, _) => {
+            let mut names = Vec::new();
+            crate::pattern_names(pattern, &mut names);
+            for name in names {
+              self.lowerer.declared_below.push((name.sym.to_string(), format!("{prefix}{}", name.sym)));
+            }
+          }
+        }
+      }
+    }
   }
 
   /// A hook's return taken when none of its early exits fired, each `(cond, value)` checked in order before it.
@@ -7404,7 +7429,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
           }
         }
-        let mut inputs = Vec::new();
+        self.declare_below(stmts, "");
         for (at, stmt) in stmts.iter().enumerate() {
           match stmt {
             js::Stmt::Return(ret) => {
@@ -7455,7 +7480,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
             js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
               let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
-              self.hold_input(call, &mut inputs);
+              self.input_hook(call)?;
             }
             js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
               let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
@@ -7501,7 +7526,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             other => return Err(self.lowerer.residue(other.span(), "a statement a component cannot hold before its `return`")),
           }
         }
-        self.lower_inputs(inputs)?;
         let mut asked: Vec<String> = Vec::new();
         for (_, state) in &self.setters {
           let key = format!("{}{state}", snapfire_fsr_ir::render::RERUN_PREFIX);
@@ -7530,6 +7554,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     bound.extend(lets);
     let mut lets = bound;
     lets.extend(std::mem::take(&mut self.store_lets));
+    for (bound, span) in std::mem::take(&mut self.lowerer.read_below) {
+      if !lets.iter().any(|stmt| matches!(stmt, Stmt::Let { name, .. } if *name == bound)) {
+        return Err(self.lowerer.residue(span, format!("`{bound}`, declared below what reads it, is not a value the body binds")));
+      }
+    }
+    self.lowerer.declared_below.clear();
     self.lowered_handlers.append(&mut self.lowerer.continuations);
     Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None, scope: None }, std::mem::take(&mut self.refs)))
   }
@@ -9212,6 +9242,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// the first when it could change what the page shows, since it has no
   /// browser to run the effect in.
   fn effect_timers(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
+    let was_after = std::mem::replace(&mut self.lowerer.after_body, true);
+    let result = self.effect_timers_in(call);
+    self.lowerer.after_body = was_after;
+    result
+  }
+
+  fn effect_timers_in(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
     let [effect, deps] = &call.args[..] else { return Ok(()) };
     let js::Expr::Array(deps) = &*deps.expr else { return Ok(()) };
     if !deps.elems.iter().all(|d| self.never_changes(d)) {
@@ -9527,29 +9564,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// Holds a place among the handlers for a `useInput` call, lowered by [`Self::lower_inputs`] once the body's declarations are bound: a handler runs after the body, so it reads a name declared below the call. An empty handler, which keeps an Ink app reading keys, holds none.
-  fn hold_input(&mut self, call: &'p js::CallExpr, held: &mut Vec<(usize, &'p js::CallExpr)>) {
-    if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|arg| &*arg.expr) {
-      if matches!(arrow_body(arrow), FunctionBody::Block(stmts) if stmts.is_empty()) {
-        return;
-      }
-    }
-    held.push((self.lowered_handlers.len(), call));
-    self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Input.name(), body: Vec::new() });
-  }
-
-  fn lower_inputs(&mut self, held: Vec<(usize, &'p js::CallExpr)>) -> Lowered<()> {
-    for (slot, call) in held {
-      self.input_hook(call)?;
-      self.lowered_handlers[slot] = self.lowered_handlers.pop().expect("input_hook pushes its handler");
-    }
-    Ok(())
-  }
-
   /// Ink's `useInput((input, key) => …)`: the component's `input` handler, run
-  /// with each keypress as `$event`, `input` its text and `key` its flags.
+  /// with each keypress as `$event`, `input` its text and `key` its flags. An
+  /// empty handler, which keeps an Ink app reading keys, is no handler.
   fn input_hook(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
     let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`useInput` with no handler")) };
+    if let js::Expr::Arrow(arrow) = &*arg.expr {
+      if matches!(arrow_body(arrow), FunctionBody::Block(stmts) if stmts.is_empty()) {
+        return Ok(());
+      }
+    }
     let active = match call.args.get(1).map(|options| &*options.expr) {
       None => None,
       Some(js::Expr::Object(object)) => {
@@ -9600,9 +9624,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn handler_fn(&mut self, params: &[js::Pat], body: FunctionBody<'p>, span: Span) -> Lowered<Vec<Stmt>> {
     let hoisting = self.lowerer.hoisting.take();
     let was_handler = std::mem::replace(&mut self.lowerer.in_handler, true);
+    let was_after = std::mem::replace(&mut self.lowerer.after_body, true);
     let result = self.handler_fn_in(params, body, span);
     self.lowerer.hoisting = hoisting;
     self.lowerer.in_handler = was_handler;
+    self.lowerer.after_body = was_after;
     result
   }
 
