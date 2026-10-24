@@ -96,6 +96,24 @@ impl VendorManifest {
   }
 }
 
+/// The contract of the shell the configuration beside `app` names, for a site.
+pub(crate) fn shell_beside(app: &Path) -> Result<Option<crate::ShellContract>, BuildError> {
+  match crate::site_beside(app).and_then(|site| site.shell) {
+    Some(path) => crate::ShellContract::read(&path).map(Some),
+    None => Ok(None),
+  }
+}
+
+/// The vendor manifest less every package the site's shell pins in its contract's `frameworks`,
+/// which the browser loads from the shell whatever the site vendors.
+pub fn running(app: &Path, layout: &Layout) -> Result<VendorManifest, BuildError> {
+  let mut manifest = VendorManifest::read(app, layout)?;
+  if let Some(contract) = shell_beside(app)? {
+    manifest.packages.retain(|package, _| !contract.frameworks.contains_key(package));
+  }
+  Ok(manifest)
+}
+
 #[non_exhaustive]
 pub struct AddReport {
   /// Specifier, file written relative to the vendor directory, bytes.
@@ -104,6 +122,9 @@ pub struct AddReport {
   pub remapped: Vec<(String, String)>,
   /// Specifier and the shell's URL, for a package the shell already serves.
   pub from_shell: Vec<(String, String)>,
+  /// Each package the shell pins whose own copy the site vendored, now gone from the manifest and
+  /// the vendor directory.
+  pub dropped: Vec<String>,
   /// The `xwpm add` invocations run instead, when the application is xwpm's.
   pub delegated: Vec<String>,
   /// `<package>/<file>` for each vendored module that named a map the tree
@@ -263,7 +284,7 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
       xwpm::run(app, &["add", &arg])?;
       delegated.push(arg);
     }
-    return Ok(AddReport { added: Vec::new(), remapped: Vec::new(), from_shell: Vec::new(), delegated, repaired: Vec::new() });
+    return Ok(AddReport { added: Vec::new(), remapped: Vec::new(), from_shell: Vec::new(), dropped: Vec::new(), delegated, repaired: Vec::new() });
   }
   let client = client()?;
   let mut manifest = VendorManifest::read(app, &layout)?;
@@ -289,6 +310,7 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
     None => None,
   };
   let mut from_shell = Vec::new();
+  let mut dropped = Vec::new();
   let mut wanted: Vec<&Spec> = Vec::new();
   for spec in specs {
     let served = shell.as_ref().and_then(|(path, contract)| contract.imports.get(&spec.specifier()).map(|url| (path, contract, url)));
@@ -302,6 +324,14 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
     }
     imports.insert(spec.specifier(), serde_json::Value::String(url.clone()));
     from_shell.push((spec.specifier(), url.clone()));
+    if contract.frameworks.contains_key(&spec.package) && manifest.packages.remove(&spec.package).is_some() {
+      let own = app.join(&layout.vendor).join(&spec.package);
+      if own.is_dir() {
+        std::fs::remove_dir_all(&own).map_err(|e| BuildError::Io(own.clone(), e))?;
+      }
+      remapped.retain(|(specifier, _)| package_of(specifier) != spec.package);
+      dropped.push(spec.package.clone());
+    }
   }
 
   // A package whose own root the import map answers, already or by the end of
@@ -396,14 +426,14 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
   let fresh: Vec<&str> = wanted.iter().map(|spec| spec.package.as_str()).collect();
   let repaired = repair_maps(app, &layout, &manifest, &client, host, &shared, &fresh)?;
   if specs.is_empty() && remapped.is_empty() {
-    return Ok(AddReport { added, remapped, from_shell, delegated: Vec::new(), repaired });
+    return Ok(AddReport { added, remapped, from_shell, dropped, delegated: Vec::new(), repaired });
   }
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   write_import_map(app, &layout, &map)?;
   if !manifest.packages.is_empty() || app.join(&layout.vendor).join(VENDOR_MANIFEST).is_file() {
     manifest.write(app, &layout)?;
   }
-  Ok(AddReport { added, remapped, from_shell, delegated: Vec::new(), repaired })
+  Ok(AddReport { added, remapped, from_shell, dropped, delegated: Vec::new(), repaired })
 }
 
 /// The esm.sh URL of `spec` bundled with `external` left bare.

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::vendor::{self, get, import_map_packages, VendorManifest};
+use crate::vendor::{self, get, import_map_packages};
 use crate::xwpm::{self, Layout};
 use crate::BuildError;
 
@@ -663,11 +663,8 @@ impl Asked {
 /// the vendored version's major, else the one a site's shell names, with the
 /// vendored version itself for declarations the package carries.
 fn pins(app: &Path, layout: &Layout) -> Result<BTreeMap<String, Vec<Asked>>, BuildError> {
-  let vendored = VendorManifest::read(app, layout)?;
-  let shell = match crate::site_beside(app).and_then(|site| site.shell) {
-    Some(path) => crate::ShellContract::read(&path)?.frameworks,
-    None => Default::default(),
-  };
+  let vendored = crate::vendor::running(app, layout)?;
+  let shell = crate::vendor::shell_beside(app)?.map(|contract| contract.frameworks).unwrap_or_default();
   let mut out = BTreeMap::new();
   for package in wanted(app, layout)? {
     let vendored_version = vendored.packages.get(&package).map(|p| p.version.as_str());
@@ -679,7 +676,7 @@ fn pins(app: &Path, layout: &Layout) -> Result<BTreeMap<String, Vec<Asked>>, Bui
       let mut asks = vec![Asked { by: by.clone(), of: None, range: format!("^{major}") }];
       // Declarations the package carries itself describe the version they came with; a
       // DefinitelyTyped package is versioned apart and only keeps the major.
-      if let Some(version) = vendored_version {
+      if let Some(version) = vendored_version.or(shell.get(&package).map(String::as_str)) {
         asks.push(Asked { by, of: Some(package.clone()), range: format!("={version}") });
       }
       out.insert(package, asks);

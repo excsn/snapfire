@@ -130,8 +130,6 @@ pub enum BuildError {
   Plugin(String),
   #[error("the shell serves `{specifier}`, but {contract} does not say which {package} it is; a shell built by this fsr records it under `frameworks`. A hand-written contract needs `\"frameworks\": {{\"{package}\": \"{version}\"}}`")]
   FrameworkShellUnrecorded { package: String, specifier: String, contract: String, version: String },
-  #[error("{package}@{site} is recorded in {manifest}, but {contract} serves {package}@{shell}; the browser loads the shell's copy")]
-  FrameworkShellMismatch { package: String, site: String, shell: String, manifest: String, contract: String },
   #[error("{map} maps `{specifier}` to `{found}`, but {contract} serves it at `{want}`; the shell's import map overrides this one at mount, so the browser never loads `{found}`")]
   ShellUrl { map: String, specifier: String, found: String, want: String, contract: String },
   #[error("`{specifier}` is served by {contract}, which vendors {package}@{shell}; a site cannot pin {package}@{wanted}, since the shell's import map overrides its own at mount")]
@@ -306,6 +304,9 @@ pub struct Report {
   /// A vendored framework newer than the latest release its renderer was checked against: the
   /// package, its version and that release.
   pub unchecked: Vec<(String, String, String)>,
+  /// A framework a site vendors at another version than its shell serves, which the browser never
+  /// loads: the package, the site's version and the shell's.
+  pub shadowed: Vec<(String, String, String)>,
   /// The plan file as written and as it would be without whitespace, in bytes.
   /// The build writes it pretty so it reads and diffs; the second number is
   /// what a deployment would ship.
@@ -399,6 +400,9 @@ impl Report {
     }
     for warning in &self.theme_warnings {
       writeln!(f, "{:<9} {warning}", "warning")?;
+    }
+    for (package, own, served) in &self.shadowed {
+      writeln!(f, "{:<9} the site's own {package}@{own} is unused, its shell serves {served}; `fsr add` of {package}@{served} in the site drops it", "warning")?;
     }
     for (package, version, latest) in &self.unchecked {
       writeln!(f, "{:<9} {package}@{version} is newer than {latest}, the latest release this fsr's renderer was checked against; hydration may report a mismatch", "warning")?;
@@ -1656,8 +1660,9 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   check_vendor_urls(app, &layout)?;
   check_vendor_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract))?;
   check_shell_urls(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
-  let (frameworks, unchecked) = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
+  let (frameworks, unchecked, unused) = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
   report.unchecked = unchecked;
+  report.shadowed = unused;
   plugin_compilers(app, &layout)?;
   let clients: Vec<snapfire_fsr_plan::ClientEntry> = report
     .components
@@ -3384,12 +3389,14 @@ const VUE_COMPILER: &str = "dist/compiler-sfc.esm-browser.js";
 /// time and read from there after; the compiler is never vendored or shipped.
 pub(crate) fn plugin_compilers(app: &Path, layout: &crate::xwpm::Layout) -> Result<Vec<(&'static str, PathBuf)>, BuildError> {
   let manifest = crate::vendor::VendorManifest::read(app, layout)?;
+  let pinned = crate::vendor::shell_beside(app)?.map(|contract| contract.frameworks).unwrap_or_default();
+  let version = |package: &str| pinned.get(package).or(manifest.packages.get(package).map(|record| &record.version)).cloned();
   let mut compilers = Vec::new();
-  if let Some(record) = manifest.packages.get("svelte") {
-    compilers.push(("svelte", crate::published::compiler(app, "svelte", &record.version, SVELTE_COMPILER)?));
+  if let Some(version) = version("svelte") {
+    compilers.push(("svelte", crate::published::compiler(app, "svelte", &version, SVELTE_COMPILER)?));
   }
-  if let Some(record) = manifest.packages.get("vue") {
-    compilers.push(("vue", crate::published::compiler(app, "@vue/compiler-sfc", &record.version, VUE_COMPILER)?));
+  if let Some(version) = version("vue") {
+    compilers.push(("vue", crate::published::compiler(app, "@vue/compiler-sfc", &version, VUE_COMPILER)?));
   }
   Ok(compilers)
 }
@@ -3405,21 +3412,25 @@ fn checked_releases(package: &str, version: &str) -> Option<(&'static str, &'sta
   }
 }
 
-type Unchecked = Vec<(String, String, String)>;
+type Rows = Vec<(String, String, String)>;
 
-fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<(std::collections::BTreeMap<String, String>, Unchecked), BuildError> {
+/// Each framework package at the version the browser loads, a version its shell pins taking the
+/// place of the site's own, with the releases newer than the renderer was checked against and
+/// the site's own copies its shell shadows.
+fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<(std::collections::BTreeMap<String, String>, Rows, Rows), BuildError> {
   let contract = shell.map(|(_, contract)| contract);
   let manifest = || format!("`{}`", app.join(&layout.vendor).join(crate::vendor::VENDOR_MANIFEST).display());
   let vendored = crate::vendor::VendorManifest::read(app, layout)?;
   let served = served_specifiers(app, layout, contract).unwrap_or_default();
   let mut frameworks = std::collections::BTreeMap::new();
   let mut unchecked = Vec::new();
+  let mut shadowed = Vec::new();
   for package in framework_packages() {
     let own = vendored.packages.get(&package).map(|entry| entry.version.clone());
     let from_shell = contract.and_then(|contract| contract.frameworks.get(&package).cloned());
-    if let (Some(own), Some(from_shell), Some((path, _))) = (&own, &from_shell, shell) {
+    if let (Some(own), Some(from_shell)) = (&own, &from_shell) {
       if own != from_shell {
-        return Err(BuildError::FrameworkShellMismatch { package, site: own.clone(), shell: from_shell.clone(), manifest: manifest(), contract: format!("`{}`", path.display()) });
+        shadowed.push((package.clone(), own.clone(), from_shell.clone()));
       }
     }
     match from_shell.or(own) {
@@ -3461,7 +3472,7 @@ fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(
       }
     }
   }
-  Ok((frameworks, unchecked))
+  Ok((frameworks, unchecked, shadowed))
 }
 
 /// Refuses a framework specifier the application maps somewhere other than the

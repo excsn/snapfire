@@ -425,3 +425,27 @@ fn a_pack_into_a_directory_writes_the_named_archive_there() {
   assert!(packed.out.is_file());
   let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn a_sites_add_of_a_framework_its_shell_serves_drops_the_sites_own_copy() {
+  use snapfire_fsr_cli::vendor::{add, read_import_map, Spec, VendorManifest};
+  let (shell, site) = pair("drop");
+  sites::link(&shell, &site, "/handbook", None).unwrap();
+  let contract = shell.join("app/generated/shell.json");
+  std::fs::create_dir_all(contract.parent().unwrap()).unwrap();
+  std::fs::write(&contract, r#"{"version":1,"imports":{"react":"/static/js/vendor/react/react.bundle.mjs"},"frameworks":{"react":"19.3.1"}}"#).unwrap();
+  let app = site.join("app");
+  let layout = snapfire_fsr_cli::xwpm::Layout::of(&app).unwrap();
+  let own = app.join(&layout.vendor).join("react");
+  std::fs::create_dir_all(&own).unwrap();
+  std::fs::write(own.join("react.bundle.mjs"), "export {};\n").unwrap();
+  std::fs::write(app.join(&layout.vendor).join(".fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1","entries":{"react":"react/react.bundle.mjs"}}}}"#).unwrap();
+
+  let report = add(&app, &[Spec::parse("react@19.3.1").unwrap()], &[]).unwrap();
+  assert_eq!(report.from_shell, [("react".to_owned(), "/static/js/vendor/react/react.bundle.mjs".to_owned())]);
+  assert_eq!(report.dropped, ["react"]);
+  assert!(!VendorManifest::read(&app, &layout).unwrap().packages.contains_key("react"));
+  assert!(!own.exists(), "the site's own copy is gone");
+  let map = read_import_map(&app, &layout).unwrap();
+  assert_eq!(map["imports"]["react"], "/static/js/vendor/react/react.bundle.mjs");
+}

@@ -209,21 +209,14 @@ fn a_site_whose_shell_does_not_say_which_react_it_serves_is_refused() {
 }
 
 #[test]
-fn a_site_vendoring_a_react_the_shell_does_not_serve_is_refused() {
+fn a_site_takes_a_framework_its_shell_pins_over_its_own_copy() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
   vendor_react(&dir, "19.3.1");
   let path = shell_json(&dir, r#","frameworks":{"react":"18.3.1","react-dom":"18.3.1"}"#);
-  match build(&dir, &site_against(path)) {
-    Err(BuildError::FrameworkShellMismatch { package, site, shell, manifest, contract }) => {
-      assert_eq!(package, "react");
-      assert_eq!(site, "19.3.1");
-      assert_eq!(shell, "18.3.1");
-      assert!(manifest.contains(".fsr-vendor.json"), "{manifest}");
-      assert!(contract.contains("shell.json"), "{contract}");
-    }
-    Ok(_) => panic!("a site vendoring a React the shell does not serve built"),
-    Err(other) => panic!("{other}"),
-  }
+  let built = build(&dir, &site_against(path)).expect("a site builds under its shell's React");
+  assert_eq!(built.manifest.frameworks.get("react").map(String::as_str), Some("18.3.1"));
+  assert!(built.report.shadowed.contains(&("react".to_owned(), "19.3.1".to_owned(), "18.3.1".to_owned())), "{:?}", built.report.shadowed);
+  assert!(built.report.to_string().contains("the site's own react@19.3.1 is unused"), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

@@ -517,7 +517,10 @@ fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path, shell: Option<&crat
   let dir = test_dir.join("vendor");
   let manifest_path = dir.join("manifest.json");
   let mut manifest = TestVendor::read(&manifest_path);
-  let vendored = VendorManifest::read(app, layout)?;
+  let mut vendored = VendorManifest::read(app, layout)?;
+  if let Some(contract) = shell {
+    vendored.packages.retain(|package, _| !contract.frameworks.contains_key(package));
+  }
   let served = imports_of(&vendor::read_import_map(app, layout)?);
   let mut wanted: Vec<(String, String)> = vec![("linkedom".to_owned(), format!("{ESM_HOST}/linkedom@{LINKEDOM}/worker?target=es2022&bundle&dev"))];
   wanted.extend(dev_builds(&vendored, &served, shell));
