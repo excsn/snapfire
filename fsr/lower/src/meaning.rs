@@ -171,6 +171,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr-client/std", "time", Construct::Std("time")),
   ("@snapfire/fsr-client/std", "crypto", Construct::Std("crypto")),
   ("@snapfire/fsr-client/std", "id", Construct::Std("id")),
+  ("@snapfire/fsr-client/std", "log", Construct::Std("log")),
   ("vue", "ref", Construct::Vue("ref")),
   ("vue", "shallowRef", Construct::Vue("shallowRef")),
   ("vue", "computed", Construct::Vue("computed")),

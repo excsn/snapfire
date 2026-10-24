@@ -770,3 +770,24 @@ fn an_async_function_awaits_inside_a_for_of_loop_and_a_counted_loop() {
   session.view().unwrap();
   assert_eq!(line(session.view().unwrap()), "one,two 8");
 }
+
+#[test]
+fn an_awaiting_loop_skips_an_item_with_continue() {
+  let dir = host_dir("skip");
+  std::fs::write(dir.join("one.txt"), "one\n").unwrap();
+  std::fs::write(dir.join("two.txt"), "two\n").unwrap();
+  unsafe { std::env::set_var("FSR_TEST_SKIP_DIR", &dir); }
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\nimport { join } from \"node:path\";\n\nconst readKept = async (dir: string, names: string[], skipped: Record<string, boolean | undefined>) => {\n  const out: string[] = [];\n  for (const name of names) {\n    if (skipped[name] === undefined) {\n      continue;\n    }\n    if (skipped[name]) continue;\n    const text = await readFile(join(dir, name), \"utf8\");\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Kept() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readKept(process.env.FSR_TEST_SKIP_DIR, [\"zero.txt\", \"one.txt\", \"two.txt\"], { \"one.txt\": true, \"two.txt\": false });\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "two");
+}
+
+#[test]
+fn an_async_local_storage_scopes_a_value_to_a_run_and_restores_the_one_before() {
+  let page = "import { Text } from \"ink\";\nimport { AsyncLocalStorage } from \"node:async_hooks\";\n\nconst scope = new AsyncLocalStorage<{ id: string }>();\nconst current = () => scope.getStore()?.id ?? \"none\";\nconst within = (id: string, fn: () => string) => scope.run({ id }, fn);\n\nexport default function Scoped() {\n  const seen = within(\"a\", () => `${current()} ${within(\"b\", () => current())} ${current()}`);\n  return <Text>{seen} {current()}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "a b a none");
+}

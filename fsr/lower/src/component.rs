@@ -3950,7 +3950,7 @@ fn module_mutations(module: &js::Module) -> Vec<String> {
   found.0
 }
 
-/// The names `stmts` call `set`, `delete`, `add` or `clear` on, which change a collection in place.
+/// The names `stmts` call `set`, `delete`, `add` or `clear` on (a collection changed in place) or `run` or `enterWith` on (an `AsyncLocalStorage` set).
 fn mutated_names(stmts: &[js::Stmt]) -> Vec<String> {
   let mut found = Mutations(Vec::new());
   for stmt in stmts {
@@ -3965,7 +3965,7 @@ impl Visit for Mutations {
   fn visit_call_expr(&mut self, call: &js::CallExpr) {
     if let js::Callee::Expr(callee) = &call.callee {
       if let js::Expr::Member(member) = &**callee {
-        if let (js::Expr::Ident(id), Some("set" | "delete" | "add" | "clear")) = (&*member.obj, prop_name_of(member).as_deref()) {
+        if let (js::Expr::Ident(id), Some("set" | "delete" | "add" | "clear" | "run" | "enterWith")) = (&*member.obj, prop_name_of(member).as_deref()) {
           if !self.0.iter().any(|n| *n == *id.sym) {
             self.0.push(id.sym.to_string());
           }

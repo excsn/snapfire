@@ -63,6 +63,15 @@ export declare const time: {
 	/** The clock now, milliseconds since the epoch. Server only on a render path. */
 	now(): number;
 };
+/** A structured line at each level, `fields` whatever goes with the message; on the server it is a `tracing` event under `fsr::app`, here a console line. `fatal` is `error` in the console. */
+export declare const log: {
+	trace(message: string, fields?: unknown): null;
+	debug(message: string, fields?: unknown): null;
+	info(message: string, fields?: unknown): null;
+	warn(message: string, fields?: unknown): null;
+	error(message: string, fields?: unknown): null;
+	fatal(message: string, fields?: unknown): null;
+};
 export declare const crypto: {
 	/** SHA-256 of `s` as lowercase hex. */
 	hash(s: string): string;

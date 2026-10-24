@@ -240,3 +240,17 @@ fn a_bare_t_from_the_standard_library_lowers_to_i18n_t_and_is_hoisted() {
     other => panic!("{other:?}"),
   }
 }
+
+#[test]
+fn log_members_lower_to_extension_calls_with_the_message_and_the_fields() {
+  let dir = app(
+    "log",
+    &[("routes/a/page.loader.ts", "import { log } from \"@snapfire/fsr-client/std\";\nexport async function load({ params }) {\n  log.info(\"loading\", { n: params.n });\n  log.warn(\"slow\");\n  return { n: params.n };\n}\n")],
+  );
+  let mut set = ComponentSet::new(&dir);
+  let body = set.lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+  let Stmt::Expr(first) = &body[0] else { panic!("{body:?}") };
+  assert_eq!(exts(first), vec!["log.info/2"]);
+  let Stmt::Expr(second) = &body[1] else { panic!("{body:?}") };
+  assert_eq!(exts(second), vec!["log.warn/1"]);
+}

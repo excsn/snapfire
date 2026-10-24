@@ -247,6 +247,34 @@ function sha256(s: string): Uint8Array {
   return out;
 }
 
+/** A structured line at each level, `fields` whatever goes with the message; on the server it is a `tracing` event under `fsr::app`, here a console line. `fatal` is `error` in the console. */
+export const log = {
+  trace(message: string, fields?: unknown): null {
+    console.debug(message, ...(fields === undefined ? [] : [fields]));
+    return null;
+  },
+  debug(message: string, fields?: unknown): null {
+    console.debug(message, ...(fields === undefined ? [] : [fields]));
+    return null;
+  },
+  info(message: string, fields?: unknown): null {
+    console.info(message, ...(fields === undefined ? [] : [fields]));
+    return null;
+  },
+  warn(message: string, fields?: unknown): null {
+    console.warn(message, ...(fields === undefined ? [] : [fields]));
+    return null;
+  },
+  error(message: string, fields?: unknown): null {
+    console.error(message, ...(fields === undefined ? [] : [fields]));
+    return null;
+  },
+  fatal(message: string, fields?: unknown): null {
+    console.error(message, ...(fields === undefined ? [] : [fields]));
+    return null;
+  },
+};
+
 export const crypto = {
   /** SHA-256 of `s` as lowercase hex. */
   hash(s: string): string {

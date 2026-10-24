@@ -2735,7 +2735,7 @@ fn default_order(a: &Value, b: &Value) -> Result<f64, Fail> {
 pub const CONSOLE_TARGET: &str = "fsr::console";
 
 /// A value as `console.log` writes it: a string as it is, a scalar as `String` makes it and an object or an array as JSON.
-fn console_text(value: &Value) -> String {
+pub(crate) fn console_text(value: &Value) -> String {
   match value {
     Value::Str(s) => s.to_string(),
     Value::Seq(_) | Value::Map(_) => {

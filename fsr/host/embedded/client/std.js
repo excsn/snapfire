@@ -303,6 +303,44 @@ function sha256(s) {
     h.forEach((word, i)=>outView.setUint32(i * 4, word));
     return out;
 }
+export const log = {
+    trace (message, fields) {
+        console.debug(message, ...fields === undefined ? [] : [
+            fields
+        ]);
+        return null;
+    },
+    debug (message, fields) {
+        console.debug(message, ...fields === undefined ? [] : [
+            fields
+        ]);
+        return null;
+    },
+    info (message, fields) {
+        console.info(message, ...fields === undefined ? [] : [
+            fields
+        ]);
+        return null;
+    },
+    warn (message, fields) {
+        console.warn(message, ...fields === undefined ? [] : [
+            fields
+        ]);
+        return null;
+    },
+    error (message, fields) {
+        console.error(message, ...fields === undefined ? [] : [
+            fields
+        ]);
+        return null;
+    },
+    fatal (message, fields) {
+        console.error(message, ...fields === undefined ? [] : [
+            fields
+        ]);
+        return null;
+    }
+};
 export const crypto = {
     hash (s) {
         return toHex(sha256(s));

@@ -1043,6 +1043,8 @@ pub(crate) enum Kind {
   Response,
   /// A value only the browser knows, the viewer's clock for one: null on the server, read as an error the sites that can leave it to the browser catch.
   Browser,
+  /// An `AsyncLocalStorage` from `node:async_hooks`: a module cell `run` sets around a call and `getStore` reads.
+  Scope,
 }
 
 impl Kind {
@@ -1056,6 +1058,7 @@ impl Kind {
       Kind::BigInt => "BigInt",
       Kind::Response => "Response",
       Kind::Browser => "value only the browser knows",
+      Kind::Scope => "AsyncLocalStorage",
     }
   }
 
@@ -1065,7 +1068,7 @@ impl Kind {
     match self {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
-      Kind::Query | Kind::Browser | Kind::Response => None,
+      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope => None,
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),
@@ -2240,7 +2243,7 @@ impl<'a> Lowerer<'a> {
   /// A loop that awaits. Its head is a continuation named for the loop, run through `$run` with the live locals carried: when the test holds it runs one pass, the body and the step, whose every way through ends by running the head again; otherwise it runs the statements after the loop. The locals the head reads are carried by value, so a `let` the body writes reaches the next pass and the statements after.
   fn awaiting_loop_in(&mut self, stmts: &[js::Stmt], at: usize, looped: AwaitingLoop, done: Option<Expr>, inside: Option<AsyncCatch>) -> Lowered<Expr> {
     if looped.pass.iter().any(loop_exits) {
-      return Err(self.residue(looped.span, "a `break`, `continue` or `return` inside a loop that awaits"));
+      return Err(self.residue(looped.span, "a `break` or `return` inside a loop that awaits or a `continue` deeper than an `if` at the top of its body"));
     }
     if looped.over.as_ref().is_some_and(|over| self.kind_of(over) == Some(Kind::Map)) {
       return Err(self.residue(looped.span, "`for...of` over a `Map` in a loop that awaits; iterate `[...map.entries()]`"));
@@ -2804,7 +2807,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOp::TypeOf if self.process_type(&u.arg).is_some() => Ok(Expr::lit_str(self.process_type(&u.arg).unwrap_or_default())),
         js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.arg)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
@@ -3398,6 +3401,9 @@ impl<'a> Lowerer<'a> {
       if let Some(folded) = self.hash_chain(member, call)? {
         return Ok(folded);
       }
+    }
+    if self.kind_of(&member.obj) == Some(Kind::Scope) {
+      return self.scope_call(&method, member, call);
     }
 
     if let js::Expr::Ident(obj) = &*member.obj {
@@ -4047,6 +4053,10 @@ impl<'a> Lowerer<'a> {
   }
 
   fn new_expr(&mut self, n: &js::NewExpr) -> Lowered<Expr> {
+    // An `AsyncLocalStorage` starts with no store; the cell made for it holds what `run` and `enterWith` set.
+    if matches!(&*n.callee, js::Expr::Ident(id) if id.sym.as_ref() == "AsyncLocalStorage") {
+      return Ok(Expr::Lit(Lit::Undefined));
+    }
     let args: Vec<js::ExprOrSpread> = n.args.clone().unwrap_or_default();
     if let Some(spread) = args.iter().find(|a| a.spread.is_some()) {
       return Err(self.residue(spread.expr.span(), "a spread argument"));
@@ -4335,6 +4345,36 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// `storage.getStore()`, `storage.run(value, fn, ...args)` and `storage.enterWith(value)` on an `AsyncLocalStorage` a module holds as a cell: the cell read; the cell set to `value` around a call of `fn` with the value before put back after, the call's result answered; the cell set. A web page has no process to scope, so there the storage is residue.
+  fn scope_call(&mut self, method: &str, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Expr> {
+    let js::Expr::Ident(id) = crate::meaning::bare(&member.obj) else { return Err(self.residue(member.span, "an `AsyncLocalStorage` reached other than by its name")) };
+    let name = id.sym.to_string();
+    let Some((_, handle)) = self.cells.iter().find(|(cell, _)| *cell == name).cloned() else {
+      return Err(self.residue(member.span, format!("`{name}`, an `AsyncLocalStorage`, outside a terminal page; a web page has no process to scope")));
+    };
+    match (method, call.args.as_slice()) {
+      ("getStore", []) => Ok(Expr::ReadCell(Box::new(handle))),
+      ("enterWith", [value]) => Ok(Expr::WriteCell(Box::new(handle), Box::new(self.expr(&value.expr)?))),
+      ("run", [value, f, rest @ ..]) => {
+        let value = self.expr(&value.expr)?;
+        let f = Box::new(self.expr(&f.expr)?);
+        let mut args = Vec::with_capacity(rest.len());
+        for a in rest {
+          args.push(self.expr(&a.expr)?);
+        }
+        let (before, result) = (self.temp(), self.temp());
+        Ok(Expr::Block(vec![
+          Stmt::Let { name: before.clone(), expr: Expr::ReadCell(Box::new(handle.clone())) },
+          Stmt::Expr(Expr::WriteCell(Box::new(handle.clone()), Box::new(value))),
+          Stmt::Let { name: result.clone(), expr: Expr::Apply { f, args } },
+          Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(Expr::Var(before)))),
+          Stmt::Return(Expr::Var(result)),
+        ]))
+      }
+      _ => Err(self.residue(call.span, format!("`.{method}()` of an `AsyncLocalStorage`; `getStore`, `run` and `enterWith` are read"))),
+    }
+  }
+
   /// `object.name(args)` or `object[key](args)` where `object` lowers to an object literal whose field (every field, for a computed key) is a function value: that field applied to the arguments. A computed key on an object of no known kind is applied as well, since the build cannot name the method. `None` for any other member.
   fn function_member(&mut self, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Option<Expr>> {
     // Only a name or a chain of fields is looked at: lowering a call here and again on the method path would count its hoists twice.
@@ -4487,6 +4527,7 @@ pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URL" | "SvelteURL") => Some(Kind::Url),
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Date" | "SvelteDate") => Some(Kind::Date),
       js::Expr::Ident(id) if id.sym.as_ref() == "Response" => Some(Kind::Response),
+      js::Expr::Ident(id) if id.sym.as_ref() == "AsyncLocalStorage" => Some(Kind::Scope),
       _ => None,
     },
     js::Expr::Lit(js::Lit::BigInt(_)) => Some(Kind::BigInt),
@@ -4670,10 +4711,10 @@ fn awaiting_loop(stmt: &js::Stmt, top: swc_core::common::SyntaxContext) -> Optio
       let length = js::Expr::Member(js::MemberExpr { span, obj: Box::new(items_var()), prop: js::MemberProp::Ident(js::IdentName::new("length".into(), span)) });
       let test = js::Expr::Bin(js::BinExpr { span, op: js::BinaryOp::Lt, left: Box::new(index_var()), right: Box::new(length) });
       let item = js::Expr::Member(js::MemberExpr { span, obj: Box::new(items_var()), prop: js::MemberProp::Computed(js::ComputedPropName { span, expr: Box::new(index_var()) }) });
-      let mut pass = vec![decl(js::VarDeclKind::Const, pattern, item)];
-      pass.extend(body_of(&for_of.body));
-      pass.push(expr_stmt(js::Expr::Update(js::UpdateExpr { span, op: js::UpdateOp::PlusPlus, prefix: false, arg: Box::new(index_var()) })));
-      Some(AwaitingLoop { init, test, pass, over: Some((*for_of.right).clone()), span })
+      let mut body = vec![decl(js::VarDeclKind::Const, pattern, item)];
+      body.extend(body_of(&for_of.body));
+      let step = vec![expr_stmt(js::Expr::Update(js::UpdateExpr { span, op: js::UpdateOp::PlusPlus, prefix: false, arg: Box::new(index_var()) }))];
+      Some(AwaitingLoop { init, test, pass: continued(body, &step), over: Some((*for_of.right).clone()), span })
     }
     js::Stmt::For(counted) => {
       let init = match &counted.init {
@@ -4682,15 +4723,47 @@ fn awaiting_loop(stmt: &js::Stmt, top: swc_core::common::SyntaxContext) -> Optio
         None => Vec::new(),
       };
       let test = counted.test.as_deref().cloned().unwrap_or(js::Expr::Lit(js::Lit::Bool(js::Bool { span, value: true })));
-      let mut pass = body_of(&counted.body);
-      if let Some(update) = &counted.update {
-        pass.push(expr_stmt((**update).clone()));
-      }
-      Some(AwaitingLoop { init, test, pass, over: None, span })
+      let step: Vec<js::Stmt> = counted.update.iter().map(|update| expr_stmt((**update).clone())).collect();
+      Some(AwaitingLoop { init, test, pass: continued(body_of(&counted.body), &step), over: None, span })
     }
-    js::Stmt::While(looped) => Some(AwaitingLoop { init: Vec::new(), test: (*looped.test).clone(), pass: body_of(&looped.body), over: None, span }),
+    js::Stmt::While(looped) => Some(AwaitingLoop { init: Vec::new(), test: (*looped.test).clone(), pass: continued(body_of(&looped.body), &[]), over: None, span }),
     _ => None,
   }
+}
+
+/// `body` with `step` at the end of every way through it, a `continue` at the body's top or ending an `if` there taken as that way's end: `if (c) continue; rest` becomes `if (c) { step } else { rest; step }`.
+fn continued(body: Vec<js::Stmt>, step: &[js::Stmt]) -> Vec<js::Stmt> {
+  let ends_in_continue = |stmt: &js::Stmt| match stmt {
+    js::Stmt::Continue(_) => true,
+    js::Stmt::Block(block) => matches!(block.stmts.last(), Some(js::Stmt::Continue(_))),
+    _ => false,
+  };
+  let mut out = Vec::with_capacity(body.len() + step.len());
+  let mut stmts = body.into_iter();
+  while let Some(stmt) = stmts.next() {
+    match stmt {
+      js::Stmt::Continue(_) => {
+        out.extend(step.iter().cloned());
+        return out;
+      }
+      js::Stmt::If(branch) if branch.alt.is_none() && ends_in_continue(&branch.cons) => {
+        let span = branch.span;
+        let mut taken = match *branch.cons {
+          js::Stmt::Block(block) => block.stmts,
+          _ => Vec::new(),
+        };
+        taken.pop();
+        taken.extend(step.iter().cloned());
+        let rest = continued(stmts.collect(), step);
+        let block = |stmts: Vec<js::Stmt>| Box::new(js::Stmt::Block(js::BlockStmt { span, ctxt: Default::default(), stmts }));
+        out.push(js::Stmt::If(js::IfStmt { span, test: branch.test, cons: block(taken), alt: Some(block(rest)) }));
+        return out;
+      }
+      other => out.push(other),
+    }
+  }
+  out.extend(step.iter().cloned());
+  out
 }
 
 /// Whether `stmt` leaves the loop around it with `break`, `continue` or `return`, outside any function it declares.
