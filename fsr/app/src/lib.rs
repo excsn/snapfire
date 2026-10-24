@@ -138,6 +138,8 @@ pub struct Report {
   pub embeds: Vec<(String, String)>,
   /// The literal `src` of every `img` a lowered component writes, by module.
   pub images: Vec<(String, String)>,
+  /// The content of every `<style>` a lowered component writes, by module, as the server writes it; `None` for one whose content the render computes.
+  pub styles: Vec<(String, Option<String>)>,
 
 }
 
@@ -1181,6 +1183,7 @@ impl AppBuilder {
     let images: Vec<(String, String)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::ast::image_sources(&component.render).into_iter().map(move |src| (module.clone(), src))).collect();
     let embeds: Vec<(String, String)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::ast::embed_players(&component.render).into_iter().map(move |src| (module.clone(), src))).collect();
     let media: Vec<(String, String)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::ast::media_sources(&component.render).into_iter().map(move |src| (module.clone(), src))).collect();
+    let styles: Vec<(String, Option<String>)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::render::inline_styles(component).into_iter().map(move |css| (module.clone(), css))).collect();
     if !self.lowered_components.is_empty() {
       let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components)).with_interpreter(interpreter.clone());
       components = evaluator.modules().into_iter().map(|m| (m, Owner::Lowered)).collect();
@@ -1213,6 +1216,7 @@ impl AppBuilder {
       media,
       embeds,
       images,
+      styles,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 

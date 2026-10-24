@@ -959,13 +959,14 @@ impl HostBuilder {
     let media_origins: Vec<String> = app.report.media.iter().filter_map(|(_, src)| other_origin(src)).collect();
     let frame_origins: Vec<String> = app.report.embeds.iter().filter_map(|(_, src)| other_origin(src)).collect();
     let image_origins: Vec<String> = app.report.images.iter().filter_map(|(_, src)| other_origin(src)).collect();
+    let inline_styles: Vec<String> = app.report.styles.iter().filter_map(|(_, css)| css.clone()).collect();
     let compose = |declared: &config::Csp| {
       let mut policy = declared.clone();
       if empty_icon {
         policy.widen("img-src", "data:");
       }
       if let Some(map) = import_map.as_deref() {
-        policy.widen("script-src", import_map_csp(map));
+        policy.widen("script-src", inline_hash(map));
       }
       if let Some(nonce) = &dev_nonce {
         policy.widen("script-src", format!("'nonce-{nonce}'"));
@@ -983,7 +984,10 @@ impl HostBuilder {
         policy.widen("img-src", origin.clone());
       }
       if let Some(css) = &font_css {
-        policy.widen("style-src", import_map_csp(css));
+        policy.widen("style-src", inline_hash(css));
+      }
+      for css in &inline_styles {
+        policy.admit_inline("style-src", inline_hash(css));
       }
       // A rendered `style` attribute has no hash a boot-time policy can name,
       // and a fragment swapped in by client navigation is checked against the
@@ -1172,7 +1176,7 @@ impl HostBuilder {
       extensions: extension_rows,
       site: config.site.as_ref().map(|s| (s.name.clone(), s.at.clone())),
       sites: site_reports,
-      import_map_csp: import_map.as_deref().map(import_map_csp),
+      import_map_csp: import_map.as_deref().map(inline_hash),
       csp: csp.as_ref().and_then(|v| v.to_str().ok()).map(str::to_owned),
       csp_report_only: csp_report_only.as_ref().and_then(|v| v.to_str().ok()).map(str::to_owned),
       config: config.sources.clone(),

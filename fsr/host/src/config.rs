@@ -598,6 +598,15 @@ impl Csp {
     self.add(directive, source);
   }
 
+  /// `widen` with the hash of inline content, unless `directive` already allows `'unsafe-inline'`: a browser ignores `'unsafe-inline'` beside a hash, so adding one would block every other inline script or style the policy let through.
+  pub fn admit_inline(&mut self, directive: &str, hash: impl Into<String>) {
+    let effective = self.0.get(directive).or_else(|| self.0.get("default-src"));
+    if effective.is_some_and(|sources| sources.iter().any(|s| s == "'unsafe-inline'")) {
+      return;
+    }
+    self.widen(directive, hash);
+  }
+
   /// Whether the policy has `directive` at all.
   pub fn declares(&self, directive: &str) -> bool {
     self.0.contains_key(directive)

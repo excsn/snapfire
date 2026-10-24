@@ -289,9 +289,8 @@ pub(crate) fn asset_csp_sources(manifest: &crate::assets::AssetsManifest) -> Vec
   sources
 }
 
-/// The CSP `script-src` source for the document's inline import map, which is
-/// the only executable inline script a page carries.
-pub(crate) fn import_map_csp(text: &str) -> String {
+/// The CSP hash source for inline content the host or the build knows at boot: the import map, the font CSS and a component's literal `<style>`.
+pub(crate) fn inline_hash(text: &str) -> String {
   use base64::Engine;
   use sha2::Digest;
   let digest = sha2::Sha256::digest(text.as_bytes());

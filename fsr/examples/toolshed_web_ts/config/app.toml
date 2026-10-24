@@ -7,6 +7,9 @@ listen = "127.0.0.1:8170"
 [document]
 title = "The Shed"
 
+[document.csp_report_only]
+default-src = ["'self'"]
+
 [session]
 ttl = "12h"
 csrf = "always"

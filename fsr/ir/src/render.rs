@@ -2491,6 +2491,43 @@ pub fn css_name(key: &str) -> String {
   out
 }
 
+/// The content of every `<style>` element `component` renders, in the order
+/// written, as the server writes it under the component's markup: `None` for
+/// one whose content the render computes, which no build-time hash covers.
+pub fn inline_styles(component: &Component) -> Vec<Option<String>> {
+  fn literal(child: &Tmpl) -> bool {
+    matches!(child, Tmpl::Text(_) | Tmpl::Expr(crate::Expr::Lit(crate::Lit::Str(_)) | crate::Expr::Folded(Value::Str(_))))
+  }
+  fn walk(tmpl: &Tmpl, owner: crate::Owner, out: &mut Vec<Option<String>>) {
+    match tmpl {
+      Tmpl::Element { tag, children, .. } if tag == "style" => {
+        if !children.iter().all(literal) {
+          out.push(None);
+          return;
+        }
+        let alone = Component::new(owner, Vec::new(), Tmpl::Element { tag: "style".to_owned(), attrs: Vec::new(), children: children.clone() });
+        let written = Interpreter::default().render(&alone, &ValueMap::default(), &Components::new()).ok().map(|rendered| rendered.html);
+        out.push(written.and_then(|html| Some(html.strip_prefix("<style>")?.strip_suffix("</style>")?.to_owned())));
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => {
+        children.iter().for_each(|child| walk(child, owner, out));
+      }
+      Tmpl::If { then, r#else, .. } => {
+        walk(then, owner, out);
+        if let Some(other) = r#else {
+          walk(other, owner, out);
+        }
+      }
+      Tmpl::For { body, .. } => walk(body, owner, out),
+      Tmpl::Let { then, .. } => walk(then, owner, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => {}
+    }
+  }
+  let mut out = Vec::new();
+  walk(&component.render, component.owner, &mut out);
+  out
+}
+
 /// Rewrites a loaded component so every element whose open tag is entirely
 /// literal carries that tag as one slice. The plan is untouched: this runs
 /// when a component is put into a [`Components`] library and an element it
