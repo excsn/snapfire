@@ -146,8 +146,10 @@ pub enum Act {
   ClearTimer,
   /// `{ effect, event, carry }`: the cleanup the [`Event::Effect`] handler `effect` returned, run before that effect runs again.
   Cleanup,
-  /// `{ id, command, args, options }`: a process to start, whose reports are [`Event::Process`].
+  /// `{ id, command, args, options, stdin }`: a process to start, whose reports are [`Event::Process`]; with `stdin` true its standard input is a pipe [`Act::Stdin`] writes, else it reads nothing.
   Spawn,
+  /// `{ id, text }`: write `text` to the standard input of the process `id` names; `{ id, end: true }`: close it.
+  Stdin,
   /// `{ settle, value }`: a promise's `resolve` or `reject`, [`SETTLES`], called with `value`.
   Settle,
   /// `{ deferred, event, carry }`: run the handler `event` names when `deferred` settles, with `{ value, ok, carry }`. `{ rejected, event, carry }`: run it now with `ok` false and `rejected` as the value, for a call that failed as it was awaited.
@@ -179,6 +181,7 @@ impl Act {
       Act::ClearTimer => "$clearTimer",
       Act::Cleanup => "$cleanup",
       Act::Spawn => "$spawn",
+      Act::Stdin => "$stdin",
       Act::Settle => "$settle",
       Act::Then => "$then",
       Act::Suspend => "$suspend",
@@ -195,7 +198,7 @@ impl Act {
   }
 
   pub fn parse(name: &str) -> Option<Act> {
-    [Act::Stdout, Act::Stderr, Act::Timer, Act::ClearTimer, Act::Cleanup, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Unlisten, Act::Run, Act::Exit, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
+    [Act::Stdout, Act::Stderr, Act::Timer, Act::ClearTimer, Act::Cleanup, Act::Spawn, Act::Stdin, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Unlisten, Act::Run, Act::Exit, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
   }
 }
 

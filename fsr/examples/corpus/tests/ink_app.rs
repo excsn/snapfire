@@ -1,4 +1,4 @@
-//! One Ink application outside the corpus, `INK_APP` naming its `app/` directory: prints its first frame at `INK_COLUMNS` by `INK_ROWS` (100 by 30), the frame after each step in `INK_KEYS`, the exit code once the page exits and the reason it is refused when it is. `INK_ARGS` is the command line its loader reads. A step is a character, with `\n` Enter, `\t` Tab, `\x1b` Esc and `\x7f` Backspace as a terminal sends them, or a name in braces: `{up}`, `{down}`, `{left}`, `{right}`, `{tab}`, `{shift-tab}`, `{enter}`, `{esc}`, `{backspace}`, `{delete}`, `{home}`, `{end}`, `{pageup}`, `{pagedown}` or `{resize 80x24}`. The processes the page spawns run to their close after each step and what they report reaches the page. With `INK_WAIT` set, each step is followed by that many milliseconds of the page's timers on a clock of the test's own. Skips, saying so, when `INK_APP` is unset.
+//! One Ink application outside the corpus, `INK_APP` naming its `app/` directory: prints its first frame at `INK_COLUMNS` by `INK_ROWS` (100 by 30), the frame after each step in `INK_KEYS`, the exit code once the page exits and the reason it is refused when it is. `INK_ARGS` is the command line its loader reads. A step is a character, with `\n` Enter, `\t` Tab, `\x1b` Esc and `\x7f` Backspace as a terminal sends them, or a name in braces: `{up}`, `{down}`, `{left}`, `{right}`, `{tab}`, `{shift-tab}`, `{enter}`, `{esc}`, `{backspace}`, `{delete}`, `{home}`, `{end}`, `{pageup}`, `{pagedown}` or `{resize 80x24}`. The processes the page spawns run to their close after each step, given what the page wrote to their standard input, and what they report reaches the page. With `INK_WAIT` set, each step is followed by that many milliseconds of the page's timers on a clock of the test's own. Skips, saying so, when `INK_APP` is unset.
 
 use std::time::Duration;
 
@@ -88,8 +88,9 @@ fn run_spawns(session: &mut Session) {
     if spawns.is_empty() {
       return;
     }
+    let input = session.take_stdin();
     for spawn in spawns {
-      for (spawn, report, event) in spawned(spawn) {
+      for (spawn, report, event) in spawned(spawn, input.clone()) {
         session.deliver(&spawn, report, &event).unwrap_or_else(|why| panic!("{} reporting: {why}", spawn.command));
       }
     }

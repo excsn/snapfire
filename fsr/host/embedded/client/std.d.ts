@@ -145,8 +145,14 @@ export interface SpawnedOutput {
 	on(event: "data", f: (chunk: string) => void): void;
 	setEncoding(encoding: string): void;
 }
+/** A process's standard input, which the page writes text to and then closes. */
+export interface SpawnedInput {
+	write(text: string): void;
+	end(): void;
+}
 /** A process `system.spawn` started. */
 export interface Spawned {
+	stdin: SpawnedInput;
 	stdout: SpawnedOutput;
 	stderr: SpawnedOutput;
 	on(event: "exit" | "close", f: (code: number | null, signal: string | null) => void): void;

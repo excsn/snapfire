@@ -164,6 +164,16 @@ pub struct Spawn {
   pub command: String,
   pub args: Vec<String>,
   pub options: Value,
+  /// Whether the page writes its standard input, which is then a pipe; otherwise it reads nothing.
+  pub stdin: bool,
+}
+
+/// What the page writes to the standard input of the process `id` names in the component at `path`: `Some(text)` to write, `None` to close it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StdinWrite {
+  pub path: String,
+  pub id: String,
+  pub text: Option<String>,
 }
 
 /// The root page of a terminal application: lowered, with the state its
@@ -185,6 +195,8 @@ pub struct Session {
   metrics: ValueMap,
   cursor: Option<(u16, u16)>,
   spawns: Vec<Spawn>,
+  /// What the page wrote to its processes' standard input since [`Session::take_stdin`] last took it.
+  stdin: Vec<StdinWrite>,
   effects_seen: Vec<(String, String, Value)>,
   effects_ran: HashMap<(String, String), Value>,
   cells: ValueMap,
@@ -278,7 +290,7 @@ impl Focus {
       Act::FocusPrevious => self.step(true),
       Act::FocusEnable => self.disabled = false,
       Act::FocusDisable => self.disabled = true,
-      Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Unlisten | Act::Run | Act::Exit => return false,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Stdin | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Unlisten | Act::Run | Act::Exit => return false,
     }
     true
   }
@@ -310,7 +322,7 @@ impl Session {
       Some(body) => load(body, consts.clone(), params)?,
       None => ValueMap::default(),
     };
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false, exit_code: None, props })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), stdin: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false, exit_code: None, props })
   }
 
   /// The page as it stands.
@@ -381,6 +393,11 @@ impl Session {
   /// The processes started since the last call, in the order the page spawned them.
   pub fn take_spawns(&mut self) -> Vec<Spawn> {
     std::mem::take(&mut self.spawns)
+  }
+
+  /// What the page wrote to its processes' standard input since the last call, in order.
+  pub fn take_stdin(&mut self) -> Vec<StdinWrite> {
+    std::mem::take(&mut self.stdin)
   }
 
   /// The page after `spawn` reports `report` with `event`, as [`Report`] describes it. As it stands when the page does not listen for it or the component that spawned it is gone.
@@ -697,10 +714,19 @@ impl Session {
           Some(Value::Seq(args)) => args.iter().filter_map(|a| text(Some(a))).collect(),
           _ => Vec::new(),
         };
-        self.spawns.push(Spawn { path: path.to_owned(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
+        self.spawns.push(Spawn { path: path.to_owned(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null), stdin: spawn.get("stdin") == Some(&Value::Bool(true)) });
+      }
+      (Some(Act::Stdin), Value::Map(write)) => {
+        let Some(Value::Str(id)) = write.get("id") else { return };
+        let text = match (write.get("text"), write.get("end")) {
+          (_, Some(Value::Bool(true))) => None,
+          (Some(Value::Str(text)), _) => Some(text.to_string()),
+          _ => return,
+        };
+        self.stdin.push(StdinWrite { path: path.to_owned(), id: id.to_string(), text });
       }
       (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
-      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Unlisten | Act::Run), _) | (None, _) => {}
+      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Stdin | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Unlisten | Act::Run), _) | (None, _) => {}
     }
   }
 
@@ -966,9 +992,27 @@ pub fn run(app: &Path, args: &[String]) -> Result<(), BuildError> {
   let mut timers = schedule(&mut session);
   let (reports, reported) = std::sync::mpsc::channel::<Reported>();
   let running = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-  let launch = |session: &mut Session| {
+  let mut pipes: HashMap<(String, String), std::process::ChildStdin> = HashMap::new();
+  let mut launch = |session: &mut Session| {
+    use std::io::Write;
     for spawn in session.take_spawns() {
-      start(spawn, reports.clone(), running.clone());
+      let key = (spawn.path.clone(), spawn.id.clone());
+      if let Some(stdin) = start(spawn, reports.clone(), running.clone()) {
+        pipes.insert(key, stdin);
+      }
+    }
+    for write in session.take_stdin() {
+      let key = (write.path, write.id);
+      match write.text {
+        Some(text) => {
+          if pipes.get_mut(&key).is_some_and(|pipe| pipe.write_all(text.as_bytes()).is_err()) {
+            pipes.remove(&key);
+          }
+        }
+        None => {
+          pipes.remove(&key);
+        }
+      }
     }
   };
   launch(&mut session);
@@ -1048,14 +1092,23 @@ pub fn run(app: &Path, args: &[String]) -> Result<(), BuildError> {
 }
 
 /// Starts `spawn`'s process as [`run`] does and hands back what it reports, each chunk it writes and then its exit and close, for [`Session::deliver`]; the receiver ends once it has closed.
-pub fn spawned(spawn: Spawn) -> std::sync::mpsc::Receiver<(Spawn, Report, Value)> {
+pub fn spawned(spawn: Spawn, input: Vec<StdinWrite>) -> std::sync::mpsc::Receiver<(Spawn, Report, Value)> {
   let (reports, reported) = std::sync::mpsc::channel();
-  start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+  let (path, id) = (spawn.path.clone(), spawn.id.clone());
+  if let Some(mut stdin) = start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0))) {
+    use std::io::Write;
+    for write in input.into_iter().filter(|write| write.path == path && write.id == id) {
+      match write.text {
+        Some(text) if stdin.write_all(text.as_bytes()).is_ok() => {}
+        _ => break,
+      }
+    }
+  }
   reported
 }
 
-/// Starts `spawn`'s process with its output piped and reports each chunk it writes, then its exit and close, on `reports`; with `stdio: "inherit"` the process takes this terminal's input and output instead and only its exit and close are reported; one that cannot start reports an error as Node words it, `spawn <command> ENOENT` for a command not found. `running` counts it while it may still report.
-fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<std::sync::atomic::AtomicUsize>) {
+/// Starts `spawn`'s process with its output piped and reports each chunk it writes, then its exit and close, on `reports`; with `stdio: "inherit"` the process takes this terminal's input and output instead and only its exit and close are reported; one that cannot start reports an error as Node words it, `spawn <command> ENOENT` for a command not found. `running` counts it while it may still report. Answers its standard input when the page writes it, [`Spawn::stdin`], which closes when dropped.
+fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<std::sync::atomic::AtomicUsize>) -> Option<std::process::ChildStdin> {
   use std::process::{Command, Stdio};
   let text = |key: &str| match &spawn.options {
     Value::Map(options) => match options.get(key) {
@@ -1093,7 +1146,7 @@ fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<
   let inherit = text("stdio").as_deref() == Some("inherit");
   match inherit {
     true => command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()),
-    false => command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()),
+    false => command.stdin(if spawn.stdin { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped()),
   };
   let mut child = match command.spawn() {
     Ok(child) => child,
@@ -1106,10 +1159,11 @@ fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<
       let mut error = ValueMap::default();
       error.insert("message".to_owned(), Value::Str(format!("spawn {} {code}", spawn.command).into()));
       let _ = reports.send((spawn, Report::Error, Value::Map(error)));
-      return;
+      return None;
     }
   };
   running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let stdin = child.stdin.take();
   let readers: Vec<std::thread::JoinHandle<()>> = [(child.stdout.take().map(|out| Box::new(out) as Box<dyn std::io::Read + Send>), Report::Stdout), (child.stderr.take().map(|err| Box::new(err) as Box<dyn std::io::Read + Send>), Report::Stderr)]
     .into_iter()
     .filter_map(|(pipe, kind)| pipe.map(|pipe| (pipe, kind)))
@@ -1157,6 +1211,7 @@ fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<
     let _ = reports.send((spawn, Report::Close, Value::Map(exit)));
     running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
   });
+  stdin
 }
 
 /// The signal that ended a process, named as Node names it, `SIGTERM`; null when it exited.

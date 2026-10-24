@@ -9353,8 +9353,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// A mount handler that asks the terminal, with a `$spawn` act, to start `call`'s process as `id`.
-  fn spawn_start(&mut self, call: &'p js::CallExpr, id: &str) -> Lowered<()> {
-    let mut fields = vec![Entry::Field("id".to_owned(), Expr::lit_str(id))];
+  fn spawn_start(&mut self, call: &'p js::CallExpr, id: &str, stdin: bool) -> Lowered<()> {
+    let mut fields = vec![Entry::Field("id".to_owned(), Expr::lit_str(id)), Entry::Field("stdin".to_owned(), Expr::Lit(Lit::Bool(stdin)))];
     for (i, key) in ["command", "args", "options"].iter().enumerate() {
       let value = match call.args.get(i) {
         Some(arg) if arg.spread.is_some() => return Err(self.lowerer.residue(arg.expr.span(), "a spread into `spawn`")),
@@ -9370,6 +9370,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A listener on a process the effect spawned, `sub.on("exit", f)`, `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)`, as a handler named `spawn:<id>:<event>`; `setEncoding` is taken as read, since a terminal hands output over as text. False for anything else.
   fn spawn_listener(&mut self, e: &'p js::Expr) -> Lowered<bool> {
+    if let Some((process, method, call)) = stdin_of(e) {
+      let Some((_, id)) = self.spawns.iter().find(|(name, _)| *name == process).cloned() else { return Ok(false) };
+      let mut input = vec![Entry::Field("id".to_owned(), Expr::lit_str(id))];
+      match (method, call.args.as_slice()) {
+        ("write", [text]) if text.spread.is_none() => input.push(Entry::Field("text".to_owned(), self.lowerer.expr(&text.expr)?)),
+        ("end", []) => input.push(Entry::Field("end".to_owned(), Expr::Lit(Lit::Bool(true)))),
+        _ => return Err(self.lowerer.residue(call.span, "a spawned process's `stdin` other than `write(text)` and `end()`")),
+      }
+      let body = vec![Stmt::Act { action: snapfire_fsr_ir::host::Act::Stdin.name().to_owned(), input: Expr::Object(input) }, Stmt::Return(Expr::Object(Vec::new()))];
+      self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Mount.name(), body });
+      return Ok(true);
+    }
     let js::Expr::Call(call) = crate::meaning::bare(e) else { return Ok(false) };
     let js::Callee::Expr(callee) = &call.callee else { return Ok(false) };
     let js::Expr::Member(method) = crate::meaning::bare(callee) else { return Ok(false) };
@@ -9556,7 +9568,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.effect_start(init, init.span())?;
             }
             if let Some(call) = self.spawn_call(init) {
-              self.spawn_start(call, &decl.span.lo.0.to_string())?;
+              let writes = matches!(&decl.name, js::Pat::Ident(id) if stmts.iter().any(|s| matches!(s, js::Stmt::Expr(e) if stdin_of(&e.expr).is_some_and(|(name, _, _)| name == *id.id.sym))));
+              self.spawn_start(call, &decl.span.lo.0.to_string(), writes)?;
             }
           }
         }
@@ -13206,4 +13219,19 @@ mod fills {
     }
   }
 
+}
+
+/// `sub.stdin.write(text)` or `sub.stdin.end()`: the process's name, the method and the call.
+fn stdin_of(e: &js::Expr) -> Option<(String, &'static str, &js::CallExpr)> {
+  let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
+  let js::Expr::Member(stream) = crate::meaning::bare(&method.obj) else { return None };
+  let (js::Expr::Ident(process), Some("stdin")) = (crate::meaning::bare(&stream.obj), prop_name_of(stream).as_deref()) else { return None };
+  let method = match prop_name_of(method).as_deref() {
+    Some("write") => "write",
+    Some("end") => "end",
+    _ => return None,
+  };
+  Some((process.sym.to_string(), method, call))
 }

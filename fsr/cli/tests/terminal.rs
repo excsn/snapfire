@@ -454,6 +454,20 @@ fn a_handler_awaits_a_resolved_promise_and_catches_a_rejected_one() {
 }
 
 #[test]
+fn an_effect_writes_to_a_spawned_process_and_hears_what_it_writes_back() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\nimport { system } from \"@snapfire/fsr-client/std\";\n\nexport default function Echo() {\n  const [heard, setHeard] = useState(\"\");\n  useEffect(() => {\n    const sub = system.spawn(\"cat\", []);\n    sub.stdout.on(\"data\", (chunk) => setHeard((held) => held + chunk));\n    sub.stdin.write(\"hello\");\n    sub.stdin.write(\" there\");\n    sub.stdin.end();\n  }, []);\n  return <Text>{heard}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  session.view().unwrap();
+  let spawns = session.take_spawns();
+  assert!(spawns.len() == 1 && spawns[0].stdin, "{spawns:?}");
+  let input = session.take_stdin();
+  for (spawn, report, event) in snapfire_fsr_cli::terminal::spawned(spawns[0].clone(), input) {
+    session.deliver(&spawn, report, &event).unwrap();
+  }
+  assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0].trim_end(), "hello there");
+}
+
+#[test]
 fn a_handler_calling_an_imported_helper_that_sets_a_store_key_steps_the_page() {
   let page = "import { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { count, step } from \"../src/count\";\n\nexport default function Page() {\n  const [n] = useStore(count, 0);\n  useInput(() => step(n));\n  return <Text>{n}</Text>;\n}\n";
   let app = app(page);

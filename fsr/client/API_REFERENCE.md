@@ -1367,7 +1367,7 @@ The machine a terminal page runs on. Terminal pages only; in a browser each memb
 * `system.platform(): string`: `macos`, `linux`, `windows` or another name Rust gives the operating system.
 * `system.lineEnd(): string`: `"\r\n"` on Windows, `"\n"` elsewhere.
 * `system.memory(): number`: the resident set of the running page, in bytes.
-* `system.spawn(command: string, args?: string[], options?: SpawnOptions): Spawned`: a process started with its output piped. `interface SpawnOptions { cwd?: string; env?: { [name: string]: string }; shell?: boolean | string; stdio?: "inherit" | "pipe" }`, `stdio: "inherit"` for one that owns the terminal. `Spawned` has `stdout.on("data", f)` and `stderr.on("data", f)` for its output, `on("exit" | "close", f)` with the code and signal, `on("error", f)` for a failure to start and `off(event, f)`.
+* `system.spawn(command: string, args?: string[], options?: SpawnOptions): Spawned`: a process started with its output piped. `interface SpawnOptions { cwd?: string; env?: { [name: string]: string }; shell?: boolean | string; stdio?: "inherit" | "pipe" }`, `stdio: "inherit"` for one that owns the terminal. `Spawned` has `stdout.on("data", f)` and `stderr.on("data", f)` for its output, `on("exit" | "close", f)` with the code and signal, `on("error", f)` for a failure to start, `stdin.write(text)` and `stdin.end()` for its input and `off(event, f)`. Its standard input is a pipe only when the page writes it.
 
 ### clipboard
 
