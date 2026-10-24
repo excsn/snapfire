@@ -10,9 +10,15 @@ use crate::meta::Meta;
 use crate::segments::SegmentInfo;
 use crate::store::Contribution;
 
-/// Installed once, ahead of the first fill. Moves a resolved template's content
-/// into its slot and wakes the boot runtime to rescan.
-pub const FILL_SCRIPT: &str = "<script>function __sfFill(n,g){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}</script>";
+/// Installed once, ahead of the first fill. Each fill's data rides in an inert JSON block beside it, so the executable text is this and `__sfFill(n)` alone, which a policy names by hash. `__sfFill` takes the block's seed, moves the resolved template into its slot, hands the boot runtime the segments inside it and applies its head.
+pub const FILL_SCRIPT_BODY: &str = "function __sfFill(n){var d=document.querySelector('script[data-sf-fill-data=\"'+n+'\"]'),j=d?JSON.parse(d.textContent):{},g=j.segments;if(d)d.remove();if(j.store)__sfStore(j.store);var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}if(j.head)__sfHead(j.head)}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}";
+
+pub const FILL_SCRIPT: &str = concat!("<script>", "function __sfFill(n){var d=document.querySelector('script[data-sf-fill-data=\"'+n+'\"]'),j=d?JSON.parse(d.textContent):{},g=j.segments;if(d)d.remove();if(j.store)__sfStore(j.store);var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}if(j.head)__sfHead(j.head)}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}", "</script>");
+
+/// The executable text that fills slot `n`.
+pub fn fill_call(n: u32) -> String {
+  format!("__sfFill({n})")
+}
 
 /// The `T` row's body and the seed script's: one entry per seeding segment,
 /// `k` its key, `p` the slot names from the root to it and `v` what it seeded
@@ -339,27 +345,22 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     let mut body = String::new();
     write_segment(&mut state.session, &resolved.node, &info, &mut body);
     state.session.finish(&mut body);
-    let nested = if info.children.is_empty() {
-      String::new()
-    } else {
-      format!(",{}", Json::Array(info.children.iter().map(segments_to_json).collect()).to_string().replace('<', "\\u003c"))
-    };
-    let mut chunk = state.session.take_placed();
-    chunk.push_str(&format!("<template data-sf-fill=\"{slot}\">{body}</template><script>"));
+    let mut data = serde_json::Map::new();
     if !resolved.contributions.is_empty() {
-      chunk.push_str(&format!(
-        "__sfStore({});",
-        contributions_to_json(&resolved.contributions).to_string().replace('<', "\\u003c")
-      ));
+      data.insert("store".to_owned(), contributions_to_json(&resolved.contributions));
     }
-    chunk.push_str(&format!("__sfFill({slot}{nested})"));
+    if !info.children.is_empty() {
+      data.insert("segments".to_owned(), Json::Array(info.children.iter().map(segments_to_json).collect()));
+    }
     if !resolved.meta.is_empty() {
-      chunk.push_str(&format!(
-        ";__sfHead({})",
-        meta_to_json(&resolved.meta).to_string().replace('<', "\\u003c")
-      ));
+      data.insert("head".to_owned(), meta_to_json(&resolved.meta));
     }
-    chunk.push_str("</script>");
+    let mut chunk = state.session.take_placed();
+    chunk.push_str(&format!("<template data-sf-fill=\"{slot}\">{body}</template>"));
+    if !data.is_empty() {
+      chunk.push_str(&format!("<script type=\"application/json\" data-sf-fill-data=\"{slot}\">{}</script>", Json::Object(data).to_string().replace('<', "\\u003c")));
+    }
+    chunk.push_str(&format!("<script>{}</script>", fill_call(slot)));
     Some((chunk, state))
   }))
 }

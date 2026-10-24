@@ -893,7 +893,7 @@ impl HostBuilder {
       .filter(|name| {
         !snapfire_fsr_ir::STANDARD
           .iter()
-          .any(|(m, n, _)| format!("{m}.{n}") == *name)
+          .any(|member| format!("{}.{}", member.module, member.name) == *name)
       })
       .collect();
     let app = app.services(services);
@@ -961,6 +961,7 @@ impl HostBuilder {
     let frame_origins: Vec<String> = app.report.embeds.iter().filter_map(|(_, src)| other_origin(src)).collect();
     let image_origins: Vec<String> = app.report.images.iter().filter_map(|(_, src)| other_origin(src)).collect();
     let inline_styles: Vec<String> = app.report.styles.iter().filter_map(|(_, css)| css.clone()).collect();
+    let most_deferred = app.resolver.most_deferred();
     let compose = |declared: &config::Csp| {
       let mut policy = declared.clone();
       if empty_icon {
@@ -968,6 +969,12 @@ impl HostBuilder {
       }
       if let Some(map) = import_map.as_deref() {
         policy.admit_inline("script-src", inline_hash(map));
+      }
+      if most_deferred > 0 {
+        policy.admit_inline("script-src", inline_hash(snapfire_fsr_runtime::stream::FILL_SCRIPT_BODY));
+        for slot in 1..=most_deferred {
+          policy.admit_inline("script-src", inline_hash(&snapfire_fsr_runtime::stream::fill_call(slot)));
+        }
       }
       if let Some(nonce) = &dev_nonce {
         policy.admit_inline("script-src", format!("'nonce-{nonce}'"));

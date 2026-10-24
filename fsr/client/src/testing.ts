@@ -860,24 +860,22 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   return { status: res.status, path };
 }
 
-/** What a browser's script engine does with a streamed document: takes each resolution's seed, moves its template into its slot and returns what its fill script would have said about the head, to run once the document is up. linkedom runs no scripts, so the runner does this by hand. The seed lands before anything is mounted, as the fill script orders it. */
+/** What a browser's script engine does with a streamed document: takes each resolution's seed from its data block, moves its template into its slot and returns its head, to apply once the document is up. linkedom runs no scripts, so the runner does this by hand. The seed lands before anything is mounted, as the fill script orders it. */
 function applyFills(): (() => void)[] {
   const late: (() => void)[] = [];
   for (const template of Array.from(document.querySelectorAll("template[data-sf-fill]"))) {
     const id = template.getAttribute("data-sf-fill");
     const slot = document.querySelector(`[data-sf-slot="${id}"]`);
-    const script = template.nextElementSibling;
-    const calls = script?.tagName === "SCRIPT" && script.textContent?.includes("__sfFill(") ? script.textContent.split(/;?__sf/).filter(Boolean) : [];
-    for (const call of calls) {
-      if (!call.startsWith("Store(")) continue;
-      contribute(decodeContributions(JSON.parse(call.slice("Store(".length, call.lastIndexOf(")")))));
-    }
+    const block = document.querySelector(`script[data-sf-fill-data="${id}"]`);
+    const data = block ? (JSON.parse(block.textContent ?? "{}") as { store?: unknown; head?: unknown }) : {};
+    if (data.store !== undefined) contribute(decodeContributions(data.store as never));
     if (slot) slot.replaceWith((template as HTMLTemplateElement).content);
     template.remove();
-    for (const call of calls) {
-      if (call.startsWith("Head(")) late.push(() => applyHead(JSON.parse(call.slice("Head(".length, call.lastIndexOf(")")))));
+    block?.remove();
+    for (const script of Array.from(document.querySelectorAll("script:not([type]):not([src])"))) {
+      if (script.textContent === `__sfFill(${id})`) script.remove();
     }
-    if (calls.length > 0) script?.remove();
+    if (data.head !== undefined) late.push(() => applyHead(data.head as never));
   }
   return late;
 }

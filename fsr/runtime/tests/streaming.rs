@@ -304,7 +304,8 @@ fn a_deferred_resolution_carries_the_segments_inside_it() {
   let outer_open = fill.find("<!--sf-g:outer.tera").expect(fill);
   let inner_open = fill.find("<!--sf-g:inner.tera").expect(fill);
   assert!(outer_open < inner_open && fill.ends_with("</script>"), "the inner segment is delimited inside the outer: {fill}");
-  assert!(fill.contains("__sfFill(1,[{") && fill.contains("\"n\":\"inner\""), "the fill script is handed the sidecar: {fill}");
+  assert!(fill.contains("<script type=\"application/json\" data-sf-fill-data=\"1\">{\"segments\":[{") && fill.contains("\"n\":\"inner\""), "the fill's data block carries the sidecar: {fill}");
+  assert!(fill.ends_with("<script>__sfFill(1)</script>"), "the call is fixed text a policy hashes: {fill}");
 }
 
 /// A modal written at the end of the body, then the slot named by the second field: the node stays where the segment put it.

@@ -195,7 +195,7 @@ fn a_deferred_segment_describes_the_document_when_it_resolves() {
   .unwrap();
   let html: Vec<String> = block_on(html_stream(assembly).collect());
   assert!(html[0].contains("<title>Shop</title>"), "{}", html[0]);
-  assert!(html[1].ends_with("<script>__sfFill(1);__sfHead({\"title\":\"Nozzle \\u003cXL> · Shop\",\"description\":\"All about Nozzle \\u003cXL>\"})</script>"), "{}", html[1]);
+  assert!(html[1].ends_with("<script type=\"application/json\" data-sf-fill-data=\"1\">{\"head\":{\"title\":\"Nozzle \\u003cXL> · Shop\",\"description\":\"All about Nozzle \\u003cXL>\"}}</script><script>__sfFill(1)</script>"), "{}", html[1]);
 }
 
 /// Titles the document after the product alone, leaving the suffix to the head's template.
@@ -270,7 +270,7 @@ fn a_deferred_segment_retitles_through_the_template() {
   assert!(wire[1].ends_with("\nH {\"title\":\"Nozzle {title} · Shop\"}\n"), "{}", wire[1]);
   let assembly = block_on(assemble(&runtime_titled(false), &plan(true), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
   let html: Vec<String> = block_on(html_stream(assembly).collect());
-  assert!(html[1].ends_with("<script>__sfFill(1);__sfHead({\"title\":\"Nozzle {title} · Shop\"})</script>"), "{}", html[1]);
+  assert!(html[1].ends_with("<script type=\"application/json\" data-sf-fill-data=\"1\">{\"head\":{\"title\":\"Nozzle {title} · Shop\"}}</script><script>__sfFill(1)</script>"), "{}", html[1]);
 }
 
 fn el(tag: &str, attrs: &[(&str, &str)]) -> HeadEl {

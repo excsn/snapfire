@@ -714,18 +714,16 @@ function applyFills() {
     for (const template of Array.from(document.querySelectorAll("template[data-sf-fill]"))){
         const id = template.getAttribute("data-sf-fill");
         const slot = document.querySelector(`[data-sf-slot="${id}"]`);
-        const script = template.nextElementSibling;
-        const calls = script?.tagName === "SCRIPT" && script.textContent?.includes("__sfFill(") ? script.textContent.split(/;?__sf/).filter(Boolean) : [];
-        for (const call of calls){
-            if (!call.startsWith("Store(")) continue;
-            contribute(decodeContributions(JSON.parse(call.slice("Store(".length, call.lastIndexOf(")")))));
-        }
+        const block = document.querySelector(`script[data-sf-fill-data="${id}"]`);
+        const data = block ? JSON.parse(block.textContent ?? "{}") : {};
+        if (data.store !== undefined) contribute(decodeContributions(data.store));
         if (slot) slot.replaceWith(template.content);
         template.remove();
-        for (const call of calls){
-            if (call.startsWith("Head(")) late.push(()=>applyHead(JSON.parse(call.slice("Head(".length, call.lastIndexOf(")")))));
+        block?.remove();
+        for (const script of Array.from(document.querySelectorAll("script:not([type]):not([src])"))){
+            if (script.textContent === `__sfFill(${id})`) script.remove();
         }
-        if (calls.length > 0) script?.remove();
+        if (data.head !== undefined) late.push(()=>applyHead(data.head));
     }
     return late;
 }

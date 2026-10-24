@@ -7,7 +7,7 @@ listen = "127.0.0.1:8170"
 [document]
 title = "The Shed"
 
-[document.csp_report_only]
+[document.csp]
 default-src = ["'self'"]
 
 [session]

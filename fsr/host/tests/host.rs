@@ -4556,6 +4556,29 @@ fn shelved() -> Arc<Host> {
   Arc::new(host)
 }
 
+/// Every executable inline script a streamed document carries is fixed text the policy names by hash, so an enforced `script-src` lets a deferred segment fill its slot.
+#[tokio::test]
+async fn a_streamed_documents_scripts_are_all_hashed_into_the_policy() {
+  use base64::Engine;
+  use sha2::Digest;
+  let dir = app_dir();
+  write_plan(&dir, SHELF_PLAN);
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[document.csp]\ndefault-src = [\"'self'\"]\n")).unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("drill")])))).build().unwrap();
+  let response = host.handle(Request::get("/shelf").body(Bytes::new()).unwrap()).await;
+  let policy = response.headers().get("content-security-policy").and_then(|v| v.to_str().ok()).expect("a policy").to_owned();
+  let html = body_of(response).await;
+  let mut scripts = 0;
+  for part in html.split("<script>").skip(1) {
+    let text = &part[..part.find("</script>").expect("closed")];
+    let hash = format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(text.as_bytes())));
+    assert!(policy.contains(&hash), "{text:?} is not in {policy}");
+    scripts += 1;
+  }
+  assert!(scripts >= 2, "the fill script and a fill call: {html}");
+}
+
 #[tokio::test]
 async fn a_fragment_is_one_segment_as_markup_with_nothing_around_it() {
   let host = shelved();

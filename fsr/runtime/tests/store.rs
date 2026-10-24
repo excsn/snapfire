@@ -221,7 +221,7 @@ fn a_deferred_segment_seeds_when_it_resolves() {
   assert!(wire[1].starts_with(&format!("T {PAGE_SEED}\nS 1 ")), "the seed goes ahead of the markup it rendered: {}", wire[1]);
 
   let html: Vec<String> = block_on(html_stream(assembled(Some(Arc::new(FieldSeed("owner", "where"))), true)).collect());
-  assert!(html[1].ends_with(&format!("<script>__sfStore({PAGE_SEED});__sfFill(1)</script>")), "{}", html[1]);
+  assert!(html[1].ends_with(&format!("<script type=\"application/json\" data-sf-fill-data=\"1\">{{\"store\":{PAGE_SEED}}}</script><script>__sfFill(1)</script>")), "{}", html[1]);
 }
 
 #[test]
