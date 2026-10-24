@@ -1457,6 +1457,7 @@ fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, 
         Expr::Input if input_is_request => Static::Dynamic,
         Expr::Identity(_) => Static::Anonymous,
         Expr::Call { service, .. } if bearer.contains(service) => Static::Anonymous,
+        Expr::Ext { module, name, .. } if snapfire_fsr_ir::standard_reach(module, name).is_some_and(|reach| reach != snapfire_fsr_ir::Reach::Render) => Static::Dynamic,
         _ => Static::Fixed,
       };
       class = class.max(read);

@@ -296,6 +296,31 @@ fn a_route_whose_only_request_reads_are_the_identity_prerenders_for_anonymous_vi
   assert!(app.report.prerenderable_anonymous.is_empty());
 }
 
+const CLOCKED: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/now", "plan": { "id": 0, "module": "routes/now/page.tsx#default", "source": "now" } },
+    { "pattern": "/label", "plan": { "id": 0, "module": "routes/label/page.tsx#default", "source": "label" } }
+  ],
+  "sources": [
+    { "id": "now", "owner": "lowered", "module": "routes/now/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "at", { "ext": { "module": "time", "name": "now", "args": [] } } ] }, { "field": [ "id", { "ext": { "module": "id", "name": "new", "args": [] } } ] } ] } } ] },
+    { "id": "label", "owner": "lowered", "module": "routes/label/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "n", { "ext": { "module": "intl", "name": "number", "args": [ { "lit": { "float": 3.5 } } ] } } ] } ] } } ] }
+  ],
+  "actions": []
+}"#;
+
+/// A standard member that answers per call, the clock or a fresh id, is read at request time; a render member over constants is not.
+#[test]
+fn a_loader_calling_a_body_member_of_the_standard_library_never_prerenders() {
+  let app = App::from_manifest(CLOCKED).unwrap().build().unwrap();
+  assert_eq!(app.report.prerenderable, vec!["/label".to_owned()], "{}", app.report);
+  assert!(app.report.prerenderable_anonymous.is_empty(), "{}", app.report);
+  let body = vec![snapfire_fsr_ir::Stmt::Return(snapfire_fsr_ir::Expr::Ext { module: "time".into(), name: "now".into(), args: vec![] })];
+  assert!(snapfire_fsr_ir::body_reads_request(&body), "the IR's own analysis agrees");
+}
+
 const BLOG: &str = r#"{
   "version": 2,
   "routes": [
