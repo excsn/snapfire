@@ -419,6 +419,22 @@ fn a_store_key_a_handler_writes_holds_its_value_for_the_next_step_and_every_comp
 }
 
 #[test]
+fn a_module_let_written_after_an_await_in_another_file_reaches_the_component_that_reads_it() {
+  let page = "import { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { count, bump } from \"../src/count\";\n\nexport default function Page() {\n  useInput(() => {\n    bump();\n  });\n  return <Text>{count}</Text>;\n}\n";
+  let app = app(page);
+  std::fs::create_dir_all(app.join("src")).unwrap();
+  std::fs::write(app.join("src/count.ts"), "export let count = 0;\n\nasync function settle() {\n  return 1;\n}\n\nexport async function bump() {\n  await settle();\n  count = count + 1;\n}\n").unwrap();
+  let mut session = Session::open(&app).unwrap();
+  let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "0");
+  session.press(&key).unwrap();
+  assert_eq!(line(session.view().unwrap()), "1");
+  session.press(&key).unwrap();
+  assert_eq!(line(session.view().unwrap()), "2");
+}
+
+#[test]
 fn a_handler_calling_an_imported_helper_that_sets_a_store_key_steps_the_page() {
   let page = "import { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { count, step } from \"../src/count\";\n\nexport default function Page() {\n  const [n] = useStore(count, 0);\n  useInput(() => step(n));\n  return <Text>{n}</Text>;\n}\n";
   let app = app(page);
