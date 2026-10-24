@@ -1,6 +1,6 @@
 import { useReducer } from "react";
 import { Box, Static, Text, useCursor, useFocus, useFocusManager, useInput } from "ink";
-import stringWidth from "string-width";
+import { stringWidth } from "@snapfire/fsr/terminal";
 
 type Task = { id: number; title: string; done: boolean };
 type Done = { id: number; title: string; at: string };

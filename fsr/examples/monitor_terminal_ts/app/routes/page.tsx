@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { spawn } from "node:child_process";
-import stripAnsi from "strip-ansi";
+import { system } from "@snapfire/fsr-client/std";
+import { stripAnsi } from "@snapfire/fsr/terminal";
 import { Box, Text, useAnimation, useApp, useBoxMetrics, useInput, useWindowSize } from "ink";
 
 const TABS = [
@@ -43,7 +43,7 @@ export default function Monitor() {
     setRunning(true);
     setFailure("");
     let read = "";
-    const child = spawn("sh", ["-c", TABS[chosen].command]);
+    const child = system.spawn("sh", ["-c", TABS[chosen].command]);
     child.stdout.on("data", (chunk) => {
       read = read + chunk;
     });

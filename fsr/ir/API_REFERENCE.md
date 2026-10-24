@@ -335,8 +335,7 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `time.monotonic` | body | | milliseconds since the process first read it, as `F64`; `performance.now()` |
 | `crypto.hash` | render | `s` | SHA-256 of the UTF-8 bytes as lowercase hex |
 | `crypto.verify` | render | `s`, `hash` | whether `hash` is the hash of `s`, compared in constant time, case insensitive |
-| `crypto.random` | body | `bytes` (at most 1024) | that many random bytes as hex |
-| `crypto.randomBytes` | body | `n` (at most 1024) | that many random bytes as `Bytes`; `Radix` with `"hex"`, `"base64"` or `"utf8"` encodes them |
+| `crypto.random` | body | `bytes` (at most 1024), `encoding?` | that many random bytes as `hex` by default or as `base64`; another encoding fails |
 | `crypto.uuid` | body | | a version 4 UUID |
 | `crypto.digest` | render | `algorithm`, `encoding`, `parts…` | the `sha256` of the parts' bytes in order as `hex` or `base64`; another algorithm or encoding fails |
 | `id.new` | body | | a UUID version 7 |

@@ -1,7 +1,7 @@
-import childProcess from "node:child_process";
+import { system } from "@snapfire/fsr-client/std";
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useAnimation, useBoxMetrics, useInput, useWindowSize } from "ink";
-import stripAnsi from "strip-ansi";
+import { stripAnsi } from "@snapfire/fsr/terminal";
 
 const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -28,7 +28,7 @@ export default function Log() {
   const shown = Math.min(top, last);
 
   useEffect(() => {
-    const git = childProcess.spawn("git", ["log", "--oneline", "--color=always", "-n", "200"]);
+    const git = system.spawn("git", ["log", "--oneline", "--color=always", "-n", "200"]);
     git.stdout.setEncoding("utf8");
     git.stdout.on("data", (chunk: string) => {
       setLines((held) => [...held, ...stripAnsi(chunk).split("\n").filter((line) => line !== "")]);

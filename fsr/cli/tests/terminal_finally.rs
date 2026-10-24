@@ -27,7 +27,7 @@ fn exit(code: i128) -> Value {
   Value::Map(exit)
 }
 
-const RUN: &str = "import { spawn } from \"node:child_process\";\nimport { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nconst run = (command: string): Promise<void> =>\n  new Promise((resolve, reject) => {\n    const child = spawn(\"sh\", [\"-c\", command]);\n    child.on(\"exit\", (code) => {\n      if (code === 0) {\n        resolve();\n      } else {\n        reject(new Error(`exited with ${code}`));\n      }\n    });\n  });\n\n";
+const RUN: &str = "import { system } from \"@snapfire/fsr-client/std\";\nimport { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nconst run = (command: string): Promise<void> =>\n  new Promise((resolve, reject) => {\n    const child = system.spawn(\"sh\", [\"-c\", command]);\n    child.on(\"exit\", (code) => {\n      if (code === 0) {\n        resolve();\n      } else {\n        reject(new Error(`exited with ${code}`));\n      }\n    });\n  });\n\n";
 
 fn line(node: snapfire_fsr_terminal::Node) -> String {
   snapfire_fsr_terminal::render(&node, 40).lines()[0].clone()

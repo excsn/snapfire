@@ -352,3 +352,12 @@ fn system_reads_the_machine_by_its_own_names() {
   assert!(matches!(call("", "system.memory", vec![]), Ok(Value::Int(n)) if n > 0 || cfg!(not(any(target_os = "macos", target_os = "linux")))));
   assert!(matches!(call("", "system.cwd", vec![]), Ok(Value::Str(cwd)) if !cwd.is_empty()));
 }
+
+#[test]
+fn random_bytes_are_hex_or_base64() {
+  let Ok(Value::Str(hex)) = call("", "crypto.random", vec![n(6.0)]) else { panic!("hex") };
+  assert_eq!(hex.len(), 12);
+  let Ok(Value::Str(base64)) = call("", "crypto.random", vec![n(6.0), s("base64")]) else { panic!("base64") };
+  assert_eq!(base64.len(), 8);
+  assert!(call("", "crypto.random", vec![n(6.0), s("utf8")]).is_err());
+}

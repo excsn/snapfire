@@ -122,7 +122,36 @@ export declare const system: {
 	cwd(): string;
 	/** The resident set of the running page, in bytes. */
 	memory(): number;
+	/** Starts `command` with `args`, its output piped, as a process the page hears from: `stdout.on("data", f)` and `stderr.on("data", f)` hear its output, `on("exit", f)` and `on("close", f)` its code and signal and `on("error", f)` a failure to start. `options` are `cwd`, `env`, `shell` and `stdio: "inherit"` for a process that owns the terminal. Terminal pages only. */
+	spawn(command: string, args?: string[], options?: SpawnOptions): Spawned;
 };
+export interface SpawnOptions {
+	cwd?: string;
+	env?: {
+		[name: string]: string;
+	};
+	shell?: boolean | string;
+	stdio?: "inherit" | "pipe";
+}
+/** A process `system.spawn` started. */
+export interface Spawned {
+	stdout: {
+		on(event: "data", f: (chunk: string) => void): void;
+	};
+	stderr: {
+		on(event: "data", f: (chunk: string) => void): void;
+	};
+	on(event: "exit" | "close", f: (code: number | null, signal: string | null) => void): void;
+	on(event: "error", f: (error: Error) => void): void;
+	off(event: "exit" | "close" | "error", f: (...args: never[]) => void): void;
+}
+/** A value scoped to a call: `run(value, fn)` holds `value` while `fn` runs, `get()` reads it, `undefined` outside any `run`, and `set(value)` holds it from then on. A terminal page keeps it across the awaits inside `fn`. */
+export declare class Scope<T> {
+	#private;
+	run<R>(value: T, fn: (...args: never[]) => R, ...args: never[]): R;
+	get(): T | undefined;
+	set(value: T): void;
+}
 export declare const time: {
 	/** Milliseconds since the time origin, as `performance.now()`; on the server, since the process started. */
 	monotonic(): number;
@@ -151,13 +180,11 @@ export declare const crypto: {
 	hash(s: string): string;
 	/** Whether `hash` is the hash of `s`. */
 	verify(s: string, hash: string): boolean;
-	/** `bytes` random bytes as hex. Server only on a render path. */
-	random(bytes: number): string;
-	/** `n` random bytes as Node's `randomBytes` gives them; `toString("hex")` or `toString("base64")` reads them. Server only on a render path. */
-	randomBytes(n: number): Uint8Array;
-	/** A version 4 UUID, as Node's `randomUUID`. Server only on a render path. */
+	/** `bytes` random bytes as `hex`, the default, or `base64`. Server only on a render path. */
+	random(bytes: number, encoding?: "hex" | "base64"): string;
+	/** A version 4 UUID. Server only on a render path. */
 	uuid(): string;
-	/** `createHash(algorithm).update(part)….digest(encoding)`: SHA-256 of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. */
+	/** The hash of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. */
 	digest(algorithm: string, encoding: string, ...parts: string[]): string;
 };
 /** The message under `key` in the document's locale, `{name}` placeholders filled from `args`; with `args.count`, the `key.<plural category>` form, then `key.other`, then `key`. A key the catalog lacks answers as itself. Under `fsr test` the runner answers with the Rust half. */

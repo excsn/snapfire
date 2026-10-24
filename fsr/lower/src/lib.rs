@@ -1050,7 +1050,7 @@ pub(crate) enum Kind {
   Response,
   /// A value only the browser knows, the viewer's clock for one: null on the server, read as an error the sites that can leave it to the browser catch.
   Browser,
-  /// An `AsyncLocalStorage` from `node:async_hooks`: a module cell `run` sets around a call and `getStore` reads.
+  /// A `Scope` from the standard module: a module cell `run` sets around a call and `get` reads.
   Scope,
 }
 
@@ -1065,7 +1065,7 @@ impl Kind {
       Kind::BigInt => "BigInt",
       Kind::Response => "Response",
       Kind::Browser => "value only the browser knows",
-      Kind::Scope => "AsyncLocalStorage",
+      Kind::Scope => "Scope",
     }
   }
 
@@ -1951,14 +1951,11 @@ impl<'a> Lowerer<'a> {
     settler(callee) || (self.reaches(Reach::Later) && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
   }
 
-  /// Whether `call` is `spawn` from `node:child_process`, named or through its default export.
+  /// Whether `call` is `system.spawn` from the standard module.
   pub(crate) fn spawns(&self, call: &js::CallExpr) -> bool {
     let js::Callee::Expr(callee) = &call.callee else { return false };
-    let meant = |e: &js::Expr| self.meanings.as_ref().and_then(|meanings| meanings.of_expr(e));
-    match crate::meaning::bare(callee) {
-      js::Expr::Member(member) => meant(&member.obj) == Some(meaning::Meaning::Library(meaning::Construct::ChildProcess("module"))) && self.member_name(member).as_deref() == Some("spawn"),
-      other => meant(other) == Some(meaning::Meaning::Library(meaning::Construct::ChildProcess("spawn"))),
-    }
+    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return false };
+    self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&member.obj)) == Some(meaning::Meaning::Library(meaning::Construct::Std("system"))) && self.member_name(member).as_deref() == Some("spawn")
   }
 
   /// `spawn(command, args, options)` in a terminal block: a fresh process id and the act [`snapfire_fsr_ir::host::Act::Spawn`] starting it, whose value is the process, [`snapfire_fsr_ir::host::PROCESS`].
@@ -3172,9 +3169,6 @@ impl<'a> Lowerer<'a> {
       return self.svelte_store(store, call);
     }
     if let Some(meaning::Meaning::Library(meaning::Construct::Extension(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
-      if key == "crypto.digest" {
-        return Err(self.residue(call.span, "`createHash` on its own; it is read as `createHash(algorithm).update(part).digest(encoding)`"));
-      }
       let (module, member) = key.split_once('.').expect("an extension is `module.member`");
       let reach = standard_reach(module, member).expect("a package maps to a standard member");
       if let (false, Some(needs)) = (self.reaches(reach), reach.needs()) {
@@ -3325,11 +3319,6 @@ impl<'a> Lowerer<'a> {
       return Ok(applied);
     }
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
-    if method == "digest" {
-      if let Some(folded) = self.hash_chain(member, call)? {
-        return Ok(folded);
-      }
-    }
     if self.kind_of(&member.obj) == Some(Kind::Scope) {
       return self.scope_call(&method, member, call);
     }
@@ -3992,8 +3981,8 @@ impl<'a> Lowerer<'a> {
   }
 
   fn new_expr(&mut self, n: &js::NewExpr) -> Lowered<Expr> {
-    // An `AsyncLocalStorage` starts with no store; the cell made for it holds what `run` and `enterWith` set.
-    if matches!(&*n.callee, js::Expr::Ident(id) if id.sym.as_ref() == "AsyncLocalStorage") {
+    // A `Scope` starts with no value; the cell made for it holds what `run` and `set` set.
+    if matches!(&*n.callee, js::Expr::Ident(id) if id.sym.as_ref() == "Scope") {
       return Ok(Expr::Lit(Lit::Undefined));
     }
     let args: Vec<js::ExprOrSpread> = n.args.clone().unwrap_or_default();
@@ -4250,50 +4239,16 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A `function` expression or a method as the lambda it is; a generator is residue.
-  /// `createHash(algorithm).update(part)….digest(encoding)` as one `crypto.digest` call, the parts in order after the algorithm and the encoding; `None` when the chain under `.digest` does not start at `createHash` from `node:crypto`.
-  fn hash_chain(&mut self, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-    let mut parts: Vec<&js::Expr> = Vec::new();
-    let mut receiver: &js::Expr = &member.obj;
-    loop {
-      let js::Expr::Call(inner) = crate::meaning::bare(receiver) else { return Ok(None) };
-      let js::Callee::Expr(callee) = &inner.callee else { return Ok(None) };
-      match crate::meaning::bare(callee) {
-        js::Expr::Member(m) if self.member_name(m).as_deref() == Some("update") => {
-          let Some(part) = inner.args.first() else { return Ok(None) };
-          parts.push(&part.expr);
-          receiver = &m.obj;
-        }
-        callee => {
-          if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) != Some(meaning::Meaning::Library(meaning::Construct::Extension("crypto.digest"))) {
-            return Ok(None);
-          }
-          let reach = Reach::Render;
-          if let (false, Some(needs)) = (self.reaches(reach), reach.needs()) {
-            return Err(self.residue(call.span, format!("a call to `crypto.digest`, which {needs}")));
-          }
-          self.check_reach(call.span, "crypto.digest", reach)?;
-          let Some(algorithm) = inner.args.first() else { return Err(self.residue(inner.span, "`createHash` without an algorithm")) };
-          let Some(encoding) = call.args.first() else { return Err(self.residue(call.span, "`digest()` without an encoding; `hex` or `base64` reads the bytes")) };
-          let mut args = vec![self.expr(&algorithm.expr)?, self.expr(&encoding.expr)?];
-          for part in parts.iter().rev() {
-            args.push(self.expr(part)?);
-          }
-          return Ok(Some(Expr::Ext { module: "crypto".to_owned(), name: "digest".to_owned(), args }));
-        }
-      }
-    }
-  }
-
-  /// `storage.getStore()`, `storage.run(value, fn, ...args)` and `storage.enterWith(value)` on an `AsyncLocalStorage` a module holds as a cell: the cell read; the cell set to `value` around a call of `fn` with the value before put back after, the call's result answered; the cell set. A web page has no process to scope, so there the storage is residue.
+  /// `scope.get()`, `scope.run(value, fn, ...args)` and `scope.set(value)` on a `Scope` a module holds as a cell: the cell read; the cell set to `value` around a call of `fn` with the value before put back after, the call's result answered; the cell set. A web page has no process to scope, so there the storage is residue.
   fn scope_call(&mut self, method: &str, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Expr> {
-    let js::Expr::Ident(id) = crate::meaning::bare(&member.obj) else { return Err(self.residue(member.span, "an `AsyncLocalStorage` reached other than by its name")) };
+    let js::Expr::Ident(id) = crate::meaning::bare(&member.obj) else { return Err(self.residue(member.span, "a `Scope` reached other than by its name")) };
     let name = id.sym.to_string();
     let Some((_, handle)) = self.cells.iter().find(|(cell, _)| *cell == name).cloned() else {
-      return Err(self.residue(member.span, format!("`{name}`, an `AsyncLocalStorage`, outside a terminal page; a web page has no process to scope")));
+      return Err(self.residue(member.span, format!("`{name}`, a `Scope`, outside a terminal page; a web page has no process to scope")));
     };
     match (method, call.args.as_slice()) {
-      ("getStore", []) => Ok(Expr::ReadCell(Box::new(handle))),
-      ("enterWith", [value]) => Ok(Expr::WriteCell(Box::new(handle), Box::new(self.expr(&value.expr)?))),
+      ("get", []) => Ok(Expr::ReadCell(Box::new(handle))),
+      ("set", [value]) => Ok(Expr::WriteCell(Box::new(handle), Box::new(self.expr(&value.expr)?))),
       ("run", [value, f, rest @ ..]) => {
         let value = self.expr(&value.expr)?;
         let f = Box::new(self.expr(&f.expr)?);
@@ -4310,7 +4265,7 @@ impl<'a> Lowerer<'a> {
           Stmt::Return(Expr::Var(result)),
         ]))
       }
-      _ => Err(self.residue(call.span, format!("`.{method}()` of an `AsyncLocalStorage`; `getStore`, `run` and `enterWith` are read"))),
+      _ => Err(self.residue(call.span, format!("`.{method}()` of a `Scope`; `get`, `run` and `set` are read"))),
     }
   }
 
@@ -4469,7 +4424,7 @@ pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URL" | "SvelteURL") => Some(Kind::Url),
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Date" | "SvelteDate") => Some(Kind::Date),
       js::Expr::Ident(id) if id.sym.as_ref() == "Response" => Some(Kind::Response),
-      js::Expr::Ident(id) if id.sym.as_ref() == "AsyncLocalStorage" => Some(Kind::Scope),
+      js::Expr::Ident(id) if id.sym.as_ref() == "Scope" => Some(Kind::Scope),
       _ => None,
     },
     js::Expr::Lit(js::Lit::BigInt(_)) => Some(Kind::BigInt),

@@ -46,8 +46,6 @@ pub(crate) enum Construct {
   ClassNames,
   /// A package export the build answers with a member of the standard library, `terminal.ms` for `ms`'s default export: a call to it is a call to that member, under the member's reach.
   Extension(&'static str),
-  /// `node:child_process`, its default export `module` or its `spawn`, whose processes a terminal page starts natively.
-  ChildProcess(&'static str),
   /// The terminal primitive `emit(kind, value)`, `Builtin::Emit`.
   Emit,
   /// The terminal primitive `suspendTerminal(f)`.
@@ -191,24 +189,10 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("clsx", "clsx", Construct::ClassNames),
   ("clsx", "default", Construct::ClassNames),
   ("classnames", "default", Construct::ClassNames),
-  ("ms", "default", Construct::Extension("terminal.ms")),
-  ("strip-ansi", "default", Construct::Extension("terminal.stripAnsi")),
-  ("string-width", "default", Construct::Extension("terminal.stringWidth")),
-  ("wrap-ansi", "default", Construct::Extension("terminal.wrapAnsi")),
   ("@snapfire/fsr/terminal", "ms", Construct::Extension("terminal.ms")),
   ("@snapfire/fsr/terminal", "stripAnsi", Construct::Extension("terminal.stripAnsi")),
   ("@snapfire/fsr/terminal", "stringWidth", Construct::Extension("terminal.stringWidth")),
   ("@snapfire/fsr/terminal", "wrapAnsi", Construct::Extension("terminal.wrapAnsi")),
-  ("node:child_process", "default", Construct::ChildProcess("module")),
-  ("node:child_process", "spawn", Construct::ChildProcess("spawn")),
-  ("child_process", "default", Construct::ChildProcess("module")),
-  ("child_process", "spawn", Construct::ChildProcess("spawn")),
-  ("node:crypto", "randomBytes", Construct::Extension("crypto.randomBytes")),
-  ("node:crypto", "randomUUID", Construct::Extension("crypto.uuid")),
-  ("node:crypto", "createHash", Construct::Extension("crypto.digest")),
-  ("crypto", "randomBytes", Construct::Extension("crypto.randomBytes")),
-  ("crypto", "randomUUID", Construct::Extension("crypto.uuid")),
-  ("crypto", "createHash", Construct::Extension("crypto.digest")),
   ("svelte/store", "writable", Construct::SvelteStore("writable")),
   ("svelte/store", "readable", Construct::SvelteStore("readable")),
   ("svelte/store", "readonly", Construct::SvelteStore("readonly")),

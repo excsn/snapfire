@@ -4064,7 +4064,7 @@ fn writes_back(expr: &Expr) -> bool {
   matches!(expr, Expr::Apply { f, .. } if matches!(&**f, Expr::Lambda { body, .. } if matches!(&**body, Expr::Builtin { name: Builtin::WriteBack, .. })))
 }
 
-/// The names `stmts` call `set`, `delete`, `add` or `clear` on (a collection changed in place) or `run` or `enterWith` on (an `AsyncLocalStorage` set).
+/// The names `stmts` call `set`, `delete`, `add` or `clear` on (a collection changed in place, or a `Scope` set) or `run` on (a `Scope` set around a call).
 fn mutated_names(stmts: &[js::Stmt]) -> Vec<String> {
   let mut found = Mutations(Vec::new());
   for stmt in stmts {
@@ -4079,7 +4079,7 @@ impl Visit for Mutations {
   fn visit_call_expr(&mut self, call: &js::CallExpr) {
     if let js::Callee::Expr(callee) = &call.callee {
       if let js::Expr::Member(member) = &**callee {
-        if let (js::Expr::Ident(id), Some("set" | "delete" | "add" | "clear" | "run" | "enterWith")) = (&*member.obj, prop_name_of(member).as_deref()) {
+        if let (js::Expr::Ident(id), Some("set" | "delete" | "add" | "clear" | "run")) = (&*member.obj, prop_name_of(member).as_deref()) {
           if !self.0.iter().any(|n| *n == *id.sym) {
             self.0.push(id.sym.to_string());
           }
@@ -9247,15 +9247,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(())
   }
 
-  /// `childProcess.spawn(command, args, options)` or a `spawn` imported by name.
+  /// `system.spawn(command, args, options)`.
   fn spawn_call(&self, e: &'p js::Expr) -> Option<&'p js::CallExpr> {
     let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
     let js::Callee::Expr(callee) = &call.callee else { return None };
-    let meant = |e: &js::Expr| self.meanings().of_expr(e);
-    let spawns = match crate::meaning::bare(callee) {
-      js::Expr::Member(member) => meant(&member.obj) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::ChildProcess("module"))) && prop_name_of(member).as_deref() == Some("spawn"),
-      other => meant(other) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::ChildProcess("spawn"))),
-    };
+    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return None };
+    let spawns = self.meanings().of_expr(&member.obj) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Std("system"))) && prop_name_of(member).as_deref() == Some("spawn");
     spawns.then_some(call)
   }
 

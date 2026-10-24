@@ -1,8 +1,7 @@
-import { spawn } from "node:child_process";
 import { system } from "@snapfire/fsr-client/std";
 import { Suspense, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import ms from "ms";
+import { ms } from "@snapfire/fsr/terminal";
 
 type Command = { label: string; run: string; owns: boolean };
 
@@ -19,7 +18,7 @@ let captured = "";
 /** Runs `command` with the terminal handed to it, settling when it exits. */
 const attached = (command: string): Promise<void> =>
   new Promise((resolve, reject) => {
-    const child = spawn("sh", ["-c", command], { stdio: "inherit" });
+    const child = system.spawn("sh", ["-c", command], { stdio: "inherit" });
     child.on("exit", (code) => {
       if (code === 0) {
         resolve();
@@ -34,7 +33,7 @@ const attached = (command: string): Promise<void> =>
 const capture = (command: string): Promise<string> =>
   new Promise((resolve, reject) => {
     captured = "";
-    const child = spawn("sh", ["-c", command]);
+    const child = system.spawn("sh", ["-c", command]);
     child.stdout.on("data", (chunk: string) => {
       captured = captured + chunk;
     });
@@ -48,7 +47,7 @@ const capture = (command: string): Promise<string> =>
     child.on("error", reject);
   });
 
-let system: Promise<void> | undefined;
+let reading: Promise<void> | undefined;
 let described: string | undefined;
 
 /** What `uname -sm` says, which suspends the first render until it answers. */
@@ -56,12 +55,12 @@ const describe = (): string => {
   if (described !== undefined) {
     return described;
   }
-  if (!system) {
-    system = capture("uname -sm").then((text) => {
+  if (!reading) {
+    reading = capture("uname -sm").then((text) => {
       described = text.trim();
     });
   }
-  throw system;
+  throw reading;
 };
 
 function System() {

@@ -49,7 +49,6 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("crypto", "hash", Reach::Render),
   ("crypto", "verify", Reach::Render),
   ("crypto", "random", Reach::Body),
-  ("crypto", "randomBytes", Reach::Body),
   ("crypto", "uuid", Reach::Body),
   ("crypto", "digest", Reach::Render),
   ("id", "new", Reach::Body),

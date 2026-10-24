@@ -10,21 +10,11 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("crypto.hash", Reach::Render, |_, args| Ok(Value::str(hash(text("crypto.hash", args, 0)?))));
   extensions.register("crypto.verify", Reach::Render, verify);
   extensions.register("crypto.random", Reach::Body, random);
-  extensions.register("crypto.randomBytes", Reach::Body, random_bytes);
   extensions.register("crypto.uuid", Reach::Body, |_, _| Ok(Value::str(uuid::Uuid::new_v4().to_string())));
   extensions.register("crypto.digest", Reach::Render, digest);
 }
 
-/// `crypto.randomBytes(n)`: that many random bytes, as Node's `randomBytes` gives a Buffer; `toString("hex")` or `toString("base64")` reads them.
-fn random_bytes(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
-  let what = "crypto.randomBytes";
-  let n = number(what, args, 0)?.clamp(0.0, 1024.0) as usize;
-  let mut buf = vec![0u8; n];
-  getrandom::fill(&mut buf).map_err(|e| Fail::internal(format!("{what}: {e}")))?;
-  Ok(Value::Bytes(buf))
-}
-
-/// `crypto.digest(algorithm, encoding, parts…)`: the hash of the parts' bytes in order, as `createHash(algorithm).update(part)….digest(encoding)` gives it. `sha256` is the algorithm provided; the encoding is `hex` or `base64`.
+/// `crypto.digest(algorithm, encoding, parts…)`: the hash of the parts' bytes in order. `sha256` is the algorithm provided; the encoding is `hex` or `base64`.
 fn digest(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "crypto.digest";
   let algorithm = text(what, args, 0)?;
@@ -94,11 +84,17 @@ fn verify(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   Ok(Value::Bool(diff == 0))
 }
 
-/// `crypto.random(bytes)`: that many random bytes as hex.
+/// `crypto.random(bytes, encoding?)`: that many random bytes as `hex`, the default, or `base64`.
 fn random(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "crypto.random";
   let n = number(what, args, 0)?.clamp(0.0, 1024.0) as usize;
   let mut buf = vec![0u8; n];
   getrandom::fill(&mut buf).map_err(|e| Fail::internal(format!("{what}: {e}")))?;
-  Ok(Value::str(hex(&buf)))
+  match args.get(1) {
+    None | Some(Value::Null | Value::Undefined) => Ok(Value::str(hex(&buf))),
+    Some(_) => match text(what, args, 1)? {
+      encoding @ ("hex" | "base64") => encode(what, &buf, encoding),
+      other => Err(Fail::internal(format!("{what}: an encoding of `{other}`; `hex` and `base64` are read"))),
+    },
+  }
 }

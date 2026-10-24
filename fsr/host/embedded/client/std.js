@@ -193,8 +193,33 @@ export const system = {
     },
     memory () {
         return terminalOnly("system.memory", []);
+    },
+    spawn (command, args, options) {
+        return terminalOnly("system.spawn", [
+            command,
+            args ?? [],
+            options ?? null
+        ]);
     }
 };
+export class Scope {
+    #value = undefined;
+    run(value, fn, ...args) {
+        const before = this.#value;
+        this.#value = value;
+        try {
+            return fn(...args);
+        } finally{
+            this.#value = before;
+        }
+    }
+    get() {
+        return this.#value;
+    }
+    set(value) {
+        this.#value = value;
+    }
+}
 function terminalOnly(name, args) {
     const sf = globalThis.__sf;
     if (!sf?.ext) throw new Error(`${name} runs in a terminal page only`);
@@ -472,15 +497,10 @@ export const crypto = {
         for(let i = 0; i < Math.min(computed.length, given.length); i++)diff |= computed.charCodeAt(i) ^ given.charCodeAt(i);
         return diff === 0;
     },
-    random (bytes) {
+    random (bytes, encoding = "hex") {
         const buf = new Uint8Array(Math.max(0, Math.min(1024, bytes)));
         globalThis.crypto.getRandomValues(buf);
-        return toHex(buf);
-    },
-    randomBytes (n) {
-        const buf = new Uint8Array(Math.max(0, Math.min(1024, n)));
-        globalThis.crypto.getRandomValues(buf);
-        return buf;
+        return encoding === "base64" ? btoa(String.fromCharCode(...buf)) : toHex(buf);
     },
     uuid () {
         return globalThis.crypto.randomUUID();

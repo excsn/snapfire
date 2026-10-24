@@ -1,5 +1,6 @@
-//! Node's `fs`, `path` and `os` modules and its `process` global written as
-//! FSR's `file`, `path` and `system` members from the standard module.
+//! Node's `fs`, `path`, `os`, `child_process`, `crypto` and `async_hooks`
+//! modules and its `process` global written as FSR's `file`, `path`, `system`,
+//! `crypto` and `Scope` from the standard module.
 
 use std::collections::BTreeSet;
 
@@ -22,6 +23,9 @@ enum Group {
   Fs,
   Path,
   Os,
+  ChildProcess,
+  Crypto,
+  AsyncHooks,
 }
 
 fn group(source: &str) -> Option<Group> {
@@ -29,6 +33,9 @@ fn group(source: &str) -> Option<Group> {
     "fs" | "fs/promises" => Some(Group::Fs),
     "path" | "path/posix" => Some(Group::Path),
     "os" => Some(Group::Os),
+    "child_process" => Some(Group::ChildProcess),
+    "crypto" => Some(Group::Crypto),
+    "async_hooks" => Some(Group::AsyncHooks),
     _ => None,
   }
 }
@@ -55,6 +62,8 @@ fn mapped(group: Group, name: &str) -> Option<Mapped> {
     (Group::Os, "platform") => m("system", "platform", Some(0)),
     (Group::Os, "tmpdir") => m("system", "tempDir", Some(0)),
     (Group::Os, "EOL") => Some(Mapped { member: "system", method: "lineEnd", keep: Some(0), call: false }),
+    (Group::ChildProcess, "spawn") => m("system", "spawn", None),
+    (Group::Crypto, "randomUUID") => m("crypto", "uuid", Some(0)),
     _ => None,
   }
 }
@@ -71,7 +80,7 @@ struct Held {
   member: Option<String>,
 }
 
-/// `fs`, `path` and `os` from Node, a named member or the module, and the `process` global, as the standard module's `file`, `path` and `system`. A file with a use of a Node module that has no FSR member is left as written with a note for each such use. A `process` use with no FSR member is noted and the rest of the file is still written.
+/// Node's modules, a named member or the module, and the `process` global, as the standard module's members: `fs` as `file`, `path` as `path`, `os` and `spawn` as `system`, `randomUUID`, `randomBytes(n).toString(encoding)` and a `createHash` chain as `crypto` and an `AsyncLocalStorage` as a `Scope`. A file with a use of a Node module that has no FSR member is left as written with a note for each such use. A `process` use with no FSR member is noted and the rest of the file is still written.
 struct Node;
 
 impl Pass for Node {
@@ -85,7 +94,7 @@ impl Pass for Node {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
       let Ok(parsed) = parse(&path, &text) else { continue };
       let (held, imports) = held(&parsed);
-      let mut uses = Uses { parsed: &parsed, text: &text, held: &held, edits: Edits::default(), members: BTreeSet::new(), unmapped: Vec::new(), process: Vec::new(), declared_process: declares(&parsed, "process") };
+      let mut uses = Uses { parsed: &parsed, text: &text, held: &held, edits: Edits::default(), members: BTreeSet::new(), unmapped: Vec::new(), process: Vec::new(), declared_process: declares(&parsed, "process"), scopes: Vec::new() };
       parsed.module.visit_with(&mut uses);
       let Uses { mut edits, members, unmapped, process, .. } = uses;
       for (line, written) in &process {
@@ -117,10 +126,10 @@ impl Pass for Node {
       let import = (!specifiers.is_empty()).then(|| format!("import {{ {} }} from \"{STD}\";", specifiers.join(", ")));
       let mut written = edits.apply(&text);
       for (member, alias) in &renamed {
-        written = written.replace(&format!("\u{0}{member}."), &format!("{alias}."));
+        written = written.replace(&format!("\u{0}{member}"), alias);
       }
       for member in &members {
-        written = written.replace(&format!("\u{0}{member}."), &format!("{member}."));
+        written = written.replace(&format!("\u{0}{member}"), member);
       }
       let Ok(reparsed) = parse(&path, &written) else { continue };
       let mut out = Edits::default();
@@ -216,6 +225,8 @@ struct Uses<'a> {
   unmapped: Vec<(usize, String)>,
   process: Vec<(usize, String)>,
   declared_process: bool,
+  /// The names an `AsyncLocalStorage` is held under, whose `getStore` and `enterWith` are a `Scope`'s `get` and `set`.
+  scopes: Vec<String>,
 }
 
 impl Uses<'_> {
@@ -243,6 +254,67 @@ impl Uses<'_> {
         }
       }
       _ => None,
+    }
+  }
+
+  /// Whether `e` names Node's `AsyncLocalStorage`.
+  fn is_storage(&self, e: &js::Expr) -> bool {
+    matches!(self.member_of(e), Some((Group::AsyncHooks, name)) if name == "AsyncLocalStorage")
+  }
+
+  /// `randomBytes(n).toString(encoding)` as `crypto.random(n, encoding)`, `hex` left out as the default.
+  fn random_bytes(&mut self, n: &js::CallExpr) -> Option<String> {
+    let js::Callee::Expr(callee) = &n.callee else { return None };
+    let js::Expr::Member(m) = &**callee else { return None };
+    if !matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "toString") {
+      return None;
+    }
+    let js::Expr::Call(inner) = &*m.obj else { return None };
+    let js::Callee::Expr(inner_callee) = &inner.callee else { return None };
+    if !matches!(self.member_of(inner_callee), Some((Group::Crypto, name)) if name == "randomBytes") {
+      return None;
+    }
+    let count = self.written(inner.args.first()?.span());
+    let encoding = match n.args.first().map(|a| &*a.expr) {
+      None => None,
+      Some(js::Expr::Lit(js::Lit::Str(s))) if s.value.to_string_lossy() == "hex" => None,
+      Some(js::Expr::Lit(js::Lit::Str(s))) if s.value.to_string_lossy() == "base64" => Some(self.written(s.span)),
+      Some(_) => return None,
+    };
+    self.members.insert("crypto".to_owned());
+    Some(match encoding {
+      Some(encoding) => format!("{}({count}, {encoding})", marked("crypto", "random")),
+      None => format!("{}({count})", marked("crypto", "random")),
+    })
+  }
+
+  /// `createHash(algorithm).update(part)….digest(encoding)` as `crypto.digest(algorithm, encoding, part, …)`.
+  fn hash_chain(&mut self, n: &js::CallExpr) -> Option<String> {
+    let js::Callee::Expr(callee) = &n.callee else { return None };
+    let js::Expr::Member(m) = &**callee else { return None };
+    if !matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "digest") {
+      return None;
+    }
+    let encoding = self.written(n.args.first()?.span());
+    let mut parts = Vec::new();
+    let mut at = &*m.obj;
+    loop {
+      let js::Expr::Call(call) = at else { return None };
+      let js::Callee::Expr(callee) = &call.callee else { return None };
+      if matches!(self.member_of(callee), Some((Group::Crypto, name)) if name == "createHash") {
+        let algorithm = self.written(call.args.first()?.span());
+        parts.reverse();
+        self.members.insert("crypto".to_owned());
+        let mut args = vec![algorithm, encoding];
+        args.extend(parts);
+        return Some(format!("{}({})", marked("crypto", "digest"), args.join(", ")));
+      }
+      let js::Expr::Member(update) = &**callee else { return None };
+      if !matches!(&update.prop, js::MemberProp::Ident(p) if &*p.sym == "update") {
+        return None;
+      }
+      parts.push(self.written(call.args.first()?.span()));
+      at = &update.obj;
     }
   }
 
@@ -285,6 +357,35 @@ impl Uses<'_> {
 impl Visit for Uses<'_> {
   fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
 
+  fn visit_var_declarator(&mut self, n: &js::VarDeclarator) {
+    if let (js::Pat::Ident(name), Some(js::Expr::New(made))) = (&n.name, n.init.as_deref()) {
+      if self.is_storage(&made.callee) {
+        self.scopes.push(name.id.sym.to_string());
+      }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_new_expr(&mut self, n: &js::NewExpr) {
+    if self.is_storage(&n.callee) {
+      self.members.insert("Scope".to_owned());
+      self.edits.replace(self.parsed.range(n.callee.span()), "\u{0}Scope");
+      n.args.visit_with(self);
+      return;
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_ts_type_ref(&mut self, n: &js::TsTypeRef) {
+    if let js::TsEntityName::Ident(id) = &n.type_name {
+      if self.is_storage(&js::Expr::Ident(id.clone())) {
+        self.members.insert("Scope".to_owned());
+        self.edits.replace(self.parsed.range(id.span), "\u{0}Scope");
+      }
+    }
+    n.visit_children_with(self);
+  }
+
   fn visit_bin_expr(&mut self, n: &js::BinExpr) {
     if matches!(n.op, js::BinaryOp::EqEqEq | js::BinaryOp::NotEqEq | js::BinaryOp::EqEq | js::BinaryOp::NotEq) {
       for (side, other) in [(&n.left, &n.right), (&n.right, &n.left)] {
@@ -307,6 +408,24 @@ impl Visit for Uses<'_> {
 
   fn visit_call_expr(&mut self, n: &js::CallExpr) {
     let js::Callee::Expr(callee) = &n.callee else { return n.visit_children_with(self) };
+    if let Some(written) = self.random_bytes(n).or_else(|| self.hash_chain(n)) {
+      self.edits.replace(self.parsed.range(n.span), written);
+      return;
+    }
+    if let js::Expr::Member(m) = &**callee {
+      if let (js::Expr::Ident(object), js::MemberProp::Ident(method)) = (&*m.obj, &m.prop) {
+        let renamed = match &*method.sym {
+          "getStore" => Some("get"),
+          "enterWith" => Some("set"),
+          _ => None,
+        };
+        if let (true, Some(renamed)) = (self.scopes.iter().any(|s| *s == *object.sym), renamed) {
+          self.edits.replace(self.parsed.range(method.span), renamed);
+          n.args.visit_with(self);
+          return;
+        }
+      }
+    }
     if let Some((group, name)) = self.member_of(callee) {
       match mapped(group, &name) {
         Some(m) if m.call => {

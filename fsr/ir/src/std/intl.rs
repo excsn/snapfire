@@ -240,7 +240,7 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   Ok(Value::str(out))
 }
 
-/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time, `Invalid Date` for an invalid instant. Without a locale, the system's, read from `LC_ALL`, `LC_TIME` or `LANG` as Node's ICU reads it, else `en-US`.
+/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time, `Invalid Date` for an invalid instant. Without a locale, the system's, read from `LC_ALL`, `LC_TIME` or `LANG`, else `en-US`.
 pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   let what = "toLocaleTimeString";
   let offset = super::time::local_offset(ms);
@@ -258,7 +258,7 @@ pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   Ok(formatter.format(&time).to_string())
 }
 
-/// `en_US.UTF-8` from the environment as `en-US`; `C` and `POSIX` are `en-US`, as they are to Node.
+/// `en_US.UTF-8` from the environment as `en-US`; `C` and `POSIX` are `en-US`.
 fn system_locale() -> String {
   let named = ["LC_ALL", "LC_TIME", "LANG"].iter().find_map(|var| std::env::var(var).ok().filter(|v| !v.is_empty()));
   let Some(named) = named else { return "en-US".to_owned() };

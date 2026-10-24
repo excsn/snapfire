@@ -15,7 +15,44 @@ use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(GrayMatter), Box::new(Loggers)]
+  vec![Box::new(GrayMatter), Box::new(Loggers), Box::new(Terminal)]
+}
+
+/// The packages a terminal tool reaches for whose functions FSR's terminal module has, by package and member.
+const TERMINAL: &[(&str, &str)] = &[("ms", "ms"), ("strip-ansi", "stripAnsi"), ("string-width", "stringWidth"), ("wrap-ansi", "wrapAnsi")];
+
+/// `ms`, `strip-ansi`, `string-width` and `wrap-ansi` imported by default as the member of `@snapfire/fsr/terminal` that does what each does, under the name the file used.
+struct Terminal;
+
+impl Pass for Terminal {
+  fn name(&self) -> &'static str {
+    "terminal packages"
+  }
+
+  fn run(&self, tree: &mut Tree, _: &mut Report) {
+    let paths: Vec<String> = tree.paths().filter(|p| p.starts_with("app/") && is_script(p)).map(str::to_owned).collect();
+    for path in paths {
+      let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
+      if !TERMINAL.iter().any(|(package, _)| text.contains(package)) {
+        continue;
+      }
+      let Ok(parsed) = parse(&path, &text) else { continue };
+      let mut edits = Edits::default();
+      for item in &parsed.module.body {
+        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+        let source = import.src.value.to_string_lossy();
+        let Some((_, member)) = TERMINAL.iter().find(|(package, _)| *package == source) else { continue };
+        let [js::ImportSpecifier::Default(d)] = import.specifiers.as_slice() else { continue };
+        let local = d.local.sym.to_string();
+        let named = if local == *member { local } else { format!("{member} as {local}") };
+        edits.replace(parsed.range(import.span), format!("import {{ {named} }} from \"@snapfire/fsr/terminal\";"));
+      }
+      let written = edits.apply(&text);
+      if written != text {
+        tree.insert(path, written);
+      }
+    }
+  }
 }
 
 pub(crate) const STD: &str = "@snapfire/fsr-client/std";

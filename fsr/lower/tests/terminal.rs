@@ -250,7 +250,7 @@ fn use_box_metrics_reads_what_the_terminal_measured_for_the_box_its_ref_is_on() 
 
 #[test]
 fn the_text_packages_ink_apps_import_run_natively_in_a_terminal() {
-  let page = "import ms from \"ms\";\nimport stripAnsi from \"strip-ansi\";\nimport stringWidth from \"string-width\";\nimport wrapAnsi from \"wrap-ansi\";\nimport { Text } from \"ink\";\n\nexport default function Texts() {\n  const rows = wrapAnsi(\"ab cd\", 2, { hard: true }).split(\"\\n\");\n  return <Text>{ms(90000)} {ms(\"1h\")} {stripAnsi(\"\\u001b[1mx\\u001b[22m\")} {stringWidth(\"古a\")} {rows.join(\"|\")}</Text>;\n}\n";
+  let page = "import { ms } from \"@snapfire/fsr/terminal\";\nimport { stripAnsi } from \"@snapfire/fsr/terminal\";\nimport { stringWidth } from \"@snapfire/fsr/terminal\";\nimport { wrapAnsi } from \"@snapfire/fsr/terminal\";\nimport { Text } from \"ink\";\n\nexport default function Texts() {\n  const rows = wrapAnsi(\"ab cd\", 2, { hard: true }).split(\"\\n\");\n  return <Text>{ms(90000)} {ms(\"1h\")} {stripAnsi(\"\\u001b[1mx\\u001b[22m\")} {stringWidth(\"古a\")} {rows.join(\"|\")}</Text>;\n}\n";
   let library = library(page);
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>2m 3600000 x 3 ab|cd</ink-text>");

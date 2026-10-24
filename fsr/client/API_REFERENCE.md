@@ -160,6 +160,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [system](#system)
   * [time](#time)
   * [crypto](#crypto)
+  * [Scope](#scope)
   * [id](#id)
   * [t](#t)
   * [native](#native)
@@ -1365,6 +1366,7 @@ The machine a terminal page runs on. Terminal pages only; in a browser each memb
 * `system.platform(): string`: `macos`, `linux`, `windows` or another name Rust gives the operating system.
 * `system.lineEnd(): string`: `"\r\n"` on Windows, `"\n"` elsewhere.
 * `system.memory(): number`: the resident set of the running page, in bytes.
+* `system.spawn(command: string, args?: string[], options?: SpawnOptions): Spawned`: a process started with its output piped. `interface SpawnOptions { cwd?: string; env?: { [name: string]: string }; shell?: boolean | string; stdio?: "inherit" | "pipe" }`, `stdio: "inherit"` for one that owns the terminal. `Spawned` has `stdout.on("data", f)` and `stderr.on("data", f)` for its output, `on("exit" | "close", f)` with the code and signal, `on("error", f)` for a failure to start and `off(event, f)`.
 
 ### time
 
@@ -1379,7 +1381,13 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 
 * `crypto.hash(s: string): string`: SHA-256 of the UTF-8 bytes as lowercase hex, computed synchronously.
 * `crypto.verify(s: string, hash: string): boolean`: constant time over the hash's length, case insensitive.
-* `crypto.random(bytes: number): string`: at most 1024 bytes from `getRandomValues`, as hex. Server only on a render path.
+* `crypto.random(bytes: number, encoding?: "hex" | "base64"): string`: at most 1024 bytes from `getRandomValues`, as `hex` by default or as `base64`. Server only on a render path.
+* `crypto.uuid(): string`: a version 4 UUID. Server only on a render path.
+* `crypto.digest(algorithm: string, encoding: string, ...parts: string[]): string`: the `sha256` of the parts' UTF-8 bytes in order as `hex` or `base64`; another algorithm or encoding throws.
+
+### Scope
+
+* `class Scope<T>`: a value scoped to a call. `run<R>(value: T, fn: (...args) => R, ...args): R` holds `value` while `fn` runs and answers what it does; `get(): T | undefined` reads the value held, `undefined` outside any `run`; `set(value: T): void` holds it from then on. A terminal page keeps it across the awaits inside `fn`.
 
 ### id
 
