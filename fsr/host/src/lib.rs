@@ -310,8 +310,8 @@ pub struct Host {
   http2: bool,
   /// `server.shutdown_grace`.
   shutdown_grace: std::time::Duration,
-  /// Set by `begin_drain`, which turns `server.ready` to 503.
-  draining: std::sync::atomic::AtomicBool,
+  /// Turned true by `begin_drain`, which turns `server.ready` to 503 and ends the event streams.
+  draining: tokio::sync::watch::Sender<bool>,
   /// The work requests left to run after their responses, still running.
   afters: Arc<after::AfterTasks>,
   /// The certificate the listener presents, `[server.tls]`; absent, the

@@ -543,7 +543,7 @@ impl HostBuilder {
       origin: config.origin()?,
       http2,
       shutdown_grace: std::time::Duration::from_secs(config.server.shutdown_grace),
-      draining: std::sync::atomic::AtomicBool::new(false),
+      draining: tokio::sync::watch::Sender::new(false),
       afters: Default::default(),
       #[cfg(feature = "tls")]
       tls,

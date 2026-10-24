@@ -503,6 +503,21 @@ async fn ready_answers_503_once_a_shutdown_has_begun() {
 }
 
 #[tokio::test]
+async fn an_event_stream_ends_when_the_drain_begins_so_shutdown_does_not_wait_out_the_grace() {
+  let (host, _) = host();
+  let (addr, fire, server) = served_until(host).await;
+  let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+  stream.write_all(b"GET /_sf/live?topics=board HTTP/1.1\r\nHost: localhost\r\n\r\n").await.unwrap();
+  let mut opened = [0u8; 256];
+  let read = tokio::time::timeout(std::time::Duration::from_secs(5), stream.read(&mut opened)).await.unwrap().unwrap();
+  assert!(String::from_utf8_lossy(&opened[..read]).contains(": open"), "the stream is open before the shutdown");
+  fire.send(()).unwrap();
+  let mut rest = Vec::new();
+  tokio::time::timeout(std::time::Duration::from_secs(5), stream.read_to_end(&mut rest)).await.expect("the stream ends with the drain").unwrap();
+  tokio::time::timeout(std::time::Duration::from_secs(5), server).await.expect("the server stops inside the grace").unwrap().unwrap();
+}
+
+#[tokio::test]
 async fn a_host_whose_listener_is_someone_elses_answers_503_on_ready_once_it_begins_to_drain() {
   let (host, _) = host();
   let ready = || Request::get("/ready").body(Bytes::new()).unwrap();

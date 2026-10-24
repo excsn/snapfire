@@ -127,12 +127,20 @@ impl Host {
 
   /// Turns `server.ready` to 503 `shutting down` for good. `serve_until` calls it when its shutdown resolves; a server that owns the listener, an actix `HttpServer` or an axum router the host is nested in, calls it before it stops, so a balancer probing readiness stops routing here while the open requests finish.
   pub fn begin_drain(&self) {
-    self.draining.store(true, std::sync::atomic::Ordering::Relaxed);
+    self.draining.send_replace(true);
   }
 
   /// Whether `begin_drain` has been called.
   pub fn draining(&self) -> bool {
-    self.draining.load(std::sync::atomic::Ordering::Relaxed)
+    *self.draining.borrow()
+  }
+
+  /// Resolves once `begin_drain` has been called, so a response that never finishes on its own, an event stream, ends with the drain rather than holding it for `server.shutdown_grace`.
+  pub(crate) fn drained(&self) -> impl std::future::Future<Output = ()> + Send + 'static {
+    let mut draining = self.draining.subscribe();
+    async move {
+      let _ = draining.wait_for(|drained| *drained).await;
+    }
   }
 
   /// Serves `listener` until `shutdown` resolves, then stops accepting and waits up to `server.shutdown_grace` for the connections it holds to finish what they are answering and for the work their requests left with `after`.

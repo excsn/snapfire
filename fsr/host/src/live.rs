@@ -1,6 +1,7 @@
 //! Development reloads, `/_sf/live` events, topics and the socket upgrade.
 
 use super::*;
+use futures_util::StreamExt;
 
 /// The publish half and the receiver every `/_sf/live` stream clones. A
 /// cloned receiver has a mailbox of its own and starts empty, so a stream
@@ -235,7 +236,7 @@ impl Host {
       .status(StatusCode::OK)
       .header(header::CONTENT_TYPE, "text/event-stream")
       .header(header::CACHE_CONTROL, "no-cache")
-      .body(StreamBody::new(opened.chain(events)).boxed_unsync())
+      .body(StreamBody::new(opened.chain(events).take_until(self.drained())).boxed_unsync())
       .expect("an event stream")
   }
 
@@ -262,7 +263,7 @@ impl Host {
       .status(StatusCode::OK)
       .header(header::CONTENT_TYPE, "text/event-stream")
       .header(header::CACHE_CONTROL, "no-cache")
-      .body(StreamBody::new(opened.chain(changes)).boxed_unsync())
+      .body(StreamBody::new(opened.chain(changes).take_until(self.drained())).boxed_unsync())
       .expect("an event stream")
   }
 
