@@ -293,6 +293,34 @@ impl IdentityProvider for ServiceProvider {
   }
 }
 
+/// The identity provider's `refresh` behind the credential interceptor. The provider is made after
+/// the services it may call, so it is bound once it exists. Nothing is renewed until it is bound.
+#[derive(Default)]
+pub(crate) struct ProviderRefresh(std::sync::OnceLock<Arc<dyn IdentityProvider>>);
+
+impl ProviderRefresh {
+  pub(crate) fn bind(&self, provider: Arc<dyn IdentityProvider>) {
+    let _ = self.0.set(provider);
+  }
+}
+
+impl snapfire_fsr_service::Refresher for ProviderRefresh {
+  fn refresh(&self, tokens: ValueMap) -> BoxFuture<'static, Option<ValueMap>> {
+    let Some(provider) = self.0.get().cloned() else {
+      return Box::pin(ready(None));
+    };
+    Box::pin(async move {
+      match provider.refresh(tokens).await {
+        Ok(renewed) => renewed,
+        Err(error) => {
+          tracing::warn!(target: "fsr::auth", error = %error, "refreshing the session's tokens failed");
+          None
+        }
+      }
+    })
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

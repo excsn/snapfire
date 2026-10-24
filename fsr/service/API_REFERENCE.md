@@ -28,6 +28,7 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [Next](#next)
   * [IdentityInterceptor](#identityinterceptor)
   * [CredentialInterceptor](#credentialinterceptor)
+  * [Refresher](#refresher)
   * [TraceInterceptor](#traceinterceptor)
   * [DataCache](#datacache)
   * [DataCacheError](#datacacheerror)
@@ -268,6 +269,7 @@ Read and write access to the request's backend credentials. `Send + Sync`. `snap
 
 * `fn get(&self, key: &str) -> Option<Value>`
 * `fn set(&self, key: &str, value: Value)`
+* `fn snapshot(&self) -> ValueMap`: every credential held, which a refresh is given whole; empty by default.
 
 ### NoCredentials
 
@@ -285,7 +287,7 @@ Module `interceptor`, re-exported at the crate root. The chain is an ordered lis
 
 ### Next
 
-The rest of the chain. Constructed only by the registry; an interceptor receives one and either consumes it or drops it.
+The rest of the chain. Constructed only by the registry; an interceptor receives one and either consumes it or drops it. `Clone`, so an interceptor may run the rest of the chain a second time.
 
 * `fn run(self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>>` invokes the next interceptor (the transport when the list is exhausted). Not calling it short-circuits; nothing downstream, transport included, runs.
 
@@ -306,8 +308,15 @@ Reads one credential out of custody and attaches it.
 * `fn header(self, header: impl Into<String>) -> Self`
 * `fn scheme(self, scheme: impl Into<String>) -> Self`
 * `fn only(self, services: impl IntoIterator<Item = impl Into<String>>) -> Self`: attaches the credential on calls to the named services only; without it every service gets it
+* `fn refreshing(self, refresher: Arc<dyn Refresher>) -> Self`: renews the credentials before attaching them when custody's `expires_at` has passed. It also renews them once after a call answers `FailureKind::Unauthorized`, running the call again with what was renewed.
 
-Writes `{scheme}{token}` under the header key. Writes nothing when custody holds no such credential or holds one that is not a `Value::Str`.
+Writes `{scheme}{token}` under the header key. Writes nothing when custody holds no such credential or holds one that is not a `Value::Str`. `expires_at` is seconds since the Unix epoch as an integer or a float; a credential counts as expired `EXPIRY_MARGIN_SECS` (30) before it, so it is not refused in flight. A refused call is retried only when the refresh renewed something and no refresh ran before it.
+
+### Refresher
+
+`Send + Sync`. What renews the credentials custody holds: the host binds the identity provider's `refresh` here.
+
+* `fn refresh(&self, tokens: ValueMap) -> BoxFuture<'static, Option<ValueMap>>`: given `Credentials::snapshot`, answers the credentials that changed, each written back through `Credentials::set`. It answers `None` when it renews nothing.
 
 ### TraceInterceptor
 

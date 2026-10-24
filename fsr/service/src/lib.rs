@@ -29,7 +29,7 @@ pub use grpc::GrpcTransport;
 #[cfg(feature = "graphql")]
 pub use graphql::{import_graphql, GraphqlOperation, GraphqlTransport, ImportedGraphql};
 pub use interceptor::{
-  CredentialInterceptor, IdentityInterceptor, Interceptor, Next, TraceInterceptor,
+  CredentialInterceptor, IdentityInterceptor, Interceptor, Next, Refresher, TraceInterceptor, EXPIRY_MARGIN_SECS,
 };
 pub use registry::{Services, ServicesBuilder};
 pub use rust::{Caller, ContractType, DeclaredService};

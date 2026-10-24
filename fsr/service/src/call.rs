@@ -61,6 +61,19 @@ impl Call {
     self.metadata.insert(key.into(), Value::str(value.into()));
   }
 
+  /// The same call again, for an interceptor that runs the rest of the chain a second time.
+  pub(crate) fn again(&self) -> Self {
+    Self {
+      service: self.service.clone(),
+      method: self.method.clone(),
+      args: self.args.clone(),
+      identity: self.identity.clone(),
+      metadata: self.metadata.clone(),
+      credentials: self.credentials.clone(),
+      request: self.request,
+    }
+  }
+
   pub fn metadata_str(&self, key: &str) -> Option<&str> {
     match self.metadata.get(key) {
       Some(Value::Str(s)) => Some(s.as_str()),
@@ -75,6 +88,10 @@ impl Call {
 pub trait Credentials: Send + Sync {
   fn get(&self, key: &str) -> Option<Value>;
   fn set(&self, key: &str, value: Value);
+  /// Every credential held, which a refresh is given whole.
+  fn snapshot(&self) -> ValueMap {
+    ValueMap::default()
+  }
 }
 
 #[derive(Default)]
@@ -95,5 +112,9 @@ impl Credentials for snapfire_fsr_session::TokenCell {
 
   fn set(&self, key: &str, value: Value) {
     TokenCell::set(self, key, value)
+  }
+
+  fn snapshot(&self) -> ValueMap {
+    TokenCell::snapshot(self)
   }
 }

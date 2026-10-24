@@ -773,6 +773,7 @@ impl HostBuilder {
       Some(contract.clone())
     };
 
+    let refresh = Arc::new(crate::remote::ProviderRefresh::default());
     let services = match self.services {
       Some(services) => services,
       None => {
@@ -790,7 +791,7 @@ impl HostBuilder {
           by_key.entry(key.clone()).or_default().push(client.clone());
         }
         for (key, clients) in by_key {
-          builder = builder.intercept(Arc::new(CredentialInterceptor::bearer(key).only(clients)));
+          builder = builder.intercept(Arc::new(CredentialInterceptor::bearer(key).only(clients).refreshing(refresh.clone())));
         }
         match &self.transport_override {
           Some(transport) => builder = builder.default_transport(transport.clone()),
@@ -1064,6 +1065,9 @@ impl HostBuilder {
       .as_ref()
       .map(|(mounted, name)| (name.clone(), mounted.login_path.clone()));
     let auth = auth.map(|(mounted, _)| mounted);
+    if let Some(mounted) = &auth {
+      refresh.bind(mounted.auth.provider().clone());
+    }
     let crawl = match (&config.crawl, config.origin()?) {
       (Some(section), Some(origin)) => {
         Some(crawl::Crawl::new(section, &origin, config.site.as_ref().map(|site| site.at.as_str()), auth.is_some()))

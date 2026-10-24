@@ -7507,3 +7507,48 @@ fn an_auth_client_that_declares_no_way_to_sign_in_is_refused_at_boot() {
   };
   assert!(error.contains("authenticate") && error.contains("beginSignIn") && error.contains("advanceSignIn"), "{error}");
 }
+
+mod token_refresh {
+  use super::*;
+  use futures_util::future::{ready, BoxFuture};
+  use snapfire_fsr_auth::{AuthError, AuthOutcome, IdentityProvider, Next, Start};
+  use snapfire_fsr_runtime::Identity;
+
+  /// Signs anyone in with a token that has already expired and trades its refresh token for a new one.
+  struct Expiring;
+
+  fn tokens(pairs: &[(&str, Value)]) -> ValueMap {
+    pairs.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect()
+  }
+
+  impl IdentityProvider for Expiring {
+    fn begin(&self, _start: Start) -> BoxFuture<'_, Result<Next, AuthError>> {
+      Box::pin(ready(Ok(snapfire_fsr_auth::password_form())))
+    }
+
+    fn advance(&self, _params: ValueMap, _state: ValueMap) -> BoxFuture<'_, Result<Next, AuthError>> {
+      let custody = tokens(&[("access_token", Value::str("stale")), ("refresh_token", Value::str("r1")), ("expires_at", Value::Int(1))]);
+      Box::pin(ready(Ok(Next::Complete(AuthOutcome::new(Identity::new("alice".to_owned(), ValueMap::default()), custody)))))
+    }
+
+    fn refresh(&self, held: ValueMap) -> BoxFuture<'_, Result<Option<ValueMap>, AuthError>> {
+      let renewed = (held.get("refresh_token") == Some(&Value::str("r1"))).then(|| tokens(&[("access_token", Value::str("fresh")), ("expires_at", Value::Int(4_000_000_000))]));
+      Box::pin(ready(Ok(renewed)))
+    }
+  }
+
+  #[tokio::test]
+  async fn a_loaders_call_carries_the_token_the_provider_renewed() {
+    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+    let host = Host::from(identified_dir(USERS).join("app.toml")).unwrap().services_over(transport.clone()).identity(Arc::new(Expiring)).build().unwrap();
+    let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+    let cookie = cookie_of(&response);
+    let response = host
+      .handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=x")).unwrap())
+      .await;
+    let cookie = cookie_of(&response);
+    let html = body_of(host.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+    assert!(html.contains("alice"), "{html}");
+    assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer fresh"), "the expired token was renewed before the call");
+  }
+}

@@ -768,6 +768,12 @@ let credential = CredentialInterceptor::bearer("access_token")
   .scheme("");
 ```
 
+`CredentialInterceptor::refreshing` renews an expiring credential. Before attaching it, a credential whose `expires_at` has passed is handed to the `Refresher` with the rest of custody and what it answers is written back; a call answered `Unauthorized` gets one refresh and one more run. The host binds its identity provider's `refresh` here.
+
+```rust
+let credential = CredentialInterceptor::bearer("access_token").refreshing(Arc::new(my_refresher));
+```
+
 `TraceInterceptor` leaves an existing id alone, so a request id minted at the edge survives the whole fanout instead of being replaced per call. It also emits a `tracing` debug event on target `fsr::service` carrying the service, the method and the request id. It opens the `call` span every trace shows under a loader. The span's `cache` field says whether the data cache answered the call: `hit`, `miss` or `none` when the method has no policy or the cache stood aside.
 
 An anonymous request attaches neither the subject nor the token: both interceptors write nothing when there is nothing to write.

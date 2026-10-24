@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use tracing::Instrument;
-use snapfire_fsr_core::Value;
+use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::ServiceError;
 
 use crate::call::Call;
@@ -21,6 +21,7 @@ pub(crate) struct Chain {
 
 /// The rest of the chain. Calling `run` continues; not calling it short
 /// circuits, which is how a cache or a circuit breaker would sit here.
+#[derive(Clone)]
 pub struct Next {
   chain: Arc<Chain>,
   index: usize,
@@ -78,14 +79,26 @@ impl Interceptor for IdentityInterceptor {
   }
 }
 
+/// Renews the credentials custody holds: the identity provider's `refresh`, given every credential
+/// and answering the ones that changed; `None` when it renews nothing.
+pub trait Refresher: Send + Sync {
+  fn refresh(&self, tokens: ValueMap) -> BoxFuture<'static, Option<ValueMap>>;
+}
+
+/// How long before `expires_at` a credential counts as expired, so it is not refused in flight.
+pub const EXPIRY_MARGIN_SECS: u64 = 30;
+
 /// Reads one credential out of custody and attaches it. This is the step that
-/// makes "application code never sees a token" structural.
+/// makes "application code never sees a token" structural. With a refresher it
+/// renews the credentials first when custody's `expires_at` has passed, and
+/// once after a call is refused as unauthorized, running the call again.
 pub struct CredentialInterceptor {
   credential: String,
   header: String,
   scheme: String,
   /// The services the credential goes to; every service when empty.
   services: Vec<String>,
+  refresher: Option<Arc<dyn Refresher>>,
 }
 
 impl CredentialInterceptor {
@@ -95,7 +108,13 @@ impl CredentialInterceptor {
       header: "authorization".to_owned(),
       scheme: "Bearer ".to_owned(),
       services: Vec::new(),
+      refresher: None,
     }
+  }
+
+  pub fn refreshing(mut self, refresher: Arc<dyn Refresher>) -> Self {
+    self.refresher = Some(refresher);
+    self
   }
 
   pub fn header(mut self, header: impl Into<String>) -> Self {
@@ -115,15 +134,65 @@ impl CredentialInterceptor {
   }
 }
 
+impl CredentialInterceptor {
+  fn attach(&self, call: &mut Call) {
+    if let Some(Value::Str(token)) = call.credentials.get(&self.credential) {
+      call.set_metadata(self.header.clone(), format!("{}{token}", self.scheme));
+    }
+  }
+}
+
+/// Asks `refresher` to renew `credentials` and writes back what it answers; whether it renewed anything.
+async fn renew(refresher: &Arc<dyn Refresher>, credentials: &Arc<dyn crate::call::Credentials>) -> bool {
+  match refresher.refresh(credentials.snapshot()).await {
+    Some(renewed) if !renewed.is_empty() => {
+      for (key, value) in renewed {
+        credentials.set(&key, value);
+      }
+      true
+    }
+    _ => false,
+  }
+}
+
+fn expired(credentials: &dyn crate::call::Credentials) -> bool {
+  let at = match credentials.get("expires_at") {
+    Some(Value::Int(at)) => u64::try_from(at).unwrap_or(0),
+    Some(Value::UInt(at)) => u64::try_from(at).unwrap_or(u64::MAX),
+    Some(Value::F64(at)) if at.is_finite() && at >= 0.0 => at as u64,
+    _ => return false,
+  };
+  at <= snapfire_fsr_runtime::unix_now() + EXPIRY_MARGIN_SECS
+}
+
 impl Interceptor for CredentialInterceptor {
   fn call(&self, mut call: Call, next: Next) -> BoxFuture<'static, Result<Value, ServiceError>> {
     let named = self.services.is_empty() || self.services.iter().any(|s| *s == call.service);
-    if named {
-      if let Some(Value::Str(token)) = call.credentials.get(&self.credential) {
-        call.set_metadata(self.header.clone(), format!("{}{token}", self.scheme));
-      }
+    if !named {
+      return next.run(call);
     }
-    next.run(call)
+    let Some(refresher) = self.refresher.clone().filter(|_| call.credentials.get(&self.credential).is_some()) else {
+      self.attach(&mut call);
+      return next.run(call);
+    };
+    let this = CredentialInterceptor { credential: self.credential.clone(), header: self.header.clone(), scheme: self.scheme.clone(), services: Vec::new(), refresher: None };
+    Box::pin(async move {
+      let mut renewed = false;
+      if expired(call.credentials.as_ref()) {
+        renewed = renew(&refresher, &call.credentials).await;
+      }
+      this.attach(&mut call);
+      let again = call.again();
+      let answer = next.clone().run(call).await;
+      match answer {
+        Err(error) if error.kind == snapfire_fsr_runtime::FailureKind::Unauthorized && !renewed && renew(&refresher, &again.credentials).await => {
+          let mut call = again;
+          this.attach(&mut call);
+          next.run(call).await
+        }
+        answer => answer,
+      }
+    })
   }
 }
 

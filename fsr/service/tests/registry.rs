@@ -211,3 +211,81 @@ fn the_handle_is_clonable_into_a_request_ctx() {
   assert!(cloned.services.is_bound());
   assert_eq!(block_on(cloned.services.call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(1));
 }
+
+mod refresh {
+  use super::*;
+  use futures_util::future::BoxFuture;
+  use snapfire_fsr_runtime::{unix_now, ServiceError};
+  use snapfire_fsr_service::{Call, Refresher, Transport};
+
+  /// Answers `fleet.count` only to the bearer `Bearer new`; refuses any other as unauthorized.
+  #[derive(Default)]
+  struct Fleet {
+    seen: parking_lot::Mutex<Vec<String>>,
+  }
+
+  impl Transport for Fleet {
+    fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
+      let bearer = call.metadata_str("authorization").unwrap_or_default().to_owned();
+      self.seen.lock().push(bearer.clone());
+      let answer = if bearer == "Bearer new" { Ok(Value::Int(3)) } else { Err(ServiceError::new(FailureKind::Unauthorized, "fleet", "count", "expired")) };
+      Box::pin(futures::future::ready(answer))
+    }
+  }
+
+  /// Trades `refresh_token = r1` for `access_token = new`; anything else for nothing.
+  #[derive(Default)]
+  struct Trades {
+    asked: parking_lot::Mutex<usize>,
+  }
+
+  impl Refresher for Trades {
+    fn refresh(&self, tokens: ValueMap) -> BoxFuture<'static, Option<ValueMap>> {
+      *self.asked.lock() += 1;
+      let renewed = (tokens.get("refresh_token") == Some(&Value::str("r1"))).then(|| args(vec![("access_token", Value::str("new")), ("expires_at", Value::Int((unix_now() + 3600) as i128))]));
+      Box::pin(futures::future::ready(renewed))
+    }
+  }
+
+  fn services(fleet: Arc<Fleet>, trades: Arc<Trades>) -> Arc<Services> {
+    Services::builder().contract(contract()).intercept(Arc::new(CredentialInterceptor::bearer("access_token").refreshing(trades))).default_transport(fleet).build()
+  }
+
+  fn custody(expires_at: u64, refresh_token: &str) -> TokenCell {
+    let tokens = TokenCell::default();
+    tokens.set("access_token", Value::str("old"));
+    tokens.set("refresh_token", Value::str(refresh_token));
+    tokens.set("expires_at", Value::Int(expires_at as i128));
+    tokens
+  }
+
+  #[test]
+  fn an_expired_token_is_refreshed_before_the_call_carries_it() {
+    let (fleet, trades) = (Arc::new(Fleet::default()), Arc::new(Trades::default()));
+    let tokens = custody(unix_now() - 1, "r1");
+    let handle = services(fleet.clone(), trades.clone()).bind(None, Arc::new(tokens.clone()));
+    assert_eq!(block_on(handle.call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(3));
+    assert_eq!(*fleet.seen.lock(), ["Bearer new"], "only the renewed token went out");
+    assert_eq!(tokens.get("access_token"), Some(Value::str("new")), "custody holds what refresh answered");
+    assert_eq!(tokens.get("refresh_token"), Some(Value::str("r1")), "a key refresh did not answer survives");
+  }
+
+  #[test]
+  fn a_refused_call_is_refreshed_and_retried_once() {
+    let (fleet, trades) = (Arc::new(Fleet::default()), Arc::new(Trades::default()));
+    let tokens = custody(unix_now() + 3600, "r1");
+    let handle = services(fleet.clone(), trades.clone()).bind(None, Arc::new(tokens));
+    assert_eq!(block_on(handle.call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(3));
+    assert_eq!(*fleet.seen.lock(), ["Bearer old", "Bearer new"]);
+    assert_eq!(*trades.asked.lock(), 1);
+  }
+
+  #[test]
+  fn a_refresh_that_renews_nothing_leaves_the_refusal_and_does_not_retry() {
+    let (fleet, trades) = (Arc::new(Fleet::default()), Arc::new(Trades::default()));
+    let handle = services(fleet.clone(), trades.clone()).bind(None, Arc::new(custody(unix_now() + 3600, "revoked")));
+    let err = block_on(handle.call("fleet", "count", ValueMap::default())).unwrap_err();
+    assert_eq!(err.kind, FailureKind::Unauthorized);
+    assert_eq!(*fleet.seen.lock(), ["Bearer old"]);
+  }
+}
