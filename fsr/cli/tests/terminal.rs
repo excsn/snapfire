@@ -64,17 +64,38 @@ fn keys_read_as_ink_reads_them() {
 
 #[test]
 fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state() {
-  use snapfire_fsr_cli::terminal::Timer;
   use std::time::Duration;
   let clock = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 100);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setTicks(100), 2000);\n  }, []);\n  return <Text>ticks {ticks}</Text>;\n}\n";
   let mut session = Session::open(&app(clock)).unwrap();
-  assert_eq!(session.timers(), [Timer { id: None, path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true, settles: None, carry: Value::Null }, Timer { id: None, path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false, settles: None, carry: Value::Null }]);
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
   assert_eq!(line(session.view().unwrap()), "ticks 0");
-  let timers = session.timers();
+  let timers = session.take_started();
+  assert_eq!(timers.iter().map(|t| (t.path.as_str(), t.every, t.repeats)).collect::<Vec<_>>(), [("", Duration::from_millis(100), true), ("", Duration::from_millis(2000), false)]);
   session.fire(&timers[0]).unwrap();
   assert_eq!(line(session.fire(&timers[0]).unwrap()), "ticks 2");
   assert_eq!(line(session.fire(&timers[1]).unwrap()), "ticks 100");
+}
+
+#[test]
+fn a_timer_a_mount_effect_starts_reads_the_values_of_the_render_that_started_it() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [now, setNow] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setNow(now + 1), 1000);\n    return () => clearInterval(timer);\n  }, []);\n  return <Text>now {now}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "now 0");
+  let timers = session.take_started();
+  session.fire(&timers[0]).unwrap();
+  assert_eq!(line(session.fire(&timers[0]).unwrap()), "now 1", "the callback holds the first render's now, as in React");
+}
+
+#[test]
+fn a_mount_timer_on_a_callback_the_component_holds_runs_it() {
+  let page = "import { useCallback, useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Ticks() {\n  const [n, setN] = useState(0);\n  const tick = useCallback(() => {\n    setN((n) => n + 1);\n  }, []);\n  useEffect(() => {\n    const timer = setInterval(tick, 100);\n    return () => clearInterval(timer);\n  }, [tick]);\n  return <Text>ticks {n}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "ticks 0");
+  let timers = session.take_started();
+  session.fire(&timers[0]).unwrap();
+  assert_eq!(line(session.fire(&timers[0]).unwrap()), "ticks 2");
 }
 
 #[test]
@@ -117,7 +138,7 @@ fn a_session_draws_at_the_terminal_size_and_prints_what_the_page_writes_above_it
   session.resize(120, 40);
   let lines = |node| snapfire_fsr_terminal::render(&node, 30).lines();
   assert_eq!(lines(session.view().unwrap()), ["width 120"]);
-  let timers = session.timers();
+  let timers = session.take_started();
   session.fire(&timers[0]).unwrap();
   assert_eq!(lines(session.fire(&timers[0]).unwrap()), ["hello", "hello", "width 120"]);
 }
@@ -132,7 +153,7 @@ fn a_stateful_component_a_page_places_draws_in_place_and_every_one_steps() {
   let Some(Press::Input(plus)) = key_event(KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE)) else { panic!("+ is input") };
   session.press(&plus).unwrap();
   assert_eq!(lines(&mut session), ["a: 1", "b: 1", "ticks: 0"], "every useInput hears a key, as in Ink");
-  let timers = session.timers();
+  let timers = session.take_started();
   assert_eq!(timers.len(), 1);
   session.fire(&timers[0]).unwrap();
   assert_eq!(lines(&mut session), ["a: 1", "b: 1", "ticks: 1"]);

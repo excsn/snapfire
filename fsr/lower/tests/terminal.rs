@@ -29,6 +29,44 @@ fn library(source: &str) -> Components {
   set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect()
 }
 
+/// A timer a `mount` handler of the root page starts: its delay, whether it repeats, the handler it runs and what it carries in.
+struct Started {
+  ms: i64,
+  repeats: bool,
+  handler: usize,
+  carry: Value,
+}
+
+/// Runs every `mount` handler of the root page against `state` and lists the timers they start, in order.
+fn mount_timers(library: &Components, props: &ValueMap, state: &ValueMap) -> Vec<Started> {
+  let component = &library[MODULE];
+  let mut started = Vec::new();
+  for (index, handler) in component.handlers.iter().enumerate().filter(|(_, h)| h.event == "mount") {
+    let stepped = Interpreter::default().island_step(MODULE, component, props, state, Some(HandlerRef::own(index)), &Value::Null, library).unwrap();
+    for (action, input) in stepped.acts {
+      let (true, Value::Map(timer)) = (action == snapfire_fsr_ir::host::Act::Timer.name(), input) else { continue };
+      let Some(Value::Str(event)) = timer.get("event") else { panic!("a timer of mount handler {index} without an event: {timer:?}; {}", handler.event) };
+      let at = component.handlers.iter().position(|h| h.event == **event).expect("the timer's handler");
+      let ms = match timer.get("ms") {
+        Some(Value::Int(ms)) => *ms as i64,
+        Some(Value::F64(ms)) => *ms as i64,
+        other => panic!("a timer delay of {other:?}"),
+      };
+      started.push(Started { ms, repeats: timer.get("repeats") == Some(&Value::Bool(true)), handler: at, carry: timer.get("carry").cloned().unwrap_or(Value::Null) });
+    }
+  }
+  started
+}
+
+/// `timer` fired against `state`, as a terminal fires it.
+fn fire(library: &Components, props: &ValueMap, state: &ValueMap, timer: &Started) -> snapfire_fsr_ir::render::Stepped {
+  let mut event = ValueMap::default();
+  event.insert("value".to_owned(), Value::Null);
+  event.insert("ok".to_owned(), Value::Bool(true));
+  event.insert("carry".to_owned(), timer.carry.clone());
+  Interpreter::default().island_step(MODULE, &library[MODULE], props, state, Some(HandlerRef::own(timer.handler)), &Value::Map(event), library).unwrap()
+}
+
 fn key(input: &str, pressed: &[&str]) -> Value {
   let mut key = ValueMap::default();
   for name in ["upArrow", "downArrow", "leftArrow", "rightArrow", "return", "escape", "ctrl", "shift", "tab", "backspace", "delete", "meta"] {
@@ -66,18 +104,17 @@ fn ink_elements_lower_to_terminal_elements_and_use_input_steps_the_state() {
 const CLOCK: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  const [shown, setShown] = useState(false);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 250);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setShown(true), 1000);\n  }, []);\n  useEffect(() => {\n    document.title = String(ticks);\n  }, [ticks]);\n  return <Text>{ticks} {shown ? \"shown\" : \"hidden\"}</Text>;\n}\n";
 
 #[test]
-fn a_timer_a_mount_effect_starts_lowers_to_a_handler_named_for_its_interval() {
+fn a_timer_a_mount_effect_starts_is_an_act_its_mount_handler_runs() {
   let library = library(CLOCK);
-  let component = &library[MODULE];
-  let events: Vec<&str> = component.handlers.iter().map(|handler| handler.event.as_str()).collect();
-  assert_eq!(events, ["interval:250", "timeout:1000"], "an effect with dependencies, or one that starts no timer, is not one");
-  let interpreter = Interpreter::default();
-  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let none = ValueMap::default();
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &none, &none, None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>0 hidden</ink-text>");
-  let tick = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
-  let tick = interpreter.island_step(MODULE, component, &ValueMap::default(), &tick.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+  let timers = mount_timers(&library, &none, &first.state);
+  assert_eq!(timers.iter().map(|t| (t.ms, t.repeats)).collect::<Vec<_>>(), [(250, true), (1000, false)], "an effect with dependencies, or one that starts no timer, starts none");
+  let tick = fire(&library, &none, &first.state, &timers[0]);
+  let tick = fire(&library, &none, &tick.state, &timers[0]);
   assert_eq!(tick.rendered.html, "<ink-text>2 hidden</ink-text>");
-  let shown = interpreter.island_step(MODULE, component, &ValueMap::default(), &tick.state, Some(HandlerRef::own(1)), &Value::Null, &library).unwrap();
+  let shown = fire(&library, &none, &tick.state, &timers[1]);
   assert_eq!(shown.rendered.html, "<ink-text>2 shown</ink-text>");
 }
 
@@ -102,7 +139,6 @@ fn the_terminal_size_reads_from_the_store_and_write_is_an_action_the_terminal_pr
   let sized = "import { useEffect } from \"react\";\nimport { Text, useStdout, useWindowSize, useIsScreenReaderEnabled } from \"ink\";\n\nexport default function Sized() {\n  const { write } = useStdout();\n  const { columns, rows } = useWindowSize();\n  const reader = useIsScreenReaderEnabled();\n  useEffect(() => {\n    const timer = setInterval(() => {\n      write(\"tick\\n\");\n    }, 1000);\n    return () => clearInterval(timer);\n  }, [write]);\n  return <Text>{columns}x{rows} {reader ? \"reader\" : \"screen\"}</Text>;\n}\n";
   let library = library(sized);
   let component = &library[MODULE];
-  assert_eq!(component.handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:1000"], "an effect depending only on write is a mount effect");
   let mut store = ValueMap::default();
   store.insert("$terminal.columns".to_owned(), Value::Int(100));
   store.insert("$terminal.rows".to_owned(), Value::Int(30));
@@ -111,7 +147,9 @@ fn the_terminal_size_reads_from_the_store_and_write_is_an_action_the_terminal_pr
   let interpreter = Interpreter::default();
   let first = interpreter.island_step(MODULE, component, &props, &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>100x30 screen</ink-text>");
-  let tick = interpreter.island_step(MODULE, component, &props, &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+  let timers = mount_timers(&library, &props, &first.state);
+  assert_eq!(timers.iter().map(|t| (t.ms, t.repeats)).collect::<Vec<_>>(), [(1000, true)], "an effect depending only on write is a mount effect");
+  let tick = fire(&library, &props, &first.state, &timers[0]);
   assert_eq!(tick.acts, [("$stdout".to_owned(), Value::Str("tick\n".into()))]);
 }
 
@@ -260,7 +298,9 @@ fn the_text_packages_ink_apps_import_run_natively_in_a_terminal() {
 fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_starts_a_timer_on_a_continuation() {
   let stable = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s) => s + 1, 0);\n  const tick = useCallback(() => dispatch(), []);\n  useEffect(() => {\n    const timer = setInterval(tick, 100);\n    return () => clearInterval(timer);\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
   let ticks = library(stable);
-  assert_eq!(ticks[MODULE].handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:100"]);
+  let none = ValueMap::default();
+  let first = Interpreter::default().island_step(MODULE, &ticks[MODULE], &none, &none, None, &Value::Null, &ticks).unwrap();
+  assert_eq!(mount_timers(&ticks, &none, &first.state).iter().map(|t| (t.ms, t.repeats)).collect::<Vec<_>>(), [(100, true)]);
   let changing = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Echo() {\n  const [n, setN] = useState(0);\n  useEffect(() => {\n    setTimeout(() => setN(n + 1), 100);\n  }, [n]);\n  return <Text>{n}</Text>;\n}\n";
   let echo = library(changing);
   let events: Vec<&str> = echo[MODULE].handlers.iter().map(|h| h.event.as_str()).collect();
@@ -271,11 +311,11 @@ fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_sta
 fn a_timer_reads_its_delay_from_a_module_constant_and_runs_a_named_callback() {
   let page = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nconst tickMs = 150;\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s: number) => s + 1, 0);\n  const tick = useCallback(() => {\n    dispatch();\n  }, []);\n  useEffect(() => {\n    const timer = setInterval(tick, tickMs);\n    return () => {\n      clearInterval(timer);\n    };\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
   let library = library(page);
-  let component = &library[MODULE];
-  assert_eq!(component.handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:150"]);
-  let interpreter = Interpreter::default();
-  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
-  let tick = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+  let none = ValueMap::default();
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &none, &none, None, &Value::Null, &library).unwrap();
+  let timers = mount_timers(&library, &none, &first.state);
+  assert_eq!(timers.iter().map(|t| (t.ms, t.repeats)).collect::<Vec<_>>(), [(150, true)]);
+  let tick = fire(&library, &none, &first.state, &timers[0]);
   assert_eq!(tick.rendered.html, "<ink-text>1</ink-text>");
 }
 

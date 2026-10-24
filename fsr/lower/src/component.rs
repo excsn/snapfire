@@ -4468,6 +4468,9 @@ const BROWSER_GLOBALS: [&str; 7] = ["document", "window", "navigator", "location
 /// The name a continuation binds what it was run with, `{ value, ok, carry }`.
 const RESUME: &str = "$resume";
 
+/// The prefix of the name a continuation reads a state value under, carried in as it was when the act that runs the continuation ran.
+const CAPTURED: &str = "$captured$";
+
 /// The name the `catch` binds when an awaited call fails before it hands back a promise.
 const REJECTED: &str = "$rejected";
 
@@ -9496,23 +9499,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.effect_fns.push((name.to_owned(), event));
   }
 
-  /// A mount timer's delay in milliseconds when it is a number written out or a module constant holding one, which names the timer's handler at build time; `None` for a delay computed when the effect runs.
-  fn timer_delay(&mut self, delay: &'p js::Expr) -> Lowered<Option<u64>> {
-    Ok(match self.lowerer.expr(delay)? {
-      Expr::Lit(Lit::Int(n)) => Some(n.max(0) as u64),
-      Expr::Lit(Lit::Float(n)) if n.is_finite() => Some(n.max(0.0) as u64),
-      _ => None,
-    })
-  }
-
-  /// A statement at the top of a terminal effect: a timer it starts; a call to one of its functions, which runs on mount; or a call made for its effect, which the terminal cannot run. A timer whose delay is computed starts from a `mount` handler, as a timer a handler starts does.
+  /// A statement at the top of a terminal effect: a timer it starts, from a `mount` handler as a timer a handler starts does, so its callback holds the values of the render that ran the effect; a call to one of its functions, which runs on mount; or a call made for its effect, which the terminal cannot run.
   fn effect_start(&mut self, e: &'p js::Expr, span: Span) -> Lowered<()> {
-    if let Some((repeats, callback, delay)) = timer_call(e) {
-      if let Some(delay) = self.timer_delay(delay)? {
-        let body = self.handler_body(callback)?;
-        self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::timer(repeats, delay).name(), body });
-        return Ok(());
-      }
+    if timer_call(e).is_some() {
       let body = self.handler_fn(&[], FunctionBody::Expr(e), span)?;
       self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Mount.name(), body });
       return Ok(());
@@ -9866,6 +9855,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let resumed = Expr::Var(RESUME.to_owned());
         let mut cw = HandlerWalk::default();
         let depth = self.lowerer.scope.len();
+        let captured = self.capture_states();
         // The settled value is a variable the continuation declares, so a continuation after the next await carries it instead of reading that await's value.
         if let Some(name) = &bound {
           cw.out.push(Stmt::Let { name: name.clone(), expr: resumed.clone().field("value") });
@@ -9886,7 +9876,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         })();
         self.lowerer.scope.truncate(depth);
         lowered?;
-        let (event, carry) = self.continuation_handler(stmt.span(), cw);
+        let (event, carry) = self.continuation_handler(stmt.span(), cw, &captured);
         let then = |field: &str, value: Expr| Stmt::Act {
           action: snapfire_fsr_ir::host::Act::Then.name().to_owned(),
           input: Expr::Object(vec![Entry::Field(field.to_owned(), value), Entry::Field("event".to_owned(), Expr::lit_str(event.clone())), Entry::Field("carry".to_owned(), carry.clone())]),
@@ -9908,10 +9898,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     let mut cw = HandlerWalk::default();
     let depth = self.lowerer.scope.len();
+    let captured = self.capture_states();
     let lowered = self.async_within(rest, &mut cw, within);
     self.lowerer.scope.truncate(depth);
     lowered?;
-    let (event, carry) = self.continuation_handler(rest[0].span(), cw);
+    let (event, carry) = self.continuation_handler(rest[0].span(), cw, &captured);
     Ok(Some(Join { event, carry }))
   }
 
@@ -9990,9 +9981,31 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.body_continuation(arrow_body(arrow), binds, at)
   }
 
+  /// Binds each name that reads a state value to [`CAPTURED`] and the value, so a continuation lowered under it reads the value the render that ran the act held, as a closure holds the render's `const`. An updater and a reducer still apply to the state as it is. Returns each captured name with what the act carries in for it.
+  fn capture_states(&mut self) -> Vec<(String, Expr)> {
+    let states: Vec<String> = self.setters.iter().map(|(_, state)| state.clone()).chain(self.dispatchers.iter().map(|(_, state, _)| state.clone())).collect();
+    let mut captured: Vec<(String, Expr)> = Vec::new();
+    let mut shadows: Vec<(String, Expr)> = Vec::new();
+    for (at, (name, bound)) in self.lowerer.scope.iter().enumerate() {
+      let latest = !self.lowerer.scope[at + 1..].iter().any(|(later, _)| later == name);
+      if let (true, Expr::Var(state)) = (latest, bound) {
+        if states.contains(state) {
+          let held = format!("{CAPTURED}{state}");
+          if !captured.iter().any(|(c, _)| *c == held) {
+            captured.push((held.clone(), Expr::Var(state.clone())));
+          }
+          shadows.push((name.clone(), Expr::Var(held)));
+        }
+      }
+    }
+    self.lowerer.scope.extend(shadows);
+    captured
+  }
+
   /// A function's `body` as a continuation of the component with `binds` in scope: its event and the carry the act that runs it passes.
   fn body_continuation(&mut self, body: FunctionBody<'p>, binds: Vec<(String, Expr)>, at: Span) -> Lowered<(String, Expr)> {
     let depth = self.lowerer.scope.len();
+    let captured = self.capture_states();
     self.lowerer.scope.extend(binds);
     let cleanup_for = self.cleanup_for.take();
     let mut cw = HandlerWalk::default();
@@ -10003,7 +10016,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.cleanup_for = cleanup_for;
     self.lowerer.scope.truncate(depth);
     lowered?;
-    Ok(self.continuation_handler(at, cw))
+    Ok(self.continuation_handler(at, cw, &captured))
   }
 
   /// `setInterval(f, ms)` or `setTimeout(f, ms)` in a terminal handler with `f` an arrow written in place.
@@ -10017,17 +10030,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A timer a handler starts on an arrow, [`Self::arrow_timer`]: the act [`snapfire_fsr_ir::host::Act::Timer`] with a fresh id and the arrow as a continuation. Its value is `{ "$timer": id }`, [`snapfire_fsr_ir::host::TIMER`].
   fn handler_timer(&mut self, repeats: bool, callback: &'p js::ArrowExpr, delay: &'p js::Expr, at: Span, walk: &mut HandlerWalk) -> Lowered<Expr> {
+    let continuation = self.arrow_continuation(callback, Vec::new(), at)?;
+    self.start_timer(repeats, continuation, delay, walk)
+  }
+
+  /// The act [`snapfire_fsr_ir::host::Act::Timer`] with a fresh id, running `continuation`, its event and carry, after `delay`. Its value is `{ "$timer": id }`.
+  fn start_timer(&mut self, repeats: bool, (event, carry): (String, Expr), delay: &'p js::Expr, walk: &mut HandlerWalk) -> Lowered<Expr> {
     let id = self.lowerer.temp();
     walk.out.push(Stmt::Let { name: id.clone(), expr: Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] } });
     let ms = self.lowerer.expr(delay)?;
-    let (event, carry) = self.arrow_continuation(callback, Vec::new(), at)?;
     let input = vec![("id", Expr::Var(id.clone())), ("event", Expr::lit_str(event)), ("carry", carry), ("ms", ms), ("repeats", Expr::Lit(Lit::Bool(repeats)))];
     walk.act(snapfire_fsr_ir::host::Act::Timer.name().to_owned(), Expr::Object(input.into_iter().map(|(key, value)| Entry::Field(key.to_owned(), value)).collect()));
     Ok(Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::TIMER.to_owned(), Expr::Var(id))]))
   }
 
-  /// `walk` as a handler of the component named [`snapfire_fsr_ir::host::Event::Resume`] for `at`: what it was run with bound as [`RESUME`], every name it reads that the component does not hold carried in. Returns the event and the carry the act that runs it passes.
-  fn continuation_handler(&mut self, at: Span, walk: HandlerWalk) -> (String, Expr) {
+  /// `walk` as a handler of the component named [`snapfire_fsr_ir::host::Event::Resume`] for `at`: what it was run with bound as [`RESUME`], every name it reads that the component does not hold carried in, each of `captured` as the expression beside it. Returns the event and the carry the act that runs it passes.
+  fn continuation_handler(&mut self, at: Span, walk: HandlerWalk, captured: &[(String, Expr)]) -> (String, Expr) {
     let mut body = walk.out;
     body.push(Stmt::Return(Expr::Object(walk.patch)));
     let held: Vec<String> = self.state.iter().chain(self.state_bindings.iter()).cloned().chain(["$state".to_owned(), "$props".to_owned(), RESUME.to_owned()]).chain(self.lowerer.cells.iter().map(|(name, _)| name.clone())).collect();
@@ -10042,7 +10060,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if !self.lowered_handlers.iter().any(|held| held.event == event) {
       self.lowered_handlers.push(Handler { event: event.clone(), body: handler });
     }
-    (event, Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), Expr::Var(name.clone()))).collect()))
+    let carry = |name: &String| captured.iter().find(|(held, _)| held == name).map_or_else(|| Expr::Var(name.clone()), |(_, value)| value.clone());
+    (event, Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), carry(name))).collect()))
   }
 
   /// `if`, `else` and `else if`: each branch lowers under its condition joined to the reach around it and the names it declares go out of scope with it. A branch that returns leaves the rest of the handler reachable only when the other one ran.
@@ -10253,8 +10272,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               return Ok(());
             }
             if let Some((repeats, callback, delay)) = timer_call(e) {
-              let js::Expr::Ident(target) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(call.span, "a timer a handler starts on something other than a function its effect declares")) };
-              let Some((_, event)) = self.effect_fns.iter().find(|(f, _)| *f == *target.sym).cloned() else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect declares", target.sym))) };
+              let js::Expr::Ident(target) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(call.span, "a timer a handler starts on something other than a function its effect or its component declares")) };
+              let held = self.handler_fns.get(target.sym.as_ref()).cloned();
+              let Some((_, event)) = self.effect_fns.iter().find(|(f, _)| *f == *target.sym).cloned() else {
+                let Some((params, body)) = held else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect or its component declares", target.sym))) };
+                let binds = params.iter().filter_map(|param| match param {
+                  js::Pat::Ident(id) => Some((id.id.sym.to_string(), Expr::Lit(Lit::Undefined))),
+                  _ => None,
+                });
+                let continuation = self.body_continuation(body, binds.collect(), call.span)?;
+                self.start_timer(repeats, continuation, delay, walk)?;
+                return Ok(());
+              };
               let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), self.lowerer.expr(delay)?), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(repeats)))]);
               walk.act(snapfire_fsr_ir::host::Act::Timer.name().to_owned(), input);
               return Ok(());

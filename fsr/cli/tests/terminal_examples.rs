@@ -123,7 +123,7 @@ fn monitor_reruns_its_command_when_the_tab_changes_spins_while_it_runs_and_stack
   let first = lines(session.view().unwrap(), 100);
   assert!(first[0].starts_with("Monitor") && first[0].ends_with("100 columns"), "{first:?}");
   assert!(first.iter().any(|l| l.contains("⠋ running uptime")), "{first:?}");
-  let spinner = session.timers().into_iter().find(|t| t.every.as_millis() == 80).expect("the spinner's interval");
+  let spinner = session.take_started().into_iter().find(|t| t.every.as_millis() == 80).expect("the spinner's interval");
   let spun = lines(session.fire(&spinner).unwrap(), 100);
   assert!(spun.iter().any(|l| l.contains("⠙ running uptime")), "{spun:?}");
   let uptime = session.take_spawns();
