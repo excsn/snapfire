@@ -10176,7 +10176,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let noted = |caught: &str| vec![Stmt::Set { name: failed.clone(), expr: Expr::Lit(Lit::Bool(true)) }, Stmt::Set { name: thrown.clone(), expr: Expr::Var(caught.to_owned()) }];
     let mut run = vec![Stmt::Let { name: failed.clone(), expr: Expr::Lit(Lit::Bool(false)) }, Stmt::Let { name: thrown.clone(), expr: Expr::Lit(Lit::Undefined) }];
     let mut in_place: Vec<(String, String, Expr)> = Vec::new();
-    let mut guarded = |this: &mut Self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk, in_place: &mut Vec<(String, String, Expr)>| -> Lowered<Vec<Stmt>> {
+    let guarded = |this: &mut Self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk, in_place: &mut Vec<(String, String, Expr)>| -> Lowered<Vec<Stmt>> {
       let mut inner = HandlerWalk { patch: walk.patch.clone(), locals: walk.locals, in_place: Some(std::mem::take(in_place)), ..HandlerWalk::default() };
       let depth = this.lowerer.scope.len();
       let returned = this.handler_block(stmts, &mut inner);

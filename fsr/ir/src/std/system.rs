@@ -23,10 +23,10 @@ pub fn register(extensions: &mut Extensions) {
 
 #[cfg(target_os = "macos")]
 fn resident_bytes() -> u64 {
-  let mut info: libc::mach_task_basic_info = unsafe { std::mem::zeroed() };
-  let mut count = libc::MACH_TASK_BASIC_INFO_COUNT;
-  let result = unsafe { libc::task_info(libc::mach_task_self(), libc::MACH_TASK_BASIC_INFO, &mut info as *mut libc::mach_task_basic_info as libc::task_info_t, &mut count) };
-  if result == libc::KERN_SUCCESS { info.resident_size } else { 0 }
+  let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
+  let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+  let written = unsafe { libc::proc_pidinfo(std::process::id() as libc::c_int, libc::PROC_PIDTASKINFO, 0, &mut info as *mut libc::proc_taskinfo as *mut libc::c_void, size) };
+  if written == size { info.pti_resident_size } else { 0 }
 }
 
 #[cfg(target_os = "linux")]

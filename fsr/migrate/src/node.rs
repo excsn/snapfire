@@ -96,7 +96,7 @@ impl Pass for Node {
       let (held, imports) = held(&parsed);
       let mut uses = Uses { parsed: &parsed, text: &text, held: &held, edits: Edits::default(), members: BTreeSet::new(), unmapped: Vec::new(), process: Vec::new(), declared_process: declares(&parsed, "process"), scopes: Vec::new() };
       parsed.module.visit_with(&mut uses);
-      let Uses { mut edits, members, unmapped, process, .. } = uses;
+      let Uses { edits, members, unmapped, process, .. } = uses;
       for (line, written) in &process {
         report.note(&path, *line, format!("`{written}`: `process` is not FSR's; in a component, `useApp().exit(code)` ends the page and `useStdout().stdout` is the terminal's output, so this is left for the application to write"));
       }
