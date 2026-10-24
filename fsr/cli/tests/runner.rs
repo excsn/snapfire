@@ -144,6 +144,31 @@ test("the prototype's getters agree with the node's own", () => {
 }
 
 #[test]
+fn an_elements_style_holds_a_symbol_keyed_property_as_in_a_browser() {
+  let spec = r#"import { expect, test } from "@snapfire/fsr-client/testing";
+
+test("a symbol key is an ordinary property of the style", () => {
+  const p = document.createElement("p");
+  const style = p.style as unknown as Record<symbol, unknown>;
+  const key = Symbol("display");
+  expect(style[key]).toBeUndefined();
+  expect(key in style).toEqual(false);
+  style[key] = "block";
+  expect(style[key]).toEqual("block");
+  expect(p.style === p.style, "the same style each read").toEqual(true);
+  p.style.color = "red";
+  expect(p.getAttribute("style")).toEqual("color:red");
+  expect(p.style.color).toEqual("red");
+});
+"#;
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/style.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 1, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
 fn a_listener_is_called_with_the_node_it_was_added_to_as_in_a_browser() {
   let spec = r#"import { expect, fireEvent, test } from "@snapfire/fsr-client/testing";
 

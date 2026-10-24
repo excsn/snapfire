@@ -604,7 +604,27 @@ registerIsland("components/Counter.svelte#default", {
 
 An entry without `unmount` has its root dropped as it stands, which leaves the framework's effects running on a detached element.
 
-`hydrate` is true when the server rendered the island's markup, which the marker says with `data-sf-ssr`. A mounter that ignores `children` leaves the region the server wrote them in as it stands while hydrating. A scan mounts every island inside it as a root of its own.
+`hydrate` is true when the server rendered the island's markup, which the marker says with `data-sf-ssr`. A mounter whose framework finds the markup does not match calls `hydrationMismatch(el, detail)` for that island, which logs it as an error naming the module:
+
+```ts
+import { hydrationMismatch, type Mounter } from "@snapfire/fsr-client";
+import { hydrate, mount, type Component } from "svelte";
+
+const svelteMounter: Mounter = (module, props, el, hydrating) => {
+  const options = { target: el, props: props as Record<string, unknown> };
+  if (hydrating) {
+    try {
+      return hydrate(module as Component, { ...options, recover: false });
+    } catch (error) {
+      hydrationMismatch(el, error);
+    }
+  }
+  el.replaceChildren();
+  return mount(module as Component, options);
+};
+```
+
+A mounter that ignores `children` leaves the region the server wrote them in as it stands while hydrating. A scan mounts every island inside it as a root of its own.
 
 A mounter that renders the children in its own framework's tree says so with `rendersNested`. A scan then leaves the islands of its framework among the children to it. Each island piece carries its registry entry, its props and its timing. `loadedModule` already holds the module of every one timed `load` when the mounter runs:
 

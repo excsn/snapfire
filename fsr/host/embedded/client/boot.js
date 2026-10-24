@@ -214,6 +214,12 @@ function inParentTree(el, entry) {
     return takes ? takes(el) : true;
 }
 export const defineMounter = ()=>undefined;
+export function hydrationMismatch(el, detail) {
+    const module = el.closest("sf-i")?.getAttribute("data-sf-module") ?? "an island";
+    console.error(`sf: ${module} did not hydrate to the server's markup`, ...detail === undefined ? [] : [
+        detail
+    ]);
+}
 export function serverRendered(el) {
     return el.hasAttribute(SSR_ATTR);
 }

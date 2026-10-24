@@ -319,6 +319,12 @@ function inParentTree(el: Element, entry: IslandEntry | undefined): boolean | nu
 /** The mounter for an island whose module defines a custom element: importing the module is the whole mount, since the element the server already wrote upgrades itself once its definition runs. What the island's timing schedules, then, is the import. */
 export const defineMounter: Mounter = () => undefined;
 
+/** Reports that the island at `el` did not hydrate to the markup the server wrote, as an error naming its module. A mounter calls it for each mismatch its framework finds, since a framework may report only the first one on a page. */
+export function hydrationMismatch(el: Element, detail?: unknown): void {
+  const module = el.closest("sf-i")?.getAttribute("data-sf-module") ?? "an island";
+  console.error(`sf: ${module} did not hydrate to the server's markup`, ...(detail === undefined ? [] : [detail]));
+}
+
 /** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. */
 export function serverRendered(el: Element): boolean {
   return el.hasAttribute(SSR_ATTR);

@@ -53,6 +53,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [islandState](#islandstate)
   * [markerProps](#markerprops)
   * [serverRendered](#serverrendered)
+  * [hydrationMismatch](#hydrationmismatch)
   * [discard](#discard)
   * [DOM Contract](#dom-contract)
   * [isServerIsland](#isserverisland)
@@ -576,6 +577,12 @@ The props script beside an island marker, `script[data-sf-props="<marker id>"]` 
 Whether the server rendered the island's own markup, which is what decides hydrating over mounting: true when the marker carries `data-sf-ssr`.
 
 * `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`; `IslandEntry.patch?: Patcher`. `handle` is what the mounter returned.
+
+### hydrationMismatch
+
+* `function hydrationMismatch(el: Element, detail?: unknown): void`
+
+Logs `sf: <module> did not hydrate to the server's markup` with `console.error`, `detail` beside it, naming the module of the marker at or above `el`. A mounter calls it once for each island its framework could not hydrate, since a framework may report only the first mismatch on a page. The React mounter calls it from `onRecoverableError`, the Vue mounter from the app's `warnHandler` for a `Hydration ... mismatch` warning and the Svelte mounter when `hydrate` with `recover: false` throws, before it mounts the island fresh. `fsr test` fails a test that logs an error, so a mismatch fails the spec that caused it.
 
 ### discard
 

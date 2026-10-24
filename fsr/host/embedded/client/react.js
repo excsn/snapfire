@@ -1,7 +1,7 @@
 import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import { childrenRegion, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired } from "./boot.js";
+import { childrenRegion, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -1056,10 +1056,17 @@ export const reactMounter = (component, props, el, hydrate, pieces)=>{
         };
         held.set(el, box);
         markActivity(el);
+        let mismatched = false;
+        const onRecoverableError = (error)=>{
+            if (!mismatched) hydrationMismatch(el, error);
+            mismatched = true;
+        };
         const root = hydrateRoot(el, underActivity(el, createElement(HydratedRoot, {
             box,
             initial: element
-        })));
+        })), {
+            onRecoverableError
+        });
         heldByRoot.set(root, box);
         return root;
     }

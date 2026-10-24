@@ -14,7 +14,7 @@ export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, e
 export { live, type LiveOptions } from "./live.js";
 export { socket, type Socket, type SocketOptions } from "./socket.js";
 export type { NavigateOptions, NavigationOptions, PrefetchTiming } from "./navigator.js";
-export { applyStyles, boot, childrenRegion, defineMounter, discard, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
+export { applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
 export { desktop, type Desktop, type FileFilter, type OpenFileOptions } from "./desktop.js";
 export { enablePwa, online, updateReady } from "./pwa.js";

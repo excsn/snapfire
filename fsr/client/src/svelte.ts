@@ -1,7 +1,7 @@
 import { getAllContexts, getContext, hydrate, mount as mountSvelte, setContext, unmount, type Component, type Snippet } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 
-import { discard, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
+import { discard, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
 import { morph } from "./server.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
@@ -326,7 +326,14 @@ export const svelteMounter: Mounter = (module, props, el, isHydrating, children)
   const context = new Map<unknown, unknown>([...contextsAbove(el), [ISLAND, () => el], [PIECES, { read: () => (state.track(), state.pieces ?? []) }]]);
   const options = { target: el, props: liveProps(state), context };
   const component = componentOf(module) as Component<{ [key: string]: unknown }>;
-  if (isHydrating) return hydrate(component, options);
+  if (isHydrating) {
+    try {
+      return hydrate(component, { ...options, recover: false });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("hydration_failed")) throw error;
+      hydrationMismatch(el, error);
+    }
+  }
   el.replaceChildren();
   return mountSvelte(component, options);
 };

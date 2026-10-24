@@ -575,6 +575,7 @@ impl Interpreter {
   /// root component's writes `slot_mark`.
   pub fn render_island(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
     let mut env = self.env_for(module, props);
+    env.island = island_owner(module, library);
     let mut out = Out::default();
     let scope = Rc::new(env.scope.clone());
     let mut slots = vec![Slot { children: &[], scope, keys: None, island: true, placed: false, framework: false, owner_path: String::new(), scoped: None }];
@@ -4079,6 +4080,14 @@ mod island_tests {
     assert_eq!(outer.islands[0].body.html, "<!--[0--><!--[--><b>in</b><!--]--><!--]-->", "an island hydrated in the tree");
     assert_eq!(outer.islands[1].body.html, "<!--[--><i>late</i><!--]-->", "an island hydrated later as a root of its own");
     assert_eq!(outer.islands[2].body.html, "<!--[-1--><!--]-->", "an island the browser renders in the tree");
+  }
+
+  #[test]
+  fn a_svelte_island_rendered_with_no_children_writes_the_empty_list_its_adapter_hydrates() {
+    let component = Component::new(crate::ast::Owner::Svelte, Vec::new(), Tmpl::Element { tag: "div".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Slot("children".to_owned())] });
+    let interpreter = Interpreter::default().with_frameworks(crate::Frameworks::default().svelte(Some(SvelteMajor::V5)));
+    let island = interpreter.render_island("src/ui/Box.svelte#default", &component, &ValueMap::default(), &Components::new()).unwrap();
+    assert_eq!(island.html, format!("<!--[--><div>{CHILDREN_OPEN}<!--[--><!--]--><!----></sf-s></div><!--]-->"));
   }
 
   #[test]

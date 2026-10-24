@@ -32,6 +32,37 @@ for (const name of Object.prototype.hasOwnProperty.call(Node.prototype, WALKERS)
   });
 }
 if (!Object.prototype.hasOwnProperty.call(Node.prototype, WALKERS)) Object.defineProperty(Node.prototype, WALKERS, { value: true });
+// linkedom's style object turns every key into a CSS name, so a symbol key throws where a browser keeps it as an ordinary property. Vue's style patching reads and writes one.
+const STYLES = Symbol.for("sf.dom.styles");
+{
+  let owner = globalThis.HTMLElement.prototype;
+  while (owner && !Object.prototype.hasOwnProperty.call(owner, "style")) owner = Object.getPrototypeOf(owner);
+  const base = owner && Object.getOwnPropertyDescriptor(owner, "style");
+  if (base && base.get && !Object.prototype.hasOwnProperty.call(owner, STYLES)) {
+    Object.defineProperty(owner, STYLES, { value: true });
+    const outer = new WeakMap();
+    Object.defineProperty(owner, "style", {
+      configurable: true,
+      enumerable: base.enumerable,
+      get() {
+        const style = base.get.call(this);
+        let wrapped = outer.get(style);
+        if (!wrapped) {
+          const symbols = new Map();
+          wrapped = new Proxy(style, {
+            get: (target, key) => (typeof key !== "symbol" ? Reflect.get(target, key) : symbols.has(key) ? symbols.get(key) : key in target ? Reflect.get(target, key) : undefined),
+            set: (target, key, value) => (typeof key === "symbol" ? (symbols.set(key, value), true) : Reflect.set(target, key, value)),
+            has: (target, key) => (typeof key === "symbol" ? symbols.has(key) || key in target : key in target),
+            deleteProperty: (target, key) => (typeof key === "symbol" ? (symbols.delete(key), true) : Reflect.deleteProperty(target, key)),
+          });
+          outer.set(style, wrapped);
+        }
+        return wrapped;
+      },
+      set: base.set,
+    });
+  }
+}
 // linkedom calls a listener with the event's target as `this` where a browser passes the node it was added to, and it has no capture phase, so a capture listener fires in its turn with the others. Svelte's delegated handler takes its root from `this`. Events are dispatched here instead, as a browser does: the target's path, capture from the top, the target, then bubbling, each listener called with its own node. Calling a listener directly also keeps two of linkedom's frames off every dispatch, which a deep handler chain needs.
 {
   let owner = Node.prototype;

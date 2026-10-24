@@ -1,5 +1,5 @@
 import { createApp, createCommentVNode, createSSRApp, createTextVNode, defineAsyncComponent, defineComponent, getCurrentInstance, h, hydrateOnIdle, hydrateOnVisible, inject, onBeforeUnmount, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch } from "vue";
-import { childrenRegion, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked } from "./boot.js";
+import { childrenRegion, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -319,6 +319,12 @@ function startTeleports(el, props) {
 export const vueMounter = (module, props, el, hydrate, pieces)=>{
     const { root, props: state, children } = rootFor(componentOf(module), props, el, pieces);
     const app = hydrate ? createSSRApp(root) : createApp(root);
+    if (hydrate) {
+        app.config.warnHandler = (message, _instance, trace)=>{
+            if (/^Hydration .*mismatch/.test(message)) hydrationMismatch(el, message);
+            else console.warn(`[Vue warn]: ${message}${trace ? `\n${trace}` : ""}`);
+        };
+    }
     const rendered = {
         values: props.$sv ?? {},
         hydrating: hydrate

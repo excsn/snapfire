@@ -1,6 +1,6 @@
 import { createApp, createCommentVNode, createSSRApp, createTextVNode, defineAsyncComponent, defineComponent, getCurrentInstance, h, hydrateOnIdle, hydrateOnVisible, inject, onBeforeUnmount, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref, type VNode } from "vue";
 
-import { childrenRegion, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
+import { childrenRegion, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -260,6 +260,12 @@ function startTeleports(el: Element, props: Props): void {
 export const vueMounter: Mounter = (module, props, el, hydrate, pieces) => {
   const { root, props: state, children } = rootFor(componentOf(module), props, el, pieces);
   const app: App = hydrate ? createSSRApp(root) : createApp(root);
+  if (hydrate) {
+    app.config.warnHandler = (message, _instance, trace) => {
+      if (/^Hydration .*mismatch/.test(message)) hydrationMismatch(el, message);
+      else console.warn(`[Vue warn]: ${message}${trace ? `\n${trace}` : ""}`);
+    };
+  }
   const rendered: Rendered = { values: (props as { $sv?: { [key: string]: unknown } }).$sv ?? {}, hydrating: hydrate };
   app.provide(RENDERED_STORE, rendered);
   app.provide(ISLAND, () => el);

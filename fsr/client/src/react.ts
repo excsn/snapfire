@@ -2,7 +2,7 @@ import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { childrenRegion, discard, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
+import { childrenRegion, discard, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -1039,7 +1039,12 @@ export const reactMounter: Mounter = (component, props, el, hydrate, pieces) => 
     };
     held.set(el, box);
     markActivity(el);
-    const root = hydrateRoot(el, underActivity(el, createElement(HydratedRoot, { box, initial: element })));
+    let mismatched = false;
+    const onRecoverableError = (error: unknown) => {
+      if (!mismatched) hydrationMismatch(el, error);
+      mismatched = true;
+    };
+    const root = hydrateRoot(el, underActivity(el, createElement(HydratedRoot, { box, initial: element })), { onRecoverableError });
     heldByRoot.set(root, box);
     return root;
   }
