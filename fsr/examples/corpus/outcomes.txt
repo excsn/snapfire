@@ -546,7 +546,7 @@ reference-react-suspense-9	client: src/Albums.js:5:18 `use` of something other t
 reference-react-use-1	lowered
 reference-react-use-3	lowered
 reference-react-use-4	client: src/App.js:20:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-use-5	client: src/data.js:9:5 a call for its effect, which a straight-line body cannot hold
+reference-react-use-5	client: src/data.js:29:3 an expression statement other than a write to a local
 reference-react-use-6	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-7	client: src/message.js:6:26 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-useactionstate-1	lowered
