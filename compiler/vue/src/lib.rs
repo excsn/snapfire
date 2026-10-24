@@ -8,7 +8,9 @@
 //! object on the compile options rather than through a module, so the host
 //! answers those reads and the plugin never opens a file it was not asked to.
 
-use std::collections::BTreeMap;
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 
@@ -165,7 +167,7 @@ fn gone() -> VueError {
 /// The thread's whole life: boot, report, then answer until the last
 /// `Compiler` handle is dropped.
 fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), VueError>>) {
-  let engine = match Engine::new() {
+  let engine = match Engine::new(COMPILER) {
     Ok(engine) => engine,
     Err(e) => {
       let _ = booted.send(Err(e));
@@ -173,25 +175,67 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), VueError>>) {
     }
   };
   let _ = booted.send(Ok(()));
+  // The application's own compilers, by path and content, so one that a new
+  // vendoring replaced under the same path boots again.
+  let mut named: HashMap<(String, u64), Engine> = HashMap::new();
   for ask in inbox {
     match ask {
       Ask::Version(reply) => {
         let _ = reply.send(engine.version());
       }
       Ask::Compile { filename, source, options, files, reply } => {
-        let _ = reply.send(engine.compile(&filename, &source, &options, &files));
+        let answered = match options.compiler.as_deref() {
+          None => engine.compile(&filename, &source, &options, &files),
+          Some(path) => match own(&mut named, path) {
+            Ok(own) => own.compile(&filename, &source, &options, &files),
+            Err(why) => Ok(refused(&filename, why)),
+          },
+        };
+        let _ = reply.send(answered);
       }
       Ask::Describe { filename, source, options, files, reply } => {
-        let _ = reply.send(engine.describe(&filename, &source, &options, &files));
+        let answered = match options.compiler.as_deref() {
+          None => engine.describe(&filename, &source, &options, &files),
+          Some(path) => match own(&mut named, path) {
+            Ok(own) => own.describe(&filename, &source, &options, &files),
+            Err(why) => Ok(refused(&filename, why)),
+          },
+        };
+        let _ = reply.send(answered);
       }
       Ask::SsrModule { filename, source, options, files, reply } => {
-        let _ = reply.send(engine.ssr_module(&filename, &source, &options, &files));
+        let answered = match options.compiler.as_deref() {
+          None => engine.ssr_module(&filename, &source, &options, &files),
+          Some(path) => match own(&mut named, path) {
+            Ok(own) => own.ssr_module(&filename, &source, &options, &files),
+            Err(why) => Ok(refused(&filename, why)),
+          },
+        };
+        let _ = reply.send(answered);
       }
       Ask::Render { js, props, children, modules, reply } => {
         let _ = reply.send(engine.render_module(&js, &props, children.as_deref(), &modules));
       }
     }
   }
+}
+
+/// The engine booted from the compiler at `path`, booting it the first time its content is seen.
+fn own<'a>(named: &'a mut HashMap<(String, u64), Engine>, path: &str) -> Result<&'a Engine, String> {
+  let text = std::fs::read_to_string(path).map_err(|e| format!("the Vue compiler `{path}` could not be read: {e}"))?;
+  let mut hasher = DefaultHasher::new();
+  text.hash(&mut hasher);
+  let key = (path.to_owned(), hasher.finish());
+  if !named.contains_key(&key) {
+    let engine = Engine::new(&text).map_err(|e| format!("the Vue compiler `{path}` would not boot: {e}"))?;
+    named.retain(|(held, _), _| held != path);
+    named.insert(key.clone(), engine);
+  }
+  Ok(&named[&key])
+}
+
+fn refused(filename: &str, why: String) -> Outcome {
+  Outcome::Failed { diagnostics: vec![Diagnostic::error(why).at(filename.to_owned(), None, None)] }
 }
 
 struct Engine {
@@ -202,12 +246,12 @@ struct Engine {
 }
 
 impl Engine {
-  fn new() -> Result<Self, VueError> {
+  fn new(compiler: &str) -> Result<Self, VueError> {
     let runtime = Runtime::new().map_err(js)?;
     runtime.set_max_stack_size(ENGINE_STACK);
     let context = Context::full(&runtime).map_err(js)?;
     context.with(|ctx| -> Result<(), VueError> {
-      declare(&ctx, MODULE, COMPILER)?;
+      declare(&ctx, MODULE, compiler)?;
       declare(&ctx, "__driver__", DRIVER)?;
       Ok(())
     })?;

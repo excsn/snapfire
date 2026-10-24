@@ -660,7 +660,8 @@ impl Asked {
 }
 
 /// What the packages the import map names are held to before any package asks:
-/// the vendored version's major, else the one a site's shell names.
+/// the vendored version's major, else the one a site's shell names, with the
+/// vendored version itself for declarations the package carries.
 fn pins(app: &Path, layout: &Layout) -> Result<BTreeMap<String, Vec<Asked>>, BuildError> {
   let vendored = VendorManifest::read(app, layout)?;
   let shell = match crate::site_beside(app).and_then(|site| site.shell) {
@@ -675,7 +676,13 @@ fn pins(app: &Path, layout: &Layout) -> Result<BTreeMap<String, Vec<Asked>>, Bui
         Some(version) => format!("the vendored {version}"),
         None => "the shell".to_owned(),
       };
-      out.insert(package, vec![Asked { by, of: None, range: format!("^{major}") }]);
+      let mut asks = vec![Asked { by: by.clone(), of: None, range: format!("^{major}") }];
+      // Declarations the package carries itself describe the version they came with; a
+      // DefinitelyTyped package is versioned apart and only keeps the major.
+      if let Some(version) = vendored_version {
+        asks.push(Asked { by, of: Some(package.clone()), range: format!("={version}") });
+      }
+      out.insert(package, asks);
     }
   }
   Ok(out)
@@ -1617,6 +1624,22 @@ mod tests {
       assert!(pair[0] < pair[1], "{} < {}", pair[0], pair[1]);
     }
     assert_eq!(range::Version::parse("1.0.0+build.7"), range::Version::parse("1.0.0"), "build metadata takes no part");
+  }
+
+  #[test]
+  fn declarations_a_package_carries_itself_follow_its_vendored_version_exactly() {
+    let app = std::env::temp_dir().join(format!("fsr-types-pinned-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(app.join("vendor")).unwrap();
+    std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.44","externals":[],"entries":{"vue":"vue/vue.min.js"}}}}"#).unwrap();
+    std::fs::write(app.join("importmap.json"), r#"{"imports":{"vue":"/static/js/vendor/vue/vue.min.js"}}"#).unwrap();
+    let pins = pins(&app, &Layout::default()).unwrap();
+    let held = |from: &str, version: &str| (from.to_owned(), range::Version::parse(version).unwrap());
+    assert!(!accepted(&pins["vue"], Some(&held("vue", "3.5.42"))), "an earlier patch's own declarations are fetched again");
+    assert!(accepted(&pins["vue"], Some(&held("vue", "3.5.44"))));
+    assert!(accepted(&pins["vue"], Some(&held("@types/vue", "3.0.1"))), "a DefinitelyTyped package versions apart from what it types");
+    assert!(!accepted(&pins["vue"], Some(&held("@types/vue", "2.0.0"))), "but keeps the major");
+    std::fs::remove_dir_all(&app).unwrap();
   }
 
   #[test]

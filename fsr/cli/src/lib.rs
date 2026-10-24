@@ -3365,16 +3365,24 @@ fn svelte_major_supported(version: &str) -> bool {
 /// Svelte's compiler inside its package.
 const SVELTE_COMPILER: &str = "compiler/index.js";
 
+/// Vue's single-file component compiler inside `@vue/compiler-sfc`, its browser build, which is
+/// the one `snapfirec-vue` carries.
+const VUE_COMPILER: &str = "dist/compiler-sfc.esm-browser.js";
+
 /// Per plugin extension, the compiler of the version the application vendors,
 /// which the plugin boots in place of the one it carries so the output calls
 /// the runtime the application serves. Fetched into `.fsr/compilers` the first
 /// time and read from there after; the compiler is never vendored or shipped.
 pub(crate) fn plugin_compilers(app: &Path, layout: &crate::xwpm::Layout) -> Result<Vec<(&'static str, PathBuf)>, BuildError> {
   let manifest = crate::vendor::VendorManifest::read(app, layout)?;
-  let Some(record) = manifest.packages.get("svelte") else {
-    return Ok(Vec::new());
-  };
-  Ok(vec![("svelte", crate::published::compiler(app, "svelte", &record.version, SVELTE_COMPILER)?)])
+  let mut compilers = Vec::new();
+  if let Some(record) = manifest.packages.get("svelte") {
+    compilers.push(("svelte", crate::published::compiler(app, "svelte", &record.version, SVELTE_COMPILER)?));
+  }
+  if let Some(record) = manifest.packages.get("vue") {
+    compilers.push(("vue", crate::published::compiler(app, "@vue/compiler-sfc", &record.version, VUE_COMPILER)?));
+  }
+  Ok(compilers)
 }
 
 fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<std::collections::BTreeMap<String, String>, BuildError> {

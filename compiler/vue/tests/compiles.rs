@@ -162,3 +162,23 @@ fn a_style_reads_the_variable_its_script_sets_in_production_as_in_development() 
     assert!(set.contains(&read[0]), "production {production}: the style reads --{} and the script sets {set:?}", read[0]);
   }
 }
+
+#[test]
+fn a_compiler_the_application_names_is_the_one_that_compiles() {
+  let dir = std::env::temp_dir().join(format!("snapfire-vue-own-{}", std::process::id()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let carried = dir.join("compiler-sfc.esm-browser.js");
+  std::fs::write(&carried, include_str!("../vendor/compiler-sfc.esm-browser.js")).unwrap();
+  let broken = dir.join("broken.js");
+  std::fs::write(&broken, "export const parse = ;\n").unwrap();
+  let compiler = Compiler::new().expect("the compiler boots");
+  let with = |path: &std::path::Path| {
+    let mut options = Options::default();
+    options.compiler = Some(path.display().to_string());
+    compiler.compile("src/Card.vue", CARD, &options, &Default::default()).expect("the driver answers")
+  };
+  assert!(ok(with(&carried)).js.contains("card"));
+  let Outcome::Failed { diagnostics } = with(&broken) else { panic!("the broken compiler was not the one used") };
+  assert!(diagnostics[0].message.contains("broken.js") && diagnostics[0].message.contains("would not boot"), "{diagnostics:?}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

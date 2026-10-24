@@ -132,6 +132,30 @@ impl Direction {
   }
 }
 
+/// `specs` with every module a framework's adapter needs added at the version asked for: `react`
+/// or `react-dom` brings both and `react/jsx-runtime`, `svelte` its subpaths. Returns the specs
+/// vendored one bundle each and, apart, those a published framework vendors as published.
+pub fn with_companions(specs: Vec<Spec>) -> (Vec<Spec>, Vec<Spec>) {
+  let mut plain: Vec<Spec> = Vec::new();
+  let mut published: Vec<Spec> = Vec::new();
+  for spec in specs {
+    let framework = DIRECTIONS.iter().find(|d| d.adapter.is_some() && d.vendors.iter().any(|(package, _, _)| *package == spec.package));
+    let (out, wanted) = match framework {
+      Some(direction) => (
+        if direction.published { &mut published } else { &mut plain },
+        direction.vendors.iter().map(|(package, _, subpath)| Spec { package: (*package).to_owned(), version: spec.version.clone(), subpath: subpath.map(str::to_owned) }).collect(),
+      ),
+      None => (&mut plain, vec![spec]),
+    };
+    for spec in wanted {
+      if !out.contains(&spec) {
+        out.push(spec);
+      }
+    }
+  }
+  (plain, published)
+}
+
 pub fn find(name: &str) -> Result<&'static Direction, BuildError> {
   DIRECTIONS.iter().find(|d| d.name == name).ok_or_else(|| BuildError::Direction { name: name.to_owned(), known: DIRECTIONS.iter().map(|d| d.name).collect::<Vec<_>>().join(", ") })
 }

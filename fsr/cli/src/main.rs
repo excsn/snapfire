@@ -977,35 +977,43 @@ fn run_add(args: Add) -> ExitCode {
     Ok(recorded) => recorded,
     Err(e) => return failed(e),
   };
-  let added = match (recorded, args.published) {
-    (Some(specs), _) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs),
-    (None, true) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs),
-    (None, false) => vendor::add(&args.app_dir, &specs, &externals),
-  };
-  match added {
-    Ok(report) => {
-      if !externals.is_empty() && !report.delegated.is_empty() {
-        eprintln!("note: xwpm carries dependencies itself; --external was not used");
-      }
-      for spec in &report.delegated {
-        println!("xwpm add  {spec}");
-      }
-      for (specifier, file, bytes) in report.added {
-        println!("added     {specifier:<28} {file}  {bytes} bytes");
-      }
-      for (specifier, url) in report.from_shell {
-        println!("shell     {specifier:<28} {url}");
-      }
-      for (specifier, url) in report.remapped {
-        println!("remapped  {specifier:<28} {url}");
-      }
-      for module in &report.repaired {
-        println!("map       {module}");
-      }
-      ExitCode::SUCCESS
+  // A framework comes with what its adapter imports, at the version asked for.
+  let groups = match recorded {
+    Some(specs) => vec![(specs, true)],
+    None => {
+      let (plain, published) = snapfire_fsr_cli::direction::with_companions(specs);
+      [(published, true), (plain, args.published)].into_iter().filter(|(specs, _)| !specs.is_empty()).collect()
     }
-    Err(e) => failed(e),
+  };
+  for (specs, published) in groups {
+    let added = match published {
+      true => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs),
+      false => vendor::add(&args.app_dir, &specs, &externals),
+    };
+    let report = match added {
+      Ok(report) => report,
+      Err(e) => return failed(e),
+    };
+    if !externals.is_empty() && !report.delegated.is_empty() {
+      eprintln!("note: xwpm carries dependencies itself; --external was not used");
+    }
+    for spec in &report.delegated {
+      println!("xwpm add  {spec}");
+    }
+    for (specifier, file, bytes) in report.added {
+      println!("added     {specifier:<28} {file}  {bytes} bytes");
+    }
+    for (specifier, url) in report.from_shell {
+      println!("shell     {specifier:<28} {url}");
+    }
+    for (specifier, url) in report.remapped {
+      println!("remapped  {specifier:<28} {url}");
+    }
+    for module in &report.repaired {
+      println!("map       {module}");
+    }
   }
+  ExitCode::SUCCESS
 }
 
 #[cfg(feature = "web")]

@@ -19,6 +19,7 @@ Compiling Vue single-file components through `snapfirec` and the same compile fr
 
 * **Single-file component**: a `.vue` file with `<script>`, `<template>` and `<style>` blocks.
 * **The carried compiler**: Vue's browser build of `@vue/compiler-sfc`, embedded in the crate and run in QuickJS. Nothing is fetched and no Node is asked of the machine.
+* **The application's compiler**: `Options::compiler`, a path to another release's `dist/compiler-sfc.esm-browser.js`, which the plugin boots in place of the carried one for that compile, describe and server module. One engine is kept per path and content. A file that cannot be read or will not boot fails the unit naming it. `fsr` names the release of the Vue the application vendors.
 * **Worker**: `snapfirec-vue` as `snapfirec` runs it, one process per build kept for its length, answering batches over stdin and stdout.
 * **Compiler**: the library's handle to one QuickJS context, on a thread of its own with room for the parser's recursion.
 * **Scope id**: `data-v-<hash>`, derived from the file's name and content, written on the rendered elements and into every scoped rule.
