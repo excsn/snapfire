@@ -1570,8 +1570,12 @@ impl ComponentSet {
         match self.lower(&module) {
           Ok(()) => {}
           Err(LowerError::Residue(residue)) => {
+            let residue = residue.placed_at(Placement { file: file.to_owned(), line, column, tag: name.clone() });
+            if residue.message == ASYNC_COMPONENT {
+              return Err(residue.into());
+            }
             if !self.browser_only.iter().any(|(m, _)| *m == module) {
-              self.browser_only.push((module.clone(), residue.placed_at(Placement { file: file.to_owned(), line, column, tag: name.clone() })));
+              self.browser_only.push((module.clone(), residue));
             }
           }
           Err(other) => return Err(other),
