@@ -140,3 +140,17 @@ fn a_package_whose_recorded_entry_is_not_on_disk_is_missing() {
   std::fs::write(dir.join("types/htmx.org/dist/htmx.d.ts"), "export {};").unwrap();
   assert!(missing(&dir).unwrap().is_empty(), "the entry written, it is declared");
 }
+
+/// DEFECTS 1.148.
+#[test]
+fn fsr_types_reports_each_package_it_wrote_once() {
+  let root = snapfire_fsr_test_internal::Scratch::new("types-once");
+  snapfire_fsr_cli::new::create(root.path(), snapfire_fsr_cli::new::NewOptions::default().fetch(false)).unwrap();
+  let report = snapfire_fsr_cli::types::fetch(&root.join("app"), false).unwrap();
+  let mut packages: Vec<&str> = report.fetched.iter().map(|(package, _, _)| package.as_str()).collect();
+  assert!(packages.contains(&"@snapfire/fsr-client"), "{:?}", report.fetched);
+  let all = packages.len();
+  packages.sort();
+  packages.dedup();
+  assert_eq!(packages.len(), all, "{:?}", report.fetched);
+}
