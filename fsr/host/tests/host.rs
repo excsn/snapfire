@@ -7404,6 +7404,7 @@ async fn a_pwa_section_serves_a_manifest_and_a_worker_that_precaches_the_build()
   assert!(worker.contains("\"/manifest.webmanifest\""), "a page shown offline still finds its manifest: {worker}");
   assert!(worker.contains("\"/static/js/fsr/index.min.js\""), "the client is warmed: {worker}");
   assert!(worker.contains("searchParams.delete(\"__payload\")"), "a payload kept keeps its page's document too, so a reload offline finds it: {worker}");
+  assert!(worker.contains("self.clients.matchAll({ type: \"window\" })"), "the pages opened before the worker took control are kept on activation: {worker}");
 }
 
 #[tokio::test]

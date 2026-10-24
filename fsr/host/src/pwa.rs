@@ -97,7 +97,7 @@ fn icons(config: &Config) -> Vec<serde_json::Value> {
   found.into_iter().map(|(_, sizes, name, kind)| serde_json::json!({ "src": format!("{}/{name}", root.route), "sizes": sizes, "type": kind })).collect()
 }
 
-/// The worker: the build's hashed modules and stylesheets precached as one set per build and answered from it first; the client, the vendor modules, the document's other stylesheets, the manifest and the offline route warmed at install; everything else from the network first, kept when the response is not `private` or `no-store` and answered from what was kept when the network fails. A payload a client navigation kept also keeps its page's document, so a reload offline finds the page.
+/// The worker: the build's hashed modules and stylesheets precached as one set per build and answered from it first; the client, the vendor modules, the document's other stylesheets, the manifest and the offline route warmed at install; everything else from the network first, kept when the response is not `private` or `no-store` and answered from what was kept when the network fails. A payload a client navigation kept also keeps its page's document, so a reload offline finds the page. On taking control the worker keeps the document of every window it now controls, since those loads came before it.
 fn worker(config: &Config, section: &PwaSection, import_map: Option<&str>, styles: &[String], client_minified: bool) -> String {
   let bundle = config.bundle.as_ref();
   let build: Vec<String> = bundle
@@ -190,6 +190,12 @@ function kept(response) {
   return response.ok && !/private|no-store/.test(response.headers.get("cache-control") || "");
 }
 
+function keepDocument(href) {
+  return fetch(href, { credentials: "same-origin" })
+    .then((document) => (kept(document) ? caches.open(RUNTIME_CACHE).then((cache) => cache.put(href, document)) : undefined))
+    .catch(() => undefined);
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     Promise.all([
@@ -209,7 +215,9 @@ self.addEventListener("activate", (event) => {
         const older = names.filter((name) => name.startsWith("sf-build-") && name !== BUILD_CACHE);
         return Promise.all(older.slice(0, -1).map((name) => caches.delete(name)));
       })
-      .then(() => self.clients.claim()),
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: "window" }))
+      .then((windows) => Promise.all(windows.map((client) => keepDocument(client.url)))),
   );
 });
 
@@ -232,11 +240,7 @@ self.addEventListener("fetch", (event) => {
           if (url.searchParams.has("__payload")) {
             const page = new URL(url);
             page.searchParams.delete("__payload");
-            event.waitUntil(
-              fetch(page.href, { credentials: "same-origin" })
-                .then((document) => (kept(document) ? caches.open(RUNTIME_CACHE).then((cache) => cache.put(page.href, document)) : undefined))
-                .catch(() => undefined),
-            );
+            event.waitUntil(keepDocument(page.href));
           }
         }
         return response;
