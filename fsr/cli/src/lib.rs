@@ -250,6 +250,26 @@ pub struct Cause {
   pub pages: Vec<(String, String)>,
 }
 
+/// One lowered component whose bundle copy the build rewrote, with how many of each thing it reads from the server.
+#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Hoisted {
+  pub module: String,
+  /// Render-path calls the server computes.
+  pub values: usize,
+  /// Static subtrees the server renders.
+  pub subtrees: usize,
+  /// Those subtrees that keep a fallback in the bundle.
+  pub fallbacks: usize,
+  /// Islands it places, each reading its server-rendered props.
+  pub islands: usize,
+  /// Keyed placements wrapped so what they place keys below them.
+  pub keyed: usize,
+  /// `useId` calls answered with the server's id.
+  pub ids: usize,
+  /// Values only the browser knows, null through hydration.
+  pub browser: usize,
+}
+
 /// What `build` found and emitted, in the order the report prints it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[non_exhaustive]
@@ -287,8 +307,8 @@ pub struct Report {
   pub foreign: Vec<Cause>,
   /// A framework plugin the build could not start and what that leaves foreign.
   pub plugins: Vec<String>,
-  /// Module, how many of its render-path calls and how many of its static subtrees the server computes for the browser and how many of those subtrees keep a fallback in the bundle.
-  pub hoisted: Vec<(String, usize, usize, usize)>,
+  /// What the bundle's copy of each lowered component reads from the server.
+  pub hoisted: Vec<Hoisted>,
   /// Components placed as islands in server mode and how many handlers each answers.
   pub islands: Vec<(String, usize)>,
   /// Each page or layout whose state, handlers and effects moved into an island beside it: the route module, the island and what it took.
@@ -480,19 +500,22 @@ impl Report {
       writeln!(f, "{:<9} {what}", "csp")?;
       writeln!(f, "{:<9} {remedy}", "")?;
     }
-    for (i, (module, values, chunks, fallbacks)) in self.hoisted.iter().filter(|_| verbose).enumerate() {
+    for (i, hoisted) in self.hoisted.iter().filter(|_| verbose).enumerate() {
       let label = if i == 0 { "hoisted" } else { "" };
-      let mut parts = Vec::new();
-      if *values > 0 {
-        parts.push(format!("{values} value{}", if *values == 1 { "" } else { "s" }));
-      }
-      if *chunks > 0 {
-        parts.push(format!("{chunks} subtree{}", if *chunks == 1 { "" } else { "s" }));
-      }
-      if *fallbacks > 0 {
-        parts.push(format!("{fallbacks} with a fallback"));
-      }
-      writeln!(f, "{label:<9} {module:<34} {}", parts.join(", "))?;
+      let counted = |n: usize, one: &str, many: &str| (n > 0).then(|| format!("{n} {}", if n == 1 { one } else { many }));
+      let parts: Vec<String> = [
+        counted(hoisted.values, "value", "values"),
+        counted(hoisted.subtrees, "subtree", "subtrees"),
+        (hoisted.fallbacks > 0).then(|| format!("{} with a fallback", hoisted.fallbacks)),
+        counted(hoisted.islands, "island", "islands"),
+        counted(hoisted.keyed, "keyed placement", "keyed placements"),
+        counted(hoisted.ids, "useId", "useIds"),
+        counted(hoisted.browser, "browser value", "browser values"),
+      ]
+      .into_iter()
+      .flatten()
+      .collect();
+      writeln!(f, "{label:<9} {:<34} {}", hoisted.module, parts.join(", "))?;
     }
     for (i, (service, document)) in self.services.iter().filter(|_| verbose).enumerate() {
       let label = if i == 0 { "services" } else { "" };
@@ -1418,7 +1441,16 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   set.settle_fills();
   for rewrite in &mut set.rewrites {
     rewrite.module = format!("{}{}", options.prefix(), rewrite.module);
-    report.hoisted.push((rewrite.module.clone(), rewrite.sites.len(), rewrite.chunks.len(), rewrite.chunks.iter().filter(|c| !c.proven).count()));
+    report.hoisted.push(Hoisted {
+      module: rewrite.module.clone(),
+      values: rewrite.sites.len(),
+      subtrees: rewrite.chunks.len(),
+      fallbacks: rewrite.chunks.iter().filter(|c| !c.proven).count(),
+      islands: rewrite.islands.len(),
+      keyed: rewrite.placements.len(),
+      ids: rewrite.ids.len(),
+      browser: rewrite.browser.len(),
+    });
   }
   let mut rewritten = set.rewritten();
   for (file, source) in &generated {

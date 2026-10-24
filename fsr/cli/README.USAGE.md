@@ -1697,7 +1697,10 @@ Only the outermost static subtree is taken and only one that does something: a r
 ```
 hoisted   src/ui/ProductCard.tsx#ProductCard 5 values, 5 subtrees
           src/ui/Stars.tsx#Stars             1 value, 1 subtree
+          routes/page.tsx#default            1 subtree, 2 islands
 ```
+
+A row also counts the islands the component places, its keyed placements, its `useId` calls and the values only the browser knows, each of which the bundle's copy reads or wraps.
 
 ## Deferring an Element's Definition
 

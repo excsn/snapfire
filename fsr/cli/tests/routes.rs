@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_cli::{build, BuildError, Options};
+use snapfire_fsr_cli::{build, BuildError, Hoisted, Options};
 use snapfire_fsr_ir::{ShadowMode, ShadowRoot};
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -324,7 +324,7 @@ fn an_element_template_is_lowered_without_hoisting() {
   let template = &built.manifest.components.iter().find(|c| c.module == "elements/x-grid.tsx#default").expect("the template is lowered").body;
   let lowered = format!("{:?}", template.render);
   assert!(!lowered.contains("$chunk") && !lowered.contains("Hoist"), "{lowered}");
-  assert!(!built.report.hoisted.iter().any(|(module, ..)| module == "elements/x-grid.tsx#default"), "{:?}", built.report.hoisted);
+  assert!(!built.report.hoisted.iter().any(|h| h.module == "elements/x-grid.tsx#default"), "{:?}", built.report.hoisted);
 }
 
 #[test]
@@ -805,7 +805,7 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   assert!(fsr.contains("\"/\":") && !fsr.contains("/billing"), "route keys stay as written: {fsr}");
   let overlay = file(".fsr/bundle/src/Tips.tsx");
   assert!(overlay.contains("__sfUseHoisted(\"billing:src/Tips.tsx#TipList\")") && overlay.contains("__sfh.c(1, (__sfHtml) => <ul dangerouslySetInnerHTML={__sfHtml} />)"), "the reader keys under the prefixed module the host renders and the list is a proven subtree: {overlay}");
-  assert_eq!(built.report.hoisted, vec![("billing:routes/page.tsx#default".to_owned(), 0, 1, 0), ("billing:src/Tips.tsx#TipList".to_owned(), 0, 1, 0)], "the page's div around the pure TipList is a subtree of its own and the list's read is carried by its markup: {}", built.report);
+  assert_eq!(built.report.hoisted, vec![Hoisted { module: "billing:routes/page.tsx#default".to_owned(), subtrees: 1, ..Hoisted::default() }, Hoisted { module: "billing:src/Tips.tsx#TipList".to_owned(), subtrees: 1, ..Hoisted::default() }], "the page's div around the pure TipList is a subtree of its own and the list's read is carried by its markup: {}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1147,9 +1147,11 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
   assert_eq!(built.report.browser.len(), 1, "{}", built.report);
   assert_eq!(built.report.browser[0].0, "routes/index/page.island0.tsx#default", "the state and its handler moved into the island: {}", built.report);
   assert!(built.report.browser[0].1.starts_with("routes/index/page.island0.tsx:"), "{}", built.report);
-  assert_eq!(built.report.hoisted, vec![("routes/index/page.island0.tsx#default".to_owned(), 1, 0, 0), ("routes/index/page.tsx#default".to_owned(), 0, 0, 0)], "{}", built.report);
+  assert_eq!(built.report.hoisted, vec![Hoisted { module: "routes/index/page.island0.tsx#default".to_owned(), values: 1, ..Hoisted::default() }, Hoisted { module: "routes/index/page.tsx#default".to_owned(), keyed: 1, ..Hoisted::default() }], "{}", built.report);
   let text = built.report.verbose().to_string();
   assert!(text.contains("extensions ext/fmt.ts#weight      lowered") && text.contains("browser   routes/index/page.island0.tsx#default"), "{text}");
+  let page_row = text.lines().skip_while(|l| !l.starts_with("hoisted")).find(|l| l.split_whitespace().any(|w| w == "routes/index/page.tsx#default")).expect("a hoisted row for the page");
+  assert!(page_row.trim_end().ends_with("routes/index/page.tsx#default      1 keyed placement"), "DEFECTS 1.168: the row names what the rewrite holds: {page_row:?}");
   let plan = built.manifest.to_json();
   assert!(plan.contains("\"ext\"") && plan.contains("\"intl\"") && plan.contains("\"time\""), "{plan}");
   std::fs::remove_dir_all(&fine).unwrap();
