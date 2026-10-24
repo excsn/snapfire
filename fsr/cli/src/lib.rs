@@ -99,6 +99,8 @@ pub enum BuildError {
   UnknownComponent { module: String },
   #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}{remedy}")]
   IslandImports { module: String, adapter: String, missing: String, remedy: String },
+  #[error("`{placed}` does not lower, so only a browser could render it: {why}")]
+  BrowserOnlyInTerminal { placed: String, why: String },
   #[error("{file} names a theme `default`, which is the root theme's name; rename the file")]
   ReservedTheme { file: String },
   #[error("{file} sets `{token}`, which is not a token of {defined}; a named theme overrides the root's tokens, so define it in the root's @theme")]
@@ -529,6 +531,9 @@ fn section(f: &mut fmt::Formatter<'_>, label: &str, rows: &[(String, String)], o
 
 /// Where the build writes one contract file per client document plus `schemas.json`; the host merges the directory.
 pub const CONTRACTS_DIR: &str = "generated/contracts";
+
+/// The page at `/`, the one a terminal application draws.
+pub const ROOT_PAGE: &str = "routes/page.tsx";
 /// The file under `CONTRACTS_DIR` holding every `#[service]` block's contract.
 pub const RUST_CONTRACT: &str = "rust.json";
 /// Where the build writes the plan file.
@@ -980,6 +985,10 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let public_path = bundle_base(options.site.as_ref());
   let resolver = std::rc::Rc::new(assets::Resolver::new(app, &public_path, sections.clone()));
   let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect()).with_assets(resolver.clone(), sections.images.rewrite);
+  let terminal = app.join(ROOT_PAGE).is_file() && ComponentSet::new(app).draws_in_terminal(ROOT_PAGE);
+  if terminal {
+    set = set.for_terminal();
+  }
   let mdx_settings = mdx::settings(&config_beside(app).map(|config| config.mdx).unwrap_or_default())?;
   #[cfg_attr(not(feature = "mdx"), allow(unused_mut))]
   let mut mdx_files: Vec<(String, String)> = Vec::new();
@@ -1311,7 +1320,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   // lowered: they move with the markup that uses them into an island beside
   // it, which only the bundle overlay holds.
   let mut generated: Vec<(String, String)> = Vec::new();
-  for module in islands.iter().filter(|m| m.starts_with("routes/") && !m.contains(".tera#")) {
+  for module in islands.iter().filter(|m| !terminal && m.starts_with("routes/") && !m.contains(".tera#")) {
     match set.extract_route(module) {
       Ok(Some(extracted)) => {
         report.extracted.push((module.clone(), extracted.island.clone(), extracted.holds));
@@ -1324,7 +1333,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   let mut split_from: std::collections::HashMap<String, snapfire_fsr_lower::Residue> = std::collections::HashMap::new();
   for module in &islands {
-    if module.starts_with("routes/") && !module.contains(".tera#") {
+    if !terminal && module.starts_with("routes/") && !module.contains(".tera#") {
       match set.lower_route(module) {
         Ok(Some(extracted)) => {
           if let Some(started) = extracted.started {
@@ -1345,6 +1354,9 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       }
     }
     lower_into(&mut set, module, &mut report)?;
+  }
+  if let (true, Some((placed, why))) = (terminal, set.browser_only.first()) {
+    return Err(BuildError::BrowserOnlyInTerminal { placed: placed.clone(), why: why.to_string() });
   }
   let (generated_images, generated_heads) = generated_images(app, &routes_dir, &routes, &mut set, &mut sources)?;
   for (module, component) in &set.components {
@@ -1418,7 +1430,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   report.browser.sort();
   let mut components = Vec::new();
-  let mut islands = islands;
+  // A terminal draws every component itself, so none has a browser twin.
+  let mut islands = if terminal { Vec::new() } else { islands };
   // Modules an `<Island define>` names: the browser imports one at its timing and the element upgrades itself.
   let mut defines: Vec<String> = Vec::new();
   // A template nothing mounts has no browser twin: it is left out of the
@@ -1499,7 +1512,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let mut placed: Vec<String> = placements.into_iter().filter(|p| !p.server).map(|p| p.module).collect();
   // A component a framework hydrates that composition renders inline is
   // placed as an island by the renderer, so it mounts like any other.
-  for entry in components.iter().filter(|entry| entry.body.owner == Owner::Fsr) {
+  for entry in components.iter().filter(|entry| !terminal && entry.body.owner == Owner::Fsr) {
     for module in inline_components(&entry.body.render) {
       if owners.get(&module).is_some_and(|owner| owner.hydrates()) && !placed.contains(&module) {
         if !islands.contains(&module) {
@@ -1509,7 +1522,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       }
     }
   }
-  for module in std::mem::take(&mut set.mounted) {
+  for module in std::mem::take(&mut set.mounted).into_iter().filter(|_| !terminal) {
     if !islands.contains(&module) {
       islands.push(module);
     }

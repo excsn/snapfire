@@ -225,6 +225,11 @@ impl ComponentSet {
     self
   }
 
+  /// Whether `file` draws in a terminal: it or a local file it reaches imports a value from Ink's API, which only a terminal renders.
+  pub fn draws_in_terminal(&mut self, file: &str) -> bool {
+    self.local_reach(file).iter().any(|reached| crate::terminal::INK_MODULES.iter().any(|module| self.imports_value_from(reached, module)))
+  }
+
   /// Whether these pages may use `reach`.
   fn reaches(&self, reach: Reach) -> bool {
     reach.needs().is_none() || self.reaches.contains(&reach)
