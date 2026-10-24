@@ -151,6 +151,12 @@ pub fn one_value(trace: &Trace) -> snapfire_fsr_core::Value {
   }
 }
 
+/// The script a page on a `trace.inline` path ends with: `trace` as `one_value` writes it, `<` escaped so the text cannot close the script.
+pub fn tail_script(trace: &Trace) -> String {
+  let json = snapfire_fsr_payload::value_to_json(&one_value(trace)).to_string().replace('<', "\\u003c");
+  format!("<script type=\"application/json\" id=\"sf-trace\">{json}</script>")
+}
+
 /// `Server-Timing` for one trace: an entry per span, so per-step cost shows in
 /// devtools with no collector running. Under `fsr dev` only; nothing about a
 /// source should reach a client in production.
@@ -169,4 +175,73 @@ pub fn server_timing(trace: &Trace) -> String {
     })
     .collect::<Vec<_>>()
     .join(", ")
+}
+
+/// A page body that ends with [`tail_script`] of its own request: the last chunk
+/// is held until the body ends, then written with the script before its
+/// `</body>`. It keeps the request's root span open until then, so the trace
+/// holds every span the request ran, the session save included.
+pub(crate) struct TraceTail {
+  inner: crate::Body,
+  held: Option<bytes::Bytes>,
+  root: tracing::Span,
+  started: std::time::Instant,
+  traces: Traces,
+  ended: bool,
+}
+
+impl TraceTail {
+  pub(crate) fn new(inner: crate::Body, root: tracing::Span, started: std::time::Instant, traces: Traces) -> Self {
+    Self { inner, held: None, root, started, traces, ended: false }
+  }
+
+  fn tail(&mut self) -> bytes::Bytes {
+    let held = self.held.take().unwrap_or_default();
+    let root = std::mem::replace(&mut self.root, tracing::Span::none());
+    let Some(mut trace) = root.id().and_then(|id| self.traces.of_span(id.into_u64())) else {
+      return held;
+    };
+    trace.duration = self.started.elapsed();
+    if let Some(root) = trace.spans.first_mut() {
+      root.duration = trace.duration.saturating_sub(root.at);
+    }
+    let script = tail_script(&trace);
+    let at = held.windows(7).rposition(|w| w == b"</body>").unwrap_or(held.len());
+    let mut out = Vec::with_capacity(held.len() + script.len());
+    out.extend_from_slice(&held[..at]);
+    out.extend_from_slice(script.as_bytes());
+    out.extend_from_slice(&held[at..]);
+    bytes::Bytes::from(out)
+  }
+}
+
+impl http_body::Body for TraceTail {
+  type Data = bytes::Bytes;
+  type Error = std::io::Error;
+
+  fn poll_frame(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Result<http_body::Frame<bytes::Bytes>, std::io::Error>>> {
+    use std::task::Poll;
+    loop {
+      if self.ended {
+        return Poll::Ready(None);
+      }
+      match std::pin::Pin::new(&mut self.inner).poll_frame(cx) {
+        Poll::Pending => return Poll::Pending,
+        Poll::Ready(Some(Ok(frame))) => match frame.into_data() {
+          Ok(data) => {
+            if let Some(previous) = self.held.replace(data) {
+              return Poll::Ready(Some(Ok(http_body::Frame::data(previous))));
+            }
+          }
+          Err(frame) => return Poll::Ready(Some(Ok(frame))),
+        },
+        Poll::Ready(Some(Err(error))) => return Poll::Ready(Some(Err(error))),
+        Poll::Ready(None) => {
+          self.ended = true;
+          let tail = self.tail();
+          return Poll::Ready(Some(Ok(http_body::Frame::data(tail))));
+        }
+      }
+    }
+  }
 }

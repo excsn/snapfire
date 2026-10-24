@@ -394,9 +394,10 @@ struct Tables {
   csp_report_only: Option<HeaderValue>,
   /// The nonce on the development refresh script, named by both policies.
   dev_nonce: Option<String>,
-  /// `trace.expose`: the path prefixes whose requests a client may read its
-  /// own trace of.
-  trace_expose: Vec<String>,
+  /// `trace.expose`: the paths whose requests a client may read its own trace of.
+  trace_expose: builder::PathSet,
+  /// `trace.inline`: the paths whose pages end with their own trace.
+  trace_inline: builder::PathSet,
   /// `server.health` and `server.ready`, `None` when empty.
   health: Option<String>,
   ready: Option<String>,

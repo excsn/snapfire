@@ -220,7 +220,7 @@ fn host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Hos
   }
   let (traces, logging) = match serve {
     true => {
-      let (traces, logging, why) = snapfire_fsr_host::trace::observe_project(&root, config.dev() || config.trace.as_ref().is_some_and(|t| !t.expose.is_empty()));
+      let (traces, logging, why) = snapfire_fsr_host::trace::observe_project(&root, config.dev() || config.trace.as_ref().is_some_and(|t| !t.expose.is_empty() || !t.inline.is_empty()));
       if let Some(why) = why {
         eprintln!("logging: {why}; warnings and errors go to stderr");
       }

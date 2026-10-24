@@ -71,6 +71,7 @@ futures-util = "0.3"
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
+matchit = "0.8"
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 serde = { version = "1", features = ["derive"] }

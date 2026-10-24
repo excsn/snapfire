@@ -58,24 +58,43 @@ pub(crate) fn json_response(status: StatusCode, json: &serde_json::Value) -> Res
     .expect("a json response")
 }
 
+/// The strong `ETag` of an embedded module: the first eight bytes of its SHA-256, computed once per module.
+fn client_etag(body: &'static str) -> HeaderValue {
+  static TAGS: std::sync::OnceLock<parking_lot::RwLock<HashMap<usize, HeaderValue>>> = std::sync::OnceLock::new();
+  let tags = TAGS.get_or_init(Default::default);
+  let key = body.as_ptr() as usize;
+  if let Some(tag) = tags.read().get(&key) {
+    return tag.clone();
+  }
+  use sha2::Digest;
+  let digest = sha2::Sha256::digest(body.as_bytes());
+  let hex: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+  let tag = HeaderValue::from_str(&format!("\"{hex}\"")).expect("a hex etag");
+  tags.write().insert(key, tag.clone());
+  tag
+}
+
 /// One module of the embedded client. `no_cache` for a development host, whose
 /// client changes when the binary it is built beside does; `cache` otherwise,
-/// the same lifetime a `[[static]]` root answers with.
-pub(crate) fn js_response(body: &'static str, no_cache: bool, cache: Option<&HeaderValue>) -> Response<Body> {
+/// the same lifetime a `[[static]]` root answers with. A request whose
+/// `If-None-Match` names the module's `ETag` is answered 304 with no body.
+pub(crate) fn js_response(body: &'static str, no_cache: bool, cache: Option<&HeaderValue>, if_none_match: Option<&HeaderValue>) -> Response<Body> {
+  let tag = client_etag(body);
+  let unchanged = if_none_match
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|v| v.split(',').any(|candidate| candidate.trim().trim_start_matches("W/") == tag.to_str().unwrap_or_default()));
   let mut response = Response::builder()
-    .status(StatusCode::OK)
-    .header(header::CONTENT_TYPE, client::MEDIA_TYPE);
+    .status(if unchanged { StatusCode::NOT_MODIFIED } else { StatusCode::OK })
+    .header(header::CONTENT_TYPE, client::MEDIA_TYPE)
+    .header(header::ETAG, tag);
   if no_cache {
     response = response.header(header::CACHE_CONTROL, "no-cache");
   } else if let Some(cache) = cache {
     response = response.header(header::CACHE_CONTROL, cache.clone());
   }
+  let bytes = if unchanged { Bytes::new() } else { Bytes::from_static(body.as_bytes()) };
   response
-    .body(
-      http_body_util::Full::new(Bytes::from_static(body.as_bytes()))
-        .map_err(|never| match never {})
-        .boxed_unsync(),
-    )
+    .body(http_body_util::Full::new(bytes).map_err(|never| match never {}).boxed_unsync())
     .expect("a script response")
 }
 
@@ -266,6 +285,11 @@ impl Host {
       .id()
       .and_then(|id| self.traces.as_ref()?.of_span(id.into_u64()))
       .and_then(|trace| self.trace_token(&self.tables(), &trace));
+    let started = std::time::Instant::now();
+    let inline = self.traces.clone().filter(|_| {
+      let raw_query = req.uri().query().unwrap_or("");
+      !payload_of(raw_query) && fragment_of(raw_query).is_none() && self.tables().trace_inline.contains(req.uri().path())
+    });
     let after = snapfire_fsr_runtime::AfterHandle::default();
     let mut answered = crate::after::AFTER.scope(after.clone(), tracing::Instrument::instrument(self.handle_in(req), root.clone())).await;
     if let Some(value) = token.and_then(|token| HeaderValue::from_str(&token).ok()) {
@@ -273,7 +297,16 @@ impl Host {
     }
     root.record("status", answered.status().as_u16());
     root.record("fibre.outcome", if answered.status().is_success() { "ok" } else { "error" });
-    let (parts, body) = answered.into_parts();
+    let html = answered.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|ct| ct.starts_with("text/html"));
+    let (mut parts, body) = answered.into_parts();
+    let body = match inline.filter(|_| html) {
+      Some(traces) => {
+        parts.headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+        parts.headers.remove(header::CONTENT_LENGTH);
+        Body::new(crate::trace::TraceTail::new(body, root, started, traces))
+      }
+      None => body,
+    };
     Response::from_parts(parts, Body::new(crate::after::Finishing::new(body, after, self.afters.clone())))
   }
 
@@ -379,10 +412,10 @@ impl Host {
     if t.client {
       if let Some(name) = path.strip_prefix(client::ROUTE).and_then(|rest| rest.strip_prefix('/')) {
         if let Some(body) = client::get(name, t.client_minified) {
-          return js_response(body, self.changed.is_some(), t.static_cache.as_ref());
+          return js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
         }
         if let Some(body) = client::map(name) {
-          let mut response = js_response(body, self.changed.is_some(), t.static_cache.as_ref());
+          let mut response = js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
           response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
           return response;
         }

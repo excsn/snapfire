@@ -5868,6 +5868,24 @@ async fn a_zero_lifetime_sends_no_cache_control() {
 }
 
 #[tokio::test]
+async fn an_embedded_client_module_answers_304_to_its_own_etag() {
+  for dev in [false, true] {
+    let host = tuned_host(&tuned_app(dev, "", ""));
+    let first = host.handle(Request::get("/static/js/fsr/index.js").body(Bytes::new()).unwrap()).await;
+    let tag = first.headers().get(header::ETAG).expect("a client module carries a validator").clone();
+    let body = body_of(first).await;
+    let again = host.handle(Request::get("/static/js/fsr/index.js").header(header::IF_NONE_MATCH, tag.clone()).body(Bytes::new()).unwrap()).await;
+    assert_eq!(again.status(), StatusCode::NOT_MODIFIED, "dev {dev}");
+    assert_eq!(again.headers().get(header::ETAG), Some(&tag));
+    assert_eq!(again.headers().get(header::CACHE_CONTROL).map(|v| v.to_str().unwrap()), Some("no-cache"));
+    assert!(body_of(again).await.is_empty());
+    let other = host.handle(Request::get("/static/js/fsr/index.js").header(header::IF_NONE_MATCH, "\"00000000\"").body(Bytes::new()).unwrap()).await;
+    assert_eq!(other.status(), StatusCode::OK);
+    assert_eq!(body_of(other).await, body);
+  }
+}
+
+#[tokio::test]
 async fn an_unhashed_file_revalidates_by_default_and_an_unchanged_one_answers_304() {
   let host = tuned_host(&tuned_app(false, "", ""));
   assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("no-cache"), "a deploy never pairs fresh HTML with a module the browser kept");
@@ -6702,6 +6720,100 @@ async fn a_path_outside_trace_expose_carries_no_token_and_no_route_answers_witho
   assert!(response.headers().get("x-sf-request").is_some(), "development exposes every path");
 }
 
+fn tail_of(html: &str) -> Option<serde_json::Value> {
+  let open = "<script type=\"application/json\" id=\"sf-trace\">";
+  let start = html.find(open)? + open.len();
+  let end = start + html[start..].find("</script>")?;
+  Some(serde_json::from_str(&html[start..end]).unwrap())
+}
+
+#[tokio::test]
+async fn an_inlined_page_ends_with_its_own_trace_through_the_session_save() {
+  let (host, _traces, _guard) = traced_host(false, "[trace]\ninline = [\"/\"]\n");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get(header::CACHE_CONTROL).unwrap().to_str().unwrap().contains("private"), "a page carrying its own trace is never shared");
+  let html = body_of(response).await;
+  let json = tail_of(&html).unwrap_or_else(|| panic!("no sf-trace script: {html}"));
+  assert!(html.find("id=\"sf-trace\"").unwrap() < html.rfind("</body>").unwrap(), "the trace is written inside the body: {html}");
+  let spans = json["spans"].as_array().unwrap();
+  assert_eq!(spans[0]["name"], "request", "{json}");
+  assert_eq!(spans[0]["fields"]["path"], "/", "{json}");
+  assert!(spans.iter().any(|s| s["name"] == "render"), "{json}");
+  assert!(spans[0]["ms"].as_f64().is_some_and(|ms| ms > 0.0), "the open root reports its time so far: {json}");
+  assert!(spans.iter().any(|s| s["name"] == "session" && s["fields"]["op"] == "save"), "the session save ran before the tail: {json}");
+  assert!(json["ms"].as_f64().or_else(|| json["ms"]["v"].as_f64()).unwrap() > 0.0, "the root's time is measured although it is still open: {json}");
+}
+
+#[tokio::test]
+async fn a_path_outside_trace_inline_and_a_payload_carry_no_tail() {
+  let (host, _traces, _guard) = traced_host(false, "[trace]\ninline = [\"/docs\"]\n");
+  let html = body_of(host.handle(Request::get("/").body(Bytes::new()).unwrap()).await).await;
+  assert!(!html.contains("sf-trace"), "{html}");
+
+  let (host, _traces, _guard) = traced_host(false, "[trace]\ninline = [\"/\"]\n");
+  let payload = body_of(host.handle(Request::get("/?__payload").body(Bytes::new()).unwrap()).await).await;
+  assert!(!payload.contains("sf-trace"), "{payload}");
+}
+
+#[test]
+fn a_trace_field_cannot_close_the_inline_script() {
+  let mut fields = std::collections::HashMap::new();
+  fields.insert("path".to_owned(), fibre_tracing::Value::Str("/</script><script>alert(1)</script>".to_owned()));
+  let trace = fibre_tracing::Trace {
+    id: 1,
+    duration: std::time::Duration::from_millis(1),
+    spans: vec![fibre_tracing::Span {
+      name: "request",
+      target: "fsr::trace".to_owned(),
+      level: tracing::Level::INFO,
+      parent: None,
+      depth: 0,
+      at: std::time::Duration::ZERO,
+      duration: std::time::Duration::from_millis(1),
+      fields,
+    }],
+  };
+  let script = snapfire_fsr_host::trace::tail_script(&trace);
+  assert!(script.starts_with("<script type=\"application/json\" id=\"sf-trace\">") && script.ends_with("</script>"), "{script}");
+  assert_eq!(script.matches("</script>").count(), 1, "{script}");
+  let json = tail_of(&script).unwrap();
+  assert_eq!(json["spans"][0]["fields"]["path"], "/</script><script>alert(1)</script>", "the field reads back whole: {json}");
+}
+
+#[tokio::test]
+async fn trace_paths_are_route_patterns_so_the_root_is_the_home_page_alone() {
+  let (host, _traces, _guard) = traced_host(false, "[trace]\nexpose = [\"/\"]\ninline = [\"/\"]\n");
+  let home = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(home.headers().get("x-sf-request").is_some());
+  assert!(tail_of(&body_of(home).await).is_some());
+  let other = host.handle(Request::get("/where").body(Bytes::new()).unwrap()).await;
+  assert!(other.headers().get("x-sf-request").is_none(), "`/` is the home page, not a prefix");
+  assert!(tail_of(&body_of(other).await).is_none());
+
+  let (host, _traces, _guard) = traced_host(false, "[trace]\nexpose = [\"/{*rest}\"]\ninline = [\"/{*rest}\"]\n");
+  let other = host.handle(Request::get("/where").body(Bytes::new()).unwrap()).await;
+  assert!(other.headers().get("x-sf-request").is_some(), "a catch-all covers the paths under it");
+  assert!(tail_of(&body_of(other).await).is_some());
+}
+
+#[test]
+fn a_trace_entry_that_is_not_a_route_pattern_is_refused() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[trace]\ninline = [\"/{{\"]\n")).unwrap();
+  let err = Host::from(dir.join("app.toml")).err().expect("refused").to_string();
+  assert!(err.contains("trace.inline `/{` is not a route pattern"), "{err}");
+}
+
+#[test]
+fn a_trace_inline_entry_that_is_not_a_path_is_refused() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[trace]\ninline = [\"docs\"]\n")).unwrap();
+  let err = Host::from(dir.join("app.toml")).err().expect("refused").to_string();
+  assert!(err.contains("trace.inline `docs` must be a path"), "{err}");
+}
+
 #[test]
 fn a_trace_expose_entry_that_is_not_a_path_is_refused() {
   let dir = app_dir();
@@ -6842,6 +6954,33 @@ async fn a_host_outside_development_names_the_bundle_s_modules_by_their_content(
   assert_eq!(stale.status(), StatusCode::NOT_FOUND, "a name for content the build no longer holds");
   assert_eq!(header_of(&host, "/static/js/app/src/shared.min.js", "cache-control").await.as_deref(), Some("no-cache"), "a module by its own name is revalidated whatever static_max_age says");
   assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("public, max-age=3600"), "a file outside the bundle keeps the lifetime");
+}
+
+/// `hashed_app` laid out as `fsr bundle` writes it: the build facts stay in `dist/` and the outputs
+/// move under the static root that serves the bundle's route.
+fn deployed_app() -> PathBuf {
+  let dir = hashed_app(false);
+  let served = dir.join("serve/static/js/app");
+  std::fs::create_dir_all(served.parent().unwrap()).unwrap();
+  std::fs::rename(dir.join("dist"), &served).unwrap();
+  std::fs::create_dir_all(dir.join("dist")).unwrap();
+  std::fs::copy(served.join(".snapfire-build.json"), dir.join("dist/.snapfire-build.json")).unwrap();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[[static]]\nroute = \"/static/js/app\"\ndir = \"serve/static/js/app\"\n")).unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_deploy_tree_names_the_bundle_s_modules_by_the_content_its_static_root_serves() {
+  let host = tuned_host(&deployed_app());
+  let main = format!("/static/js/app/src/main.min.{}.js", content_hash("import'./shared.min.js';"));
+  let shared = format!("/static/js/app/src/shared.min.{}.js", content_hash("export const a=1;"));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(&format!(r#"src="{main}""#)), "the entry: {html}");
+  let response = host.handle(Request::get(shared.as_str()).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("cache-control").unwrap(), "public, max-age=31536000, immutable");
+  assert_eq!(body_of(response).await, "export const a=1;");
 }
 
 #[tokio::test]

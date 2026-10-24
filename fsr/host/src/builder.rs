@@ -1214,8 +1214,8 @@ impl HostBuilder {
         csp,
         csp_report_only,
         dev_nonce,
-        trace_expose: config.trace.as_ref().map(|t| t.expose.clone()).unwrap_or_default(),
-        trace_inline: config.trace.as_ref().map(|t| t.inline.clone()).unwrap_or_default(),
+        trace_expose: trace_paths(&config, |t| &t.expose)?,
+        trace_inline: trace_paths(&config, |t| &t.inline)?,
         health: Some(config.server.health.clone()).filter(|p| !p.is_empty()),
         ready: Some(config.server.ready.clone()).filter(|p| !p.is_empty()),
         prerendered,
@@ -1272,10 +1272,34 @@ pub(crate) fn trace_token_input(id: u64) -> String {
   format!("fsr.trace:{id}")
 }
 
-/// Whether `path` is `prefix` or sits beneath it; `/` covers every path.
-pub(crate) fn under_prefix(path: &str, prefix: &str) -> bool {
-  let prefix = prefix.trim_end_matches('/');
-  prefix.is_empty() || path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
+/// Paths written as route patterns, `/docs` or `/docs/{*rest}`, as `trace.expose` and `trace.inline` list them.
+#[derive(Default)]
+pub(crate) struct PathSet(Option<matchit::Router<()>>);
+
+impl PathSet {
+  pub(crate) fn new(patterns: &[String]) -> Result<Self, matchit::InsertError> {
+    if patterns.is_empty() {
+      return Ok(Self(None));
+    }
+    let mut router = matchit::Router::new();
+    for pattern in patterns {
+      router.insert(pattern.as_str(), ())?;
+    }
+    Ok(Self(Some(router)))
+  }
+
+  pub(crate) fn is_empty(&self) -> bool {
+    self.0.is_none()
+  }
+
+  pub(crate) fn contains(&self, path: &str) -> bool {
+    self.0.as_ref().is_some_and(|router| router.at(path).is_ok())
+  }
+}
+
+fn trace_paths(config: &Config, list: impl Fn(&crate::config::TraceSection) -> &Vec<String>) -> Result<PathSet, HostError> {
+  let patterns = config.trace.as_ref().map(&list).map(Vec::as_slice).unwrap_or_default();
+  PathSet::new(patterns).map_err(|e| HostError::Config(config.config_dir(), format!("trace: {e}")))
 }
 
 pub(crate) fn placeholder_session_key(config: &Config) -> HostError {

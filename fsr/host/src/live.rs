@@ -271,7 +271,7 @@ impl Host {
   /// one would let any client read other visitors' requests.
   pub(crate) fn trace_token(&self, t: &Tables, trace: &trace::Trace) -> Option<String> {
     let path = trace.root()?.fields.get("path")?.to_string();
-    let exposed = self.changed.is_some() || t.trace_expose.iter().any(|prefix| under_prefix(&path, prefix));
+    let exposed = self.changed.is_some() || t.trace_expose.contains(&path);
     if !exposed {
       return None;
     }

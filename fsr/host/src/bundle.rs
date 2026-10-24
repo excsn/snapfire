@@ -229,10 +229,12 @@ pub(crate) fn is_hashed_name(path: &str) -> bool {
     return false;
   }
   parts.pop();
-  if parts.last().is_some_and(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) && parts.len() > 2 {
-    parts.pop();
+  let hash = |p: Option<&&str>| p.is_some_and(|p| p.len() == 8 && p.chars().all(|c| c.is_ascii_hexdigit()));
+  if hash(parts.last()) {
+    return true;
   }
-  parts.last().is_some_and(|p| p.len() == 8 && p.chars().all(|c| c.is_ascii_hexdigit()))
+  // An image variant, `<stem>.<hash>.<width>.<ext>`.
+  parts.len() > 2 && parts.last().is_some_and(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) && hash(parts.get(parts.len() - 2))
 }
 
 /// The head rows the asset manifest asks for: the policy the page's
@@ -294,4 +296,19 @@ pub(crate) fn import_map_csp(text: &str) -> String {
   use sha2::Digest;
   let digest = sha2::Sha256::digest(text.as_bytes());
   format!("'sha256-{}'", base64::engine::general_purpose::STANDARD.encode(digest))
+}
+
+#[cfg(test)]
+mod tests {
+  use super::is_hashed_name;
+
+  #[test]
+  fn a_hash_of_decimal_digits_is_still_a_hash() {
+    assert!(is_hashed_name("styles/fsr.min.59532043.css"));
+    assert!(is_hashed_name("styles/base.min.bed01a1b.css"));
+    assert!(is_hashed_name("img/hero.0a1b2c3d.640.avif"));
+    assert!(is_hashed_name("img/hero.12345678.640.avif"));
+    assert!(!is_hashed_name("styles/fsr.min.css"));
+    assert!(!is_hashed_name("img/hero.640.avif"));
+  }
 }

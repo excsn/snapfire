@@ -82,11 +82,11 @@ That is also the only place tail sampling can happen, keeping the traces that fa
 
 ## Showing a page its own trace
 
-A page can read the trace of the request that served it, which is how a site shows a visitor what the server did for them. It works outside `fsr dev` for the paths you list:
+A page can read the trace of the request that served it, which is how a site shows a visitor what the server did for them. It works outside `fsr dev` for the paths you list, written as route patterns. `/` is the home page alone and `/{*rest}` every path under it:
 
 ```toml
 [trace]
-expose = ["/"]
+expose = ["/", "/{*rest}"]
 ```
 
 A response to one of those paths carries `x-sf-request`. A document carries the same value in its head as `<meta name="sf-request">`. The value is the trace id and an HMAC of it under the session key. Trace ids count up from 1, so a bare one would let anyone read every other visitor's requests. A signed one only reads back the request it came with.
@@ -102,6 +102,22 @@ if (token) {
 ```
 
 The answer is the same shape as one entry of `/__fsr/traces`. A 404 means the token did not verify or the collector's ring has moved past the trace, which on a busy host can happen within seconds, so treat it as nothing to show rather than an error. What a client sees is only what the spans carry: their names, timings and fields, with call arguments kept to their shape in production.
+
+A page that should always be able to show its trace carries it instead. List it under `inline`:
+
+```toml
+[trace]
+inline = ["/"]
+```
+
+The host writes the finished trace at the end of the page, after the rest of the body and the session save, so the page reads it with no request and no ring to fall out of:
+
+```ts
+const inline = document.getElementById("sf-trace")?.textContent;
+if (inline) draw(JSON.parse(inline));
+```
+
+The page is answered `private`, since the trace belongs to the one request that made it.
 
 ## The lab
 

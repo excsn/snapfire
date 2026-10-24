@@ -1347,15 +1347,22 @@ pub struct TypecheckSection {
   pub enabled: Option<bool>,
 }
 
-/// The `[trace]` section. `expose` lists the path prefixes whose requests
-/// carry an `x-sf-request` token and whose trace that token reads back from
-/// `/__fsr/trace/{token}`. Empty exposes nothing; `fsr dev` exposes every path.
+/// The `[trace]` section. Both lists hold route patterns as `matchit` reads
+/// them: `/` is the home page alone and `/docs/{*rest}` the paths under
+/// `/docs`. `expose` lists the paths whose requests carry an `x-sf-request`
+/// token and whose trace that token reads back from `/__fsr/trace/{token}`.
+/// Empty exposes nothing; `fsr dev` exposes every path.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TraceSection {
   #[serde(default)]
   pub expose: Vec<String>,
+  /// The paths whose HTML pages end with their own finished trace in a
+  /// `<script type="application/json" id="sf-trace">`. Such a page is answered
+  /// `private`, since what it carries belongs to one request.
+  #[serde(default)]
+  pub inline: Vec<String>,
 }
 
 /// `[crawl]`. Each file is served at the path its key names and not at all
@@ -2370,15 +2377,23 @@ impl Config {
 
     let trace: Option<TraceSection> = if store.path_exists("trace") || !store.key_paths_with_prefix(Some("trace")).is_empty() {
       let mut json = serde_json::Map::new();
-      for key in ["expose"] {
+      for key in ["expose", "inline"] {
         if let Some(value) = store.get(&format!("trace.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }
       }
       let section: TraceSection = serde_json::from_value(serde_json::Value::Object(json))
         .map_err(|e| HostError::Config(at.clone(), format!("trace: {e}")))?;
-      if let Some(bad) = section.expose.iter().find(|p| !p.starts_with('/')) {
-        return Err(HostError::Config(at.clone(), format!("trace.expose `{bad}` must be a path")));
+      for (key, patterns) in [("expose", &section.expose), ("inline", &section.inline)] {
+        let mut router = matchit::Router::new();
+        for pattern in patterns {
+          if !pattern.starts_with('/') {
+            return Err(HostError::Config(at.clone(), format!("trace.{key} `{pattern}` must be a path")));
+          }
+          if let Err(e) = router.insert(pattern.as_str(), ()) {
+            return Err(HostError::Config(at.clone(), format!("trace.{key} `{pattern}` is not a route pattern: {e}")));
+          }
+        }
       }
       Some(section)
     } else {
@@ -2613,6 +2628,9 @@ impl Config {
       facts_dir = dir.clone();
       if let Some(public_path) = facts.public_path {
         let route = public_path.trim_end_matches('/').to_owned();
+        // A deploy tree keeps the facts in `dist/` and the outputs under the static root
+        // that serves the route, which is where their content is hashed from.
+        let outputs_dir = statics.iter().find(|s| s.route == route).map_or_else(|| app.join(&dir), |s| app.join(&s.dir));
         bundle = Some(Bundle {
           route: route.clone(),
           graph: facts.graph.clone(),
@@ -2620,7 +2638,7 @@ impl Config {
           minified: facts.minified.clone(),
           outputs: facts.outputs.iter().cloned().collect(),
           styles: facts.styles.clone(),
-          dir: app.join(&dir),
+          dir: outputs_dir,
           hashed: Default::default(),
         });
         if !statics.iter().any(|s| s.route == route) {

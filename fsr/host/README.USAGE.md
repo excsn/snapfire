@@ -185,7 +185,8 @@ before = ["contents"]             # optional: Cargo projects fsr build and fsr d
 after = ["generate"]              # optional: Cargo projects fsr build and fsr dev run in order once the app is built
 
 [trace]                           # optional: without it no client reads a trace outside dev
-expose = ["/"]                    # path prefixes whose requests a page may read its own trace of
+expose = ["/", "/{*rest}"]        # route patterns whose requests a page may read its own trace of; these two cover every path
+inline = ["/"]                    # route patterns whose pages end with their own trace in <script id="sf-trace">, answered private
 
 [media]                           # optional
 embed_stills = "provider"         # the default: an <Embed>'s still loads from the provider; "local" fetches it at build
@@ -1385,11 +1386,11 @@ With no collector installed the spans cost a relaxed atomic load and a branch, s
 
 ## Showing a Page Its Own Trace
 
-A page can read back the trace of the request that served it, in production, for the paths `[trace] expose` lists. The collector has to be installed as above:
+A page can read back the trace of the request that served it, in production, for the paths `[trace] expose` lists. The collector has to be installed as above. Entries are route patterns, the same syntax routes use: `/` is the home page alone and `/{*rest}` is every path under it.
 
 ```toml
 [trace]
-expose = ["/"]
+expose = ["/", "/{*rest}"]
 ```
 
 A request to an exposed path carries a token in its `x-sf-request` header. A document carries the same token in its head:
@@ -1408,6 +1409,22 @@ const trace = token ? await fetch(`/__fsr/trace/${token}`).then((r) => (r.ok ? r
 The answer is one trace, `{ id, ms, spans }`, with `Cache-Control: no-store`. Each span has `name`, `depth`, `at`, `ms`, `outcome` when it has one and `fields`. A token that does not verify answers 404. So does one whose trace has left the collector's ring, which holds the last 256.
 
 Without `[trace]` or with `expose` empty, no response carries a token and `/__fsr/trace/` is not a route. Under `dev` every path is exposed.
+
+A trace read this way is gone once 256 more requests have finished. `inline` puts it in the page instead, so it is there however late the page reads it:
+
+```toml
+[trace]
+inline = ["/"]
+```
+
+The page ends with the finished trace, written after the rest of the body, so it includes the session save:
+
+```ts
+const inline = document.getElementById("sf-trace")?.textContent;
+const trace = inline ? JSON.parse(inline) : null;
+```
+
+A page on an `inline` path is answered `Cache-Control: private, no-cache`, since what it carries belongs to one request. A payload or fragment request gets no trace.
 
 ## Reading the Report
 
