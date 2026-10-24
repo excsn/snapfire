@@ -61,3 +61,42 @@ fn a_text_that_starts_with_a_newline_keeps_its_empty_first_line() {
   let node = from_markup(rows).unwrap();
   assert_eq!(render(&node, 10).lines(), ["", "a", "b"]);
 }
+
+#[test]
+fn the_props_a_box_and_a_text_read_are_declared_with_the_values_they_take() {
+  let declared = snapfire_fsr_terminal::prop_declarations();
+  for line in ["export type Extent = number | `${number}%`;", "  flexBasis?: Extent;", "  paddingX?: number;", "  justifyContent?: \"flex-start\" | \"center\" | \"flex-end\" | \"space-between\" | \"space-around\" | \"space-evenly\";", "  borderColor?: string;", "  dimColor?: boolean;", "  wrap?: \"wrap\" | \"truncate\" | \"truncate-end\" | \"truncate-start\" | \"truncate-middle\";"] {
+    assert!(declared.lines().any(|held| held == line), "{line} in\n{declared}");
+  }
+}
+
+#[test]
+fn a_box_prop_given_a_word_it_does_not_take_is_refused_naming_the_ones_it_does() {
+  let refused = from_markup(r#"<ink-box flex-direction="diagonal"><ink-text>a</ink-text></ink-box>"#).unwrap_err();
+  assert!(refused.contains("`flex-direction` on a Box") && refused.contains("`row`") && refused.contains("`column`") && refused.contains("`diagonal`"), "{refused}");
+}
+
+#[test]
+fn every_border_style_of_ink_draws_its_cli_boxes_glyphs() {
+  let drawn = |style: &str| render(&from_markup(&format!(r#"<ink-box border-style="{style}"><ink-text>x</ink-text></ink-box>"#)).unwrap(), 3).lines();
+  assert_eq!(drawn("singleDouble"), ["╓─╖", "║x║", "╙─╜"]);
+  assert_eq!(drawn("doubleSingle"), ["╒═╕", "│x│", "╘═╛"]);
+  assert_eq!(drawn("arrow"), ["↘↓↙", "→x←", "↗↑↖"]);
+}
+
+#[test]
+fn space_evenly_and_the_reverse_directions_lay_out_as_yoga_does() {
+  let row = |attrs: &str, width: u16| render(&from_markup(&format!(r#"<ink-box {attrs}><ink-text>A</ink-text><ink-text>B</ink-text></ink-box>"#)).unwrap(), width).lines().iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(row(r#"width="11" justify-content="space-evenly""#, 11), ["   A   B"]);
+  assert_eq!(row(r#"width="4" flex-direction="row-reverse""#, 4), ["  BA"]);
+  assert_eq!(row(r#"flex-direction="column-reverse""#, 4), ["B", "A"]);
+}
+
+#[test]
+fn a_text_truncates_at_its_end_start_or_middle_as_cli_truncate_does() {
+  let cut = |wrap: &str| render(&from_markup(&format!(r#"<ink-box width="5"><ink-text wrap="{wrap}">abcdefghij</ink-text></ink-box>"#)).unwrap(), 5).lines()[0].clone();
+  assert_eq!(cut("truncate"), "abcd…");
+  assert_eq!(cut("truncate-end"), "abcd…");
+  assert_eq!(cut("truncate-start"), "…ghij");
+  assert_eq!(cut("truncate-middle"), "ab…ij");
+}

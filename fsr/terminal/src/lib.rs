@@ -8,11 +8,13 @@
 mod frame;
 mod layout;
 mod markup;
+mod props;
 mod style;
 
 pub use frame::{Cell, Frame};
 pub use layout::{render, render_measured, Metrics};
 pub use markup::from_markup;
+pub use props::{prop_declarations, Prop, Value, BOX_PROPS, TEXT_PROPS};
 pub use style::{Color, Style};
 
 #[derive(Debug, Clone)]
@@ -39,6 +41,8 @@ pub enum Direction {
   #[default]
   Row,
   Column,
+  RowReverse,
+  ColumnReverse,
 }
 
 /// Ink's `justifyContent`.
@@ -49,6 +53,7 @@ pub enum Justify {
   End,
   SpaceBetween,
   SpaceAround,
+  SpaceEvenly,
 }
 
 /// Ink's `alignItems`.
@@ -60,25 +65,31 @@ pub enum Align {
   Stretch,
 }
 
-/// Ink's `borderStyle`.
+/// Ink's `borderStyle`, the boxes of `cli-boxes`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Border {
   Single,
   Double,
   Round,
   Bold,
+  SingleDouble,
+  DoubleSingle,
   Classic,
+  Arrow,
 }
 
 impl Border {
-  /// Top left, top right, bottom left, bottom right, horizontal, vertical.
-  pub(crate) fn glyphs(self) -> [char; 6] {
+  /// Top left, top right, bottom left, bottom right, top, bottom, left, right.
+  pub(crate) fn glyphs(self) -> [char; 8] {
     match self {
-      Border::Single => ['┌', '┐', '└', '┘', '─', '│'],
-      Border::Double => ['╔', '╗', '╚', '╝', '═', '║'],
-      Border::Round => ['╭', '╮', '╰', '╯', '─', '│'],
-      Border::Bold => ['┏', '┓', '┗', '┛', '━', '┃'],
-      Border::Classic => ['+', '+', '+', '+', '-', '|'],
+      Border::Single => ['┌', '┐', '└', '┘', '─', '─', '│', '│'],
+      Border::Double => ['╔', '╗', '╚', '╝', '═', '═', '║', '║'],
+      Border::Round => ['╭', '╮', '╰', '╯', '─', '─', '│', '│'],
+      Border::Bold => ['┏', '┓', '┗', '┛', '━', '━', '┃', '┃'],
+      Border::SingleDouble => ['╓', '╖', '╙', '╜', '─', '─', '║', '║'],
+      Border::DoubleSingle => ['╒', '╕', '╘', '╛', '═', '═', '│', '│'],
+      Border::Classic => ['+', '+', '+', '+', '-', '-', '|', '|'],
+      Border::Arrow => ['↘', '↙', '↗', '↖', '↓', '↑', '→', '←'],
     }
   }
 }
@@ -225,6 +236,8 @@ pub enum Wrap {
   #[default]
   Wrap,
   Truncate,
+  TruncateStart,
+  TruncateMiddle,
 }
 
 /// Ink's `Text`: strings and nested `Text`, each nested one adding its style

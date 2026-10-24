@@ -23,6 +23,7 @@ Ink's `Box` and `Text` laid out with flexbox and drawn to a terminal as cells.
   * [Cell](#cell)
 * [4. Markup](#4-markup)
   * [from_markup](#from_markup)
+  * [Prop and Value](#prop-and-value)
 * [5. Error Handling](#5-error-handling)
 
 ## 1. Elements
@@ -76,11 +77,11 @@ Ink's `Text`. A nested `Text` adds its style to the one around it.
 
 ### Direction, Justify, Align, Border and Wrap
 
-* `pub enum Direction { Row, Column }`, `Row` by default.
-* `pub enum Justify { Start, Center, End, SpaceBetween, SpaceAround }`
+* `pub enum Direction { Row, Column, RowReverse, ColumnReverse }`, `Row` by default.
+* `pub enum Justify { Start, Center, End, SpaceBetween, SpaceAround, SpaceEvenly }`
 * `pub enum Align { Start, Center, End, Stretch }`
-* `pub enum Border { Single, Double, Round, Bold, Classic }`: `┌─┐`, `╔═╗`, `╭─╮`, `┏━┓` and `+-+`.
-* `pub enum Wrap { Wrap, Truncate }`, `Wrap` by default.
+* `pub enum Border { Single, Double, Round, Bold, SingleDouble, DoubleSingle, Classic, Arrow }`: `┌─┐`, `╔═╗`, `╭─╮`, `┏━┓`, `╓─╖`, `╒═╕`, `+-+` and `↘↓↙`, the boxes of `cli-boxes`.
+* `pub enum Wrap { Wrap, Truncate, TruncateStart, TruncateMiddle }`, `Wrap` by default. A truncated line keeps its start, its end or both halves around `…`.
 
 ## 2. Styles
 
@@ -129,11 +130,18 @@ Ink's `Text`. A nested `Text` adds its style to the one around it.
 ### from_markup
 
 * `pub fn from_markup(markup: &str) -> Result<Node, String>`: reads `ink-box`, `ink-text`, `ink-spacer` and `ink-newline` with their props as kebab-case attributes, the form `snapfire_fsr_lower` lowers Ink's `Box`, `Text`, `Spacer` and `Newline` to. Several top-level elements become one column.
-* `ink-box` reads `flex-direction`, `gap`, `column-gap`, `row-gap`, `padding`, `padding-x`, `padding-y`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left`, the same `margin` forms, `width`, `height` (whole cells or a percentage, `50%`), `flex-grow`, `flex-shrink`, `justify-content`, `align-items`, `border-style`, `border-color`, `overflow`, `overflow-x`, `overflow-y`, `content-offset-x` and `content-offset-y`, and `ink-ref` as the box's `id`. Others are ignored.
-* `ink-text` reads `color`, `background-color`, `bold`, `dim-color`, `italic`, `underline`, `strikethrough`, `inverse` and `wrap` (`truncate…` truncates). A flag is on unless its value is `false`.
+* `ink-box` reads the props of `BOX_PROPS` and `ink-ref` as the box's `id`; `ink-text` reads those of `TEXT_PROPS`. An attribute is a prop's name in kebab case or as Ink spells it. Any other attribute is ignored.
 * `ink-spacer` is a box with `flex-grow` 1. `ink-newline` is a `\n`.
 * `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&#x27;` are decoded. Comments are skipped.
 
+### Prop and Value
+
+* `pub struct Prop<S> { pub name: &'static str, pub value: Value<S> }`: one prop of Ink's `Box` or `Text`, named as Ink spells it, with what it takes and what writing it sets on `S`.
+* `pub enum Value<S> { Cells(fn(&mut S, u16)), Edge(fn(&mut S, f32)), Offset(fn(&mut S, i32)), Extent(fn(&mut S, Extent)), Number(fn(&mut S, f32)), Flag(fn(&mut S, bool)), Color(fn(&mut S, Option<Color>)), Words(&'static [(&'static str, fn(&mut S))]) }`: whole cells; cells with fractions; cells rounded toward zero; cells or a percentage, `50%`; a number; a flag, on unless written `false`; a color `Color::parse` reads; one of the listed words.
+* `pub static BOX_PROPS: &[Prop<BoxStyle>]`: `flexDirection` (`row`, `column`, `row-reverse`, `column-reverse`), `gap`, `columnGap`, `rowGap`, `padding`, `paddingX`, `paddingY`, `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`, the same `margin` forms, `width`, `height`, `flexGrow`, `flexShrink`, `flexBasis`, `justifyContent` (`flex-start`, `center`, `flex-end`, `space-between`, `space-around`, `space-evenly`), `alignItems` (`flex-start`, `center`, `flex-end`, `stretch`), `borderStyle` (the boxes of `cli-boxes`: `single`, `double`, `round`, `bold`, `singleDouble`, `doubleSingle`, `classic`, `arrow`), `borderColor`, `overflow`, `overflowX` and `overflowY` (`visible`, `hidden`), `contentOffsetX` and `contentOffsetY`.
+* `pub static TEXT_PROPS: &[Prop<Text>]`: `color`, `backgroundColor`, `bold`, `dimColor`, `italic`, `underline`, `strikethrough`, `inverse` and `wrap` (`wrap`, `truncate`, `truncate-end`, `truncate-start`, `truncate-middle`, cut as `cli-truncate` cuts).
+* `pub fn prop_declarations() -> String`: the TypeScript of `Extent`, `BoxProps` and `TextProps` from the two tables, each prop optional and typed by its value, a word list as a union of its words. `BoxProps` adds `children`, `key` and `ref`, `TextProps` `children` and `key`; `ReactNode` is the importing file's.
+
 ## 5. Error Handling
 
-`render` and the `Frame` methods do not fail. `from_markup` answers `Err(String)` for a tag that is not one of the four (``"`<div>` is not an Ink element"``), an element inside an `ink-text` other than `ink-text` or `ink-newline`, an end tag that closes nothing open, an element never closed, an unquoted attribute value and a `Box` size that is not a whole number of cells.
+`render` and the `Frame` methods do not fail. `from_markup` answers `Err(String)` for a tag that is not one of the four (``"`<div>` is not an Ink element"``), an element inside an `ink-text` other than `ink-text` or `ink-newline`, an end tag that closes nothing open, an element never closed, an unquoted attribute value and a prop's value that is not what the prop takes, ``"`flex-direction` on a Box is one of `row`, `column`, `row-reverse`, `column-reverse`, not `diagonal`"``.

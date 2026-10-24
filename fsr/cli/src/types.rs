@@ -44,12 +44,16 @@ const FSR_AUTHORING: &[(&str, &str)] = &[
 /// Where a terminal application's declarations of FSR's terminal modules go under `types/`, which `@snapfire/fsr/terminal` and its subpaths map to.
 pub const TERMINAL_TYPES: &str = "@snapfire/fsr/terminal";
 
-/// The declarations of what FSR's terminal implements natively, which have no TypeScript source to declare them from.
-const NATIVE_TERMINAL: &[(&str, &str)] = &[
-  ("index.d.ts", include_str!("../embedded/terminal/index.d.ts")),
-  ("core.d.ts", include_str!("../embedded/terminal/core.d.ts")),
-  ("ink.d.ts", include_str!("../embedded/terminal/ink.d.ts")),
-];
+/// The declarations of what FSR's terminal implements natively, which have no TypeScript source to declare them from; `core.d.ts` opens with the Box and Text props of `snapfire_fsr_terminal::prop_declarations`.
+#[cfg(feature = "terminal")]
+fn native_terminal() -> Vec<(String, String)> {
+  let core = format!("import type {{ ReactElement, ReactNode }} from \"react\";\n\n{}\n{}", snapfire_fsr_terminal::prop_declarations(), include_str!("../embedded/terminal/core.d.ts"));
+  vec![
+    ("index.d.ts".to_owned(), include_str!("../embedded/terminal/index.d.ts").to_owned()),
+    ("core.d.ts".to_owned(), core),
+    ("ink.d.ts".to_owned(), include_str!("../embedded/terminal/ink.d.ts").to_owned()),
+  ]
+}
 
 /// The file under [`TERMINAL_TYPES`] holding a hash of what its declarations were written from.
 const TERMINAL_STAMP: &str = ".written-from";
@@ -93,20 +97,28 @@ pub fn declarations_of(sources: &[(String, &str)]) -> Result<Vec<(String, String
   declared
 }
 
+/// Without the `terminal` feature this fsr cannot run a terminal page and does not declare its modules.
+#[cfg(not(feature = "terminal"))]
+fn write_terminal(app: &Path, _: &Layout, _: bool) -> Result<bool, BuildError> {
+  Err(BuildError::Types(format!("{}: the root page draws with Ink but this fsr is built without the `terminal` feature, which declares its modules", app.display())))
+}
+
 /// Writes the declarations of FSR's terminal modules under [`TERMINAL_TYPES`] when `always` holds or what they are written from changed since they were last written; true when it wrote them.
+#[cfg(feature = "terminal")]
 fn write_terminal(app: &Path, layout: &Layout, always: bool) -> Result<bool, BuildError> {
   use std::hash::{Hash, Hasher};
   let dir = app.join(&layout.types).join(TERMINAL_TYPES);
   let sources = terminal_sources();
+  let natives = native_terminal();
   let mut hasher = std::collections::hash_map::DefaultHasher::new();
-  (&sources, NATIVE_TERMINAL).hash(&mut hasher);
+  (&sources, &natives).hash(&mut hasher);
   let stamp = format!("{:016x}\n", hasher.finish());
   if !always && std::fs::read_to_string(dir.join(TERMINAL_STAMP)).is_ok_and(|held| held == stamp) {
     return Ok(false);
   }
   let declared = declarations_of(&sources)?;
   std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
-  for (name, text) in NATIVE_TERMINAL.iter().map(|(name, text)| ((*name).to_owned(), (*text).to_owned())).chain(declared) {
+  for (name, text) in natives.into_iter().chain(declared) {
     std::fs::write(dir.join(&name), text).map_err(|e| BuildError::Io(dir.join(&name), e))?;
   }
   std::fs::write(dir.join(TERMINAL_STAMP), stamp).map_err(|e| BuildError::Io(dir.join(TERMINAL_STAMP), e))?;

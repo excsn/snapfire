@@ -98,7 +98,8 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
     Node::Text(text) => {
       let leaf = Leaf { cells: text.styled(&CellStyle::default()), wrap: text.wrap };
       let index = kinds.len();
-      let id = tree.new_leaf_with_context(Style::default(), index).expect("a text leaf");
+      let style = Style { min_size: Size { width: LengthPercentageAuto::length(0.0), height: LengthPercentageAuto::length(0.0) }, ..Default::default() };
+      let id = tree.new_leaf_with_context(style, index).expect("a text leaf");
       kinds.push((id, Kind::Text(leaf)));
       id
     }
@@ -111,6 +112,8 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
         flex_direction: match s.direction {
           Direction::Row => FlexDirection::Row,
           Direction::Column => FlexDirection::Column,
+          Direction::RowReverse => FlexDirection::RowReverse,
+          Direction::ColumnReverse => FlexDirection::ColumnReverse,
         },
         gap: Size { width: length(s.gap as f32), height: length(s.gap as f32) },
         padding: cells(s.padding),
@@ -129,6 +132,7 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
           Some(Justify::End) => JustifyContent::FLEX_END,
           Some(Justify::SpaceBetween) => JustifyContent::SPACE_BETWEEN,
           Some(Justify::SpaceAround) => JustifyContent::SPACE_AROUND,
+          Some(Justify::SpaceEvenly) => JustifyContent::SPACE_EVENLY,
         },
         align_items: match s.align {
           None | Some(Align::Stretch) => AlignItems::STRETCH,
@@ -171,14 +175,14 @@ fn draw(tree: &TaffyTree<usize>, id: NodeId, at: (f32, f32), clip: Clip, kinds: 
         metrics.push((name.clone(), Metrics { width: cells(w), height: cells(h), left: place(layout.location.x), top: place(layout.location.y), client_width: cells(w - 2 * edge), client_height: cells(h - 2 * edge) }));
       }
       if let Some(border) = border.filter(|_| w >= 2 && h >= 2) {
-        let [tl, tr, bl, br, horizontal, vertical] = border.glyphs();
+        let [tl, tr, bl, br, top_edge, bottom_edge, left_edge, right_edge] = border.glyphs();
         for column in left + 1..left + w - 1 {
-          clip.put(frame, column, top, horizontal, *color);
-          clip.put(frame, column, top + h - 1, horizontal, *color);
+          clip.put(frame, column, top, top_edge, *color);
+          clip.put(frame, column, top + h - 1, bottom_edge, *color);
         }
         for row in top + 1..top + h - 1 {
-          clip.put(frame, left, row, vertical, *color);
-          clip.put(frame, left + w - 1, row, vertical, *color);
+          clip.put(frame, left, row, left_edge, *color);
+          clip.put(frame, left + w - 1, row, right_edge, *color);
         }
         clip.put(frame, left, top, tl, *color);
         clip.put(frame, left + w - 1, top, tr, *color);
@@ -236,8 +240,8 @@ impl Leaf {
     }
     for paragraph in self.cells.split(|(ch, _)| *ch == '\n') {
       let start = out.len();
-      if self.wrap == Wrap::Truncate {
-        out.push(truncate(paragraph, max));
+      if self.wrap != Wrap::Wrap {
+        out.push(truncate(paragraph, max, self.wrap));
         continue;
       }
       let mut line: Cells = Vec::new();
@@ -283,20 +287,51 @@ impl Leaf {
   }
 }
 
-fn truncate(cells: &[(char, CellStyle)], max: usize) -> Cells {
+/// `cells` cut to `max` columns with `…` where it was cut, as `cli-truncate` cuts: at the end, at the start or in the middle, the first half before the `…`.
+fn truncate(cells: &[(char, CellStyle)], max: usize, at: Wrap) -> Cells {
   if width(cells) <= max {
     return cells.to_vec();
   }
-  let mut out = Vec::new();
-  let mut used = 0;
-  for &(ch, style) in cells {
-    let cw = ch.width().unwrap_or(0);
-    if used + cw > max - 1 {
-      out.push(('…', style));
-      break;
+  let ellipsis = |next: Option<&(char, CellStyle)>| ('…', next.map_or(CellStyle::default(), |(_, style)| *style));
+  match at {
+    Wrap::TruncateStart => {
+      let tail = last_columns(cells, max - 1);
+      let mut out = vec![ellipsis(tail.first())];
+      out.extend(tail);
+      out
     }
-    out.push((ch, style));
-    used += cw;
+    Wrap::TruncateMiddle => {
+      let head = first_columns(cells, max / 2);
+      let tail = last_columns(cells, max - max / 2 - 1);
+      let mut out = head.clone();
+      out.push(ellipsis(tail.first().or(head.last())));
+      out.extend(tail);
+      out
+    }
+    Wrap::Wrap | Wrap::Truncate => {
+      let mut out = first_columns(cells, max - 1);
+      out.push(ellipsis(cells.get(out.len())));
+      out
+    }
   }
+}
+
+/// The first cells of `cells` that fit in `columns`.
+fn first_columns(cells: &[(char, CellStyle)], columns: usize) -> Cells {
+  let mut used = 0;
+  cells.iter().take_while(|(ch, _)| {
+    used += ch.width().unwrap_or(0);
+    used <= columns
+  }).copied().collect()
+}
+
+/// The last cells of `cells` that fit in `columns`.
+fn last_columns(cells: &[(char, CellStyle)], columns: usize) -> Cells {
+  let mut used = 0;
+  let mut out: Cells = cells.iter().rev().take_while(|(ch, _)| {
+    used += ch.width().unwrap_or(0);
+    used <= columns
+  }).copied().collect();
+  out.reverse();
   out
 }

@@ -1,4 +1,4 @@
-use crate::{Align, Border, Boxed, Color, Direction, Extent, Inline, Justify, Node, Text, Wrap};
+use crate::{Boxed, Inline, Node, Text};
 
 /// One parsed element: its tag, its attributes and what it holds.
 struct Element {
@@ -108,71 +108,11 @@ fn node(piece: Piece) -> Result<Node, String> {
 fn boxed(el: Element) -> Result<Boxed, String> {
   let mut out = Boxed::new();
   for (written, value) in &el.attrs {
-    let name = &kebab(written);
-    let cells = || value.parse::<u16>().map_err(|_| format!("`{name}` on a Box is a number of cells, not `{value}`"));
-    let extent = || match value.strip_suffix('%') {
-      Some(share) => share.trim().parse::<f32>().ok().filter(|p| p.is_finite() && *p >= 0.0).map(Extent::Percent).ok_or_else(|| format!("`{name}` on a Box is cells or a percentage, not `{value}`")),
-      None => cells().map(Extent::Cells),
-    };
-    let edge = || value.parse::<f32>().ok().filter(|n| n.is_finite()).ok_or_else(|| format!("`{name}` on a Box is a number of cells, not `{value}`"));
-    let offset = || value.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n.trunc() as i32).ok_or_else(|| format!("`{name}` on a Box is a number of cells, not `{value}`"));
-    let s = &mut out.style;
-    match name.as_str() {
-      "flex-direction" => s.direction = if value.starts_with("column") { Direction::Column } else { Direction::Row },
-      "gap" | "column-gap" | "row-gap" => s.gap = cells()?,
-      "padding" => s.padding = [edge()?; 4],
-      "padding-x" => (s.padding[1], s.padding[3]) = (edge()?, edge()?),
-      "padding-y" => (s.padding[0], s.padding[2]) = (edge()?, edge()?),
-      "padding-top" => s.padding[0] = edge()?,
-      "padding-right" => s.padding[1] = edge()?,
-      "padding-bottom" => s.padding[2] = edge()?,
-      "padding-left" => s.padding[3] = edge()?,
-      "margin" => s.margin = [edge()?; 4],
-      "margin-x" => (s.margin[1], s.margin[3]) = (edge()?, edge()?),
-      "margin-y" => (s.margin[0], s.margin[2]) = (edge()?, edge()?),
-      "margin-top" => s.margin[0] = edge()?,
-      "margin-right" => s.margin[1] = edge()?,
-      "margin-bottom" => s.margin[2] = edge()?,
-      "margin-left" => s.margin[3] = edge()?,
-      "width" => s.width = Some(extent()?),
-      "height" => s.height = Some(extent()?),
-      "flex-grow" => s.grow = value.parse().map_err(|_| format!("`flex-grow` is a number, not `{value}`"))?,
-      "flex-shrink" => s.shrink = Some(value.parse().map_err(|_| format!("`flex-shrink` is a number, not `{value}`"))?),
-      "flex-basis" => s.basis = Some(extent()?),
-      "justify-content" => {
-        s.justify = Some(match value.as_str() {
-          "center" => Justify::Center,
-          "flex-end" => Justify::End,
-          "space-between" => Justify::SpaceBetween,
-          "space-around" => Justify::SpaceAround,
-          _ => Justify::Start,
-        })
-      }
-      "align-items" => {
-        s.align = Some(match value.as_str() {
-          "center" => Align::Center,
-          "flex-end" => Align::End,
-          "stretch" => Align::Stretch,
-          _ => Align::Start,
-        })
-      }
-      "border-style" => {
-        s.border = Some(match value.as_str() {
-          "double" => Border::Double,
-          "round" => Border::Round,
-          "bold" => Border::Bold,
-          "classic" => Border::Classic,
-          _ => Border::Single,
-        })
-      }
-      "border-color" => s.border_color = Color::parse(value),
-      "overflow" => (s.overflow_x, s.overflow_y) = (value == "hidden", value == "hidden"),
-      "overflow-x" => s.overflow_x = value == "hidden",
-      "overflow-y" => s.overflow_y = value == "hidden",
-      "content-offset-x" => s.content_offset.0 = offset()?,
-      "content-offset-y" => s.content_offset.1 = offset()?,
+    match written.as_str() {
       "ink-ref" => out.id = Some(value.clone()),
-      _ => {}
+      _ => {
+        crate::props::apply(crate::props::BOX_PROPS, "Box", written, value, &mut out.style)?;
+      }
     }
   }
   for child in el.children {
@@ -181,40 +121,13 @@ fn boxed(el: Element) -> Result<Boxed, String> {
   Ok(out)
 }
 
-/// `paddingLeft` as `padding-left`: a prop a spread carries keeps the name it was written with.
-fn kebab(name: &str) -> String {
-  let mut out = String::with_capacity(name.len() + 4);
-  for ch in name.chars() {
-    if ch.is_ascii_uppercase() {
-      out.push('-');
-      out.push(ch.to_ascii_lowercase());
-    } else {
-      out.push(ch);
-    }
-  }
-  out
-}
-
 fn text(el: Element) -> Result<Text, String> {
   let mut out = Text::new();
   if el.tag == "ink-newline" {
     return Ok(out.str("\n"));
   }
   for (written, value) in &el.attrs {
-    let name = &kebab(written);
-    let on = value != "false";
-    match name.as_str() {
-      "color" => out.style.color = Color::parse(value),
-      "background-color" => out.style.background = Color::parse(value),
-      "bold" => out.style.bold = on,
-      "dim-color" => out.style.dim = on,
-      "italic" => out.style.italic = on,
-      "underline" => out.style.underline = on,
-      "strikethrough" => out.style.strikethrough = on,
-      "inverse" => out.style.inverse = on,
-      "wrap" => out.wrap = if value.starts_with("truncate") { Wrap::Truncate } else { Wrap::Wrap },
-      _ => {}
-    }
+    crate::props::apply(crate::props::TEXT_PROPS, "Text", written, value, &mut out)?;
   }
   for child in el.children {
     match child {
