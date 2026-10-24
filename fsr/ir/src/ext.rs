@@ -89,6 +89,8 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("fs", "mkdir", Reach::Process),
   ("fs", "readdirSync", Reach::Process),
   ("fs", "readdir", Reach::Process),
+  ("fs", "statSync", Reach::Process),
+  ("fs", "stat", Reach::Process),
 ];
 
 /// The reach of a standard member or `None` when no such member exists.

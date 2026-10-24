@@ -150,7 +150,7 @@ pub enum Act {
   Spawn,
   /// `{ settle, value }`: a promise's `resolve` or `reject`, [`SETTLES`], called with `value`.
   Settle,
-  /// `{ deferred, event, carry }`: run the handler `event` names when `deferred` settles, with `{ value, ok, carry }`.
+  /// `{ deferred, event, carry }`: run the handler `event` names when `deferred` settles, with `{ value, ok, carry }`. `{ rejected, event, carry }`: run it now with `ok` false and `rejected` as the value, for a call that failed as it was awaited.
   Then,
   /// `{ process, report, event, carry }` or `{ process, report, settle }`: when the process [`PROCESS`] names reports `report`, run the handler `event` names with `{ value, ok, carry }`. With `settle` instead, settle the promise it names, [`SETTLES`], with what it reported.
   Listen,

@@ -318,3 +318,22 @@ fn front_matter_writes_as_gray_matter_stringifies() {
   let read = call("", "text.frontMatter", vec![s(text.as_str()), comments()]);
   assert_eq!(read, Ok(map(vec![("data", data), ("content", s("Body\n"))])));
 }
+
+#[test]
+fn stat_answers_the_kind_and_size_as_fields() {
+  let dir = std::env::temp_dir().join(format!("fsr-std-stat-{}", std::process::id()));
+  std::fs::create_dir_all(&dir).unwrap();
+  let file = dir.join("five.txt");
+  std::fs::write(&file, "hello").unwrap();
+  for member in ["fs.stat", "fs.statSync"] {
+    let Ok(Value::Map(stats)) = call("", member, vec![s(file.to_str().unwrap())]) else { panic!("{member} answers a map") };
+    assert_eq!(stats.get("isFile"), Some(&Value::Bool(true)), "{member}");
+    assert_eq!(stats.get("isDirectory"), Some(&Value::Bool(false)), "{member}");
+    assert_eq!(stats.get("size"), Some(&Value::Int(5)), "{member}");
+    assert!(matches!(stats.get("mtimeMs"), Some(Value::F64(ms)) if *ms > 1.0e12), "{stats:?}");
+  }
+  let Ok(Value::Map(stats)) = call("", "fs.stat", vec![s(dir.to_str().unwrap())]) else { panic!("a directory answers a map") };
+  assert_eq!(stats.get("isDirectory"), Some(&Value::Bool(true)));
+  let missing = call("", "fs.stat", vec![s(dir.join("missing").to_str().unwrap())]).unwrap_err();
+  assert!(missing.contains("ENOENT"), "{missing}");
+}

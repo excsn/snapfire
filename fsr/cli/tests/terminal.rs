@@ -612,6 +612,18 @@ fn an_effect_awaits_a_file_read_from_fs_promises() {
 }
 
 #[test]
+fn a_page_stats_a_file_and_catches_enoent_for_a_missing_one() {
+  let dir = host_dir("stat");
+  std::fs::write(dir.join("five.txt"), "hello").unwrap();
+  unsafe { std::env::set_var("FSR_TEST_STAT_DIR", &dir); }
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport fs from \"node:fs/promises\";\nimport { statSync } from \"node:fs\";\n\nexport default function Stat() {\n  const [text, setText] = useState(\"checking\");\n  useEffect(() => {\n    const run = async () => {\n      const s = await fs.stat(`${process.env.FSR_TEST_STAT_DIR}/five.txt`);\n      try {\n        await fs.stat(`${process.env.FSR_TEST_STAT_DIR}/missing.txt`);\n        setText(\"found\");\n      } catch (error) {\n        setText(`${s.size} ${s.isFile ? \"file\" : \"other\"} ${error.code}`);\n      }\n    };\n    run();\n  }, []);\n  const d = statSync(process.env.FSR_TEST_STAT_DIR);\n  return <Text>{d.isDirectory ? \"dir\" : \"not\"} {text}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "dir 5 file ENOENT");
+}
+
+#[test]
 fn an_await_of_a_value_that_is_not_a_promise_continues_with_it() {
   let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nconst five = () => 5;\n\nexport default function Five() {\n  const [n, setN] = useState(0);\n  useEffect(() => {\n    const run = async () => {\n      const v = await five();\n      setN(v + 1);\n    };\n    run();\n  }, []);\n  return <Text>{n}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
@@ -821,4 +833,15 @@ fn a_terminal_page_reads_and_writes_front_matter() {
   let mut session = Session::open(&app(page)).unwrap();
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "prompt a+b Body");
+}
+
+#[test]
+fn an_awaited_read_that_fails_inside_a_try_runs_its_catch() {
+  let dir = host_dir("missing");
+  unsafe { std::env::set_var("FSR_TEST_MISSING", &dir); }
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\n\nexport default function Stat() {\n  const [text, setText] = useState(\"checking\");\n  useEffect(() => {\n    const run = async () => {\n      try {\n        await readFile(`${process.env.FSR_TEST_MISSING}/missing.txt`, \"utf8\");\n        setText(\"found\");\n      } catch (error) {\n        setText(`${error.code}`);\n      }\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "ENOENT");
 }

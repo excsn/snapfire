@@ -640,6 +640,10 @@ impl Session {
       (Some(Act::Then), Value::Map(then)) => {
         let Some(Value::Str(event)) = then.get("event") else { return };
         let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: then.get("carry").cloned().unwrap_or(Value::Null) };
+        if let Some(rejected) = then.get("rejected") {
+          self.ready.push((waiting, false, rejected.clone()));
+          return;
+        }
         let awaited = then.get("deferred").cloned().unwrap_or(Value::Null);
         // `await` of a value that is not a promise continues with the value, as JavaScript does.
         let Some(deferred) = deferred_of(&awaited) else {

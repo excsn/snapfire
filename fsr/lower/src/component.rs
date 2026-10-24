@@ -4326,6 +4326,9 @@ const BROWSER_GLOBALS: [&str; 7] = ["document", "window", "navigator", "location
 /// The name a continuation binds what it was run with, `{ value, ok, carry }`.
 const RESUME: &str = "$resume";
 
+/// The name the `catch` binds when an awaited call fails before it hands back a promise.
+const REJECTED: &str = "$rejected";
+
 /// What an async handler's statements run inside: the `catch` a rejection runs and the join every way through ends with.
 #[derive(Clone, Default)]
 struct Within<'p> {
@@ -5626,6 +5629,7 @@ fn holds_effect(stmts: &[Stmt]) -> bool {
   stmts.iter().any(|stmt| match stmt {
     Stmt::Act { .. } | Stmt::Expr(_) => true,
     Stmt::If { then, r#else, .. } => holds_effect(then) || holds_effect(r#else),
+    Stmt::Try { body, handler, finally, .. } => holds_effect(body) || handler.as_deref().is_some_and(holds_effect) || holds_effect(finally),
     _ => false,
   })
 }
@@ -5634,6 +5638,7 @@ pub(crate) fn holds_act(stmts: &[Stmt]) -> bool {
   stmts.iter().any(|stmt| match stmt {
     Stmt::Act { .. } => true,
     Stmt::If { then, r#else, .. } => holds_act(then) || holds_act(r#else),
+    Stmt::Try { body, handler, finally, .. } => holds_act(body) || handler.as_deref().is_some_and(holds_act) || holds_act(finally),
     _ => false,
   })
 }
@@ -9707,7 +9712,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.lowerer.scope.truncate(depth);
         lowered?;
         let (event, carry) = self.continuation_handler(stmt.span(), cw);
-        walk.act(snapfire_fsr_ir::host::Act::Then.name().to_owned(), Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
+        let then = |field: &str, value: Expr| Stmt::Act {
+          action: snapfire_fsr_ir::host::Act::Then.name().to_owned(),
+          input: Expr::Object(vec![Entry::Field(field.to_owned(), value), Entry::Field("event".to_owned(), Expr::lit_str(event.clone())), Entry::Field("carry".to_owned(), carry.clone())]),
+        };
+        // A call that fails as it is awaited is a rejected promise, so a `catch` around the `await` runs.
+        match within.catch {
+          None => walk.effect(then("deferred", deferred)),
+          Some(_) => walk.effect(Stmt::Try { body: vec![then("deferred", deferred)], name: Some(REJECTED.to_owned()), handler: Some(vec![then("rejected", Expr::Var(REJECTED.to_owned()))]), finally: Vec::new() }),
+        }
         Ok(())
       }
     }

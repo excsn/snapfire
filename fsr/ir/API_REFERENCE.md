@@ -365,6 +365,7 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `fs.writeFileSync`, `fs.writeFile` | process | `path`, `data` | writes `data` as text; null |
 | `fs.mkdirSync`, `fs.mkdir` | process | `path`, `{ recursive? }?` | makes the directory, its parents too with `recursive`; null |
 | `fs.readdirSync`, `fs.readdir` | process | `path` | the entries' names, sorted |
+| `fs.statSync`, `fs.stat` | process | `path` | `{ isFile, isDirectory, size, mtimeMs }`, Node's `isFile()` and `isDirectory()` as booleans; a missing path throws as `readFileSync` does |
 | `terminal.wrapAnsi` | terminal | `s`, `columns`, `{ hard?, trim?, wordWrap? }?` | the rows `wrap-ansi` 9 breaks `s` into; escape codes stay where they stand |
 | `i18n.t` | render | `key`, `{ count?, …}?` | the message under `key` in the ambient locale's catalog; with `count` a number, `key.<cardinal category>` then `key.other` then `key`; `{name}` filled from a scalar argument, left as written otherwise; the key itself when nothing matches or no catalogs are set. What `t` from the client's std module lowers to |
 

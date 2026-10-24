@@ -20,6 +20,7 @@ mod pages;
 mod prisma;
 mod relocate;
 mod scripts;
+mod stats;
 mod syntax;
 mod workspace;
 
@@ -201,7 +202,7 @@ pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
     Source::NextApp => workspace_pass().into_iter().chain(next::app_passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
     Source::NextPages => workspace_pass().into_iter().chain(pages::passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
-    Source::Ink => workspace_pass().into_iter().chain(ink::passes()).chain(packages::passes()).collect(),
+    Source::Ink => workspace_pass().into_iter().chain(ink::passes()).chain(packages::passes()).chain(stats::passes()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }

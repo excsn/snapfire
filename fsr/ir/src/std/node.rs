@@ -30,6 +30,8 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("fs.mkdir", Reach::Process, |_, args| mkdir("fs.mkdir", args));
   extensions.register("fs.readdirSync", Reach::Process, |_, args| readdir("fs.readdirSync", args));
   extensions.register("fs.readdir", Reach::Process, |_, args| readdir("fs.readdir", args));
+  extensions.register("fs.statSync", Reach::Process, |_, args| stat("fs.statSync", args));
+  extensions.register("fs.stat", Reach::Process, |_, args| stat("fs.stat", args));
 }
 
 /// Every argument as text, as `path.join(...parts)` takes them.
@@ -222,6 +224,19 @@ fn readdir(what: &str, args: &[Value]) -> Result<Value, Fail> {
   let mut names: Vec<String> = entries.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
   names.sort();
   Ok(Value::Seq(names.into_iter().map(Value::str).collect()))
+}
+
+/// `statSync(path)`: `{ isFile, isDirectory, size, mtimeMs }`. Node's `isFile()` and `isDirectory()` are fields here, since a value holds no function; `fsr migrate` rewrites the calls.
+fn stat(what: &str, args: &[Value]) -> Result<Value, Fail> {
+  let path = text(what, args, 0)?;
+  let meta = std::fs::metadata(path).map_err(|e| io_fail(what, path, e))?;
+  let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+  let mut out = ValueMap::default();
+  out.insert("isFile".to_owned(), Value::Bool(meta.is_file()));
+  out.insert("isDirectory".to_owned(), Value::Bool(meta.is_dir()));
+  out.insert("size".to_owned(), Value::Int(i128::from(meta.len())));
+  out.insert("mtimeMs".to_owned(), Value::F64(modified));
+  Ok(Value::Map(out))
 }
 
 #[cfg(test)]
