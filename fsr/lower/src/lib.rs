@@ -3217,6 +3217,14 @@ impl<'a> Lowerer<'a> {
   }
 
   pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+    if let Some(ok) = self.settled_promise(call) {
+      let value = match call.args.as_slice() {
+        [] => Expr::Lit(Lit::Undefined),
+        [value] if value.spread.is_none() => self.expr(&value.expr)?,
+        _ => return Err(self.residue(call.span, "`Promise.resolve` or `Promise.reject` with more than one value")),
+      };
+      return Ok(self.settled(ok, value));
+    }
     if self.calls_next(call) {
       let request = match call.args.as_slice() {
         [] => Expr::Lit(Lit::Undefined),
@@ -4092,6 +4100,33 @@ impl<'a> Lowerer<'a> {
   /// block that only returns one. Destructured parameters read as fields and
   /// indexes of the positional parameter.
   /// `new Date(x)`, `new Map(pairs)`, `new Set(items)` and `new URLSearchParams(x)`; anything else made with `new` is residue.
+  /// `Some(true)` for the global `Promise.resolve(…)` and `Some(false)` for `Promise.reject(…)` in a page whose host resumes a handler after its step.
+  fn settled_promise(&self, call: &js::CallExpr) -> Option<bool> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(m) = crate::meaning::bare(callee) else { return None };
+    let (js::Expr::Ident(promise), js::MemberProp::Ident(method)) = (&*m.obj, &m.prop) else { return None };
+    if !self.reaches(Reach::Later) || promise.ctxt != self.parsed.unresolved || &*promise.sym != "Promise" {
+      return None;
+    }
+    match &*method.sym {
+      "resolve" => Some(true),
+      "reject" => Some(false),
+      _ => None,
+    }
+  }
+
+  /// A fresh deferred settled at once with `value`, fulfilled when `ok` and rejected otherwise, as `new Promise` settles one its executor settles.
+  fn settled(&mut self, ok: bool, value: Expr) -> Expr {
+    let deferred = self.temp();
+    let id = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] };
+    let settle = Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), Expr::Var(deferred.clone())), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))]);
+    Expr::Block(vec![
+      Stmt::Let { name: deferred.clone(), expr: Expr::Object(vec![Entry::Field(snapfire_fsr_ir::render::DEFERRED.to_owned(), id)]) },
+      Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), settle), Entry::Field("value".to_owned(), value)]) },
+      Stmt::Return(Expr::Var(deferred)),
+    ])
+  }
+
   /// `new Promise((resolve, reject) => …)` in a terminal page: a fresh deferred, the executor run at once with `resolve` and `reject` held as [`snapfire_fsr_ir::host::SETTLES`] values on it, then the deferred.
   fn terminal_promise(&mut self, n: &js::NewExpr, args: &[js::ExprOrSpread]) -> Lowered<Expr> {
     let Some(js::Expr::Arrow(executor)) = args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.residue(n.span, "a `Promise` whose executor is not an arrow written in place")) };

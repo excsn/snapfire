@@ -435,6 +435,25 @@ fn a_module_let_written_after_an_await_in_another_file_reaches_the_component_tha
 }
 
 #[test]
+fn a_handler_awaits_a_resolved_promise_and_catches_a_rejected_one() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { later } from \"../src/later\";\n\nexport default function Page() {\n  const [n, setN] = useState(1);\n  const [why, setWhy] = useState(\"none\");\n  useInput(async (input) => {\n    if (input === \"r\") {\n      const by = await Promise.resolve(2);\n      const more = await later();\n      setN(n + by + more);\n    } else {\n      try {\n        await Promise.reject(new Error(\"refused\"));\n      } catch (e) {\n        setWhy(e.message);\n      }\n    }\n  });\n  return <Text>{n} {why}</Text>;\n}\n";
+  let app = app(page);
+  std::fs::create_dir_all(app.join("src")).unwrap();
+  std::fs::write(app.join("src/later.ts"), "export async function later() {\n  await Promise.resolve();\n  return 10;\n}\n").unwrap();
+  let mut session = Session::open(&app).unwrap();
+  let press = |c: char| {
+    let Some(Press::Input(press)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    press
+  };
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "1 none");
+  session.press(&press('r')).unwrap();
+  assert_eq!(line(session.view().unwrap()), "13 none");
+  session.press(&press('x')).unwrap();
+  assert_eq!(line(session.view().unwrap()), "13 refused");
+}
+
+#[test]
 fn a_handler_calling_an_imported_helper_that_sets_a_store_key_steps_the_page() {
   let page = "import { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { count, step } from \"../src/count\";\n\nexport default function Page() {\n  const [n] = useStore(count, 0);\n  useInput(() => step(n));\n  return <Text>{n}</Text>;\n}\n";
   let app = app(page);
