@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_oidc/badge.svg)](https://docs.rs/snapfire_fsr_oidc)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-OpenID Connect sign-in for SnapFire FSR: `OidcProvider` is an `IdentityProvider` from `snapfire_fsr_auth` over any issuer, running the authorization code flow with PKCE, verifying the ID token against the issuer's published keys over `ring` and refreshing tokens. Presets carry Google's, Microsoft's and Apple's quirks. The stock host builds one from `[auth] provider = "oidc"`; an auth service can run the same provider behind its own contract. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+OpenID Connect sign-in for SnapFire FSR: `OidcProvider` is an `IdentityProvider` from `snapfire_fsr_auth` over any issuer, running the authorization code flow with PKCE, verifying the ID token against the issuer's published keys over `ring` and refreshing tokens. Presets carry Google's, Microsoft's and Apple's quirks. The stock host builds one from `[auth] provider = "oidc"` with its `oidc` feature, which `fsr serve` carries; an auth service can run the same provider behind its own contract. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 

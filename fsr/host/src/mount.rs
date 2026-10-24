@@ -66,6 +66,7 @@ impl Mount {
 /// The identity flow the host serves under `/auth/`, plus the application's
 /// login page, where `begin` sends the browser and where a GET seeds the
 /// flow so a typed URL can still post to the callback.
+#[cfg(feature = "auth")]
 pub(crate) struct Mounted {
   pub(crate) auth: Auth,
   pub(crate) login_path: String,

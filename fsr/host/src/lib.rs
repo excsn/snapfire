@@ -6,6 +6,10 @@ mod actions;
 mod after;
 pub mod assets;
 mod auth;
+#[cfg(feature = "auth")]
+mod service_provider;
+#[cfg(feature = "auth")]
+mod signin;
 mod builder;
 mod bundle;
 mod card;
@@ -57,6 +61,7 @@ use futures_util::stream::BoxStream;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, StreamBody};
 use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
+#[cfg(feature = "auth")]
 use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider, Start, Step};
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value, ValueMap};
 use snapfire_fsr_ir::HandlerRef;
@@ -71,7 +76,9 @@ use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Credentials, DeclaredService, HttpTransport, IdentityInterceptor, MockTransport,
   NoCredentials, Services, TraceInterceptor, Transport,
 };
-use snapfire_fsr_session::{CookieCodec, CsrfScheme, HmacCodec, Keyring, MemorySessionStore, Opened, SessionConfig, SessionId, SessionStore, Sessions, TokenCell};
+use snapfire_fsr_session::{CookieCodec, CsrfScheme, HmacCodec, Keyring, MemorySessionStore, Opened, SessionConfig, SessionStore, Sessions};
+#[cfg(feature = "auth")]
+use snapfire_fsr_session::{SessionId, TokenCell};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
@@ -87,7 +94,9 @@ pub use locale::{Locales, LocalesSection, Resolution};
 pub use mount::{Artifact, Mount};
 pub use prerender::{BUILD_FILE, LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use probe::{Candidate, Probe, ReloadCheck};
-pub use remote::{ServiceProvider, ServiceSessionStore};
+#[cfg(feature = "auth")]
+pub use service_provider::ServiceProvider;
+pub use remote::ServiceSessionStore;
 pub use report::{Brief, CrawlReport, HostReport, SiteReport, TlsReport};
 pub use serve::{HostService, shutdown_signal};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
@@ -409,6 +418,7 @@ struct Tables {
   renders: Arc<WarmRenders>,
   locales: Locales,
   catalogs: Arc<Catalogs>,
+  #[cfg(feature = "auth")]
   auth: Option<Mounted>,
   /// The mounted sites, longest prefix first.
   sites: Vec<SiteTables>,
@@ -422,6 +432,16 @@ struct Tables {
   /// The theme each layout or page sets, the mounted sites' among them: its name and whether it
   /// is forced.
   themes: HashMap<String, (String, bool)>,
+}
+
+impl Tables {
+  /// Whether `/auth/` is the host's own, which it is with a provider mounted.
+  fn signs_in(&self) -> bool {
+    #[cfg(feature = "auth")]
+    return self.auth.is_some();
+    #[cfg(not(feature = "auth"))]
+    false
+  }
 }
 
 /// What a request under a site's prefix reads beyond the merged tables: the
@@ -475,12 +495,14 @@ impl SiteTables {
 /// What a cookie carries between the calls of one identity journey: the
 /// session id the flow is keyed by and the custody its state lives in. A
 /// caller driving [`Host::auth_call`] holds one per session.
+#[cfg(feature = "auth")]
 #[derive(Clone)]
 pub struct AuthFlow {
   id: SessionId,
   tokens: TokenCell,
 }
 
+#[cfg(feature = "auth")]
 impl AuthFlow {
   pub fn new() -> Self {
     Self {
@@ -490,6 +512,7 @@ impl AuthFlow {
   }
 }
 
+#[cfg(feature = "auth")]
 impl Default for AuthFlow {
   fn default() -> Self {
     Self::new()
@@ -546,6 +569,7 @@ impl Host {
       store: None,
       shell: None,
       prerendered: None,
+      #[cfg(feature = "auth")]
       identity: None,
       reloader: None,
       sites_mounter: None,

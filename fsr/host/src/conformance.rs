@@ -117,7 +117,7 @@ pub fn framework_routes(host: &Host) -> Vec<Route> {
       routes.push(Route::write(path, "").with_class(Class::DevControl));
     }
   }
-  if t.auth.is_some() {
+  if t.signs_in() {
     routes.push(Route::read("/auth/login"));
     routes.push(Route::form("/auth/logout", "_csrf=probe"));
     routes.push(Route::form("/auth/callback", "code=probe&state=probe").with_class(Class::CrossOrigin));

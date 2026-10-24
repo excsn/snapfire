@@ -10,7 +10,7 @@ license = { workspace = true }
 [dependencies]
 futures-util = "0.3"
 http = "1"
-snapfire_fsr_host = { path = "../../host", features = ["sites_reload"] }
+snapfire_fsr_host = { path = "../../host", features = ["sites_reload", "auth"] }
 snapfire_fsr_runtime = { path = "../../runtime" }
 snapfire_fsr_sites = { path = "../../sites", features = ["http"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

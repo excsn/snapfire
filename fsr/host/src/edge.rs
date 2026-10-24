@@ -539,7 +539,7 @@ impl Host {
     };
     let framework_owned = visit.path.starts_with("/_sf/")
       || visit.path.starts_with("/__fsr/")
-      || (t.auth.is_some() && visit.path.starts_with("/auth/"));
+      || (t.signs_in() && visit.path.starts_with("/auth/"));
     if visit.prefixed && framework_owned {
       return text_response(StatusCode::NOT_FOUND, format!("no route: {path}"));
     }
@@ -564,6 +564,7 @@ impl Host {
     raw_query: String,
   ) -> Response<Body> {
     let path = visit.path.clone();
+    #[cfg(feature = "auth")]
     if let Some(mounted) = &t.auth {
       if let Some(response) = self.auth_route(mounted, &req, opened, &path, &raw_query).await {
         return response;

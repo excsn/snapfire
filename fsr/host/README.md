@@ -17,6 +17,9 @@ snapfire_fsr_host = "0"
 | --- | --- |
 | `actix` | `snapfire_fsr_host::actix::{handle, serve}`, the shim from actix's request and response types to the host's |
 | `ws` | `/_sf/socket`, a WebSocket per topic: `HostBuilder::socket` answers what a page sends and the reply goes out as store rows. Adds `tokio-tungstenite` |
+| `auth` | `[auth]` and the `/auth/` routes: sign-in as a sequence of steps, the `file` and `service` methods, several methods on one login page, a second factor and token refresh at the outbound call. Adds `snapfire_fsr_auth`. Off, an `[auth]` section is refused at boot naming the feature; sessions, CSRF and token custody need no feature |
+| `oidc` | `provider = "oidc"`, sign-in against an OpenID Connect issuer. Implies `auth`; adds `snapfire_fsr_oidc` |
+| `passkey` | `provider = "passkey"`, WebAuthn passkeys. Implies `auth`; adds `snapfire_fsr_passkey` |
 | `tls` | `[server.tls]`: the hyper listener terminates TLS with rustls over ring, ALPN chooses the version and the configured signal re-reads the certificate. Adds `rustls`, `rustls-pki-types` and `tokio-rustls` |
 | `client_readable` | on by default: the readable build of the browser client, beside the minified one the binary always carries. Off, a binary is about 215 KiB smaller and `/static/js/fsr` answers minified whatever `document.client` says |
 | `client_source_maps` | off: each browser client module's source map, with its TypeScript inlined, served beside it under `/static/js/fsr` so devtools show the client's source. About 1.3 MB. Off, the modules are served without their `sourceMappingURL` comment |
@@ -48,7 +51,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Run without a backend | `[clients.<name>] transport = "mock"` over `clients/<name>.mock.json` |
 | Reuse a backend's answers | `[cache.data]` over the contract's `cache` annotations, `Host::invalidate_tags` |
 | Keep sessions somewhere else | `[session] store = "service"` behind a client or `HostBuilder::session_store` |
-| Sign users in | `[auth]` over `config/auth.toml`, `provider = "service"` asking a client or `HostBuilder::identity` with any `IdentityProvider` |
+| Sign users in | the `auth` feature: `[auth]` over `config/auth.toml`, `provider = "service"` asking a client, `oidc` or `passkey` with their features or `HostBuilder::identity` with any `IdentityProvider` |
 | Send the session's token to one backend | `[clients.<name>] bearer = true` |
 | Let a browser keep a static file | `server.static_max_age`; left out, a file with no hash in its name revalidates every time and `0` sends no header |
 | Let a browser keep the application's modules across deploys | nothing: outside development the host names each bundle module by its content and serves that name `immutable` |

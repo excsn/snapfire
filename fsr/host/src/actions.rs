@@ -264,13 +264,6 @@ pub(crate) fn form_params(body: &[u8]) -> ValueMap {
     .collect()
 }
 
-pub(crate) fn form_field(body: &[u8], name: &str) -> Option<String> {
-  match form_params(body).get(name) {
-    Some(Value::Str(value)) => Some(value.to_string()),
-    _ => None,
-  }
-}
-
 impl Host {
   /// The handler matching `method` and `path`, run with `input` as the
   /// request body. `path` may carry a locale prefix and a query string.

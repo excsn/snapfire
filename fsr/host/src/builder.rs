@@ -26,6 +26,7 @@ pub struct HostBuilder {
   pub(crate) store: Option<Arc<dyn SessionStore>>,
   pub(crate) shell: Option<Arc<dyn Evaluator>>,
   pub(crate) prerendered: Option<PathBuf>,
+  #[cfg(feature = "auth")]
   pub(crate) identity: Option<Arc<dyn IdentityProvider>>,
   pub(crate) reloader: Option<Reloader>,
   pub(crate) sites_mounter: Option<SitesMounter>,
@@ -167,9 +168,20 @@ impl HostBuilder {
     self
   }
 
+  #[cfg(feature = "auth")]
+  fn no_identity(&self) -> bool {
+    self.identity.is_none()
+  }
+
+  #[cfg(not(feature = "auth"))]
+  fn no_identity(&self) -> bool {
+    true
+  }
+
   /// The identity provider behind `/auth/login`, `/auth/callback` and
   /// `/auth/logout`, in place of the one `[auth]` names. The login page is
   /// `auth.login` when the section is written, `/login` otherwise.
+  #[cfg(feature = "auth")]
   pub fn identity(mut self, provider: Arc<dyn IdentityProvider>) -> Self {
     self.identity = Some(provider);
     self
@@ -401,7 +413,7 @@ impl HostBuilder {
       && self.store.is_none()
       && self.shell.is_none()
       && self.prerendered.is_none()
-      && self.identity.is_none()
+      && self.no_identity()
       && chosen_csrf.is_none()
       && chosen_codec.is_none()
       && chosen_ring.is_none()
@@ -773,7 +785,8 @@ impl HostBuilder {
       Some(contract.clone())
     };
 
-    let refresh = Arc::new(crate::remote::ProviderRefresh::default());
+    #[cfg(feature = "auth")]
+    let refresh = Arc::new(crate::service_provider::ProviderRefresh::default());
     let services = match self.services {
       Some(services) => services,
       None => {
@@ -791,7 +804,10 @@ impl HostBuilder {
           by_key.entry(key.clone()).or_default().push(client.clone());
         }
         for (key, clients) in by_key {
-          builder = builder.intercept(Arc::new(CredentialInterceptor::bearer(key).only(clients).refreshing(refresh.clone())));
+          let interceptor = CredentialInterceptor::bearer(key).only(clients);
+          #[cfg(feature = "auth")]
+          let interceptor = interceptor.refreshing(refresh.clone());
+          builder = builder.intercept(Arc::new(interceptor));
         }
         match &self.transport_override {
           Some(transport) => builder = builder.default_transport(transport.clone()),
@@ -1005,6 +1021,8 @@ impl HostBuilder {
       }
       None => Vec::new(),
     };
+    #[cfg(feature = "auth")]
+    let (auth, auth_row) = {
     let prefix = config.site.as_ref().map(SiteSection::prefix).unwrap_or_default();
     let auth = match (self.identity.take(), &config.auth) {
       (Some(provider), section) => {
@@ -1023,7 +1041,7 @@ impl HostBuilder {
       (None, Some(section)) => {
         let mut built = Vec::new();
         for method in section.all_methods() {
-          let (provider, name) = crate::auth::method_provider(&method, &config, &app.services, &prefix)?;
+          let (provider, name) = crate::signin::method_provider(&method, &config, &app.services, &prefix)?;
           built.push((method.name.clone(), name, provider));
         }
         let (provider, name): (Arc<dyn IdentityProvider>, String) = match (built.len(), &section.second_factor) {
@@ -1061,9 +1079,17 @@ impl HostBuilder {
     if let Some(mounted) = &auth {
       refresh.bind(mounted.auth.provider().clone());
     }
+    (auth, auth_row)
+    };
+    #[cfg(not(feature = "auth"))]
+    let auth_row: Option<(String, String)> = match &config.auth {
+      Some(_) => return Err(HostError::Config(config.config_dir(), "[auth] needs the host's `auth` feature".to_owned())),
+      None => None,
+    };
+    let signs_in = auth_row.is_some();
     let crawl = match (&config.crawl, config.origin()?) {
       (Some(section), Some(origin)) => {
-        Some(crawl::Crawl::new(section, &origin, config.site.as_ref().map(|site| site.at.as_str()), auth.is_some()))
+        Some(crawl::Crawl::new(section, &origin, config.site.as_ref().map(|site| site.at.as_str()), signs_in))
       }
       _ => None,
     };
@@ -1200,6 +1226,7 @@ impl HostBuilder {
         renders,
         locales,
         catalogs,
+        #[cfg(feature = "auth")]
         auth,
         sites,
         crawl,

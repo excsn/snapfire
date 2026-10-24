@@ -26,6 +26,14 @@ client_source_maps = []
 actix = ["dep:actix-web"]
 tls = ["dep:rustls", "dep:rustls-pki-types", "dep:tokio-rustls"]
 ws = ["dep:tokio-tungstenite"]
+# Sign-in: the `/auth/` routes, the `file` and `service` methods, several methods
+# on one page, a second factor and token refresh at the outbound call. Off, an
+# `[auth]` section is refused at boot naming the feature.
+auth = ["dep:snapfire_fsr_auth"]
+# An `oidc` sign-in method against an OpenID Connect issuer.
+oidc = ["auth", "dep:snapfire_fsr_oidc"]
+# A `passkey` sign-in method, WebAuthn over a credential store.
+passkey = ["auth", "dep:snapfire_fsr_passkey"]
 # `POST /__fsr/sites/reload`, an administrative route the host does not guard.
 sites_reload = []
 # A `.tera` route or layout under the app, rendered by the Tera evaluator.
@@ -39,9 +47,9 @@ tracing-subscriber = { version = "0.3", features = ["registry", "std", "fmt"] }
 parking_lot = "0.12"
 snapfire_fsr.workspace = true
 snapfire_fsr_ir.workspace = true
-snapfire_fsr_auth.workspace = true
-snapfire_fsr_oidc.workspace = true
-snapfire_fsr_passkey.workspace = true
+snapfire_fsr_auth = { workspace = true, optional = true }
+snapfire_fsr_oidc = { workspace = true, optional = true }
+snapfire_fsr_passkey = { workspace = true, optional = true }
 snapfire_fsr_core.workspace = true
 snapfire_fsr_payload.workspace = true
 snapfire_fsr_tera = { workspace = true, optional = true }
@@ -84,6 +92,8 @@ tokio-tungstenite = { version = "0.27", default-features = false, features = ["h
 multer = "3"
 
 [dev-dependencies]
+# The tests sign in, so they build the host with every sign-in method.
+snapfire_fsr_host = { path = ".", features = ["auth", "oidc", "passkey"] }
 snapfire_fsr_macros.workspace = true
 jsonschema = { version = "0", default-features = false }
 proptest = "1"
