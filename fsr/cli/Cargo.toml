@@ -133,6 +133,10 @@ name = "census"
 required-features = ["web"]
 
 [[test]]
+name = "test_command"
+required-features = ["web"]
+
+[[test]]
 name = "examples"
 required-features = ["web"]
 

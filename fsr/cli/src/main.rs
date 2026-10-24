@@ -237,8 +237,14 @@ struct TypecheckFlags {
 struct Test {
   /// The application directory.
   app_dir: PathBuf,
-  /// Runs only the tests whose name holds this.
+  /// Runs only the tests whose name holds this, specs and Rust tests alike.
   filter: Option<String>,
+  /// Runs the specs and not the Rust tests of the crate beside the app.
+  #[arg(long, conflicts_with = "rust_only")]
+  specs_only: bool,
+  /// Runs the Rust tests of the crate beside the app and not the specs.
+  #[arg(long)]
+  rust_only: bool,
   #[command(flatten)]
   typecheck: TypecheckFlags,
 }
@@ -623,6 +629,36 @@ fn refused(message: &str) -> ExitCode {
   ExitCode::from(2)
 }
 
+#[cfg(feature = "web")]
+fn run_test(args: Test) -> ExitCode {
+  let project = test::rust_project(&args.app_dir);
+  if args.rust_only && project.is_none() {
+    return refused(&format!("--rust-only: no Cargo.toml beside {}", args.app_dir.display()));
+  }
+  let mut passed = true;
+  if !args.rust_only {
+    match test::run(&args.app_dir, &Options::beside(&args.app_dir), &args.typechecked(), args.filter.as_deref()) {
+      Ok(summary) => {
+        print!("{summary}");
+        passed &= summary.failed == 0;
+      }
+      Err(e) => return failed(e),
+    }
+  }
+  if let Some(project) = project.filter(|_| !args.specs_only) {
+    println!("\nrust tests: {}", std::fs::canonicalize(&project).unwrap_or_else(|_| project.clone()).display());
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    match test::run_rust(&project, args.filter.as_deref()) {
+      Ok(run) => {
+        println!("{}: {}", run.runner, if run.passed { "ok" } else { "FAILED" });
+        passed &= run.passed;
+      }
+      Err(e) => return failed(e),
+    }
+  }
+  if passed { ExitCode::SUCCESS } else { ExitCode::from(1) }
+}
+
 fn main() -> ExitCode {
   match Cli::parse().command {
     Command::New(args) => run_new(args),
@@ -632,13 +668,7 @@ fn main() -> ExitCode {
       Err(e) => failed(e),
     },
     #[cfg(feature = "web")]
-    Command::Test(args) => match test::run(&args.app_dir, &Options::beside(&args.app_dir), &args.typechecked(), args.filter.as_deref()) {
-      Ok(summary) => {
-        print!("{summary}");
-        if summary.failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }
-      }
-      Err(e) => failed(e),
-    },
+    Command::Test(args) => run_test(args),
     Command::Serve(args) => {
       let mut mounts = Vec::new();
       for spec in &args.mount {

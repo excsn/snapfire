@@ -136,7 +136,7 @@ A body test cuts at the service boundary. A route test cuts at the host: a reque
 
 ## The lab
 
-Run `fsr test app`. It typechecks the application and its tests first and stops on a type error, then every body test and spec prints with its file and name and the last line counts what passed, failed, was skipped and is still todo. Now open `tests/cart/actions.test.ts` and change the mocked `placeOrder` to return `{ id: 7n }` only. Run again: the checkout test fails; the message names `shopping.placeOrder()` and the missing field, because the registry checked the mock's answer against the contract before the body ever saw it.
+Run `fsr test app`. It typechecks the application and its tests first and stops on a type error, then every body test and spec prints with its file and name and the last line counts what passed, failed, was skipped and is still todo. The storefront has a `Cargo.toml` above its app, so its Rust tests run next under the same command. Now open `tests/cart/actions.test.ts` and change the mocked `placeOrder` to return `{ id: 7n }` only. Run again: the checkout test fails; the message names `shopping.placeOrder()` and the missing field, because the registry checked the mock's answer against the contract before the body ever saw it.
 
 Put it back, then change the expected count in the first test to `5n`. The failure prints `Expected: 5n` and `Received: 4n`, in the value model's own spelling. Add a message with `expect(result.count, "the count the session holds").toEqual(5n)` and run again: the message comes first.
 

@@ -101,6 +101,43 @@ pub fn run(app: &Path, options: &Options, typecheck: &crate::typecheck::Typechec
   })
 }
 
+/// The Cargo project beside `app`: the directory above it when that holds a `Cargo.toml`, the crate `fsr dev` builds the app's binary from.
+pub fn rust_project(app: &Path) -> Option<PathBuf> {
+  let parent = app.parent()?;
+  let parent = if parent.as_os_str().is_empty() { Path::new(".") } else { parent };
+  parent.join("Cargo.toml").is_file().then(|| parent.to_path_buf())
+}
+
+/// How the Rust half of `fsr test` ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RustRun {
+  /// `cargo nextest run` or `cargo test`.
+  pub runner: &'static str,
+  pub passed: bool,
+}
+
+/// Runs the tests of the crate at `project` with `cargo nextest run` when cargo-nextest is installed and `cargo test` otherwise. The runner writes to this process's output. `filter` is passed as its test-name filter; under nextest a filter that matches no Rust test passes, since it may name only specs.
+pub fn run_rust(project: &Path, filter: Option<&str>) -> Result<RustRun, BuildError> {
+  let nextest = std::process::Command::new("cargo")
+    .args(["nextest", "--version"])
+    .current_dir(project)
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null())
+    .status()
+    .is_ok_and(|status| status.success());
+  let mut command = std::process::Command::new("cargo");
+  let runner = if nextest {
+    command.args(["nextest", "run", "--no-tests=warn"]);
+    "cargo nextest run"
+  } else {
+    command.arg("test");
+    "cargo test"
+  };
+  command.args(filter).current_dir(project);
+  let status = command.status().map_err(|e| BuildError::Dev(format!("running {runner} in {}: {e}", project.display())))?;
+  Ok(RustRun { runner, passed: status.success() })
+}
+
 fn run_here(app: &Path, options: &Options, typecheck: &crate::typecheck::Typecheck, filter: Option<&str>) -> Result<Summary, BuildError> {
   let fetched = typecheck.enabled.then(|| crate::types::fetch_missing_from(app, crate::types::NPM_REGISTRY));
   let mut plugins = crate::plugins::Plugins::new();

@@ -1037,7 +1037,11 @@ The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`
 fsr test app
 fsr test app cart
 fsr test app --no-typecheck
+fsr test app --specs-only
+fsr test app --rust-only
 ```
+
+When the directory above the app holds a `Cargo.toml`, the crate `fsr dev` builds the app's binary from, `fsr test` runs that crate's Rust tests after the specs: `cargo nextest run` when cargo-nextest is installed and `cargo test` otherwise, with the runner's own output and then a line saying how it ended. The filter goes to both halves. Under nextest a filter that matches no Rust test passes. The run fails when either half fails. `--specs-only` and `--rust-only` run one half; `--rust-only` with no crate beside the app is refused.
 
 Before any spec runs, `fsr test` typechecks the application with its tests, the way `fsr build` does: it fetches the declarations the app lacks, writes this build's `generated/` types and stops on a type error with tsc's message. The runner lowers a spec rather than compiling it with types, so without this a stub with the wrong shape passes. `--no-typecheck` skips it and `--tsc`, `--tsc-version` and `--snapfiretc` choose the checker as they do for `fsr check`. On the storefront the typecheck adds about a quarter of a second to a run.
 
