@@ -11,6 +11,7 @@
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import { useEffect, useState } from "react";
+import type { ReactElement } from "react";
 import { Text, useInput } from "@snapfire/fsr/terminal/ink";
 
 export type Props = {
@@ -33,7 +34,7 @@ function TextInput({
   showCursor = true,
   onChange,
   onSubmit,
-}: Props) {
+}: Props): ReactElement {
   const [state, setState] = useState({
     cursorOffset: (originalValue || "").length,
     cursorWidth: 0,
@@ -165,7 +166,7 @@ type UncontrolledProps = {
   readonly initialValue?: string;
 } & Omit<Props, "value" | "onChange">;
 
-export function UncontrolledTextInput({ initialValue = "", ...props }: UncontrolledProps) {
+export function UncontrolledTextInput({ initialValue = "", ...props }: UncontrolledProps): ReactElement {
   const [value, setValue] = useState(initialValue);
 
   return <TextInput {...props} value={value} onChange={setValue} />;

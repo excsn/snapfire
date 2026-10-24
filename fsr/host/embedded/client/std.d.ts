@@ -133,14 +133,15 @@ export interface SpawnOptions {
 	shell?: boolean | string;
 	stdio?: "inherit" | "pipe";
 }
+/** What a process `system.spawn` started writes, handed over as text, so `setEncoding` changes nothing. */
+export interface SpawnedOutput {
+	on(event: "data", f: (chunk: string) => void): void;
+	setEncoding(encoding: string): void;
+}
 /** A process `system.spawn` started. */
 export interface Spawned {
-	stdout: {
-		on(event: "data", f: (chunk: string) => void): void;
-	};
-	stderr: {
-		on(event: "data", f: (chunk: string) => void): void;
-	};
+	stdout: SpawnedOutput;
+	stderr: SpawnedOutput;
 	on(event: "exit" | "close", f: (code: number | null, signal: string | null) => void): void;
 	on(event: "error", f: (error: Error) => void): void;
 	off(event: "exit" | "close" | "error", f: (...args: never[]) => void): void;

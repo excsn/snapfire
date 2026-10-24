@@ -41,6 +41,21 @@ const FSR_AUTHORING: &[(&str, &str)] = &[
   ("jsx-runtime.d.ts", include_str!("../embedded/authoring/jsx-runtime.d.ts")),
 ];
 
+/// Where a terminal application's declarations of FSR's terminal modules go under `types/`, which `@snapfire/fsr/terminal` and its subpaths map to.
+pub const TERMINAL_TYPES: &str = "@snapfire/fsr/terminal";
+
+/// The declarations of FSR's terminal modules: `index.d.ts`, `core.d.ts` and `ink.d.ts` written for the natives,
+/// the rest `snapfirec --declaration` of `lower/terminal/`, `ink.tsx` as `hooks.d.ts`.
+const FSR_TERMINAL: &[(&str, &str)] = &[
+  ("index.d.ts", include_str!("../embedded/terminal/index.d.ts")),
+  ("core.d.ts", include_str!("../embedded/terminal/core.d.ts")),
+  ("ink.d.ts", include_str!("../embedded/terminal/ink.d.ts")),
+  ("hooks.d.ts", include_str!("../embedded/terminal/hooks.d.ts")),
+  ("spinner.d.ts", include_str!("../embedded/terminal/spinner.d.ts")),
+  ("spinners.d.ts", include_str!("../embedded/terminal/spinners.d.ts")),
+  ("text-input.d.ts", include_str!("../embedded/terminal/text-input.d.ts")),
+];
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TypedPackage {
@@ -254,6 +269,13 @@ pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   if recorded && root.join(TYPES_MANIFEST).is_file() {
     manifest.write(app, &layout)?;
   }
+  if crate::is_terminal_app(app) {
+    let dir = root.join(TERMINAL_TYPES);
+    if FSR_TERMINAL.iter().any(|(name, content)| std::fs::read_to_string(dir.join(name)).map(|held| held != *content).unwrap_or(true)) {
+      write_embedded(app, &layout, TERMINAL_TYPES, FSR_TERMINAL)?;
+      refreshed.push(dir);
+    }
+  }
   Ok(refreshed)
 }
 
@@ -367,9 +389,7 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
     report.delegated = vec!["xwpm restore".to_owned(), "xwpm types".to_owned()];
   }
 
-  let mut queue: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
-  queue.extend(import_map_packages(app, &layout)?);
-  fill(app, &layout, &mut manifest, queue, refresh, NPM_REGISTRY, &mut report)?;
+  fill(app, &layout, &mut manifest, wanted(app, &layout)?, refresh, NPM_REGISTRY, &mut report)?;
   manifest.write(app, &layout)?;
   let shim = write_foreign_shim(app, &layout, &[])?;
   if let Some(path) = &shim {
@@ -438,6 +458,9 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
     };
     if let Some(files) = embedded {
       write_embedded(app, layout, &package, files)?;
+      if package == "@snapfire/fsr-client" && crate::is_terminal_app(app) {
+        write_embedded(app, layout, TERMINAL_TYPES, FSR_TERMINAL)?;
+      }
       manifest.packages.insert(package.clone(), embedded_record());
       report.fetched.push((package, env!("CARGO_PKG_VERSION").to_owned(), "fsr".to_owned()));
       continue;
@@ -807,6 +830,10 @@ pub fn present(app: &Path, layout: &Layout) -> Result<Vec<(String, TypedPackage)
 /// whatever the import map names.
 fn wanted(app: &Path, layout: &Layout) -> Result<Vec<String>, BuildError> {
   let mut packages: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
+  // A terminal page is written against React's API, which FSR runs itself, so no import map names it.
+  if crate::is_terminal_app(app) {
+    packages.push("react".to_owned());
+  }
   for package in import_map_packages(app, layout)? {
     if !packages.contains(&package) {
       packages.push(package);
@@ -1004,10 +1031,15 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool, shadowe
     }
     paths.push((format!("{name}/*"), format!("./{types}/{name}/*")));
   }
+  let terminal = crate::is_terminal_app(app);
+  if terminal {
+    paths.push((TERMINAL_TYPES.to_owned(), format!("./{types}/{TERMINAL_TYPES}/index.d.ts")));
+    paths.push((format!("{TERMINAL_TYPES}/*"), format!("./{types}/{TERMINAL_TYPES}/*")));
+  }
   // Templates are JSX. An application with React reads them as React
   // components, since its browser mounts the ones with state that way; one
   // without React reads them through the dialect's own declarations.
-  let react = serves_react(app, &layout)?;
+  let react = terminal || serves_react(app, &layout)?;
   if react {
     paths.push(("@snapfire/fsr-authoring/template".to_owned(), format!("./{types}/@snapfire/fsr-authoring/template.react")));
   }

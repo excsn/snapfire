@@ -51,3 +51,18 @@ fn a_page_drawing_with_ink_through_its_own_component_is_a_terminal_page() {
   let built = build(&app, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
   assert_eq!(islands(&built), Vec::<String>::new());
 }
+
+#[test]
+fn a_terminal_app_has_declarations_for_fsrs_terminal_modules_and_asks_for_react() {
+  let page = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport Spinner from \"@snapfire/fsr/terminal/spinner\";\n\nexport default function Page() {\n  const [n, setN] = useState(0);\n  useInput(() => setN(n + 1));\n  return <Box><Spinner /><Text>{n}</Text></Box>;\n}\n";
+  let app = app(&[("routes/page.tsx", page)]);
+  let built = build(&app, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
+  snapfire_fsr_cli::write(&app, &built).unwrap();
+  for file in ["index.d.ts", "core.d.ts", "ink.d.ts", "hooks.d.ts", "spinner.d.ts", "spinners.d.ts", "text-input.d.ts"] {
+    assert!(app.join("types/@snapfire/fsr/terminal").join(file).is_file(), "{file} under {}: {:?}", app.display(), std::fs::read_dir(&app).map(|d| d.flatten().map(|e| e.file_name()).collect::<Vec<_>>()));
+  }
+  let tsconfig = std::fs::read_to_string(app.join("tsconfig.json")).unwrap();
+  assert!(tsconfig.contains("\"@snapfire/fsr/terminal\": [\"./types/@snapfire/fsr/terminal/index.d.ts\"]") && tsconfig.contains("\"@snapfire/fsr/terminal/*\": [\"./types/@snapfire/fsr/terminal/*\"]"), "{tsconfig}");
+  assert!(!tsconfig.contains("jsxImportSource"), "a terminal page's JSX is React's: {tsconfig}");
+  assert!(snapfire_fsr_cli::types::missing(&app).unwrap().contains(&"react".to_owned()));
+}
