@@ -310,7 +310,7 @@ fn a_component_placed_as_an_island_renders_in_its_own_region_inside_the_page() {
   let app = app_over(transport);
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
   let region = html
-    .find("<sf-s data-sf-island data-sf-region=\"routes/order/[id]/page.tsx#default|i0\" data-sf-when=\"visible\" data-sf-mode=\"server\"><sf-i id=\"sf-i1\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\">")
+    .find("<sf-s data-sf-island data-sf-region=\"routes/order/[id]/page.tsx#default|i0\" data-sf-when=\"visible\" data-sf-mode=\"server\"><sf-i id=\"sf-i1\" data-sf-module=\"src/ui/OrderHelp.tsx#OrderHelp\" data-sf-ssr>")
     .expect(&html);
   let page = html.find("<!--sf-g:routes/order/[id]/page.tsx#default?id=5001-->").expect(&html);
   assert!(page < region, "the island sits inside the page's markup");
