@@ -18,11 +18,19 @@ struct DevUser {
 /// application's login page, since auth never renders.
 pub struct DevProvider {
   users: Vec<DevUser>,
+  stand_in: bool,
 }
 
 impl DevProvider {
   pub fn new() -> Self {
-    Self { users: Vec::new() }
+    Self { users: Vec::new(), stand_in: false }
+  }
+
+  /// Signs in as any user of the table by name alone, a "sign in as" form with no password: what
+  /// stands in for a real method in development before its credentials exist.
+  pub fn stand_in(mut self) -> Self {
+    self.stand_in = true;
+    self
   }
 
   pub fn user(mut self, name: impl Into<String>, password: impl Into<String>) -> Self {
@@ -106,6 +114,12 @@ pub fn password_form() -> Next {
 impl IdentityProvider for DevProvider {
   fn begin(&self, start: Start) -> BoxFuture<'_, Result<Next, AuthError>> {
     let next = match start.intent {
+      Intent::SignIn if self.stand_in => {
+        let mut data = ValueMap::default();
+        data.insert("fields".to_owned(), Value::seq(vec![Value::str("user")]));
+        data.insert("users".to_owned(), Value::seq(self.users.iter().map(|u| Value::str(u.name.clone())).collect::<Vec<_>>()));
+        Ok(Next::present("form", data, ValueMap::default()))
+      }
       Intent::SignIn => Ok(password_form()),
       _ => Err(AuthError::Invalid("the file provider enrols nothing".to_owned())),
     };
@@ -115,12 +129,13 @@ impl IdentityProvider for DevProvider {
   fn advance(&self, params: ValueMap, _state: ValueMap) -> BoxFuture<'_, Result<Next, AuthError>> {
     let result = (|| {
       let name = param(&params, "user").ok_or_else(|| AuthError::Invalid("missing user".to_owned()))?;
-      let password = param(&params, "password").ok_or_else(|| AuthError::Invalid("missing password".to_owned()))?;
-      let user = self
-        .users
-        .iter()
-        .find(|u| u.name == name && u.password == password)
-        .ok_or_else(|| AuthError::Denied("unknown user or wrong password".to_owned()))?;
+      let user = match self.stand_in {
+        true => self.users.iter().find(|u| u.name == name).ok_or_else(|| AuthError::Denied("unknown user".to_owned()))?,
+        false => {
+          let password = param(&params, "password").ok_or_else(|| AuthError::Invalid("missing password".to_owned()))?;
+          self.users.iter().find(|u| u.name == name && u.password == password).ok_or_else(|| AuthError::Denied("unknown user or wrong password".to_owned()))?
+        }
+      };
 
       let mut tokens = ValueMap::default();
       tokens.insert("access_token".to_owned(), Value::str(format!("dev-token-{}", user.name)));

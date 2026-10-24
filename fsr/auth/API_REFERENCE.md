@@ -146,6 +146,7 @@ Name and password against a fixed in-memory table. Passwords are compared in the
 * `pub fn user(self, name: impl Into<String>, password: impl Into<String>) -> Self`
 * `pub fn user_with_claims(self, name: impl Into<String>, password: impl Into<String>, claims: ValueMap) -> Self`
 * `pub fn from_toml(path: impl AsRef<Path>) -> Result<Self, String>`
+* `pub fn stand_in(self) -> Self`: signs in as any user of the table by name alone. `begin` presents a `form` of `fields` `["user"]` with `users` naming every user; `advance` completes for the user named, `AuthError::Denied("unknown user")` for any other. What an `oidc` method is in development before its secret exists.
 
 `new` starts with an empty table. `user` appends an entry with empty claims; `user_with_claims` appends one with the claims given. Neither rejects a duplicate name: the first match in insertion order wins. `from_toml` reads a file of `[[users]]` rows, each `name`, `password` and an optional `claims` table whose values become `Value`s (a datetime becomes its string). An unreadable or unparsable file, no row at all or an empty name is `Err` naming the path and the reason.
 

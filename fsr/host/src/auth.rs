@@ -1,6 +1,8 @@
 //! The `/auth/` routes: sign-in, callback and logout over the identity provider.
 
 use super::*;
+use base64::Engine;
+use snapfire_fsr_oidc::{ClientSecret, OidcConfig, OidcProvider};
 
 pub(crate) fn see_other(location: &str) -> Response<Body> {
   match Response::builder()
@@ -258,13 +260,10 @@ impl Host {
 
 }
 
-/// The provider one configured method names.
-pub(crate) fn method_provider(method: &crate::config::MethodSection, config: &Config, services: &Arc<Services>, prefix: &str) -> Result<Arc<dyn IdentityProvider>, HostError> {
+/// The provider one configured method names and how the boot report names it.
+pub(crate) fn method_provider(method: &crate::config::MethodSection, config: &Config, services: &Arc<Services>, prefix: &str) -> Result<(Arc<dyn IdentityProvider>, String), HostError> {
   match method.provider.as_str() {
-    "file" => {
-      let users = config.config_dir().join(method.users.as_deref().unwrap_or("auth.toml"));
-      Ok(Arc::new(DevProvider::from_toml(&users).map_err(|e| HostError::Config(users.clone(), e))?))
-    }
+    "file" => Ok((Arc::new(users_of(method, config)?), "file".to_owned())),
     "service" => {
       let client = format!("{prefix}{}", method.client.clone().unwrap_or_default());
       let declared = |name: &str| services.contract().services.get(&client).is_some_and(|service| service.methods.contains_key(name));
@@ -280,8 +279,60 @@ pub(crate) fn method_provider(method: &crate::config::MethodSection, config: &Co
           ),
         ));
       }
-      Ok(Arc::new(ServiceProvider::new(services.clone(), client)))
+      let name = format!("service via {}", method.client.clone().unwrap_or_default());
+      Ok((Arc::new(ServiceProvider::new(services.clone(), client)), name))
     }
+    "oidc" => oidc_provider(method, config),
     other => Err(HostError::Value("auth.provider".to_owned(), other.to_owned())),
   }
+}
+
+/// The `file` provider's table for a method, `auth.toml` beside the configuration when it names none.
+fn users_of(method: &crate::config::MethodSection, config: &Config) -> Result<DevProvider, HostError> {
+  let users = config.config_dir().join(method.users.as_deref().unwrap_or("auth.toml"));
+  DevProvider::from_toml(&users).map_err(|e| HostError::Config(users.clone(), e))
+}
+
+fn secret_value(config: &Config, name: &Option<String>) -> Option<String> {
+  name.as_ref().and_then(|name| config.secrets.get(name)).and_then(|entry| entry.value.as_ref()).map(|value| value.expose().to_owned()).filter(|value| !value.is_empty())
+}
+
+/// An `oidc` method over its issuer. In development, while a secret it names has no value, it is a
+/// stand-in signing in as any user of the method's `users` table.
+fn oidc_provider(method: &crate::config::MethodSection, config: &Config) -> Result<(Arc<dyn IdentityProvider>, String), HostError> {
+  let refuse = |why: String| HostError::Config(config.config_dir(), format!("auth.methods `{}`: {why}", method.name));
+  let label = method.preset.clone().or_else(|| method.issuer.clone()).unwrap_or_default();
+  let missing = [&method.client_secret, &method.signing_key].into_iter().flatten().find(|name| secret_value(config, &Some((*name).clone())).is_none()).cloned();
+  if let Some(name) = missing {
+    if !config.dev() {
+      return Err(refuse(format!("`secrets.{name}.value` has no value; set C5_SECRETS__{}__VALUE", name.to_ascii_uppercase())));
+    }
+    return Ok((Arc::new(users_of(method, config)?.stand_in()), format!("oidc {label}, a stand-in until secrets.{name} has a value")));
+  }
+  let origin = match config.origin()? {
+    Some(origin) => origin,
+    None if config.dev() => format!("http://{}", config.server.listen),
+    None => return Err(refuse("an oidc method needs `document.origin` to name its redirect URI".to_owned())),
+  };
+  let redirect = format!("{origin}/auth/callback");
+  let client_id = method.client_id.clone().unwrap_or_default();
+  let mut oidc = match method.preset.as_deref() {
+    Some("google") => OidcConfig::google(client_id, redirect),
+    Some("microsoft") => OidcConfig::microsoft(method.tenant.as_deref().unwrap_or("common"), client_id, redirect),
+    Some("apple") => {
+      let pem = secret_value(config, &method.signing_key).unwrap_or_default();
+      let body: String = pem.lines().filter(|line| !line.starts_with("-----")).collect();
+      let pkcs8 = base64::engine::general_purpose::STANDARD.decode(body.trim()).map_err(|e| refuse(format!("the signing key is not a PEM: {e}")))?;
+      OidcConfig::apple(client_id, redirect, method.team_id.clone().unwrap_or_default(), method.key_id.clone().unwrap_or_default(), pkcs8)
+    }
+    _ => OidcConfig::new(method.issuer.clone().unwrap_or_default(), client_id, redirect),
+  };
+  if let Some(secret) = secret_value(config, &method.client_secret) {
+    oidc = oidc.secret(ClientSecret::Post(secret));
+  }
+  if let Some(scopes) = &method.scopes {
+    oidc = oidc.scopes(scopes.clone());
+  }
+  oidc = oidc.rename(method.claims.clone());
+  Ok((Arc::new(OidcProvider::new(oidc)), format!("oidc {label}")))
 }

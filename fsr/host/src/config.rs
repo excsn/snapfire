@@ -1149,6 +1149,35 @@ pub struct AuthSection {
   /// subject.
   #[serde(default)]
   pub second_factor: Option<String>,
+  /// `oidc`: the issuer, when no `preset` names it.
+  #[serde(default)]
+  pub issuer: Option<String>,
+  /// `oidc`: `google`, `microsoft` or `apple`, which name the issuer and its quirks.
+  #[serde(default)]
+  pub preset: Option<String>,
+  /// `oidc` with `preset = "microsoft"`: the tenant, `common` when absent.
+  #[serde(default)]
+  pub tenant: Option<String>,
+  #[serde(default)]
+  pub client_id: Option<String>,
+  /// `oidc`: the `[secrets.<name>]` holding the client secret. In development a secret with no
+  /// value makes the method a stand-in: a "sign in as" form over the `users` table.
+  #[serde(default)]
+  pub client_secret: Option<String>,
+  /// `oidc`: the scopes asked for, `openid email profile` (Apple: `openid name email`) when absent.
+  #[serde(default)]
+  pub scopes: Option<Vec<String>>,
+  /// `oidc`: claim names the application reads, each taken from the issuer's claim of the value's name.
+  #[serde(default)]
+  pub claims: BTreeMap<String, String>,
+  /// `oidc` with `preset = "apple"`: the team id, the key id and the `[secrets.<name>]` holding
+  /// the PEM of the key Apple issued, which signs the client secret.
+  #[serde(default)]
+  pub team_id: Option<String>,
+  #[serde(default)]
+  pub key_id: Option<String>,
+  #[serde(default)]
+  pub signing_key: Option<String>,
 }
 
 /// One `[[auth.methods]]` entry.
@@ -1163,19 +1192,66 @@ pub struct MethodSection {
   pub users: Option<String>,
   #[serde(default)]
   pub client: Option<String>,
+  /// `oidc`: the issuer, when no `preset` names it.
+  #[serde(default)]
+  pub issuer: Option<String>,
+  /// `oidc`: `google`, `microsoft` or `apple`, which name the issuer and its quirks.
+  #[serde(default)]
+  pub preset: Option<String>,
+  /// `oidc` with `preset = "microsoft"`: the tenant, `common` when absent.
+  #[serde(default)]
+  pub tenant: Option<String>,
+  #[serde(default)]
+  pub client_id: Option<String>,
+  /// `oidc`: the `[secrets.<name>]` holding the client secret. In development a secret with no
+  /// value makes the method a stand-in: a "sign in as" form over the `users` table.
+  #[serde(default)]
+  pub client_secret: Option<String>,
+  /// `oidc`: the scopes asked for, `openid email profile` (Apple: `openid name email`) when absent.
+  #[serde(default)]
+  pub scopes: Option<Vec<String>>,
+  /// `oidc`: claim names the application reads, each taken from the issuer's claim of the value's name.
+  #[serde(default)]
+  pub claims: BTreeMap<String, String>,
+  /// `oidc` with `preset = "apple"`: the team id, the key id and the `[secrets.<name>]` holding
+  /// the PEM of the key Apple issued, which signs the client secret.
+  #[serde(default)]
+  pub team_id: Option<String>,
+  #[serde(default)]
+  pub key_id: Option<String>,
+  #[serde(default)]
+  pub signing_key: Option<String>,
 }
 
 impl AuthSection {
   /// Every method the section configures, the single `provider` as one named after itself.
   pub fn all_methods(&self) -> Vec<MethodSection> {
     match &self.provider {
-      Some(provider) if self.methods.is_empty() => vec![MethodSection { name: provider.clone(), provider: provider.clone(), users: self.users.clone(), client: self.client.clone() }],
+      Some(provider) if self.methods.is_empty() => vec![MethodSection {
+        name: self.preset.clone().unwrap_or_else(|| provider.clone()),
+        provider: provider.clone(),
+        users: self.users.clone(),
+        client: self.client.clone(),
+        issuer: self.issuer.clone(),
+        preset: self.preset.clone(),
+        tenant: self.tenant.clone(),
+        client_id: self.client_id.clone(),
+        client_secret: self.client_secret.clone(),
+        scopes: self.scopes.clone(),
+        claims: self.claims.clone(),
+        team_id: self.team_id.clone(),
+        key_id: self.key_id.clone(),
+        signing_key: self.signing_key.clone(),
+      }],
       _ => self.methods.clone(),
     }
   }
 }
 
-pub const PROVIDERS: &[&str] = &["file", "service"];
+pub const PROVIDERS: &[&str] = &["file", "service", "oidc"];
+
+/// The issuers `[auth] preset` names.
+pub const PRESETS: &[&str] = &["google", "microsoft", "apple"];
 
 /// `[build]`: build-time choices that are not the type checker's.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
@@ -2167,7 +2243,7 @@ impl Config {
     let auth: Option<AuthSection> =
       if store.path_exists("auth") || !store.key_paths_with_prefix(Some("auth")).is_empty() {
         let mut json = serde_json::Map::new();
-        for key in ["provider", "login", "users", "client", "methods", "second_factor"] {
+        for key in ["provider", "login", "users", "client", "methods", "second_factor", "issuer", "preset", "tenant", "client_id", "client_secret", "scopes", "claims", "team_id", "key_id", "signing_key"] {
           if let Some(value) = store.get(&format!("auth.{key}")) {
             json.insert(key.to_owned(), to_json(&value));
           }
@@ -2188,6 +2264,23 @@ impl Config {
           if !PROVIDERS.contains(&method.provider.as_str()) {
             let named = if section.methods.is_empty() { format!("auth.provider `{}`", method.provider) } else { format!("{at_key}: provider `{}`", method.provider) };
             return Err(HostError::Config(at.clone(), format!("{named} is not a provider; the providers are {}", PROVIDERS.join(", "))));
+          }
+          if method.provider == "oidc" {
+            let refuse = |why: &str| Err(HostError::Config(at.clone(), format!("{at_key}: {why}")));
+            if method.client_id.is_none() {
+              return refuse("an oidc method needs `client_id`");
+            }
+            match (&method.preset, &method.issuer) {
+              (None, None) => return refuse("an oidc method needs `issuer` or a `preset`"),
+              (Some(preset), _) if !PRESETS.contains(&preset.as_str()) => return Err(HostError::Config(at.clone(), format!("{at_key}: preset `{preset}` is not one of {}", PRESETS.join(", ")))),
+              (Some(preset), _) if preset == "apple" && (method.team_id.is_none() || method.key_id.is_none() || method.signing_key.is_none()) => return refuse("preset = \"apple\" needs `team_id`, `key_id` and `signing_key`"),
+              _ => {}
+            }
+            for named in [&method.client_secret, &method.signing_key].into_iter().flatten() {
+              if !secrets.contains_key(named) {
+                return Err(HostError::Config(at.clone(), format!("{at_key}: names `{named}`, which no [secrets.{named}] declares")));
+              }
+            }
           }
           if method.provider == "service" {
             match &method.client {

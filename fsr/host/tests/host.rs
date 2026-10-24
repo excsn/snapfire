@@ -2127,14 +2127,14 @@ fn the_auth_section_and_the_users_file_are_checked() {
     dir.join("app.toml"),
     std::fs::read_to_string(dir.join("app.toml"))
       .unwrap()
-      .replace("provider = \"file\"", "provider = \"oidc\""),
+      .replace("provider = \"file\"", "provider = \"carrier-pigeon\""),
   )
   .unwrap();
   let err = Host::from(dir.join("app.toml"))
     .err()
     .expect("an unknown provider is an error")
     .to_string();
-  assert!(err.contains("auth.provider `oidc` is not a provider"), "{err}");
+  assert!(err.contains("auth.provider `carrier-pigeon` is not a provider"), "{err}");
 }
 
 fn formed_dir() -> PathBuf {
@@ -7674,5 +7674,80 @@ mod auth_methods {
     assert!(neither.contains("no `provider` and no `[[auth.methods]]`"), "{neither}");
     let unknown = host(&METHODS.replace("login = \"/login\"\n", "login = \"/login\"\nsecond_factor = \"totp\"\n")).err().unwrap();
     assert!(unknown.contains("second_factor `totp`"), "{unknown}");
+  }
+}
+
+mod oidc_method {
+  use super::*;
+
+  /// An issuer that answers its discovery document and nothing else.
+  async fn discovery_only() -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let doc = serde_json::json!({ "issuer": base, "authorization_endpoint": format!("{base}/authorize"), "token_endpoint": format!("{base}/token"), "jwks_uri": format!("{base}/jwks") }).to_string();
+    tokio::spawn(async move {
+      while let Ok((mut stream, _)) = listener.accept().await {
+        let mut buffer = [0u8; 4096];
+        let _ = stream.read(&mut buffer).await;
+        let response = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{doc}", doc.len());
+        let _ = stream.write_all(response.as_bytes()).await;
+      }
+    });
+    base
+  }
+
+  fn dir_with(auth: &str, extra: &str) -> PathBuf {
+    let dir = identified_dir(USERS);
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", auth) + extra).unwrap();
+    dir
+  }
+
+  #[tokio::test]
+  async fn in_development_an_oidc_method_without_its_secret_is_a_stand_in_over_the_users_table() {
+    let dir = dir_with("[auth]\nprovider = \"oidc\"\npreset = \"google\"\nclient_id = \"app\"\nclient_secret = \"google\"\n", "\n[secrets.google]\ndescription = \"the Google client secret\"\n");
+    let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+    assert!(host.report().to_string().contains("oidc google, a stand-in until secrets.google has a value"), "{}", host.report());
+    let response = host.handle(Request::get("/auth/login?return_to=/who").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    let step: serde_json::Value = serde_json::from_str(&body_of(response).await).unwrap();
+    assert_eq!(step, serde_json::json!({ "next": "present", "kind": "form", "data": { "fields": ["user"], "users": ["alice", "bob"] } }));
+  }
+
+  #[test]
+  fn outside_development_an_oidc_method_without_its_secret_is_refused() {
+    let dir = dir_with("[auth]\nprovider = \"oidc\"\npreset = \"google\"\nclient_id = \"app\"\nclient_secret = \"google\"\n", "\n[secrets.google]\ndescription = \"the Google client secret\"\n");
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("[server]\n", "[server]\ndev = false\n")).unwrap();
+    let error = match Host::from(dir.join("app.toml")).unwrap().build() {
+      Ok(_) => panic!("booted without the client secret"),
+      Err(error) => error.to_string(),
+    };
+    assert!(error.contains("secrets.google.value") && error.contains("C5_SECRETS__GOOGLE__VALUE"), "{error}");
+  }
+
+  #[tokio::test]
+  async fn with_its_secret_an_oidc_method_sends_the_browser_to_the_issuer() {
+    let issuer = discovery_only().await;
+    let dir = dir_with(&format!("[auth]\nprovider = \"oidc\"\nissuer = \"{issuer}\"\nclient_id = \"app\"\nclient_secret = \"idp\"\n"), "\n[secrets.idp]\nvalue = \"shh\"\n");
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("[document]\n", "[document]\norigin = \"https://shop.example\"\n")).unwrap();
+    let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+    let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+    let to = location(&response);
+    assert!(to.starts_with(&format!("{issuer}/authorize?")), "{to}");
+    assert!(to.contains("redirect_uri=https%3A%2F%2Fshop.example%2Fauth%2Fcallback") && to.contains("code_challenge_method=S256"), "{to}");
+  }
+
+  #[test]
+  fn an_oidc_method_names_its_issuer_and_client() {
+    let refused = |auth: &str| match Host::from(dir_with(auth, "").join("app.toml")) {
+      Ok(_) => panic!("{auth} loaded"),
+      Err(e) => e.to_string(),
+    };
+    assert!(refused("[auth]\nprovider = \"oidc\"\npreset = \"google\"\n").contains("needs `client_id`"));
+    assert!(refused("[auth]\nprovider = \"oidc\"\nclient_id = \"app\"\n").contains("needs `issuer` or a `preset`"));
+    assert!(refused("[auth]\nprovider = \"oidc\"\npreset = \"yahoo\"\nclient_id = \"app\"\n").contains("preset `yahoo`"));
+    assert!(refused("[auth]\nprovider = \"oidc\"\npreset = \"google\"\nclient_id = \"app\"\nclient_secret = \"nowhere\"\n").contains("no [secrets.nowhere]"));
   }
 }

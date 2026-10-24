@@ -66,7 +66,7 @@ Identity comes from an `IdentityProvider`, a trait in `snapfire_fsr_auth`. Every
 
 An `[auth]` section mounts that flow on four framework-owned routes, the way the action route is owned: `GET /auth/login` begins a sign-in, `POST /auth/enrol` adds a method to whoever is signed in, `/auth/callback` takes each answer and `POST /auth/logout` clears both cells. A page that asks for JSON gets each step as data. The login page itself stays the application's own route, since auth never renders; `[auth] login` names it. Chapter 200 has the section and what each route does. A host with its own flow can still call the facade directly. The bodies are unaffected either way, since they only ever see `identity`.
 
-`DevProvider` ships for development: a list of users with passwords and optional claims, presenting a password form, no network. It exists so an application can be written against identity from the first day and swap in the real provider, OIDC or whatever the organisation runs, without touching a body.
+`DevProvider` ships for development: a list of users with passwords and optional claims, presenting a password form, no network. `provider = "oidc"` signs in against an OpenID Connect issuer, Google, Microsoft and Apple by `preset` and any other by `issuer`. Until its client secret has a value in development it stands in with a "sign in as" form over the same users, so an application can be written against identity from the first day and switch to the real issuer by setting one secret, without touching a body.
 
 ## The lab
 

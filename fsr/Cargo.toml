@@ -12,6 +12,7 @@ members = [
   "lower",
   "mdx",
   "migrate",
+  "oidc",
   "macros",
   "ogimage",
   "payload",
@@ -49,6 +50,7 @@ snapfire_fsr_ir = { path = "ir", version = "0.18.3" }
 snapfire_fsr_lower = { path = "lower", version = "0.18.3" }
 snapfire_fsr_ogimage = { path = "ogimage", version = "0.2.0" }
 snapfire_fsr_mdx = { path = "mdx", version = "0.2.1" }
+snapfire_fsr_oidc = { path = "oidc", version = "0.1.0" }
 snapfire_fsr_macros = { path = "macros", version = "0.6.1" }
 snapfire_fsr_migrate = { path = "migrate", version = "0.1.0" }
 snapfire_fsr_payload = { path = "payload", version = "0.9.1" }

@@ -180,3 +180,20 @@ fn enrolling_needs_a_signed_in_session_and_keeps_its_identity() {
   assert!(matches!(refused, AuthError::Denied(_)), "a method belonging to someone else is refused");
   assert_eq!(opened.cell.identity().unwrap().subject, "bea");
 }
+
+#[test]
+fn a_stand_in_signs_in_as_any_user_of_the_table_by_name() {
+  let auth = Auth::new(Arc::new(DevProvider::new().user("alice", "wonder").user("bob", "builder").stand_in()));
+  let opened = block_on(layer().open(None));
+  match begin(&auth, &opened, "/") {
+    Step::Present { kind, data } => {
+      assert_eq!(kind, "form");
+      assert_eq!(data.get("fields"), Some(&Value::seq(vec![Value::str("user")])));
+      assert_eq!(data.get("users"), Some(&Value::seq(vec![Value::str("alice"), Value::str("bob")])));
+    }
+    other => panic!("{other:?}"),
+  }
+  assert_eq!(block_on(auth.advance(&opened, map(&[("user", "bob")]))).unwrap(), Step::Complete { to: "/".to_owned(), signed_in: true });
+  begin(&auth, &opened, "/");
+  assert!(matches!(block_on(auth.advance(&opened, map(&[("user", "mallory")]))), Err(AuthError::Denied(_))));
+}

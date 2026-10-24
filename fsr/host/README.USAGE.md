@@ -901,6 +901,19 @@ login = "/login"
 base_url = "http://127.0.0.1:8092"
 ```
 
+`provider = "oidc"` signs in against an OpenID Connect issuer: a `preset` (`google`, `microsoft` or `apple`) or an `issuer`, a `client_id` and a `client_secret` naming a `[secrets]` entry. The redirect URI to register is `<document.origin>/auth/callback`. In development, until the secret has a value, the method stands in with a "sign in as" form over `config/auth.toml`, so sign-in works before the issuer is set up:
+
+```toml
+[auth]
+provider = "oidc"
+preset = "google"
+client_id = "1234.apps.googleusercontent.com"
+client_secret = "google"
+
+[secrets.google]
+description = "the Google OAuth client secret"
+```
+
 Several methods on one login page are `[[auth.methods]]`, in the order the page lists them. A sign-in with `?method=<name>` runs that one; one with none presents a `choose` step naming them all. `second_factor` names a method every sign-in through the others must also pass for the same subject:
 
 ```toml

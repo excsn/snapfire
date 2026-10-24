@@ -40,6 +40,7 @@ parking_lot = "0.12"
 snapfire_fsr.workspace = true
 snapfire_fsr_ir.workspace = true
 snapfire_fsr_auth.workspace = true
+snapfire_fsr_oidc.workspace = true
 snapfire_fsr_core.workspace = true
 snapfire_fsr_payload.workspace = true
 snapfire_fsr_tera = { workspace = true, optional = true }

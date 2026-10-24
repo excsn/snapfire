@@ -1,0 +1,33 @@
+[package]
+name = "snapfire_fsr_oidc"
+version = "0.1.0"
+description = "OpenID Connect sign-in for SnapFire FSR: an IdentityProvider over any issuer, with presets for the common ones."
+keywords = ["snapfire", "fsr", "oidc", "openid", "authentication"]
+categories = ["web-programming", "authentication"]
+exclude = ["tests"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+readme = "README.md"
+
+[dependencies]
+snapfire_fsr_auth.workspace = true
+snapfire_fsr_core.workspace = true
+snapfire_fsr_runtime.workspace = true
+snapfire_fsr_session.workspace = true
+base64 = "0.22"
+form_urlencoded = "1"
+futures-util = "0.3"
+parking_lot = "0.12"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util"] }
+proptest = "1"

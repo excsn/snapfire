@@ -1023,11 +1023,7 @@ impl HostBuilder {
       (None, Some(section)) => {
         let mut built = Vec::new();
         for method in section.all_methods() {
-          let provider = crate::auth::method_provider(&method, &config, &app.services, &prefix)?;
-          let name = match (&method.client, method.provider.as_str()) {
-            (Some(client), "service") => format!("service via {client}"),
-            _ => method.provider.clone(),
-          };
+          let (provider, name) = crate::auth::method_provider(&method, &config, &app.services, &prefix)?;
           built.push((method.name.clone(), name, provider));
         }
         let (provider, name): (Arc<dyn IdentityProvider>, String) = match (built.len(), &section.second_factor) {
