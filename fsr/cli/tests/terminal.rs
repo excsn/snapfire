@@ -85,6 +85,21 @@ fn a_component_that_would_render_in_a_browser_refuses_the_page_naming_it() {
 }
 
 #[test]
+fn a_page_refused_when_the_session_opens_shows_why_and_opens_once_it_is_fixed() {
+  let page = "import { Text } from \"ink\";\nimport { measureElement } from \"ink\";\n\nexport default function Page() {\n  const { width } = measureElement(null);\n  return <Text>{width}</Text>;\n}\n";
+  let app = app(page);
+  let mut shown = Vec::new();
+  let session = snapfire_fsr_cli::terminal::open_watching(&app, &[], |why| {
+    shown.push(why.to_owned());
+    std::fs::write(app.join("routes/page.tsx"), "import { Text } from \"ink\";\n\nexport default function Page() {\n  return <Text>fixed</Text>;\n}\n")?;
+    Ok(true)
+  });
+  let mut session = session.unwrap().expect("opened after the edit");
+  assert!(shown.len() == 1 && shown[0].contains("measureElement"), "{shown:?}");
+  assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 10).lines()[0].trim_end(), "fixed");
+}
+
+#[test]
 fn a_session_has_exited_once_the_page_calls_exit() {
   let quits = "import { Text, useApp, useInput } from \"ink\";\n\nexport default function Quits() {\n  const { exit: leave } = useApp();\n  useInput((input) => {\n    if (input === \"q\") leave();\n  });\n  return <Text>press q</Text>;\n}\n";
   let mut session = Session::open(&app(quits)).unwrap();

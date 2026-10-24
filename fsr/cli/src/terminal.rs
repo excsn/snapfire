@@ -896,9 +896,39 @@ pub fn params(args: &[String]) -> Params {
   params
 }
 
+/// The page under `app` opened with `args` for its loader; while it is refused `refused` is handed the reason and answers whether to try again, `None` when it says no.
+pub fn open_watching(app: &Path, args: &[String], mut refused: impl FnMut(&str) -> std::io::Result<bool>) -> std::io::Result<Option<Session>> {
+  loop {
+    match Session::open_with(app, params(args)) {
+      Ok(session) => return Ok(Some(session)),
+      Err(why) => {
+        if !refused(&why)? {
+          return Ok(None);
+        }
+      }
+    }
+  }
+}
+
+/// Waits for an edit under the app, true, or Ctrl-C, false.
+fn until_edited(edits: &std::sync::mpsc::Receiver<()>) -> std::io::Result<bool> {
+  loop {
+    if crossterm::event::poll(IDLE)? {
+      if let Event::Key(key) = crossterm::event::read()? {
+        if key.kind != KeyEventKind::Release && matches!(key_event(key), Some(Press::Exit)) {
+          return Ok(false);
+        }
+      }
+    }
+    if edits.try_recv().is_ok() {
+      while edits.try_recv().is_ok() {}
+      return Ok(true);
+    }
+  }
+}
+
 pub fn run(app: &Path, args: &[String]) -> Result<(), BuildError> {
   let fail = |e: std::io::Error| BuildError::Dev(format!("terminal: {e}"));
-  let mut session = Session::open_with(app, params(args)).map_err(BuildError::Dev)?;
   let (tx, rx) = std::sync::mpsc::channel();
   let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
     if let Ok(event) = event {
@@ -912,9 +942,14 @@ pub fn run(app: &Path, args: &[String]) -> Result<(), BuildError> {
   watcher.watch(app, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
 
   let mut screen = Some(Screen::enter().map_err(fail)?);
+  let mut shown = Frame::new(0, 0);
+  let opened = open_watching(app, args, |why| {
+    draw(&Err(why.to_owned()), &mut shown, true, None)?;
+    until_edited(&rx)
+  });
+  let Some(mut session) = opened.map_err(fail)? else { return Ok(()) };
   let (columns, rows) = terminal_size();
   session.resize(columns, rows);
-  let mut shown = Frame::new(0, 0);
   let mut drawn = session.view();
   draw(&drawn, &mut shown, true, session.cursor()).map_err(fail)?;
   let schedule = |session: &mut Session| -> Vec<(Timer, Instant)> { session.take_started().into_iter().map(|timer| (Instant::now() + timer.every, timer)).map(|(at, timer)| (timer, at)).collect() };
