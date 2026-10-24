@@ -69,7 +69,7 @@ impl CardClasses {
 impl Cards {
   /// Every face the build read under `[dirs] fonts`, in the order the
   /// manifest lists them, read from the bundle's copy under `out`, which a
-  /// deploy tree carries, or from the source under `app` with no bundle. A face that does not read is skipped with a warning
+  /// deploy tree carries. With no bundle it is read from the source under `app`. A face that does not read is skipped with a warning
   /// and the card falls back past it.
   /// A `[fonts.<key>]` with `scripts` adds its faces as the ones for text in
   /// those scripts; a script name Unicode does not have refuses the boot.

@@ -78,7 +78,7 @@ fn json_value() -> impl Strategy<Value = Value> {
 }
 
 proptest! {
-  /// Whatever the writer produces is a JSON document, and reading it back gives the value with each double JSON can hold equal to what it read.
+  /// Whatever the writer produces is a JSON document. Reading it back and writing it again gives the same text.
   #[test]
   fn every_written_value_is_json_and_reads_back(value in json_value()) {
     let text = plain(&value);
