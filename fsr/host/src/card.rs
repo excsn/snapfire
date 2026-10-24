@@ -21,7 +21,6 @@ const CACHED: usize = 256;
 /// first use, and the images already drawn.
 pub(crate) struct Cards {
   fonts: Arc<Fonts>,
-  app: std::path::PathBuf,
   /// The file each placed image's URL reads from.
   sources: HashMap<String, std::path::PathBuf>,
   images: Mutex<Images>,
@@ -106,7 +105,7 @@ impl Cards {
         }
       }
     }
-    Ok(Cards { fonts: Arc::new(fonts), app: app.to_path_buf(), sources, images: Mutex::new(Images::new()), drawn: Mutex::new(HashMap::new()), classes: CardClasses::read(app), site_classes: HashMap::new() })
+    Ok(Cards { fonts: Arc::new(fonts), sources, images: Mutex::new(Images::new()), drawn: Mutex::new(HashMap::new()), classes: CardClasses::read(app), site_classes: HashMap::new() })
   }
 
   /// The tables of the sites mounted from `apps`, each a site's name and its app directory.

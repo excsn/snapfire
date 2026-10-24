@@ -143,7 +143,7 @@ impl Host {
     let Some(handler) = self.socket_handler.clone() else {
       return text_response(StatusCode::NOT_FOUND, "no socket handler is registered".to_owned());
     };
-    if !upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+    if !from_this_site(req.headers(), self.origin.as_deref(), &self.trusted_origins) {
       return text_response(StatusCode::FORBIDDEN, "a socket opens from this site's own pages".to_owned());
     }
     let topic = req
@@ -290,9 +290,23 @@ impl Host {
   }
 }
 
-/// Whether a request that acts on the visitor's session came from this site's own pages. A browser sends `Origin` on a WebSocket handshake and on any cross-origin POST and carries the visitor's cookie with it, so another origin, a sibling subdomain included, is refused. A client that sends no `Origin` is not a browser carrying someone else's cookie.
-pub(crate) fn upgrade_from_this_site(headers: &hyper::HeaderMap, configured: Option<&str>) -> bool {
-  let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) else {
+/// `scheme://host[:port]` of a URL, lowercased; `None` for anything else, `null` included.
+pub(crate) fn origin_of(url: &str) -> Option<String> {
+  let (scheme, rest) = url.split_once("://")?;
+  let authority = rest.split('/').next().unwrap_or(rest);
+  (!scheme.is_empty() && !authority.is_empty()).then(|| format!("{}://{}", scheme.to_ascii_lowercase(), authority.to_ascii_lowercase()))
+}
+
+/// Whether a request that acts on the visitor's session came from this site's own pages or from an origin in `trusted`. A browser says where a request came from: `Sec-Fetch-Site` on every request, `Origin` on a WebSocket handshake and on any cross-origin POST. It carries the visitor's cookie with either. `same-origin` and `none`, a typed URL or a bookmark, pass; another site, a sibling subdomain included, is refused. A browser that sends no `Sec-Fetch-Site` is judged by `Origin` against the request's host or `configured`. A client that sends neither is not a browser carrying someone else's cookie.
+pub(crate) fn from_this_site(headers: &hyper::HeaderMap, configured: Option<&str>, trusted: &[String]) -> bool {
+  let origin = headers.get("origin").and_then(|v| v.to_str().ok());
+  let is_trusted = || origin.and_then(origin_of).is_some_and(|theirs| trusted.iter().any(|t| t.trim_end_matches('/').eq_ignore_ascii_case(&theirs)));
+  match headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+    Some("same-origin" | "none") => return true,
+    Some(_) => return is_trusted(),
+    None => {}
+  }
+  let Some(origin) = origin else {
     return true;
   };
   let authority = |url: &str| url.split_once("://").map(|(_, rest)| rest.split('/').next().unwrap_or(rest).to_ascii_lowercase());
@@ -300,12 +314,12 @@ pub(crate) fn upgrade_from_this_site(headers: &hyper::HeaderMap, configured: Opt
     return false;
   };
   let host = headers.get("host").and_then(|v| v.to_str().ok()).map(str::to_ascii_lowercase);
-  host.as_deref() == Some(theirs.as_str()) || configured.and_then(authority).as_deref() == Some(theirs.as_str())
+  host.as_deref() == Some(theirs.as_str()) || configured.and_then(authority).as_deref() == Some(theirs.as_str()) || is_trusted()
 }
 
 #[cfg(test)]
 mod upgrade_origin_tests {
-  use super::upgrade_from_this_site;
+  use super::from_this_site;
 
   fn headers(pairs: &[(&'static str, &'static str)]) -> hyper::HeaderMap {
     let mut map = hyper::HeaderMap::new();
@@ -317,12 +331,12 @@ mod upgrade_origin_tests {
 
   #[test]
   fn only_this_sites_pages_open_a_socket() {
-    assert!(upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "https://app.example")]), None));
-    assert!(upgrade_from_this_site(&headers(&[("host", "127.0.0.1:3000"), ("origin", "http://127.0.0.1:3000")]), None));
-    assert!(upgrade_from_this_site(&headers(&[("host", "internal:8080"), ("origin", "https://app.example")]), Some("https://app.example")), "behind a proxy the configured origin is this site");
-    assert!(!upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "https://evil.example")]), None));
-    assert!(!upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "https://sub.app.example")]), Some("https://app.example")), "a sibling subdomain is another origin");
-    assert!(!upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "null")]), None), "an opaque origin is refused");
-    assert!(upgrade_from_this_site(&headers(&[("host", "app.example")]), None), "a non-browser client sends no Origin");
+    assert!(from_this_site(&headers(&[("host", "app.example"), ("origin", "https://app.example")]), None, &[]));
+    assert!(from_this_site(&headers(&[("host", "127.0.0.1:3000"), ("origin", "http://127.0.0.1:3000")]), None, &[]));
+    assert!(from_this_site(&headers(&[("host", "internal:8080"), ("origin", "https://app.example")]), Some("https://app.example"), &[]), "behind a proxy the configured origin is this site");
+    assert!(!from_this_site(&headers(&[("host", "app.example"), ("origin", "https://evil.example")]), None, &[]));
+    assert!(!from_this_site(&headers(&[("host", "app.example"), ("origin", "https://sub.app.example")]), Some("https://app.example"), &[]), "a sibling subdomain is another origin");
+    assert!(!from_this_site(&headers(&[("host", "app.example"), ("origin", "null")]), None, &[]), "an opaque origin is refused");
+    assert!(from_this_site(&headers(&[("host", "app.example")]), None, &[]), "a non-browser client sends no Origin");
   }
 }

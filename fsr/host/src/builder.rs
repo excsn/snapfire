@@ -533,7 +533,8 @@ impl HostBuilder {
       #[cfg(feature = "sites_reload")]
       sites_reload: tokio::sync::Mutex::new(()),
       reload_checks,
-      csrf_always: config.session.csrf == "always",
+      csrf: crate::CsrfTokens::of(&config.session.csrf),
+      trusted_origins: config.trusted_origins(),
       session_shape: session_shape(&config),
       keyring: owned_ring,
       trace_ring: ring,

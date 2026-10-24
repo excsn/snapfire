@@ -1851,6 +1851,7 @@ title = "Test <app>"
 [session]
 key = "test-key"
 ttl = "10m"
+csrf = "identified"
 
 [locales]
 supported = ["en_US", "fr_FR"]
@@ -2213,6 +2214,34 @@ fn formed_over(transport: Arc<MockTransport>) -> Arc<Host> {
   Arc::new(host)
 }
 
+/// A write is verified by where the browser says it came from, `Sec-Fetch-Site` and then `Origin`, so an anonymous visitor's form needs no token and no session; another site, a sibling subdomain included, is refused unless trusted.
+#[tokio::test]
+async fn a_write_is_verified_by_where_the_browser_says_it_came_from() {
+  let dir = server_with("trusted_origins = [\"https://pay.example\"]");
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new()))))
+    .action("remember", |_ctx, input| async move { Ok(input) })
+    .build()
+    .unwrap();
+  let post = |headers: &[(&str, &str)]| {
+    let mut request = Request::post("/_sf/action/remember").header(header::HOST, "localhost").header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").header(header::REFERER, "http://localhost/");
+    for (name, value) in headers {
+      request = request.header(*name, *value);
+    }
+    request.body(Bytes::from("word=hi")).unwrap()
+  };
+  let status = |response: http::Response<snapfire_fsr_host::Body>| response.status();
+  assert_eq!(status(host.handle(post(&[("sec-fetch-site", "same-origin"), ("origin", "http://localhost")])).await), StatusCode::SEE_OTHER, "an anonymous form posts with no token");
+  assert_eq!(status(host.handle(post(&[("origin", "http://localhost")])).await), StatusCode::SEE_OTHER, "a browser that sends only Origin");
+  assert_eq!(status(host.handle(post(&[("sec-fetch-site", "cross-site"), ("origin", "https://evil.example")])).await), StatusCode::FORBIDDEN);
+  assert_eq!(status(host.handle(post(&[("sec-fetch-site", "same-site"), ("origin", "http://sub.localhost")])).await), StatusCode::FORBIDDEN, "a sibling subdomain is another site");
+  assert_eq!(status(host.handle(post(&[("origin", "https://evil.example")])).await), StatusCode::FORBIDDEN);
+  assert_eq!(status(host.handle(post(&[("sec-fetch-site", "cross-site"), ("origin", "https://pay.example")])).await), StatusCode::SEE_OTHER, "a trusted origin");
+  let html = body_of(host.handle(Request::get("/").body(Bytes::new()).unwrap()).await).await;
+  assert!(!html.contains("csrf_token"), "no token is minted unless session.csrf asks for one: {html}");
+}
+
 #[tokio::test]
 async fn a_form_posts_an_action_with_its_token_and_lands_back_on_the_referer() {
   let host = formed();
@@ -2566,6 +2595,7 @@ title = "Remote"
 
 [session]
 key = "test-key"
+csrf = "identified"
 store = "service"
 client = "identity"
 
@@ -5412,7 +5442,7 @@ mod csrf_schemes {
 #[tokio::test]
 async fn signing_in_rotates_the_csrf_token() {
   let dir = identified_dir(USERS);
-  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("ttl = \"10m\"", "ttl = \"10m\"\ncsrf = \"always\"");
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("csrf = \"identified\"", "csrf = \"always\"");
   std::fs::write(dir.join("app.toml"), toml).unwrap();
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
@@ -7676,7 +7706,7 @@ mod sign_in_steps {
   async fn enrolling_presents_the_services_step_to_a_signed_in_session_with_its_token() {
     let (host, steps) = host();
     let anonymous = host.handle(Request::post("/auth/enrol").body(Bytes::new()).unwrap()).await;
-    assert_eq!(anonymous.status(), StatusCode::FORBIDDEN, "no csrf token, no enrolment");
+    assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED, "an anonymous session enrols nothing; it needs no token to be told so");
 
     let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
     let response = host.handle(Request::get("/auth/callback?code=ok").header(header::COOKIE, &cookie_of(&response)).body(Bytes::new()).unwrap()).await;

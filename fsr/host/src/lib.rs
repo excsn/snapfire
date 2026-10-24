@@ -293,7 +293,10 @@ pub struct Host {
   sites_reload: tokio::sync::Mutex<()>,
   /// What a Rust host checks a candidate with before a reload swaps it in.
   reload_checks: Vec<Arc<dyn ReloadCheck>>,
-  csrf_always: bool,
+  /// Whether a CSRF token stands beside the origin check, `session.csrf`.
+  csrf: CsrfTokens,
+  /// The origins beside this site's own a write may come from: `server.trusted_origins` and the issuers that post their sign-in callback.
+  trusted_origins: Vec<String>,
   report_listen: String,
   /// The most bytes a request body may carry, `server.max_body`.
   max_body: usize,
@@ -630,5 +633,23 @@ impl Host {
       .iter()
       .find(|(n, _)| n == name)
       .map(|(_, o)| *o)
+  }
+}
+
+/// `session.csrf`: when a CSRF token is minted and verified beside the origin check every write passes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CsrfTokens {
+  None,
+  Identified,
+  Always,
+}
+
+impl CsrfTokens {
+  pub(crate) fn of(mode: &str) -> Self {
+    match mode {
+      "identified" => Self::Identified,
+      "always" => Self::Always,
+      _ => Self::None,
+    }
   }
 }

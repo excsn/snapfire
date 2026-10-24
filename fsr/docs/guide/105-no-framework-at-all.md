@@ -218,7 +218,7 @@ An action posted as a form is answered with a redirect to the page that posted i
 </form>
 ```
 
-htmx posts, follows the 303 to `/tool/3?__fragment` and swaps in the tool page rendered from the session the action just wrote, with the button now saying the opposite. Without JavaScript the same form posts natively and lands back on the document. `csrf_token` is a prop every page and layout may read, minted for anonymous sessions too when `[session] csrf = "always"` is set, which a form anonymous visitors post needs.
+htmx posts, follows the 303 to `/tool/3?__fragment` and swaps in the tool page rendered from the session the action just wrote, with the button now saying the opposite. Without JavaScript the same form posts natively and lands back on the document. `csrf_token` is a prop every page and layout may read, minted when `[session] csrf` asks for a token beside the origin check every write passes; the toolshed sets `always`.
 
 ## Wiring htmx to the navigator
 

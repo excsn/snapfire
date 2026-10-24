@@ -487,6 +487,9 @@ pub struct ServerConfig {
   /// How long, in seconds, `serve_listener` waits on SIGTERM or SIGINT for the connections it holds to finish before it returns. It stops accepting at once.
   #[serde(default = "default_shutdown_grace")]
   pub shutdown_grace: u64,
+  /// Other origins a write may come from, `https://pay.example`, beside this site's own: a payment provider posting back. An OIDC method posting its callback (`form_post`) adds its issuer's origin itself.
+  #[serde(default)]
+  pub trusted_origins: Vec<String>,
   /// The path a liveness probe asks, answered 200 while the process serves. Empty turns it off.
   #[serde(default = "default_health")]
   pub health: String,
@@ -559,6 +562,7 @@ impl Default for ServerConfig {
       static_max_age: None,
       http2: false,
       shutdown_grace: default_shutdown_grace(),
+      trusted_origins: Vec::new(),
       health: default_health(),
       ready: default_ready(),
       tls: None,
@@ -890,10 +894,11 @@ pub struct SessionSection {
   pub capacity: u64,
   #[serde(default)]
   pub secure: bool,
-  /// When the host mints the session's CSRF token into requests: `identified`,
-  /// once the session has an identity or `always`. Under `always` a fresh
-  /// session is established by the response that rendered a token and by no
-  /// other. A token joins the memo key of a subtree that renders it.
+  /// Whether a CSRF token stands beside the origin check every write passes: `origin`,
+  /// the default, mints none; `identified` mints and verifies one once the session has an
+  /// identity; `always` for any session whose page renders it. Under `always` a fresh
+  /// session is established by the response that rendered a token and by no other. A
+  /// token joins the memo key of a subtree that renders it.
   #[serde(default = "default_csrf")]
   pub csrf: String,
   /// How a token is made and checked: `single_use`, a fresh token per form
@@ -937,7 +942,7 @@ impl Default for SessionSection {
 }
 
 fn default_csrf() -> String {
-  "identified".to_owned()
+  "origin".to_owned()
 }
 
 fn default_csrf_scheme() -> String {
@@ -2189,11 +2194,16 @@ impl Config {
         return Err(HostError::Config(at.clone(), format!("`secrets.{name}.value` is written but has no value: a secret that does not decrypt loads empty")));
       }
     }
-    if !matches!(session.csrf.as_str(), "identified" | "always") {
+    if !matches!(session.csrf.as_str(), "origin" | "identified" | "always") {
       return Err(HostError::Config(
         at.clone(),
-        format!("session.csrf `{}` is not a choice; identified or always", session.csrf),
+        format!("session.csrf `{}` is not a choice; origin, identified or always", session.csrf),
       ));
+    }
+    for trusted in &server.trusted_origins {
+      if crate::live::origin_of(trusted).as_deref() != Some(trusted.trim_end_matches('/')) {
+        return Err(HostError::Config(at.clone(), format!("server.trusted_origins `{trusted}` is not an origin; write the scheme and host, `https://pay.example`")));
+      }
     }
     if !matches!(session.csrf_scheme.as_str(), "single_use" | "session" | "derived") {
       return Err(HostError::Config(
@@ -3006,6 +3016,17 @@ impl Config {
 
   /// The directory the first configuration file came from, which is where
   /// `auth.users` resolves; the project root when nothing was loaded.
+  /// The origins beside this site's own a write may come from: `server.trusted_origins`, then each sign-in issuer that posts its callback back (`form_post`), Apple's.
+  pub fn trusted_origins(&self) -> Vec<String> {
+    let mut out: Vec<String> = self.server.trusted_origins.iter().map(|o| o.trim_end_matches('/').to_ascii_lowercase()).collect();
+    let posting = self.auth.as_ref().map(|auth| auth.all_methods()).unwrap_or_default().into_iter().filter(|m| m.provider == "oidc" && m.preset.as_deref() == Some("apple"));
+    for _ in posting {
+      out.push("https://appleid.apple.com".to_owned());
+    }
+    out.dedup();
+    out
+  }
+
   pub fn config_dir(&self) -> PathBuf {
     self
       .sources

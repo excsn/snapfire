@@ -258,8 +258,22 @@ impl Host {
     self.hosts.iter().find(|h| **h == asked).cloned()
   }
 
+  /// Whether a write's CSRF token stands, under `session.csrf`: none is asked under `origin`, nor of an anonymous session under `identified`, since the origin check already passed.
+  pub(crate) fn token_holds(&self, opened: &Opened, token: &str) -> bool {
+    match self.csrf {
+      crate::CsrfTokens::None => true,
+      crate::CsrfTokens::Identified if opened.cell.identity().is_none() => true,
+      _ => self.sessions.verify_csrf(opened, token),
+    }
+  }
+
+  /// Whether a write came from this site's pages or a trusted origin.
+  pub(crate) fn from_this_site(&self, headers: &header::HeaderMap) -> bool {
+    super::live::from_this_site(headers, self.origin.as_deref(), &self.trusted_origins)
+  }
+
   pub(crate) fn incoming(&self, opened: &Opened, host: Option<String>) -> Incoming {
-    let csrf = match self.csrf_always || opened.cell.identity().is_some() {
+    let csrf = match self.csrf == crate::CsrfTokens::Always || (self.csrf == crate::CsrfTokens::Identified && opened.cell.identity().is_some()) {
       true => {
         let scheme = self.sessions.csrf_scheme();
         let held = opened.clone();
@@ -608,6 +622,9 @@ impl Host {
     visit: Resolution,
     raw_query: String,
   ) -> Response<Body> {
+    if !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS) && !self.from_this_site(req.headers()) {
+      return text_response(StatusCode::FORBIDDEN, "a write is taken from this site's own pages".to_owned());
+    }
     let path = visit.path.clone();
     #[cfg(feature = "auth")]
     if let Some(mounted) = &t.auth {
@@ -698,7 +715,7 @@ impl Host {
   ) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(module) = path.strip_prefix("/_sf/island/").map(percent_decoded) {
-        if !super::live::upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+        if !self.from_this_site(req.headers()) {
           return text_response(StatusCode::FORBIDDEN, "an island steps from this site's own pages".to_owned());
         }
         if !is_json(req.headers()) {
@@ -746,7 +763,7 @@ impl Host {
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
-        if !super::live::upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+        if !self.from_this_site(req.headers()) {
           return text_response(StatusCode::FORBIDDEN, "an action is called from this site's own pages".to_owned());
         }
         if !is_form && !is_json(req.headers()) {
@@ -778,7 +795,7 @@ impl Host {
             Some(Value::Str(token)) => token.to_string(),
             _ => String::new(),
           };
-          if !self.sessions.verify_csrf(opened, &token) {
+          if !self.token_holds(opened, &token) {
             return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
           }
           let mut input = Value::Map(fields);
@@ -861,7 +878,7 @@ impl Host {
 
     if t.app.handlers.match_request(req.method().as_str(), &path).is_some() {
       let writes = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
-      if writes && !super::live::upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+      if writes && !self.from_this_site(req.headers()) {
         return text_response(StatusCode::FORBIDDEN, "a route handler takes a write from this site's own pages".to_owned());
       }
       let multipart = multipart_boundary(req.headers());
@@ -896,7 +913,7 @@ impl Host {
           Some(Value::Str(token)) => token.to_string(),
           _ => String::new(),
         };
-        if !self.sessions.verify_csrf(opened, &token) {
+        if !self.token_holds(opened, &token) {
           return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
         }
         Value::Map(fields)
@@ -1141,7 +1158,7 @@ impl Host {
 
   pub(crate) async fn save_session(&self, opened: &Opened, response: &mut Response<Body>) {
     let changed = opened.cell.is_dirty() || opened.tokens.is_dirty();
-    let written = if self.csrf_always && opened.csrf.is_issued() {
+    let written = if self.csrf == crate::CsrfTokens::Always && opened.csrf.is_issued() {
       self.sessions.establish(opened).await
     } else {
       self.sessions.persist(opened).await

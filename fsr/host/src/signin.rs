@@ -97,7 +97,7 @@ impl Host {
       }
       (&Method::POST, "/auth/enrol") => {
         let token = form_field(req.body(), "_csrf").or_else(|| header("x-sf-csrf")).unwrap_or_default();
-        if !self.sessions.verify_csrf(opened, &token) {
+        if !self.token_holds(opened, &token) {
           return Some(text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned()));
         }
         let Some(identity) = opened.cell.identity() else {
@@ -122,7 +122,7 @@ impl Host {
         let token = form_field(req.body(), "_csrf")
           .or_else(|| header("x-sf-csrf"))
           .unwrap_or_default();
-        if !self.sessions.verify_csrf(opened, &token) {
+        if !self.token_holds(opened, &token) {
           return Some(text_response(
             StatusCode::FORBIDDEN,
             "csrf verification failed".to_owned(),
