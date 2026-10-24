@@ -255,7 +255,7 @@ impl App {
   fn compile_with(&self, bundle: impl FnOnce() -> Result<(), BuildError>) -> Result<Option<Checked>, BuildError> {
     let checker = typecheck::spawn(&self.dir, &self.options.typecheck)?;
     let bundled = bundle();
-    let checked = typecheck::finish(checker, &self.options.typecheck);
+    let checked = typecheck::finish(checker);
     bundled?;
     checked
   }

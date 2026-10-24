@@ -1,8 +1,9 @@
 //! The typechecker as a peer process: `fsr` spawns `snapfiretc` over the
 //! `tsconfig.json` the build wrote and renders what it says in its own
 //! report. The checker owns which TypeScript runs and where it comes from;
-//! `[typecheck]` beside the app says which version and, once one has been
-//! resolved, `fsr` records it there so every later build asks for the same.
+//! `[typecheck]` beside the app says which version. `pin` records the
+//! checker's default there when a project's dependencies are set up, so every
+//! later build asks for the same; a check never writes it.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -26,8 +27,6 @@ pub struct Typecheck {
   pub version: Option<String>,
   /// The integrity a fetched compiler must have, for a version the checker pins no hash for.
   pub expect: Option<String>,
-  /// The configuration file a resolved version is recorded in, when the project has one.
-  pub record: Option<PathBuf>,
 }
 
 impl Typecheck {
@@ -56,21 +55,16 @@ impl Typecheck {
     self
   }
 
-  pub fn record(mut self, record: Option<PathBuf>) -> Self {
-    self.record = record;
-    self
-  }
 }
 
 impl Typecheck {
   /// The `[typecheck]` section of the configuration beside `app`. A project
   /// with no configuration checks with the checker's default version and
-  /// records nothing.
+  /// writes nothing.
   pub fn beside(app: &Path) -> Self {
     let mut options = Self { enabled: true, ..Self::default() };
     let root = crate::serve::project_root(app);
     let Ok(config) = snapfire_fsr_host::config::Config::load(&root) else { return options };
-    options.record = config.sources.first().filter(|p| p.extension().is_some_and(|x| x == "toml")).cloned();
     if let Some(section) = &config.typecheck {
       options.enabled = section.enabled.unwrap_or(true);
       options.version = section.version.clone();
@@ -123,9 +117,6 @@ pub struct Checked {
   #[serde(default)]
   pub pinned: bool,
   pub diagnostics: Vec<Diagnostic>,
-  /// The configuration file the version was recorded in, when this run recorded it.
-  #[serde(skip)]
-  pub recorded: Option<PathBuf>,
 }
 
 impl Checked {
@@ -190,30 +181,40 @@ pub fn spawn(app: &Path, options: &Typecheck) -> Result<Option<Child>, BuildErro
   }
 }
 
-/// Waits for a spawned checker and reads its report, recording the version it
-/// resolved when the configuration names none.
-pub fn finish(child: Option<Child>, options: &Typecheck) -> Result<Option<Checked>, BuildError> {
+/// Waits for a spawned checker and reads its report.
+pub fn finish(child: Option<Child>) -> Result<Option<Checked>, BuildError> {
   let Some(child) = child else { return Ok(None) };
   let output = child.wait_with_output().map_err(|e| BuildError::Typecheck(e.to_string()))?;
   let text = String::from_utf8_lossy(&output.stdout);
   if text.trim().is_empty() {
     return Err(BuildError::Typecheck(format!("exited with {} and printed nothing", output.status)));
   }
-  let mut checked: Checked = serde_json::from_str(text.trim()).map_err(|e| BuildError::Typecheck(format!("{e}: {}", text.trim())))?;
-  if options.version.is_none() {
-    if let Some(path) = &options.record {
-      let sha512 = checked.sha512.clone().filter(|_| !checked.pinned);
-      if record(path, &checked.version, sha512.as_deref())? {
-        checked.recorded = Some(path.clone());
-      }
-    }
-  }
+  let checked: Checked = serde_json::from_str(text.trim()).map_err(|e| BuildError::Typecheck(format!("{e}: {}", text.trim())))?;
   Ok(Some(checked))
+}
+
+/// Records the checker's default TypeScript version in the configuration beside `app` when its `[typecheck]` names none. `None` when a version is named, the project has no TOML configuration or no checker answers.
+pub fn pin(app: &Path, checker: Option<&Path>) -> Result<Option<(PathBuf, String)>, BuildError> {
+  let root = crate::serve::project_root(app);
+  let Ok(config) = snapfire_fsr_host::config::Config::load(&root) else { return Ok(None) };
+  if config.typecheck.as_ref().is_some_and(|section| section.version.is_some()) {
+    return Ok(None);
+  }
+  let Some(path) = config.sources.first().filter(|p| p.extension().is_some_and(|x| x == "toml")).cloned() else { return Ok(None) };
+  let Ok(output) = Command::new(find_checker(checker)).arg("--version").output() else { return Ok(None) };
+  let Some(version) = default_version(&String::from_utf8_lossy(&output.stdout)) else { return Ok(None) };
+  Ok(record(&path, &version, None)?.then_some((path, version)))
+}
+
+/// The version in `snapfiretc --version`'s `(TypeScript <version> by default)`.
+fn default_version(printed: &str) -> Option<String> {
+  let rest = printed.split("(TypeScript ").nth(1)?;
+  Some(rest.split(' ').next()?.to_owned()).filter(|v| !v.is_empty())
 }
 
 /// Both halves at once, for a caller with nothing to do meanwhile.
 pub fn run(app: &Path, options: &Typecheck) -> Result<Option<Checked>, BuildError> {
-  finish(spawn(app, options)?, options)
+  finish(spawn(app, options)?)
 }
 
 /// Writes `version` into the file's `[typecheck]` section, adding the section
@@ -281,7 +282,7 @@ mod tests {
 
   #[test]
   fn the_row_counts_what_the_checker_found() {
-    let clean = Checked { version: "7.0.2".to_owned(), source: "cache".to_owned(), sha512: None, pinned: true, diagnostics: Vec::new(), recorded: None };
+    let clean = Checked { version: "7.0.2".to_owned(), source: "cache".to_owned(), sha512: None, pinned: true, diagnostics: Vec::new() };
     assert_eq!(clean.row(), "tsc 7.0.2 from cache, clean");
     let error = Diagnostic { file: Some("routes/page.tsx".to_owned()), line: 1, column: 15, code: "TS2305".to_owned(), severity: "error".to_owned(), message: "no".to_owned() };
     let warning = Diagnostic { severity: "warning".to_owned(), ..error.clone() };

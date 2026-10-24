@@ -57,7 +57,7 @@ enum Command {
   Build(Build),
   /// Reports what a deployment would find wrong before it ships.
   Doctor(Doctor),
-  /// Builds and typechecks an application, writing nothing.
+  /// Builds and typechecks an application. It writes only what the checker reads (`generated/`, `tsconfig.json` and the type shims) and none of the deploy tree.
   Check(Check),
   #[cfg(feature = "web")]
   /// Counts what the build refuses or leaves to the browser across applications, by cause, writing nothing.
@@ -610,9 +610,6 @@ fn types_row(checked: Option<&typecheck::Checked>, verbose: bool) -> ExitCode {
   if verbose || !checked.diagnostics.is_empty() {
     println!("typecheck {}", checked.row());
   }
-  if let Some(path) = &checked.recorded {
-    println!("recorded  typecheck.version = \"{}\" in {}", checked.version, path.display());
-  }
   if checked.errors() > 0 { ExitCode::from(1) } else { ExitCode::SUCCESS }
 }
 
@@ -730,6 +727,9 @@ fn main() -> ExitCode {
         for (package, version, from) in &report.fetched {
           println!("types     {package:<28} {from} {version}");
         }
+        if let Some((path, version)) = &report.pinned {
+          println!("recorded  typecheck.version = \"{version}\" in {}", path.display());
+        }
         for package in &report.kept {
           println!("kept      {package}");
         }
@@ -793,6 +793,9 @@ fn run_new(args: New) -> ExitCode {
       }
       for (package, version, from) in &created.typed {
         println!("types     {package:<28} {from} {version}");
+      }
+      if let Some((path, version)) = &created.pinned {
+        println!("recorded  typecheck.version = \"{version}\" in {}", path.display());
       }
       if let Some(linked) = &created.linked {
         println!("wrote     [site] {} at {} in {}", linked.name, linked.at, linked.site_config.display());
@@ -937,6 +940,9 @@ fn run_use(args: Use) -> ExitCode {
       for (package, version, from) in &adopted.typed {
         println!("types     {package:<28} {from} {version}");
       }
+      if let Some((path, version)) = &adopted.pinned {
+        println!("recorded  typecheck.version = \"{version}\" in {}", path.display());
+      }
       for path in &adopted.written {
         println!("wrote     {}", path.display());
       }
@@ -997,6 +1003,9 @@ fn run_add(args: Add) -> ExitCode {
   }
   for (package, version, from) in &added.typed {
     println!("types     {package:<28} {from} {version}");
+  }
+  if let Some((path, version)) = &added.pinned {
+    println!("recorded  typecheck.version = \"{version}\" in {}", path.display());
   }
   for path in &added.written {
     println!("wrote     {}", path.display());

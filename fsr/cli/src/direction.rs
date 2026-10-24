@@ -204,6 +204,8 @@ pub struct Adopted {
   pub from_shell: Vec<(String, String)>,
   pub delegated: Vec<String>,
   pub typed: Vec<(String, String, String)>,
+  /// The configuration file and the TypeScript version pinned in it.
+  pub pinned: Option<(std::path::PathBuf, String)>,
   pub written: Vec<PathBuf>,
   /// What the command could not settle, each a line the caller prints.
   pub notes: Vec<String>,
@@ -323,6 +325,7 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
     match types::fetch(app, false) {
       Ok(report) => {
         adopted.typed = report.fetched;
+        adopted.pinned = report.pinned;
         match crate::new::generate(app) {
           Ok(written) => adopted.written.extend(written),
           Err(e) => adopted.notes.push(format!("writing the generated modules failed ({e}); run `fsr build {}`", app.display())),

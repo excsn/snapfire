@@ -107,6 +107,8 @@ pub struct Created {
   pub written: Vec<PathBuf>,
   pub vendored: Vec<(String, String, usize)>,
   pub typed: Vec<(String, String, String)>,
+  /// The configuration file and the TypeScript version pinned in it.
+  pub pinned: Option<(PathBuf, String)>,
   /// What the scaffold could not settle, each a line the caller prints.
   pub notes: Vec<String>,
   /// What to type next, in order.
@@ -208,6 +210,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     let adopted = direction::adopt(&app, &options.with, UseOptions { fetch: options.fetch, example: false })?;
     created.vendored = adopted.vendored;
     created.typed = adopted.typed;
+    created.pinned = adopted.pinned;
     created.written.extend(adopted.written);
     created.notes.extend(adopted.notes);
     created.next.extend(adopted.next);
@@ -215,6 +218,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     match types::fetch(&app, false) {
       Ok(report) => {
         created.typed = report.fetched;
+        created.pinned = report.pinned;
         // The scaffold's own routes import `@snapfire/fsr` and `@generated/*`,
         // which are written by a build rather than by the template. The
         // `paths` that resolve every other import live in the `tsconfig.json`

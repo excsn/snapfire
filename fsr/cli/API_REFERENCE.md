@@ -403,29 +403,30 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 
 ### Typecheck
 
-* `pub struct Typecheck { pub enabled: bool, pub checker: Option<PathBuf>, pub tsc: Option<PathBuf>, pub version: Option<String>, pub expect: Option<String>, pub record: Option<PathBuf> }`, `#[non_exhaustive]`: build one with `Default` or `beside` and the setters.
-* `Typecheck::enabled(self, enabled: bool) -> Self`, `Typecheck::checker(self, checker: Option<PathBuf>) -> Self`, `Typecheck::tsc(self, tsc: Option<PathBuf>) -> Self`, `Typecheck::version(self, version: Option<String>) -> Self`, `Typecheck::expect(self, expect: Option<String>) -> Self`, `Typecheck::record(self, record: Option<PathBuf>) -> Self`: setters for the field of the same name.
-* `Typecheck::beside(app: &Path) -> Typecheck`: the `[typecheck]` section of the configuration beside `app` and `record` set to its first `.toml` source. A project with no configuration is enabled, with the checker's default version and nothing to record into.
+* `pub struct Typecheck { pub enabled: bool, pub checker: Option<PathBuf>, pub tsc: Option<PathBuf>, pub version: Option<String>, pub expect: Option<String> }`, `#[non_exhaustive]`: build one with `Default` or `beside` and the setters.
+* `Typecheck::enabled(self, enabled: bool) -> Self`, `Typecheck::checker(self, checker: Option<PathBuf>) -> Self`, `Typecheck::tsc(self, tsc: Option<PathBuf>) -> Self`, `Typecheck::version(self, version: Option<String>) -> Self` and `Typecheck::expect(self, expect: Option<String>) -> Self`: setters for the field of the same name.
+* `Typecheck::beside(app: &Path) -> Typecheck`: the `[typecheck]` section of the configuration beside `app`. A project with no configuration is enabled, with the checker's default version.
 * `Default` is disabled with everything absent, so a caller building one by hand opts in; `DevOptions::default` and `DevOptions::beside` both enable it.
 
 ### Checked
 
-* `pub struct Checked { pub version: String, pub source: String, pub sha512: Option<String>, pub pinned: bool, pub diagnostics: Vec<Diagnostic>, pub recorded: Option<PathBuf> }`: the checker's JSON report, plus the file this run recorded the version in.
+* `pub struct Checked { pub version: String, pub source: String, pub sha512: Option<String>, pub pinned: bool, pub diagnostics: Vec<Diagnostic> }`: the checker's JSON report.
 * `pub struct Diagnostic { pub file: Option<String>, pub line: u32, pub column: u32, pub code: String, pub severity: String, pub message: String }`, with `is_error()` and a `Display` printing `file(line,column): severity code: message`.
 * `Checked::errors() -> usize` counts the diagnostics whose severity is `error`; `Checked::row() -> String` is the report row, `tsc 7.0.2 from cache, 1 error`.
 
 ### spawn, finish, run
 
 * `pub fn spawn(app: &Path, options: &Typecheck) -> Result<Option<Child>, BuildError>`: starts the checker over `<app>/tsconfig.json` with `--format json`. `None` when typechecking is off, the tsconfig has not been written or no checker is installed, which are not failures.
-* `pub fn finish(child: Option<Child>, options: &Typecheck) -> Result<Option<Checked>, BuildError>`: waits, reads the report and records the version when `options.version` is `None` and `options.record` names a file. `BuildError::Typecheck` when the child printed nothing or something that is not a report.
+* `pub fn finish(child: Option<Child>) -> Result<Option<Checked>, BuildError>`: waits and reads the report; it writes nothing. `BuildError::Typecheck` when the child printed nothing or something that is not a report.
 * `pub fn run(app: &Path, options: &Typecheck) -> Result<Option<Checked>, BuildError>`: both halves, for a caller with nothing to do meanwhile. `emit` and `fsr dev` use the halves instead, so the check and the bundle run at once.
 
 ### find_checker
 
 * `pub fn find_checker(explicit: Option<&Path>) -> PathBuf`: `explicit`, else `$SNAPFIRETC`, else `snapfiretc` beside the running binary, else the bare name for `PATH`. `pub const CHECKER: &str = "snapfiretc"`.
 
-### record
+### pin, record
 
+* `pub fn pin(app: &Path, checker: Option<&Path>) -> Result<Option<(PathBuf, String)>, BuildError>`: the checker's default TypeScript version, read from `snapfiretc --version`, recorded in the first `.toml` source of the configuration beside `app` when its `[typecheck]` names none. It answers the file and the version. It answers `None` when a version is named, there is no TOML configuration or no checker answers. `types::fetch` calls it, so `fsr new`, `fsr use`, `fsr add` and `fsr types` pin the version and `fsr build`, `fsr check`, `fsr dev` and `fsr test` never write the configuration.
 * `pub fn record(path: &Path, version: &str, sha512: Option<&str>) -> Result<bool, BuildError>`: writes `version` into the file's `[typecheck]` section, adding the section when it has none. `false` when the section already names a version, so a pin written by hand is never rewritten.
 
 ## 6. Vendoring and Declarations

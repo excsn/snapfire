@@ -101,6 +101,8 @@ pub struct TypesReport {
   pub delegated: Vec<String>,
   /// The files written beside the declarations: the foreign shim and the tsconfig.
   pub written: Vec<String>,
+  /// The configuration file and the TypeScript version recorded in its `[typecheck]`, when it named none.
+  pub pinned: Option<(PathBuf, String)>,
 }
 
 /// `@scope/name` is published to DefinitelyTyped as `@types/scope__name`.
@@ -382,6 +384,7 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
     .collect();
   std::fs::write(&path, tsconfig(app, generated, shim.is_some(), declared, &shadowed)?).map_err(|e| BuildError::Io(path, e))?;
   report.written.push("tsconfig.json".to_owned());
+  report.pinned = crate::typecheck::pin(app, None)?;
   Ok(report)
 }
 

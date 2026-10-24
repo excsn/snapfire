@@ -12,6 +12,8 @@ pub struct Added {
   pub groups: Vec<AddReport>,
   /// Package, version and where its declarations came from, for each one fetched.
   pub typed: Vec<(String, String, String)>,
+  /// The configuration file and the TypeScript version pinned in it.
+  pub pinned: Option<(PathBuf, String)>,
   pub written: Vec<PathBuf>,
   /// What did not finish after the packages were vendored, each with the command that finishes it.
   pub notes: Vec<String>,
@@ -36,6 +38,7 @@ pub fn add(app: &Path, specs: Vec<Spec>, externals: &[String], published: bool) 
   match crate::types::fetch(app, false) {
     Ok(report) => {
       added.typed = report.fetched;
+      added.pinned = report.pinned;
       match crate::new::generate(app) {
         Ok(written) => added.written = written,
         Err(e) => added.notes.push(format!("writing the generated modules failed ({e}); run `fsr build {}`", app.display())),

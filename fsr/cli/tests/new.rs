@@ -155,16 +155,19 @@ fn an_application_starts_on_a_report_only_policy_and_a_site_on_its_shell_s() {
 }
 
 #[test]
-fn a_build_names_a_policy_that_turns_every_inline_script_off() {
+fn a_build_names_a_policy_that_turns_the_entry_module_off() {
   let app = root("trap");
   create(&app, offline()).unwrap();
   let config = app.join("config/app.toml");
-  let toml = std::fs::read_to_string(&config).unwrap();
-  let toml = toml.replace("[document.csp_report_only]", "[document.csp]").replace("script-src = [\"'self'\"]", "script-src = [\"'self'\", \"'unsafe-inline'\"]");
-  std::fs::write(&config, toml).unwrap();
+  let toml = std::fs::read_to_string(&config).unwrap().replace("[document.csp_report_only]", "[document.csp]");
+  std::fs::write(&config, toml.replace("script-src = [\"'self'\"]", "script-src = [\"'self'\", \"'strict-dynamic'\"]")).unwrap();
   let built = build(&app.join("app"), &Options::beside(&app.join("app"))).unwrap();
   assert_eq!(built.report.csp.len(), 1, "{}", built.report);
-  assert!(built.report.to_string().contains("csp       `document.csp` names `'unsafe-inline'`"), "{}", built.report);
+  assert!(built.report.to_string().contains("csp       `document.csp` names `'strict-dynamic'`"), "{}", built.report);
+
+  std::fs::write(&config, toml.replace("script-src = [\"'self'\"]", "script-src = [\"'self'\", \"'unsafe-inline'\"]")).unwrap();
+  let built = build(&app.join("app"), &Options::beside(&app.join("app"))).unwrap();
+  assert!(built.report.csp.is_empty(), "the host adds no hash beside 'unsafe-inline', so it is no trap: {}", built.report);
 
   let quiet = root("no-trap");
   create(&quiet, offline()).unwrap();

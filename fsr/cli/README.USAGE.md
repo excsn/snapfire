@@ -1009,7 +1009,7 @@ version = "7.0.2"
 enabled = true
 ```
 
-The first check with no `version` in the file records the one it resolved, so every later build asks for the same compiler; a version already written by hand is never rewritten. A version the checker carries no hash for records its integrity beside it as `sha512`.
+`fsr new`, `fsr use`, `fsr add` and `fsr types` record the checker's default version when the file names none and print `recorded` for it, so every later build asks for the same compiler; a version already written by hand is never rewritten. `fsr check`, `fsr build`, `fsr dev` and `fsr test` never write the configuration. `fsr check` writes only what the checker reads: `generated/`, `tsconfig.json` and the type shims.
 
 The language the check reads is the application's too. Every tsconfig the build writes, the spec runner's included, carries `target = "es2022"` unless `[build]` says otherwise, so an ES2023 method such as `toSorted` or `findLast` fails the check until the target moves:
 

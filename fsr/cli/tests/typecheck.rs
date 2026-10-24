@@ -32,23 +32,37 @@ fn app_with_tsconfig(dir: &Path) -> PathBuf {
 
 #[cfg(unix)]
 #[test]
-fn a_report_is_read_back_and_the_version_recorded_where_the_configuration_names_none() {
+fn a_report_is_read_back() {
   let dir = root("records");
   let app = app_with_tsconfig(&dir);
-  let config = dir.join("app.toml");
-  std::fs::write(&config, "[server]\nlisten = \"127.0.0.1:8080\"\n").unwrap();
   let checker = fake_checker(&dir, r#"{"tsc":"/c/tsc","version":"7.0.2","source":"cache","sha512":null,"pinned":true,"diagnostics":[{"file":"routes/page.tsx","line":1,"column":15,"code":"TS2305","severity":"error","message":"no such member"}]}"#);
-  let options = Typecheck::default().enabled(true).checker(Some(checker)).record(Some(config.clone()));
+  let options = Typecheck::default().enabled(true).checker(Some(checker));
 
   let checked = typecheck::run(&app, &options).unwrap().expect("the checker ran");
   assert_eq!(checked.errors(), 1);
   assert_eq!(checked.row(), "tsc 7.0.2 from cache, 1 error");
   assert_eq!(checked.diagnostics[0].to_string(), "routes/page.tsx(1,15): error TS2305: no such member");
-  assert_eq!(checked.recorded.as_deref(), Some(config.as_path()));
-  assert!(std::fs::read_to_string(&config).unwrap().contains("[typecheck]\nversion = \"7.0.2\""));
+}
 
-  let again = typecheck::run(&app, &options).unwrap().expect("the checker ran");
-  assert_eq!(again.recorded, None, "a version already recorded is not written twice");
+/// `fsr new`, `fsr use`, `fsr add` and `fsr types` pin the checker's default version where the configuration names none.
+#[cfg(unix)]
+#[test]
+fn pin_records_the_checkers_default_version_once() {
+  use std::os::unix::fs::PermissionsExt;
+  let dir = root("pins");
+  let app = dir.join("app");
+  std::fs::create_dir_all(&app).unwrap();
+  std::fs::create_dir_all(dir.join("config")).unwrap();
+  let config = dir.join("config/app.toml");
+  std::fs::write(&config, "[app]\ndir = \"app\"\n\n[server]\nlisten = \"127.0.0.1:8080\"\n").unwrap();
+  let checker = dir.join("snapfiretc");
+  std::fs::write(&checker, "#!/bin/sh\necho 'snapfiretc 0.4.0 (TypeScript 7.0.2 by default)'\n").unwrap();
+  std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+  let pinned = typecheck::pin(&app, Some(&checker)).unwrap();
+  assert_eq!(pinned.as_ref().map(|(_, v)| v.as_str()), Some("7.0.2"));
+  assert!(std::fs::read_to_string(&config).unwrap().contains("[typecheck]\nversion = \"7.0.2\""));
+  assert_eq!(typecheck::pin(&app, Some(&checker)).unwrap(), None, "a version already recorded is not written twice");
 }
 
 #[cfg(unix)]
@@ -178,4 +192,23 @@ fn check_typechecks_with_the_configuration_of_the_build_it_holds() {
   let own = built.files.iter().find(|(name, _)| name == "tsconfig.json").map(|(_, text)| text.clone()).unwrap();
   assert_eq!(written, own);
   std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// `fsr check` writes what the checker reads and nothing else: the version the checker resolved is pinned by `fsr new` and `fsr types`, never by a check.
+#[cfg(unix)]
+#[test]
+fn check_leaves_the_configuration_as_it_found_it() {
+  use snapfire_fsr_cli::new::{create, NewOptions};
+  use snapfire_fsr_cli::{check, Options};
+  let dir = root("untouched");
+  create(&dir.join("project"), NewOptions::default().fetch(false)).unwrap();
+  let app = dir.join("project/app");
+  let config = dir.join("project/config/app.toml");
+  let before = std::fs::read_to_string(&config).unwrap();
+  assert!(!before.contains("[typecheck]"), "{before}");
+  let checker = fake_checker(&dir, r#"{"tsc":"/c/tsc","version":"7.0.2","source":"cache","sha512":null,"pinned":true,"diagnostics":[]}"#);
+  let options = Typecheck::beside(&app).checker(Some(checker));
+  let (_, checked) = check(&app, &Options::beside(&app), &options, |_| {}).unwrap();
+  assert_eq!(checked.expect("the checker ran").errors(), 0);
+  assert_eq!(std::fs::read_to_string(&config).unwrap(), before);
 }
