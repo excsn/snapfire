@@ -72,8 +72,12 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [applyHead](#applyhead)
   * [loadScript](#loadscript)
   * [loadDeclaredScripts](#loaddeclaredscripts)
-* [7. Actions](#7-actions)
+* [7. Actions and Sign-In](#7-actions-and-sign-in)
   * [action](#action)
+  * [signIn](#signin)
+  * [enrol](#enrol)
+  * [answer](#answer)
+  * [AuthStep and AuthOptions](#authstep-and-authoptions)
 * [8. The Store](#8-the-store)
   * [StoreKey](#storekey)
   * [key](#key)
@@ -188,7 +192,7 @@ Eight ES module entry points, resolved through an import map. There is no packag
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
-| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure` and `upload` | none |
+| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure`, `upload`, `signIn`, `enrol`, `answer` and `AuthFailure` | none |
 | `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale`, `useLinkStatus` and the placement elements | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore`, `useLinkStatus` | `vue` |
@@ -741,7 +745,7 @@ Adds `<script src>` to `document.head` once per resolved URL and resolves on its
 
 `loadDeclaredScripts` calls `loadMarkedScript` with the attributes of every `script[data-sf-script]` under `root`, the inert element the host writes for a script row. `boot` calls it for the document and on every `sf:fill`. It also sets `window.__sf.script` to `loadMarkedScript` for the fill script, which hands it a streamed resolution's script rows or writes them as inert elements when the client has not booted. `loadMarkedScript` loads `data-src` at the timing `data-sf-script` names, with every other attribute but `type` set as written and `data-type` set as `type`. A failure is written to the console.
 
-## 7. Actions
+## 7. Actions and Sign-In
 
 ### action
 
@@ -764,6 +768,29 @@ The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with the `FormData` as
 The form must carry `_csrf`, since a form post is verified where a JSON call is not. A page reads the token from its `csrf_token` prop; for an anonymous visitor the deployment needs `[session] csrf = "always"` for one to exist.
 
 Failures and `revalidate` behave as `action`'s do.
+
+### signIn
+
+* `signIn(opts?: AuthOptions): Promise<AuthStep>`
+
+Begins a sign-in with `GET /auth/login?return_to=<opts.returnTo or the current path and query>&method=<opts.method>`, asking for JSON, then runs the flow. A `redirect` or `complete` step moves the browser with `window.location.assign` unless `opts.navigate` is `false` and is returned. A `present` step of kind `webauthn.get` or `webauthn.create` runs `navigator.credentials.get` or `create` itself over `data.publicKey` (or `data` when it has none). `challenge`, `user.id` and each `allowCredentials` and `excludeCredentials` id are decoded from base64url; `data.mediation` is passed through. Its answer is `{ credential }`, the credential with every byte field base64url (`id`, `rawId`, `type`, `response` and `extensions`). Any other `present` step goes to `opts.present`. What it answers is posted with `answer`; nothing returns the step to the caller. The loop runs until a step leaves the page, completes or goes unanswered.
+
+### enrol
+
+* `enrol(csrf: string, opts?: AuthOptions): Promise<AuthStep>`
+
+Begins adding a method to whoever is signed in with `POST /auth/enrol` carrying `csrf` as `x-sf-csrf`, then runs the flow as `signIn` does. `csrf` is the page's `csrf_token` prop.
+
+### answer
+
+* `answer(params: Record<string, unknown>): Promise<AuthStep>`
+
+Posts `params` as JSON to `/auth/callback` and returns the next step without following it.
+
+### AuthStep and AuthOptions
+
+* `type AuthStep = { next: "redirect"; to: string } | { next: "present"; kind: string; data: Record<string, unknown> } | { next: "complete"; to: string }`
+* `interface AuthOptions { returnTo?: string; method?: string; present?: (step: { kind: string; data: Record<string, unknown> }) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined; navigate?: boolean }`
 
 
 ## 8. The Store
@@ -1491,6 +1518,15 @@ What a page can ask of the process that opened its window under `fsr dev --deskt
 
 ## 18. Error Handling
 
+### AuthFailure
+
+Thrown by `signIn`, `enrol` and `answer` when the host refuses a step or a passkey step cannot run.
+
+* `extends Error`
+* `constructor(kind: string, message: string)`
+* `readonly kind: string`: `denied` or `invalid` from the host's `{ error, message }` body, `denied` for a 403 that is not JSON such as a failed CSRF check, `unsupported` when the browser has no WebAuthn and `denied` when the passkey prompt was dismissed
+* `name` is `"AuthFailure"`
+
 ### ActionFailure
 
 Thrown by an action callable when the server answers with a non-ok status.
@@ -1513,6 +1549,7 @@ The kinds the runtime emits: one per 4xx and 5xx status, `forbidden` (403), `too
 | `encodeValue` | a `bigint` outside the `i128` and `u128` ranges |
 | `renderSegment` | `segment path walks through a non-seq node` |
 | an action callable | `ActionFailure` on any non-ok status; the fetch's own error when the request never completes |
+| `signIn`, `enrol`, `answer` | `AuthFailure` on a refused step or a passkey step the browser cannot run; the browser's own error when the passkey prompt fails |
 
 ### Silent Degradations
 

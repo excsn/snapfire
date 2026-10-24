@@ -21,6 +21,7 @@ pub const MEDIA_TYPE: &str = "text/javascript; charset=utf-8";
 #[cfg(feature = "client_readable")]
 pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.js")),
+  ("auth.js", include_str!("../embedded/client/auth.js")),
   ("boot.js", include_str!("../embedded/client/boot.js")),
   ("desktop.js", include_str!("../embedded/client/desktop.js")),
   ("elements.js", include_str!("../embedded/client/elements.js")),
@@ -57,6 +58,7 @@ pub const FILES: &[(&str, &str)] = &[
 #[cfg(not(feature = "client_readable"))]
 pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.min.js")),
+  ("auth.js", include_str!("../embedded/client/auth.min.js")),
   ("boot.js", include_str!("../embedded/client/boot.min.js")),
   ("desktop.js", include_str!("../embedded/client/desktop.min.js")),
   ("elements.js", include_str!("../embedded/client/elements.min.js")),
@@ -101,6 +103,7 @@ pub const HAS_READABLE: bool = cfg!(feature = "client_readable");
 /// typecheck against a client the host does not serve.
 pub const TYPES: &[(&str, &str)] = &[
   ("actions.d.ts", include_str!("../embedded/client/actions.d.ts")),
+  ("auth.d.ts", include_str!("../embedded/client/auth.d.ts")),
   ("boot.d.ts", include_str!("../embedded/client/boot.d.ts")),
   ("desktop.d.ts", include_str!("../embedded/client/desktop.d.ts")),
   ("elements.d.ts", include_str!("../embedded/client/elements.d.ts")),
@@ -139,6 +142,7 @@ pub const TYPES: &[(&str, &str)] = &[
 /// No `.d.ts` has a minified twin.
 pub const MINIFIED: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.min.js")),
+  ("auth.js", include_str!("../embedded/client/auth.min.js")),
   ("boot.js", include_str!("../embedded/client/boot.min.js")),
   ("desktop.js", include_str!("../embedded/client/desktop.min.js")),
   ("elements.js", include_str!("../embedded/client/elements.min.js")),
@@ -178,6 +182,8 @@ pub const MINIFIED: &[(&str, &str)] = &[
 pub const MAPS: &[(&str, &str)] = &[
   ("actions.js.map", include_str!("../embedded/client/actions.js.map")),
   ("actions.min.js.map", include_str!("../embedded/client/actions.min.js.map")),
+  ("auth.js.map", include_str!("../embedded/client/auth.js.map")),
+  ("auth.min.js.map", include_str!("../embedded/client/auth.min.js.map")),
   ("boot.js.map", include_str!("../embedded/client/boot.js.map")),
   ("boot.min.js.map", include_str!("../embedded/client/boot.min.js.map")),
   ("desktop.js.map", include_str!("../embedded/client/desktop.js.map")),

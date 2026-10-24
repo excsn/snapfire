@@ -42,6 +42,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Sending as Fast as Someone Types](#sending-as-fast-as-someone-types)
 * [Calling an Action](#calling-an-action)
   * [Skipping Revalidation](#skipping-revalidation)
+* [Signing In From the Page](#signing-in-from-the-page)
 * [Sharing State Across Islands](#sharing-state-across-islands)
 * [Reading the Locale](#reading-the-locale)
 * [Formatting With the Standard Library](#formatting-with-the-standard-library)
@@ -1066,6 +1067,34 @@ A string `src` is a remote image. With a named source it goes through that sourc
 ```
 
 Without one it is an `<img src>` as written. `priority` loads the image eagerly at high fetch priority; the preload in the head is the server's, from the page's plan or its `meta`.
+
+## Signing In From the Page
+
+A login page that is a plain form posting to `/auth/callback` needs nothing from the client. `signIn` is for a page that runs the flow itself: a passkey button, a second factor shown in place or a choice of methods. It asks the host for each step as JSON and runs it. It follows a redirect to an identity provider and runs the browser's passkey prompt for a passkey step. Every other step goes to your `present`:
+
+```ts
+import { AuthFailure, signIn } from "@snapfire/fsr-client";
+
+try {
+  await signIn({
+    returnTo: "/account",
+    method: "passkey",
+    present: async ({ kind, data }) => (kind === "form" ? await askFor(data.fields) : undefined),
+  });
+} catch (failure) {
+  if (failure instanceof AuthFailure && failure.kind === "denied") showRefusal();
+}
+```
+
+On completion the browser goes to `returnTo`. Pass `navigate: false` to get the step back instead, which is how a spec checks a flow. A `present` that answers nothing hands the step back to you, so a page can render it and post the answer later with `answer`.
+
+`enrol` adds a method, usually a passkey, to whoever is signed in. It is a state change, so it carries the page's `csrf_token`:
+
+```ts
+import { enrol } from "@snapfire/fsr-client";
+
+await enrol(csrfToken, { method: "passkey", returnTo: "/settings" });
+```
 
 ## Sharing State Across Islands
 

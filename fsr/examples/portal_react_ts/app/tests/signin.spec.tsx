@@ -1,3 +1,4 @@
+import { AuthFailure, signIn } from "@snapfire/fsr-client";
 import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
 
 const teams = [{ name: "Platform", site: "billing", lead: "alice" }];
@@ -51,4 +52,32 @@ test("a callback with no login in progress is refused rather than signing anyone
   await load("/login", { ctx: c });
   const stray = await fetch("/auth/callback", credentials("alice", "wonder"));
   expect(stray.status, "a spec starts its journey at /auth/login, the way a link does").toEqual(400);
+});
+
+test("signIn runs the flow from the page: the password step is answered and the visitor lands signed in", async () => {
+  const c = portal();
+  await load("/login", { ctx: c });
+  const asked: string[] = [];
+  const step = await signIn({ returnTo: "/account", navigate: false, present: ({ kind, data }) => {
+    asked.push(`${kind} ${JSON.stringify(data.fields)}`);
+    return { user: "alice", password: "wonder" };
+  } });
+  expect(step).toEqual({ next: "complete", to: "/account" });
+  expect(asked, "the provider's one step, a form of two fields").toEqual(['form ["user","password"]']);
+  await load("/account", { ctx: c });
+  expect(document.querySelector("[data-field=subject]")?.textContent).toEqual("alice");
+});
+
+test("signIn throws the refusal; without an answer it hands the step back", async () => {
+  const c = portal();
+  await load("/login", { ctx: c });
+  let refused: unknown = null;
+  try {
+    await signIn({ returnTo: "/account", navigate: false, present: () => ({ user: "alice", password: "wrong" }) });
+  } catch (error) {
+    refused = error;
+  }
+  expect(refused instanceof AuthFailure && refused.kind === "denied", `${refused}`).toBeTruthy();
+  const held = await signIn({ returnTo: "/account", navigate: false });
+  expect(held.next).toEqual("present");
 });
