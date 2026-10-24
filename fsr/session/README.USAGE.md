@@ -459,7 +459,7 @@ The value type is fixed: the cache must be a `fibre_cache::Cache<String, Session
 
 ```rust
 use futures_util::future::BoxFuture;
-use snapfire_fsr_session::{SessionId, SessionRecord, SessionStore};
+use snapfire_fsr_session::{SessionId, SessionRecord, SessionStore, StoreError};
 
 struct RedisSessionStore {
   pool: RedisPool,
@@ -471,12 +471,12 @@ impl SessionStore for RedisSessionStore {
     Box::pin(async move { self.fetch_and_decode(&key).await })
   }
 
-  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, ()> {
+  fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, Result<(), StoreError>> {
     let key = id.0.clone();
     Box::pin(async move { self.write_with_expiry(&key, record).await })
   }
 
-  fn delete(&self, id: &SessionId) -> BoxFuture<'_, ()> {
+  fn delete(&self, id: &SessionId) -> BoxFuture<'_, Result<(), StoreError>> {
     let key = id.0.clone();
     Box::pin(async move { self.drop_key(&key).await })
   }
