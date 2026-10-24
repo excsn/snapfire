@@ -791,3 +791,26 @@ fn an_async_local_storage_scopes_a_value_to_a_run_and_restores_the_one_before() 
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "a b a none");
 }
+
+#[test]
+fn an_awaiting_loop_returns_early_from_its_body() {
+  let dir = host_dir("early");
+  std::fs::write(dir.join("one.txt"), "one\n").unwrap();
+  std::fs::write(dir.join("two.txt"), "two\n").unwrap();
+  std::fs::write(dir.join("three.txt"), "three\n").unwrap();
+  unsafe { std::env::set_var("FSR_TEST_EARLY_DIR", &dir); }
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\nimport { join } from \"node:path\";\n\nconst firstMatching = async (dir: string, names: string[], wanted: string) => {\n  let looked = 0;\n  for (const name of names) {\n    looked++;\n    const text = await readFile(join(dir, name), \"utf8\");\n    if (text.trim() === wanted) {\n      return `${name} after ${looked}`;\n    }\n  }\n  return `none after ${looked}`;\n};\n\nexport default function Found() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const hit = await firstMatching(process.env.FSR_TEST_EARLY_DIR, [\"one.txt\", \"two.txt\", \"three.txt\"], \"two\");\n      const miss = await firstMatching(process.env.FSR_TEST_EARLY_DIR, [\"one.txt\"], \"zero\");\n      setText(`${hit} | ${miss}`);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 60).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "two.txt after 2 | none after 1");
+}
+
+#[test]
+fn the_value_of_an_earlier_await_survives_a_later_one_in_a_handler_and_in_a_module_function() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nconst lookup = async (q: string) => q.toUpperCase();\nconst both = async () => {\n  const a = await lookup(\"x\");\n  const b = await lookup(\"y\");\n  return a + b;\n};\n\nexport default function Pairs() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const first = await lookup(\"p\");\n      const second = await lookup(\"q\");\n      const joined = await both();\n      setText(`${first}${second} ${joined}`);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "PQ XY");
+}

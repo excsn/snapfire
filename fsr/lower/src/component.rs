@@ -9686,8 +9686,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let resumed = Expr::Var(RESUME.to_owned());
         let mut cw = HandlerWalk::default();
         let depth = self.lowerer.scope.len();
+        // The settled value is a variable the continuation declares, so a continuation after the next await carries it instead of reading that await's value.
         if let Some(name) = &bound {
-          self.lowerer.scope.push((name.clone(), resumed.clone().field("value")));
+          cw.out.push(Stmt::Let { name: name.clone(), expr: resumed.clone().field("value") });
+          self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
         }
         let lowered = (|| -> Lowered<()> {
           let ok = resumed.clone().field("ok");

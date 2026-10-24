@@ -1008,8 +1008,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) spawned: Vec<String>,
   /// Where the scope of the async function lowering starts: its locals, declared before an `await` and carried to the continuation after it, are its own to write.
   pub(crate) async_floor: Option<usize>,
-  /// While a pass of a loop that awaits lowers: the loop head's event and the carry of the live locals it is run with, which the pass issues when it ends.
-  pub(crate) loop_tail: Option<(String, Expr)>,
+  /// While a pass of a loop that awaits lowers: the loop head's event and the carry of the live locals it is run with, which the pass issues when it ends; also the function's promise a `return` in the pass settles.
+  pub(crate) loop_tail: Option<LoopTail>,
   /// Set while render statements inside a `try` lower: a `return` there is `[value]` and a path that ends without one is `null`, so what follows the `try` can tell the two apart.
   pub(crate) wrapped_returns: bool,
   /// Set while a component's `try` that returns markup runs as statements: where its scope starts. A `return` there ends the run with which `return` it was as `$path` and each name in scope from there as `$0`, `$1` and on. `markup_returns` records each by its position in the source with the names.
@@ -2243,8 +2243,8 @@ impl<'a> Lowerer<'a> {
 
   /// A loop that awaits. Its head is a continuation named for the loop, run through `$run` with the live locals carried: when the test holds it runs one pass, the body and the step, whose every way through ends by running the head again; otherwise it runs the statements after the loop. The locals the head reads are carried by value, so a `let` the body writes reaches the next pass and the statements after.
   fn awaiting_loop_in(&mut self, stmts: &[js::Stmt], at: usize, looped: AwaitingLoop, done: Option<Expr>, inside: Option<AsyncCatch>) -> Lowered<Expr> {
-    if looped.pass.iter().any(loop_exits) {
-      return Err(self.residue(looped.span, "a `break` or `return` inside a loop that awaits or a `continue` deeper than an `if` at the top of its body"));
+    if looped.exits_deep {
+      return Err(self.residue(looped.span, "a `break` inside a loop that awaits or a `continue` or `return` deeper than an `if` at the top of its body"));
     }
     if looped.over.as_ref().is_some_and(|over| self.kind_of(over) == Some(Kind::Map)) {
       return Err(self.residue(looped.span, "`for...of` over a `Map` in a loop that awaits; iterate `[...map.entries()]`"));
@@ -2262,7 +2262,7 @@ impl<'a> Lowerer<'a> {
     carried.dedup();
     let carry = Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), Expr::Var(name.clone()))).collect());
     let depth = self.scope.len();
-    let outer_tail = self.loop_tail.replace((event.clone(), carry.clone()));
+    let outer_tail = self.loop_tail.replace(LoopTail { event: event.clone(), carry: carry.clone(), done: done.clone() });
     let covered = inside.clone().map(|catch| AsyncCatch { covers: looped.pass.len() + catch.covers - at - 1, ..catch });
     let pass = self.expr(&looped.test).and_then(|cond| self.async_caught(&looped.pass, None, covered).map(|pass| (cond, pass)));
     self.loop_tail = outer_tail;
@@ -2299,8 +2299,20 @@ impl<'a> Lowerer<'a> {
 
   fn async_to_in(&mut self, stmts: &[js::Stmt], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
     let settle = |done: &Expr, ok: bool, value: Expr| Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), done.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))])), Entry::Field("value".to_owned(), value)]) };
-    let Some(at) = stmts.iter().position(awaits) else {
-      if let Some((event, carry)) = self.loop_tail.clone() {
+    let in_pass = self.loop_tail.is_some();
+    let Some(at) = stmts.iter().position(|s| awaits(s) || (in_pass && if_ends_in_return(s))) else {
+      if let Some(LoopTail { event, carry, done: promise }) = self.loop_tail.clone() {
+        // A `return` in the pass settles the function's promise with its value and the loop is done; any other end of the pass runs the head again.
+        if let Some(at) = stmts.iter().position(|s| matches!(s, js::Stmt::Return(_))) {
+          let js::Stmt::Return(ret) = &stmts[at] else { unreachable!("found a return") };
+          let Some(promise) = promise else { return Err(self.residue(ret.span, "a `return` inside a loop that awaits, in a function with no promise to settle")) };
+          let ran = self.before_await(&stmts[..at])?;
+          let value = match &ret.arg {
+            Some(arg) => self.expr(arg)?,
+            None => Expr::Lit(Lit::Undefined),
+          };
+          return Ok(Expr::Block(vec![Stmt::Expr(ran), settle(&promise, true, value)]));
+        }
         let ran = self.before_await(stmts)?;
         let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]);
         return Ok(Expr::Block(vec![Stmt::Expr(ran), Stmt::Act { action: snapfire_fsr_ir::host::Act::Run.name().to_owned(), input }]));
@@ -2421,8 +2433,9 @@ impl<'a> Lowerer<'a> {
   fn continuation(&mut self, at: Span, bound: Option<String>, lower: impl FnOnce(&mut Self) -> Lowered<Expr>) -> Lowered<(String, Expr)> {
     let resume = "$resume".to_owned();
     let depth = self.scope.len();
+    // The settled value is a variable of the continuation, not the expression `$resume.value`: a later continuation carries the variable, where the expression would read its own settled value.
     if let Some(name) = &bound {
-      self.scope.push((name.clone(), Expr::Var(resume.clone()).field("value")));
+      self.scope.push((name.clone(), Expr::Var(name.clone())));
     }
     let rest = lower(self);
     self.scope.truncate(depth);
@@ -2431,10 +2444,13 @@ impl<'a> Lowerer<'a> {
     rest.free_vars(&mut free);
     free.sort();
     free.dedup();
-    let carried: Vec<String> = free.into_iter().filter(|name| *name != resume && !self.cells.iter().any(|(cell, _)| cell == name)).collect();
+    let carried: Vec<String> = free.into_iter().filter(|name| *name != resume && bound.as_ref() != Some(name) && !self.cells.iter().any(|(cell, _)| cell == name)).collect();
     let mut body = vec![Stmt::Let { name: resume.clone(), expr: Expr::Var("$event".to_owned()) }];
     for name in &carried {
       body.push(Stmt::Let { name: name.clone(), expr: Expr::Var(resume.clone()).field("carry").field(name.clone()) });
+    }
+    if let Some(name) = &bound {
+      body.push(Stmt::Let { name: name.clone(), expr: Expr::Var(resume.clone()).field("value") });
     }
     body.push(Stmt::Expr(rest));
     body.push(Stmt::Return(Expr::Object(Vec::new())));
@@ -4683,6 +4699,16 @@ struct AwaitingLoop {
   pass: Vec<js::Stmt>,
   over: Option<js::Expr>,
   span: Span,
+  /// Whether the body leaves the loop from somewhere the pass cannot end: a `break` or a `continue` or `return` deeper than an `if` at its top.
+  exits_deep: bool,
+}
+
+/// While a pass of a loop that awaits lowers: see [`Lowerer::loop_tail`].
+#[derive(Clone)]
+pub(crate) struct LoopTail {
+  event: String,
+  carry: Expr,
+  done: Option<Expr>,
 }
 
 /// `for...of` over an array, a counted `for` or a `while` that awaits in its body, as an [`AwaitingLoop`]: `for (const x of xs)` becomes `const $items = xs; let $i = 0;` with the test `$i < $items.length`, a pass starting `const x = $items[$i]` and ending `$i++`.
@@ -4715,9 +4741,11 @@ fn awaiting_loop(stmt: &js::Stmt, top: swc_core::common::SyntaxContext) -> Optio
       let test = js::Expr::Bin(js::BinExpr { span, op: js::BinaryOp::Lt, left: Box::new(index_var()), right: Box::new(length) });
       let item = js::Expr::Member(js::MemberExpr { span, obj: Box::new(items_var()), prop: js::MemberProp::Computed(js::ComputedPropName { span, expr: Box::new(index_var()) }) });
       let mut body = vec![decl(js::VarDeclKind::Const, pattern, item)];
-      body.extend(body_of(&for_of.body));
+      let inner = body_of(&for_of.body);
+      let exits_deep = exits_deeper(&inner);
+      body.extend(inner);
       let step = vec![expr_stmt(js::Expr::Update(js::UpdateExpr { span, op: js::UpdateOp::PlusPlus, prefix: false, arg: Box::new(index_var()) }))];
-      Some(AwaitingLoop { init, test, pass: continued(body, &step), over: Some((*for_of.right).clone()), span })
+      Some(AwaitingLoop { init, test, pass: continued(body, &step), over: Some((*for_of.right).clone()), span, exits_deep })
     }
     js::Stmt::For(counted) => {
       let init = match &counted.init {
@@ -4727,20 +4755,19 @@ fn awaiting_loop(stmt: &js::Stmt, top: swc_core::common::SyntaxContext) -> Optio
       };
       let test = counted.test.as_deref().cloned().unwrap_or(js::Expr::Lit(js::Lit::Bool(js::Bool { span, value: true })));
       let step: Vec<js::Stmt> = counted.update.iter().map(|update| expr_stmt((**update).clone())).collect();
-      Some(AwaitingLoop { init, test, pass: continued(body_of(&counted.body), &step), over: None, span })
+      let body = body_of(&counted.body);
+      Some(AwaitingLoop { init, test, exits_deep: exits_deeper(&body), pass: continued(body, &step), over: None, span })
     }
-    js::Stmt::While(looped) => Some(AwaitingLoop { init: Vec::new(), test: (*looped.test).clone(), pass: continued(body_of(&looped.body), &[]), over: None, span }),
+    js::Stmt::While(looped) => {
+      let body = body_of(&looped.body);
+      Some(AwaitingLoop { init: Vec::new(), test: (*looped.test).clone(), exits_deep: exits_deeper(&body), pass: continued(body, &[]), over: None, span })
+    }
     _ => None,
   }
 }
 
-/// `body` with `step` at the end of every way through it, a `continue` at the body's top or ending an `if` there taken as that way's end: `if (c) continue; rest` becomes `if (c) { step } else { rest; step }`.
+/// `body` with `step` at the end of every way through it, a `continue` or `return` at the body's top or ending an `if` there taken as that way's end: `if (c) continue; rest` becomes `if (c) { step } else { rest; step }` and `if (c) return v; rest` becomes `if (c) { return v } else { rest; step }`.
 fn continued(body: Vec<js::Stmt>, step: &[js::Stmt]) -> Vec<js::Stmt> {
-  let ends_in_continue = |stmt: &js::Stmt| match stmt {
-    js::Stmt::Continue(_) => true,
-    js::Stmt::Block(block) => matches!(block.stmts.last(), Some(js::Stmt::Continue(_))),
-    _ => false,
-  };
   let mut out = Vec::with_capacity(body.len() + step.len());
   let mut stmts = body.into_iter();
   while let Some(stmt) = stmts.next() {
@@ -4749,14 +4776,21 @@ fn continued(body: Vec<js::Stmt>, step: &[js::Stmt]) -> Vec<js::Stmt> {
         out.extend(step.iter().cloned());
         return out;
       }
-      js::Stmt::If(branch) if branch.alt.is_none() && ends_in_continue(&branch.cons) => {
+      ret @ js::Stmt::Return(_) => {
+        out.push(ret);
+        return out;
+      }
+      js::Stmt::If(branch) if branch.alt.is_none() && (ends_in(&branch.cons, Exit::Continue) || ends_in(&branch.cons, Exit::Return)) => {
         let span = branch.span;
+        let returns = ends_in(&branch.cons, Exit::Return);
         let mut taken = match *branch.cons {
           js::Stmt::Block(block) => block.stmts,
-          _ => Vec::new(),
+          other => vec![other],
         };
-        taken.pop();
-        taken.extend(step.iter().cloned());
+        if !returns {
+          taken.pop();
+          taken.extend(step.iter().cloned());
+        }
         let rest = continued(stmts.collect(), step);
         let block = |stmts: Vec<js::Stmt>| Box::new(js::Stmt::Block(js::BlockStmt { span, ctxt: Default::default(), stmts }));
         out.push(js::Stmt::If(js::IfStmt { span, test: branch.test, cons: block(taken), alt: Some(block(rest)) }));
@@ -4767,6 +4801,41 @@ fn continued(body: Vec<js::Stmt>, step: &[js::Stmt]) -> Vec<js::Stmt> {
   }
   out.extend(step.iter().cloned());
   out
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Exit {
+  Continue,
+  Return,
+}
+
+/// Whether `stmt` is the exit or a block ending in it.
+fn ends_in(stmt: &js::Stmt, exit: Exit) -> bool {
+  let is = |s: &js::Stmt| match exit {
+    Exit::Continue => matches!(s, js::Stmt::Continue(_)),
+    Exit::Return => matches!(s, js::Stmt::Return(_)),
+  };
+  match stmt {
+    js::Stmt::Block(block) => block.stmts.last().is_some_and(is),
+    other => is(other),
+  }
+}
+
+/// Whether an `if` ends either branch in a `return`, which splits a pass of a loop that awaits as an `await` does.
+fn if_ends_in_return(stmt: &js::Stmt) -> bool {
+  matches!(stmt, js::Stmt::If(branch) if ends_in(&branch.cons, Exit::Return) || branch.alt.as_deref().is_some_and(|alt| ends_in(alt, Exit::Return)))
+}
+
+/// Whether `body` leaves the loop from somewhere a pass cannot end: a `break` anywhere or a `continue` or `return` other than at the body's top or ending an `if` there.
+fn exits_deeper(body: &[js::Stmt]) -> bool {
+  body.iter().any(|stmt| match stmt {
+    js::Stmt::Continue(_) | js::Stmt::Return(_) => false,
+    js::Stmt::If(branch) if branch.alt.is_none() && (ends_in(&branch.cons, Exit::Continue) || ends_in(&branch.cons, Exit::Return)) => match &*branch.cons {
+      js::Stmt::Block(block) => block.stmts[..block.stmts.len() - 1].iter().any(loop_exits),
+      _ => false,
+    },
+    other => loop_exits(other),
+  })
 }
 
 /// Whether `stmt` leaves the loop around it with `break`, `continue` or `return`, outside any function it declares.
