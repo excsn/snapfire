@@ -94,6 +94,8 @@ pub enum BuildError {
   ClaimedId { kind: String, id: String, first: String, second: String },
   #[error("`{module}` cannot be an island in server mode: {reason}")]
   ServerIsland { module: String, reason: String },
+  #[error("{file}:{line} imports `@snapfire/fsr/host` and the browser loads this file; a host member runs only in a host. Read the value in the route's loader `page.loader.ts` from `@snapfire/fsr/host` and pass it to the page as a prop. A member `@snapfire/fsr/client` also has is imported from there")]
+  HostInBrowser { file: String, line: u32 },
   #[error("`{module}` is a .{ext} component, but this fsr has no client adapter that mounts one")]
   NoAdapter { module: String, ext: String },
   #[error("`{module}` is not a component this build can mount: no framework claims its extension")]
@@ -1665,6 +1667,11 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       if !browser_files.contains(&file) {
         browser_files.push(file);
       }
+    }
+  }
+  for file in &browser_files {
+    if let Some(line) = set.host_import(file) {
+      return Err(BuildError::HostInBrowser { file: file.clone(), line });
     }
   }
   let derives = browser_derives(&mut set, &browser_files, &mut report)?;

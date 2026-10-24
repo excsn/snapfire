@@ -1287,6 +1287,41 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Refuses a `body` extension on a web page's render path and any reach the page may not use.
+  /// A call to a standard member imported from a side, as the member's extension call. A member the side lacks and a host member the browser would run are refused with where the member is.
+  fn std_call(&mut self, call: &js::CallExpr, callee: &js::Expr) -> Lowered<Option<Expr>> {
+    use meaning::{Meaning, Side, CLIENT_ROOT, HOST_ROOT};
+    let Some(meant) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) else { return Ok(None) };
+    if let Meaning::StdAbsent { side, module, name } = &meant {
+      self.reach_violation = true;
+      let (why, hint) = meaning::absent(*side, module, name);
+      return Err(match hint {
+        Some(hint) => self.residue_with(call.span, why, hint),
+        None => self.residue(call.span, why),
+      });
+    }
+    let Some((side, module, name)) = meant.std_member() else { return Ok(None) };
+    let key = format!("{module}.{name}");
+    let Some(reach) = standard_reach(module, name) else { return Ok(None) };
+    if side == Side::Host && (self.on_render_path() || self.in_handler) && !self.reaches(Reach::Terminal) {
+      self.reach_violation = true;
+      let why = match Side::Client.holds(module, reach) {
+        true => format!("`{key}` from `{HOST_ROOT}` in code the browser also runs; import it from `{CLIENT_ROOT}`"),
+        false => format!("`{key}` from `{HOST_ROOT}` in code the browser also runs: it runs only in a host. Read it in the route's loader `page.loader.ts` and pass it to the page as a prop"),
+      };
+      return Err(self.residue(call.span, why));
+    }
+    self.check_reach(call.span, &key, reach)?;
+    let mut args = Vec::with_capacity(call.args.len());
+    for a in &call.args {
+      if a.spread.is_some() {
+        return Err(self.residue(a.expr.span(), format!("a spread into `{key}`")));
+      }
+      args.push(self.expr(&a.expr)?);
+    }
+    let expr = Expr::Ext { module: module.to_owned(), name: name.to_owned(), args };
+    Ok(Some(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr }))
+  }
+
   fn check_reach(&mut self, span: Span, key: &str, reach: Reach) -> Lowered<()> {
     if reach == Reach::Body && self.on_render_path() && !self.reaches(Reach::Terminal) {
       self.reach_violation = true;
@@ -2086,8 +2121,7 @@ impl<'a> Lowerer<'a> {
   /// Whether `call` is `system.spawn` from the standard module.
   pub(crate) fn spawns(&self, call: &js::CallExpr) -> bool {
     let js::Callee::Expr(callee) = &call.callee else { return false };
-    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return false };
-    self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&member.obj)) == Some(meaning::Meaning::Library(meaning::Construct::Std("system"))) && self.member_name(member).as_deref() == Some("spawn")
+    self.meanings.as_ref().is_some_and(|meanings| meanings.names_spawn(callee))
   }
 
   /// `spawn(command, args, options)` in a terminal block: a fresh process id and the act [`snapfire_fsr_ir::host::Act::Spawn`] starting it, whose value is the process, [`snapfire_fsr_ir::host::PROCESS`].
@@ -3312,6 +3346,9 @@ impl<'a> Lowerer<'a> {
     }
     if let Some(meaning::Meaning::Library(meaning::Construct::SvelteStore(store))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
       return self.svelte_store(store, call);
+    }
+    if let Some(called) = self.std_call(call, callee)? {
+      return Ok(called);
     }
     if let Some(meaning::Meaning::Library(meaning::Construct::Extension(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
       let (module, member) = key.split_once('.').expect("an extension is `module.member`");

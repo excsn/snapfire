@@ -13,9 +13,120 @@ use snapfire_fsr_ir::ast::Expr;
 use swc_core::common::SyntaxContext;
 use swc_core::ecma::ast as js;
 
+/// Which of FSR's standard-library roots a module object or member was imported from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Side {
+  /// `@snapfire/fsr/client`: what a server render and the browser both run.
+  Client,
+  /// `@snapfire/fsr/host`: what every host body runs.
+  Host,
+  /// `@snapfire/fsr/terminal`: what only a terminal program runs.
+  Terminal,
+}
+
+impl Side {
+  pub(crate) fn root(self) -> &'static str {
+    match self {
+      Side::Client => CLIENT_ROOT,
+      Side::Host => HOST_ROOT,
+      Side::Terminal => TERMINAL_ROOT,
+    }
+  }
+
+  /// Whether a standard member of `module` with `reach` is under this side.
+  pub(crate) fn holds(self, module: &str, reach: snapfire_fsr_ir::Reach) -> bool {
+    use snapfire_fsr_ir::Reach;
+    let terminal_module = TERMINAL_STD_MODULES.contains(&module);
+    match self {
+      Side::Client => !terminal_module && module != "terminal" && reach == Reach::Render,
+      Side::Host => !terminal_module && module != "terminal" && matches!(reach, Reach::Render | Reach::Body),
+      Side::Terminal => terminal_module,
+    }
+  }
+}
+
+pub const CLIENT_ROOT: &str = "@snapfire/fsr/client";
+pub const HOST_ROOT: &str = "@snapfire/fsr/host";
+pub const TERMINAL_ROOT: &str = "@snapfire/fsr/terminal";
+/// The standard modules only a terminal program has, under [`TERMINAL_ROOT`].
+const TERMINAL_STD_MODULES: [&str; 2] = ["system", "clipboard"];
+/// Members a side's module has that are not extensions: `system.spawn` is an act the terminal runs.
+const SIDE_ACTS: [(Side, &str, &str); 1] = [(Side::Terminal, "system", "spawn")];
+
+/// Whether `module.name` is under `side`.
+fn side_has(side: Side, module: &str, name: &str) -> Option<(&'static str, &'static str)> {
+  let member = snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.name == name && side.holds(module, m.reach)).map(|m| (m.module, m.name));
+  member.or_else(|| SIDE_ACTS.iter().find(|(s, m, n)| *s == side && *m == module && *n == name).map(|(_, m, n)| (*m, *n)))
+}
+
+/// Each standard module under `side`, with the members it holds there.
+pub(crate) fn side_modules(side: Side) -> Vec<(&'static str, Vec<&'static str>)> {
+  let mut out: Vec<(&'static str, Vec<&'static str>)> = Vec::new();
+  for member in snapfire_fsr_ir::STANDARD {
+    if !side.holds(member.module, member.reach) {
+      continue;
+    }
+    match out.iter_mut().find(|(m, _)| *m == member.module) {
+      Some((_, names)) => names.push(member.name),
+      None => out.push((member.module, vec![member.name])),
+    }
+  }
+  for (_, module, name) in SIDE_ACTS.iter().filter(|(s, _, _)| *s == side) {
+    if let Some((_, names)) = out.iter_mut().find(|(m, _)| m == module) {
+      names.push(name);
+    }
+  }
+  out
+}
+
+/// `<root>/<module>` for every side and module, made once.
+fn module_paths() -> &'static [(Side, &'static str, &'static str)] {
+  static PATHS: std::sync::OnceLock<Vec<(Side, &'static str, &'static str)>> = std::sync::OnceLock::new();
+  PATHS.get_or_init(|| {
+    let mut paths = Vec::new();
+    for side in [Side::Client, Side::Host, Side::Terminal] {
+      for (module, _) in side_modules(side) {
+        let path: &'static str = Box::leak(format!("{}/{module}", side.root()).into_boxed_str());
+        paths.push((side, module, path));
+      }
+    }
+    paths
+  })
+}
+
+fn module_path(side: Side, module: &'static str) -> &'static str {
+  module_paths().iter().find(|(s, m, _)| *s == side && *m == module).map(|(_, _, path)| *path).expect("a module some side holds")
+}
+
+/// The side and module a `<root>/<module>` specifier names.
+pub(crate) fn side_module_of(source: &str) -> Option<(Side, &'static str)> {
+  module_paths().iter().find(|(_, _, path)| *path == source).map(|(side, module, _)| (*side, *module))
+}
+
+/// Why `module.name` is not under `side` and where it is, for a refusal.
+pub(crate) fn absent(side: Side, module: &str, name: &str) -> (String, Option<String>) {
+  let key = format!("{module}.{name}");
+  let Some(member) = snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.name == name) else {
+    return (format!("`{key}` is not a member of the standard library"), None);
+  };
+  let home = [Side::Client, Side::Host, Side::Terminal].into_iter().find(|s| s.holds(module, member.reach));
+  match home {
+    Some(Side::Host) if side == Side::Client => (
+      format!("`{key}` is not in `{CLIENT_ROOT}`: it runs only in a host. Read it in the route's loader `page.loader.ts` from `{HOST_ROOT}` and pass it to the page as a prop"),
+      Some(format!("import {{ {module} }} from \"{HOST_ROOT}\";\nexport async function load() {{\n  return {{ value: {key}(/* ... */) }};\n}}")),
+    ),
+    Some(home) => (format!("`{key}` is not in `{}`; it is in `{}`", side.root(), home.root()), None),
+    None => (format!("`{key}` is not in `{}`", side.root()), None),
+  }
+}
+
 /// A library construct the build lowers, under the name its library exports it as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Construct {
+  /// A standard module as a whole, imported from a side's root (`import { intl } from "@snapfire/fsr/client"`) or as a namespace (`import * as intl from "@snapfire/fsr/client/intl"`).
+  StdModule(Side, &'static str),
+  /// One standard member, `module.name`, imported by name from a side.
+  StdMember(Side, &'static str, &'static str),
   /// A hook, by React's name for it: `useState`, `useContext`, `use`.
   Hook(&'static str),
   /// `createContext`; `react` when it is React's, whose providers the browser mounts.
@@ -132,6 +243,22 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
     rows.extend(COMPONENTS.iter().map(|name| (COMPONENTS_MODULE, *name, Construct::Placement(name))));
     for module in TERMINAL_MODULES {
       rows.extend(TERMINAL_PRIMITIVES.iter().map(|(name, construct, _)| (module, *name, *construct)));
+    }
+    for side in [Side::Client, Side::Host, Side::Terminal] {
+      for (module, names) in side_modules(side) {
+        rows.push((side.root(), module, Construct::StdModule(side, module)));
+        let path = module_path(side, module);
+        rows.extend(names.iter().map(|name| (path, *name, Construct::StdMember(side, module, name))));
+      }
+    }
+    for side in [Side::Client, Side::Host] {
+      rows.push((side.root(), "t", Construct::StdMember(side, "i18n", "t")));
+    }
+    rows.push((CLIENT_ROOT, "localeTag", Construct::Std("localeTag")));
+    rows.push((module_path(Side::Client, "intl"), "localeTag", Construct::Std("localeTag")));
+    rows.push(("@snapfire/fsr", "native", Construct::Std("native")));
+    for server in ["action", "fail", "redirect", "after"] {
+      rows.push((HOST_ROOT, server, Construct::Server(server)));
     }
     let react_hooks: Vec<(&'static str, Construct)> = LIBRARY.iter().filter(|(m, _, c)| *m == "react" && matches!(c, Construct::Hook(_))).map(|(_, e, c)| (*e, *c)).collect();
     for module in ["preact/hooks", "preact/compat"] {
@@ -286,6 +413,8 @@ pub(crate) enum Meaning {
   Config(Option<String>),
   /// An import from a package the table does not speak for.
   Foreign,
+  /// A standard member a side does not have, by the side it was asked of.
+  StdAbsent { side: Side, module: &'static str, name: String },
 }
 
 impl Meaning {
@@ -293,6 +422,11 @@ impl Meaning {
   pub(crate) fn member(&self, name: &str) -> Option<Meaning> {
     match self {
       Meaning::Namespace(members) => members.get(name).cloned(),
+      Meaning::Library(Construct::StdModule(side, module)) => Some(
+        side_has(*side, module, name)
+          .map(|(m, n)| Meaning::Library(Construct::StdMember(*side, m, n)))
+          .unwrap_or_else(|| Meaning::StdAbsent { side: *side, module, name: name.to_owned() }),
+      ),
       Meaning::Context { id, react, .. } if name == "Provider" => Some(Meaning::Provider { id: id.clone(), react: *react }),
       _ => None,
     }
@@ -317,6 +451,14 @@ impl Meaning {
   pub(crate) fn store_call(&self) -> Option<&'static str> {
     match self {
       Meaning::Library(Construct::StoreCall(name)) => Some(name),
+      _ => None,
+    }
+  }
+
+  /// The standard member and side this names.
+  pub(crate) fn std_member(&self) -> Option<(Side, &'static str, &'static str)> {
+    match self {
+      Meaning::Library(Construct::StdMember(side, module, name)) => Some((*side, module, name)),
       _ => None,
     }
   }
@@ -375,6 +517,16 @@ impl Meanings {
   /// What `id` names where it is written: a module-level name's meaning, `None` for a local or a name nothing binds.
   pub(crate) fn of_ident(&self, id: &js::Ident) -> Option<&Meaning> {
     (id.ctxt == self.top).then(|| self.bindings.get(id.sym.as_ref())).flatten()
+  }
+
+  /// Whether `callee` is the standard `system.spawn`: from `@snapfire/fsr/terminal`, its `system` path or the old standard module.
+  pub(crate) fn names_spawn(&self, callee: &js::Expr) -> bool {
+    if self.of_expr(callee).and_then(|m| m.std_member()).is_some_and(|(_, module, name)| module == "system" && name == "spawn") {
+      return true;
+    }
+    let js::Expr::Member(member) = bare(callee) else { return false };
+    let js::MemberProp::Ident(prop) = &member.prop else { return false };
+    prop.sym.as_ref() == "spawn" && self.of_expr(&member.obj) == Some(Meaning::Library(Construct::Std("system")))
   }
 
   pub(crate) fn of_expr(&self, expr: &js::Expr) -> Option<Meaning> {

@@ -627,6 +627,17 @@ impl ComponentSet {
     reached
   }
 
+  /// The line of the first import or re-export in `file` from `@snapfire/fsr/host` or a module under it, which the browser cannot load.
+  pub fn host_import(&mut self, file: &str) -> Option<u32> {
+    let parsed = self.script_of(file)?;
+    let host = crate::meaning::HOST_ROOT;
+    let found = value_sources(&parsed.module).find(|src| {
+      let source = src.value.to_atom_lossy().to_string();
+      source == host || source.starts_with(&format!("{host}/"))
+    })?;
+    Some(parsed.residue(found.span, "").line as u32)
+  }
+
   /// The local script files and described foreign components `file`
   /// imports a value from or re-exports, in source order: a described foreign
   /// component's from its script. None when it does not parse. An imported asset is not a
@@ -2284,6 +2295,9 @@ impl ComponentSet {
     if source == meaning::CONFIG_MODULE {
       return Meaning::Config((export != "config").then(|| export.to_owned()));
     }
+    if let Some((side, module)) = meaning::side_module_of(source) {
+      return meaning::library(source, export).map(Meaning::Library).unwrap_or_else(|| Meaning::StdAbsent { side, module, name: export.to_owned() });
+    }
     if meaning::is_library(source) {
       return meaning::library(source, export).map(Meaning::Library).unwrap_or(Meaning::Foreign);
     }
@@ -2297,6 +2311,9 @@ impl ComponentSet {
   /// What a namespace import of `source` from `file` holds.
   fn namespace_meaning(&mut self, file: &str, source: &str) -> crate::meaning::Meaning {
     use crate::meaning::{self, Meaning};
+    if let Some((side, module)) = meaning::side_module_of(source) {
+      return Meaning::Library(meaning::Construct::StdModule(side, module));
+    }
     if meaning::is_library(source) {
       return Meaning::Namespace(meaning::library_namespace(source));
     }
@@ -9347,9 +9364,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn spawn_call(&self, e: &'p js::Expr) -> Option<&'p js::CallExpr> {
     let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
     let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return None };
-    let spawns = self.meanings().of_expr(&member.obj) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Std("system"))) && prop_name_of(member).as_deref() == Some("spawn");
-    spawns.then_some(call)
+    self.meanings().names_spawn(callee).then_some(call)
   }
 
   /// A mount handler that asks the terminal, with a `$spawn` act, to start `call`'s process as `id`.
