@@ -370,3 +370,17 @@ fn every_terminal_member_has_the_signature_its_declaration_is_written_from() {
   let ms = STANDARD.iter().find(|member| member.module == "terminal" && member.name == "ms").unwrap();
   assert!(ms.signatures[1].declare("ms").contains("export declare function ms(value: number, options?: { long?: boolean; }): string;"), "{}", ms.signatures[1].declare("ms"));
 }
+
+#[test]
+fn the_clipboard_runs_the_platforms_copy_and_paste_commands_through_their_standard_streams() {
+  use snapfire_fsr_ir::std::clipboard::{commands, copy_through, paste_through};
+  assert_eq!(commands("macos", false), [(&["pbcopy"][..], &["pbpaste"][..])]);
+  assert_eq!(commands("linux", true)[0].0, ["wl-copy"]);
+  assert_eq!(commands("linux", false)[0].0, ["xclip", "-selection", "clipboard"]);
+  let held = std::env::temp_dir().join(format!("fsr-clipboard-{}", std::process::id()));
+  let held = held.to_string_lossy().into_owned();
+  copy_through(&["sh", "-c", &format!("cat > {held}")], "copied\nlines\n").unwrap();
+  assert_eq!(paste_through(&["cat", &held]).unwrap(), "copied\nlines\n");
+  let _ = std::fs::remove_file(&held);
+  assert_eq!(copy_through(&["fsr-no-such-copier"], "x").unwrap_err().kind(), std::io::ErrorKind::NotFound);
+}

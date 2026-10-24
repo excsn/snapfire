@@ -435,3 +435,12 @@ fn a_loop_that_awaits_lowers_to_a_head_continuation_run_from_the_function_and_fr
   let runs = component.handlers.iter().map(|h| format!("{:?}", h.body).matches("action: \"$run\"").count()).sum::<usize>();
   assert!(runs >= 2, "the function runs the head and the end of the pass runs it again: {events:?}");
 }
+
+#[test]
+fn a_handler_writes_and_reads_the_clipboard_through_its_standard_members() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { clipboard } from \"@snapfire/fsr-client/std\";\n\nexport default function Copy() {\n  const [held, setHeld] = useState(\"\");\n  useInput((input) => {\n    if (input === \"c\") clipboard.write(\"copied\");\n    else setHeld(clipboard.read());\n  });\n  return <Text>{held}</Text>;\n}\n";
+  let library = library(page);
+  let input = library[MODULE].handlers.iter().find(|handler| handler.event == "input").expect("an input handler");
+  let body = format!("{:?}", input.body);
+  assert!(body.contains("module: \"clipboard\", name: \"write\"") && body.contains("module: \"clipboard\", name: \"read\""), "{body}");
+}

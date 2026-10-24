@@ -106,6 +106,13 @@ export declare const path: {
 	/** Whether `p` starts with `/`. */
 	isAbsolute(p: string): boolean;
 };
+/** The system clipboard of the machine a terminal page runs on, through its own copy and paste commands. Terminal pages only. */
+export declare const clipboard: {
+	/** Puts `text` on the clipboard. */
+	write(text: string): void;
+	/** What the clipboard holds as text. */
+	read(): string;
+};
 /** The machine a terminal page runs on. Terminal pages only. */
 export declare const system: {
 	/** The environment variable `name`, null when it is not set. */

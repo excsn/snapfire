@@ -106,6 +106,8 @@ pub const STANDARD: &[Member] = &[
   member("file", "list", Reach::Process),
   member("file", "makeDir", Reach::Process),
   member("file", "stat", Reach::Process),
+  member("clipboard", "write", Reach::Process),
+  member("clipboard", "read", Reach::Process),
 ];
 
 /// The reach of a standard member or `None` when no such member exists.

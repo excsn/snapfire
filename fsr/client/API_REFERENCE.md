@@ -158,6 +158,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [file](#file)
   * [path](#path)
   * [system](#system)
+  * [clipboard](#clipboard)
   * [time](#time)
   * [crypto](#crypto)
   * [Scope](#scope)
@@ -1367,6 +1368,13 @@ The machine a terminal page runs on. Terminal pages only; in a browser each memb
 * `system.lineEnd(): string`: `"\r\n"` on Windows, `"\n"` elsewhere.
 * `system.memory(): number`: the resident set of the running page, in bytes.
 * `system.spawn(command: string, args?: string[], options?: SpawnOptions): Spawned`: a process started with its output piped. `interface SpawnOptions { cwd?: string; env?: { [name: string]: string }; shell?: boolean | string; stdio?: "inherit" | "pipe" }`, `stdio: "inherit"` for one that owns the terminal. `Spawned` has `stdout.on("data", f)` and `stderr.on("data", f)` for its output, `on("exit" | "close", f)` with the code and signal, `on("error", f)` for a failure to start and `off(event, f)`.
+
+### clipboard
+
+The system clipboard of the machine a terminal page runs on. Terminal pages only; in a browser each member throws.
+
+* `clipboard.write(text: string): void`: puts `text` on the clipboard through `pbcopy`, `clip`, `wl-copy`, `xclip` or `xsel`, the first the platform has.
+* `clipboard.read(): string`: what the clipboard holds, through the matching paste command.
 
 ### time
 

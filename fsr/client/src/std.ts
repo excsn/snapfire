@@ -194,6 +194,18 @@ export const path = {
   },
 };
 
+/** The system clipboard of the machine a terminal page runs on, through its own copy and paste commands. Terminal pages only. */
+export const clipboard = {
+  /** Puts `text` on the clipboard. */
+  write(text: string): void {
+    return terminalOnly("clipboard.write", [text]);
+  },
+  /** What the clipboard holds as text. */
+  read(): string {
+    return terminalOnly("clipboard.read", []);
+  },
+};
+
 /** The machine a terminal page runs on. Terminal pages only. */
 export const system = {
   /** The environment variable `name`, null when it is not set. */

@@ -170,6 +170,16 @@ export const path = {
         ]);
     }
 };
+export const clipboard = {
+    write (text) {
+        return terminalOnly("clipboard.write", [
+            text
+        ]);
+    },
+    read () {
+        return terminalOnly("clipboard.read", []);
+    }
+};
 export const system = {
     env (name) {
         return terminalOnly("system.env", [

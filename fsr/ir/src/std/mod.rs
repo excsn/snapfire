@@ -1,10 +1,11 @@
 //! The standard library's Rust half: `intl`, `text`, `time`, `crypto`, `id`,
-//! `log`, `terminal`, `path`, `file` and `system`, one function per
+//! `log`, `terminal`, `path`, `file`, `system` and `clipboard`, one function per
 //! row of `ext::STANDARD`. The browser half is
 //! the client library's `std` module and the two agree byte for byte on every
 //! `render` member; `fsr/ir/tests/conformance.rs` diffs them. A `terminal`
 //! member has no browser half.
 
+pub mod clipboard;
 pub mod crypto;
 pub mod frontmatter;
 pub mod i18n;
@@ -30,5 +31,6 @@ pub fn register(extensions: &mut Extensions) {
   terminal::register(extensions);
   path::register(extensions);
   system::register(extensions);
+  clipboard::register(extensions);
   log::register(extensions);
 }

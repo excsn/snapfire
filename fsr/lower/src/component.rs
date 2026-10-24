@@ -10452,6 +10452,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               walk.act(action, input);
               return Ok(());
             }
+            let unbound = self.lowerer.unbound.clone();
+            match self.lowerer.expr(e) {
+              Ok(lowered) if effectful(&lowered) || writes_back(&lowered) => {
+                walk.effect(Stmt::Expr(lowered));
+                return Ok(());
+              }
+              _ => self.lowerer.unbound = unbound,
+            }
             Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, branches, calls to state setters and calls to actions")))
           }
           other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
