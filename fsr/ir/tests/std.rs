@@ -22,11 +22,11 @@ fn n(f: f64) -> Value {
 #[test]
 fn the_standard_table_and_the_registry_agree() {
   let registry = Extensions::standard();
-  for (module, name, reach) in STANDARD {
-    let key = format!("{module}.{name}");
+  for member in STANDARD {
+    let key = format!("{}.{}", member.module, member.name);
     let held = registry.get(&key).unwrap_or_else(|| panic!("{key} is registered"));
-    assert_eq!(held.reach, *reach, "{key}");
-    assert_eq!(standard_reach(module, name), Some(*reach));
+    assert_eq!(held.reach, member.reach, "{key}");
+    assert_eq!(standard_reach(member.module, member.name), Some(member.reach));
   }
   assert_eq!(registry.names().len(), STANDARD.len());
   assert_eq!(standard_reach("intl", "money"), None);
@@ -360,4 +360,13 @@ fn random_bytes_are_hex_or_base64() {
   let Ok(Value::Str(base64)) = call("", "crypto.random", vec![n(6.0), s("base64")]) else { panic!("base64") };
   assert_eq!(base64.len(), 8);
   assert!(call("", "crypto.random", vec![n(6.0), s("utf8")]).is_err());
+}
+
+#[test]
+fn every_terminal_member_has_the_signature_its_declaration_is_written_from() {
+  for member in STANDARD.iter().filter(|member| member.module == "terminal") {
+    assert!(!member.signatures.is_empty(), "terminal.{}", member.name);
+  }
+  let ms = STANDARD.iter().find(|member| member.module == "terminal" && member.name == "ms").unwrap();
+  assert!(ms.signatures[1].declare("ms").contains("export declare function ms(value: number, options?: { long?: boolean; }): string;"), "{}", ms.signatures[1].declare("ms"));
 }

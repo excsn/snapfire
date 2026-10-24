@@ -64,6 +64,12 @@ fn a_terminal_app_has_declarations_for_fsrs_terminal_modules_and_asks_for_react(
   let tsconfig = std::fs::read_to_string(app.join("tsconfig.json")).unwrap();
   assert!(tsconfig.contains("\"@snapfire/fsr/terminal\": [\"./types/@snapfire/fsr/terminal/index.d.ts\"]") && tsconfig.contains("\"@snapfire/fsr/terminal/*\": [\"./types/@snapfire/fsr/terminal/*\"]"), "{tsconfig}");
   assert!(!tsconfig.contains("jsxImportSource"), "a terminal page's JSX is React's: {tsconfig}");
+  let index = std::fs::read_to_string(app.join("types/@snapfire/fsr/terminal/index.d.ts")).unwrap();
+  for member in snapfire_fsr_ir::STANDARD.iter().filter(|member| member.module == "terminal") {
+    for signature in member.signatures {
+      assert!(index.contains(&signature.declare(member.name)), "{} in {index}", member.name);
+    }
+  }
   let core = std::fs::read_to_string(app.join("types/@snapfire/fsr/terminal/core.d.ts")).unwrap();
   assert!(core.contains(&snapfire_fsr_terminal::prop_declarations()), "{core}");
   assert!(snapfire_fsr_cli::types::missing(&app).unwrap().contains(&"react".to_owned()));

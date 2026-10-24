@@ -19,7 +19,7 @@ pub use ast::{
 pub use shadow::ShadowRootError;
 pub use bind::{rendered_nodes, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore};
 pub use catalog::Catalogs;
-pub use ext::{standard_reach, Ambient, Extension, Extensions, Reach, STANDARD};
+pub use ext::{standard_reach, Ambient, Extension, Extensions, Field, Member, Reach, Signature, Ty, STANDARD};
 pub use interp::{Clock, Derive, Fail, Interpreter, Outcome};
 pub use render::{Frameworks, HandlerRef, ReactMajor, SvelteMajor, VueMajor};
 pub use snapfire_fsr_core::{is_place_name, Place};

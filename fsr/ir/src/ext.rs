@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use snapfire_fsr_core::Value;
-pub use snapfire_fsr_core::ext::{number, option, text, text_opt, Ambient, Reach};
+pub use snapfire_fsr_core::ext::{number, option, text, text_opt, Ambient, Field, Reach, Signature, Ty};
 
 use crate::interp::Fail;
 
@@ -27,70 +27,90 @@ impl Extension {
   }
 }
 
-/// The standard library by module, member and reach: the table the lowerer
-/// checks a call against and the registry fills.
-pub const STANDARD: &[(&str, &str, Reach)] = &[
-  ("intl", "number", Reach::Render),
-  ("intl", "currency", Reach::Render),
-  ("intl", "date", Reach::Render),
-  ("intl", "plural", Reach::Render),
-  ("intl", "list", Reach::Render),
-  ("intl", "compare", Reach::Render),
-  ("text", "slug", Reach::Render),
-  ("text", "truncate", Reach::Render),
-  ("text", "frontMatter", Reach::Terminal),
-  ("text", "withFrontMatter", Reach::Terminal),
-  ("time", "format", Reach::Render),
-  ("time", "add", Reach::Render),
-  ("time", "diff", Reach::Render),
-  ("time", "parse", Reach::Render),
-  ("time", "now", Reach::Body),
-  ("time", "monotonic", Reach::Body),
-  ("crypto", "hash", Reach::Render),
-  ("crypto", "verify", Reach::Render),
-  ("crypto", "random", Reach::Body),
-  ("crypto", "uuid", Reach::Body),
-  ("crypto", "digest", Reach::Render),
-  ("id", "new", Reach::Body),
-  ("i18n", "t", Reach::Render),
-  ("intl", "localTime", Reach::Terminal),
-  ("time", "localOffset", Reach::Terminal),
-  ("terminal", "ms", Reach::Terminal),
-  ("terminal", "stripAnsi", Reach::Terminal),
-  ("terminal", "stringWidth", Reach::Terminal),
-  ("terminal", "wrapAnsi", Reach::Terminal),
-  ("path", "join", Reach::Terminal),
-  ("path", "resolve", Reach::Terminal),
-  ("path", "normalize", Reach::Terminal),
-  ("path", "dirname", Reach::Terminal),
-  ("path", "basename", Reach::Terminal),
-  ("path", "extname", Reach::Terminal),
-  ("path", "relative", Reach::Terminal),
-  ("path", "isAbsolute", Reach::Terminal),
-  ("system", "env", Reach::Process),
-  ("system", "home", Reach::Process),
-  ("system", "platform", Reach::Process),
-  ("system", "tempDir", Reach::Process),
-  ("system", "lineEnd", Reach::Process),
-  ("system", "cwd", Reach::Process),
-  ("system", "memory", Reach::Process),
-  ("log", "trace", Reach::Render),
-  ("log", "debug", Reach::Render),
-  ("log", "info", Reach::Render),
-  ("log", "warn", Reach::Render),
-  ("log", "error", Reach::Render),
-  ("log", "fatal", Reach::Render),
-  ("file", "read", Reach::Process),
-  ("file", "write", Reach::Process),
-  ("file", "exists", Reach::Process),
-  ("file", "list", Reach::Process),
-  ("file", "makeDir", Reach::Process),
-  ("file", "stat", Reach::Process),
+/// A standard member: its module, its name, its reach and, for one with no TypeScript in the client to declare it, its signatures, which a terminal app's declarations are written from.
+#[derive(Debug, Clone, Copy)]
+pub struct Member {
+  pub module: &'static str,
+  pub name: &'static str,
+  pub reach: Reach,
+  pub signatures: &'static [Signature],
+}
+
+const fn member(module: &'static str, name: &'static str, reach: Reach) -> Member {
+  Member { module, name, reach, signatures: &[] }
+}
+
+/// The standard library: the table the lowerer checks a call against and the registry fills.
+pub const STANDARD: &[Member] = &[
+  member("intl", "number", Reach::Render),
+  member("intl", "currency", Reach::Render),
+  member("intl", "date", Reach::Render),
+  member("intl", "plural", Reach::Render),
+  member("intl", "list", Reach::Render),
+  member("intl", "compare", Reach::Render),
+  member("text", "slug", Reach::Render),
+  member("text", "truncate", Reach::Render),
+  member("text", "frontMatter", Reach::Terminal),
+  member("text", "withFrontMatter", Reach::Terminal),
+  member("time", "format", Reach::Render),
+  member("time", "add", Reach::Render),
+  member("time", "diff", Reach::Render),
+  member("time", "parse", Reach::Render),
+  member("time", "now", Reach::Body),
+  member("time", "monotonic", Reach::Body),
+  member("crypto", "hash", Reach::Render),
+  member("crypto", "verify", Reach::Render),
+  member("crypto", "random", Reach::Body),
+  member("crypto", "uuid", Reach::Body),
+  member("crypto", "digest", Reach::Render),
+  member("id", "new", Reach::Body),
+  member("i18n", "t", Reach::Render),
+  member("intl", "localTime", Reach::Terminal),
+  member("time", "localOffset", Reach::Terminal),
+  Member { module: "terminal", name: "ms", reach: Reach::Terminal, signatures: &[
+    Signature { doc: "Milliseconds for a duration such as `\"2 days\"` or `\"1h\"`; `undefined` for one it cannot read.", generics: &[], params: &[Field::required("value", Ty::String)], returns: Ty::Union(&[Ty::Number, Ty::Undefined]) },
+    Signature { doc: "A duration in milliseconds written short as `\"2d\"` or long as `\"2 days\"`.", generics: &[], params: &[Field::required("value", Ty::Number), Field::optional("options", Ty::Object(&[Field::optional("long", Ty::Boolean)]))], returns: Ty::String },
+  ] },
+  Member { module: "terminal", name: "stripAnsi", reach: Reach::Terminal, signatures: &[Signature { doc: "`text` with its ANSI escape codes removed.", generics: &[], params: &[Field::required("text", Ty::String)], returns: Ty::String }] },
+  Member { module: "terminal", name: "stringWidth", reach: Reach::Terminal, signatures: &[Signature { doc: "The columns `text` takes in a terminal, its escape codes left out and wide characters counted twice.", generics: &[], params: &[Field::required("text", Ty::String)], returns: Ty::Number }] },
+  Member { module: "terminal", name: "wrapAnsi", reach: Reach::Terminal, signatures: &[Signature {
+    doc: "`text` wrapped to `columns`, its escape codes kept where they stand.",
+    generics: &[],
+    params: &[Field::required("text", Ty::String), Field::required("columns", Ty::Number), Field::optional("options", Ty::Object(&[Field::optional("hard", Ty::Boolean), Field::optional("wordWrap", Ty::Boolean), Field::optional("trim", Ty::Boolean)]))],
+    returns: Ty::String,
+  }] },
+  member("path", "join", Reach::Terminal),
+  member("path", "resolve", Reach::Terminal),
+  member("path", "normalize", Reach::Terminal),
+  member("path", "dirname", Reach::Terminal),
+  member("path", "basename", Reach::Terminal),
+  member("path", "extname", Reach::Terminal),
+  member("path", "relative", Reach::Terminal),
+  member("path", "isAbsolute", Reach::Terminal),
+  member("system", "env", Reach::Process),
+  member("system", "home", Reach::Process),
+  member("system", "platform", Reach::Process),
+  member("system", "tempDir", Reach::Process),
+  member("system", "lineEnd", Reach::Process),
+  member("system", "cwd", Reach::Process),
+  member("system", "memory", Reach::Process),
+  member("log", "trace", Reach::Render),
+  member("log", "debug", Reach::Render),
+  member("log", "info", Reach::Render),
+  member("log", "warn", Reach::Render),
+  member("log", "error", Reach::Render),
+  member("log", "fatal", Reach::Render),
+  member("file", "read", Reach::Process),
+  member("file", "write", Reach::Process),
+  member("file", "exists", Reach::Process),
+  member("file", "list", Reach::Process),
+  member("file", "makeDir", Reach::Process),
+  member("file", "stat", Reach::Process),
 ];
 
 /// The reach of a standard member or `None` when no such member exists.
 pub fn standard_reach(module: &str, name: &str) -> Option<Reach> {
-  STANDARD.iter().find(|(m, n, _)| *m == module && *n == name).map(|(_, _, reach)| *reach)
+  STANDARD.iter().find(|member| member.module == module && member.name == name).map(|member| member.reach)
 }
 
 /// The extensions an interpreter answers, by `module.name`.

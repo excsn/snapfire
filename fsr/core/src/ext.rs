@@ -186,6 +186,90 @@ impl Reach {
   }
 }
 
+/// A TypeScript type, as a declaration of what FSR provides writes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ty {
+  String,
+  Number,
+  Boolean,
+  Unknown,
+  Void,
+  Undefined,
+  /// A type the declaring file names or imports: `BoxProps`, `ReactElement`, a generic `T`.
+  Named(&'static str),
+  /// `{ a: T; b?: U }`.
+  Object(&'static [Field]),
+  Union(&'static [Ty]),
+  /// `(a: T) => R`.
+  Function(&'static [Field], &'static Ty),
+  Promise(&'static Ty),
+}
+
+/// A field of an object type or a parameter of a function, `optional` when it may be left out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Field {
+  pub name: &'static str,
+  pub ty: Ty,
+  pub optional: bool,
+}
+
+impl Field {
+  pub const fn required(name: &'static str, ty: Ty) -> Self {
+    Self { name, ty, optional: false }
+  }
+
+  pub const fn optional(name: &'static str, ty: Ty) -> Self {
+    Self { name, ty, optional: true }
+  }
+}
+
+/// One signature of a function FSR provides with no TypeScript of its own: what it is for, its type parameters, its parameters and what it returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Signature {
+  pub doc: &'static str,
+  pub generics: &'static [&'static str],
+  pub params: &'static [Field],
+  pub returns: Ty,
+}
+
+impl Ty {
+  /// The type as TypeScript writes it.
+  pub fn typescript(&self) -> String {
+    match self {
+      Ty::String => "string".to_owned(),
+      Ty::Number => "number".to_owned(),
+      Ty::Boolean => "boolean".to_owned(),
+      Ty::Unknown => "unknown".to_owned(),
+      Ty::Void => "void".to_owned(),
+      Ty::Undefined => "undefined".to_owned(),
+      Ty::Named(name) => (*name).to_owned(),
+      Ty::Object(fields) => format!("{{ {} }}", fields.iter().map(|f| format!("{};", f.typescript())).collect::<Vec<_>>().join(" ")),
+      Ty::Union(members) => members.iter().map(Ty::typescript).collect::<Vec<_>>().join(" | "),
+      Ty::Function(params, returns) => format!("({}) => {}", params.iter().map(Field::typescript).collect::<Vec<_>>().join(", "), returns.typescript()),
+      Ty::Promise(inner) => format!("Promise<{}>", inner.typescript()),
+    }
+  }
+}
+
+impl Field {
+  /// `name: T` or `name?: T`.
+  pub fn typescript(&self) -> String {
+    format!("{}{}: {}", self.name, if self.optional { "?" } else { "" }, self.ty.typescript())
+  }
+}
+
+impl Signature {
+  /// `export declare function name<T>(a: T): R;` under its doc comment.
+  pub fn declare(&self, name: &str) -> String {
+    let generics = match self.generics {
+      [] => String::new(),
+      names => format!("<{}>", names.join(", ")),
+    };
+    let params = self.params.iter().map(Field::typescript).collect::<Vec<_>>().join(", ");
+    format!("/** {} */\nexport declare function {name}{generics}({params}): {};\n", self.doc, self.returns.typescript())
+  }
+}
+
 /// What a call runs under: the request's locale in the application's
 /// spelling, empty when nothing set one and the clock.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

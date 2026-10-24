@@ -49,10 +49,22 @@ pub const TERMINAL_TYPES: &str = "@snapfire/fsr/terminal";
 fn native_terminal() -> Vec<(String, String)> {
   let core = format!("import type {{ ReactElement, ReactNode }} from \"react\";\n\n{}\n{}\n{}", snapfire_fsr_terminal::prop_declarations(), crate::terminal::key_declaration(), include_str!("../embedded/terminal/core.d.ts"));
   vec![
-    ("index.d.ts".to_owned(), include_str!("../embedded/terminal/index.d.ts").to_owned()),
+    ("index.d.ts".to_owned(), declared_members("terminal")),
     ("core.d.ts".to_owned(), core),
     ("ink.d.ts".to_owned(), include_str!("../embedded/terminal/ink.d.ts").to_owned()),
   ]
+}
+
+/// The declarations of the standard members of `module`, from the signatures their rows carry.
+#[cfg(feature = "terminal")]
+fn declared_members(module: &str) -> String {
+  let mut out = String::new();
+  for member in snapfire_fsr_ir::STANDARD.iter().filter(|member| member.module == module) {
+    for signature in member.signatures {
+      out.push_str(&signature.declare(member.name));
+    }
+  }
+  out
 }
 
 /// The file under [`TERMINAL_TYPES`] holding a hash of what its declarations were written from.
