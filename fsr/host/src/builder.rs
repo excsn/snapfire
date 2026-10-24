@@ -966,10 +966,10 @@ impl HostBuilder {
         policy.widen("img-src", "data:");
       }
       if let Some(map) = import_map.as_deref() {
-        policy.widen("script-src", inline_hash(map));
+        policy.admit_inline("script-src", inline_hash(map));
       }
       if let Some(nonce) = &dev_nonce {
-        policy.widen("script-src", format!("'nonce-{nonce}'"));
+        policy.admit_inline("script-src", format!("'nonce-{nonce}'"));
       }
       for origin in &script_origins {
         policy.widen("script-src", origin.clone());
@@ -984,7 +984,7 @@ impl HostBuilder {
         policy.widen("img-src", origin.clone());
       }
       if let Some(css) = &font_css {
-        policy.widen("style-src", inline_hash(css));
+        policy.admit_inline("style-src", inline_hash(css));
       }
       for css in &inline_styles {
         policy.admit_inline("style-src", inline_hash(css));

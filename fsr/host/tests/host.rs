@@ -6055,6 +6055,16 @@ async fn a_policy_can_enforce_and_another_can_observe_at_once() {
 }
 
 #[tokio::test]
+async fn a_directive_that_allows_inline_scripts_gains_no_hash_or_nonce_that_would_switch_it_off() {
+  for dev in [false, true] {
+    let host = tuned_host(&tuned_app_with(dev, "", "", "[document.csp]\nscript-src = [\"'self'\", \"'unsafe-inline'\"]"));
+    let enforced = header_of(&host, "/", "content-security-policy").await.expect("an enforced policy");
+    let script_src = enforced.split(';').map(str::trim).find(|d| d.starts_with("script-src ")).expect("script-src");
+    assert_eq!(script_src, "script-src 'self' 'unsafe-inline'", "dev {dev}");
+  }
+}
+
+#[tokio::test]
 async fn a_development_host_nonces_both_policies() {
   let host = tuned_host(&tuned_app_with(
     true,

@@ -613,14 +613,14 @@ fn a_sites_links_are_not_checked() {
   assert!(!findings(&dir).contains(&"links".to_owned()), "{}", report(&dir));
 }
 
+/// The host adds no hash to a directive that allows `'unsafe-inline'`, so the pair breaks nothing.
 #[test]
-fn unsafe_inline_beside_an_import_map_is_reported() {
+fn unsafe_inline_beside_an_import_map_is_quiet() {
   let dir = app(
     "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[document.csp]\nscript-src = [\"'self'\", \"'unsafe-inline'\"]\n",
     &[("app/importmap.json", r#"{"imports":{}}"#)],
   );
-  assert!(findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
-  assert!(report(&dir).contains("ignore `'unsafe-inline'`"), "{}", report(&dir));
+  assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
 }
 
 #[test]
@@ -639,7 +639,7 @@ fn strict_dynamic_is_reported() {
 #[test]
 fn a_report_only_policy_is_checked_the_same_way() {
   let dir = app(
-    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[document.csp_report_only]\nscript-src = [\"'unsafe-inline'\"]\n",
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[document.csp_report_only]\nscript-src = [\"'self'\", \"'strict-dynamic'\"]\n",
     &[("app/importmap.json", r#"{"imports":{}}"#)],
   );
   assert!(report(&dir).contains("csp_report_only"), "{}", report(&dir));
@@ -657,7 +657,7 @@ fn an_ordinary_policy_is_quiet() {
 #[test]
 fn a_mounted_site_leaves_the_policy_to_its_shell() {
   let dir = app(
-    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[site]\nname = \"docs\"\nat = \"/docs\"\n[document.csp]\nscript-src = [\"'unsafe-inline'\"]\n",
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[site]\nname = \"docs\"\nat = \"/docs\"\n[document.csp]\nscript-src = [\"'strict-dynamic'\"]\n",
     &[("app/importmap.json", r#"{"imports":{}}"#)],
   );
   assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));

@@ -916,10 +916,7 @@ fn tree(app: &Path, config: &Config) -> Vec<Finding> {
   )]
 }
 
-/// A hash in `script-src` makes the browser ignore `'unsafe-inline'` in that
-/// same directive. The host always adds the inline import map's hash, so a
-/// policy written for inline third-party scripts loses them the moment it names
-/// `script-src` at all.
+/// `'strict-dynamic'` in `script-src` makes the browser ignore `'self'` and every host beside it.
 pub(crate) fn csp(config: &Config) -> Vec<Finding> {
   // A site's document is its shell's.
   if config.site.is_some() {
@@ -928,13 +925,6 @@ pub(crate) fn csp(config: &Config) -> Vec<Finding> {
   let mut findings = Vec::new();
   for (key, policy) in [("csp", &config.document.csp), ("csp_report_only", &config.document.csp_report_only)] {
     let Some(policy) = policy else { continue };
-    if config.document.import_map.is_some() && policy.names("script-src", "'unsafe-inline'") {
-      findings.push(Finding::new(
-        "csp",
-        format!("`document.{key}` names `'unsafe-inline'` in `script-src` while the document carries an import map"),
-        "the host adds the import map's hash to that directive; a hash makes the browser ignore `'unsafe-inline'`, so every inline script on the page stops running. Drop `'unsafe-inline'` or serve the document without an import map",
-      ));
-    }
     if policy.names("script-src", "'strict-dynamic'") {
       findings.push(Finding::new(
         "csp",
