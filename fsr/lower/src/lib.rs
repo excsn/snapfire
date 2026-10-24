@@ -157,6 +157,8 @@ pub(crate) struct Resolved {
   pub natives: Vec<(String, Reach)>,
   pub classes: Option<std::rc::Rc<std::cell::RefCell<crate::classes::ClassTable>>>,
   pub type_kinds: Vec<(String, AliasKind)>,
+  /// The reaches the set's pages may use besides `Render` and `Body`, which its loaders, actions and data exports share.
+  pub reaches: Vec<Reach>,
 }
 
 /// A body that did not lower, with the name the set may bind and retry.
@@ -1239,6 +1241,7 @@ impl<'a> Lowerer<'a> {
     self.natives = resolved.natives.clone();
     self.classes = resolved.classes.clone();
     self.type_kinds = resolved.type_kinds.clone();
+    self.reaches = resolved.reaches.clone();
     self
   }
 

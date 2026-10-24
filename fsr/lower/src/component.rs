@@ -371,7 +371,7 @@ impl ComponentSet {
       .collect();
     let mut calls = DeriveCalls { meanings: &meanings, calls: Vec::new() };
     parsed.module.visit_with(&mut calls);
-    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone(), classes: Some(self.classes.clone()), type_kinds: self.alias_kinds(file) };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone(), classes: Some(self.classes.clone()), type_kinds: self.alias_kinds(file), reaches: self.reaches.clone() };
     let mut rows = Vec::new();
     for call in &calls.calls {
       let at = parsed.residue(call.span, "");
@@ -517,7 +517,7 @@ impl ComponentSet {
     self.load(file)?;
     self.load_class_graph(file);
     self.meanings(file);
-    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone(), classes: Some(self.classes.clone()), type_kinds: self.alias_kinds(file) };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone(), classes: Some(self.classes.clone()), type_kinds: self.alias_kinds(file), reaches: self.reaches.clone() };
     loop {
       let parsed = self.parsed[file].clone();
       let defaults = self.defaults.clone();

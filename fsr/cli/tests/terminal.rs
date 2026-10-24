@@ -804,6 +804,18 @@ fn app_with_loader(page: &str, loader: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn a_terminal_loader_reads_a_file_and_the_system_as_the_page_may() {
+  let page = "import { Text } from \"ink\";\n\nexport default function Notes({ notes, platform }: { notes: string; platform: string }) {\n  return <Text>{notes} on {platform === \"\" ? \"nothing\" : \"a platform\"}</Text>;\n}\n";
+  let loader = "import { file, path, system } from \"@snapfire/fsr-client/std\";\n\nexport async function load({ params }: { params: { dir: string } }) {\n  return { notes: file.read(path.join(params.dir, \"notes.txt\")), platform: system.platform() };\n}\n";
+  let app = app_with_loader(page, loader);
+  std::fs::write(app.join("notes.txt"), "three notes").unwrap();
+  let args = ["--dir".to_owned(), app.display().to_string()];
+  let mut session = Session::open_with(&app, snapfire_fsr_cli::terminal::params(&args)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 40).lines()[0].trim_end(), "three notes on a platform");
+}
+
+#[test]
 fn the_root_page_takes_what_its_loader_returns_as_its_props() {
   let page = "import { Text } from \"ink\";\n\nexport default function Hello({ name }: { name: string }) {\n  return <Text>hello {name}</Text>;\n}\n";
   let loader = "export async function load() {\n  return { name: \"world\" };\n}\n";
