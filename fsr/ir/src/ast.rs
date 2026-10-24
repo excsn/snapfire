@@ -111,6 +111,8 @@ pub enum Expr {
   /// `after(fn)`: `fn`, a lambda, queued on the request's `after` to run once the response is written, over a copy of the scope it was called in. `undefined`.
   After(Box<Expr>),
   Lambda { params: Vec<String>, body: Box<Expr> },
+  /// A function value that sees itself under `name` while it runs, so it may call itself; `f` is the `Lambda`. A call nested `interp::MAX_APPLIES` deep fails the step.
+  Fix { name: String, f: Box<Expr> },
   /// A lambda applied to arguments: a module-level helper a component calls.
   Apply { f: Box<Expr>, args: Vec<Expr> },
   /// [`Expr::Apply`] with the arguments as one array: `f(a, ...rest)`.
@@ -986,6 +988,15 @@ impl Expr {
           }
         }
       }
+      Expr::Fix { name, f } => {
+        let mut inner = Vec::new();
+        f.free_vars(&mut inner);
+        for free in inner {
+          if free != *name && !out.contains(&free) {
+            out.push(free);
+          }
+        }
+      }
       Expr::Hoist { expr, .. } => expr.free_vars(out),
       Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.free_vars(out),
       Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
@@ -1035,6 +1046,7 @@ impl Expr {
         args.visit(f);
       }
       Expr::Lambda { body, .. } => body.visit(f),
+      Expr::Fix { f: inner, .. } => inner.visit(f),
       Expr::Block(body) => body_visit(body, f),
       Expr::Hoist { expr, .. } => expr.visit(f),
       Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.visit(f),
@@ -1078,6 +1090,7 @@ impl Expr {
         args.visit_mut(f);
       }
       Expr::Lambda { body, .. } => body.visit_mut(f),
+      Expr::Fix { f: inner, .. } => inner.visit_mut(f),
       Expr::Block(body) => body_visit_mut(body, f),
       Expr::Hoist { expr, .. } => expr.visit_mut(f),
       Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.visit_mut(f),
@@ -1121,6 +1134,7 @@ impl Expr {
       Expr::Apply { f, args } => f.reads_request() || args.iter().any(Expr::reads_request),
       Expr::ApplyOf(f, args) => f.reads_request() || args.reads_request(),
       Expr::Lambda { body, .. } => body.reads_request(),
+      Expr::Fix { f, .. } => f.reads_request(),
       Expr::Block(body) => body_reads_request(body),
       Expr::Hoist { expr, .. } => expr.reads_request(),
       Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.reads_request(),
@@ -1154,6 +1168,7 @@ impl Expr {
       Expr::Apply { f, args } => f.has_call() || args.iter().any(Expr::has_call),
       Expr::ApplyOf(..) => true,
       Expr::Lambda { body, .. } => body.has_call(),
+      Expr::Fix { f, .. } => f.has_call(),
       Expr::Block(body) => {
         let mut any = false;
         body_visit(body, &mut |e| any |= matches!(e, Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_)));

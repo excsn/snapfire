@@ -65,6 +65,8 @@ pub struct ComponentSet {
   /// lowering it again.
   failed: HashMap<String, LowerError>,
   resolving: Vec<String>,
+  /// Module functions found calling themselves while their body lowered, wrapped as `Expr::Fix` once lowered.
+  recursive: Vec<String>,
   /// Modules that are layouts: their `children` is the child segment, placed
   /// inside `<sf-s>` so the browser can adopt it without reconciling it.
   pub layouts: Vec<String>,
@@ -207,7 +209,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), reaches: Vec::new(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new(), positional: HashSet::new() }
+    Self { app: app.to_path_buf(), reaches: Vec::new(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), recursive: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new(), positional: HashSet::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -2274,7 +2276,11 @@ impl ComponentSet {
   fn global(&mut self, file: &str, name: &str) -> Result<Option<(Expr, String)>, LowerError> {
     let key = format!("{file}#{name}");
     if self.resolving.iter().any(|m| *m == key) {
-      return Err(LowerError::Parse { file: file.to_owned(), message: format!("`{name}` is recursive, which the build cannot unroll") });
+      // The function's own name inside its body: the binding `Expr::Fix` gives it while it runs.
+      if !self.recursive.iter().any(|k| *k == key) {
+        self.recursive.push(key.clone());
+      }
+      return Ok(Some((Expr::Var(name.to_owned()), key)));
     }
     let meanings = self.meanings(file);
     let parsed = self.parsed[file].clone();
@@ -2349,6 +2355,13 @@ impl ComponentSet {
     self.resolving.push(key.clone());
     let result = self.lower_global(file, item);
     self.resolving.pop();
+    let result = match result {
+      Ok(expr) if self.recursive.iter().any(|k| *k == key) => {
+        self.recursive.retain(|k| *k != key);
+        Ok(Expr::Fix { name: name.to_owned(), f: Box::new(expr) })
+      }
+      other => other,
+    };
     match result {
       Err(LowerError::Residue(residue)) if file.starts_with(&format!("{EXT_DIR}/")) => Err(LowerError::Extension(residue)),
       // A constant that reads the machine, a file or the clock is what the module's initialisation left it at: a cell the session makes once, as Node runs a module once.
@@ -2580,7 +2593,7 @@ impl ComponentSet {
   }
 
   fn name_if_large(&mut self, key: String, expr: Expr) -> Expr {
-    if weight(&expr) < CONST_WEIGHT || matches!(expr, Expr::Lambda { .. } | Expr::Ext { .. }) || is_asset_record(&expr) {
+    if weight(&expr) < CONST_WEIGHT || matches!(expr, Expr::Lambda { .. } | Expr::Fix { .. } | Expr::Ext { .. }) || is_asset_record(&expr) {
       return expr;
     }
     self.consts.entry(key.clone()).or_insert(expr);
@@ -12796,7 +12809,7 @@ mod fills {
       _ => {}
     });
     let mut found = false;
-    e.visit(&mut |x| found |= matches!(x, Expr::Lambda { .. }) && !callbacks.contains(&(x as *const Expr)));
+    e.visit(&mut |x| found |= matches!(x, Expr::Lambda { .. } | Expr::Fix { .. }) && !callbacks.contains(&(x as *const Expr)));
     found
   }
 

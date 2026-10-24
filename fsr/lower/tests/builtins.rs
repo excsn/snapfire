@@ -377,7 +377,7 @@ fn filter_takes_boolean_as_its_callback() {
   let body = lowered("filter_boolean", "params.tags.filter(Boolean)").unwrap_or_else(|e| panic!("{e}"));
   assert!(matches!(&body[0], Stmt::Let { expr: Expr::Filter(_, f), .. } if matches!(&**f, Expr::Lambda { .. })), "{body:?}");
   let err = lowered("filter_named", "params.tags.filter(keep)").unwrap_err();
-  assert!(err.contains("takes an arrow function written in place"), "{err}");
+  assert!(err.contains("`filter` takes a function; `keep` is not bound here"), "{err}");
 }
 
 #[test]

@@ -365,7 +365,7 @@ impl<'a> Inferer<'a> {
           other => Ts::TsExpr(other.to_owned()),
         })
         .unwrap_or(Ts::Unknown),
-      Expr::Lambda { .. } | Expr::Block(_) | Expr::Handler(_) | Expr::Markup(_) => Ts::Unknown,
+      Expr::Lambda { .. } | Expr::Fix { .. } | Expr::Block(_) | Expr::Handler(_) | Expr::Markup(_) => Ts::Unknown,
       Expr::HoistId(_) => Ts::Str,
       Expr::Hoist { expr, .. } => self.expr(expr, env),
       Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) => Ts::Unknown,

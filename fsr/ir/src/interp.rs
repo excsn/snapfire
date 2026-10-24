@@ -257,6 +257,7 @@ impl Interpreter {
       acts: Vec::new(),
       handling: false,
       calls: 0,
+      depth: 0,
       frameworks: self.frameworks,
       island_reads: self.island_reads.clone(),
       derives: self.derives.clone(),
@@ -394,6 +395,8 @@ pub(crate) struct Env {
   pub(crate) handling: bool,
   /// Components entered and not yet left, which bounds a render that recurses.
   pub(crate) calls: usize,
+  /// Function values applied and not yet returned, which bounds a function that calls itself.
+  pub(crate) depth: usize,
   /// The frameworks the application vendors, read on entering each component.
   pub(crate) frameworks: Frameworks,
   pub(crate) island_reads: Arc<std::collections::BTreeMap<String, Vec<String>>>,
@@ -451,10 +454,15 @@ pub(crate) struct Closure {
   params: Vec<String>,
   body: std::sync::Arc<Expr>,
   scope: Vec<(String, Value)>,
+  /// The name the function sees itself under while it runs, for one that calls itself.
+  name: Option<String>,
 }
 
 /// The tag of a function value: its payload indexes the render's closure table.
 pub const FUNCTION_VALUE: &str = "$fn";
+
+/// How deep function values may nest their calls before the step fails. A debug build's frames are many times larger, so the bound fits a 2 MB thread in each profile.
+pub const MAX_APPLIES: usize = if cfg!(debug_assertions) { 24 } else { 256 };
 
 /// The tag of a cell's handle, a `Value::Variant` whose payload is the cell's index in the render's table.
 pub const CELL_VALUE: &str = "$cell";
@@ -653,6 +661,7 @@ impl Env {
       acts: Vec::new(),
       handling: false,
       calls: 0,
+      depth: 0,
       frameworks: interpreter.frameworks,
       island_reads: interpreter.island_reads.clone(),
       derives: interpreter.derives.clone(),
@@ -907,6 +916,7 @@ impl Env {
       acts: Vec::new(),
       handling: false,
       calls: self.calls,
+      depth: self.depth,
       frameworks: self.frameworks,
       island_reads: self.island_reads.clone(),
       derives: self.derives.clone(),
@@ -1200,7 +1210,11 @@ impl Env {
         Ok(Value::Undefined)
       }
       Expr::NativeCall { module, method, args, sync } => self.native_sync(module, method, args, *sync),
-      Expr::Lambda { params, body } => self.close(params, body),
+      Expr::Lambda { params, body } => self.close(params, body, None),
+      Expr::Fix { name, f } => match &**f {
+        Expr::Lambda { params, body } => self.close(params, body, Some(name.clone())),
+        _ => Err(Fail::internal("`fix` takes a function")),
+      },
       Expr::Block(body) => {
         let depth = self.scope.len();
         let flow = self.block_sync(body);
@@ -1517,11 +1531,11 @@ impl Env {
   }
 
   /// A lambda written where a value goes, as a function value: what its body reads is taken now.
-  fn close(&mut self, params: &[String], body: &Expr) -> Result<Value, Fail> {
+  fn close(&mut self, params: &[String], body: &Expr, name: Option<String>) -> Result<Value, Fail> {
     let mut names = Vec::new();
     body.free_vars(&mut names);
     let scope = names.into_iter().filter(|name| !params.contains(name)).filter_map(|name| self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| (name, v.clone()))).collect();
-    let closure = Closure { params: params.to_vec(), body: std::sync::Arc::new(body.clone()), scope };
+    let closure = Closure { params: params.to_vec(), body: std::sync::Arc::new(body.clone()), scope, name };
     let Some(table) = &mut self.closures else {
       return Err(Fail::internal("a function value made while the body's independent lets evaluate in parallel"));
     };
@@ -1556,9 +1570,10 @@ impl Env {
   }
 
   /// The function value `f` evaluates to, for a call whose target is not a lambda written in place.
-  fn closure_of(&mut self, f: &Expr) -> Result<Closure, Fail> {
+  fn closure_of(&mut self, f: &Expr) -> Result<(Value, Closure), Fail> {
     let value = self.eval_sync(f)?;
-    closure_index(&value).and_then(|index| self.closures.as_ref().and_then(|table| table.get(index)).cloned()).ok_or_else(|| type_error("call", "a function", &value))
+    let closure = closure_index(&value).and_then(|index| self.closures.as_ref().and_then(|table| table.get(index)).cloned()).ok_or_else(|| type_error("call", "a function", &value))?;
+    Ok((value, closure))
   }
 
   pub(crate) fn apply_sync(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
@@ -1569,18 +1584,27 @@ impl Env {
       }
     }
     let Expr::Lambda { params, body } = f else {
-      let closure = match self.closure_of(f) {
-        Ok(closure) => closure,
+      let (value, closure) = match self.closure_of(f) {
+        Ok(found) => found,
         Err(_) if self.in_framework => {
           self.unrendered = true;
           return Ok(Value::Null);
         }
         Err(e) => return Err(e),
       };
+      if self.depth == MAX_APPLIES {
+        let who = closure.name.as_deref().map(|name| format!("`{name}`")).unwrap_or_else(|| "a function".to_owned());
+        return Err(Fail::internal(format!("{who} called itself {MAX_APPLIES} levels deep, which a render refuses: a function that calls itself needs a case that calls no further")));
+      }
       let mut scope = closure.scope;
+      if let Some(name) = &closure.name {
+        scope.push((name.clone(), value));
+      }
       bind_params(&mut scope, &closure.params, args);
       let outer = std::mem::replace(&mut self.scope, scope);
+      self.depth += 1;
       let result = self.eval_sync(&closure.body);
+      self.depth -= 1;
       self.scope = outer;
       return result;
     };
@@ -1791,7 +1815,7 @@ impl Env {
           }
           self.ctx.natives.call(module, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
-        Expr::Lambda { .. } => self.eval_sync(expr),
+        Expr::Lambda { .. } | Expr::Fix { .. } => self.eval_sync(expr),
         Expr::Block(body) => {
           let depth = self.scope.len();
           let flow = self.block(body).await;

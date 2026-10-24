@@ -66,6 +66,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
       "fn",
       vec![Sx::list(params.iter().map(|p| Sx::Sym(p.clone())).collect()), expr_to_sx(body)],
     ),
+    Expr::Fix { name, f } => form("fix", vec![Sx::Sym(name.clone()), expr_to_sx(f)]),
     Expr::Apply { f, args } => {
       let mut rest = vec![expr_to_sx(f)];
       rest.extend(args.iter().map(expr_to_sx));
@@ -246,6 +247,10 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
         params: a[0].as_list()?.iter().map(sym_of).collect::<Res<_>>()?,
         body: boxed(&a[1])?,
       }
+    }
+    "fix" => {
+      let a = args(items, head, 2)?;
+      Expr::Fix { name: sym_of(&a[0])?, f: boxed(&a[1])? }
     }
     "apply" => {
       let a = at_least(items, head, 1)?;

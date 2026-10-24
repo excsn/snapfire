@@ -43,3 +43,22 @@ fn a_component_calling_itself_as_a_function_renders_the_tree() {
   let page = format!("import {{ RichText }} from \"@src/RichText\";\n\nexport default function Page() {{\n  return <main><RichText nodes={{[{TREE}]}} /></main>;\n}}\n");
   assert_eq!(html("component", &[("src/RichText.tsx", rich), ("routes/page.tsx", &page)]).as_deref(), Ok("<main><b><span>a</span><b><span>b</span></b></b></main>"));
 }
+
+#[test]
+fn a_data_function_that_calls_itself_through_map_sums_a_tree() {
+  let page = "type Node = { value: number; children?: Node[] };\n\nconst sum = (node: Node): number => node.value + (node.children ?? []).map(sum).reduce((a, b) => a + b, 0);\n\nexport default function Page() {\n  return <p>{sum({ value: 1, children: [{ value: 2 }, { value: 3, children: [{ value: 4 }] }] })}</p>;\n}\n";
+  assert_eq!(html("sum", &[("routes/page.tsx", page)]).as_deref(), Ok("<p>10</p>"));
+}
+
+#[test]
+fn a_deep_merge_that_calls_itself_fills_a_config_from_its_defaults() {
+  let page = "export function deepMergeWithDefaults(partial: unknown, defaults: unknown): unknown {\n  if (partial === null || partial === undefined) {\n    return defaults;\n  }\n  if (typeof defaults !== \"object\" || defaults === null) {\n    return partial;\n  }\n  if (Array.isArray(defaults)) {\n    return Array.isArray(partial) ? partial : defaults;\n  }\n  const result = { ...(partial as Record<string, unknown>) };\n  for (const key of Object.keys(defaults as Record<string, unknown>)) {\n    const defaultValue = (defaults as Record<string, unknown>)[key];\n    if (!(key in result)) {\n      result[key] = defaultValue;\n    } else if (typeof defaultValue === \"object\" && defaultValue !== null && !Array.isArray(defaultValue)) {\n      result[key] = deepMergeWithDefaults(result[key], defaultValue);\n    }\n  }\n  return result;\n}\n\nexport default function Page() {\n  const merged = deepMergeWithDefaults({ a: { x: 1 }, list: [1] }, { a: { x: 0, y: 2 }, b: \"b\", list: [] }) as any;\n  return <p>{merged.a.x} {merged.a.y} {merged.b} {merged.list.length}</p>;\n}\n";
+  assert_eq!(html("merge", &[("routes/page.tsx", page)]).as_deref(), Ok("<p>1 2 b 1</p>"));
+}
+
+#[test]
+fn a_function_that_never_stops_calling_itself_fails_the_render_at_the_bound() {
+  let page = "const forever = (n: number): number => forever(n + 1);\n\nexport default function Page() {\n  return <p>{forever(0)}</p>;\n}\n";
+  let err = html("forever", &[("routes/page.tsx", page)]).unwrap_err();
+  assert!(err.contains("`forever` called itself") && err.contains("deep"), "{err}");
+}

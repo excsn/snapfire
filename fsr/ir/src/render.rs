@@ -2627,7 +2627,7 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
         *expr = Expr::Folded(Value::str(text));
       }
     }
-    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } | Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => fold_expr(e),
+    Expr::Fix { f: e, .. } | Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } | Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => fold_expr(e),
     Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
       fold_expr(a);
       fold_expr(b);

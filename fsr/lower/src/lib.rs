@@ -3261,7 +3261,7 @@ impl<'a> Lowerer<'a> {
               return Ok(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr });
             }
           }
-          if !matches!(*f, Expr::Lambda { .. }) {
+          if !matches!(&*f, Expr::Lambda { .. } | Expr::Fix { .. }) && !matches!(&*f, Expr::Var(v) if v == name) {
             return Err(self.residue(id.span, format!("`{name}` is not a function")));
           }
           if self.on_render_path() && !self.reaches(Reach::Terminal) {
@@ -3331,6 +3331,9 @@ impl<'a> Lowerer<'a> {
       let f = Box::new(self.expr(callee)?);
       return self.applied(f, call);
     };
+    if let Some(applied) = self.function_member(member, call)? {
+      return Ok(applied);
+    }
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
     if method == "digest" {
       if let Some(folded) = self.hash_chain(member, call)? {
@@ -3622,9 +3625,23 @@ impl<'a> Lowerer<'a> {
           let item = this.temp();
           return Ok(Box::new(Expr::Lambda { params: vec![item.clone()], body: Box::new(Expr::Not(Box::new(Expr::Not(Box::new(Expr::Var(item)))))) }));
         }
+        if let Some(function) = this.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| f.clone()) {
+          return this.function_expr(&function).map(Box::new);
+        }
+        let bound = this.scope.iter().rev().find(|(n, _)| n == name).or_else(|| this.globals.iter().rev().find(|(n, _)| n == name)).map(|(_, e)| e.clone());
+        match &bound {
+          Some(Expr::Lambda { .. } | Expr::Fix { .. }) => return this.expr(&a.expr).map(Box::new),
+          Some(Expr::Var(v)) if v == name => return this.expr(&a.expr).map(Box::new),
+          Some(_) => {}
+          None if this.root_of(id).is_none() => {
+            this.unbound = Some(name.to_owned());
+            return Err(this.residue(a.expr.span(), format!("`{method}` takes a function; `{name}` is not bound here")));
+          }
+          None => {}
+        }
       }
       let js::Expr::Arrow(arrow) = &*a.expr else {
-        return Err(this.residue(a.expr.span(), format!("`{method}` takes an arrow function written in place")));
+        return Err(this.residue(a.expr.span(), format!("`{method}` takes an arrow function written in place or the name of a function")));
       };
       this.lambda(arrow).map(Box::new)
     };
@@ -4257,6 +4274,50 @@ impl<'a> Lowerer<'a> {
         }
       }
     }
+  }
+
+  /// `object.name(args)` or `object[key](args)` where `object` lowers to an object literal whose field (every field, for a computed key) is a function value: that field applied to the arguments. A computed key on an object of no known kind is applied as well, since the build cannot name the method. `None` for any other member.
+  fn function_member(&mut self, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    // Only a name or a chain of fields is looked at: lowering a call here and again on the method path would count its hoists twice.
+    let mut at = crate::meaning::bare(&member.obj);
+    while let js::Expr::Member(inner) = at {
+      at = crate::meaning::bare(&inner.obj);
+    }
+    if !matches!(at, js::Expr::Ident(_)) {
+      return Ok(None);
+    }
+    let depth = self.scope.len();
+    let object = self.expr(&member.obj);
+    self.scope.truncate(depth);
+    let Ok(object) = object else { return Ok(None) };
+    let Expr::Object(entries) = &object else {
+      // A computed key on a value of no known kind: whatever the key names is applied, as JavaScript applies it.
+      if let (js::MemberProp::Computed(key), None) = (&member.prop, self.kind_of(&member.obj)) {
+        let key = self.expr(&key.expr)?;
+        let callee = Expr::Index(Box::new(object.clone()), Box::new(key));
+        return self.applied(Box::new(callee), call).map(Some);
+      }
+      return Ok(None);
+    };
+    let is_function = |e: &Expr| matches!(e, Expr::Lambda { .. } | Expr::Fix { .. });
+    let callee = match &member.prop {
+      js::MemberProp::Ident(name) => {
+        let name = name.sym.to_string();
+        if !entries.iter().any(|entry| matches!(entry, Entry::Field(field, value) if *field == name && is_function(value))) {
+          return Ok(None);
+        }
+        object.clone().field(name)
+      }
+      js::MemberProp::Computed(key) => {
+        if entries.is_empty() || !entries.iter().all(|entry| matches!(entry, Entry::Field(_, value) if is_function(value))) {
+          return Ok(None);
+        }
+        let key = self.expr(&key.expr)?;
+        Expr::Index(Box::new(object.clone()), Box::new(key))
+      }
+      js::MemberProp::PrivateName(_) => return Ok(None),
+    };
+    self.applied(Box::new(callee), call).map(Some)
   }
 
   /// `f` applied to `call`'s arguments: [`Expr::Apply`], or [`Expr::ApplyOf`] over one array when an argument is spread.
