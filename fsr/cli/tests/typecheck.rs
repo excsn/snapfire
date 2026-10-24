@@ -94,13 +94,13 @@ fn check_typechecks_the_generated_files_of_the_build_it_holds() {
   std::fs::create_dir_all(app.join("routes/index")).unwrap();
   std::fs::write(app.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   std::fs::write(app.join("routes/index/page.tsx"), "export default function Page() {\n  return <p>page</p>;\n}\n").unwrap();
-  let loader = app.join("routes/index/page.loader.ts");
-  std::fs::write(&loader, "export async function load() {\n  return { count: 2 };\n}\n").unwrap();
+  let loader = app.join("routes/index/actions.ts");
+  std::fs::write(&loader, "import { action } from \"@snapfire/fsr\";\n\nexport const count = action(async () => 2);\n").unwrap();
   let earlier = build(&app, &Options::default()).unwrap();
   write_generated(&app, &earlier).unwrap();
   assert!(std::fs::read_to_string(app.join("generated/client.ts")).unwrap().contains("count"));
 
-  std::fs::write(&loader, "export async function load() {\n  return { total: 2 };\n}\n").unwrap();
+  std::fs::write(&loader, "import { action } from \"@snapfire/fsr\";\n\nexport const total = action(async () => 2);\n").unwrap();
   let checker = dir.join("snapfiretc");
   std::fs::write(&checker, "#!/bin/sh\ncp \"$2/generated/client.ts\" \"$2/seen.ts\"\necho '{\"tsc\":\"/c/tsc\",\"version\":\"7.0.2\",\"source\":\"cache\",\"sha512\":null,\"pinned\":true,\"diagnostics\":[]}'\n").unwrap();
   std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755)).unwrap();

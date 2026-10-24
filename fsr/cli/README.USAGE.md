@@ -696,7 +696,7 @@ A `.svelte` file is read the same way through `snapfirec-svelte`, from `cargo in
 
 ## Typing Pages and Calling Actions
 
-`generated/client.ts` is what a page imports. It holds the contract's types as the browser sees them (integers as `bigint | number`), one `<Route>Props` type per page and layout and `actions`, one typed callable per action nested by route id. A props type is inferred from the loader's return and joined with `HostProps`. `HostProps` is what the host gives every page and layout: `params`, `locale`, `identity`, `csrf_token` and `action_failure`.
+`generated/client.ts` is what a page imports. It holds the contract's types as the browser sees them (integers as `bigint | number`), one `<Route>Props` type per page and layout and `actions`, one typed callable per action nested by route id. A props type is the loader's own return type as the checker reads it, joined with `HostProps`, so a union a `try` and its `catch` return, a value a `fail` guard rules out and a cast all type the way they do in the loader. `Wire<T>` maps it to what the browser receives: a `bigint` arrives as `bigint | number`. An action's result is typed the same way from its own module. `HostProps` is what the host gives every page and layout: `params`, `locale`, `identity`, `csrf_token` and `action_failure`.
 
 ```tsx
 import { actions, type CartProps } from "../../generated/client";
@@ -708,16 +708,15 @@ export default function Cart({ lines }: CartProps) {
 
 ```ts
 // generated/client.ts
-export type CartProps = { lines: (Product & { quantity: bigint | number })[] };
+export type CartProps = Wire<Awaited<ReturnType<typeof import("../routes/cart/page.loader")["load"]>>> & HostProps;
 export const actions = {
   cart: {
-    addToCart: call("cart.addToCart") as unknown as (input: AddToCart) => Promise<{ lines: Record<string, bigint | number> }>,
-    checkout: call("cart.checkout") as unknown as () => Promise<Order>,
+    addToCart: call("cart.addToCart") as unknown as (input: AddToCart) => Promise<Wire<Awaited<ReturnType<typeof import("../routes/cart/actions")["addToCart"]>>>>,
   },
 };
 ```
 
-A return the inference cannot settle prints as `unknown`. The file carries runtime code, so `tsconfig.build.json` lists it.
+The file carries runtime code, so `tsconfig.build.json` lists it.
 
 ## Vendoring a Package
 

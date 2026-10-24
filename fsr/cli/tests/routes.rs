@@ -861,8 +861,8 @@ fn a_route_and_its_parameterised_child_get_ids_of_their_own() {
   assert!(sources.contains(&"docs.$rest"), "a catch-all is a parameter like any other: {sources:?}");
 
   let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
-  assert!(client.contains("export type AgentsProps = { list: number } & HostProps;"), "{client}");
-  assert!(client.contains("export type AgentsIdProps = { one: number } & HostProps;"), "the marker is not part of the name: {client}");
+  assert!(client.contains("export type AgentsProps = Wire<Awaited<ReturnType<typeof import(\"../routes/agents/page.loader\")[\"load\"]>>> & HostProps;"), "{client}");
+  assert!(client.contains("export type AgentsIdProps = Wire<Awaited<ReturnType<typeof import(\"../routes/agents/[id]/page.loader\")[\"load\"]>>> & HostProps;"), "the marker is not part of the name: {client}");
 }
 
 #[test]
@@ -892,9 +892,9 @@ fn a_page_and_a_layout_props_type_carries_what_the_host_gives_every_page() {
     client.contains("export interface HostProps {\n  params?: Record<string, string>;\n  locale?: string;\n  identity?: { subject: string; claims: Record<string, unknown> };\n  csrf_token?: string;\n  action_failure?: { kind: string; message: string };\n}\n"),
     "{client}"
   );
-  assert!(client.contains("export type PostsIdProps = { one: number } & HostProps;"), "{client}");
+  assert!(client.contains("export type PostsIdProps = Wire<Awaited<ReturnType<typeof import(\"../routes/posts/[id]/page.loader\")[\"load\"]>>> & HostProps;"), "{client}");
   assert!(client.contains("export type AboutProps = {} & HostProps;"), "{client}");
-  assert!(client.contains("export type LayoutProps = { site: string } & HostProps;"), "{client}");
+  assert!(client.contains("export type LayoutProps = Wire<Awaited<ReturnType<typeof import(\"../routes/layout.loader\")[\"load\"]>>> & HostProps;"), "{client}");
 }
 
 #[test]
@@ -1574,8 +1574,7 @@ fn a_pages_props_type_a_native_result_as_the_rust_returns_it() {
   }
   let built = build(&dir, &Options::default()).unwrap();
   let client = built.files.iter().find(|(n, _)| n == "generated/client.ts").map(|(_, t)| t.clone()).unwrap();
-  assert!(client.contains("import type { Summary } from \"./native\";\n"), "{client}");
-  assert!(client.contains("= { words: bigint | number; summary: Summary } & HostProps;"), "{client}");
+  assert!(client.contains("export type RootProps = Wire<Awaited<ReturnType<typeof import(\"../routes/page.loader\")[\"load\"]>>> & HostProps;"), "the loader's own type, the native call's result included: {client}");
   std::fs::remove_dir_all(&project).unwrap();
 }
 
@@ -1673,26 +1672,6 @@ fn a_file_the_entry_imports_by_its_compiled_name_is_compiled() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// `fail` returns `never`, so after `if (!recipe) fail(...)` tsc reads the value as not null.
-#[test]
-fn a_value_a_fail_guard_rules_out_is_not_nullable_in_the_props() {
-  const RECIPES: &str = "export const RECIPES = [{ slug: \"a\", title: \"A\" }, { slug: \"b\", title: \"B\" }];\n";
-  let guarded = |guard: &str| format!("import {{ fail }} from \"@snapfire/fsr\";\nimport type {{ Ctx }} from \"@snapfire/fsr\";\nimport {{ RECIPES }} from \"../../../src/recipes\";\nexport async function load({{ params }}: Ctx<\"/recipe/{{slug}}\">) {{\n  const recipe = RECIPES.find((r) => r.slug === params.slug);\n  {guard}\n  return {{ recipe }};\n}}\n");
-  for guard in ["if (!recipe) fail(\"not_found\", `there is no recipe ${params.slug}`);", "if (recipe === undefined) fail(\"not_found\", \"gone\");", "if (recipe == null || params.slug === \"\") fail(\"not_found\", \"gone\");", "if (!recipe) {\n    fail(\"not_found\", \"gone\");\n  }", "if (!recipe) return { recipe: { slug: \"none\", title: \"None\" } };"] {
-    let dir = app(&[("routes/recipe/[slug]/page.tsx", PAGE), ("routes/recipe/[slug]/page.loader.ts", &guarded(guard)), ("src/recipes.ts", RECIPES)]);
-    let built = build(&dir, &Options::default()).unwrap();
-    let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
-    let props = client.lines().find(|l| l.starts_with("export type RecipeSlugProps")).unwrap_or_else(|| panic!("{client}"));
-    assert_eq!(props, "export type RecipeSlugProps = { recipe: { slug: string; title: string } } & HostProps;", "after `{guard}`");
-    std::fs::remove_dir_all(&dir).unwrap();
-  }
-  let dir = app(&[("routes/recipe/[slug]/page.tsx", PAGE), ("routes/recipe/[slug]/page.loader.ts", &guarded("")), ("src/recipes.ts", RECIPES)]);
-  let built = build(&dir, &Options::default()).unwrap();
-  let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
-  assert!(client.contains("export type RecipeSlugProps = { recipe: { slug: string; title: string } | null } & HostProps;"), "unguarded it stays nullable: {client}");
-  std::fs::remove_dir_all(&dir).unwrap();
-}
-
 const SHELL: &str = "export default function Layout({ children }: { children: unknown }) {\n  return <div>{children}</div>;\n}\n";
 
 fn layouts_of(route: &serde_json::Value) -> Vec<String> {
@@ -1727,7 +1706,7 @@ fn a_group_directory_adds_nothing_to_the_url_and_keeps_its_own_layout() {
   let sources: Vec<&str> = built.report.sources.iter().map(|(id, _)| id.as_str()).collect();
   assert!(sources.contains(&"(marketing).about"), "{sources:?}");
   let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
-  assert!(client.contains("export type MarketingAboutProps = { team: number } & HostProps;"), "{client}");
+  assert!(client.contains("export type MarketingAboutProps = Wire<Awaited<ReturnType<typeof import(\"../routes/(marketing)/about/page.loader\")[\"load\"]>>> & HostProps;"), "{client}");
 
   let plan = plan_json(&dir);
   let route = |pattern: &str| plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == pattern).cloned().unwrap_or_else(|| panic!("no {pattern} in {plan}"));

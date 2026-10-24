@@ -278,8 +278,8 @@ fn an_image_with_its_own_loader_gets_a_generated_props_type() {
   let app = root.join("app");
   let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
   let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
-  assert!(client.contains("export type RootOpengraphImageProps = { count: number; latest: string };"), "{client}");
-  assert!(client.contains("export type NoticeIdTwitterImageProps = { title: string };"), "{client}");
+  assert!(client.contains("export type RootOpengraphImageProps = Wire<Awaited<ReturnType<typeof import(\"../routes/opengraph-image.loader\")[\"load\"]>>>;"), "{client}");
+  assert!(client.contains("export type NoticeIdTwitterImageProps = Wire<Awaited<ReturnType<typeof import(\"../routes/notice/[id]/twitter-image.loader\")[\"load\"]>>>;"), "{client}");
   assert_eq!(client.matches("export type NoticeIdProps =").count(), 1, "an image drawing from its page's data adds no second page type: {client}");
   std::fs::remove_dir_all(&root).unwrap();
 }

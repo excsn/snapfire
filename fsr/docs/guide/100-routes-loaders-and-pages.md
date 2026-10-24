@@ -170,7 +170,7 @@ The values are the same on every request, so a source reading only them still pr
 
 ## Page props
 
-The build infers each loader's return type and writes it to `generated/client.ts` under the route's name, so the page imports `RootProps` and receives exactly what `load` produced, typed, with the value model's shapes preserved: a contract `integer` is `bigint`, a `number` is `number`, an optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is a projection of the loader.
+`generated/client.ts` names each loader's return type under the route's name, so the page imports `RootProps` and receives exactly what `load` produced. The type is the loader's own as the checker reads it, so a `try` and its `catch`, a `fail` guard and a cast type in the page the way they do in the loader. A contract `integer` arrives as `bigint | number`, since one that fits a double reaches the browser as a number. An optional field is `| null`. There is no separate props declaration to keep in sync, because the props type is the loader's.
 
 A page is an island: it is mounted in the browser and, when the build could lower it, rendered on the server first. [Chapter 102](102-components-the-server-renders.md) is what a page may say for that to work. Either way, the page's job is to render its props; anything that changes them goes through an action and comes back through the loader.
 

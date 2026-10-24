@@ -31,7 +31,7 @@ fn a_terminal_app_builds_with_its_loader_in_root_props() {
   let built = build(&app, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
   let client = built.files.iter().find(|(f, _)| f == "generated/client.ts").map(|(_, text)| text.as_str()).expect("generated/client.ts");
   let root = client.lines().find(|line| line.contains("RootProps =")).unwrap_or_else(|| panic!("{client}"));
-  assert!(root.contains("greeting: string") && root.contains("count: number"), "{root}");
+  assert_eq!(root, "export type RootProps = Wire<Awaited<ReturnType<typeof import(\"../routes/page.loader\")[\"load\"]>>> & HostProps;", "the loader's own return type");
   assert_eq!(islands(&built), Vec::<String>::new(), "an Ink page has no browser half");
 }
 
