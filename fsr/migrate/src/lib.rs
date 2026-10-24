@@ -5,6 +5,7 @@
 
 mod actions;
 mod callbacks;
+mod commonjs;
 mod config;
 mod env;
 mod edit;
@@ -175,6 +176,8 @@ pub struct Report {
   pub commands: Vec<String>,
   /// TOML tables for `config/app.toml`, each written whole.
   pub config: Vec<String>,
+  /// Why the application is not migrated at all, each at the file and line that shows it: a CommonJS file. With any, no pass runs.
+  pub refusals: Vec<Note>,
 }
 
 impl Report {
@@ -237,9 +240,13 @@ fn env_pass() -> Vec<Box<dyn Pass>> {
 /// `input` rewritten as an FSR project tree: the application under `app/`.
 pub fn migrate(input: &Tree) -> (Tree, Report) {
   let mut report = Report { source: detect(input), ..Report::default() };
+  if report.source.is_some() {
+    report.refusals = commonjs::refusals(input);
+  }
   let mut tree = input.clone();
   match report.source {
     None => report.note("package.json", 0, "names neither next, @sveltejs/kit, nuxt nor ink, so nothing says what this application was written for"),
+    Some(_) if !report.refusals.is_empty() => {}
     Some(source) => {
       let passes = passes(source);
       if passes.is_empty() {

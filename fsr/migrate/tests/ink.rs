@@ -212,3 +212,18 @@ fn a_local_function_and_constant_the_loader_body_reads_come_along_with_what_they
   assert!(loader.contains("import { path } from \"@snapfire/fsr-client/std\";"), "{loader}");
   assert!(!loader.contains("function unused") && !loader.contains("async function main"), "{loader}");
 }
+
+#[test]
+fn a_commonjs_application_is_refused_naming_each_file_and_what_makes_it_commonjs() {
+  let t = tree(&[
+    ("package.json", r#"{ "name": "turdle", "bin": "cli.js", "dependencies": { "ink": "^3", "react": "^17", "import-jsx": "^4" } }"#),
+    ("cli.js", "#!/usr/bin/env node\nconst importJsx = require('import-jsx');\nconst { render } = require('ink');\nconst ui = importJsx('./ui');\nrender(React.createElement(ui));\n"),
+    ("ui.js", "const React = require('react');\nmodule.exports = () => null;\n"),
+    ("source/game.js", "exports.start = () => 1;\n"),
+    ("babel.config.js", "module.exports = { presets: [] };\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  let refused: Vec<String> = report.refusals.iter().map(ToString::to_string).collect();
+  assert_eq!(refused, ["cli.js:2: `require`, which is CommonJS; fsr migrate reads ES modules, `import` and `export`", "source/game.js:1: `exports.start =`, which is CommonJS; fsr migrate reads ES modules, `import` and `export`", "ui.js:1: `require`, which is CommonJS; fsr migrate reads ES modules, `import` and `export`"], "{:?}", report.notes);
+  assert!(report.passes.is_empty() && out.text("app/routes/page.tsx").is_none());
+}
