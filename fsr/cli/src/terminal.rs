@@ -1273,7 +1273,7 @@ mod tests {
   use super::*;
 
   fn spawned(command: &str, args: &[&str]) -> Vec<(Report, Value)> {
-    let spawn = Spawn { path: String::new(), id: "1".to_owned(), command: command.to_owned(), args: args.iter().map(|a| (*a).to_owned()).collect(), options: Value::Null };
+    let spawn = Spawn { path: String::new(), id: "1".to_owned(), command: command.to_owned(), args: args.iter().map(|a| (*a).to_owned()).collect(), options: Value::Null, stdin: false };
     let (reports, reported) = std::sync::mpsc::channel();
     start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
     reported.iter().map(|(_, kind, event)| (kind, event)).collect()
@@ -1291,7 +1291,7 @@ mod tests {
   fn a_process_that_inherits_the_terminal_reports_only_its_exit_and_close() {
     let mut options = ValueMap::default();
     options.insert("stdio".to_owned(), Value::Str("inherit".into()));
-    let spawn = Spawn { path: String::new(), id: "1".to_owned(), command: "true".to_owned(), args: Vec::new(), options: Value::Map(options) };
+    let spawn = Spawn { path: String::new(), id: "1".to_owned(), command: "true".to_owned(), args: Vec::new(), options: Value::Map(options), stdin: false };
     let (reports, reported) = std::sync::mpsc::channel();
     start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
     let kinds: Vec<Report> = reported.iter().map(|(_, report, _)| report).collect();
