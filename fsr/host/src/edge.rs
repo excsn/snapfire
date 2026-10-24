@@ -929,6 +929,14 @@ impl Host {
       self.set_cookie(opened, &mut response).await;
       return response;
     }
+    let allowed = t.app.handlers.allowed(&path);
+    if !allowed.is_empty() {
+      let mut response = text_response(StatusCode::METHOD_NOT_ALLOWED, format!("{} {path} takes {}", req.method(), allowed.join(", ")));
+      if let Ok(value) = header::HeaderValue::from_str(&allowed.join(", ")) {
+        response.headers_mut().insert(header::ALLOW, value);
+      }
+      return response;
+    }
 
     let mode = if payload_of(raw_query) {
       RenderMode::Payload

@@ -61,8 +61,14 @@ impl HandlerMatcher {
       .insert(pattern, id.into())
   }
 
+  /// The handler for `method` at `path`. A HEAD with no handler of its own is answered by the GET handler.
   pub fn match_request(&self, method: &str, path: &str) -> Option<HandlerMatch> {
-    let found = self.routers.get(&method.to_ascii_uppercase())?.at(path).ok()?;
+    let method = method.to_ascii_uppercase();
+    let router = match self.routers.get(&method) {
+      None if method == "HEAD" => self.routers.get("GET")?,
+      router => router?,
+    };
+    let found = router.at(path).ok()?;
     let mut params = Params::new();
     for (key, value) in found.params.iter() {
       params.insert(key.to_owned(), value.to_owned());
@@ -71,6 +77,16 @@ impl HandlerMatcher {
       id: found.value.clone(),
       params,
     })
+  }
+
+  /// The methods some handler answers at `path`, sorted, with HEAD wherever GET is: empty when no handler claims the path.
+  pub fn allowed(&self, path: &str) -> Vec<String> {
+    let mut methods: Vec<String> = self.routers.iter().filter(|(_, router)| router.at(path).is_ok()).map(|(method, _)| method.clone()).collect();
+    if methods.iter().any(|m| m == "GET") && !methods.iter().any(|m| m == "HEAD") {
+      methods.push("HEAD".to_owned());
+    }
+    methods.sort();
+    methods
   }
 
   pub fn is_empty(&self) -> bool {

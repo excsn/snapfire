@@ -306,6 +306,8 @@ export const POST = action(async ({ input, session }: ActionCtx<AddToCart>) => {
 
 This is the API route: the same session, identity and services as a page, reached by anything that speaks HTTP. A body test imports a method from the route file the way it imports `load` from a loader. A page spec can `fetch` it. A directory holds a page or a handler but not both.
 
+A `GET` handler also answers `HEAD`. A method the route does not export is answered 405 with an `Allow` header naming the ones it does, so `PUT /api/cart` against a route exporting `GET` and `POST` says `Allow: GET, HEAD, POST`.
+
 ## Middleware
 
 `middleware.ts` at the top of the app exports a function that runs before every request that is not a static file: the action route, the handlers and the pages alike. It reads `request.method` and `request.path` beside the session, the identity and the services. It answers with a `Response`. A `Response` of its own ends the request there. `await next()` runs the route and hands back its `Response`, which the middleware can change before returning it; `next(new Request("/"))` runs the route for another path under the same URL. Returning nothing lets the request continue.

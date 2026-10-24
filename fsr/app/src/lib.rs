@@ -301,6 +301,10 @@ impl Handlers {
     self.matcher.match_request(method, path)
   }
 
+  pub fn allowed(&self, path: &str) -> Vec<String> {
+    self.matcher.allowed(path)
+  }
+
   pub fn dispatch(&self, id: &str, ctx: RequestCtx, input: snapfire_fsr_core::Value) -> futures_util::future::BoxFuture<'static, Result<snapfire_fsr_core::Value, ActionError>> {
     self.registry.dispatch(id, ctx, input)
   }

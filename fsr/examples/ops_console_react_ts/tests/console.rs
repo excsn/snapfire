@@ -195,6 +195,10 @@ fn the_handler_and_the_middleware_answer_before_any_page() {
   assert!(body.contains("builder-eu-1"), "{body}");
   let plain = get("/help");
   assert_eq!(plain.headers().get("x-ops-console").and_then(|v| v.to_str().ok()), Some("fsr"), "the header the middleware set on the route's response");
+
+  let refused = block_on(app.handle(http::Request::delete("/api/fleet").body(bytes::Bytes::new()).unwrap()));
+  assert_eq!(refused.status().as_u16(), 405);
+  assert_eq!(refused.headers().get("allow").and_then(|v| v.to_str().ok()), Some("GET, HEAD"));
 }
 
 #[test]

@@ -1064,6 +1064,10 @@ impl FetchHooks {
       if let Some(found) = self.handlers.1.match_request(&method, &path) {
         return self.handler(found.id, found.params, query, body, is_form(&headers)).await;
       }
+      let allowed = self.handlers.1.allowed(&path);
+      if !allowed.is_empty() {
+        return FetchResponse::new(405, format!("{method} {path} takes {}", allowed.join(", "))).header("allow", &allowed.join(", "));
+      }
       return self.page(method, path, query, target, headers).await;
     };
     let Some(mock) = self.current_ctx.clone() else {

@@ -4824,6 +4824,25 @@ async fn a_route_handler_answers_the_response_it_returns() {
 }
 
 #[tokio::test]
+async fn a_method_a_route_does_not_export_is_answered_405_with_the_ones_it_does() {
+  let host = formed();
+  let response = host.handle(Request::put("/made").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+  assert_eq!(response.headers()[header::ALLOW], "POST");
+
+  let response = host.handle(Request::delete("/robots.txt").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+  assert_eq!(response.headers()[header::ALLOW], "GET, HEAD");
+
+  let response = host.handle(Request::head("/robots.txt").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "a GET handler answers HEAD");
+  assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain");
+
+  let response = host.handle(Request::put("/nowhere").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "a path no route claims is still not found");
+}
+
+#[tokio::test]
 async fn work_after_the_response_runs_once_its_body_is_read() {
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new())));
   let host = formed_over(transport.clone());
