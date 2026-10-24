@@ -130,33 +130,32 @@ export const file = {
 };
 export const path = {
     join (...parts) {
-        return terminalOnly("path.join", parts);
+        const joined = parts.filter((p)=>p !== "");
+        return joined.length === 0 ? "." : normalizePath(joined.join("/"));
     },
     resolve (...parts) {
         return terminalOnly("path.resolve", parts);
     },
     normalize (p) {
-        return terminalOnly("path.normalize", [
-            p
-        ]);
+        return normalizePath(p);
     },
     dirname (p) {
-        return terminalOnly("path.dirname", [
-            p
-        ]);
+        const trimmed = p.replace(/\/+$/, "");
+        if (trimmed === "") return p.startsWith("/") ? "/" : ".";
+        const at = trimmed.lastIndexOf("/");
+        if (at === -1) return ".";
+        if (at === 0) return "/";
+        return trimmed.slice(0, at).replace(/\/+$/, "");
     },
     basename (p, ext) {
-        return terminalOnly("path.basename", ext === undefined ? [
-            p
-        ] : [
-            p,
-            ext
-        ]);
+        const trimmed = p.replace(/\/+$/, "");
+        const base = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+        return ext !== undefined && base !== ext && base.endsWith(ext) ? base.slice(0, base.length - ext.length) : base;
     },
     extname (p) {
-        return terminalOnly("path.extname", [
-            p
-        ]);
+        const base = path.basename(p);
+        const at = base.lastIndexOf(".");
+        return at > 0 ? base.slice(at) : "";
     },
     relative (from, to) {
         return terminalOnly("path.relative", [
@@ -165,11 +164,29 @@ export const path = {
         ]);
     },
     isAbsolute (p) {
-        return terminalOnly("path.isAbsolute", [
-            p
-        ]);
+        return p.startsWith("/");
     }
 };
+function normalizePath(p) {
+    const absolute = p.startsWith("/");
+    const trailing = p.length > 1 && p.endsWith("/");
+    const out = [];
+    for (const part of p.split("/")){
+        if (part === "" || part === ".") continue;
+        if (part === "..") {
+            const last = out[out.length - 1];
+            if (!absolute && (last === undefined || last === "..")) out.push("..");
+            else if (last !== undefined) out.pop();
+            continue;
+        }
+        out.push(part);
+    }
+    let joined = out.join("/");
+    if (absolute) joined = "/" + joined;
+    if (joined === "") return ".";
+    if (trailing && joined !== "/") joined += "/";
+    return joined;
+}
 export const clipboard = {
     write (text) {
         return terminalOnly("clipboard.write", [

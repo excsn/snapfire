@@ -11,8 +11,8 @@ use crate::ext::{option, text, Ambient, Extensions, Reach};
 use crate::interp::Fail;
 
 pub fn register(extensions: &mut Extensions) {
-  extensions.register("text.frontMatter", Reach::Terminal, front_matter);
-  extensions.register("text.withFrontMatter", Reach::Terminal, with_front_matter);
+  extensions.register("text.frontMatter", Reach::Body, front_matter);
+  extensions.register("text.withFrontMatter", Reach::Body, with_front_matter);
 }
 
 /// The `delimiters` option: one string for both lines or `[open, close]`; `---` when absent.

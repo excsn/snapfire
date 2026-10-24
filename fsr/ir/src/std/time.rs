@@ -17,7 +17,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("time.parse", Reach::Render, |_, args| Ok(parse_iso(text("time.parse", args, 0)?).map(Value::F64).unwrap_or(Value::Null)));
   extensions.register("time.now", Reach::Body, |ambient, _| Ok(Value::Int(ambient.now)));
   extensions.register("time.monotonic", Reach::Body, |_, _| Ok(Value::F64(STARTED.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0)));
-  extensions.register("time.localOffset", Reach::Terminal, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?))));
+  extensions.register("time.localOffset", Reach::Body, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?))));
 }
 
 use snapfire_fsr_core::time::MS_PER_DAY;

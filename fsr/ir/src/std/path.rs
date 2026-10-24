@@ -6,14 +6,14 @@ use crate::interp::Fail;
 use snapfire_fsr_core::Value;
 
 pub fn register(extensions: &mut Extensions) {
-  extensions.register("path.join", Reach::Terminal, |_, args| Ok(Value::str(join(&parts("path.join", args)?))));
-  extensions.register("path.resolve", Reach::Terminal, |_, args| Ok(Value::str(resolve(&parts("path.resolve", args)?)?)));
-  extensions.register("path.normalize", Reach::Terminal, |_, args| Ok(Value::str(normalize(text("path.normalize", args, 0)?))));
-  extensions.register("path.dirname", Reach::Terminal, |_, args| Ok(Value::str(dirname(text("path.dirname", args, 0)?))));
-  extensions.register("path.basename", Reach::Terminal, |_, args| Ok(Value::str(basename(text("path.basename", args, 0)?, text_opt("path.basename", args, 1)?))));
-  extensions.register("path.extname", Reach::Terminal, |_, args| Ok(Value::str(extname(text("path.extname", args, 0)?))));
-  extensions.register("path.relative", Reach::Terminal, |_, args| Ok(Value::str(relative(text("path.relative", args, 0)?, text("path.relative", args, 1)?)?)));
-  extensions.register("path.isAbsolute", Reach::Terminal, |_, args| Ok(Value::Bool(text("path.isAbsolute", args, 0)?.starts_with('/'))));
+  extensions.register("path.join", Reach::Render, |_, args| Ok(Value::str(join(&parts("path.join", args)?))));
+  extensions.register("path.resolve", Reach::Body, |_, args| Ok(Value::str(resolve(&parts("path.resolve", args)?)?)));
+  extensions.register("path.normalize", Reach::Render, |_, args| Ok(Value::str(normalize(text("path.normalize", args, 0)?))));
+  extensions.register("path.dirname", Reach::Render, |_, args| Ok(Value::str(dirname(text("path.dirname", args, 0)?))));
+  extensions.register("path.basename", Reach::Render, |_, args| Ok(Value::str(basename(text("path.basename", args, 0)?, text_opt("path.basename", args, 1)?))));
+  extensions.register("path.extname", Reach::Render, |_, args| Ok(Value::str(extname(text("path.extname", args, 0)?))));
+  extensions.register("path.relative", Reach::Body, |_, args| Ok(Value::str(relative(text("path.relative", args, 0)?, text("path.relative", args, 1)?)?)));
+  extensions.register("path.isAbsolute", Reach::Render, |_, args| Ok(Value::Bool(text("path.isAbsolute", args, 0)?.starts_with('/'))));
 }
 
 /// Every argument as text, as `path.join(...parts)` takes them.

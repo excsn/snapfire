@@ -111,7 +111,7 @@ fn native_comes_from_the_shared_root() {
   assert_eq!(tree_exts(&component.render), vec!["fmt.pretty/1"]);
 }
 
-const ECHO: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\nIMPORT\n\nexport default function Echo() {\n  const [heard, setHeard] = useState(\"\");\n  useEffect(() => {\n    const sub = system.spawn(\"cat\", []);\n    sub.stdout.on(\"data\", (chunk) => setHeard((held) => held + chunk));\n    sub.stdin.write(\"hello\");\n    sub.stdin.end();\n  }, []);\n  return <Text>{heard} {intl.number(time.now())}</Text>;\n}\n";
+const ECHO: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\nIMPORT\n\nexport default function Echo() {\n  const [heard, setHeard] = useState(\"\");\n  useEffect(() => {\n    const sub = system.spawn(\"cat\", []);\n    sub.stdout.on(\"data\", (chunk) => setHeard((held) => held + chunk));\n    sub.stdin.write(\"hello\");\n    sub.stdin.end();\n  }, []);\n  return <Text>{heard} {intl.localTime(time.now())}</Text>;\n}\n";
 
 /// The page lowered for a terminal, with the spawn id, the offset of the call, read as `ID`.
 fn terminal_page(tag: &str, imports: &str) -> String {
@@ -132,3 +132,23 @@ fn a_terminal_page_spawns_through_the_terminal_root_and_reads_the_host_side_as_i
   assert_eq!(new, old);
 }
 
+
+#[test]
+fn pure_path_members_are_on_the_client_side_and_the_working_directory_ones_on_the_host_side() {
+  let dir = app(
+    "path",
+    &[
+      ("routes/a/page.tsx", "import { path } from \"@snapfire/fsr/client\";\nexport default function A({ file }: { file: string }) {\n  return <p title={path.basename(file, \".md\")}>{path.join(\"docs\", path.dirname(file))}</p>;\n}\n"),
+      ("routes/a/page.loader.ts", "import { path, intl, time, text } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { here: path.resolve(\"a\"), at: intl.localTime(time.now()), zone: time.localOffset(time.now()), meta: text.frontMatter(\"---\\na: 1\\n---\\n\") };\n}\n"),
+      ("routes/b/page.tsx", "import { path } from \"@snapfire/fsr/client\";\nexport default function B() {\n  return <p>{path.resolve(\"a\")}</p>;\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/a/page.tsx#default").unwrap_or_else(|e| panic!("{e}"));
+  let (_, component) = set.components.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap();
+  assert_eq!(tree_exts(&component.render), vec!["path.basename/2", "path.join/2", "path.dirname/1"]);
+  let body = set.lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(body_exts(&body), vec!["path.resolve/1", "intl.localTime/1", "time.now/0", "time.localOffset/1", "time.now/0", "text.frontMatter/1"]);
+  let why = residue(&mut set, "routes/b/page.tsx#default");
+  assert!(why.contains("`path.resolve` is not in `@snapfire/fsr/client`"), "{why}");
+}

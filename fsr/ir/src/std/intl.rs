@@ -27,7 +27,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.plural", Reach::Render, plural);
   extensions.register("intl.list", Reach::Render, list);
   extensions.register("intl.compare", Reach::Render, compare);
-  extensions.register("intl.localTime", Reach::Terminal, |_, args| Ok(Value::str(local_time(number("intl.localTime", args, 0)?, text_opt("intl.localTime", args, 1)?)?)));
+  extensions.register("intl.localTime", Reach::Body, |_, args| Ok(Value::str(local_time(number("intl.localTime", args, 0)?, text_opt("intl.localTime", args, 1)?)?)));
 }
 
 fn locale_of(ambient: &Ambient) -> Locale {

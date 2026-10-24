@@ -87,11 +87,11 @@ export declare const file: {
 	/** What is at `path`: whether it is a file or a directory, its size in bytes and when it last changed. */
 	stat(path: string): FileStat;
 };
-/** POSIX paths as text. Terminal pages only. */
+/** POSIX paths as text. `resolve` and `relative` read the working directory and run in a host only; the rest give the same answer on the server and in the browser. */
 export declare const path: {
 	/** The parts joined by `/` and normalized; `.` for none. */
 	join(...parts: string[]): string;
-	/** The parts right to left until one is absolute, the working directory before them otherwise. */
+	/** The parts right to left until one is absolute, the working directory before them otherwise. Host only. */
 	resolve(...parts: string[]): string;
 	/** `.` and empty segments dropped, `..` resolved against what precedes it. */
 	normalize(p: string): string;
@@ -101,7 +101,7 @@ export declare const path: {
 	basename(p: string, ext?: string): string;
 	/** The last segment's extension from its last `.`, empty for none. */
 	extname(p: string): string;
-	/** The path from `from` to `to`, both resolved. */
+	/** The path from `from` to `to`, both resolved. Host only. */
 	relative(from: string, to: string): string;
 	/** Whether `p` starts with `/`. */
 	isAbsolute(p: string): boolean;

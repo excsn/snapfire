@@ -158,41 +158,73 @@ export const file = {
   },
 };
 
-/** POSIX paths as text. Terminal pages only. */
+/** POSIX paths as text. `resolve` and `relative` read the working directory and run in a host only; the rest give the same answer on the server and in the browser. */
 export const path = {
   /** The parts joined by `/` and normalized; `.` for none. */
   join(...parts: string[]): string {
-    return terminalOnly("path.join", parts);
+    const joined = parts.filter((p) => p !== "");
+    return joined.length === 0 ? "." : normalizePath(joined.join("/"));
   },
-  /** The parts right to left until one is absolute, the working directory before them otherwise. */
+  /** The parts right to left until one is absolute, the working directory before them otherwise. Host only. */
   resolve(...parts: string[]): string {
     return terminalOnly("path.resolve", parts);
   },
   /** `.` and empty segments dropped, `..` resolved against what precedes it. */
   normalize(p: string): string {
-    return terminalOnly("path.normalize", [p]);
+    return normalizePath(p);
   },
   /** Everything before the last segment. */
   dirname(p: string): string {
-    return terminalOnly("path.dirname", [p]);
+    const trimmed = p.replace(/\/+$/, "");
+    if (trimmed === "") return p.startsWith("/") ? "/" : ".";
+    const at = trimmed.lastIndexOf("/");
+    if (at === -1) return ".";
+    if (at === 0) return "/";
+    return trimmed.slice(0, at).replace(/\/+$/, "");
   },
   /** The last segment, without `ext` when it ends with it. */
   basename(p: string, ext?: string): string {
-    return terminalOnly("path.basename", ext === undefined ? [p] : [p, ext]);
+    const trimmed = p.replace(/\/+$/, "");
+    const base = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+    return ext !== undefined && base !== ext && base.endsWith(ext) ? base.slice(0, base.length - ext.length) : base;
   },
   /** The last segment's extension from its last `.`, empty for none. */
   extname(p: string): string {
-    return terminalOnly("path.extname", [p]);
+    const base = path.basename(p);
+    const at = base.lastIndexOf(".");
+    return at > 0 ? base.slice(at) : "";
   },
-  /** The path from `from` to `to`, both resolved. */
+  /** The path from `from` to `to`, both resolved. Host only. */
   relative(from: string, to: string): string {
     return terminalOnly("path.relative", [from, to]);
   },
   /** Whether `p` starts with `/`. */
   isAbsolute(p: string): boolean {
-    return terminalOnly("path.isAbsolute", [p]);
+    return p.startsWith("/");
   },
 };
+
+/** `.` and empty segments dropped, `..` resolved against what precedes it, a leading and a trailing `/` kept; `.` for nothing. */
+function normalizePath(p: string): string {
+  const absolute = p.startsWith("/");
+  const trailing = p.length > 1 && p.endsWith("/");
+  const out: string[] = [];
+  for (const part of p.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      const last = out[out.length - 1];
+      if (!absolute && (last === undefined || last === "..")) out.push("..");
+      else if (last !== undefined) out.pop();
+      continue;
+    }
+    out.push(part);
+  }
+  let joined = out.join("/");
+  if (absolute) joined = "/" + joined;
+  if (joined === "") return ".";
+  if (trailing && joined !== "/") joined += "/";
+  return joined;
+}
 
 /** The system clipboard of the machine a terminal page runs on, through its own copy and paste commands. Terminal pages only. */
 export const clipboard = {
