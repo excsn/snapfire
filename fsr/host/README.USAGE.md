@@ -878,7 +878,7 @@ catalogs  en_US 5 keys, fr_FR 5 keys
 
 ## Signing In on the Host
 
-An `[auth]` section mounts the identity flow from `snapfire_fsr_auth` on three framework-owned routes, the way the action route is owned. `GET /auth/login` starts it, with `return_to` from the query, else the `Referer`'s path, else `/` and only ever a path on this origin; the provider's `begin` says where the browser goes, which for the `file` provider is the application's login page with `return_to` in the query. The login page is the application's own route, since auth never renders; a `GET` of it seeds the flow when none is in progress, so a typed URL still posts somewhere. `/auth/callback` takes a form or JSON `POST` or a `GET` carrying the provider's query; a success is a 303 to where the flow began, a refusal a 303 back to the login page with `error=denied` and the `return_to` it had, a callback with no flow in progress a 400. `POST /auth/logout` verifies `_csrf` from the form or `x-sf-csrf` from a fetch, against the session, clears identity and custody, deletes the record and answers 303 `/` with the cookie expiring. None of the three takes a locale prefix.
+An `[auth]` section mounts the identity flow from `snapfire_fsr_auth` on four framework-owned routes, the way the action route is owned. A sign-in is a sequence of steps: the provider answers each one by sending the browser elsewhere, handing the page data to act on or completing. `GET /auth/login` begins one, with `return_to` from the query, else the `Referer`'s path, else `/` and only ever a path on this origin. `method` comes from the query for a provider that offers several. `/auth/callback` takes each answer, a form or JSON `POST` or a `GET` carrying an identity provider's query. `POST /auth/enrol` begins adding a method (a passkey or a linked account) to whoever is signed in. It carries the CSRF token as `_csrf` or `x-sf-csrf`. A browser following links is redirected: to the identity provider, to the application's login page for a step the page presents (the `file` provider's password form is one), to where the flow began on success and back to the login page with `error=denied` and the `return_to` it had on a refusal. A step answered with no flow in progress is a 400. A request whose `Accept` names `application/json` gets each step as JSON instead, `{ "next": "redirect", "to" }`, `{ "next": "present", "kind", "data" }` or `{ "next": "complete", "to" }`, which is how a page runs a passkey ceremony. The login page is the application's own route, since auth never renders; a `GET` of it seeds a sign-in when none is in progress, so a typed URL still posts somewhere. `POST /auth/logout` verifies `_csrf` from the form or `x-sf-csrf` from a fetch, against the session, clears identity and custody, deletes the record and answers 303 `/` with the cookie expiring. None of the four takes a locale prefix.
 
 The `file` provider is `DevProvider::from_toml` over `config/auth.toml`, read beside `app.toml` and never through the ladder, so an overlay cannot merge two tables of accounts:
 
@@ -889,7 +889,7 @@ password = "wonder"
 claims = { role = "admin" }
 ```
 
-The `service` provider keeps no accounts at all. `client` names a `[clients.<name>]` entry whose contract declares `authenticate(user, password)` answering `subject`, `claims` and `access_token`; the callback sends the form's two fields there, a `401` or a `404` from the service is the denial and anything else the service answers is a 400. The token the service issued goes into custody, so the bearer rides the clients that ask for it the same as with `file`:
+The `service` provider keeps no accounts at all: the steps run in an auth service. `client` names a `[clients.<name>]` entry whose contract declares `beginSignIn` and `advanceSignIn`, which take what the host's `begin` and `advance` take and answer the step. A client may instead declare only `authenticate(user, password)` answering `subject`, `claims` and `access_token`, in which case the step is the password form. A refusal from the service, such as a `401`, is the denial and anything else it answers wrongly is a 400; a client declaring neither is refused at boot. The tokens the service issued go into custody, so the bearer rides the clients that ask for it the same as with `file`:
 
 ```toml
 [auth]
@@ -910,7 +910,7 @@ let host = Host::from(".")?.identity(Arc::new(my_provider)).build()?;
 Once a session is identified the host mints CSRF tokens for it, under `session.csrf_scheme`: `single_use` by default, a fresh token per rendered form that verifies once, with the newest `csrf_outstanding` still valid so several forms may be open; `session` for one token per session; `derived` for the hmac of the session id. Signing in and signing out rotate whatever the scheme holds. A scheme of the application's own goes on the builder, `.csrf(Arc::new(my_scheme))`, an implementation of `snapfire_fsr_session::CsrfScheme`. A token is minted when a render reads the `csrf_token` prop and not before, so a page without a form mints nothing. Every render, middleware, handler and action runs with the session's token custody bound to its services, so a loader's outbound call carries what the callback stored. Bodies see `identity` and the `csrf_token` prop and never the custody. Which client sends the token is written per client, `bearer = true` for `access_token` or a string naming another custody key; a client without it sends nothing, so a third-party API never sees a user's credential. The boot report says which:
 
 ```
-auth      file, login page /login, routes /auth/login, /auth/callback and /auth/logout
+auth      file, login page /login, routes /auth/login, /auth/enrol, /auth/callback and /auth/logout
 bearer    shopping               access_token
 ```
 
@@ -957,7 +957,7 @@ client = "identity"
 ```text
 services  identity               http        http://127.0.0.1:8092
 session   service via identity
-auth      service via identity, login page /login, routes /auth/login, /auth/callback and /auth/logout
+auth      service via identity, login page /login, routes /auth/login, /auth/enrol, /auth/callback and /auth/logout
 ```
 
 A `getSession` that fails for a reason other than `404` is logged and the request runs anonymous; a `putSession` that fails is logged and the response still goes out. `HostBuilder::session_store` still wins over the section for a Rust host. Under `fsr test` sessions stay in memory whatever the section says, since a spec's mocks cannot hold them.
@@ -1375,7 +1375,7 @@ actions   cart.checkout          lowered
 services  shopping               http        http://127.0.0.1:8081
 static    /static/js/app         /srv/shop/app/dist
 cache     1000 entries, ttl 1m
-auth      file, login page /login, routes /auth/login, /auth/callback and /auth/logout
+auth      file, login page /login, routes /auth/login, /auth/enrol, /auth/callback and /auth/logout
 bearer    shopping               access_token
 dev       live refresh on /__fsr/events, told by POST /__fsr/changed
 config    /srv/shop/config

@@ -7349,3 +7349,161 @@ async fn a_cookie_only_session_signs_in_with_the_record_sealed_in_the_cookie() {
   assert!(html.contains("alice"), "another host with the same key opens the session: {html}");
   assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer dev-token-alice"), "the custody token rode in the cookie");
 }
+
+mod sign_in_steps {
+  use super::*;
+  use snapfire_fsr_runtime::{FailureKind, ServiceError};
+
+  const STEPS_OPENAPI: &str = r##"{
+  "openapi": "3.0.3",
+  "info": { "title": "Identity", "version": "1.0.0" },
+  "paths": {
+    "/sign-in/begin": { "post": { "operationId": "beginSignIn",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Start" } } } },
+      "responses": { "200": { "description": "a step", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Next" } } } } } } },
+    "/sign-in/advance": { "post": { "operationId": "advanceSignIn",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Answer" } } } },
+      "responses": { "200": { "description": "a step", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Next" } } } } } } }
+  },
+  "components": { "schemas": {
+    "Start": { "type": "object", "required": ["intent", "return_to"], "properties": { "intent": { "type": "string" }, "return_to": { "type": "string" }, "method": { "type": "string", "nullable": true }, "identity": { "type": "string", "nullable": true } } },
+    "Answer": { "type": "object", "required": ["params", "state"], "properties": { "params": { "type": "string" }, "state": { "type": "string" } } },
+    "Next": { "type": "object", "required": ["next"], "properties": { "next": { "type": "string" }, "to": { "type": "string" }, "kind": { "type": "string" }, "data": { "type": "string" }, "state": { "type": "string" }, "subject": { "type": "string" }, "claims": { "type": "string" }, "tokens": { "type": "string" } } }
+  } }
+}"##;
+
+  /// An identity service speaking the step contract: a redirect to its identity provider, then
+  /// signed in; an enrolment that presents passkey options.
+  #[derive(Default)]
+  struct Steps {
+    begun: parking_lot::Mutex<Vec<ValueMap>>,
+  }
+
+  fn map(pairs: &[(&str, Value)]) -> ValueMap {
+    pairs.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect()
+  }
+
+  fn blob(pairs: &[(&str, Value)]) -> Value {
+    Value::str(snapfire_fsr_payload::value_to_json(&Value::Map(map(pairs))).to_string())
+  }
+
+  fn unblob(value: Option<&Value>) -> ValueMap {
+    match value {
+      Some(Value::Str(text)) => match snapfire_fsr_payload::json_to_value(&serde_json::from_str(text).unwrap()).unwrap() {
+        Value::Map(map) => map,
+        other => panic!("{other:?}"),
+      },
+      other => panic!("{other:?}"),
+    }
+  }
+
+  impl snapfire_fsr_service::Transport for Steps {
+    fn call(&self, call: snapfire_fsr_service::Call) -> futures::future::BoxFuture<'static, Result<Value, ServiceError>> {
+      let result = match format!("{}.{}", call.service, call.method).as_str() {
+        "shop.list" => Ok(Value::seq(vec![Value::str("a")])),
+        "identity.beginSignIn" => {
+          self.begun.lock().push(call.args.clone());
+          if str_arg(&call.args, "intent") == "enrol" {
+            Ok(Value::Map(map(&[("next", Value::str("present")), ("kind", Value::str("webauthn.create")), ("data", blob(&[("challenge", Value::str("c1"))])), ("state", blob(&[("enrol", Value::str("cora"))]))])))
+          } else {
+            Ok(Value::Map(map(&[("next", Value::str("redirect")), ("to", Value::str("https://idp.example/authorize")), ("state", blob(&[("nonce", Value::str("n1"))]))])))
+          }
+        }
+        "identity.advanceSignIn" => {
+          let (params, state) = (unblob(call.args.get("params")), unblob(call.args.get("state")));
+          let enrolling = state.get("enrol").is_some();
+          if (state.get("nonce") == Some(&Value::str("n1")) && params.get("code") == Some(&Value::str("ok"))) || enrolling {
+            let tokens = if enrolling { blob(&[("passkey", Value::str("pk1"))]) } else { blob(&[("access_token", Value::str("t-cora"))]) };
+            Ok(Value::Map(map(&[("next", Value::str("complete")), ("subject", Value::str("cora")), ("claims", blob(&[])), ("tokens", tokens)])))
+          } else {
+            Err(ServiceError::new(FailureKind::Unauthorized, "identity", "advanceSignIn", "no"))
+          }
+        }
+        other => Err(ServiceError::new(FailureKind::Internal, call.service.clone(), call.method.clone(), format!("unexpected {other}"))),
+      };
+      Box::pin(futures::future::ready(result))
+    }
+  }
+
+  fn host() -> (Host, Arc<Steps>) {
+    let dir = remote_dir();
+    std::fs::write(dir.join("clients/identity.openapi.json"), STEPS_OPENAPI).unwrap();
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("store = \"service\"\nclient = \"identity\"\n", "")).unwrap();
+    let steps = Arc::new(Steps::default());
+    (Host::from(dir.join("app.toml")).unwrap().services_over(steps.clone()).build().unwrap(), steps)
+  }
+
+  async fn json_of(response: http::Response<snapfire_fsr_host::Body>) -> serde_json::Value {
+    serde_json::from_str(&body_of(response).await).unwrap()
+  }
+
+  #[tokio::test]
+  async fn a_service_that_declares_the_steps_drives_a_redirect_sign_in() {
+    let (host, steps) = host();
+    let response = host.handle(Request::get("/auth/login?return_to=/who&method=corp").body(Bytes::new()).unwrap()).await;
+    assert_eq!(location(&response), "https://idp.example/authorize");
+    let cookie = cookie_of(&response);
+    let begun = steps.begun.lock()[0].clone();
+    assert_eq!((str_arg(&begun, "intent"), str_arg(&begun, "return_to"), str_arg(&begun, "method")), ("sign_in".to_owned(), "/who".to_owned(), "corp".to_owned()));
+
+    let refused = host.handle(Request::get("/auth/callback?code=forged").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+    assert_eq!(location(&refused), "/login?error=denied&return_to=%2Fwho");
+
+    host.handle(Request::get("/auth/login?return_to=/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+    let response = host.handle(Request::get("/auth/callback?code=ok").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+    assert_eq!(location(&response), "/who");
+    let html = body_of(host.handle(Request::get("/who").header(header::COOKIE, &cookie_of(&response)).body(Bytes::new()).unwrap()).await).await;
+    assert!(html.contains("cora"), "{html}");
+  }
+
+  #[tokio::test]
+  async fn a_client_asking_for_json_gets_each_step_as_json() {
+    let (host, _) = host();
+    let response = host.handle(Request::get("/auth/login?return_to=/who").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = cookie_of(&response);
+    assert_eq!(json_of(response).await, serde_json::json!({ "next": "redirect", "to": "https://idp.example/authorize" }));
+    let response = host.handle(Request::get("/auth/callback?code=ok").header(header::COOKIE, &cookie).header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert!(cookie_of(&response) != cookie, "signing in renews the session");
+    assert_eq!(json_of(response).await, serde_json::json!({ "next": "complete", "to": "/who" }));
+    let refused = host.handle(Request::get("/auth/callback?code=ok").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(json_of(refused).await["error"], "invalid");
+  }
+
+  #[tokio::test]
+  async fn enrolling_presents_the_services_step_to_a_signed_in_session_with_its_token() {
+    let (host, steps) = host();
+    let anonymous = host.handle(Request::post("/auth/enrol").body(Bytes::new()).unwrap()).await;
+    assert_eq!(anonymous.status(), StatusCode::FORBIDDEN, "no csrf token, no enrolment");
+
+    let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+    let response = host.handle(Request::get("/auth/callback?code=ok").header(header::COOKIE, &cookie_of(&response)).body(Bytes::new()).unwrap()).await;
+    let cookie = cookie_of(&response);
+    let token = field(&body_of(host.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await, "csrf_token").expect("a token once signed in");
+
+    let response = host
+      .handle(Request::post("/auth/enrol?return_to=/who").header(header::COOKIE, &cookie).header(header::ACCEPT, "application/json").header("x-sf-csrf", &token).body(Bytes::new()).unwrap())
+      .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_of(response).await, serde_json::json!({ "next": "present", "kind": "webauthn.create", "data": { "challenge": "c1" } }));
+    let begun = steps.begun.lock().last().cloned().unwrap();
+    assert_eq!(str_arg(&begun, "intent"), "enrol");
+    assert_eq!(unblob(begun.get("identity")).get("subject"), Some(&Value::str("cora")), "{begun:?}");
+
+    let response = host.handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::ACCEPT, "application/json").header(header::CONTENT_TYPE, "application/json").body(Bytes::from("{}")).unwrap()).await;
+    assert_eq!(json_of(response).await, serde_json::json!({ "next": "complete", "to": "/who" }));
+  }
+}
+
+#[test]
+fn an_auth_client_that_declares_no_way_to_sign_in_is_refused_at_boot() {
+  let dir = remote_dir();
+  std::fs::write(dir.join("clients/identity.openapi.json"), IDENTITY_OPENAPI.replace("\"operationId\": \"authenticate\"", "\"operationId\": \"login\"")).unwrap();
+  let error = match Host::from(dir.join("app.toml")).unwrap().build() {
+    Ok(_) => panic!("a client nobody can sign in through booted"),
+    Err(error) => error.to_string(),
+  };
+  assert!(error.contains("authenticate") && error.contains("beginSignIn") && error.contains("advanceSignIn"), "{error}");
+}

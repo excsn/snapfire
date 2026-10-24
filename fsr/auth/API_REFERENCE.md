@@ -1,17 +1,21 @@
 # API Reference: snapfire_fsr_auth
 
-Auth for SnapFire FSR: the `IdentityProvider` seam, the login flow over it and the dev provider.
+Auth for SnapFire FSR: the `IdentityProvider` seam, the sign-in flow over it as a sequence of steps and the dev provider.
 
 ## Contents
 
 * [1. The Flow](#1-the-flow)
   * [Auth](#auth)
+  * [Step](#step)
 * [2. The Provider Seam](#2-the-provider-seam)
   * [IdentityProvider](#identityprovider)
-  * [Begin](#begin)
+  * [Start](#start)
+  * [Intent](#intent)
+  * [Next](#next)
   * [AuthOutcome](#authoutcome)
 * [3. The Dev Provider](#3-the-dev-provider)
   * [DevProvider](#devprovider)
+  * [password_form](#password_form)
 * [4. Types From Other Crates](#4-types-from-other-crates)
   * [Identity](#identity)
   * [Opened](#opened)
@@ -24,58 +28,88 @@ Auth for SnapFire FSR: the `IdentityProvider` seam, the login flow over it and t
 
 ### Auth
 
-The login flow over any `IdentityProvider`. Holds the provider and no other state; every call takes the request's `Opened` session.
+The sign-in flow over any `IdentityProvider`, as a sequence of steps. Holds the provider and no other state; every call takes the request's `Opened` session.
 
 * `pub fn new(provider: Arc<dyn IdentityProvider>) -> Self`
-* `pub async fn login(&self, opened: &Opened, return_to: &str) -> String`
+* `pub fn provider(&self) -> &Arc<dyn IdentityProvider>`
+* `pub async fn begin(&self, opened: &Opened, start: Start) -> Result<Step, AuthError>`
+* `pub async fn advance(&self, opened: &Opened, params: ValueMap) -> Result<Step, AuthError>`
+* `pub async fn ensure_flow(&self, opened: &Opened, return_to: &str)`
 * `pub fn pending_return_to(&self, opened: &Opened) -> Option<String>`
-* `pub async fn callback(&self, opened: &Opened, params: ValueMap) -> Result<String, AuthError>`
 * `pub fn logout(&self, opened: &Opened)`
 
-`login` awaits `provider.begin(return_to)`, inserts `return_to` into the returned `state` as a `Value::Str`, writes the whole map to `opened.tokens` under the reserved key `_sf_auth` and returns `Begin::redirect` unchanged. It writes nothing to `opened.cell`, so the session stays anonymous. The insert overwrites any `return_to` a provider put in its own state. The write marks the token cell dirty, so `Sessions::persist` saves the record.
+`begin` drops any flow in progress and calls `provider.begin(start)`. An `Intent::Enrol` start on a session with no identity is `AuthError::Denied` before the provider is asked; otherwise its `identity` is replaced by the session's own, so a provider always enrols for whoever is signed in.
 
-`pending_return_to` reads `return_to` out of the flow state without consuming it; `None` when no flow is in progress or the state holds no string there.
+`advance` removes the flow from `opened.tokens` before calling `provider.advance(params, state)` with the state the last step kept, so a step is consumed whether its answer succeeds or fails and a refused answer cannot be replayed. No flow in progress is `AuthError::Invalid("no sign-in in progress for this session")`.
 
-`callback` removes `_sf_auth` from `opened.tokens` before calling the provider, so the flow is consumed whether the attempt succeeds or fails. It returns `AuthError::Invalid("no login in progress for this session")` when that key is absent or is not a `Value::Map`. The destination comes from the state's `return_to`, defaulting to `/` when it is missing or not a `Value::Str`. On success it calls `opened.cell.set_identity(Some(outcome.identity))` then `opened.tokens.merge(outcome.tokens)`, so identity is readable by application code while tokens are not. The destination is then returned.
+Both settle the provider's `Next` the same way. `Redirect` and `Present` keep the flow under the reserved token key `_sf_auth`: `return_to`, the intent and the step's `state`, never shown to the browser. `Complete` ends the flow. For a sign-in it calls `opened.cell.set_identity(Some(outcome.identity))`; for an enrolment it refuses an outcome whose subject is not the session's with `AuthError::Denied` and leaves the identity alone. Either way `outcome.tokens` merges into custody, so identity is readable by application code while tokens are not.
 
-`logout` calls `opened.cell.clear()` plus `opened.tokens.clear()`, which drops session data, identity and every token in one pair of dirty writes. It does not delete the stored record and does not produce a cookie; `Sessions::destroy` does both and clears the cells as well, so a host that calls `destroy` alone ends up in the same state.
+`ensure_flow` begins a sign-in when none is in progress, so a login page reached by a typed URL still has a flow to answer. `pending_return_to` reads the destination of the flow in progress without consuming it.
 
-`_sf_auth` is reserved in the token cell. Writing to that key from application code corrupts an in-flight login and is not detected.
+`logout` calls `opened.cell.clear()` plus `opened.tokens.clear()`. It does not delete the stored record and does not produce a cookie; `Sessions::destroy` does both.
+
+`_sf_auth` is reserved in the token cell. Writing to that key from application code corrupts an in-flight sign-in and is not detected.
+
+### Step
+
+What the host answers the browser with after a step. Derives `Debug`, `Clone` and `PartialEq`.
+
+* `Redirect(String)`: send the browser to this URL.
+* `Present { kind: String, data: ValueMap }`: the page acts on `data` as `kind` says and posts its answer to the callback.
+* `Complete { to: String, signed_in: bool }`: the flow is over; land on `to`. `signed_in` is `true` when the session's identity changed, which is when a host gives the session a new id.
 
 ## 2. The Provider Seam
 
 ### IdentityProvider
 
-The seam an identity source implements. Requires `Send + Sync`; both methods return a `BoxFuture` borrowing `self`.
+One way of proving who the visitor is, as a sequence of steps. Requires `Send + Sync`. Only value-model data crosses it, so a provider in another process is the same trait over a transport.
 
-* `fn begin(&self, return_to: &str) -> BoxFuture<'_, Begin>`
-* `fn callback(&self, params: ValueMap, state: ValueMap) -> BoxFuture<'_, Result<AuthOutcome, AuthError>>`
+* `fn begin(&self, start: Start) -> BoxFuture<'_, Result<Next, AuthError>>`
+* `fn advance(&self, params: ValueMap, state: ValueMap) -> BoxFuture<'_, Result<Next, AuthError>>`
+* `fn refresh(&self, tokens: ValueMap) -> BoxFuture<'_, Result<Option<ValueMap>, AuthError>>`, default `Ok(None)`
 
-`begin` is infallible: there is no error channel, so a provider that cannot start a flow must redirect to something that can report it. `return_to` is the destination the application wants after login; a provider may encode it into the redirect or ignore it, since `Auth` carries it in the flow state regardless.
+`advance` receives the browser's answer to the last step, the callback's query, form or JSON body, with exactly the `state` that step returned. Cross-request checks such as a state, nonce or challenge comparison belong here; `Auth` performs none. `refresh` answers new tokens for the ones custody holds, `None` when the provider cannot refresh them.
 
-`callback` receives the provider's response as `params` plus exactly the map `begin` returned, with `return_to` added. Cross-request checks such as a state or nonce comparison belong here; `Auth` performs none.
+### Start
 
-`DevProvider` is the only implementation in this crate.
+What a flow starts from. Derives `Debug` and `Clone`. `#[non_exhaustive]`: build one with `sign_in` or `enrol`.
 
-### Begin
+* `pub intent: Intent`
+* `pub return_to: String`: the path on this origin the flow lands on.
+* `pub method: Option<String>`: the method the visitor chose, for a provider offering several.
+* `pub identity: Option<Identity>`: who is signed in, always present for an enrolment.
+* `pub fn sign_in(return_to: impl Into<String>) -> Self`
+* `pub fn enrol(return_to: impl Into<String>, identity: Identity) -> Self`
+* `pub fn method(self, method: Option<String>) -> Self`
 
-What `begin` returns. `#[non_exhaustive]`: build one with `new`.
+### Intent
 
-* `pub redirect: String`
-* `pub state: ValueMap`
-* `pub fn new(redirect: String, state: ValueMap) -> Self`
+* `SignIn`
+* `Enrol`: add a way of signing in, such as a passkey or a linked account, to the identity already signed in.
 
-`redirect` is used verbatim as the location the browser is sent to; it is not validated, escaped or resolved against a base. `state` is held server-side in token custody for the duration of the round trip and never reaches the browser.
+Derives `Debug`, `Clone`, `Copy`, `PartialEq` and `Eq`. `#[non_exhaustive]`.
+
+### Next
+
+What the browser does next. A closed set: a new answer would be a change to the seam.
+
+* `Redirect { to: String, state: ValueMap }`: send the browser to `to`, an identity provider's page, which comes back to the callback.
+* `Present { kind: String, data: ValueMap, state: ValueMap }`: hand `data` to the page, which posts its answer to the callback. `kind` names what the page does: `form` for fields to fill, `webauthn.get` and `webauthn.create` for a passkey ceremony's options, `notice` for a message such as a code sent elsewhere.
+* `Complete(AuthOutcome)`
+* `pub fn redirect(to: impl Into<String>, state: ValueMap) -> Self`
+* `pub fn present(kind: impl Into<String>, data: ValueMap, state: ValueMap) -> Self`
+
+`state` never reaches the browser: `Auth` keeps it in token custody and hands it to the next `advance`.
 
 ### AuthOutcome
 
-What a successful `callback` returns. `#[non_exhaustive]`: build one with `new`.
+What a completed flow produces. `#[non_exhaustive]`: build one with `new`.
 
 * `pub identity: Identity`
 * `pub tokens: ValueMap`
 * `pub fn new(identity: Identity, tokens: ValueMap) -> Self`
 
-`identity` replaces whatever identity the session cell held. `tokens` is merged into token custody key by key, so a key already present is overwritten while a key absent from the map survives.
+`tokens` is merged into token custody key by key, so a key already present is overwritten while a key absent from the map survives.
 
 ## 3. The Dev Provider
 
@@ -83,16 +117,18 @@ What a successful `callback` returns. `#[non_exhaustive]`: build one with `new`.
 
 Name and password against a fixed in-memory table. Passwords are compared in the clear, so this is for development only.
 
-* `pub fn new(login_path: impl Into<String>) -> Self`
+* `pub fn new() -> Self`, also `Default`
 * `pub fn user(self, name: impl Into<String>, password: impl Into<String>) -> Self`
 * `pub fn user_with_claims(self, name: impl Into<String>, password: impl Into<String>, claims: ValueMap) -> Self`
-* `pub fn from_toml(login_path: impl Into<String>, path: impl AsRef<Path>) -> Result<Self, String>`
+* `pub fn from_toml(path: impl AsRef<Path>) -> Result<Self, String>`
 
-`new` starts with an empty table. `user` appends an entry with empty claims; `user_with_claims` appends one with the claims given. Both consume and return `Self` for chaining. Neither rejects a duplicate name: the first match in insertion order wins. `from_toml` reads a file of `[[users]]` rows, each `name`, `password` and an optional `claims` table whose values become `Value`s (a string, integer, float, boolean, array or table; a datetime becomes its string) and appends them in file order. An unreadable or unparsable file, no row at all or an empty name is `Err` naming the path and the reason.
+`new` starts with an empty table. `user` appends an entry with empty claims; `user_with_claims` appends one with the claims given. Neither rejects a duplicate name: the first match in insertion order wins. `from_toml` reads a file of `[[users]]` rows, each `name`, `password` and an optional `claims` table whose values become `Value`s (a datetime becomes its string). An unreadable or unparsable file, no row at all or an empty name is `Err` naming the path and the reason.
 
-`begin` returns `Begin { redirect: format!("{login_path}?return_to={encoded}"), state: ValueMap::new() }`, where `encoded` is `return_to` passed through `form_urlencoded::byte_serialize`. The redirect always carries a `return_to` query parameter, so a `login_path` that already has a query string produces a malformed URL.
+`begin` answers `password_form()` for a sign-in and `AuthError::Invalid` for an enrolment. `advance` ignores `state` and reads `user` and `password` from `params`, accepting `Value::Str` only. A missing one is `AuthError::Invalid("missing user")` or `("missing password")`; no entry matching both is `AuthError::Denied("unknown user or wrong password")`. On success it completes with `Identity { subject: <name>, claims: <the entry's claims> }` and one token, `access_token` set to `dev-token-<name>`.
 
-`callback` ignores `state`. It reads `user` plus `password` from `params`, accepting `Value::Str` only. A missing or non-string `user` is `AuthError::Invalid("missing user")`; the same for `password` is `AuthError::Invalid("missing password")`. No table entry matching both is `AuthError::Denied("unknown user or wrong password")`. On success the outcome is `Identity { subject: <name>, claims: <the entry's claims> }` plus one token, `access_token` set to `dev-token-<name>`.
+### password_form
+
+* `pub fn password_form() -> Next`: `Next::Present` of kind `form`, `data` `{ fields: ["user", "password"] }` and empty state, the step a name-and-password provider presents.
 
 ## 4. Types From Other Crates
 
@@ -139,7 +175,7 @@ Reaches templates as the injected `identity` prop, a map of `subject` plus `clai
 
 ### AuthError
 
-The crate's only error type, returned by `Auth::callback` alone. Derives `Debug`, `Clone` and `PartialEq`; implements `std::error::Error`.
+The crate's only error type, returned by `Auth::begin`, `Auth::advance` and every provider method. Derives `Debug`, `Clone` and `PartialEq`; implements `std::error::Error`.
 
 * `Denied(String)`
 * `Invalid(String)`

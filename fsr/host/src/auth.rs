@@ -113,8 +113,11 @@ impl Host {
   /// The framework-owned identity routes, plus the seeding a GET of the
   /// login page does so a typed URL can still post to the callback. `None`
   /// when `path` is none of them and the request goes on to the middleware.
-  /// Logout answers without persisting: the record is gone and the cookie
-  /// expires in the same response.
+  /// `/auth/login` begins a sign-in, `/auth/enrol` (a POST carrying the CSRF
+  /// token) begins adding a method to the identity signed in and
+  /// `/auth/callback` takes each answer. A request asking for JSON gets each
+  /// step as JSON; any other is redirected. Logout answers without
+  /// persisting: the record is gone and the cookie expires in the same response.
   pub(crate) async fn auth_route(
     &self,
     mounted: &Mounted,
@@ -127,43 +130,37 @@ impl Host {
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let referer = header("referer").as_deref().and_then(referer_path);
     let asked = query.get("return_to").and_then(|p| same_origin_path(p));
+    let method = query.get("method").cloned();
+    let json = header("accept").is_some_and(|accept| accept.contains("application/json"));
     match (req.method(), path) {
       (&Method::GET, "/auth/login") => {
         let return_to = asked.or(referer).unwrap_or_else(|| "/".to_owned());
-        let redirect = mounted.auth.login(opened, &return_to).await;
-        let mut response = see_other(&redirect);
-        self.set_cookie(opened, &mut response).await;
-        Some(response)
+        let step = mounted.auth.begin(opened, Start::sign_in(return_to).method(method)).await;
+        let pending = mounted.auth.pending_return_to(opened);
+        Some(self.answer_step(mounted, opened, step, json, pending).await)
+      }
+      (&Method::POST, "/auth/enrol") => {
+        let token = form_field(req.body(), "_csrf").or_else(|| header("x-sf-csrf")).unwrap_or_default();
+        if !self.sessions.verify_csrf(opened, &token) {
+          return Some(text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned()));
+        }
+        let Some(identity) = opened.cell.identity() else {
+          return Some(text_response(StatusCode::UNAUTHORIZED, "enrolling needs a signed-in session".to_owned()));
+        };
+        let return_to = asked.or(referer).unwrap_or_else(|| "/".to_owned());
+        let step = mounted.auth.begin(opened, Start::enrol(return_to, identity).method(method)).await;
+        let pending = mounted.auth.pending_return_to(opened);
+        Some(self.answer_step(mounted, opened, step, json, pending).await)
       }
       (&Method::GET | &Method::POST, "/auth/callback") => {
         let params = match callback_params(req, &query) {
           Ok(params) => params,
           Err(message) => return Some(text_response(StatusCode::BAD_REQUEST, message)),
         };
-        let pending = mounted.auth.pending_return_to(opened);
-        let mut renewed = None;
-        let mut response = match mounted.auth.callback(opened, params).await {
-          Ok(destination) => match self.sessions.renew(opened).await {
-            Ok(fresh) => {
-              self.sessions.rotate_csrf(&fresh);
-              renewed = Some(fresh);
-              see_other(&destination)
-            }
-            Err(_) => {
-              mounted.auth.logout(opened);
-              text_response(StatusCode::SERVICE_UNAVAILABLE, "the session store did not answer; sign in again".to_owned())
-            }
-          },
-          Err(AuthError::Denied(_)) => {
-            let back: String = pending
-              .map(|p| form_urlencoded::byte_serialize(p.as_bytes()).collect())
-              .unwrap_or_default();
-            see_other(&format!("{}?error=denied&return_to={back}", mounted.login_path))
-          }
-          Err(e) => text_response(StatusCode::BAD_REQUEST, e.to_string()),
-        };
-        self.set_cookie(renewed.as_ref().unwrap_or(opened), &mut response).await;
-        Some(response)
+        let before = mounted.auth.pending_return_to(opened);
+        let step = mounted.auth.advance(opened, params).await;
+        let pending = mounted.auth.pending_return_to(opened).or(before);
+        Some(self.answer_step(mounted, opened, step, json, pending).await)
       }
       (&Method::POST, "/auth/logout") => {
         let token = form_field(req.body(), "_csrf")
@@ -203,4 +200,60 @@ impl Host {
       _ => None,
     }
   }
+
+  /// The response to one step, with the session's cookie. A plain request is redirected: to the
+  /// identity provider, to the login page for a step the page presents, to the destination when
+  /// the flow completes and back to the login page with `error=denied` on a refusal. A JSON request
+  /// gets `{ next: "redirect", to }`, `{ next: "present", kind, data }`, `{ next: "complete", to }`
+  /// or `{ error, message }` with the status. Signing in gives the session a new id.
+  async fn answer_step(&self, mounted: &Mounted, opened: &Opened, step: Result<Step, AuthError>, json: bool, pending: Option<String>) -> Response<Body> {
+    let login_page = |return_to: Option<String>, error: Option<&str>| {
+      let back: String = return_to.map(|p| form_urlencoded::byte_serialize(p.as_bytes()).collect()).unwrap_or_default();
+      match error {
+        Some(error) => format!("{}?error={error}&return_to={back}", mounted.login_path),
+        None => format!("{}?return_to={back}", mounted.login_path),
+      }
+    };
+    let mut renewed = None;
+    let mut response = match step {
+      Ok(Step::Redirect(to)) if json => json_response(StatusCode::OK, &serde_json::json!({ "next": "redirect", "to": to })),
+      Ok(Step::Redirect(to)) => see_other(&to),
+      Ok(Step::Present { kind, data }) if json => {
+        json_response(StatusCode::OK, &serde_json::json!({ "next": "present", "kind": kind, "data": snapfire_fsr_payload::value_to_json(&Value::Map(data)) }))
+      }
+      Ok(Step::Present { .. }) => see_other(&login_page(pending, None)),
+      Ok(Step::Complete { to, signed_in }) => {
+        let settled = if signed_in {
+          match self.sessions.renew(opened).await {
+            Ok(fresh) => {
+              self.sessions.rotate_csrf(&fresh);
+              renewed = Some(fresh);
+              true
+            }
+            Err(_) => {
+              mounted.auth.logout(opened);
+              false
+            }
+          }
+        } else {
+          true
+        };
+        match (settled, json) {
+          (false, _) => text_response(StatusCode::SERVICE_UNAVAILABLE, "the session store did not answer; sign in again".to_owned()),
+          (true, true) => json_response(StatusCode::OK, &serde_json::json!({ "next": "complete", "to": to })),
+          (true, false) => see_other(&to),
+        }
+      }
+      Err(error) if json => {
+        let kind = if matches!(error, AuthError::Denied(_)) { "denied" } else { "invalid" };
+        let status = StatusCode::from_u16(error.http_status()).unwrap_or(StatusCode::BAD_REQUEST);
+        json_response(status, &serde_json::json!({ "error": kind, "message": error.to_string() }))
+      }
+      Err(AuthError::Denied(_)) => see_other(&login_page(pending, Some("denied"))),
+      Err(e) => text_response(StatusCode::BAD_REQUEST, e.to_string()),
+    };
+    self.set_cookie(renewed.as_ref().unwrap_or(opened), &mut response).await;
+    response
+  }
+
 }

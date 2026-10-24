@@ -1025,15 +1025,24 @@ impl HostBuilder {
             let users = config
               .config_dir()
               .join(section.users.as_deref().unwrap_or("auth.toml"));
-            Arc::new(DevProvider::from_toml(&section.login, &users).map_err(|e| HostError::Config(users.clone(), e))?)
+            Arc::new(DevProvider::from_toml(&users).map_err(|e| HostError::Config(users.clone(), e))?)
           }
           "service" => {
             let client = format!("{prefix}{}", section.client.clone().unwrap_or_default());
-            Arc::new(ServiceProvider::new(
-              app.services.clone(),
-              client,
-              section.login.clone(),
-            ))
+            let declared = |method: &str| app.services.contract().services.get(&client).is_some_and(|service| service.methods.contains_key(method));
+            let steps = (declared(crate::remote::BEGIN_SIGN_IN), declared(crate::remote::ADVANCE_SIGN_IN));
+            if steps.0 != steps.1 || (!steps.0 && !declared(crate::remote::AUTHENTICATE)) {
+              return Err(HostError::Config(
+                config.config_dir(),
+                format!(
+                  "auth.client `{client}` declares neither `{}` nor both `{}` and `{}`, so nobody can sign in through it",
+                  crate::remote::AUTHENTICATE,
+                  crate::remote::BEGIN_SIGN_IN,
+                  crate::remote::ADVANCE_SIGN_IN
+                ),
+              ));
+            }
+            Arc::new(ServiceProvider::new(app.services.clone(), client))
           }
           other => return Err(HostError::Value("auth.provider".to_owned(), other.to_owned())),
         };
@@ -1183,6 +1192,7 @@ impl HostBuilder {
         csp_report_only,
         dev_nonce,
         trace_expose: config.trace.as_ref().map(|t| t.expose.clone()).unwrap_or_default(),
+        trace_inline: config.trace.as_ref().map(|t| t.inline.clone()).unwrap_or_default(),
         health: Some(config.server.health.clone()).filter(|p| !p.is_empty()),
         ready: Some(config.server.ready.clone()).filter(|p| !p.is_empty()),
         prerendered,

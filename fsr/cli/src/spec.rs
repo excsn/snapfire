@@ -1147,7 +1147,7 @@ impl FetchHooks {
     };
     let answered = host.auth_call(&mock.flow, &method, &path, &query, body.unwrap_or_default().as_bytes(), &headers, mock.ctx.session.clone()).await;
     let Some((status, headers, text)) = answered else {
-      let message = format!("{method} {path}: this application mounts no identity provider, or that is not one of its three routes");
+      let message = format!("{method} {path}: this application mounts no identity provider or that is not one of its four routes");
       return json_response(404, serde_json::json!({ "kind": "not_found", "message": message }));
     };
     let mut response = FetchResponse::new(status, text);

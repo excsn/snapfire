@@ -57,7 +57,7 @@ use futures_util::stream::BoxStream;
 use http::{HeaderValue, Method, Request, Response, StatusCode, header};
 use http_body_util::{BodyExt, StreamBody};
 use snapfire_fsr::{App, AppBuilder, BindError, IntoPlan, Owner, Report};
-use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider};
+use snapfire_fsr_auth::{Auth, AuthError, DevProvider, IdentityProvider, Start, Step};
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, PlanNode, Value, ValueMap};
 use snapfire_fsr_ir::HandlerRef;
 use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, RouteEntry, RowOwner, renumber};

@@ -319,7 +319,7 @@ impl std::fmt::Display for HostReport {
     if let Some((provider, login)) = &self.auth {
       writeln!(
         f,
-        "{:<9} {provider}, login page {login}, routes /auth/login, /auth/callback and /auth/logout",
+        "{:<9} {provider}, login page {login}, routes /auth/login, /auth/enrol, /auth/callback and /auth/logout",
         "auth"
       )?;
       if self.bearer.is_empty() {

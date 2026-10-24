@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
-use snapfire_fsr_auth::{AuthError, AuthOutcome, Begin, IdentityProvider};
+use snapfire_fsr_auth::{AuthError, AuthOutcome, IdentityProvider, Intent, Next, Start};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{unix_now, FailureKind, Identity, ServiceError};
 use snapfire_fsr_service::Services;
@@ -110,21 +110,69 @@ impl SessionStore for ServiceSessionStore {
   }
 }
 
-/// Sends the login form's `user` and `password` to the client's `authenticate`
-/// and takes `subject`, `claims` and `access_token` from the answer.
+/// The provider behind a client: `begin`, `advance` and `refresh` go to its `beginSignIn`,
+/// `advanceSignIn` and `refreshSignIn` with the same values, so any auth service is a provider. A
+/// client declaring only `authenticate` is a password service: the step is the password form and
+/// the answer goes to `authenticate`.
 pub struct ServiceProvider {
   services: Arc<Services>,
   client: String,
-  login_path: String,
 }
 
+pub const BEGIN_SIGN_IN: &str = "beginSignIn";
+pub const ADVANCE_SIGN_IN: &str = "advanceSignIn";
+pub const REFRESH_SIGN_IN: &str = "refreshSignIn";
+pub const AUTHENTICATE: &str = "authenticate";
+
 impl ServiceProvider {
-  pub fn new(services: Arc<Services>, client: impl Into<String>, login_path: impl Into<String>) -> Self {
-    Self {
-      services,
-      client: client.into(),
-      login_path: login_path.into(),
-    }
+  pub fn new(services: Arc<Services>, client: impl Into<String>) -> Self {
+    Self { services, client: client.into() }
+  }
+
+  fn declares(&self, method: &str) -> bool {
+    self.services.contract().services.get(&self.client).is_some_and(|service| service.methods.contains_key(method))
+  }
+
+  fn call(&self, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, AuthError>> {
+    let call = self.services.bind_anonymous().call(&self.client, method, args);
+    let method = method.to_owned();
+    Box::pin(async move { call.await.map_err(|error| refusal(&method, error)) })
+  }
+
+  fn authenticate(&self, params: ValueMap) -> BoxFuture<'_, Result<Next, AuthError>> {
+    let (user, password) = (param(&params, "user"), param(&params, "password"));
+    let call = match (user, password) {
+      (Some(user), Some(password)) => {
+        let mut args = ValueMap::default();
+        args.insert("user".to_owned(), Value::str(user));
+        args.insert("password".to_owned(), Value::str(password));
+        Some(self.call(AUTHENTICATE, args))
+      }
+      _ => None,
+    };
+    Box::pin(async move {
+      let Some(call) = call else {
+        return Err(AuthError::Invalid("missing user or password".to_owned()));
+      };
+      let answer = match call.await? {
+        Value::Map(answer) => answer,
+        other => return Err(AuthError::Invalid(format!("authenticate answered {other:?}"))),
+      };
+      let identity = identity_of(&answer).ok_or_else(|| AuthError::Invalid("authenticate answered without a subject".to_owned()))?;
+      let mut tokens = ValueMap::default();
+      if let Some(Value::Str(token)) = answer.get("access_token") {
+        tokens.insert("access_token".to_owned(), Value::Str(token.clone()));
+      }
+      Ok(Next::Complete(AuthOutcome::new(identity, tokens)))
+    })
+  }
+}
+
+/// A client error is the service saying no; anything else is a failure to answer.
+fn refusal(method: &str, error: ServiceError) -> AuthError {
+  match error.kind {
+    kind if kind.is_client_error() && !matches!(kind, FailureKind::RequestTimeout | FailureKind::Conflict) => AuthError::Denied(error.message.clone()),
+    _ => AuthError::Invalid(format!("{method}: {error}")),
   }
 }
 
@@ -135,45 +183,112 @@ fn param(params: &ValueMap, key: &str) -> Option<String> {
   }
 }
 
+/// A map a step carries, written as a map or as one string in the payload's JSON encoding, which
+/// is how a contract with no open map type declares it.
+fn map_of(map: &ValueMap, key: &str) -> ValueMap {
+  match map.get(key) {
+    Some(Value::Map(inner)) => inner.clone(),
+    Some(Value::Str(text)) => serde_json::from_str::<serde_json::Value>(text)
+      .ok()
+      .and_then(|json| snapfire_fsr_payload::json_to_value(&json).ok())
+      .and_then(|value| match value {
+        Value::Map(inner) => Some(inner),
+        _ => None,
+      })
+      .unwrap_or_default(),
+    _ => ValueMap::default(),
+  }
+}
+
+/// A map as one string in the payload's JSON encoding.
+fn blob(map: ValueMap) -> Value {
+  Value::str(snapfire_fsr_payload::value_to_json(&Value::Map(map)).to_string())
+}
+
+/// `{ intent, return_to, method, identity }` as `beginSignIn` takes it, `identity` being
+/// `{ subject, claims }` as one string in the payload's JSON encoding.
+pub fn encode_start(start: &Start) -> ValueMap {
+  let mut args = ValueMap::default();
+  args.insert("intent".to_owned(), Value::str(if start.intent == Intent::Enrol { "enrol" } else { "sign_in" }));
+  args.insert("return_to".to_owned(), Value::str(start.return_to.clone()));
+  args.insert("method".to_owned(), start.method.clone().map(Value::str).unwrap_or(Value::Null));
+  args.insert(
+    "identity".to_owned(),
+    match &start.identity {
+      Some(identity) => {
+        let mut map = ValueMap::default();
+        map.insert("subject".to_owned(), Value::str(identity.subject.clone()));
+        map.insert("claims".to_owned(), Value::Map(identity.claims.clone()));
+        blob(map)
+      }
+      None => Value::Null,
+    },
+  );
+  args
+}
+
+/// A step as a service answers it: `{ next: "redirect", to, state }`, `{ next: "present", kind,
+/// data, state }` or `{ next: "complete", subject, claims, tokens }`, each map written as a map or
+/// as one string in the payload's JSON encoding.
+pub fn decode_next(answer: Value) -> Result<Next, AuthError> {
+  let Value::Map(answer) = answer else {
+    return Err(AuthError::Invalid(format!("a sign-in step answered {answer:?}")));
+  };
+  let text = |key: &str| param(&answer, key);
+  match text("next").as_deref() {
+    Some("redirect") => {
+      let to = text("to").ok_or_else(|| AuthError::Invalid("a redirect step without `to`".to_owned()))?;
+      Ok(Next::redirect(to, map_of(&answer, "state")))
+    }
+    Some("present") => {
+      let kind = text("kind").ok_or_else(|| AuthError::Invalid("a present step without `kind`".to_owned()))?;
+      Ok(Next::present(kind, map_of(&answer, "data"), map_of(&answer, "state")))
+    }
+    Some("complete") => {
+      let subject = text("subject").ok_or_else(|| AuthError::Invalid("a complete step without a subject".to_owned()))?;
+      let identity = Identity::new(subject, map_of(&answer, "claims"));
+      Ok(Next::Complete(AuthOutcome::new(identity, map_of(&answer, "tokens"))))
+    }
+    other => Err(AuthError::Invalid(format!("a sign-in step answered next = {other:?}"))),
+  }
+}
+
 impl IdentityProvider for ServiceProvider {
-  fn begin(&self, return_to: &str) -> BoxFuture<'_, Begin> {
-    let encoded: String = form_urlencoded::byte_serialize(return_to.as_bytes()).collect();
-    let redirect = format!("{}?return_to={}", self.login_path, encoded);
-    Box::pin(ready(Begin::new(redirect, ValueMap::default())))
+  fn begin(&self, start: Start) -> BoxFuture<'_, Result<Next, AuthError>> {
+    if !self.declares(BEGIN_SIGN_IN) {
+      return Box::pin(ready(match start.intent {
+        Intent::SignIn => Ok(snapfire_fsr_auth::password_form()),
+        _ => Err(AuthError::Invalid(format!("{} declares no {BEGIN_SIGN_IN}, so it enrols nothing", self.client))),
+      }));
+    }
+    let call = self.call(BEGIN_SIGN_IN, encode_start(&start));
+    Box::pin(async move { decode_next(call.await?) })
   }
 
-  fn callback(&self, params: ValueMap, _state: ValueMap) -> BoxFuture<'_, Result<AuthOutcome, AuthError>> {
+  fn advance(&self, params: ValueMap, state: ValueMap) -> BoxFuture<'_, Result<Next, AuthError>> {
+    if !self.declares(ADVANCE_SIGN_IN) {
+      return self.authenticate(params);
+    }
     let mut args = ValueMap::default();
-    let (user, password) = (param(&params, "user"), param(&params, "password"));
-    let call = match (user, password) {
-      (Some(user), Some(password)) => {
-        args.insert("user".to_owned(), Value::str(user));
-        args.insert("password".to_owned(), Value::str(password));
-        Some(self.services.bind_anonymous().call(&self.client, "authenticate", args))
-      }
-      _ => None,
-    };
+    args.insert("params".to_owned(), blob(params));
+    args.insert("state".to_owned(), blob(state));
+    let call = self.call(ADVANCE_SIGN_IN, args);
+    Box::pin(async move { decode_next(call.await?) })
+  }
+
+  fn refresh(&self, tokens: ValueMap) -> BoxFuture<'_, Result<Option<ValueMap>, AuthError>> {
+    if !self.declares(REFRESH_SIGN_IN) {
+      return Box::pin(ready(Ok(None)));
+    }
+    let mut args = ValueMap::default();
+    args.insert("tokens".to_owned(), blob(tokens));
+    let call = self.call(REFRESH_SIGN_IN, args);
     Box::pin(async move {
-      let Some(call) = call else {
-        return Err(AuthError::Invalid("missing user or password".to_owned()));
-      };
-      let answer = match call.await {
-        Ok(Value::Map(answer)) => answer,
-        Ok(other) => return Err(AuthError::Invalid(format!("authenticate answered {other:?}"))),
-        Err(error) => {
-          return Err(match error.kind {
-            kind if kind.is_client_error() && !matches!(kind, FailureKind::RequestTimeout | FailureKind::Conflict) => AuthError::Denied(error.message.clone()),
-            _ => AuthError::Invalid(error.to_string()),
-          });
-        }
-      };
-      let identity =
-        identity_of(&answer).ok_or_else(|| AuthError::Invalid("authenticate answered without a subject".to_owned()))?;
-      let mut tokens = ValueMap::default();
-      if let Some(Value::Str(token)) = answer.get("access_token") {
-        tokens.insert("access_token".to_owned(), Value::Str(token.clone()));
+      match call.await? {
+        Value::Map(answer) => Ok(Some(map_of(&answer, "tokens"))),
+        Value::Null => Ok(None),
+        other => Err(AuthError::Invalid(format!("{REFRESH_SIGN_IN} answered {other:?}"))),
       }
-      Ok(AuthOutcome::new(identity, tokens))
     })
   }
 }
