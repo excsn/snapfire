@@ -337,3 +337,8 @@ fn stat_answers_the_kind_and_size_as_fields() {
   let missing = call("", "fs.stat", vec![s(dir.join("missing").to_str().unwrap())]).unwrap_err();
   assert!(missing.contains("ENOENT"), "{missing}");
 }
+
+#[test]
+fn eol_is_this_platforms_line_ending() {
+  assert_eq!(call("", "os.EOL", vec![]), Ok(s(if cfg!(windows) { "\r\n" } else { "\n" })));
+}

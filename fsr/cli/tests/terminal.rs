@@ -585,6 +585,15 @@ fn a_page_reads_a_file_and_the_paths_around_it() {
 }
 
 #[test]
+fn a_page_joins_lines_with_the_os_line_ending() {
+  let page = "import { Text } from \"ink\";\nimport os, { EOL } from \"node:os\";\n\nexport default function Lines() {\n  const text = [\"a\", \"b\"].join(EOL) + os.EOL;\n  return <Text>{JSON.stringify(text)}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
+  let eol = if cfg!(windows) { "\\r\\n" } else { "\\n" };
+  assert_eq!(line(session.view().unwrap()), format!("\"a{eol}b{eol}\""));
+}
+
+#[test]
 fn a_module_constant_that_reads_a_file_is_read_once_a_session() {
   let dir = host_dir("once");
   let conf = dir.join("conf.json");

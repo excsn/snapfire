@@ -72,6 +72,7 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("os", "homedir", Reach::Process),
   ("os", "platform", Reach::Process),
   ("os", "tmpdir", Reach::Process),
+  ("os", "EOL", Reach::Process),
   ("process", "cwd", Reach::Process),
   ("process", "memoryUsage", Reach::Process),
   ("log", "trace", Reach::Render),

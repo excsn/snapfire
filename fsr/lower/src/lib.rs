@@ -1956,6 +1956,15 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// A read of a package export the standard library answers as a value, [`meaning::Construct::Constant`], under the member's reach.
+  fn constant(&mut self, meaning: Option<meaning::Meaning>, span: Span) -> Lowered<Option<Expr>> {
+    let Some(meaning::Meaning::Library(meaning::Construct::Constant(key))) = meaning else { return Ok(None) };
+    let (module, member) = key.split_once('.').expect("a constant is `module.member`");
+    let reach = standard_reach(module, member).expect("a package maps to a standard member");
+    self.check_reach(span, key, reach)?;
+    Ok(Some(Expr::Ext { module: module.to_owned(), name: member.to_owned(), args: Vec::new() }))
+  }
+
   /// `process.env.NAME` or `process.env[name]` in a terminal page: the variable through `terminal.env`, null when it is not set. `process.platform` is `os.platform`. `process.stdout` is the terminal's output as `useStdout` gives it, its `columns` and `rows` the terminal's size.
   fn env_read(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
     if !self.reaches(Reach::Process) {
@@ -2919,6 +2928,9 @@ impl<'a> Lowerer<'a> {
     if let Some(meaning::Meaning::Library(meaning::Construct::NamedKey(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) {
       return Ok(Expr::lit_str(*key));
     }
+    if let Some(read) = self.constant(self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).cloned(), id.span)? {
+      return Ok(read);
+    }
     match self.root_of(id) {
       Some(Root::Input) => Ok(Expr::Input),
       Some(Root::Now) => Ok(Expr::Now),
@@ -2973,6 +2985,13 @@ impl<'a> Lowerer<'a> {
 
   /// A member read. Context roots become reads; anything else is a field.
   fn member(&mut self, member: &js::MemberExpr) -> Lowered<Expr> {
+    let named = match &member.prop {
+      js::MemberProp::Ident(prop) => self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&member.obj)?.member(prop.sym.as_ref())),
+      _ => None,
+    };
+    if let Some(read) = self.constant(named, member.span)? {
+      return Ok(read);
+    }
     if let Some(read) = self.env_read(member)? {
       return Ok(read);
     }

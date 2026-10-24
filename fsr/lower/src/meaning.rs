@@ -46,6 +46,8 @@ pub(crate) enum Construct {
   ClassNames,
   /// A package export the build answers with a member of the standard library, `terminal.ms` for `ms`'s default export: a call to it is a call to that member, under the member's reach.
   Extension(&'static str),
+  /// A package export that is a value the standard library answers, `os.EOL` for `node:os`'s `EOL`: a read of it is a call to that member with no arguments.
+  Constant(&'static str),
   /// `node:child_process`, its default export `module` or its `spawn`, whose processes a terminal page starts natively.
   ChildProcess(&'static str),
   /// `node:process`'s default export, whose `env` a terminal page reads through `terminal.env`.
@@ -242,9 +244,11 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("path", "isAbsolute", Construct::Extension("path.isAbsolute")),
   ("node:os", "homedir", Construct::Extension("os.homedir")),
   ("node:os", "platform", Construct::Extension("os.platform")),
+  ("node:os", "EOL", Construct::Constant("os.EOL")),
   ("node:os", "tmpdir", Construct::Extension("os.tmpdir")),
   ("os", "homedir", Construct::Extension("os.homedir")),
   ("os", "platform", Construct::Extension("os.platform")),
+  ("os", "EOL", Construct::Constant("os.EOL")),
   ("os", "tmpdir", Construct::Extension("os.tmpdir")),
   ("node:crypto", "randomBytes", Construct::Extension("crypto.randomBytes")),
   ("node:crypto", "randomUUID", Construct::Extension("crypto.uuid")),

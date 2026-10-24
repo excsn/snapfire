@@ -18,6 +18,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("path.isAbsolute", Reach::Terminal, |_, args| Ok(Value::Bool(text("path.isAbsolute", args, 0)?.starts_with('/'))));
   extensions.register("os.homedir", Reach::Process, |_, _| Ok(Value::str(std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default())));
   extensions.register("os.platform", Reach::Process, |_, _| Ok(Value::str(platform())));
+  extensions.register("os.EOL", Reach::Process, |_, _| Ok(Value::str(if cfg!(windows) { "\r\n" } else { "\n" })));
   extensions.register("os.tmpdir", Reach::Process, |_, _| Ok(Value::str(std::env::temp_dir().to_string_lossy().trim_end_matches('/').to_owned())));
   extensions.register("process.cwd", Reach::Process, |_, _| Ok(Value::str(std::env::current_dir().map_err(|e| Fail::internal(format!("process.cwd: {e}")))?.to_string_lossy().into_owned())));
   extensions.register("process.memoryUsage", Reach::Process, |_, _| Ok(memory_usage()));

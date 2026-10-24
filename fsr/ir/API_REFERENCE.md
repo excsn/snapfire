@@ -357,6 +357,7 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `os.homedir` | process | | `HOME`; `USERPROFILE` when that is not set |
 | `os.platform` | process | | `darwin`, `linux`, `win32` or what Rust calls the OS |
 | `os.tmpdir` | process | | the temporary directory, no trailing `/` |
+| `os.EOL` | process | | `"\r\n"` on Windows, `"\n"` elsewhere; what `EOL` from `node:os` reads as |
 | `process.cwd` | process | | the working directory |
 | `process.memoryUsage` | process | | `{ rss, heapTotal, heapUsed, external, arrayBuffers }`; `rss` is the resident set in bytes and the rest are 0, there being no JavaScript heap |
 | `log.trace`, `log.debug`, `log.info`, `log.warn`, `log.error`, `log.fatal` | render | `message`, `fields?` | a `tracing` event at that level under the target `fsr::app`, `fields` written as `console.log` writes a value; `fatal` is the error level; null |
