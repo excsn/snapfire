@@ -534,6 +534,11 @@ pub const CONTRACTS_DIR: &str = "generated/contracts";
 
 /// The page at `/`, the one a terminal application draws.
 pub const ROOT_PAGE: &str = "routes/page.tsx";
+
+/// Whether the application under `app` runs in a terminal: its root page, or a local file it reaches, imports a value from Ink's API.
+pub fn is_terminal_app(app: &Path) -> bool {
+  app.join(ROOT_PAGE).is_file() && ComponentSet::new(app).draws_in_terminal(ROOT_PAGE)
+}
 /// The file under `CONTRACTS_DIR` holding every `#[service]` block's contract.
 pub const RUST_CONTRACT: &str = "rust.json";
 /// Where the build writes the plan file.
@@ -985,7 +990,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let public_path = bundle_base(options.site.as_ref());
   let resolver = std::rc::Rc::new(assets::Resolver::new(app, &public_path, sections.clone()));
   let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect()).with_assets(resolver.clone(), sections.images.rewrite);
-  let terminal = app.join(ROOT_PAGE).is_file() && ComponentSet::new(app).draws_in_terminal(ROOT_PAGE);
+  let terminal = is_terminal_app(app);
   if terminal {
     set = set.for_terminal();
   }

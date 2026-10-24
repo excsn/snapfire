@@ -990,8 +990,12 @@ type Window = std::convert::Infallible;
 /// Runs the loop until Ctrl-C or until its window closes under `--desktop`.
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   #[cfg(feature = "terminal")]
-  if options.terminal {
+  if options.terminal || crate::is_terminal_app(app) {
     return crate::terminal::run(app, &options.args);
+  }
+  #[cfg(not(feature = "terminal"))]
+  if crate::is_terminal_app(app) {
+    return Err(BuildError::Dev(format!("{}: the root page draws with Ink but this fsr is built without the `terminal` feature", app.display())));
   }
   #[cfg(feature = "desktop")]
   if options.desktop {

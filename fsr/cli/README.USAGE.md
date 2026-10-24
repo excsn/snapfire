@@ -1327,11 +1327,11 @@ The window installs a bridge before the page's scripts run, which `desktop` from
 
 ## Running a Terminal App
 
-Terminal mode is experimental. With the `terminal` feature, `fsr dev --terminal` runs the app's root page in this terminal instead of serving it. The page is an Ink component: `Box`, `Text`, `Spacer`, `Newline` and `useInput` come from `ink`, or from `@snapfire/fsr/terminal`, which exports the same names. No Node runs and nothing is served.
+Terminal mode is experimental. With the `terminal` feature, `fsr dev` runs an app whose root page draws with Ink in this terminal instead of serving it. The root page draws with Ink when it, or a local file it imports, imports a value from `ink` or `@snapfire/fsr/terminal`; `--terminal` asks for the terminal on any app. `fsr build` and `fsr check` lower such an app as the terminal does, with no browser half, so its generated types follow its loader. The page is an Ink component: `Box`, `Text`, `Spacer`, `Newline` and `useInput` come from `ink`, or from `@snapfire/fsr/terminal`, which exports the same names. No Node runs and nothing is served.
 
 ```sh
 cargo install --path fsr/cli --features terminal
-fsr dev app --terminal
+fsr dev app
 ```
 
 ```tsx

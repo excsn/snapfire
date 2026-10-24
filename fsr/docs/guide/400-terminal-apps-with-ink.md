@@ -6,12 +6,12 @@ It builds on three earlier chapters. [002](002-a-body-is-data.md) says what lowe
 
 ## Terminal mode is a feature of the CLI
 
-The `terminal` Cargo feature of the CLI adds `fsr dev --terminal`. It is off by default:
+The `terminal` Cargo feature of the CLI lets `fsr dev` run a terminal app. It is off by default. An app is a terminal app when its root page, or a local file the page imports, imports a value from `ink` or `@snapfire/fsr/terminal`: `fsr dev` draws it in the terminal and `fsr build` lowers it with no browser half.
 
 ```sh
 cargo install --path fsr/cli --features terminal
 cd fsr/examples/counter_terminal_ts
-fsr dev app --terminal
+fsr dev app
 ```
 
 The command lowers the app's root page `routes/page.tsx` and draws it in the terminal it was started from. Nothing is served and no JavaScript engine starts. Ctrl-C quits, as does a page that calls `exit()`.
