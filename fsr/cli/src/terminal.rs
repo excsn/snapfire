@@ -1037,6 +1037,13 @@ pub fn run(app: &Path, args: &[String]) -> Result<(), BuildError> {
   Ok(())
 }
 
+/// Starts `spawn`'s process as [`run`] does and hands back what it reports, each chunk it writes and then its exit and close, for [`Session::deliver`]; the receiver ends once it has closed.
+pub fn spawned(spawn: Spawn) -> std::sync::mpsc::Receiver<(Spawn, Report, Value)> {
+  let (reports, reported) = std::sync::mpsc::channel();
+  start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+  reported
+}
+
 /// Starts `spawn`'s process with its output piped and reports each chunk it writes, then its exit and close, on `reports`; with `stdio: "inherit"` the process takes this terminal's input and output instead and only its exit and close are reported; one that cannot start reports an error as Node words it, `spawn <command> ENOENT` for a command not found. `running` counts it while it may still report.
 fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<std::sync::atomic::AtomicUsize>) {
   use std::process::{Command, Stdio};
