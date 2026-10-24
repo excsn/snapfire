@@ -205,6 +205,21 @@ pub struct TypesReport {
   pub pinned: Option<(PathBuf, String)>,
 }
 
+impl TypesReport {
+  /// One row per package: what it ended on when [`fill`] takes it again.
+  fn record_fetched(&mut self, package: String, version: String, from: String) {
+    self.fetched.retain(|(p, _, _)| *p != package);
+    self.kept.retain(|p| *p != package);
+    self.fetched.push((package, version, from));
+  }
+
+  fn record_kept(&mut self, package: String) {
+    if !self.fetched.iter().any(|(p, _, _)| *p == package) && !self.kept.contains(&package) {
+      self.kept.push(package);
+    }
+  }
+}
+
 /// `@scope/name` is published to DefinitelyTyped as `@types/scope__name`.
 pub fn definitely_typed(package: &str) -> String {
   match package.strip_prefix('@') {
@@ -543,19 +558,19 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
         write_terminal(app, layout, refresh)?;
       }
       manifest.packages.insert(package.clone(), embedded_record());
-      report.fetched.push((package, env!("CARGO_PKG_VERSION").to_owned(), "fsr".to_owned()));
+      report.record_fetched(package, env!("CARGO_PKG_VERSION").to_owned(), "fsr".to_owned());
       continue;
     }
     let entry = manifest.packages.get(&package).map(|typed| typed.entry.clone()).unwrap_or_else(|| "index.d.ts".to_owned());
     if dir.join(&entry).is_file() && !refresh && accepted(&asks, held(app, layout, &package, manifest).as_ref()) {
-      report.kept.push(package.clone());
+      report.record_kept(package.clone());
       if let Some(typed) = manifest.packages.get_mut(&package) {
         if let Ok(text) = std::fs::read_to_string(dir.join(&typed.entry)) {
           typed.ambient = is_ambient(&text);
         }
       }
     } else if let Some(vendored) = vendored_declarations(app, layout, &package)? {
-      report.fetched.push((package.clone(), vendored.version.clone(), vendored.from.clone()));
+      report.record_fetched(package.clone(), vendored.version.clone(), vendored.from.clone());
       manifest.packages.insert(package.clone(), vendored);
     } else if package.starts_with("@snapfire/") {
       report.missing.push((package, "not a package fsr knows".to_owned()));
@@ -567,7 +582,7 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
       match fetch_npm(&client, registry, app, layout, &package, &asks)? {
         Some(fetched) => {
           manifest.packages.insert(package.clone(), TypedPackage { version: fetched.version.clone(), from: fetched.from.clone(), entry: fetched.entry, ambient: fetched.ambient });
-          report.fetched.push((package.clone(), fetched.version, fetched.from));
+          report.record_fetched(package.clone(), fetched.version, fetched.from);
         }
         None => {
           report.missing.push((package, "no `types` in the package and nothing on DefinitelyTyped".to_owned()));
@@ -1777,5 +1792,80 @@ mod tests {
     assert!(!is_ambient("export = React;\nexport as namespace React;"));
     assert!(!is_ambient("import { App } from '@vue/runtime-core';\nexport * from '@vue/runtime-core';\ndeclare module '@vue/runtime-core' {\n  interface GlobalComponents {}\n}\n"), "an augmentation in a module leaves the package path-mapped");
     assert_eq!(wanted_major(Some("19.0.0-rc.1"), None), None, "a prerelease holds no major");
+  }
+
+  /// A package tarball holding `package.json` and `index.d.ts`.
+  fn tarball(name: &str, version: &str, dependencies: &str, declaration: &str) -> Vec<u8> {
+    let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast()));
+    for (path, text) in [("package/package.json", format!("{{\"name\":\"{name}\",\"version\":\"{version}\",\"types\":\"index.d.ts\",\"dependencies\":{dependencies}}}")), ("package/index.d.ts", declaration.to_owned())] {
+      let mut header = tar::Header::new_gnu();
+      header.set_size(text.len() as u64);
+      header.set_mode(0o644);
+      header.set_cksum();
+      builder.append_data(&mut header, path, text.as_bytes()).unwrap();
+    }
+    builder.into_inner().unwrap().finish().unwrap()
+  }
+
+  /// A registry on loopback answering from `routes`, one request per connection.
+  fn registry(routes: impl Fn(&str, &str) -> Option<Vec<u8>> + Send + 'static) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let at = base.clone();
+    std::thread::spawn(move || {
+      for stream in listener.incoming().flatten() {
+        let mut stream = stream;
+        let mut request = Vec::new();
+        let mut buf = [0u8; 4096];
+        while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+          match stream.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => request.extend_from_slice(&buf[..n]),
+          }
+        }
+        let text = String::from_utf8_lossy(&request);
+        let path = text.split_whitespace().nth(1).unwrap_or("/").to_owned();
+        let (status, body) = match routes(&at, &path) {
+          Some(body) => ("200 OK", body),
+          None => ("404 Not Found", Vec::new()),
+        };
+        let _ = write!(stream, "HTTP/1.1 {status}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+        let _ = stream.write_all(&body);
+      }
+    });
+    base
+  }
+
+  /// DEFECTS 1.148, the case `wanted` does not cover: a package fetched again for a later range.
+  #[test]
+  fn a_package_fetched_again_for_a_later_range_is_reported_once_at_the_version_it_ended_on() {
+    let root = std::env::temp_dir().join(format!("fsr-types-refetch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    crate::new::create(&root, crate::new::NewOptions::default().fetch(false)).unwrap();
+    let app = root.join("app");
+    let registry = registry(|base, path| {
+      let packument = |latest: &str, versions: &[&str]| format!("{{\"dist-tags\":{{\"latest\":\"{latest}\"}},\"versions\":{{{}}}}}", versions.iter().map(|v| format!("\"{v}\":{{}}")).collect::<Vec<_>>().join(",")).into_bytes();
+      let doc = |name: &str, version: &str| format!("{{\"version\":\"{version}\",\"types\":\"index.d.ts\",\"dist\":{{\"tarball\":\"{base}/tarballs/{name}-{version}.tgz\"}}}}").into_bytes();
+      match path {
+        "/beta" => Some(packument("2.0.0", &["1.0.0", "2.0.0"])),
+        "/gamma" => Some(packument("1.0.0", &["1.0.0"])),
+        "/beta/1.0.0" => Some(doc("beta", "1.0.0")),
+        "/beta/2.0.0" => Some(doc("beta", "2.0.0")),
+        "/gamma/1.0.0" => Some(doc("gamma", "1.0.0")),
+        "/tarballs/beta-1.0.0.tgz" => Some(tarball("beta", "1.0.0", "{}", "export type B = 1;\n")),
+        "/tarballs/beta-2.0.0.tgz" => Some(tarball("beta", "2.0.0", "{}", "export type B = 2;\n")),
+        "/tarballs/gamma-1.0.0.tgz" => Some(tarball("gamma", "1.0.0", "{\"beta\":\"^1\"}", "import type { B } from \"beta\";\nexport type G = B;\n")),
+        _ => None,
+      }
+    });
+    let layout = Layout::of(&app).unwrap();
+    let mut manifest = TypesManifest::read(&app, &layout).unwrap();
+    let mut report = TypesReport::default();
+    fill(&app, &layout, &mut manifest, vec!["beta".to_owned(), "gamma".to_owned()], false, &registry, &mut report).unwrap();
+    let beta: Vec<&(String, String, String)> = report.fetched.iter().filter(|(package, _, _)| package == "beta").collect();
+    assert_eq!(beta, [&("beta".to_owned(), "1.0.0".to_owned(), "beta".to_owned())], "{:?}", report.fetched);
+    assert_eq!(manifest.packages["beta"].version, "1.0.0", "gamma's ^1 moved beta off 2.0.0");
+    std::fs::remove_dir_all(&root).unwrap();
   }
 }
