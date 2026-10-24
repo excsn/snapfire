@@ -30,4 +30,4 @@ Internally, snapfire modules are published to a registry and installed with xwpm
 
 ## The lab
 
-Run `fsr add app dayjs@1.11.13` in the storefront. The command prints the file it wrote under `vendor/`, the import map gains a `dayjs` entry and `vendor/.fsr-vendor.json` records the version. Run `fsr types app`: the `types` section gains a row for `dayjs`, from the package's own declarations. Import it in a page and `tsc` knows its shape. Remove the entry, the file and the types directory when you are done, since the storefront does not use it.
+Run `fsr add app dayjs@1.11.13` in the storefront. The command prints the file it wrote under `vendor/`, the import map gains a `dayjs` entry and `vendor/.fsr-vendor.json` records the version. It ends with a `types` row for `dayjs`, the package's own declarations fetched into `types/` the way `fsr types app` fetches them. Import it in a page and `tsc` knows its shape. Remove the entry, the file and the types directory when you are done, since the storefront does not use it.

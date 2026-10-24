@@ -3,6 +3,7 @@
 //! files on disk and `emit` does both and then the browser bundle, which is the
 //! whole artifact a host reads. The binary in `main.rs` is a thin front over them.
 
+pub mod add;
 pub mod assets;
 #[cfg(feature = "desktop")]
 pub mod desktop;

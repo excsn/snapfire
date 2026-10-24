@@ -721,7 +721,7 @@ A return the inference cannot settle prints as `unknown`. The file carries runti
 
 ## Vendoring a Package
 
-`fsr add` fetches a package from esm.sh as ES modules with its dependencies bundled in, writes each entry under `vendor/<package>/`, records the version in `vendor/.fsr-vendor.json` and points the import map at the file. Name a version always; name a subpath for an entry other than the package's main. `--external` lists the packages a bundle must import bare rather than carry, which is how two entries share one React.
+`fsr add` fetches a package from esm.sh as ES modules with its dependencies bundled in, writes each entry under `vendor/<package>/`, records the version in `vendor/.fsr-vendor.json` and points the import map at the file. It then fetches the declarations of every package the import map names into `types/`, as `fsr types` does, so `fsr check` reads the package straight after. Name a version always; name a subpath for an entry other than the package's main. `--external` lists the packages a bundle must import bare rather than carry, which is how two entries share one React.
 
 ```sh
 fsr add app react@19.3.1 sweetalert2@11.6.15
@@ -733,6 +733,8 @@ added     sweetalert2                  sweetalert2/sweetalert2.bundle.mjs  64908
 added     react/jsx-runtime            react/jsx-runtime.bundle.mjs  2192 bytes
 added     react-dom/client             react-dom/client.bundle.mjs  136190 bytes
 ```
+
+A `types` row follows for each package whose declarations it fetched, naming where they came from: the package itself or `@types/<name>`.
 
 A framework comes with every module its client adapter imports, at the version named: `react@19.3.1` or `react-dom@19.3.1` vendors `react`, `react/jsx-runtime` and `react-dom/client`; `svelte@5.60.0` vendors Svelte's subpaths as published, so the halves of a framework never disagree. A package of no framework is vendored as named.
 

@@ -16,7 +16,7 @@ use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::direction::{self, UseOptions};
 use snapfire_fsr_cli::{check, dev, emit, ir, new, serve, Options};
 #[cfg(feature = "web")]
-use snapfire_fsr_cli::{sites, test, types, vendor};
+use snapfire_fsr_cli::{sites, test, types};
 
 #[derive(Parser)]
 #[command(
@@ -971,29 +971,11 @@ fn run_add(args: Add) -> ExitCode {
     .map(|s| s.trim().to_owned())
     .filter(|s| !s.is_empty())
     .collect();
-  // A package vendored as published before takes its new version the same way,
-  // every specifier it recorded, so `svelte@5.60.0` alone is enough.
-  let recorded = match snapfire_fsr_cli::published::recorded(&args.app_dir, &specs) {
-    Ok(recorded) => recorded,
+  let added = match snapfire_fsr_cli::add::add(&args.app_dir, specs, &externals, args.published) {
+    Ok(added) => added,
     Err(e) => return failed(e),
   };
-  // A framework comes with what its adapter imports, at the version asked for.
-  let groups = match recorded {
-    Some(specs) => vec![(specs, true)],
-    None => {
-      let (plain, published) = snapfire_fsr_cli::direction::with_companions(specs);
-      [(published, true), (plain, args.published)].into_iter().filter(|(specs, _)| !specs.is_empty()).collect()
-    }
-  };
-  for (specs, published) in groups {
-    let added = match published {
-      true => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs),
-      false => vendor::add(&args.app_dir, &specs, &externals),
-    };
-    let report = match added {
-      Ok(report) => report,
-      Err(e) => return failed(e),
-    };
+  for report in added.groups {
     if !externals.is_empty() && !report.delegated.is_empty() {
       eprintln!("note: xwpm carries dependencies itself; --external was not used");
     }
@@ -1012,6 +994,15 @@ fn run_add(args: Add) -> ExitCode {
     for module in &report.repaired {
       println!("map       {module}");
     }
+  }
+  for (package, version, from) in &added.typed {
+    println!("types     {package:<28} {from} {version}");
+  }
+  for path in &added.written {
+    println!("wrote     {}", path.display());
+  }
+  for note in &added.notes {
+    eprintln!("note      {note}");
   }
   ExitCode::SUCCESS
 }

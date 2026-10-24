@@ -9,3 +9,8 @@ path = "junit.xml"
 [[profile.default.overrides]]
 filter = "test(=every_example_builds_tests_and_boots_from_a_checkout)"
 slow-timeout = { period = "60s", terminate-after = 10 }
+
+# A test that needs the network passes with a SKIPPED line on stderr when it cannot reach it; nextest hides a passing test's output unless told otherwise.
+[[profile.default.overrides]]
+filter = "package(snapfire_fsr_cli) & (binary(=registry) | binary(=add_types))"
+success-output = "immediate"
