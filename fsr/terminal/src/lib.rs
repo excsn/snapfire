@@ -325,7 +325,7 @@ impl Text {
     let mut out = Vec::new();
     for child in &self.children {
       match child {
-        Inline::Str(text) => out.extend(text.chars().map(|c| (c, style))),
+        Inline::Str(text) => out.extend(style::ansi_styled(text, style)),
         Inline::Text(text) => out.extend(text.styled(&style)),
       }
     }

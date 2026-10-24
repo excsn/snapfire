@@ -118,3 +118,13 @@ fn inks_aria_props_are_declared_and_draw_nothing() {
   let node = from_markup(r#"<ink-box aria-label="x" aria-hidden="true"><ink-text aria-label="y">a</ink-text></ink-box>"#).unwrap();
   assert_eq!(render(&node, 3).lines()[0].trim_end(), "a");
 }
+
+#[test]
+fn a_texts_ansi_color_codes_style_its_cells_and_draw_as_nothing() {
+  let node = from_markup("<ink-text bold=\"true\">\u{1b}[31mred\u{1b}[39m \u{1b}[38;2;1;2;3mrgb\u{1b}[0m plain\u{1b}[2K</ink-text>").unwrap();
+  let frame = render(&node, 20);
+  assert_eq!(frame.lines(), ["red rgb plain"]);
+  let ansi = frame.to_ansi();
+  assert!(ansi.contains("31") && ansi.contains("red") && ansi.contains("38;2;1;2;3"), "{ansi:?}");
+  assert!(!ansi.contains("[2K") && !ansi.contains("[31m]"), "{ansi:?}");
+}

@@ -62,7 +62,7 @@ Ink's `Box`.
 
 ### Text
 
-Ink's `Text`. A nested `Text` adds its style to the one around it.
+Ink's `Text`. A nested `Text` adds its style to the one around it. An SGR sequence inside a string, `ESC [ … m` as `chalk` writes one, styles what follows it as a terminal would and draws as nothing; a reset or a closing code goes back to the `Text`'s own style. Any other escape sequence draws as nothing.
 
 * `pub struct Text { pub style: Style, pub wrap: Wrap, pub children: Vec<Inline> }`, `Default`.
 * `pub fn new() -> Self`, `pub fn plain(text: &str) -> Self`
