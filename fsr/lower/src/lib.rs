@@ -3746,7 +3746,18 @@ impl<'a> Lowerer<'a> {
       let js::Expr::Arrow(arrow) = &*a.expr else {
         return Err(this.residue(a.expr.span(), format!("`{method}` takes an arrow function written in place or the name of a function")));
       };
-      this.lambda(arrow).map(Box::new)
+      let f = this.lambda(arrow)?;
+      if let Expr::Lambda { body, .. } = &f {
+        if matches!(&**body, Expr::Builtin { name: Builtin::WriteBack, .. }) {
+          let written = crate::component::written_params(&arrow.params, match &*arrow.body {
+            js::ArrowFunctionBody::FunctionBody(b) => &b.stmts,
+            js::ArrowFunctionBody::Expr(_) => &[],
+          });
+          let name = written.first().map(|(_, p)| p.sym.to_string()).unwrap_or_default();
+          return Err(this.residue_with(arrow.span, format!("a write to a field of `{name}`, which this body did not declare: `{method}` would change the item in place"), "return a new value from the callback"));
+        }
+      }
+      Ok(Box::new(f))
     };
     match method.as_str() {
       "map" => Ok(Expr::Map(target, lambda(self, 0)?)),
@@ -4503,7 +4514,10 @@ impl<'a> Lowerer<'a> {
     let body = match &*arrow.body {
       js::ArrowFunctionBody::Expr(e) => self.expr(e),
       js::ArrowFunctionBody::FunctionBody(b) if !writes_a_member_of(&b.stmts, &params) => crate::component::block_to_expr_from(self, &b.stmts, depth),
-      js::ArrowFunctionBody::FunctionBody(b) => crate::component::block_to_expr(self, &b.stmts),
+      js::ArrowFunctionBody::FunctionBody(b) => {
+        let written = crate::component::written_params(&arrow.params, &b.stmts);
+        crate::component::packing_returns(self, &b.stmts, &written).and_then(|packed| crate::component::block_to_expr_from(self, &packed, depth)).map(|packed| crate::component::write_back(packed, &written))
+      }
     };
     self.scope.truncate(depth);
     Ok(Expr::Lambda { params, body: Box::new(body?) })
@@ -4933,7 +4947,7 @@ fn root_named(name: &str) -> Option<Root> {
 pub(crate) const JS_MATH: [&str; 19] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt"];
 
 /// Whether `stmts` write a field of one of `params`, an object the caller holds too, so the parameters stay unwritable; rebinding a parameter itself is a local write.
-fn writes_a_member_of(stmts: &[js::Stmt], params: &[String]) -> bool {
+pub(crate) fn writes_a_member_of(stmts: &[js::Stmt], params: &[String]) -> bool {
   use swc_core::ecma::visit::{Visit, VisitWith};
   struct Writes<'a>(&'a [String], bool);
   impl Visit for Writes<'_> {

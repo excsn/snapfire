@@ -363,6 +363,9 @@ pub struct Emitted {
 /// The key a deferred is held under: a promise a terminal page made is `{ "$deferred": id }`, the host holding what it settles to. A Suspense boundary reads a thrown one as a child that is not ready.
 pub const DEFERRED: &str = "$deferred";
 
+/// The key of what a function that changes its parameters answers, [`crate::ast::Builtin::WriteBack`].
+pub const WRITE_BACK: &str = "$writeBack";
+
 /// A terminal page's Suspense boundary: an element of this tag holds the content and the fallback, in that order. The content renders unless it throws a deferred, [`DEFERRED`], in which case the fallback renders in its place and the step emits [`SUSPENDED`] with the deferred.
 pub const SUSPENSE_TAG: &str = "$suspense";
 

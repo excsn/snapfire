@@ -256,6 +256,8 @@ pub enum Builtin {
   IsArray,
   /// `x instanceof Error` or one of its subclasses, `(x, name)`: whether `x` is an object whose `name` is an error constructor's name and whose `message` is a string; with `name` other than `Error`, whether `x.name` is that name.
   IsError,
+  /// `([value, last, ...], [index, ...])`: what a function that writes fields of its parameters answers, its value then each written parameter's last value, and those parameters' positions. The call that applies it answers `value` and writes each `last` to the argument at `index` when that argument is a variable or a path of fields and indexes from one, as JavaScript's caller sees an object it passed changed.
+  WriteBack,
   /// `console.log(...)` and its kin on a render path: the first argument names the method, `log`, `info`, `debug`, `warn` or `error`, and the rest are written as `console.log` writes them, as a `tracing` event under the target `fsr::console` at that level; the value is null.
   Log,
   /// [`Builtin::Log`] with the values to write as one array in the second argument: `console.log(...items)`.

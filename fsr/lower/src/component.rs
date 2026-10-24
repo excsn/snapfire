@@ -3807,6 +3807,31 @@ pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, Strin
 pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
   let names = bind_params(lowerer, params)?;
+  let written = match body {
+    FunctionBody::Block(stmts) => written_params(params, stmts),
+    FunctionBody::Expr(_) => Vec::new(),
+  };
+  if let (FunctionBody::Block(stmts), false) = (body, written.is_empty()) {
+    if is_async {
+      lowerer.scope.truncate(depth);
+      return Err(lowerer.residue(stmts[0].span(), format!("an async function that writes a field of its parameter `{}`; write the field before the function is called or return the new value", written[0].1.sym)));
+    }
+    let packed = match packing_returns(lowerer, stmts, &written) {
+      Ok(packed) => packed,
+      Err(residue) => {
+        lowerer.scope.truncate(depth);
+        return Err(residue);
+      }
+    };
+    let lambda = lambda_of(lowerer, names, depth, FunctionBody::Block(&packed), false)?;
+    let Expr::Lambda { params, body } = lambda else { unreachable!("a function lowers to a lambda") };
+    return Ok(Expr::Lambda { params, body: Box::new(write_back(*body, &written)) });
+  }
+  lambda_of(lowerer, names, depth, body, is_async)
+}
+
+/// [`function_to_lambda`] once its parameters `names` are bound above `depth`.
+fn lambda_of(lowerer: &mut Lowerer<'_>, names: Vec<String>, depth: usize, body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
   if is_async && lowerer.reaches(Reach::Later) {
     let done = lowerer.temp();
     let stmts = match body {
@@ -3823,7 +3848,8 @@ pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], 
     FunctionBody::Block(stmts) => {
       // A body that writes a name it neither takes nor declares, a module-level `let` or a collection it changes in place, keeps its statements: a block lambda can write what is around it where an expression lambda cannot.
       let declared = declared_names(stmts);
-      let writes_outer = written_names(stmts, false).into_iter().chain(mutated_names(stmts)).any(|name| !names.contains(&name) && !declared.contains(&name));
+      let held = |name: &String| lowerer.cells.iter().any(|(cell, _)| cell == name);
+      let writes_outer = written_names(stmts, false).into_iter().chain(mutated_names(stmts)).any(|name| !names.contains(&name) && !declared.contains(&name)) || passed_names(stmts).iter().any(|name| !names.contains(name) && !declared.contains(name) && held(name));
       if writes_outer {
         lowerer.block(stmts).map(Expr::Block)
       } else {
@@ -3935,7 +3961,7 @@ fn listened_names(stmts: &[js::Stmt]) -> Vec<String> {
 
 /// The bare names `stmts` write through `=`, a compound assignment or `++`, in source order; nested functions and arrows are walked when `through_functions` says so.
 pub(crate) fn written_names(stmts: &[js::Stmt], through_functions: bool) -> Vec<String> {
-  let mut writes = BareWrites { names: Vec::new(), through_functions };
+  let mut writes = BareWrites { names: Vec::new(), through_functions, through_calls: false };
   for stmt in stmts {
     stmt.visit_with(&mut writes);
   }
@@ -3948,6 +3974,94 @@ fn module_mutations(module: &js::Module) -> Vec<String> {
   let mut found = Mutations(Vec::new());
   module.visit_with(&mut found);
   found.0
+}
+
+/// The names `stmts` hand bare to a call, which may write them back ([`Builtin::WriteBack`]).
+fn passed_names(stmts: &[js::Stmt]) -> Vec<String> {
+  struct Passed(Vec<String>);
+  impl Visit for Passed {
+    fn visit_call_expr(&mut self, call: &js::CallExpr) {
+      for arg in &call.args {
+        if let (None, js::Expr::Ident(id)) = (arg.spread, &*arg.expr) {
+          if !self.0.iter().any(|n| *n == *id.sym) {
+            self.0.push(id.sym.to_string());
+          }
+        }
+      }
+      call.visit_children_with(self);
+    }
+  }
+  let mut found = Passed(Vec::new());
+  for stmt in stmts {
+    stmt.visit_with(&mut found);
+  }
+  found.0
+}
+
+/// The parameters, by position, whose fields `stmts` write: what a call writes back to the arguments it passed, as JavaScript's caller sees the objects it passed changed.
+pub(crate) fn written_params(params: &[js::Pat], stmts: &[js::Stmt]) -> Vec<(usize, js::Ident)> {
+  params
+    .iter()
+    .enumerate()
+    .filter_map(|(i, pat)| match pat {
+      js::Pat::Ident(id) if crate::writes_a_member_of(stmts, std::slice::from_ref(&id.id.sym.to_string())) => Some((i, id.id.clone())),
+      _ => None,
+    })
+    .collect()
+}
+
+/// `stmts` with each `return e` outside a function of their own made `return [e, p, ...]` and a last `return [undefined, p, ...]`, `p` each written parameter, so the value answers with each parameter's last value where it returns. A written parameter the body also assigns whole is refused: the caller would keep the object it passed and the field writes after the assignment would reach nothing it holds.
+pub(crate) fn packing_returns(lowerer: &Lowerer<'_>, stmts: &[js::Stmt], written: &[(usize, js::Ident)]) -> Lowered<Vec<js::Stmt>> {
+  use swc_core::ecma::visit::{VisitMut, VisitMutWith};
+  struct Replaced<'w>(&'w [(usize, js::Ident)], Option<(Span, String)>);
+  impl Visit for Replaced<'_> {
+    fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
+      if let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = &assign.left {
+        if self.1.is_none() && self.0.iter().any(|(_, p)| p.sym == id.id.sym) {
+          self.1 = Some((assign.span, id.id.sym.to_string()));
+        }
+      }
+      assign.visit_children_with(self);
+    }
+  }
+  let mut replaced = Replaced(written, None);
+  stmts.iter().for_each(|stmt| stmt.visit_with(&mut replaced));
+  if let Some((span, name)) = replaced.1 {
+    return Err(lowerer.residue_with(span, format!("a write to `{name}`, a parameter whose fields the function also writes"), "write the fields of the object passed, or return a new object and have the caller use it"));
+  }
+  let pack = |value: Option<Box<js::Expr>>, span: Span| -> Box<js::Expr> {
+    let undefined = || Box::new(js::Expr::Ident(js::Ident::new("undefined".into(), span, Default::default())));
+    let mut elems = vec![Some(js::ExprOrSpread { spread: None, expr: value.unwrap_or_else(undefined) })];
+    elems.extend(written.iter().map(|(_, p)| Some(js::ExprOrSpread { spread: None, expr: Box::new(js::Expr::Ident(p.clone())) })));
+    Box::new(js::Expr::Array(js::ArrayLit { span, elems }))
+  };
+  struct Returns<'p>(&'p dyn Fn(Option<Box<js::Expr>>, Span) -> Box<js::Expr>);
+  impl VisitMut for Returns<'_> {
+    fn visit_mut_return_stmt(&mut self, ret: &mut js::ReturnStmt) {
+      ret.arg = Some((self.0)(ret.arg.take(), ret.span));
+    }
+    fn visit_mut_function(&mut self, _: &mut js::Function) {}
+    fn visit_mut_arrow_expr(&mut self, _: &mut js::ArrowExpr) {}
+    fn visit_mut_class(&mut self, _: &mut js::Class) {}
+  }
+  let mut out = stmts.to_vec();
+  out.iter_mut().for_each(|stmt| stmt.visit_mut_with(&mut Returns(&pack)));
+  if !matches!(out.last(), Some(js::Stmt::Return(_))) {
+    let span = stmts.last().map(|s| s.span()).unwrap_or_default();
+    out.push(js::Stmt::Return(js::ReturnStmt { span, arg: Some(pack(None, span)) }));
+  }
+  Ok(out)
+}
+
+/// A body lowered from [`packing_returns`]' statements, `[value, last, ...]`, as what [`Builtin::WriteBack`] answers.
+pub(crate) fn write_back(packed: Expr, written: &[(usize, js::Ident)]) -> Expr {
+  let indexes = written.iter().map(|(i, _)| Entry::Item(Expr::Lit(Lit::Int(*i as i128)))).collect();
+  Expr::Builtin { name: Builtin::WriteBack, args: vec![packed, Expr::Array(indexes)] }
+}
+
+/// Whether `expr` applies a function written in place that writes back to its arguments.
+fn writes_back(expr: &Expr) -> bool {
+  matches!(expr, Expr::Apply { f, .. } if matches!(&**f, Expr::Lambda { body, .. } if matches!(&**body, Expr::Builtin { name: Builtin::WriteBack, .. })))
 }
 
 /// The names `stmts` call `set`, `delete`, `add` or `clear` on (a collection changed in place) or `run` or `enterWith` on (an `AsyncLocalStorage` set).
@@ -3977,7 +4091,7 @@ impl Visit for Mutations {
 }
 
 pub(crate) fn module_writes(module: &js::Module) -> Vec<String> {
-  let mut writes = BareWrites { names: Vec::new(), through_functions: true };
+  let mut writes = BareWrites { names: Vec::new(), through_functions: true, through_calls: true };
   module.visit_with(&mut writes);
   writes.names
 }
@@ -3985,17 +4099,40 @@ pub(crate) fn module_writes(module: &js::Module) -> Vec<String> {
 struct BareWrites {
   names: Vec<String>,
   through_functions: bool,
+  /// Whether a field written through a name or a name handed to a call counts, as it does for a module `let` a function may change by [`Builtin::WriteBack`].
+  through_calls: bool,
+}
+
+impl BareWrites {
+  fn note(&mut self, name: &str) {
+    if !self.names.iter().any(|n| n == name) {
+      self.names.push(name.to_owned());
+    }
+  }
 }
 
 impl Visit for BareWrites {
   fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
-    if let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = &assign.left {
-      let name = id.id.sym.to_string();
-      if !self.names.contains(&name) {
-        self.names.push(name);
+    match &assign.left {
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.note(&id.id.sym),
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) if self.through_calls => {
+        if let Some((id, _)) = crate::write_root(member) {
+          self.note(&id.sym);
+        }
       }
+      _ => {}
     }
     assign.visit_children_with(self);
+  }
+  fn visit_call_expr(&mut self, call: &js::CallExpr) {
+    if self.through_calls {
+      for arg in &call.args {
+        if let (None, js::Expr::Ident(id)) = (arg.spread, &*arg.expr) {
+          self.note(&id.sym);
+        }
+      }
+    }
+    call.visit_children_with(self);
   }
   fn visit_update_expr(&mut self, update: &js::UpdateExpr) {
     if let js::Expr::Ident(id) = &*update.arg {
@@ -5904,16 +6041,29 @@ fn writes_a_cell(lowerer: &Lowerer<'_>, expr: &js::Expr) -> bool {
   }
 }
 
-/// Whether evaluating `expr` does something besides answer: it emits, issues an act or writes a cell.
+/// Whether evaluating `expr` does something besides answer: it emits, issues an act, writes a cell or the store, writes the session or calls an extension that reaches the process or runs later.
 fn effectful(expr: &Expr) -> bool {
   let mut found = false;
   expr.visit(&mut |e| {
-    found |= matches!(e, Expr::Builtin { name: Builtin::Emit, .. } | Expr::WriteCell(..));
-    if let Expr::Block(body) = e {
-      found |= body.iter().any(|stmt| matches!(stmt, Stmt::Act { .. }));
-    }
+    found |= match e {
+      Expr::Builtin { name: Builtin::Emit, .. } | Expr::WriteCell(..) | Expr::WriteStore(..) => true,
+      Expr::Ext { module, name, .. } => matches!(snapfire_fsr_ir::standard_reach(module, name), Some(Reach::Process | Reach::Later)),
+      Expr::Block(body) => acts(body),
+      _ => false,
+    };
   });
   found
+}
+
+/// Whether `body` holds an act or a session write at any depth of its own statements.
+fn acts(body: &[Stmt]) -> bool {
+  body.iter().any(|stmt| match stmt {
+    Stmt::Act { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } => true,
+    Stmt::If { then, r#else, .. } => acts(then) || acts(r#else),
+    Stmt::ForOf { body, .. } => acts(body),
+    Stmt::Try { body, handler, finally, .. } => acts(body) || handler.as_deref().is_some_and(acts) || acts(finally),
+    _ => false,
+  })
 }
 
 /// Whether `stmt` holds a call that issues an act, [`Lowerer::issues_act`], outside a function of its own.
@@ -10162,11 +10312,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             if let Some(store_call) = self.meanings().of_expr(callee).and_then(|meant| meant.store_call()) {
               return self.store_call(store_call, call, walk);
             }
-            if let Ok(lowered) = self.lowerer.expr(e) {
-              if writes_store(&lowered) || calls_a_value(&lowered) || (self.lowerer.reaches(Reach::Later) && !self.lowerer.cells.is_empty() && touches_cells(&lowered)) {
-                walk.effect(Stmt::Expr(lowered));
-                return Ok(());
-              }
+            let lowered = self.lowerer.expr(e)?;
+            if effectful(&lowered) || calls_a_value(&lowered) || writes_back(&lowered) || (self.lowerer.reaches(Reach::Later) && !self.lowerer.cells.is_empty() && touches_cells(&lowered)) {
+              walk.effect(Stmt::Expr(lowered));
+              return Ok(());
             }
             Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter, a write to the store, an action or a handler this component declares")))
           }

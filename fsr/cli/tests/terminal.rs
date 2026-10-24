@@ -685,6 +685,65 @@ fn a_resize_runs_the_listener_a_custom_hook_adds_on_use_stdout_with_a_template_e
   assert_eq!(line(session.view().unwrap()), "120x40");
 }
 
+#[test]
+fn a_handler_calls_an_async_module_function_as_a_statement() {
+  let dir = host_dir("save");
+  unsafe { std::env::set_var("FSR_TEST_SAVE", dir.join("saved.txt")); }
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { save } from \"./save\";\n\nexport default function Saves() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    save(input);\n  });\n  return <Text>{last}</Text>;\n}\n";
+  let store = "import { writeFile } from \"node:fs/promises\";\n\nlet saves = 0;\n\nexport const save = async (text: string) => {\n  saves += 1;\n  await writeFile(process.env.FSR_TEST_SAVE, `${text} ${saves}`);\n};\n";
+  let app = app(page);
+  std::fs::write(app.join("routes/save.ts"), store).unwrap();
+  let mut session = Session::open(&app).unwrap();
+  session.view().unwrap();
+  for c in ['x', 'y'] {
+    let Some(Press::Input(press)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    session.press(&press).unwrap();
+  }
+  assert_eq!(std::fs::read_to_string(dir.join("saved.txt")).unwrap(), "y 2");
+}
+
+#[test]
+fn a_handler_calls_an_async_module_function_whose_only_effect_is_an_act() {
+  let dir = host_dir("act-only");
+  unsafe { std::env::set_var("FSR_TEST_ACT_ONLY", dir.join("saved.txt")); }
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { update } from \"./save\";\n\nexport default function Saves() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    update((c) => `${c}${input}`);\n  });\n  return <Text>{last}</Text>;\n}\n";
+  let store = "import { writeFile } from \"node:fs/promises\";\n\nexport const update = async (fn: (c: string) => string) => {\n  const next = fn(\"a\");\n  await writeFile(process.env.FSR_TEST_ACT_ONLY, next);\n};\n";
+  let app = app(page);
+  std::fs::write(app.join("routes/save.ts"), store).unwrap();
+  let mut session = Session::open(&app).unwrap();
+  session.view().unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  session.press(&x).unwrap();
+  assert_eq!(std::fs::read_to_string(dir.join("saved.txt")).unwrap(), "ax");
+}
+
+#[test]
+fn a_callback_that_changes_the_object_it_is_passed_changes_the_callers_object() {
+  let dir = host_dir("write-back");
+  unsafe { std::env::set_var("FSR_TEST_WRITE_BACK", dir.join("config.json")); }
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { update } from \"./config\";\n\nexport default function Settings() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    update((cfg) => {\n      if (input === \"q\") return;\n      cfg.n = cfg.n + 1;\n      cfg.name = input;\n    });\n  });\n  return <Text>{last}</Text>;\n}\n";
+  let config = "import { writeFile } from \"node:fs/promises\";\n\nlet config = { n: 0, name: \"none\" };\n\nexport const update = async (fn: (c: { n: number; name: string }) => void) => {\n  fn(config);\n  await writeFile(process.env.FSR_TEST_WRITE_BACK, JSON.stringify(config));\n};\n";
+  let app = app(page);
+  std::fs::write(app.join("routes/config.ts"), config).unwrap();
+  let mut session = Session::open(&app).unwrap();
+  session.view().unwrap();
+  for c in ['x', 'q', 'y'] {
+    let Some(Press::Input(press)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    session.press(&press).unwrap();
+  }
+  assert_eq!(std::fs::read_to_string(dir.join("config.json")).unwrap(), "{\"n\":2,\"name\":\"y\"}");
+}
+
+#[test]
+fn a_function_that_replaces_a_parameter_it_also_changes_is_refused() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport { update } from \"./config\";\n\nexport default function Settings() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    update((cfg) => {\n      cfg = { n: 9 };\n      cfg.n = 1;\n    });\n  });\n  return <Text>{last}</Text>;\n}\n";
+  let config = "let config = { n: 0 };\n\nexport const update = (fn: (c: { n: number }) => void) => {\n  fn(config);\n};\n";
+  let app = app(page);
+  std::fs::write(app.join("routes/config.ts"), config).unwrap();
+  let refused = Session::open(&app).err().expect("refused");
+  assert!(refused.contains("`cfg`"), "{refused}");
+}
+
 fn app_with_loader(page: &str, loader: &str) -> std::path::PathBuf {
   let app = app(page);
   std::fs::write(app.join("routes/page.loader.ts"), loader).unwrap();

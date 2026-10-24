@@ -280,6 +280,8 @@ impl Interpreter {
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
+      written_back: None,
+      backing: false,
       module_seed: snapfire_fsr_core::ValueMap::default(),
       marks: Vec::new(),
       placed: Vec::new(),
@@ -366,6 +368,10 @@ pub(crate) struct Env {
   pub(crate) store_written: ValueMap,
   /// The handlers a handler called through a reference, by token, each with what it was called with; the step runs them after it.
   pub(crate) handler_calls: Vec<(String, Value)>,
+  /// What the last function applied changed of its parameters, [`Builtin::WriteBack`], for the call to write back to its arguments.
+  written_back: Option<Vec<(usize, Value)>>,
+  /// Set by a call that can write back to its arguments, taken by the function it applies.
+  backing: bool,
   /// The store keys a deferred segment has yet to seed: an island reading one is held.
   pub(crate) pending: std::collections::BTreeSet<String>,
   clock: Arc<dyn Clock>,
@@ -684,6 +690,8 @@ impl Env {
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
+      written_back: None,
+      backing: false,
       module_seed: snapfire_fsr_core::ValueMap::default(),
       marks: Vec::new(),
       placed: Vec::new(),
@@ -939,6 +947,8 @@ impl Env {
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
+      written_back: None,
+      backing: false,
       module_seed: snapfire_fsr_core::ValueMap::default(),
       marks: Vec::new(),
       placed: Vec::new(),
@@ -1239,7 +1249,10 @@ impl Env {
         for arg in args {
           values.push(self.eval_sync(arg)?);
         }
-        self.apply_sync(f, values)
+        self.backing = true;
+        let value = self.apply_sync(f, values)?;
+        self.write_back(args)?;
+        Ok(value)
       }
       Expr::ApplyOf(f, args) => {
         let values = self.seq_sync(args, "apply")?;
@@ -1578,6 +1591,7 @@ impl Env {
   }
 
   pub(crate) fn apply_sync(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
+    let backing = std::mem::take(&mut self.backing);
     if !matches!(f, Expr::Lambda { .. }) {
       if let Some(token) = self.eval_sync(f).ok().as_ref().and_then(crate::render::handler_token) {
         self.handler_calls.push((token.to_owned(), args.into_iter().next().unwrap_or(Value::Null)));
@@ -1607,14 +1621,93 @@ impl Env {
       let result = self.eval_sync(&closure.body);
       self.depth -= 1;
       self.scope = outer;
-      return result;
+      return self.unwrap_written(result, backing);
     };
     let depth = self.scope.len();
     bind_params(&mut self.scope, params, args);
     let result = self.eval_sync(body);
     self.scope.truncate(depth);
-    result
+    self.unwrap_written(result, backing)
   }
+
+  /// A function's answer with what it changed of its parameters, [`Builtin::WriteBack`], held for the call to write back. Applied where nothing takes the change back, a callback of `map` or `forEach` among them, it fails: JavaScript would have changed the value in place.
+  fn unwrap_written(&mut self, result: Result<Value, Fail>, backing: bool) -> Result<Value, Fail> {
+    self.written_back = None;
+    let value = result?;
+    let Value::Map(map) = &value else { return Ok(value) };
+    let Some(Value::Seq(parts)) = map.get(crate::render::WRITE_BACK) else { return Ok(value) };
+    if !backing {
+      return Err(Fail::internal("a function that writes a field of what it is passed, called where the change cannot reach the caller's value, as a callback of an array method is; return a new value instead"));
+    }
+    let (Some(Value::Seq(packed)), Some(Value::Seq(indexes))) = (parts.first(), parts.get(1)) else { return Ok(value) };
+    let Some((answer, lasts)) = packed.split_first() else { return Ok(value) };
+    let mut held = Vec::with_capacity(lasts.len());
+    for (index, last) in indexes.iter().zip(lasts) {
+      let index = match index {
+        Value::Int(i) => usize::try_from(*i).ok(),
+        Value::F64(f) if *f >= 0.0 && f.fract() == 0.0 => Some(*f as usize),
+        _ => None,
+      };
+      if let Some(index) = index {
+        held.push((index, last.clone()));
+      }
+    }
+    let answer = answer.clone();
+    self.written_back = Some(held);
+    Ok(answer)
+  }
+
+  /// Writes what the function just applied changed of its parameters back to the arguments that are a variable, a cell or a path from one. The same place passed for two changed parameters fails, since JavaScript would see one object changed twice.
+  fn write_back(&mut self, args: &[Expr]) -> Result<(), Fail> {
+    let Some(written) = self.written_back.take() else { return Ok(()) };
+    let mut places: Vec<(Place, Vec<Value>)> = Vec::new();
+    for (index, last) in written {
+      let Some(arg) = args.get(index) else { continue };
+      let Some((root, steps)) = self.place_of(arg)? else { continue };
+      if places.iter().any(|(r, s)| *r == root && *s == steps) {
+        let named = match &root {
+          Place::Var(name) => format!("`{name}`"),
+          Place::Cell(_) => "one value".to_owned(),
+        };
+        return Err(Fail::internal(format!("{named} passed twice to a function that changes both parameters it takes it as")));
+      }
+      match &root {
+        Place::Var(name) => {
+          if let Some(at) = self.scope.iter().rposition(|(n, _)| n == name) {
+            set_path(&mut self.scope[at].1, &steps, last)?;
+          }
+        }
+        Place::Cell(handle) => {
+          let mut held = self.read_cell(handle)?;
+          set_path(&mut held, &steps, last)?;
+          self.write_cell(handle, held)?;
+        }
+      }
+      places.push((root, steps));
+    }
+    Ok(())
+  }
+
+  /// `arg` as the variable or cell it reads and the fields and indexes from it, `None` when it is not one.
+  fn place_of(&mut self, arg: &Expr) -> Result<Option<(Place, Vec<Value>)>, Fail> {
+    Ok(match arg {
+      Expr::Var(name) => Some((Place::Var(name.clone()), Vec::new())),
+      Expr::ReadCell(handle) => Some((Place::Cell(self.eval_sync(handle)?), Vec::new())),
+      Expr::Field(on, field) => self.place_of(on)?.map(|(root, mut steps)| {
+        steps.push(Value::str(field.clone()));
+        (root, steps)
+      }),
+      Expr::Index(on, at) => match self.place_of(on)? {
+        Some((root, mut steps)) => {
+          steps.push(self.eval_sync(at)?);
+          Some((root, steps))
+        }
+        None => None,
+      },
+      _ => None,
+    })
+  }
+
 
   /// An expression with a service call somewhere in it suspends on the call;
   /// one without goes through `eval_sync` and never allocates a future.
@@ -1835,7 +1928,10 @@ impl Env {
           for arg in args {
             values.push(self.eval(arg).await?);
           }
-          self.apply(f, values).await
+          self.backing = true;
+          let value = self.apply(f, values).await?;
+          self.write_back(args)?;
+          Ok(value)
         }
         Expr::ApplyOf(f, args) => {
           let values = self.seq(args, "apply").await?;
@@ -2044,11 +2140,12 @@ impl Env {
     let Expr::Lambda { params, body } = f else {
       return self.apply_sync(f, args);
     };
+    let backing = std::mem::take(&mut self.backing);
     let depth = self.scope.len();
     bind_params(&mut self.scope, params, args);
     let result = self.eval(body).await;
     self.scope.truncate(depth);
-    result
+    self.unwrap_written(result, backing)
   }
 }
 
@@ -3391,6 +3488,11 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
+    Builtin::WriteBack => {
+      let mut tagged = ValueMap::default();
+      tagged.insert(crate::render::WRITE_BACK.to_owned(), Value::seq(vec![arg(0)?.clone(), arg(1)?.clone()]));
+      Value::Map(tagged)
+    }
     Builtin::IsError => {
       const ERROR_NAMES: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
       let class = text(name, arg(1)?)?;
@@ -3910,6 +4012,13 @@ pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
   })
 }
 
+/// Where a call writes back what a function changed of an argument.
+#[derive(PartialEq)]
+enum Place {
+  Var(String),
+  Cell(Value),
+}
+
 fn set_path(root: &mut Value, steps: &[Value], value: Value) -> Result<(), Fail> {
   let Some((first, rest)) = steps.split_first() else {
     *root = value;
@@ -4016,6 +4125,55 @@ mod held_tests {
     let mut env = Env::detached(&interpreter, Vec::new());
     let call = Expr::Apply { f: Box::new(pick), args: vec![int(1), int(2)] };
     assert_eq!(env.eval_sync(&call).unwrap(), Value::str("fallback"));
+  }
+
+  /// `p => { p.x = 2; }` as the lowerer writes it: the value and the parameter's last value, then the parameter's position.
+  fn sets_x(to: i128) -> Expr {
+    let last = Expr::Object(vec![Entry::Spread(Expr::var("p")), Entry::Field("x".to_owned(), int(to))]);
+    Expr::Lambda { params: vec!["p".to_owned()], body: Box::new(Expr::Builtin { name: Builtin::WriteBack, args: vec![Expr::Array(vec![Entry::Item(Expr::Lit(Lit::Undefined)), Entry::Item(last)]), Expr::Array(vec![Entry::Item(int(0))])] }) }
+  }
+
+  #[test]
+  fn a_call_writes_what_the_function_changed_back_to_the_name_it_was_passed() {
+    let interpreter = interpreter(Vec::new());
+    let mut env = Env::detached(&interpreter, vec![("f".to_owned(), Value::Null)]);
+    let o = Expr::Object(vec![Entry::Field("x".to_owned(), int(1)), Entry::Field("y".to_owned(), int(5))]);
+    let body = Expr::Block(vec![
+      Stmt::Let { name: "o".to_owned(), expr: o.clone() },
+      Stmt::Expr(Expr::Apply { f: Box::new(sets_x(2)), args: vec![Expr::var("o")] }),
+      Stmt::Return(Expr::var("o")),
+    ]);
+    let Value::Map(out) = env.eval_sync(&body).unwrap() else { panic!("a map") };
+    assert_eq!((out.get("x"), out.get("y")), (Some(&Value::Int(2)), Some(&Value::Int(5))));
+    let nested = Expr::Block(vec![
+      Stmt::Let { name: "w".to_owned(), expr: Expr::Object(vec![Entry::Field("inner".to_owned(), o)]) },
+      Stmt::Expr(Expr::Apply { f: Box::new(sets_x(3)), args: vec![Expr::var("w").field("inner")] }),
+      Stmt::Return(Expr::var("w").field("inner").field("x")),
+    ]);
+    assert_eq!(env.eval_sync(&nested).unwrap(), Value::Int(3));
+    let unheld = Expr::Apply { f: Box::new(sets_x(4)), args: vec![Expr::Object(Vec::new())] };
+    assert_eq!(env.eval_sync(&unheld).unwrap(), Value::Undefined, "a value no name holds takes the change nowhere");
+  }
+
+  #[test]
+  fn a_callback_of_an_array_method_that_changes_its_item_fails() {
+    let interpreter = interpreter(Vec::new());
+    let mut env = Env::detached(&interpreter, Vec::new());
+    let items = Expr::Array(vec![Entry::Item(Expr::Object(vec![Entry::Field("x".to_owned(), int(1))]))]);
+    let mapped = Expr::Map(Box::new(items), Box::new(sets_x(2)));
+    assert!(env.eval_sync(&mapped).unwrap_err().message.contains("callback of an array method"));
+  }
+
+  #[test]
+  fn one_name_passed_for_two_parameters_the_function_changes_fails() {
+    let both = Expr::Lambda {
+      params: vec!["p".to_owned(), "q".to_owned()],
+      body: Box::new(Expr::Builtin { name: Builtin::WriteBack, args: vec![Expr::Array(vec![Entry::Item(Expr::Lit(Lit::Undefined)), Entry::Item(Expr::var("p")), Entry::Item(Expr::var("q"))]), Expr::Array(vec![Entry::Item(int(0)), Entry::Item(int(1))])] }),
+    };
+    let interpreter = interpreter(Vec::new());
+    let mut env = Env::detached(&interpreter, Vec::new());
+    let body = Expr::Block(vec![Stmt::Let { name: "o".to_owned(), expr: Expr::Object(Vec::new()) }, Stmt::Expr(Expr::Apply { f: Box::new(both), args: vec![Expr::var("o"), Expr::var("o")] })]);
+    assert!(env.eval_sync(&body).unwrap_err().message.contains("`o`"));
   }
 
   #[test]
