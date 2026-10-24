@@ -20,8 +20,10 @@ The session layer for SnapFire FSR: signed cookies, the session store, token cus
   * [CookieCodec](#cookiecodec)
   * [HmacCodec](#hmaccodec)
   * [Keyring](#keyring)
+  * [SealedCookie](#sealedcookie)
 * [6. Wire Formats](#6-wire-formats)
   * [Cookie value](#cookie-value)
+  * [Sealed cookie value](#sealed-cookie-value)
   * [Set-Cookie header](#set-cookie-header)
   * [CSRF token](#csrf-token)
   * [Session record](#session-record)
@@ -82,6 +84,7 @@ The session layer facade. Holds the store, the config, the codec and the CSRF sc
 
 * `Sessions::new(store: Arc<dyn SessionStore>, key: &[u8], config: SessionConfig) -> Sessions`: over `HmacCodec::new(key)`, a ring of that one key. Any key length is accepted. The scheme is `SingleUse::default()`.
 * `Sessions::with_codec(store, key: &[u8], codec: Arc<dyn CookieCodec>, config) -> Sessions`: over a codec of the caller's; `key` is ignored.
+* `Sessions::sealed(sealer: Arc<SealedCookie>, config: SessionConfig) -> Sessions`: no store; each session's id and record ride in its cookie, sealed. `open` reads the record from the cookie and sets `stale` when a key other than the current one opened it. Every save returns `Some(set_cookie)`, since the value changes with the record. A cookie whose name and value would pass `COOKIE_LIMIT` is refused with a `StoreError` naming its size. `destroy` and `renew` delete nothing: a copy of the cookie taken before `destroy` opens until its record's `expires`.
 * `fn with_csrf(self, scheme: Arc<dyn CsrfScheme>) -> Self`: the same layer over another scheme.
 * `async fn open(&self, cookie_header: Option<&str>) -> Opened`. Infallible. A missing, malformed, tampered or foreign-signed cookie yields a fresh session.
 * `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when none of `opened.cell`, `opened.tokens` and `opened.csrf` is dirty and the cell was not extended, with `Some(set_cookie)` when `opened.stale` is set and `None` otherwise. Otherwise it saves the record with the cell's end as `expires` and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true` or the cell was extended, `None` otherwise.
@@ -127,6 +130,8 @@ Everything held under one session id. Data, identity, tokens and the end are sav
 * `pub csrf: ValueMap` is the CSRF scheme's state.
 * `pub expires: u64` is the end, seconds since the Unix epoch. `open` treats a record past it as absent and deletes it; the cookie's `Max-Age` counts down to it; `MemorySessionStore` drops the record at it.
 * Derives `Debug`, `Clone`, `Default`. A default record has `expires: 0` and so has already expired.
+* `fn encode(&self) -> String`: the record as one JSON string in the payload encoding, `data`, `identity` (`subject` and `claims` or `null`), `tokens`, `csrf` and `expires`.
+* `SessionRecord::decode(text: &str, expires_when_missing: u64) -> Option<SessionRecord>`: what `encode` wrote; `expires_when_missing` is the end of a record encoded before records carried one. `None` for text that is not a JSON object.
 * `SessionRecord::data(self, data: ValueMap) -> Self`, `SessionRecord::identity(self, identity: Option<Identity>) -> Self`, `SessionRecord::tokens(self, tokens: ValueMap) -> Self`, `SessionRecord::csrf(self, csrf: ValueMap) -> Self`, `SessionRecord::expires(self, expires: u64) -> Self`: setters for the field of the same name.
 
 ### SessionStore
@@ -184,6 +189,15 @@ An ordered set of keys, changed in place behind a lock so a rotation rebuilds no
 * `fn verify(&self, input: &[u8], signature_hex: &str) -> Option<usize>`: the position of the key the signature verifies under, `0` for the current one, `None` when none does.
 * `fn is_current(&self, key: &[u8]) -> bool`, `fn len(&self) -> usize`, `fn is_empty(&self) -> bool`. `Debug` prints the count and never a key.
 
+### SealedCookie
+
+A session's id and record sealed with AES-256-GCM under a key derived from each key of a `Keyring`, the HMAC-SHA256 of `snapfire session cookie` under it: sealed under the current key, opened under any.
+
+* `SealedCookie::over(ring: Arc<Keyring>) -> SealedCookie`; `fn keyring(&self) -> &Arc<Keyring>`.
+* `fn seal(&self, id: &SessionId, record: &SessionRecord) -> String`: the value described under [Sealed cookie value](#sealed-cookie-value), a fresh random nonce each call; empty for an empty ring.
+* `fn open(&self, value: &str) -> Option<(SessionId, SessionRecord, usize)>`: the id, the record and the position of the key that opened it, `0` for the current one. `None` for a value without the `v1.` prefix, base64 that does not decode, a value no key opens or plaintext that is not an id and a record.
+* `pub const COOKIE_LIMIT: usize = 4096`: the most a browser keeps of one cookie, name and value together (RFC 6265 section 6.1).
+
 ## 6. Wire Formats
 
 ### Cookie value
@@ -193,6 +207,14 @@ An ordered set of keys, changed in place behind a lock so a rotation rebuilds no
 ```
 
 The id is thirty-two hex characters as generated; the mac is sixty-four lowercase hex characters. Nothing else is encoded in the cookie.
+
+### Sealed cookie value
+
+```
+v1.{base64url without padding of: 12 byte nonce, then AES-256-GCM ciphertext and tag}
+```
+
+The plaintext is the session id, a line break and `SessionRecord::encode`. A record of a signed-in visitor with a few tokens seals to a few hundred bytes.
 
 ### Set-Cookie header
 
@@ -222,7 +244,7 @@ under the layer's signing key, stable for the life of the session id. A scheme o
 
 ### Session record
 
-`SessionRecord` is a plain Rust struct with no encoding of its own. `MemorySessionStore` holds it as a value in memory. Any store that leaves the process must supply its own serialisation; that serialisation covers `tokens`, which is credential material.
+`SessionRecord::encode` is the JSON a store that leaves the process can keep. A sealed cookie carries the same JSON. It includes `tokens`, which is credential material. `MemorySessionStore` holds the record as a value in memory.
 
 ## 7. The CSRF Scheme
 
@@ -296,6 +318,8 @@ The crate defines no error type; no method returns a `Result`.
 | --- | --- |
 | No cookie, an unparseable header or an unknown cookie name | `Opened` with `fresh == true` and a new id |
 | A tampered id, a bad or non-hex signature, a signature from another key | `HmacCodec::decode` returns `None`, so `open` yields a fresh session |
+| A sealed cookie no key opens or one whose record is past its end | `Opened` with `fresh == true` and a new id |
+| A sealed cookie that would pass `COOKIE_LIMIT` | `persist` and `establish` return a `StoreError` naming the size |
 | A valid cookie whose record is gone | `Opened` with `fresh == false`, the same id and empty cells |
 | Neither cell dirty at persist time | `persist` returns `None` without touching the store |
 | An existing session persisted | `persist` returns `None` after saving |

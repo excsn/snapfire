@@ -11,7 +11,6 @@ use std::time::Duration;
 use futures_util::future::BoxFuture;
 use snapfire_fsr_auth::{AuthError, AuthOutcome, Begin, IdentityProvider};
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_payload::{json_to_value, value_to_json};
 use snapfire_fsr_runtime::{unix_now, FailureKind, Identity, ServiceError};
 use snapfire_fsr_service::Services;
 use snapfire_fsr_session::{SessionId, SessionRecord, SessionStore, StoreError};
@@ -44,59 +43,15 @@ fn id_args(id: &SessionId) -> ValueMap {
   args
 }
 
-/// The record as one JSON string in the payload encoding.
+/// The record as one JSON string in the payload encoding, [`SessionRecord::encode`].
 pub fn encode_record(record: &SessionRecord) -> String {
-  let mut map = ValueMap::default();
-  map.insert("data".to_owned(), Value::Map(record.data.clone()));
-  map.insert(
-    "identity".to_owned(),
-    match &record.identity {
-      Some(identity) => Value::Map(identity_map(identity)),
-      None => Value::Null,
-    },
-  );
-  map.insert("tokens".to_owned(), Value::Map(record.tokens.clone()));
-  map.insert("csrf".to_owned(), Value::Map(record.csrf.clone()));
-  map.insert("expires".to_owned(), Value::Int(record.expires as i128));
-  value_to_json(&Value::Map(map)).to_string()
+  record.encode()
 }
 
-/// `expires_when_missing` is the end for a record encoded before records
-/// carried one.
+/// [`SessionRecord::decode`]: `expires_when_missing` is the end for a record encoded before
+/// records carried one.
 pub fn decode_record(text: &str, expires_when_missing: u64) -> Option<SessionRecord> {
-  let json: serde_json::Value = serde_json::from_str(text).ok()?;
-  let Value::Map(mut map) = json_to_value(&json).ok()? else {
-    return None;
-  };
-  let data = match map.shift_remove("data") {
-    Some(Value::Map(data)) => data,
-    _ => ValueMap::default(),
-  };
-  let identity = match map.shift_remove("identity") {
-    Some(Value::Map(identity)) => identity_of(&identity),
-    _ => None,
-  };
-  let tokens = match map.shift_remove("tokens") {
-    Some(Value::Map(tokens)) => tokens,
-    _ => ValueMap::default(),
-  };
-  let csrf = match map.shift_remove("csrf") {
-    Some(Value::Map(csrf)) => csrf,
-    _ => ValueMap::default(),
-  };
-  let expires = match map.shift_remove("expires") {
-    Some(Value::Int(at)) => u64::try_from(at).unwrap_or(0),
-    Some(Value::UInt(at)) => u64::try_from(at).unwrap_or(u64::MAX),
-    _ => expires_when_missing,
-  };
-  Some(SessionRecord::default().data(data).identity(identity).tokens(tokens).csrf(csrf).expires(expires))
-}
-
-fn identity_map(identity: &Identity) -> ValueMap {
-  let mut map = ValueMap::default();
-  map.insert("subject".to_owned(), Value::str(identity.subject.clone()));
-  map.insert("claims".to_owned(), Value::Map(identity.claims.clone()));
-  map
+  SessionRecord::decode(text, expires_when_missing)
 }
 
 fn identity_of(map: &ValueMap) -> Option<Identity> {

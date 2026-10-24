@@ -6,6 +6,7 @@ use snapfire_fsr_runtime::{unix_now, SessionCell};
 
 use crate::codec::{CookieCodec, HmacCodec};
 use crate::csrf::{CsrfScheme, SingleUse};
+use crate::sealed::{SealedCookie, COOKIE_LIMIT};
 use crate::store::{SessionRecord, SessionStore, StoreError};
 use crate::tokens::TokenCell;
 use crate::SessionId;
@@ -69,11 +70,19 @@ pub struct Opened {
   pub stale: bool,
 }
 
+/// Where a session's record lives between requests.
+enum Keeping {
+  /// In a store, the cookie carrying the id the codec signs.
+  Stored { store: Arc<dyn SessionStore>, codec: Arc<dyn CookieCodec> },
+  /// In the cookie itself, sealed. Nothing on the server forgets it: a copy of the cookie taken
+  /// before `destroy` opens until its record's end.
+  Sealed(Arc<SealedCookie>),
+}
+
 /// The session layer facade: `open` before matching, `persist` when the
 /// response starts. Lives at the HTTP adapter edge, since cookies are HTTP.
 pub struct Sessions {
-  store: Arc<dyn SessionStore>,
-  codec: Arc<dyn CookieCodec>,
+  keeping: Keeping,
   /// The CSRF scheme, `SingleUse` unless `with_csrf` chose another.
   csrf: Arc<dyn CsrfScheme>,
   config: SessionConfig,
@@ -93,7 +102,14 @@ impl Sessions {
     config: SessionConfig,
   ) -> Self {
     let _ = key;
-    Self { store, codec, csrf: Arc::new(SingleUse::default()), config }
+    Self { keeping: Keeping::Stored { store, codec }, csrf: Arc::new(SingleUse::default()), config }
+  }
+
+  /// The layer with no store: each session's record rides in its cookie, sealed by `sealer`, so
+  /// any replica behind a load balancer opens it. A save that would make the cookie larger than
+  /// [`COOKIE_LIMIT`] is refused.
+  pub fn sealed(sealer: Arc<SealedCookie>, config: SessionConfig) -> Self {
+    Self { keeping: Keeping::Sealed(sealer), csrf: Arc::new(SingleUse::default()), config }
   }
 
   /// The same layer over a CSRF scheme of the caller's own: one of the three
@@ -119,12 +135,28 @@ impl Sessions {
   }
 
   pub async fn open(&self, cookie_header: Option<&str>) -> Opened {
+    let (store, codec) = match &self.keeping {
+      Keeping::Stored { store, codec } => (store, codec),
+      Keeping::Sealed(sealer) => {
+        return match cookie_header.and_then(|h| self.cookie_value(h)).and_then(|value| sealer.open(&value)) {
+          Some((id, record, position)) if record.expires > unix_now() => Opened {
+            id,
+            cell: SessionCell::new(record.data, record.identity).expiring(record.expires),
+            tokens: TokenCell::new(record.tokens),
+            csrf: TokenCell::new(record.csrf),
+            fresh: false,
+            stale: position != 0,
+          },
+          _ => self.fresh(),
+        };
+      }
+    };
     if let Some((id, value)) = cookie_header
       .and_then(|h| self.cookie_value(h))
-      .and_then(|v| self.codec.decode(&v).map(|id| (id, v)))
+      .and_then(|v| codec.decode(&v).map(|id| (id, v)))
     {
-      let stale = !self.codec.current(&value);
-      if let Some(record) = self.store.load(&id).await {
+      let stale = !codec.current(&value);
+      if let Some(record) = store.load(&id).await {
         if record.expires > unix_now() {
           return Opened {
             id,
@@ -135,10 +167,14 @@ impl Sessions {
             stale,
           };
         }
-        let _ = self.store.delete(&id).await;
+        let _ = store.delete(&id).await;
       }
       return Opened { id, cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale };
     }
+    self.fresh()
+  }
+
+  fn fresh(&self) -> Opened {
     Opened { id: SessionId::generate(), cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false }
   }
 
@@ -161,16 +197,42 @@ impl Sessions {
     }
   }
 
-  /// `Max-Age` counts down to the cell's end.
-  fn set_cookie(&self, opened: &Opened) -> String {
+  /// `Max-Age` counts down to the cell's end. A sealed cookie larger than a browser keeps is
+  /// refused.
+  fn set_cookie(&self, opened: &Opened) -> Result<String, StoreError> {
+    let value = match &self.keeping {
+      Keeping::Stored { codec, .. } => codec.encode(&opened.id),
+      Keeping::Sealed(sealer) => {
+        let value = sealer.seal(&opened.id, &Self::record(opened));
+        let size = self.config.cookie_name.len() + 1 + value.len();
+        if size > COOKIE_LIMIT {
+          return Err(StoreError(format!("the session cookie would be {size} bytes, over the {COOKIE_LIMIT} a browser keeps; keep the session in a store")));
+        }
+        value
+      }
+    };
     let secure = if self.config.secure { "; Secure" } else { "" };
-    format!(
+    Ok(format!(
       "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
       self.config.cookie_name,
-      self.codec.encode(&opened.id),
+      value,
       opened.cell.expires().saturating_sub(unix_now()),
       secure
-    )
+    ))
+  }
+
+  async fn save(&self, opened: &Opened) -> Result<(), StoreError> {
+    match &self.keeping {
+      Keeping::Stored { store, .. } => store.save(&opened.id, Self::record(opened)).await,
+      Keeping::Sealed(_) => Ok(()),
+    }
+  }
+
+  async fn delete(&self, id: &SessionId) -> Result<(), StoreError> {
+    match &self.keeping {
+      Keeping::Stored { store, .. } => store.delete(id).await,
+      Keeping::Sealed(_) => Ok(()),
+    }
   }
 
   fn record(opened: &Opened) -> SessionRecord {
@@ -192,11 +254,12 @@ impl Sessions {
   pub async fn persist(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
     let extended = opened.cell.is_extended();
     if !opened.cell.is_dirty() && !opened.tokens.is_dirty() && !opened.csrf.is_dirty() && !extended {
-      return Ok(opened.stale.then(|| self.set_cookie(opened)));
+      return opened.stale.then(|| self.set_cookie(opened)).transpose();
     }
     self.refuse_oversized(opened)?;
-    self.store.save(&opened.id, Self::record(opened)).await?;
-    Ok((opened.fresh || opened.stale || extended).then(|| self.set_cookie(opened)))
+    self.save(opened).await?;
+    let sealed = matches!(self.keeping, Keeping::Sealed(_));
+    (sealed || opened.fresh || opened.stale || extended).then(|| self.set_cookie(opened)).transpose()
   }
 
   /// The `Set-Cookie` that tells the page its session moved: `sf_state` with
@@ -223,12 +286,12 @@ impl Sessions {
       return self.persist(opened).await;
     }
     self.refuse_oversized(opened)?;
-    self.store.save(&opened.id, Self::record(opened)).await?;
-    Ok(Some(self.set_cookie(opened)))
+    self.save(opened).await?;
+    self.set_cookie(opened).map(Some)
   }
 
   pub async fn destroy(&self, opened: &Opened) -> Result<String, StoreError> {
-    self.store.delete(&opened.id).await?;
+    self.delete(&opened.id).await?;
     opened.cell.clear();
     opened.tokens.clear();
     opened.csrf.clear();
@@ -252,7 +315,7 @@ impl Sessions {
 
   /// The same session under a new id, the old record deleted. Called on sign-in, so an id someone else fixed in the visitor's browser before login never becomes the signed-in one.
   pub async fn renew(&self, opened: &Opened) -> Result<Opened, StoreError> {
-    self.store.delete(&opened.id).await?;
+    self.delete(&opened.id).await?;
     Ok(Opened { id: SessionId::generate(), cell: opened.cell.clone(), tokens: opened.tokens.clone(), csrf: opened.csrf.clone(), fresh: true, stale: false })
   }
 

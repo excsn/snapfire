@@ -24,6 +24,7 @@ How to open, read, write, persist and destroy a session, where credentials are a
   * [Tuning the Shard Count](#tuning-the-shard-count)
   * [Supplying a Built Cache](#supplying-a-built-cache)
   * [Writing Your Own Store](#writing-your-own-store)
+  * [Keeping the Record in the Cookie](#keeping-the-record-in-the-cookie)
 * [Signing and Verifying the Cookie Value](#signing-and-verifying-the-cookie-value)
 * [Why Two Cells](#why-two-cells)
 * [Error Handling](#error-handling)
@@ -488,6 +489,30 @@ Serialising a record means serialising credentials, so an off-box store is the p
 ```rust
 let sessions = Sessions::new(Arc::new(RedisSessionStore::new(pool)), key, SessionConfig::default());
 ```
+
+`SessionRecord::encode` writes the record as one JSON string and `SessionRecord::decode` reads it back, so a store keeps a string:
+
+```rust
+let text = record.encode();
+let back = SessionRecord::decode(&text, unix_now() + 3600).expect("what encode wrote");
+```
+
+### Keeping the Record in the Cookie
+
+`Sessions::sealed` has no store. The id and the record ride in the cookie, sealed with AES-256-GCM under a key derived from each key of the ring, so any process holding the ring opens any session:
+
+```rust
+use snapfire_fsr_session::{Keyring, SealedCookie, Sessions, SessionConfig};
+
+let ring = Arc::new(Keyring::new(key));
+let sessions = Sessions::sealed(Arc::new(SealedCookie::over(ring.clone())), SessionConfig::default());
+
+let opened = sessions.open(cookie_header).await;
+opened.cell.insert("cart", Value::int(3i64));
+let set_cookie = sessions.persist(&opened).await?;
+```
+
+Every save returns a cookie, since the value changes with the record. A record that would seal past `COOKIE_LIMIT`, the 4096 bytes a browser keeps, is a `StoreError` naming the size. A cookie sealed under a key `rotate` replaced still opens and comes back `stale`, so the next `persist` seals it under the current key. `destroy` expires the cookie but deletes nothing, so a copy taken earlier opens until the record's end.
 
 ## Signing and Verifying the Cookie Value
 

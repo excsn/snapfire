@@ -427,17 +427,18 @@ impl HostBuilder {
       return Err(HostError::Config(config.config_dir(), format!("`{}` has no value and a client sends it; set {} or write it encrypted in a configuration file the host reads", value.key, value.env)));
     }
     let ttl = config.session_ttl()?;
-    let store: Arc<dyn SessionStore> = match store {
-      Some(store) => store,
+    let store: Option<Arc<dyn SessionStore>> = match store {
+      Some(store) => Some(store),
       None => match config.session.store.as_str() {
-        "memory" => Arc::new(MemorySessionStore::new(config.session.capacity)),
+        "cookie" => None,
+        "memory" => Some(Arc::new(MemorySessionStore::new(config.session.capacity))),
         "service" => {
           let client = format!(
             "{}{}",
             config.site.as_ref().map(SiteSection::prefix).unwrap_or_default(),
             config.session.client.clone().unwrap_or_default()
           );
-          Arc::new(ServiceSessionStore::new(tables.app.services.clone(), client, ttl))
+          Some(Arc::new(ServiceSessionStore::new(tables.app.services.clone(), client, ttl)))
         }
         other => return Err(HostError::Value("session.store".to_owned(), other.to_owned())),
       },
@@ -460,16 +461,20 @@ impl HostBuilder {
         _ => Arc::new(snapfire_fsr_session::SingleUse::new(config.session.csrf_outstanding as usize)),
       },
     };
-    let codec: Arc<dyn CookieCodec> = match chosen_codec {
-      Some(codec) => codec,
-      None => Arc::new(HmacCodec::over(ring.clone())),
-    };
-    let sessions = Sessions::with_codec(
-      store,
-      config.session.key.as_deref().unwrap_or_default().as_bytes(),
-      codec,
-      SessionConfig::default().ttl(ttl).secure(config.session.secure).max_bytes(usize::try_from(config.session.max_bytes).unwrap_or(usize::MAX)),
-    )
+    let session_config = SessionConfig::default().ttl(ttl).secure(config.session.secure).max_bytes(usize::try_from(config.session.max_bytes).unwrap_or(usize::MAX));
+    let sessions = match store {
+      Some(store) => {
+        let codec: Arc<dyn CookieCodec> = match chosen_codec {
+          Some(codec) => codec,
+          None => Arc::new(HmacCodec::over(ring.clone())),
+        };
+        Sessions::with_codec(store, config.session.key.as_deref().unwrap_or_default().as_bytes(), codec, session_config)
+      }
+      None if chosen_codec.is_some() => {
+        return Err(HostError::Config(config.config_dir(), "session.store = \"cookie\" seals the record into the cookie, so a cookie codec has no id to sign; drop the codec or keep sessions in a store".to_owned()));
+      }
+      None => Sessions::sealed(Arc::new(snapfire_fsr_session::SealedCookie::over(ring.clone())), session_config),
+    }
     .with_csrf(scheme);
     let changed = config.dev().then(|| Reload::new(16));
     let http2 = http2.unwrap_or(config.server.http2);
@@ -545,7 +550,7 @@ impl HostBuilder {
     let Artifact { config, plan, contract: mut own_contract } = self.artifact;
 
     config.session_ttl()?;
-    if !matches!(config.session.store.as_str(), "memory" | "service") {
+    if !matches!(config.session.store.as_str(), "memory" | "service" | "cookie") {
       return Err(HostError::Value(
         "session.store".to_owned(),
         config.session.store.clone(),

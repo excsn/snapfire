@@ -7320,3 +7320,32 @@ async fn a_body_reads_the_configured_locales_in_their_declared_order() {
     assert!(html.contains(r#"["en_US","fr_FR","de"]"#), "{path}: {html}");
   }
 }
+
+#[tokio::test]
+async fn a_cookie_only_session_signs_in_with_the_record_sealed_in_the_cookie() {
+  let dir = identified_dir(USERS);
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replace("ttl = \"10m\"", "ttl = \"10m\"\nstore = \"cookie\"")).unwrap();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
+
+  let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let response = host
+    .handle(
+      Request::post("/auth/callback")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Bytes::from("user=alice&password=wonder"))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  let cookie = cookie_of(&response);
+  assert!(cookie.starts_with("sf_session=v1.") && !cookie.contains("alice") && !cookie.contains("dev-token"), "{cookie}");
+
+  let rebuilt = Host::from(dir.join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
+  let html = body_of(rebuilt.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains("alice"), "another host with the same key opens the session: {html}");
+  assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer dev-token-alice"), "the custody token rode in the cookie");
+}

@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use futures_util::future::{ready, BoxFuture};
-use snapfire_fsr_core::ValueMap;
+use snapfire_fsr_core::{Value, ValueMap};
+use snapfire_fsr_payload::{json_to_value, value_to_json};
 use snapfire_fsr_runtime::{unix_now, Identity};
 
 use crate::SessionId;
@@ -46,6 +47,68 @@ impl SessionRecord {
     self.expires = expires;
     self
   }
+
+  /// The record as one JSON string in the payload encoding.
+  pub fn encode(&self) -> String {
+    let mut map = ValueMap::default();
+    map.insert("data".to_owned(), Value::Map(self.data.clone()));
+    map.insert(
+      "identity".to_owned(),
+      match &self.identity {
+        Some(identity) => Value::Map(identity_map(identity)),
+        None => Value::Null,
+      },
+    );
+    map.insert("tokens".to_owned(), Value::Map(self.tokens.clone()));
+    map.insert("csrf".to_owned(), Value::Map(self.csrf.clone()));
+    map.insert("expires".to_owned(), Value::Int(self.expires as i128));
+    value_to_json(&Value::Map(map)).to_string()
+  }
+
+  /// What [`encode`](Self::encode) wrote; `expires_when_missing` is the end for a record encoded
+  /// before records carried one.
+  pub fn decode(text: &str, expires_when_missing: u64) -> Option<Self> {
+    let json: serde_json::Value = serde_json::from_str(text).ok()?;
+    let Value::Map(mut map) = json_to_value(&json).ok()? else {
+      return None;
+    };
+    let mut take = |key: &str| match map.shift_remove(key) {
+      Some(Value::Map(map)) => map,
+      _ => ValueMap::default(),
+    };
+    let data = take("data");
+    let tokens = take("tokens");
+    let csrf = take("csrf");
+    let identity = match map.shift_remove("identity") {
+      Some(Value::Map(identity)) => identity_of(&identity),
+      _ => None,
+    };
+    let expires = match map.shift_remove("expires") {
+      Some(Value::Int(at)) => u64::try_from(at).unwrap_or(0),
+      Some(Value::UInt(at)) => u64::try_from(at).unwrap_or(u64::MAX),
+      _ => expires_when_missing,
+    };
+    Some(Self::default().data(data).identity(identity).tokens(tokens).csrf(csrf).expires(expires))
+  }
+}
+
+fn identity_map(identity: &Identity) -> ValueMap {
+  let mut map = ValueMap::default();
+  map.insert("subject".to_owned(), Value::str(identity.subject.clone()));
+  map.insert("claims".to_owned(), Value::Map(identity.claims.clone()));
+  map
+}
+
+fn identity_of(map: &ValueMap) -> Option<Identity> {
+  let subject = match map.get("subject") {
+    Some(Value::Str(subject)) => subject.to_string(),
+    _ => return None,
+  };
+  let claims = match map.get("claims") {
+    Some(Value::Map(claims)) => claims.clone(),
+    _ => ValueMap::default(),
+  };
+  Some(Identity::new(subject, claims))
 }
 
 /// Why a store could not write. A read has no error: a record that cannot be

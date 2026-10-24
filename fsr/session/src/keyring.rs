@@ -75,6 +75,12 @@ impl Keyring {
     }
   }
 
+  /// The hmac of `label` under each key, current first: a key of its own per ring key for a
+  /// purpose other than signing.
+  pub(crate) fn derive(&self, label: &[u8]) -> Vec<[u8; 32]> {
+    self.keys.read().iter().map(|key| mac(key, label).finalize().into_bytes().into()).collect()
+  }
+
   /// The position of the key `signature_hex` verifies under, `0` for the
   /// current one; `None` when no key does. Constant time through the mac.
   pub fn verify(&self, input: &[u8], signature_hex: &str) -> Option<usize> {

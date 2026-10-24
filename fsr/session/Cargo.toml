@@ -16,6 +16,10 @@ readme = "README.md"
 [dependencies]
 snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
+snapfire_fsr_payload.workspace = true
+aes-gcm = "0.11"
+base64 = "0.22"
+serde_json = "1"
 fibre_cache = "0.4"
 futures-util = "0.3"
 parking_lot = "0.12"

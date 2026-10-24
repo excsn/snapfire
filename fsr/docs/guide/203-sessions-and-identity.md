@@ -12,7 +12,13 @@ The host opens the session before matching the route and persists it when the re
 
 ## The store
 
-The stock store is in memory, bounded by capacity and dropping each record at its own end, built on the same cache the runtime uses for rendered subtrees: sharded, frequency-aware, so a burst of new sessions evicts the least useful rather than the oldest. `[session]` sets `capacity` and `ttl`, the length of a new session. The end is one number on the record that the cookie and the store both follow and it never slides: a session read a thousand times still ends one `ttl` after it opened unless an action, a route handler or middleware calls `session.extend(seconds)` or Rust code with the request calls `extend` on the cell, so an application can choose to write the session once a day instead of once a request. The memory store works for a single process. With two, a session opened on one host is unknown to the other. For that, write a `SessionStore` implementation over something shared and pass it to `HostBuilder::session_store`.
+The stock store is in memory, bounded by capacity and dropping each record at its own end, built on the same cache the runtime uses for rendered subtrees: sharded, frequency-aware, so a burst of new sessions evicts the least useful rather than the oldest. `[session]` sets `capacity` and `ttl`, the length of a new session. The end is one number on the record that the cookie and the store both follow and it never slides: a session read a thousand times still ends one `ttl` after it opened unless an action, a route handler or middleware calls `session.extend(seconds)` or Rust code with the request calls `extend` on the cell, so an application can choose to write the session once a day instead of once a request. The memory store works for a single process. With two, a session opened on one host is unknown to the other. There are two ways out. `store = "cookie"` keeps no record on the server: the record rides in the cookie, sealed with AES-256-GCM under a key derived from the session key, so every host with the key opens it. A browser keeps 4096 bytes of a cookie, so a save past that is refused with an error naming the size. Signing out cannot recall a copy of the cookie taken earlier. Otherwise write a `SessionStore` implementation over something shared and pass it to `HostBuilder::session_store`.
+
+```toml
+[session]
+store = "cookie"
+ttl = "2h"
+```
 
 The trait is three methods over one record, which carries the data, the identity and the tokens and expires as a unit. A store over Redis is an application's own crate, so the framework carries no Redis client for the deployments that do not want one:
 
@@ -44,7 +50,7 @@ impl SessionStore for RedisSessions {
 let host = Host::from("app.toml")?.session_store(Arc::new(RedisSessions { pool })).build()?;
 ```
 
-The record holds the tokens in custody, so a store off the machine encrypts what it writes. Set the key's expiry from the record's end so the store drops a session when the cookie does. The session crate's guide has the record's fields.
+The record holds the tokens in custody, so a store off the machine encrypts what it writes. `SessionRecord::encode` and `SessionRecord::decode` give the record as one JSON string to keep. Set the key's expiry from the record's end so the store drops a session when the cookie does. The session crate's guide has the record's fields.
 
 The signing key is a secret, so it does not belong in `app.toml`. The storefront keeps a development key there with a name that says so; a deployment puts the real one in the YAML overlay the configuration ladder reads, encrypted.
 

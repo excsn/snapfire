@@ -152,7 +152,7 @@ ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
 csrf = "identified"               # when a CSRF token is minted: once signed in, or always
 csrf_scheme = "single_use"        # or "session" (one token per session) or "derived" (an hmac of the id)
 csrf_outstanding = 8              # single_use: how many minted tokens stay valid at once, one per open form
-store = "memory"                  # or "service", with client naming the [clients] entry that holds sessions
+store = "memory"                  # or "cookie" (sealed into the cookie) or "service", with client naming the [clients] entry that holds sessions
 
 [cache]                           # optional: the render memo, nothing is cached without it
 capacity = 1000                   # entries, the default
@@ -931,6 +931,18 @@ let host = Host::from(".")?
   })
   .build()?;
 ```
+
+## Keeping Sessions in the Cookie
+
+`[session] store = "cookie"` keeps no session on the server. Each session's id and record, the data, the identity, the custody tokens and the CSRF state, ride in the session cookie sealed with AES-256-GCM under a key derived from `session.key`, so any host holding the key opens any session and a load balancer needs no affinity. `previous_keys` still open a cookie sealed before a rotation, which is sealed again under the current key on that request.
+
+```toml
+[session]
+key = "${C5_SESSION__KEY}"
+store = "cookie"
+```
+
+A browser keeps at most 4096 bytes of one cookie, so a save that would seal past that is refused with an error naming the size; a session that holds more belongs in a store. Nothing on the server forgets a sealed session: signing out expires the cookie, but a copy taken before it opens until the record's end, so keep `ttl` short when that matters.
 
 ## Keeping Sessions in a Service
 

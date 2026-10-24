@@ -1,6 +1,7 @@
 mod codec;
 mod csrf;
 mod keyring;
+mod sealed;
 mod sessions;
 mod store;
 mod tokens;
@@ -8,6 +9,7 @@ mod tokens;
 pub use codec::{CookieCodec, HmacCodec};
 pub use csrf::{constant_time_eq, random_token, CsrfScheme, Derived, PerSession, SingleUse};
 pub use keyring::Keyring;
+pub use sealed::{SealedCookie, COOKIE_LIMIT};
 pub use sessions::{DEFAULT_MAX_BYTES, Opened, STATE_COOKIE, SessionConfig, Sessions};
 pub use store::{MemorySessionStore, SessionRecord, SessionStore, StoreError};
 pub use tokens::TokenCell;

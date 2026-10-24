@@ -867,7 +867,8 @@ pub struct SessionSection {
   /// has passed. A reload may change both.
   #[serde(default)]
   pub previous_keys: Vec<String>,
-  /// `memory` or `service` with `client` naming the `[clients.<name>]`
+  /// `memory`, `cookie` (the record sealed into the cookie under the
+  /// session keys) or `service` with `client` naming the `[clients.<name>]`
   /// entry whose contract declares `getSession`, `putSession` and
   /// `deleteSession`.
   #[serde(default = "default_store")]

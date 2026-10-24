@@ -574,7 +574,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 ### ServiceSessionStore
 
 * `pub struct ServiceSessionStore`, a `SessionStore` over a client: `new(services: Arc<Services>, client: impl Into<String>, ttl: Duration) -> Self`, `ttl` being the end given to a record the service stored before records carried one. `load` calls `getSession { id }` and reads `record` from the answer, `None` on a `not_found` failure and, logged, on any other; `save` calls `putSession { id, record }`; `delete` calls `deleteSession { id }`. The record is `encode_record`'s string.
-* `pub fn encode_record(record: &SessionRecord) -> String` and `pub fn decode_record(text: &str, expires_when_missing: u64) -> Option<SessionRecord>`: the record as one JSON string in the payload encoding, `{ data, identity, tokens, csrf, expires }` with `identity` as `{ subject, claims }` or `null` and `expires` an integer, seconds since the Unix epoch; a string without `expires` decodes with `expires_when_missing`.
+* `pub fn encode_record(record: &SessionRecord) -> String` and `pub fn decode_record(text: &str, expires_when_missing: u64) -> Option<SessionRecord>`: `SessionRecord::encode` and `SessionRecord::decode`, the record as one JSON string in the payload encoding, `{ data, identity, tokens, csrf, expires }` with `identity` as `{ subject, claims }` or `null` and `expires` an integer, seconds since the Unix epoch; a string without `expires` decodes with `expires_when_missing`.
 
 ### ServiceProvider
 
