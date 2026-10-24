@@ -175,14 +175,14 @@ pub(crate) fn choose_version(client: &reqwest::blocking::Client, registry: &str,
     .get(&url)
     .header("accept", "application/vnd.npm.install-v1+json")
     .send()
-    .map_err(|e| BuildError::Http(url.clone(), e.to_string()))?;
+    .map_err(|e| BuildError::http(url.clone(), e))?;
   if response.status() == reqwest::StatusCode::NOT_FOUND {
     return Ok(None);
   }
   if !response.status().is_success() {
     return Err(BuildError::Http(url.clone(), format!("HTTP {}", response.status())));
   }
-  let doc: Abbreviated = response.json().map_err(|e| BuildError::Http(url.clone(), e.to_string()))?;
+  let doc: Abbreviated = response.json().map_err(|e| BuildError::http(url.clone(), e))?;
   let published: Vec<(range::Version, &String)> = doc.versions.keys().filter_map(|key| range::Version::parse(key).map(|v| (v, key))).collect();
   let best = |accepts: &dyn Fn(&range::Version) -> bool| published.iter().filter(|(v, _)| accepts(v)).max_by(|a, b| a.0.cmp(&b.0)).map(|(_, key)| (*key).clone());
   if let Some(first) = ranges.first() {

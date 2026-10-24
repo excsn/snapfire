@@ -677,9 +677,9 @@ fn send(
   for (name, value) in headers {
     request = request.header(name.as_str(), value.as_str());
   }
-  let response = request.send().map_err(|e| BuildError::Http(target.clone(), e.to_string()))?;
+  let response = request.send().map_err(|e| BuildError::http(target.clone(), e))?;
   let status = response.status();
-  let body = response.text().map_err(|e| BuildError::Http(target.clone(), e.to_string()))?;
+  let body = response.text().map_err(|e| BuildError::http(target.clone(), e))?;
   if status == reqwest::StatusCode::NOT_FOUND {
     return Err(refuse(format!(
       "{target}: no such route. The host serves it only when it was built with the `sites_reload` feature and the application installed a sites mounter"

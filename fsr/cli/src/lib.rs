@@ -216,6 +216,21 @@ pub enum BuildError {
   Sites(String),
 }
 
+impl BuildError {
+  /// A failed request to `url`, with every cause reqwest wraps, since its own message names none of them.
+  pub(crate) fn http(url: String, error: reqwest::Error) -> Self {
+    let error = error.without_url();
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+      message.push_str(": ");
+      message.push_str(&cause.to_string());
+      source = cause.source();
+    }
+    BuildError::Http(url, message)
+  }
+}
+
 /// A residue that took pages out of server rendering: where it sits, what it
 /// says, the rewrite that does the same thing in the IR, plus every page it
 /// de-lowered with the chain of placements reaching it. One cause per

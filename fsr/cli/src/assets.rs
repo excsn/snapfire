@@ -770,8 +770,8 @@ pub fn add_from(app: &Path, spec: &str, provider_base: &str) -> Result<Vec<PathB
   let client = reqwest::blocking::Client::builder()
     .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
     .build()
-    .map_err(|e| BuildError::Http(url.clone(), e.to_string()))?;
-  let css = client.get(&url).send().and_then(|r| r.error_for_status()).and_then(|r| r.text()).map_err(|e| BuildError::Http(url.clone(), e.to_string()))?;
+    .map_err(|e| BuildError::http(url.clone(), e))?;
+  let css = client.get(&url).send().and_then(|r| r.error_for_status()).and_then(|r| r.text()).map_err(|e| BuildError::http(url.clone(), e))?;
   let dir = app.join(&sections.dirs.fonts);
   std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
   let mut written = Vec::new();
@@ -794,7 +794,7 @@ pub fn add_from(app: &Path, spec: &str, provider_base: &str) -> Result<Vec<PathB
     let (Some(weight), Some(style), Some(src)) = (field("font-weight"), field("font-style"), field("src")) else { continue };
     let Some(file_url) = src.split("url(").nth(1).and_then(|u| u.split(')').next()) else { continue };
     let ext = file_url.rsplit('.').next().unwrap_or("woff2").to_owned();
-    let bytes = client.get(file_url).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map_err(|e| BuildError::Http(file_url.to_owned(), e.to_string()))?;
+    let bytes = client.get(file_url).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map_err(|e| BuildError::http(file_url.to_owned(), e))?;
     let italic = if style == "italic" { "-italic" } else { "" };
     // A provider answers a discrete weight of a variable family with the
     // whole variable file, the same bytes under every weight asked for, so

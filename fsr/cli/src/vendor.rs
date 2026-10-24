@@ -173,21 +173,23 @@ pub fn package_of(specifier: &str) -> String {
 }
 
 pub fn client() -> Result<reqwest::blocking::Client, BuildError> {
+  // esm.sh answers a bundle it has not built in time with a 408 after 30 s, which reqwest's blocking default of 30 s would cut off.
   reqwest::blocking::Client::builder()
     .user_agent(concat!("fsr/", env!("CARGO_PKG_VERSION")))
+    .timeout(std::time::Duration::from_secs(120))
     .build()
-    .map_err(|e| BuildError::Http(ESM_HOST.to_owned(), e.to_string()))
+    .map_err(|e| BuildError::http(ESM_HOST.to_owned(), e))
 }
 
 pub fn get(client: &reqwest::blocking::Client, url: &str) -> Result<Option<Vec<u8>>, BuildError> {
-  let response = client.get(url).send().map_err(|e| BuildError::Http(url.to_owned(), e.to_string()))?;
+  let response = client.get(url).send().map_err(|e| BuildError::http(url.to_owned(), e))?;
   if response.status() == reqwest::StatusCode::NOT_FOUND {
     return Ok(None);
   }
   if !response.status().is_success() {
     return Err(BuildError::Http(url.to_owned(), format!("HTTP {}", response.status())));
   }
-  response.bytes().map(|b| Some(b.to_vec())).map_err(|e| BuildError::Http(url.to_owned(), e.to_string()))
+  response.bytes().map(|b| Some(b.to_vec())).map_err(|e| BuildError::http(url.to_owned(), e))
 }
 
 /// The absolute `/…` paths an esm.sh stub re-exports or imports, in order.
@@ -576,6 +578,43 @@ mod tests {
     assert_eq!(absolute_imports(module), ["/scheduler@^0.23.2?target=es2022"]);
     assert_eq!(package_of("@snapfire/fsr-client/react"), "@snapfire/fsr-client");
     assert_eq!(package_of("react/jsx-runtime"), "react");
+  }
+
+  /// A host that answers every request with `response`, or holds the connection open with no answer when it is `None`.
+  fn answering(response: Option<&'static str>) -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+      let mut held = Vec::new();
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        let mut line = String::new();
+        let _ = BufReader::new(&stream).read_line(&mut line);
+        match response {
+          Some(response) => {
+            let _ = stream.write_all(response.as_bytes());
+          }
+          None => held.push(stream),
+        }
+      }
+    });
+    host
+  }
+
+  #[test]
+  fn a_request_that_times_out_says_it_timed_out() {
+    let host = answering(None);
+    let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_millis(200)).build().unwrap();
+    let message = get(&client, &format!("{host}/vue@3.5.44")).unwrap_err().to_string();
+    assert!(message.contains("timed out"), "{message}");
+  }
+
+  #[test]
+  fn a_status_other_than_404_is_named_with_its_code() {
+    let host = answering(Some("HTTP/1.1 408 Request Timeout\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"));
+    let message = get(&client().unwrap(), &format!("{host}/vue@3.5.44")).unwrap_err().to_string();
+    assert!(message.ends_with(": HTTP 408 Request Timeout"), "{message}");
   }
 
   /// esm.sh as `fsr add` reads it: the stub, a bundle that imports two siblings and a map beside every module but `unmapped.mjs`.
