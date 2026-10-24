@@ -142,6 +142,20 @@ fn tab_moves_the_focus_through_the_focusables_in_order_and_focus_names_one() {
   assert_eq!(lines(session.press(&press(KeyCode::Char('3'), KeyModifiers::NONE)).unwrap()), ["one", "two", "three *"]);
 }
 
+#[test]
+fn esc_clears_the_focus_an_autofocused_item_took_when_it_mounted() {
+  let page = FOCUS.replace("useFocus({ id })", "useFocus({ id, autoFocus: label === \"two\" })");
+  let mut session = Session::open(&app(&page)).unwrap();
+  let lines = |node| snapfire_fsr_terminal::render(&node, 20).lines().iter().map(|line| line.trim_end().to_owned()).collect::<Vec<_>>();
+  let press = |code| match key_event(KeyEvent::new(code, KeyModifiers::NONE)) {
+    Some(Press::Input(press)) => press,
+    _ => panic!("an input"),
+  };
+  assert_eq!(lines(session.view().unwrap()), ["one", "two *", "three"]);
+  assert_eq!(lines(session.press(&press(KeyCode::Esc)).unwrap()), ["one", "two", "three"]);
+  assert_eq!(lines(session.press(&press(KeyCode::Char('x'))).unwrap()), ["one", "two", "three"], "Ink autofocuses on mount only");
+}
+
 const SEARCH: &str = "import { useState, useTransition } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nconst segmenter = new Intl.Segmenter(undefined, { granularity: \"grapheme\" });\n\nfunction deleteLastGrapheme(text: string): string {\n  const last = segmenter.segment(text).containing(text.length - 1);\n  return text.slice(0, last?.index ?? 0);\n}\n\nexport default function Search() {\n  const [query, setQuery] = useState(\"\");\n  const [deferred, setDeferred] = useState(\"\");\n  const [isPending, startTransition] = useTransition();\n  useInput((input, key) => {\n    if (key.backspace) {\n      setQuery(deleteLastGrapheme);\n      startTransition(() => {\n        setDeferred(deleteLastGrapheme);\n      });\n    } else if (input !== \"\") {\n      setQuery((q) => q + input);\n      startTransition(() => setDeferred((q) => q + input));\n    }\n  });\n  return <Text>{query}|{deferred}|{isPending ? \"pending\" : \"done\"}</Text>;\n}\n";
 
 #[test]

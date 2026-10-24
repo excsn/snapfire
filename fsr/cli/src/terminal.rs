@@ -232,8 +232,9 @@ impl Focus {
     self.focused = next.map(|id| (*id).to_owned());
   }
 
-  /// Takes the focusables a render bound: an autofocused one takes the focus when none holds it, and a focus whose focusable left or went inactive is dropped.
+  /// Takes the focusables a render bound: an autofocused one the last render did not have takes the focus when none holds it, as Ink's does on mount, and a focus whose focusable left or went inactive is dropped.
   fn rendered(&mut self, found: &[Value]) {
+    let before: std::collections::HashSet<String> = self.focusables.drain(..).map(|f| f.id).collect();
     self.focusables = found
       .iter()
       .filter_map(|value| {
@@ -249,7 +250,7 @@ impl Focus {
       self.focused = None;
     }
     if self.focused.is_none() {
-      self.focused = self.focusables.iter().find(|f| f.active && f.auto).map(|f| f.id.clone());
+      self.focused = self.focusables.iter().find(|f| f.active && f.auto && !before.contains(&f.id)).map(|f| f.id.clone());
     }
   }
 
