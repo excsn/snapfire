@@ -688,7 +688,105 @@ pub(crate) fn parse_from(file: &str, source: &str, tsx: bool, origin: Option<std
     methods::desugar(&mut module);
     (module, top, SyntaxContext::empty().apply_mark(unresolved))
   });
+  let at = |span: Span| match &origin {
+    Some(origin) => origin.position((span.lo.0 - fm.start_pos.0) as usize),
+    None => {
+      let loc = cm.lookup_char_pos(span.lo);
+      (loc.line, loc.col_display + 1)
+    }
+  };
+  if let Some((name, again, first)) = bound_twice(&module) {
+    let ((line, column), (first_line, _)) = (at(again), at(first));
+    return Err(LowerError::Residue(Residue {
+      file: file.to_owned(),
+      line,
+      column,
+      message: format!("`{name}`, bound twice at the top of the module; its first binding is line {first_line}"),
+      hint: Some("JavaScript refuses a module that binds one name twice; rename one of them".to_owned()),
+      via: Vec::new(),
+    }));
+  }
   Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new(), origin })
+}
+
+/// The first name `module` binds twice at its top level, with the spans of the second binding and the first: an import, a `let`, `const` or `var`, a function or a class. Two `var`s of one name, a function's overload signatures and `declare` statements bind it once, as JavaScript and TypeScript have it; types, enums and namespaces are a namespace of their own and are left out.
+fn bound_twice(module: &js::Module) -> Option<(String, Span, Span)> {
+  let mut bindings = Bindings(Vec::new());
+  for item in &module.body {
+    let twice = match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if !import.type_only => import.specifiers.iter().find_map(|specifier| match specifier {
+        js::ImportSpecifier::Named(n) if n.is_type_only => None,
+        js::ImportSpecifier::Named(n) => bindings.bind(&n.local, false),
+        js::ImportSpecifier::Default(d) => bindings.bind(&d.local, false),
+        js::ImportSpecifier::Namespace(n) => bindings.bind(&n.local, false),
+      }),
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => bindings.decl(decl),
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => bindings.decl(&export.decl),
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(export)) => match &export.decl {
+        js::DefaultDecl::Fn(f) => f.ident.as_ref().and_then(|id| bindings.bind(id, false)),
+        js::DefaultDecl::Class(c) => c.ident.as_ref().and_then(|id| bindings.bind(id, false)),
+        js::DefaultDecl::TsInterfaceDecl(_) => None,
+      },
+      _ => None,
+    };
+    if twice.is_some() {
+      return twice;
+    }
+  }
+  None
+}
+
+/// The names a module has bound so far, each with its span and whether a `var` bound it.
+struct Bindings(Vec<(String, Span, bool)>);
+
+impl Bindings {
+  /// Binds `id`, answering the name and both spans when it was bound already by anything but two `var`s.
+  fn bind(&mut self, id: &js::Ident, var: bool) -> Option<(String, Span, Span)> {
+    match self.0.iter().find(|(name, _, _)| *name == *id.sym) {
+      Some((_, _, true)) if var => None,
+      Some((name, first, _)) => Some((name.clone(), id.span, *first)),
+      None => {
+        self.0.push((id.sym.to_string(), id.span, var));
+        None
+      }
+    }
+  }
+
+  fn decl(&mut self, decl: &js::Decl) -> Option<(String, Span, Span)> {
+    match decl {
+      js::Decl::Fn(f) if f.function.body.is_some() && !f.declare => self.bind(&f.ident, false),
+      js::Decl::Class(c) if !c.declare => self.bind(&c.ident, false),
+      js::Decl::Var(var) if !var.declare => {
+        let is_var = var.kind == js::VarDeclKind::Var;
+        let mut names = Vec::new();
+        for d in &var.decls {
+          pattern_names(&d.name, &mut names);
+        }
+        names.iter().find_map(|id| self.bind(id, is_var))
+      }
+      _ => None,
+    }
+  }
+}
+
+/// Every name `pat` binds, in order.
+fn pattern_names<'p>(pat: &'p js::Pat, out: &mut Vec<&'p js::Ident>) {
+  match pat {
+    js::Pat::Ident(id) => out.push(&id.id),
+    js::Pat::Array(array) => array.elems.iter().flatten().for_each(|p| pattern_names(p, out)),
+    js::Pat::Object(object) => {
+      for prop in &object.props {
+        match prop {
+          js::ObjectPatProp::KeyValue(kv) => pattern_names(&kv.value, out),
+          js::ObjectPatProp::Assign(a) => out.push(&a.key.id),
+          js::ObjectPatProp::Rest(r) => pattern_names(&r.arg, out),
+        }
+      }
+    }
+    js::Pat::Assign(a) => pattern_names(&a.left, out),
+    js::Pat::Rest(r) => pattern_names(&r.arg, out),
+    js::Pat::Expr(_) | js::Pat::Invalid(_) => {}
+  }
 }
 
 impl Parsed {
