@@ -20,7 +20,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("time.localOffset", Reach::Terminal, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?))));
 }
 
-const MS_PER_DAY: f64 = 86_400_000.0;
+use snapfire_fsr_core::time::MS_PER_DAY;
 
 fn unit_ms(what: &str, unit: &str) -> Result<f64, Fail> {
   Ok(match unit {
@@ -49,41 +49,7 @@ fn diff(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   Ok(Value::F64((a - b) / unit_ms(what, text(what, args, 2)?)?))
 }
 
-/// Days since 1970-01-01 for a proleptic Gregorian date.
-pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
-  let y = if m <= 2 { y - 1 } else { y };
-  let era = if y >= 0 { y } else { y - 399 } / 400;
-  let yoe = y - era * 400;
-  let mp = (m as i64 + 9) % 12;
-  let doy = (153 * mp + 2) / 5 + d as i64 - 1;
-  let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-  era * 146_097 + doe - 719_468
-}
-
-/// The proleptic Gregorian date of a day count since 1970-01-01.
-pub fn civil_from_days(z: i64) -> (i64, u32, u32) {
-  let z = z + 719_468;
-  let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-  let doe = z - era * 146_097;
-  let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-  let y = yoe + era * 400;
-  let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-  let mp = (5 * doy + 2) / 153;
-  let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-  let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-  (if m <= 2 { y + 1 } else { y }, m, d)
-}
-
-/// The UTC calendar date of an instant.
-pub fn civil_from_ms(ms: f64) -> (i64, u32, u32) {
-  civil_from_days((ms / MS_PER_DAY).floor() as i64)
-}
-
-/// The UTC clock fields of an instant: hours, minutes, seconds, milliseconds.
-pub fn clock_from_ms(ms: f64) -> (u32, u32, u32, u32) {
-  let of_day = ms.rem_euclid(MS_PER_DAY) as u64;
-  ((of_day / 3_600_000) as u32, (of_day / 60_000 % 60) as u32, (of_day / 1_000 % 60) as u32, (of_day % 1_000) as u32)
-}
+pub use snapfire_fsr_core::time::{civil_from_days, civil_from_ms, clock_from_ms, days_from_civil};
 
 /// `getTimezoneOffset()` of an instant in this machine's local time zone: minutes behind UTC, NaN for an invalid instant.
 pub fn local_offset(ms: f64) -> f64 {

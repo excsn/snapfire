@@ -34,7 +34,16 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
    * [Table](#table)
    * [Catalogs](#catalogs)
    * [Argument Helpers](#argument-helpers)
-8. [Error Handling](#8-error-handling)
+8. [Plain JSON](#8-plain-json)
+   * [stringify](#stringify)
+   * [to_json](#to_json)
+   * [to_value](#to_value)
+   * [number_text](#number_text)
+9. [Dates](#9-dates)
+   * [iso_string](#iso_string)
+   * [Calendar Arithmetic](#calendar-arithmetic)
+10. [Error Handling](#10-error-handling)
+   * [Unwritable](#unwritable)
    * [FailureKind](#failurekind)
    * [Fail](#fail)
    * [ParseModuleIdError](#parsemoduleiderror)
@@ -319,7 +328,45 @@ Read an extension's arguments. A wrong kind fails as `Internal` with `what wants
 * `pub fn type_error(what: &str, wanted: &str, got: &Value) -> Fail` - the wrong-kind failure itself.
 * `pub fn kind_name(value: &Value) -> &'static str` - `null`, `bool`, `int`, `uint`, `float`, `string`, `bytes`, `typed array`, `array`, `object`, `variant` or `ref`.
 
-## 8. Error Handling
+## 8. Plain JSON
+
+`snapfire_fsr_core::json`: the JSON anything outside FSR reads and writes. Nothing is tagged, so a key named `$` is a key. The payload encoding between the host and its own client is `snapfire_fsr_payload`.
+
+### stringify
+
+* `pub fn stringify(value: &Value, indent: &str, integers: Integers) -> Result<String, Unwritable>`: `JSON.stringify(value, null, indent)`. `Undefined` and a `Ref` are left out of an object and written `null` in an array or alone. A non-finite double is `null`. A `$date` variant is its ISO string or `null` when invalid, a `$map` or `$set` is `{}`, a `$url` is its href, bytes and a typed array are objects keyed by index and any other variant is `{ "tag": .., "payload": .. }`.
+* `pub enum Integers { Refuse, Digits }`: an integer, JavaScript's `BigInt`, refused as `JSON.stringify` refuses it or written as its digits. The IR's `JSON.stringify` refuses; route handlers, `Response.json`, service bodies, traces and sign-in steps write digits.
+
+### to_json
+
+* `pub fn to_json(value: &Value) -> Result<serde_json::Value, Unwritable>`: `stringify` with no indent and `Integers::Digits`, parsed back for an API that takes `serde_json::Value`.
+
+### to_value
+
+* `pub fn to_value(json: &serde_json::Value) -> Value`: an integral number an `Int`, any other number an `F64`, an object a map whatever its keys, in document order.
+
+### number_text
+
+* `pub fn number_text(n: f64) -> String`: `Number.prototype.toString()`, the shortest digits that read back as the double, fixed between 1e-7 and 1e21 and exponential outside.
+
+## 9. Dates
+
+`snapfire_fsr_core::time`: proleptic Gregorian arithmetic over milliseconds since 1970-01-01 UTC. `MS_PER_DAY` and `MAX_DATE_MS`, the largest instant a `Date` holds either side of 1970.
+
+### iso_string
+
+* `pub fn iso_string(ms: f64) -> Option<String>`: `Date.prototype.toISOString`, a year outside 0 to 9999 as a sign and six digits; `None` for an instant no `Date` holds.
+
+### Calendar Arithmetic
+
+* `pub fn days_from_civil(y: i64, m: u32, d: u32) -> i64` and `pub fn civil_from_days(z: i64) -> (i64, u32, u32)`: a date and its day count since 1970-01-01.
+* `pub fn civil_from_ms(ms: f64) -> (i64, u32, u32)` and `pub fn clock_from_ms(ms: f64) -> (u32, u32, u32, u32)`: the UTC date and the hours, minutes, seconds and milliseconds of an instant.
+
+## 10. Error Handling
+
+### Unwritable
+
+* `pub struct Unwritable(pub String)`: a value plain JSON has no form for under the rule given, a `BigInt` under `Integers::Refuse`.
 
 ### FailureKind
 

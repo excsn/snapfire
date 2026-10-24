@@ -2652,8 +2652,7 @@ fn response_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
       }
     }
     Builtin::ResponseJson => {
-      let mut out = String::new();
-      json_into(&mut out, args.first().unwrap_or(&Value::Undefined), "", 0)?;
+      let out = snapfire_fsr_core::json::stringify(args.first().unwrap_or(&Value::Undefined), "", snapfire_fsr_core::json::Integers::Digits).map_err(|e| Fail::internal(e.0))?;
       response.headers.push(("content-type".to_owned(), "application/json".to_owned()));
       init(&mut response, args.get(1))?;
       response.body = out.into_bytes();
@@ -2838,17 +2837,12 @@ pub(crate) fn console_text(value: &Value) -> String {
   match value {
     Value::Str(s) => s.to_string(),
     Value::Seq(_) | Value::Map(_) => {
-      let mut out = String::new();
-      match json_into(&mut out, value, "", 0) {
-        Ok(()) => out,
-        Err(_) => format!("[{}]", snapfire_fsr_core::ext::kind_name(value)),
-      }
+      snapfire_fsr_core::json::stringify(value, "", snapfire_fsr_core::json::Integers::Digits).unwrap_or_else(|_| format!("[{}]", snapfire_fsr_core::ext::kind_name(value)))
     }
     other => stringify(other).unwrap_or_else(|_| format!("[{}]", snapfire_fsr_core::ext::kind_name(other))),
   }
 }
 
-/// `JSON.stringify` of a value at `depth`, with `indent` per level.
 /// A parsed JSON document as a value: every number an `F64`, as JavaScript's `JSON.parse` reads them, and an object's keys in document order.
 fn json_value(parsed: serde_json::Value) -> Value {
   match parsed {
@@ -2877,83 +2871,6 @@ fn bind_params(scope: &mut Vec<(String, Value)>, params: &[String], args: Vec<Va
     }
     scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
   }
-}
-
-fn json_into(out: &mut String, value: &Value, indent: &str, depth: usize) -> Result<(), Fail> {
-  let newline = |out: &mut String, depth: usize| {
-    if !indent.is_empty() {
-      out.push('\n');
-      for _ in 0..depth {
-        out.push_str(indent);
-      }
-    }
-  };
-  match value {
-    Value::Null | Value::Undefined => out.push_str("null"),
-    Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-    Value::F64(f) if !f.is_finite() => out.push_str("null"),
-    Value::F32(f) if !f.is_finite() => out.push_str("null"),
-    Value::Int(_) | Value::UInt(_) => return Err(Fail::internal("JSON.stringify of a BigInt, which JavaScript throws on")),
-    Value::F64(_) | Value::F32(_) => out.push_str(&stringify(value)?),
-    Value::Str(s) => json_string(out, s),
-    Value::Seq(items) => {
-      if items.is_empty() {
-        out.push_str("[]");
-        return Ok(());
-      }
-      out.push('[');
-      for (i, item) in items.iter().enumerate() {
-        if i > 0 {
-          out.push(',');
-        }
-        newline(out, depth + 1);
-        json_into(out, item, indent, depth + 1)?;
-      }
-      newline(out, depth);
-      out.push(']');
-    }
-    Value::Map(map) => {
-      if map.is_empty() {
-        out.push_str("{}");
-        return Ok(());
-      }
-      out.push('{');
-      for (i, (key, item)) in map.iter().filter(|(_, item)| !matches!(item, Value::Undefined)).enumerate() {
-        if i > 0 {
-          out.push(',');
-        }
-        newline(out, depth + 1);
-        json_string(out, key);
-        out.push(':');
-        if !indent.is_empty() {
-          out.push(' ');
-        }
-        json_into(out, item, indent, depth + 1)?;
-      }
-      newline(out, depth);
-      out.push('}');
-    }
-    other => return Err(type_error("JSON.stringify", "a JSON value", other)),
-  }
-  Ok(())
-}
-
-fn json_string(out: &mut String, s: &str) {
-  out.push('"');
-  for c in s.chars() {
-    match c {
-      '"' => out.push_str("\\\""),
-      '\\' => out.push_str("\\\\"),
-      '\u{8}' => out.push_str("\\b"),
-      '\u{c}' => out.push_str("\\f"),
-      '\n' => out.push_str("\\n"),
-      '\r' => out.push_str("\\r"),
-      '\t' => out.push_str("\\t"),
-      c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-      c => out.push(c),
-    }
-  }
-  out.push('"');
 }
 
 /// JavaScript's `Number.MAX_SAFE_INTEGER`; a double past it has no exact
@@ -3399,9 +3316,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Some(Value::Str(s)) => s.chars().take(10).collect(),
         Some(v) => " ".repeat(number(name, v)?.clamp(0.0, 10.0) as usize),
       };
-      let mut out = String::new();
-      json_into(&mut out, arg(0)?, &indent, 0)?;
-      Value::str(out)
+      Value::str(snapfire_fsr_core::json::stringify(arg(0)?, &indent, snapfire_fsr_core::json::Integers::Refuse).map_err(|e| Fail::internal(e.0))?)
     }
     Builtin::JsonParse => {
       let Value::Str(text) = arg(0)? else { return Err(type_error("JSON.parse", "a string", arg(0)?)) };
@@ -3454,11 +3369,10 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       })
     }
     Builtin::IsoString => {
-      let ms = number(name, arg(0)?)?;
-      if !(ms.abs() <= MAX_DATE_MS) {
-        return Err(Fail::internal("toISOString of an invalid date, which JavaScript throws on"));
+      match snapfire_fsr_core::time::iso_string(number(name, arg(0)?)?) {
+        Some(iso) => Value::str(iso),
+        None => return Err(Fail::internal("toISOString of an invalid date, which JavaScript throws on")),
       }
-      Value::str(crate::std::time::format_utc(ms, "YYYY-MM-DDTHH:mm:ss.SSSZ"))
     }
     Builtin::FromEntries => match arg(0)? {
       Value::Seq(pairs) => {
@@ -3945,41 +3859,7 @@ fn split_limit(args: &[Value]) -> usize {
   }
 }
 
-pub(crate) fn number_text(n: f64) -> String {
-  if n.is_nan() {
-    return "NaN".to_owned();
-  }
-  if n == 0.0 {
-    return "0".to_owned();
-  }
-  if n.is_infinite() {
-    return if n > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
-  }
-  let sign = if n < 0.0 { "-" } else { "" };
-  let shortest = format!("{:e}", n.abs());
-  let length = shortest.split_once('e').expect("`{:e}` writes an exponent").0.replace('.', "").len();
-  let closest = format!("{:.*e}", length - 1, n.abs());
-  let scientific = if closest.parse::<f64>() == Ok(n.abs()) { closest } else { shortest };
-  let (mantissa, exponent) = scientific.split_once('e').expect("`{:e}` writes an exponent");
-  let digits = mantissa.replace('.', "");
-  let k = digits.len() as i64;
-  let point = exponent.parse::<i64>().expect("an integer exponent") + 1;
-  let body = if k <= point && point <= 21 {
-    format!("{digits}{}", "0".repeat((point - k) as usize))
-  } else if 0 < point && point <= 21 {
-    format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
-  } else if -6 < point && point <= 0 {
-    format!("0.{}{digits}", "0".repeat((-point) as usize))
-  } else {
-    let e = point - 1;
-    let e = if e < 0 { format!("-{}", -e) } else { format!("+{e}") };
-    match digits.split_at(1) {
-      (first, "") => format!("{first}e{e}"),
-      (first, rest) => format!("{first}.{rest}e{e}"),
-    }
-  };
-  format!("{sign}{body}")
-}
+pub(crate) use snapfire_fsr_core::json::number_text;
 
 /// An array as JavaScript's `+` reads it, `Array.prototype.join(",")`: an item that is null or undefined is empty and a nested array is joined the same way.
 fn array_text(items: &[Value]) -> Result<String, Fail> {

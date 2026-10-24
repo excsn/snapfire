@@ -102,6 +102,10 @@ const PLAN: &str = r#"{
       "body": [ { "return": { "builtin": { "name": "response", "args": [ { "builtin": { "name": "uint8_array", "args": [ { "array": [ { "item": { "lit": { "int": 71 } } }, { "item": { "lit": { "int": 73 } } }, { "item": { "lit": { "int": 70 } } } ] } ] } }, { "object": [ { "field": [ "headers", { "object": [ { "field": [ "content-type", { "lit": { "str": "image/gif" } } ] } ] } ] } ] } ] } } } ] },
     { "id": "made.POST", "method": "POST", "pattern": "/made", "owner": "lowered", "module": "routes/made/route.ts",
       "body": [ { "return": { "builtin": { "name": "response_json", "args": [ { "object": [ { "field": [ "id", { "lit": { "float": 7.0 } } ] } ] }, { "object": [ { "field": [ "status", { "lit": { "int": 201 } } ] } ] } ] } } } ] },
+    { "id": "counts.GET", "method": "GET", "pattern": "/counts", "owner": "lowered", "module": "routes/counts/route.ts",
+      "body": [ { "return": { "object": [ { "field": [ "none", { "lit": { "float": 0.0 } } ] }, { "field": [ "half", { "lit": { "float": 0.5 } } ] }, { "field": [ "big", { "lit": { "int": 9007199254740993 } } ] }, { "field": [ "$", { "lit": { "str": "x" } } ] }, { "field": [ "gone", { "lit": "undefined" } ] } ] } } ] },
+    { "id": "echo.POST", "method": "POST", "pattern": "/echo", "owner": "lowered", "module": "routes/echo/route.ts",
+      "body": [ { "return": "input" } ] },
     { "id": "away.GET", "method": "GET", "pattern": "/away", "owner": "lowered", "module": "routes/away/route.ts",
       "body": [ { "return": { "builtin": { "name": "response_redirect", "args": [ { "lit": { "str": "https://auth.example/authorize" } } ] } } } ] },
     { "id": "done.POST", "method": "POST", "pattern": "/done", "owner": "lowered", "module": "routes/done/route.ts",
@@ -4836,6 +4840,18 @@ async fn a_route_handler_answers_the_response_it_returns() {
   let response = host.handle(Request::post("/done").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::SEE_OTHER);
   assert_eq!(response.headers()[header::LOCATION], "/thanks");
+}
+
+#[tokio::test]
+async fn a_route_handler_speaks_plain_json_both_ways() {
+  let host = formed();
+  let response = host.handle(Request::get("/counts").body(Bytes::new()).unwrap()).await;
+  assert_eq!(body_of(response).await, r#"{"none":0,"half":0.5,"big":9007199254740993,"$":"x"}"#, "numbers as JSON writes them and an integer as its digits");
+
+  let response = host
+    .handle(Request::post("/echo").header(header::CONTENT_TYPE, "application/json").body(Bytes::from(r#"{"$":"f","v":1}"#)).unwrap())
+    .await;
+  assert_eq!(body_of(response).await, r#"{"$":"f","v":1}"#, "a `$` key is a key, not a tag");
 }
 
 #[tokio::test]

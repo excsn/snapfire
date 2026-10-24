@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use futures_util::future::BoxFuture;
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_payload::{json_to_value, value_to_json};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 
 use crate::call::Call;
@@ -207,7 +206,11 @@ impl Transport for HttpTransport {
       request = request.header(key.as_str(), value.as_str());
     }
     if verb != reqwest::Method::GET && verb != reqwest::Method::DELETE {
-      request = request.json(&value_to_json(&Value::Map(body)));
+      let text = match snapfire_fsr_core::json::stringify(&Value::Map(body), "", snapfire_fsr_core::json::Integers::Digits) {
+        Ok(text) => text,
+        Err(e) => return Box::pin(async move { Err(fail(FailureKind::Internal, e.0)) }),
+      };
+      request = request.header(reqwest::header::CONTENT_TYPE, "application/json").body(text);
     } else {
       let query: Vec<(String, String)> =
         body.iter().map(|(k, v)| (k.clone(), scalar_to_path(v))).collect();
@@ -243,7 +246,7 @@ impl Transport for HttpTransport {
       }
       let json: serde_json::Value =
         serde_json::from_str(&replace_lone_surrogates(&text)).map_err(|e| fail(FailureKind::Internal, e.to_string()))?;
-      json_to_value(&json).map_err(|e| fail(FailureKind::Internal, e.to_string()))
+      Ok(snapfire_fsr_core::json::to_value(&json))
     })
   }
 }

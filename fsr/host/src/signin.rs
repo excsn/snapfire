@@ -175,7 +175,11 @@ impl Host {
       Ok(Step::Redirect(to)) if json => json_response(StatusCode::OK, &serde_json::json!({ "next": "redirect", "to": to })),
       Ok(Step::Redirect(to)) => see_other(&to),
       Ok(Step::Present { kind, data }) if json => {
-        json_response(StatusCode::OK, &serde_json::json!({ "next": "present", "kind": kind, "data": snapfire_fsr_payload::value_to_json(&Value::Map(data)) }))
+        let mut step = ValueMap::default();
+        step.insert("next".to_owned(), Value::str("present"));
+        step.insert("kind".to_owned(), Value::str(kind));
+        step.insert("data".to_owned(), Value::Map(data));
+        plain_response(StatusCode::OK, &Value::Map(step))
       }
       Ok(Step::Present { .. }) => see_other(&login_page(pending, None)),
       Ok(Step::Complete { to, signed_in }) => {
@@ -339,10 +343,9 @@ pub(crate) fn callback_params(req: &Request<Bytes>, query: &Params) -> Result<Va
   if content_type.starts_with("application/json") {
     let json: serde_json::Value =
       serde_json::from_slice(req.body()).map_err(|e| format!("invalid callback body: {e}"))?;
-    return match snapfire_fsr_payload::json_to_value(&json) {
-      Ok(Value::Map(map)) => Ok(map),
-      Ok(_) => Err("the callback body must be an object".to_owned()),
-      Err(e) => Err(format!("invalid callback body: {e}")),
+    return match snapfire_fsr_core::json::to_value(&json) {
+      Value::Map(map) => Ok(map),
+      _ => Err("the callback body must be an object".to_owned()),
     };
   }
   Ok(form_params(req.body()))

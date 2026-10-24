@@ -184,8 +184,8 @@ fn the_handler_and_the_middleware_answer_before_any_page() {
   let session = SessionCell::default();
   watching(&session, &[1, 3]);
   let Value::Map(got) = block_on(app.call_handler("GET", "/api/fleet", session, Value::Null)).unwrap() else { panic!("a map") };
-  assert_eq!(got.get("open"), Some(&Value::int(2i64)));
-  assert_eq!(got.get("watching"), Some(&Value::int(2i64)));
+  assert_eq!(got.get("open"), Some(&Value::F64(2.0)));
+  assert_eq!(got.get("watching"), Some(&Value::F64(2.0)));
 
   let get = |path: &str| block_on(app.handle(http::Request::get(path).body(bytes::Bytes::new()).unwrap()));
   let redirect = get("/dashboard");
@@ -196,6 +196,10 @@ fn the_handler_and_the_middleware_answer_before_any_page() {
   assert!(body.contains("builder-eu-1"), "{body}");
   let plain = get("/help");
   assert_eq!(plain.headers().get("x-ops-console").and_then(|v| v.to_str().ok()), Some("fsr"), "the header the middleware set on the route's response");
+
+  let answered = get("/api/fleet");
+  let json = block_on(async { String::from_utf8(http_body_util::BodyExt::collect(answered.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
+  assert_eq!(json, r#"{"open":2,"watching":0}"#, "a count is a JSON number");
 
   let refused = block_on(app.handle(http::Request::delete("/api/fleet").body(bytes::Bytes::new()).unwrap()));
   assert_eq!(refused.status().as_u16(), 405);

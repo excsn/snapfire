@@ -301,3 +301,16 @@ async fn a_query_parameter_the_transport_carries_goes_out_on_every_call_beside_t
   assert_eq!(target(1), "/fleet/add?key=app+secret");
   assert_eq!(seen[1].body, r#"{"name":"web-2","load":0.1}"#, "the parameter is not an argument");
 }
+
+/// A backend speaks plain JSON: a whole-number double goes out as `2`, the way JavaScript writes it, and a key named `$` comes back as a key.
+#[tokio::test]
+async fn a_backend_reads_and_writes_plain_json() {
+  let (base, seen) = serve(vec![(200, "7"), (200, r#"{"$":"x","v":"y"}"#)]);
+  let contract = contract().service("labels", snapfire_fsr_service::Service::new().method("of", Method::new(vec![], Type::map(Type::Str))));
+  let services = Services::builder().contract(contract).default_transport(Arc::new(HttpTransport::new(&base))).build();
+  let bound = services.bind_anonymous();
+  bound.call("fleet", "add", args(vec![("name", Value::str("web-2")), ("load", Value::F64(2.0))])).await.unwrap();
+  assert_eq!(seen.lock()[0].body, r#"{"name":"web-2","load":2}"#);
+  let got = bound.call("labels", "of", ValueMap::default()).await.unwrap();
+  assert_eq!(got, Value::Map(args(vec![("$", Value::str("x")), ("v", Value::str("y"))])));
+}

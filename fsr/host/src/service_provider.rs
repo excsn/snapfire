@@ -94,14 +94,14 @@ fn param(params: &ValueMap, key: &str) -> Option<String> {
   }
 }
 
-/// A map a step carries, written as a map or as one string in the payload's JSON encoding, which
+/// A map a step carries, written as a map or as one string in plain JSON, which
 /// is how a contract with no open map type declares it.
 fn map_of(map: &ValueMap, key: &str) -> ValueMap {
   match map.get(key) {
     Some(Value::Map(inner)) => inner.clone(),
     Some(Value::Str(text)) => serde_json::from_str::<serde_json::Value>(text)
       .ok()
-      .and_then(|json| snapfire_fsr_payload::json_to_value(&json).ok())
+      .map(|json| snapfire_fsr_core::json::to_value(&json))
       .and_then(|value| match value {
         Value::Map(inner) => Some(inner),
         _ => None,
@@ -111,13 +111,13 @@ fn map_of(map: &ValueMap, key: &str) -> ValueMap {
   }
 }
 
-/// A map as one string in the payload's JSON encoding.
+/// A map as one string in plain JSON.
 fn blob(map: ValueMap) -> Value {
-  Value::str(snapfire_fsr_payload::value_to_json(&Value::Map(map)).to_string())
+  Value::str(snapfire_fsr_core::json::stringify(&Value::Map(map), "", snapfire_fsr_core::json::Integers::Digits).unwrap_or_else(|_| "{}".to_owned()))
 }
 
 /// `{ intent, return_to, method, identity }` as `beginSignIn` takes it, `identity` being
-/// `{ subject, claims }` as one string in the payload's JSON encoding.
+/// `{ subject, claims }` as one string in plain JSON.
 pub fn encode_start(start: &Start) -> ValueMap {
   let mut args = ValueMap::default();
   args.insert("intent".to_owned(), Value::str(if start.intent == Intent::Enrol { "enrol" } else { "sign_in" }));
@@ -140,7 +140,7 @@ pub fn encode_start(start: &Start) -> ValueMap {
 
 /// A step as a service answers it: `{ next: "redirect", to, state }`, `{ next: "present", kind,
 /// data, state }` or `{ next: "complete", subject, claims, tokens }`, each map written as a map or
-/// as one string in the payload's JSON encoding.
+/// as one string in plain JSON.
 pub fn decode_next(answer: Value) -> Result<Next, AuthError> {
   let Value::Map(answer) = answer else {
     return Err(AuthError::Invalid(format!("a sign-in step answered {answer:?}")));

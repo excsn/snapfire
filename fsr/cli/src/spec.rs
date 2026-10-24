@@ -1181,10 +1181,7 @@ impl FetchHooks {
       Value::Map(fields)
     } else {
       match body.as_deref().filter(|b| !b.is_empty()).map(serde_json::from_str::<serde_json::Value>) {
-        Some(Ok(json)) => match json_to_value(&json) {
-          Ok(value) => value,
-          Err(e) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
-        },
+        Some(Ok(json)) => snapfire_fsr_core::json::to_value(&json),
         Some(Err(e)) => return json_response(400, serde_json::json!({ "kind": "invalid", "message": format!("invalid request body: {e}") })),
         None => Value::Null,
       }
@@ -1207,7 +1204,10 @@ impl FetchHooks {
       work.await;
     }
     match ran {
-      Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
+      Ok(outcome) => match snapfire_fsr_core::json::stringify(&outcome.value, "", snapfire_fsr_core::json::Integers::Digits) {
+        Ok(text) => FetchResponse::new(200, text),
+        Err(e) => json_response(500, serde_json::json!({ "kind": "internal", "message": e.0 })),
+      },
       Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
     }
   }

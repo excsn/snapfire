@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d260a1eaa0a5f47ebc5dea284c7e8abf54e49f33baa066252f2e69105fa9dda1 # shrinks to value = Seq([Map({"a": Null, " ": Null})])
+cc adefead278e37d8c0325756b72c9b85ff0ed42677c5164e77d4e7f95da4e572c # shrinks to value = Seq([Seq([F64(4.078708221364741e198)])])

@@ -46,6 +46,18 @@ pub(crate) fn with_headers(response: &mut Response<Body>, headers: &[(String, St
   }
 }
 
+/// `value` as plain JSON, the way anything outside FSR reads it: no tags, integers as their digits.
+pub(crate) fn plain_response(status: StatusCode, value: &Value) -> Response<Body> {
+  match snapfire_fsr_core::json::stringify(value, "", snapfire_fsr_core::json::Integers::Digits) {
+    Ok(text) => Response::builder()
+      .status(status)
+      .header(header::CONTENT_TYPE, "application/json")
+      .body(http_body_util::Full::new(Bytes::from(text)).map_err(|never| match never {}).boxed_unsync())
+      .expect("a json response"),
+    Err(e) => json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({ "kind": "internal", "message": e.0 })),
+  }
+}
+
 pub(crate) fn json_response(status: StatusCode, json: &serde_json::Value) -> Response<Body> {
   Response::builder()
     .status(status)
@@ -364,7 +376,7 @@ impl Host {
     {
       return match self.trace_by_token(token) {
         Some(trace) => {
-          let mut response = json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&trace::one_value(&trace)));
+          let mut response = plain_response(StatusCode::OK, &trace::one_value(&trace));
           response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
           response
         }
@@ -382,7 +394,7 @@ impl Host {
       // source cost is nothing a production client should read.
       if path == "/__fsr/traces" && req.method() == Method::GET {
         let held = self.traces.as_ref().map(|t| t.recent(50)).unwrap_or_default();
-        return json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&trace::to_value(&held)));
+        return plain_response(StatusCode::OK, &trace::to_value(&held));
       }
       if path == "/__fsr/events" && req.method() == Method::GET {
         return self.events(&t);
@@ -891,7 +903,7 @@ impl Host {
       } else {
         match serde_json::from_slice::<serde_json::Value>(req.body())
           .map_err(|e| e.to_string())
-          .and_then(|json| snapfire_fsr_payload::json_to_value(&json).map_err(|e| e.to_string()))
+          .map(|json| snapfire_fsr_core::json::to_value(&json))
         {
           Ok(value) => value,
           Err(e) => {
@@ -917,7 +929,7 @@ impl Host {
         .await
       {
         Ok(value) => match snapfire_fsr_runtime::HttpResponse::from_value(&value) {
-          None => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
+          None => plain_response(StatusCode::OK, &value),
           Some(Ok(answered)) => http_response(answered),
           Some(Err(message)) => json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({ "kind": "internal", "message": message })),
         },

@@ -306,7 +306,7 @@ export const POST = action(async ({ input, session }: ActionCtx<AddToCart>) => {
 
 This is the API route: the same session, identity and services as a page, reached by anything that speaks HTTP. A body test imports a method from the route file the way it imports `load` from a loader. A page spec can `fetch` it. A directory holds a page or a handler but not both.
 
-A `GET` handler also answers `HEAD`. A method the route does not export is answered 405 with an `Allow` header naming the ones it does, so `PUT /api/cart` against a route exporting `GET` and `POST` says `Allow: GET, HEAD, POST`.
+The JSON is plain, the JSON `JSON.stringify` writes: a whole number is `2`, a key named `$` is a key and a `bigint` is written as its digits rather than refused. A JSON request body reads the same way. A `GET` handler also answers `HEAD`. A method the route does not export is answered 405 with an `Allow` header naming the ones it does, so `PUT /api/cart` against a route exporting `GET` and `POST` says `Allow: GET, HEAD, POST`.
 
 ## Middleware
 

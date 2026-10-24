@@ -13,7 +13,6 @@ use apollo_compiler::{ast, Node, Schema};
 use futures_util::future::BoxFuture;
 use indexmap::IndexMap;
 use snapfire_fsr_core::Value;
-use snapfire_fsr_payload::json_to_value;
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 
 use crate::call::Call;
@@ -316,7 +315,7 @@ fn variable_json(value: &Value) -> serde_json::Value {
     Value::Variant { payload: Some(payload), .. } => variable_json(payload),
     Value::Seq(items) => serde_json::Value::Array(items.iter().map(variable_json).collect()),
     Value::Map(map) => serde_json::Value::Object(map.iter().map(|(k, v)| (k.clone(), variable_json(v))).collect()),
-    other => snapfire_fsr_payload::value_to_json(other),
+    other => snapfire_fsr_core::json::to_json(other).unwrap_or(serde_json::Value::Null),
   }
 }
 
@@ -380,7 +379,7 @@ impl Transport for GraphqlTransport {
       let Some(data) = json.as_ref().and_then(|j| j.get("data")) else {
         return Err(fail(FailureKind::Internal, "the answer carries no `data`".to_owned()));
       };
-      json_to_value(data).map_err(|e| fail(FailureKind::Internal, e.to_string()))
+      Ok(snapfire_fsr_core::json::to_value(data))
     })
   }
 }

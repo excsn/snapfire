@@ -153,7 +153,7 @@ pub fn one_value(trace: &Trace) -> snapfire_fsr_core::Value {
 
 /// The script a page on a `trace.inline` path ends with: `trace` as `one_value` writes it, `<` escaped so the text cannot close the script.
 pub fn tail_script(trace: &Trace) -> String {
-  let json = snapfire_fsr_payload::value_to_json(&one_value(trace)).to_string().replace('<', "\\u003c");
+  let json = snapfire_fsr_core::json::stringify(&one_value(trace), "", snapfire_fsr_core::json::Integers::Digits).unwrap_or_else(|_| "null".to_owned()).replace('<', "\\u003c");
   format!("<script type=\"application/json\" id=\"sf-trace\">{json}</script>")
 }
 
