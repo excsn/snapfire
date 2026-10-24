@@ -114,3 +114,20 @@ fn ink_and_the_packages_around_it_are_fsrs_modules() {
     "import React from 'react';\nimport {Box, Text, useInput} from \"@snapfire/fsr/terminal/ink\";\nimport Spinner from \"@snapfire/fsr/terminal/spinner\";\nimport TextInput, {UncontrolledTextInput} from \"@snapfire/fsr/terminal/text-input\";\nimport spinners from \"@snapfire/fsr/terminal/spinners\";\n\nexport default function Ui() {\n  return <Box><Spinner /><Text>{spinners.dots.interval}</Text></Box>;\n}\n"
   );
 }
+
+#[test]
+fn clipboardy_is_the_clipboard_member() {
+  let copier = "import clip from 'clipboardy';\n\nexport async function copy(text: string) {\n  clip.writeSync(text);\n  await clip.write(text);\n  const back = await clip.read();\n  return back + clip.readSync();\n}\n\nexport const later = () => clip.read().then((t) => t.trim());\n";
+  let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/copy.ts", copier)]);
+  let (out, report) = migrate(&t);
+  assert_eq!(
+    out.text("app/src/copy.ts").unwrap(),
+    "import clip from 'clipboardy';\n\nexport async function copy(text: string) {\n  clip.writeSync(text);\n  await clip.write(text);\n  const back = await clip.read();\n  return back + clip.readSync();\n}\n\nexport const later = () => clip.read().then((t) => t.trim());\n",
+    "a file with a use the member does not cover is left whole"
+  );
+  assert!(report.notes.iter().any(|n| n.to_string() == "app/src/copy.ts:10: `clip.read`: `clipboardy` has no FSR counterpart for this use, so the file still imports it"), "{:?}", report.notes);
+  let copier = copier.replace("\nexport const later = () => clip.read().then((t) => t.trim());\n", "");
+  let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/copy.ts", &copier)]);
+  let (out, _) = migrate(&t);
+  assert_eq!(out.text("app/src/copy.ts").unwrap(), "import { clipboard } from \"@snapfire/fsr-client/std\";\n\nexport async function copy(text: string) {\n  clipboard.write(text);\n  clipboard.write(text);\n  const back = clipboard.read();\n  return back + clipboard.read();\n}\n");
+}

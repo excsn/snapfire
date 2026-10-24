@@ -16,7 +16,7 @@ use crate::{Pass, Report, Tree};
 use snapfire_fsr_lower::terminal::REPLACED;
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(GrayMatter), Box::new(Loggers), Box::new(Terminal)]
+  vec![Box::new(GrayMatter), Box::new(Loggers), Box::new(Terminal), Box::new(Clipboardy)]
 }
 
 /// The packages a terminal tool reaches for whose functions FSR's terminal module has, by package and member.
@@ -61,6 +61,132 @@ impl Pass for Terminal {
 }
 
 pub(crate) const STD: &str = "@snapfire/fsr-client/std";
+
+/// `clipboardy`'s `write`, `writeSync`, `read` and `readSync` as `clipboard.write` and `clipboard.read`, which answer at once, so an `await` of one goes with it. A file that uses it any other way is left as written with a note for each use.
+struct Clipboardy;
+
+impl Pass for Clipboardy {
+  fn name(&self) -> &'static str {
+    "clipboardy"
+  }
+
+  fn run(&self, tree: &mut Tree, report: &mut Report) {
+    let paths: Vec<String> = tree.paths().filter(|p| p.starts_with("app/") && is_script(p)).map(str::to_owned).collect();
+    for path in paths {
+      let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
+      if !text.contains("clipboardy") {
+        continue;
+      }
+      let Ok(parsed) = parse(&path, &text) else { continue };
+      let held = held(&parsed, &text, "clipboardy");
+      if held.is_empty() {
+        continue;
+      }
+      let (member, import) = std_member(&parsed, "clipboard");
+      let mut uses = ClipboardUses { parsed: &parsed, text: &text, held: &held, member: &member, edits: Edits::default(), unmapped: Vec::new() };
+      parsed.module.visit_with(&mut uses);
+      let ClipboardUses { mut edits, unmapped, .. } = uses;
+      if !unmapped.is_empty() {
+        for (line, written) in unmapped {
+          report.note(&path, line, format!("`{written}`: `clipboardy` has no FSR counterpart for this use, so the file still imports it"));
+        }
+        continue;
+      }
+      let mut import = import;
+      for h in &held {
+        if !h.dynamic && import.is_some() {
+          edits.replace(h.binding.clone(), import.take().unwrap_or_default());
+        } else {
+          edits.replace(if h.dynamic { h.binding.clone() } else { line_range(&text, h.binding.clone()) }, "");
+        }
+      }
+      if let Some(import) = import {
+        let at = parsed.module.body.first().map(|item| parsed.range(item.span()).start).unwrap_or(0);
+        edits.replace(at..at, format!("{import}\n"));
+      }
+      tree.insert(path, edits.apply(&text));
+    }
+  }
+}
+
+struct ClipboardUses<'a> {
+  parsed: &'a Parsed,
+  text: &'a str,
+  held: &'a [Held],
+  member: &'a str,
+  edits: Edits,
+  /// Each use with no member, by line and as written.
+  unmapped: Vec<(usize, String)>,
+}
+
+impl ClipboardUses<'_> {
+  /// `x.write(text)` or `x.read()` written as the member call, for a call of `clipboardy`'s own methods; `write` and `read` answer a promise, so only where it is awaited or the call is a statement (`settled`).
+  fn mapped(&self, call: &js::CallExpr, settled: bool) -> Option<String> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(m) = &**callee else { return None };
+    let js::Expr::Ident(obj) = &*m.obj else { return None };
+    if !self.held.iter().any(|h| h.local == *obj.sym && !h.namespace) {
+      return None;
+    }
+    let js::MemberProp::Ident(method) = &m.prop else { return None };
+    let args: Vec<&str> = call.args.iter().map(|a| &self.text[self.parsed.range(a.span())]).collect();
+    match (&*method.sym, args.as_slice()) {
+      ("writeSync", [text]) => Some(format!("{}.write({text})", self.member)),
+      ("write", [text]) if settled => Some(format!("{}.write({text})", self.member)),
+      ("readSync", []) => Some(format!("{}.read()", self.member)),
+      ("read", []) if settled => Some(format!("{}.read()", self.member)),
+      _ => None,
+    }
+  }
+}
+
+impl Visit for ClipboardUses<'_> {
+  fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+
+  fn visit_expr_stmt(&mut self, n: &js::ExprStmt) {
+    if let js::Expr::Call(call) = &*n.expr {
+      if let Some(written) = self.mapped(call, true) {
+        self.edits.replace(self.parsed.range(call.span), written);
+        return;
+      }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_expr(&mut self, n: &js::Expr) {
+    let call = match n {
+      js::Expr::Await(a) => match &*a.arg {
+        js::Expr::Call(call) => Some((a.span, call, true)),
+        _ => None,
+      },
+      js::Expr::Call(call) => Some((call.span, call, false)),
+      _ => None,
+    };
+    if let Some((span, call, settled)) = call {
+      if let Some(written) = self.mapped(call, settled) {
+        self.edits.replace(self.parsed.range(span), written);
+        return;
+      }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
+    if let js::Expr::Ident(obj) = &*n.obj {
+      if self.held.iter().any(|h| h.local == *obj.sym) {
+        self.unmapped.push((self.parsed.line(n.span), self.text[self.parsed.range(n.span)].to_owned()));
+        return;
+      }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_ident(&mut self, n: &js::Ident) {
+    if self.held.iter().any(|h| h.local == *n.sym) {
+      self.unmapped.push((self.parsed.line(n.span), n.sym.to_string()));
+    }
+  }
+}
 
 /// A name a file holds a package under: the default export itself or a namespace whose `default` is it.
 struct Held {
