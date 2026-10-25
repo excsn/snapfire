@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ params, services }: Ctx<"/{id}">) {
   const report = await services.metrics.getReport({ id: BigInt(params.id) });

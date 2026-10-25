@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { refresh } from "@snapfire/fsr-client";
+import { refresh } from "@snapfire/fsr/client";
 
 import { actions } from "@generated/client";
 

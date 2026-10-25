@@ -1,4 +1,4 @@
-import { describe, expect, load, settle, test } from "@snapfire/fsr-client/testing";
+import { describe, expect, load, settle, test } from "@snapfire/fsr/client/testing";
 
 const shown = () => [...document.querySelectorAll(".owner-unrendered")].map((el) => `${(el as HTMLElement).dataset.island}=${el.textContent}`);
 

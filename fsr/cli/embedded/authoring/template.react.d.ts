@@ -1,6 +1,6 @@
 /**
  * `./template` as a React application reads it. The build points the
- * `@snapfire/fsr-authoring/template` path here when the import map serves
+ * `@snapfire/fsr/template` path here when the import map serves
  * React, so a file written against the dialect types under React's JSX: its
  * placements are the React module's and its `Children` is `ReactNode`. The
  * elements, attributes and timings are the dialect's own, re-exported.
@@ -24,7 +24,7 @@ export type TemplateNode = ReactElement;
 export type Children = ReactNode;
 export type Component<P = {}> = (props: P) => ReactElement | null;
 
-export { Embed, Island, island, Link, Mount, Picture, Place, Slot } from "@snapfire/fsr-client/react";
+export { Embed, Island, island, Link, Mount, Picture, Place, Slot } from "@snapfire/fsr/client/react";
 export { createContext, useContext as use } from "react";
 export type { Context } from "react";
-export type { ImageAsset, IslandProps, LinkProps, MountProps, PictureProps, PlaceProps, SlotProps } from "@snapfire/fsr-client/react";
+export type { ImageAsset, IslandProps, LinkProps, MountProps, PictureProps, PlaceProps, SlotProps } from "@snapfire/fsr/client/react";

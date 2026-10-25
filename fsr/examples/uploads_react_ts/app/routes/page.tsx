@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
-import { upload } from "@snapfire/fsr-client";
-import { Island } from "@snapfire/fsr-client/react";
+import { upload } from "@snapfire/fsr/client";
+import { Island } from "@snapfire/fsr/client/react";
 import type { RootProps } from "@generated/client";
 
 export default function Page({

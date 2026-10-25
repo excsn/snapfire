@@ -1,4 +1,4 @@
-import { key } from "@snapfire/fsr-client/store";
+import { key } from "@snapfire/fsr/client/store";
 
 /** Open alerts, seeded by the root layout and acknowledged from the alerts slot. */
 export const openAlerts = key<number>("alerts/open");

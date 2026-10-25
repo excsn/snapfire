@@ -1,4 +1,4 @@
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 
 import { probeCount } from "@src/store";
 

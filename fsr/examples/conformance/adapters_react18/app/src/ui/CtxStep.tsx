@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { action } from "@snapfire/fsr-client";
-import { useLocale } from "@snapfire/fsr-client/react";
+import { action } from "@snapfire/fsr/client";
+import { useLocale } from "@snapfire/fsr/client/react";
 
 const touch = action("ctx.$id.touch");
 

@@ -1,4 +1,4 @@
-import type { Scheme, Theme, ThemeChoice, ThemeCtx } from "@snapfire/fsr";
+import type { Scheme, Theme, ThemeChoice, ThemeCtx } from "@snapfire/fsr/host";
 
 /** A site that forces its theme keeps it. Otherwise `?theme=` previews one for a request, then the visitor's saved pick, then the route's own. The scheme is always the visitor's. */
 export function theme({ theme, query, session }: ThemeCtx): ThemeChoice {

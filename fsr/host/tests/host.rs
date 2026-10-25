@@ -6126,14 +6126,14 @@ fn preload_app(dev: bool, tables: &str) -> PathBuf {
   std::fs::create_dir_all(dir.join("dist")).unwrap();
   std::fs::write(
     dir.join("importmap.json"),
-    r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#,
+    r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js"}}"#,
   )
   .unwrap();
   std::fs::write(
     dir.join("dist/.snapfire-build.json"),
     r#"{"publicPath":"/static/js/app/","entries":["src/main.js"],
         "graph":{"src/main.js":["generated/islands.js"]},
-        "externals":["@snapfire/fsr-client"]}"#,
+        "externals":["@snapfire/fsr/client"]}"#,
   )
   .unwrap();
   dir
@@ -6260,7 +6260,7 @@ async fn the_client_preload_names_plain_modules_when_a_static_root_serves_them()
 async fn the_import_map_names_the_build_the_host_serves() {
   let host = tuned_host(&preload_app(false, ""));
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
-  assert!(html.contains(r#""@snapfire/fsr-client":"/static/js/fsr/index.min.js""#), "{html}");
+  assert!(html.contains(r#""@snapfire/fsr/client":"/static/js/fsr/index.min.js""#), "{html}");
   assert!(!html.contains(r#""/static/js/fsr/index.js""#), "{html}");
 }
 
@@ -6268,7 +6268,7 @@ async fn the_import_map_names_the_build_the_host_serves() {
 async fn a_development_import_map_names_the_readable_client() {
   let host = tuned_host(&preload_app(true, ""));
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
-  assert!(html.contains(r#""@snapfire/fsr-client":"/static/js/fsr/index.js""#), "{html}");
+  assert!(html.contains(r#""@snapfire/fsr/client":"/static/js/fsr/index.js""#), "{html}");
   assert!(!html.contains(".min.js"), "{html}");
 }
 
@@ -6281,7 +6281,7 @@ async fn an_application_serving_its_own_client_keeps_the_urls_it_wrote() {
   std::fs::write(dir.join("client/index.js"), "export {}\n").unwrap();
   let host = tuned_host(&dir);
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
-  assert!(html.contains(r#""@snapfire/fsr-client":"/static/js/fsr/index.js""#), "{html}");
+  assert!(html.contains(r#""@snapfire/fsr/client":"/static/js/fsr/index.js""#), "{html}");
   assert!(!html.contains(".min.js"), "{html}");
 }
 
@@ -6319,7 +6319,7 @@ async fn the_policy_hashes_the_import_map_the_document_carries() {
   let dir = tuned_app_with(false, "", "module_preload = true", "[document.csp]\nscript-src = [\"'self'\"]\n");
   std::fs::write(
     dir.join("importmap.json"),
-    r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#,
+    r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js"}}"#,
   )
   .unwrap();
   let host = tuned_host(&dir);
@@ -7044,7 +7044,7 @@ fn minified_app(dev: bool, minified: bool) -> PathBuf {
   let dir = preload_app(dev, "");
   std::fs::write(
     dir.join("importmap.json"),
-    r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js","@app/shared":"/static/js/app/src/shared.js","@app/late":"/static/js/app/src/ui/Late.js"}}"#,
+    r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js","@app/shared":"/static/js/app/src/shared.js","@app/late":"/static/js/app/src/ui/Late.js"}}"#,
   )
   .unwrap();
   let suffix = if minified { r#""minified":".min","# } else { "" };
@@ -7055,7 +7055,7 @@ fn minified_app(dev: bool, minified: bool) -> PathBuf {
         "styles":["src/ui/Card.vue.css"],
         "outputs":["generated/islands.js","generated/islands.min.js","src/main.js","src/main.min.js","src/shared.js","src/shared.min.js","src/ui/Card.vue.css","src/ui/Card.vue.min.css","src/ui/Late.js"],
         "graph":{{"src/main.js":["generated/islands.js"]}},
-        "externals":["@snapfire/fsr-client"]}}"#
+        "externals":["@snapfire/fsr/client"]}}"#
     ),
   )
   .unwrap();

@@ -1,6 +1,6 @@
-import { island } from "@snapfire/fsr-client/react";
+import { island } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 import type { RootProps } from "@generated/client";
 import { TipList } from "@src/ui/Tips";

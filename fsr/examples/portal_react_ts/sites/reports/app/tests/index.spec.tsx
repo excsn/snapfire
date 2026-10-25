@@ -1,4 +1,4 @@
-import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, test } from "@snapfire/fsr/client/testing";
 
 const reports = [
   { id: 1n, name: "Revenue by region", period: "Q3", total: 48210.5 },

@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load(_ctx: Ctx<"/tour">) {
   return { video: { id: "aqz-KE-bpKQ", title: "Big Buck Bunny" } };

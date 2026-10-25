@@ -1,5 +1,5 @@
-import { bindHtmx } from "@snapfire/fsr-client/htmx";
-import { ctx, expect, load, settle, test } from "@snapfire/fsr-client/testing";
+import { bindHtmx } from "@snapfire/fsr/client/htmx";
+import { ctx, expect, load, settle, test } from "@snapfire/fsr/client/testing";
 
 const conference = { name: "Everything At Once", day: "Thursday 18 September", venue: "The Old Exchange", tracks: ["Runtime", "Data"] };
 

@@ -180,7 +180,7 @@ fn roots_dist(prepared: &Prepared, islands: &std::collections::BTreeSet<String>)
 /// A module that renders one page the way the server does: the page as one root and each island as a root of its own with its own hoisted table, each island's markup spliced into the marker its placement left. `__render` takes the tree `render_tree` builds.
 fn bench_module(prepared: &Prepared, page: &Page, islands: &std::collections::BTreeSet<String>) -> std::path::PathBuf {
   let path = prepared.test_dir.join(format!("bench-{}.js", page.name));
-  let mut source = String::from("import { createElement } from \"react\";\nimport { renderToString } from \"react-dom/server\";\nimport { decodeValue } from \"@snapfire/fsr-client\";\nimport { withHoisted } from \"@snapfire/fsr-client/react\";\n");
+  let mut source = String::from("import { createElement } from \"react\";\nimport { renderToString } from \"react-dom/server\";\nimport { decodeValue } from \"@snapfire/fsr/client\";\nimport { withHoisted } from \"@snapfire/fsr/client/react\";\n");
   source.push_str(&format!("import Page from \"./dist-roots/{}\";\n", page.file));
   let mut roots = vec![format!("\"{}\": Page", page.module)];
   for (i, module) in islands.iter().enumerate() {

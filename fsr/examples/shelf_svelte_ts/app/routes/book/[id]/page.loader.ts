@@ -1,5 +1,5 @@
-import type { Ctx } from "@snapfire/fsr";
-import { fail } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
+import { fail } from "@snapfire/fsr/host";
 import { books } from "@src/books";
 
 export async function load({ params, session }: Ctx<"/book/{id}">) {

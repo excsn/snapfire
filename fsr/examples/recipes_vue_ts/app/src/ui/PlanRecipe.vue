@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { get, optimistic } from "@snapfire/fsr-client";
+import { get, optimistic } from "@snapfire/fsr/client";
 
 import { actions } from "@generated/client";
 import { plannedCount } from "@src/store";

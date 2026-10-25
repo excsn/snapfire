@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 
 import type { Blip as Kept, Block as Source, Part as Piece } from "@generated/client";
 import Block from "@src/ui/Block";

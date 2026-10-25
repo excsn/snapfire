@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 
 import HeldProbe from "@src/ui/HeldProbe";
 import HeldVueProbe from "@src/ui/HeldVueProbe.vue";

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@snapfire/fsr/components";
-import { afterEach, beforeAll, beforeEach, describe, expect, fireEvent, fn, it, render, screen, spyOn, test, userEvent, vi, within } from "@snapfire/fsr-client/testing";
+import { afterEach, beforeAll, beforeEach, describe, expect, fireEvent, fn, it, render, screen, spyOn, test, userEvent, vi, within } from "@snapfire/fsr/client/testing";
 
 const order: string[] = [];
 

@@ -52,7 +52,7 @@ The shell's middleware runs first on every path, with `request.site` naming the 
 Two typed things pass between them and neither is a runtime call. The shell's build writes `generated/shell.json`: every store key its loaders seed, typed as the browser reads it, the import map it serves and the exact version of each framework it vendors. A site names that file with `[site] shell` and its build writes `generated/shell.d.ts`, so a site reads the shell's store with the right type and imports React from the shell's URL rather than its own copy.
 
 ```ts
-import { key } from "@snapfire/fsr-client/store";
+import { key } from "@snapfire/fsr/client/store";
 import type { ShellStore } from "@generated/shell";
 
 export const who = key<ShellStore["portal/who"]>("portal/who");

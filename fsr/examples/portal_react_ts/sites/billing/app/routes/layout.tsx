@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
 
 import { who } from "@src/store";

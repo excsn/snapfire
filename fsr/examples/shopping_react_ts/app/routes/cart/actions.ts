@@ -1,5 +1,5 @@
-import { action, fail } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { AddToCart, RemoveFromCart } from "@schemas/cart";
 
 export const addToCart = action(async ({ input, session }: ActionCtx<AddToCart>) => {

@@ -104,9 +104,9 @@ fn a_call_on_use_form_status_data_is_null_since_no_form_is_pending() {
 
 #[test]
 fn use_link_status_is_no_link_pending() {
-  let out = html("link_status", &[("routes/page.tsx", "import { useLinkStatus } from \"@snapfire/fsr-client/react\";\nexport default function Page() {\n  const { pending } = useLinkStatus();\n  const status = useLinkStatus();\n  return <span className={pending ? \"on\" : \"off\"}>{status.pending ? \"opening\" : \"\"}</span>;\n}\n")]);
+  let out = html("link_status", &[("routes/page.tsx", "import { useLinkStatus } from \"@snapfire/fsr/client/react\";\nexport default function Page() {\n  const { pending } = useLinkStatus();\n  const status = useLinkStatus();\n  return <span className={pending ? \"on\" : \"off\"}>{status.pending ? \"opening\" : \"\"}</span>;\n}\n")]);
   assert_eq!(out.as_deref(), Ok("<span class=\"off\"></span>"));
-  let dir = app("link_status_owner", &[("routes/page.tsx", "import { useLinkStatus } from \"@snapfire/fsr-client/react\";\nexport default function Page() {\n  const { pending } = useLinkStatus();\n  return <span>{pending ? \"opening\" : \"\"}</span>;\n}\n")]);
+  let dir = app("link_status_owner", &[("routes/page.tsx", "import { useLinkStatus } from \"@snapfire/fsr/client/react\";\nexport default function Page() {\n  const { pending } = useLinkStatus();\n  return <span>{pending ? \"opening\" : \"\"}</span>;\n}\n")]);
   let mut set = ComponentSet::new(&dir);
   set.lower("routes/page.tsx#default").unwrap();
   std::fs::remove_dir_all(&dir).unwrap();

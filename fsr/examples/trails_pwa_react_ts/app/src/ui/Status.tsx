@@ -1,5 +1,5 @@
-import { online, updateReady } from "@snapfire/fsr-client";
-import { useStore } from "@snapfire/fsr-client/react";
+import { online, updateReady } from "@snapfire/fsr/client";
+import { useStore } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
 
 export default function Status() {

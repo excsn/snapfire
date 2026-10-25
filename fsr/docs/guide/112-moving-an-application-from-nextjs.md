@@ -55,7 +55,7 @@ Every import follows the file it names. A relative specifier is rewritten for bo
 | `getStaticProps`, `getServerSideProps` | `load`, returning the props themselves |
 | `getStaticPaths` | `paths`, one params object per path |
 | `pages/_app`'s `<Component {...pageProps} />` | the layout's `children` |
-| `next/link` | `Link` from `@snapfire/fsr/components`; `useLinkStatus` from `@snapfire/fsr-client/react` |
+| `next/link` | `Link` from `@snapfire/fsr/components`; `useLinkStatus` from `@snapfire/fsr/client/react` |
 | `catchError` or `unstable_catchError` from `next/error` | `catchError` from `app/src/catch-error.tsx`, which `fsr migrate` writes: a React error boundary whose fallback gets the wrapper's props and `{ error, retry, reset }`, `retry` refreshing the page first. It catches what throws inside its own React tree, a React island placed in its children included |
 | `unstable_rethrow` from `next/navigation` | dropped with a note: `redirect` returns a `Response` and nothing FSR does is thrown for a `catch` to swallow |
 | `after` from `next/server` | `after` from `@snapfire/fsr`, written by hand: `fsr migrate` does not rewrite the import yet |
@@ -177,8 +177,8 @@ export async function upvote(feature: Feature) {
 
 ```ts
 // app/routes/actions.ts, after
-import { action } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { Feature } from "@schemas/feature";
 
 export const upvote = action(async ({ input }: ActionCtx<Feature>) => {
@@ -256,7 +256,7 @@ impl Db {
 A relation is an `Option` or a `Vec`, empty unless the call includes it. A value the call reads at request time, directly under `where` or `data` and keyed by one of the model's fields, becomes a parameter typed from that field: `prisma.post.findUnique({ where: { id: postId } })` is `services.db.postFindUniqueById({ id: postId })` answered by `post_find_unique_by_id(&self, id: i32)`. Any other request-time value, such as `{ title: { contains: q } }`, is a note and the call is left for you, with the client module and `schema.prisma` kept until every call is a method. A call in an action becomes a method the same way, the action taking `services` from its context. The loader calls the method through `services`:
 
 ```ts
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ services }: Ctx<"/">) {
   const products = await services.db.productFindManyWithCategory();
@@ -279,7 +279,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ```ts
 // app/routes/layout.loader.ts, after
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ config }: Ctx) {
   return { gaId: config.ga_id };
@@ -296,7 +296,7 @@ Each of these is a note naming the line:
 - `draftMode()`, `cookies()` and `headers()`: a loader reads `session`, `identity` and `query` instead
 - `revalidate`: the data cache sets its time to live under `[cache]`
 - a redirect from a data function: `middleware.ts` answers `Response.redirect(to, 307)`
-- `useRouter`, `usePathname` and `useSearchParams`: a page receives its params and query from its loader; `navigate` from `@snapfire/fsr-client` moves to another page
+- `useRouter`, `usePathname` and `useSearchParams`: a page receives its params and query from its loader; `navigate` from `@snapfire/fsr/client` moves to another page
 - Next's API routes, which take `(req, res)`: a `route.ts` exports `GET`, `POST` and the rest, each taking the request context
 - a title template: `[document] title_template` in `config/app.toml`
 - a `<Script>` with inline code or an `onLoad`: a module `src/main.ts` imports, calling `loadScript` (chapter 305)

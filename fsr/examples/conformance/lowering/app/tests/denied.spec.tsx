@@ -1,4 +1,4 @@
-import { describe, expect, load, test } from "@snapfire/fsr-client/testing";
+import { describe, expect, load, test } from "@snapfire/fsr/client/testing";
 
 const text = (selector: string) => document.querySelector(selector)?.textContent;
 

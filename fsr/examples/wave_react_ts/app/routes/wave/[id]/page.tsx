@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 
 import type { WaveIdProps } from "@generated/client";
 import Blip from "@src/ui/Blip";

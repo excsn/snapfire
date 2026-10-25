@@ -1,5 +1,5 @@
-import { action } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { SayInput } from "@schemas/inputs";
 
 export const say = action(async ({ input, services, session }: ActionCtx<SayInput>) => {

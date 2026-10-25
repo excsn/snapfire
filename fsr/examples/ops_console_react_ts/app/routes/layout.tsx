@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import type { Identity } from "@snapfire/fsr-authoring";
-import { Slot } from "@snapfire/fsr-client/react";
-import { t } from "@snapfire/fsr-client/std";
+import type { Identity } from "@snapfire/fsr/host";
+import { Slot } from "@snapfire/fsr/client/react";
+import { t } from "@snapfire/fsr/client";
 
 import { Header } from "@src/ui/Header";
 

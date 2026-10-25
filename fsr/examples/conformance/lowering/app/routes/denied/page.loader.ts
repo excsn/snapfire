@@ -1,4 +1,4 @@
-import { fail, type Ctx } from "@snapfire/fsr";
+import { fail, type Ctx } from "@snapfire/fsr/host";
 
 export async function load({ query }: Ctx<"/denied">) {
   if (query.as === "forbidden") fail("forbidden", "this shelf is staff only");

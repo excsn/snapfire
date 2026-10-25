@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ identity, services, session }: Ctx) {
   const teams = await services.directory.listTeams();

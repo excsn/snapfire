@@ -10,7 +10,7 @@ pub mod extract;
 mod methods;
 pub mod hoist;
 pub mod meaning;
-pub use meaning::COMPONENTS_MODULE;
+pub use meaning::{COMPONENTS_MODULE, TEMPLATE_MODULE};
 mod placements;
 pub mod schema;
 pub mod testing;
@@ -119,7 +119,7 @@ pub enum LowerError {
 pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, UPLOAD};
 
 /// What a page reaching for Node's modules or its `process` global is told to use.
-pub(crate) const NOT_FSR: &str = "read files, paths and the machine through `file`, `path` and `system` from `@snapfire/fsr-client/std` and the terminal through Ink's `useStdout` and `useApp`; `fsr migrate` rewrites Node's onto them";
+pub(crate) const NOT_FSR: &str = "read files and paths through `file` and `path` from `@snapfire/fsr/host`, which a web host confines to the directories `[files] roots` names; a terminal program reads the machine through `system` from `@snapfire/fsr/terminal` and its screen through Ink's `useStdout` and `useApp`; `fsr migrate` rewrites Node's onto them";
 
 /// Whether `source` is one of Node's own modules, `node:fs` or its bare name `fs`.
 pub(crate) fn node_module(source: &str) -> bool {
@@ -135,12 +135,8 @@ pub(crate) const ERROR_CONSTRUCTORS: [&str; 7] = ["Error", "TypeError", "RangeEr
 /// rewrites them for the browser and the lowerers resolve them here.
 pub const ALIASES: &[(&str, &str)] = &[("@app/", ""), ("@routes/", "routes/"), ("@src/", "src/"), ("@schemas/", "schemas/"), ("@generated/", "generated/"), ("@ext/", "ext/")];
 
-/// The client library's standard library module, whose members lower to
-/// `Expr::Ext` and whose `native` declares an application's own pair.
-pub const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
-
 /// Where `key` comes from: the client library's store.
-pub const STORE_SPECIFIER: &str = "@snapfire/fsr-client/store";
+pub const STORE_SPECIFIER: &str = "@snapfire/fsr/client/store";
 
 /// The directory under the app whose modules are extensions: every export
 /// lowers or the build fails, where a `native` declaration also lives.
@@ -1299,10 +1295,13 @@ impl<'a> Lowerer<'a> {
         None => self.residue(call.span, why),
       });
     }
+    if let Meaning::Library(meaning::Construct::StdModule(_, module)) = &meant {
+      return Err(self.residue(callee.span(), format!("`{module}` from the standard library is a module; call one of its members")));
+    }
     let Some((side, module, name)) = meant.std_member() else { return Ok(None) };
     let key = format!("{module}.{name}");
     let Some(reach) = standard_reach(module, name) else { return Ok(None) };
-    if side == Side::Host && (self.on_render_path() || self.in_handler) && !self.reaches(Reach::Terminal) {
+    if side == Side::Host && self.on_render_path() && !self.reaches(Reach::Terminal) {
       self.reach_violation = true;
       let why = match Side::Client.holds(module, reach) {
         true => format!("`{key}` from `{HOST_ROOT}` in code the browser also runs; import it from `{CLIENT_ROOT}`"),

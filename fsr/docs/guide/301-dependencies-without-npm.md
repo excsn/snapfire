@@ -10,7 +10,7 @@ A browser dependency is a module the browser fetches. fsr keeps those under `app
 
 `fsr add <app> react@19.1.0 react-dom@19.1.0/client` is how a module gets there. It fetches each package from a CDN that serves npm packages as ES modules, bundled as one file per specifier, then writes the file, the import map entry and a manifest recording what was added. A package that depends on another is bundled with it unless `--external` names the dependency, in which case the import stays bare and the dependency is vendored on its own, which is how React and React DOM share one React. A package that imports something outside its bundle that nobody named is refused with the name rather than becoming a runtime 404.
 
-The client library itself, `@snapfire/fsr-client`, is not a package to add. It is built from `fsr/client` with snapfirec and served from that build; the storefront's import map points at it.
+The client library itself, `@snapfire/fsr/client`, is not a package to add. It is built from `fsr/client` with snapfirec and served from that build; the storefront's import map points at it.
 
 ## Type declarations
 
@@ -18,7 +18,7 @@ The editor needs declarations and the build's `tsc` step needs them too; they ar
 
 `fsr build` does the same for whatever is missing before it typechecks, the way it fetches `tsc`, so a fresh checkout builds with `types/` ignored and nothing run beforehand. A package counts as present only when the entry its manifest row records is on disk, so a directory holding `package.json` alone is fetched again. Offline with nothing to fetch from, the build stops with `no declarations for <package>; run fsr types` and the reason the fetch failed. The report's `types` section says which package's declarations came from where; `missing` names the ones it could not find with the reason.
 
-Templates are JSX and the import map decides what types that JSX. An application with `react` in it reads them as React components, since its browser mounts the stateful ones that way. One without it, the recipes example with its Vue islands, gets `"jsxImportSource": "@snapfire/fsr-authoring"` in its `tsconfig.json` and its templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, with no `@types/react` fetched. `fsr add app vue@3.5.44` is how Vue itself gets there, the same way React does.
+Templates are JSX and the import map decides what types that JSX. An application with `react` in it reads them as React components, since its browser mounts the stateful ones that way. One without it, the recipes example with its Vue islands, gets `"jsxImportSource": "@snapfire/fsr/authoring"` in its `tsconfig.json` and its templates are typed by the dialect's own declarations, `@snapfire/fsr/template`, with no `@types/react` fetched. `fsr add app vue@3.5.44` is how Vue itself gets there, the same way React does.
 
 ## Why two directories
 

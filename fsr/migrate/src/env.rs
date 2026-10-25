@@ -291,7 +291,7 @@ fn with_fields(loader: &str, path: &str, fields: &[(String, String)]) -> Option<
 }
 
 fn ctx_import(text: &str) -> String {
-  if text.lines().any(|l| l.starts_with("import") && l.contains("Ctx")) { String::new() } else { "import type { Ctx } from \"@snapfire/fsr\";\n".to_owned() }
+  if text.lines().any(|l| l.starts_with("import") && l.contains("Ctx")) { String::new() } else { "import type { Ctx } from \"@snapfire/fsr/host\";\n".to_owned() }
 }
 
 /// How `load` reaches `config`, `config` from its destructuring or
@@ -431,7 +431,7 @@ mod tests {
     assert!(!layout.contains("process.env"), "{layout}");
     let loader = out.text("app/routes/layout.loader.ts").unwrap();
     assert!(loader.contains("export async function load({ config }: Ctx) {\n  return { gaId: config.ga_id };\n}"), "{loader}");
-    assert!(loader.contains("import type { Ctx } from \"@snapfire/fsr\";"), "{loader}");
+    assert!(loader.contains("import type { Ctx } from \"@snapfire/fsr/host\";"), "{loader}");
     assert_eq!(report.config.iter().filter(|t| t.starts_with("[public]")).collect::<Vec<_>>(), ["[public]\nga_id = \"\"\n"]);
   }
 

@@ -1,4 +1,4 @@
-import { describe, expect, fireEvent, load, settle, test } from "@snapfire/fsr-client/testing";
+import { describe, expect, fireEvent, load, settle, test } from "@snapfire/fsr/client/testing";
 
 const texts = (selector: string) => Array.from(document.querySelectorAll(selector)).map((el) => el.textContent);
 

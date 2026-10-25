@@ -1,4 +1,4 @@
-import type { ImageAsset } from "@snapfire/fsr-client/react";
+import type { ImageAsset } from "@snapfire/fsr/client/react";
 
 import harbour from "../img/harbour.jpg";
 import ridge from "../img/ridge.jpg";

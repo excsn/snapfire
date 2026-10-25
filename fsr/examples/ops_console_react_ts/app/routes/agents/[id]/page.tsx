@@ -1,6 +1,6 @@
-import { get, optimistic } from "@snapfire/fsr-client";
-import { Island } from "@snapfire/fsr-client/react";
-import { t } from "@snapfire/fsr-client/std";
+import { get, optimistic } from "@snapfire/fsr/client";
+import { Island } from "@snapfire/fsr/client/react";
+import { t } from "@snapfire/fsr/client";
 
 import { actions, type AgentsIdProps } from "@generated/client";
 import { JobTimeline } from "@src/ui/JobTimeline";

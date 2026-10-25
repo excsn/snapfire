@@ -1,0 +1,1 @@
+{"version":3,"sources":["/static/js/fsr/native.ts"],"sourcesContent":["/** Declares the browser half of a function whose Rust half the host registers under `name`, `module.member`. */\nexport { native } from \"./std.js\";\n"],"names":[],"mappings":"AACA,SAAS,MAAM,QAAQ,WAAW"}

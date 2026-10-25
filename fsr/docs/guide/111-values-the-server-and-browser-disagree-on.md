@@ -91,7 +91,7 @@ rendered  src/ui/Clock.tsx#Clock             client      src/ui/Clock.tsx:2:34
 client    src/ui/Clock.tsx:2:34              `.getHours()`, which reads the viewer's time zone
 ```
 
-The page still renders on the server. `Clock` arrives as a React island with its props and draws itself in the browser, with no mismatch to report since the server sent no text for it. When the value does not have to be the viewer's, compute it on the server instead: `ctx.now` in the loader passed down as a prop, `toISOString()`, the `getUTC*` methods or `intl.date(when, "long")` from `@snapfire/fsr-client/std` under the request's locale. Then the component renders on the server and the browser computes the same string at hydration.
+The page still renders on the server. `Clock` arrives as a React island with its props and draws itself in the browser, with no mismatch to report since the server sent no text for it. When the value does not have to be the viewer's, compute it on the server instead: `ctx.now` in the loader passed down as a prop, `toISOString()`, the `getUTC*` methods or `intl.date(when, "long")` from `@snapfire/fsr/client` under the request's locale. Then the component renders on the server and the browser computes the same string at hydration.
 
 ## The lab
 

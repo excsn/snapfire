@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Slot } from "@snapfire/fsr-client/react";
+import { Slot } from "@snapfire/fsr/client/react";
 
 import type { LayoutProps } from "@generated/client";
 import { Header } from "@src/ui/Header";

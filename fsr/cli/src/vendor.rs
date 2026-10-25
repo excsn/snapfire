@@ -164,6 +164,9 @@ pub fn import_map_packages(app: &Path, layout: &Layout) -> Result<Vec<String>, B
 
 /// The package part of a bare specifier.
 pub fn package_of(specifier: &str) -> String {
+  if specifier == "@snapfire/fsr" || specifier.starts_with("@snapfire/fsr/") {
+    return crate::types::CLIENT_PACKAGE.to_owned();
+  }
   let parts: Vec<&str> = specifier.split('/').collect();
   if specifier.starts_with('@') && parts.len() >= 2 {
     format!("{}/{}", parts[0], parts[1])
@@ -576,7 +579,7 @@ mod tests {
     assert_eq!(stub_paths(stub), ["/react@18.3.1/es2022/react.mjs", "/react@18.3.1/es2022/jsx-runtime.mjs"]);
     let module = "import*as a from\"./react-dom.mjs\";import b from\"react\";import\"/scheduler@^0.23.2?target=es2022\";";
     assert_eq!(absolute_imports(module), ["/scheduler@^0.23.2?target=es2022"]);
-    assert_eq!(package_of("@snapfire/fsr-client/react"), "@snapfire/fsr-client");
+    assert_eq!(package_of("@snapfire/fsr/client/react"), "@snapfire/fsr/client");
     assert_eq!(package_of("react/jsx-runtime"), "react");
   }
 

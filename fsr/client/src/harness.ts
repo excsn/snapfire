@@ -19,7 +19,7 @@ export interface Sf {
 
 export function sf(): Sf {
   const s = (globalThis as { __sf?: Sf }).__sf;
-  if (!s) throw new Error("@snapfire/fsr-client/testing runs under `fsr test` only");
+  if (!s) throw new Error("@snapfire/fsr/client/testing runs under `fsr test` only");
   return s;
 }
 

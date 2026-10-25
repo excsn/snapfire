@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { useLocale, useStore } from "@snapfire/fsr-client/react";
+import { useLocale, useStore } from "@snapfire/fsr/client/react";
 import { Link, Mount, Picture } from "@snapfire/fsr/components";
 
 import { rendered, unmounted } from "@src/probes";

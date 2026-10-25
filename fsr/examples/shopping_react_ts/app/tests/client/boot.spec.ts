@@ -1,5 +1,5 @@
-import { registerIsland, scan } from "@snapfire/fsr-client";
-import { expect, settle, test } from "@snapfire/fsr-client/testing";
+import { registerIsland, scan } from "@snapfire/fsr/client";
+import { expect, settle, test } from "@snapfire/fsr/client/testing";
 
 test("scan mounts each registered marker once, with its props and whether it has markup", async () => {
   const mounted: unknown[] = [];

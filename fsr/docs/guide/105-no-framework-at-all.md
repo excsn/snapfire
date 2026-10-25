@@ -25,12 +25,12 @@ A template writes the element the way it writes a `div`, with its light DOM insi
 </shed-tally>
 ```
 
-The lowerer takes a hyphenated tag as an element and its attributes as attributes, so the server renders the button with the count in it before any script runs. The dialect's declarations, `@snapfire/fsr-authoring/template`, type a hyphenated tag as a custom element whose attributes are its own, so `<divv>` is still the typo the checker catches while `<shed-tally count={n}>` passes. An attribute the declarations do not name takes a scalar, children, a style object or a handler. An array of objects fails the typecheck, since an attribute on an element nothing hydrates is text. An `hx-get` on an anchor passes for the same reason any hyphenated attribute does.
+The lowerer takes a hyphenated tag as an element and its attributes as attributes, so the server renders the button with the count in it before any script runs. The dialect's declarations, `@snapfire/fsr/template`, type a hyphenated tag as a custom element whose attributes are its own, so `<divv>` is still the typo the checker catches while `<shed-tally count={n}>` passes. An attribute the declarations do not name takes a scalar, children, a style object or a handler. An array of objects fails the typecheck, since an attribute on an element nothing hydrates is text. An `hx-get` on an anchor passes for the same reason any hyphenated attribute does.
 
 The element's module wires what the server wrote:
 
 ```ts
-import { get, subscribe } from "@snapfire/fsr-client/store";
+import { get, subscribe } from "@snapfire/fsr/client/store";
 import { reservedCount } from "../store.js";
 
 class ShedTally extends HTMLElement {
@@ -74,7 +74,7 @@ A template has no hooks, but it can still hand a value to every component it ren
 
 ```tsx
 // src/reserved.ts
-import { createContext } from "@snapfire/fsr-authoring/template";
+import { createContext } from "@snapfire/fsr/template";
 
 export const Reserved = createContext<string[]>([]);
 ```
@@ -122,7 +122,7 @@ export default function LoanPlanner({ deposit, days, max, disabled }: { deposit:
 
 The tool page places the tag and nothing else, `<loan-planner name="days" deposit={tool.deposit} disabled={reserved} max={tool.days} days={days} />`. The file name is the tag. The template's props are the element's attributes, so an array or an object reaches the template without becoming an attribute. The build types the tag with those props in `generated/elements.d.ts`, so a missing `days` or a `max` of the wrong type fails the typecheck at the page, while `name`, which the class reads and the template does not take, passes. A template with state or a handler stops the build, since the class owns the behaviour.
 
-The planner is styled and laid out from the first paint, with no framework and no stylesheet to link. `innerHTML` does not attach declarative shadow roots, so an element that arrives inside an htmx swap finds its template as an ordinary child. `shadowOf` from `@snapfire/fsr-client/elements` answers both cases, the root the parser attached or one attached from the template:
+The planner is styled and laid out from the first paint, with no framework and no stylesheet to link. `innerHTML` does not attach declarative shadow roots, so an element that arrives inside an htmx swap finds its template as an ordinary child. `shadowOf` from `@snapfire/fsr/client/elements` answers both cases, the root the parser attached or one attached from the template:
 
 ```ts
 const root = shadowOf(this, this.#internals);
@@ -226,8 +226,8 @@ A fragment ends with the same inert seed script a document carries, so the store
 
 ```ts
 import htmx from "htmx.org";
-import { boot, enableNavigation } from "@snapfire/fsr-client";
-import { bindHtmx } from "@snapfire/fsr-client/htmx";
+import { boot, enableNavigation } from "@snapfire/fsr/client";
+import { bindHtmx } from "@snapfire/fsr/client/htmx";
 
 boot();
 enableNavigation();

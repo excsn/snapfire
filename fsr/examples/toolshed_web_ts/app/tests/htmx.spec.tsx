@@ -1,5 +1,5 @@
-import { ctx, expect, fireEvent, load, settle, test, waitFor } from "@snapfire/fsr-client/testing";
-import { get, set } from "@snapfire/fsr-client/store";
+import { ctx, expect, fireEvent, load, settle, test, waitFor } from "@snapfire/fsr/client/testing";
+import { get, set } from "@snapfire/fsr/client/store";
 
 import { reservedCount } from "@src/store";
 

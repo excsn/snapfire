@@ -62,7 +62,7 @@ A successful call re-fetches the current route by default and patches the segmen
 An action that creates or deletes the thing its page shows ends with `redirect`, which names the page to land on:
 
 ```ts
-import { action, redirect } from "@snapfire/fsr";
+import { action, redirect } from "@snapfire/fsr/host";
 
 export const deletePost = action<{ id: string }>(async ({ input, services }) => {
   await services.blog.remove({ id: input.id });

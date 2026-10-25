@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { get, optimistic } from "@snapfire/fsr-client";
+  import { get, optimistic } from "@snapfire/fsr/client";
 
   import { actions } from "@generated/client";
   import { doneCount } from "@src/store";

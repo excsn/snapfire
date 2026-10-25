@@ -4,7 +4,7 @@ The question this chapter answers: what may a page or component say so that the 
 
 **For:** app developers.
 
-The components in this chapter are React components, the storefront's, so they need a project that has React: `fsr new <dir> --with react` or `fsr use app react` on one that started bare, since a plain `fsr new` writes no framework. A bare application writes its pages and layouts in the same dialect from `@snapfire/fsr-authoring/template`; it has no hooks and none of the islands they make, since those are React's.
+The components in this chapter are React components, the storefront's, so they need a project that has React: `fsr new <dir> --with react` or `fsr use app react` on one that started bare, since a plain `fsr new` writes no framework. A bare application writes its pages and layouts in the same dialect from `@snapfire/fsr/template`; it has no hooks and none of the islands they make, since those are React's.
 
 ## What the build can read in a component
 
@@ -27,7 +27,7 @@ A page calls helpers: `money(cents)`, `categoryLabel(key)`, `percentOff(price, l
 
 Imports resolve by relative path or by the aliases [chapter 302](302-imports-and-aliases.md) describes, `@src/ui/Header` or `@generated/client`. A namespace import works as a tag: `<Ui.Card>` reaches `Card` in the file `import * as Ui` names. A rest in a destructuring is the object without the named keys, so `{ className, ...rest }` spread onto an element or a component passes everything else through. A bare specifier the render reaches, a chart library say, is residue, since the build cannot read it.
 
-One bare specifier is not residue: `@snapfire/fsr-client/std`, the standard library. `intl.number(n)` groups a number for the document's locale, `intl.currency(n, "USD")`, `intl.date(when, "long")`, `intl.plural(n)`, `intl.list(items)` and `intl.compare(a, b)` do what their names say, `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC and `crypto.hash` is SHA-256. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. The same import works in a loader and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
+One bare specifier is not residue: `@snapfire/fsr/client`, the standard library's side a component imports. Its counterpart `@snapfire/fsr/host` is what a loader imports: the same members plus the ones only a host runs, which no component may import. `intl.number(n)` groups a number for the document's locale, `intl.currency(n, "USD")`, `intl.date(when, "long")`, `intl.plural(n)`, `intl.list(items)` and `intl.compare(a, b)` do what their names say, `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC and `crypto.hash` is SHA-256. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. The same import works in a loader and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
 
 `t("help.title")` is the same idea for text: the message under that key in the locale's catalog, `locales/fr_FR.toml` beside the app, with `t("agents.watching", { count })` picking the plural form and filling `{count}`. The server reads the file, the browser reads the same table the document carried, so the console's help page is three `t` calls instead of two copies of the page.
 
@@ -116,7 +116,7 @@ The first paint comes from the same template, rendered by the evaluator as the p
 A page is composition: the server renders it and the browser never renders it again. A component with state or handlers that the page renders inline is placed as an island by the renderer, in a root of its own that mounts on load. To choose its timing, place it with `Island` from the React adapter:
 
 ```tsx
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 
 <Island when="visible">
   <OrderHelp orderId={order.id} />
@@ -138,7 +138,7 @@ The child need not be React. A `.vue` file imported by a template and placed the
 Two islands are two roots, so a value both of them show cannot be a prop and cannot be context. It is a store key and `useStore` reads like `useState`:
 
 ```tsx
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { cartCount } from "@src/store";
 
 const [items, setItems] = useStore(cartCount, 0);
@@ -169,7 +169,7 @@ FSR has no `signal()`, because the store already does what signals are used for.
 | a signal one component owns | `useState` in React, `ref` or `computed` in Vue |
 
 ```ts
-import { derive, key, subscribe, transaction, set } from "@snapfire/fsr-client/store";
+import { derive, key, subscribe, transaction, set } from "@snapfire/fsr/client/store";
 
 export const price = key<number>("cart/price");
 export const qty = key<number>("cart/qty");

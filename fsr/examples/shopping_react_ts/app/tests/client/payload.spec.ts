@@ -1,5 +1,5 @@
-import { nodeToHtml, parsePayload, renderSegment } from "@snapfire/fsr-client";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { nodeToHtml, parsePayload, renderSegment } from "@snapfire/fsr/client";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 const wire = ['V {"fmt":1,"enc":"json"}', 'N ["q",[["t","a<b"],["c",{"m":"x#y","p":{"n":{"$":"i","v":"1"}},"s":["r","<p>hi</p>"]}],["p",1,["t","soon"]]]]', 'G {"k":"shell#document","c":[{"k":"x#y","p":[1],"c":[]}]}', 'S 1 {"n":["t","done"]}', ""].join("\n");
 

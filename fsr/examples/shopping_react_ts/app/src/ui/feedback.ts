@@ -1,5 +1,5 @@
 import Swal from "sweetalert2";
-import { ActionFailure } from "@snapfire/fsr-client";
+import { ActionFailure } from "@snapfire/fsr/client";
 
 import { money } from "./money";
 

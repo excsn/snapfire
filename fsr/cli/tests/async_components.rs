@@ -9,7 +9,7 @@ const CHART: &str = "async function points(): Promise<number[]> {\n  return [1, 
 fn project(tag: &str, page: &str) -> Scratch {
   let root = Scratch::new(tag);
   create(root.path(), NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
-  root.write("app/importmap.json", r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#);
+  root.write("app/importmap.json", r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#);
   root.write("app/vendor/.fsr-vendor.json", r#"{"packages":{"react":{"version":"19.3.1"},"react-dom":{"version":"19.3.1"}}}"#);
   root.write("app/routes/page.tsx", page);
   root.write("app/src/Chart.tsx", CHART);

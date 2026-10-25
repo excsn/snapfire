@@ -1,4 +1,4 @@
-import { live, socket, type Socket } from "@snapfire/fsr-client";
+import { live, socket, type Socket } from "@snapfire/fsr/client";
 
 interface Wire {
   topic: string;

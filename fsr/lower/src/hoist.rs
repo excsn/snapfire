@@ -718,7 +718,7 @@ const READER: &str = "__sfh";
 /// The prop an island placement carries its region key on, read by `Island`.
 const KEY_PROP: &str = "__sfKey";
 /// The import the rewrite adds at the top of a file.
-pub const IMPORT: &str = "import { useHoisted as __sfUseHoisted, useBrowser as __sfUseBrowser } from \"@snapfire/fsr-client/react\";\n";
+pub const IMPORT: &str = "import { useHoisted as __sfUseHoisted, useBrowser as __sfUseBrowser } from \"@snapfire/fsr/client/react\";\n";
 
 /// One splice: the range replaced (empty for an insertion), the text and the
 /// order among edits at one position, lower first.

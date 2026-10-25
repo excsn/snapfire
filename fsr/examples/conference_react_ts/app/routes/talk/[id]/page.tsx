@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { island, Island } from "@snapfire/fsr-client/react";
+import { island, Island } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
 
 import type { TalkIdProps } from "@generated/client";

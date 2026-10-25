@@ -54,7 +54,7 @@ fn development_renders_live_and_previews_what_a_prerender_would_write_when_asked
   let root = project();
   std::fs::create_dir_all(root.join("app/routes/cart")).unwrap();
   std::fs::write(root.join("app/routes/cart/page.tsx"), page("cart")).unwrap();
-  std::fs::write(root.join("app/routes/cart/page.loader.ts"), "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ session }: Ctx) {\n  return { who: session.id };\n}\n").unwrap();
+  std::fs::write(root.join("app/routes/cart/page.loader.ts"), "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load({ session }: Ctx) {\n  return { who: session.id };\n}\n").unwrap();
   let dir = root.join("app/dist/prerender");
   let runtime = tokio::runtime::Runtime::new().unwrap();
 

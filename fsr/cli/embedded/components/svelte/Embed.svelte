@@ -1,5 +1,5 @@
 <script>
-  import { embed } from "@snapfire/fsr-client/svelte";
+  import { embed } from "@snapfire/fsr/client/svelte";
   let options = $props();
   let parts = $derived(embed(options));
 </script>

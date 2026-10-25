@@ -1,4 +1,4 @@
-import { expect, fireEvent, load, screen, test } from "@snapfire/fsr-client/testing";
+import { expect, fireEvent, load, screen, test } from "@snapfire/fsr/client/testing";
 
 test("the home page renders its cards and links into the site", async () => {
   await load("/");

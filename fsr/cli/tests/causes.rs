@@ -23,7 +23,7 @@ fn built(tag: &str, files: &[(&str, &str)]) -> Built {
   let root = root(tag);
   create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
-  write(&app, "importmap.json", r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#);
+  write(&app, "importmap.json", r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#);
   write(&app, "vendor/.fsr-vendor.json", r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#);
   for (name, source) in files {
     write(&app, name, source);
@@ -76,7 +76,7 @@ fn two_pages_over_one_leaf_are_one_cause() {
       ("src/ui/Header.tsx", HEADER),
       ("routes/page.tsx", &page("Index")),
       ("routes/other/page.tsx", &page("Other")),
-      ("routes/other/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\n\nexport async function load(_ctx: Ctx<\"/other\">) {\n  return {};\n}\n"),
+      ("routes/other/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr/host\";\n\nexport async function load(_ctx: Ctx<\"/other\">) {\n  return {};\n}\n"),
     ],
   );
   let report = &built.report;

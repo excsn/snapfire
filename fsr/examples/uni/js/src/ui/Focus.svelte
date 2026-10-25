@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { key } from "@snapfire/fsr-client";
-  import { island, useStore } from "@snapfire/fsr-client/svelte";
+  import { key } from "@snapfire/fsr/client";
+  import { island, useStore } from "@snapfire/fsr/client/svelte";
 
   interface Holding {
     symbol: string;

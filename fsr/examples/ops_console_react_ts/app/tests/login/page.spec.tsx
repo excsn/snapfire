@@ -1,7 +1,7 @@
-import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr/client/testing";
 
 import LoginPage from "@routes/login/page";
-import { render } from "@snapfire/fsr-client/testing";
+import { render } from "@snapfire/fsr/client/testing";
 
 function services() {
   return { fleet: { listAgents: () => [], listAlerts: () => [] } };

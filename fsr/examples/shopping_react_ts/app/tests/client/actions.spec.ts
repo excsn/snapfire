@@ -1,5 +1,5 @@
-import { action, ActionFailure } from "@snapfire/fsr-client";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { action, ActionFailure } from "@snapfire/fsr/client";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 test("an action the build did not lower fails with the kind and message the host answered", async () => {
   const call = action("cart.nothing", { revalidate: false });

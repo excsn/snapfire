@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 
 import Line from "@src/ui/Line";
 

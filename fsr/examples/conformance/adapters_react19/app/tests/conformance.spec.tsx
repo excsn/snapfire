@@ -1,5 +1,5 @@
-import { clear, set } from "@snapfire/fsr-client/store";
-import { ctx, describe, expect, fireEvent, load, render, settle, spyOn, test, waitFor } from "@snapfire/fsr-client/testing";
+import { clear, set } from "@snapfire/fsr/client/store";
+import { ctx, describe, expect, fireEvent, load, render, settle, spyOn, test, waitFor } from "@snapfire/fsr/client/testing";
 
 import { tally } from "@src/probes";
 import { probeCount, probeOther } from "@src/store";

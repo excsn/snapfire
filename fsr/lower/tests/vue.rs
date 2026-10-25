@@ -104,8 +104,8 @@ fn runtime() -> BTreeMap<String, String> {
   let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compiler/vue/tests/runtime/esm");
   let mut modules: BTreeMap<String, String> = snapfire_vue::SERVER_RUNTIME.iter().map(|(specifier, file)| ((*specifier).to_owned(), std::fs::read_to_string(dir.join(file)).expect("the runtime is vendored for tests"))).collect();
   modules.extend([
-    ("@snapfire/fsr-client/vue".to_owned(), "export function useStore(key, initial) { return { value: initial }; }\nexport function useLinkStatus() { return { pending: false }; }\n".to_owned()),
-    ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\n".to_owned()),
+    ("@snapfire/fsr/client/vue".to_owned(), "export function useStore(key, initial) { return { value: initial }; }\nexport function useLinkStatus() { return { pending: false }; }\n".to_owned()),
+    ("@snapfire/fsr/client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\n".to_owned()),
     ("@generated/client".to_owned(), "export const actions = {};\n".to_owned()),
     ("@src/store".to_owned(), "export const plannedCount = \"tonight/planned\";\n".to_owned()),
   ]);
@@ -317,7 +317,7 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
 #[test]
 fn a_page_placing_a_described_component_that_does_not_lower_keeps_it_foreign_and_says_why() {
   let compiler = Compiler::new().expect("the compiler boots");
-  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Box from \"@src/ui/Box.vue\";\nexport default function Page() {\n  return <main><Island><Box /></Island></main>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/template\";\nimport Box from \"@src/ui/Box.vue\";\nexport default function Page() {\n  return <main><Island><Box /></Island></main>;\n}\n";
   let dir = app("page", &[("routes/page.tsx", page), ("src/ui/Box.vue", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n")]);
   let mut set = ComponentSet::new(&dir);
   set.describe("src/ui/Box.vue", describe(&compiler, "src/ui/Box.vue", &std::fs::read_to_string(dir.join("src/ui/Box.vue")).unwrap()));
@@ -334,7 +334,7 @@ fn a_page_placing_a_described_component_that_does_not_lower_keeps_it_foreign_and
 #[test]
 fn the_client_adapters_placements_lower_inside_a_vue_template_as_they_do_in_jsx() {
   let compiler = Compiler::new().expect("the compiler boots");
-  let source = "<script setup lang=\"ts\">\nimport { Link, Mount, Picture, useLocale } from \"@snapfire/fsr-client/vue\";\nconst props = defineProps<{ nest: string[] }>();\nconst locale = useLocale();\n</script>\n<template>\n  <section>\n    <p class=\"locale\">{{ locale }}</p>\n    <Link href=\"/next\" class=\"next\">next</Link>\n    <Picture src=\"/pictures/probe.png\" alt=\"probe\" :width=\"4\" :height=\"4\" />\n    <Mount v-for=\"module in props.nest\" :key=\"module\" :module=\"module\" :props=\"{ label: 'nested' }\" />\n  </section>\n</template>\n";
+  let source = "<script setup lang=\"ts\">\nimport { Link, Mount, Picture, useLocale } from \"@snapfire/fsr/client/vue\";\nconst props = defineProps<{ nest: string[] }>();\nconst locale = useLocale();\n</script>\n<template>\n  <section>\n    <p class=\"locale\">{{ locale }}</p>\n    <Link href=\"/next\" class=\"next\">next</Link>\n    <Picture src=\"/pictures/probe.png\" alt=\"probe\" :width=\"4\" :height=\"4\" />\n    <Mount v-for=\"module in props.nest\" :key=\"module\" :module=\"module\" :props=\"{ label: 'nested' }\" />\n  </section>\n</template>\n";
   let dir = app("placements", &[]);
   let set = lower(&compiler, &dir, "src/ui/Probe.vue", source).unwrap_or_else(|e| panic!("the placements lower: {e}"));
   let (_, component) = set.components.iter().find(|(m, _)| m == "src/ui/Probe.vue#default").expect("lowered, not foreign");
@@ -351,7 +351,7 @@ fn a_vue_components_handlers_lower_to_steps_that_write_its_refs_and_the_store() 
   use snapfire_fsr_ir::render::{HandlerRef, HANDLER_ATTR, UNLOWERED_ATTR};
   let source = r#"<script setup lang="ts">
 import { ref } from "vue";
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 
 const n = ref(0);
 const count = useStore("probe/count", 0);
@@ -1110,13 +1110,13 @@ fn a_typed_script_declares_its_component_s_props_for_a_tsx_placement() {
   assert_eq!(snapfire_fsr_lower::vue::props_declaration_path("src/ui/Card.vue"), "generated/vue/src/ui/Card.d.vue.ts");
 }
 
-const STORE_KEYS: &str = "import { key } from \"@snapfire/fsr-client/store\";\nexport const owner = key<string>(\"repro/owner\");\n";
+const STORE_KEYS: &str = "import { key } from \"@snapfire/fsr/client/store\";\nexport const owner = key<string>(\"repro/owner\");\n";
 
 #[test]
 fn an_island_that_does_not_lower_still_names_the_store_keys_it_reads() {
   let compiler = Compiler::new().expect("the compiler boots");
-  let vue = "<script setup lang=\"ts\">\nimport { inject } from \"vue\";\nimport { useStore } from \"@snapfire/fsr-client/vue\";\nimport { owner } from \"../store\";\nconst tone = inject(\"tone\", () => \"plain\", true);\nconst value = useStore(owner, \"none\");\nconst count = useStore(\"cart/count\", 0);\n</script>\n<template><p>{{ value }} {{ count }} {{ tone }}</p></template>\n";
-  let tsx = "import { useThing } from \"thing-lib\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { owner } from \"../store\";\nexport default function Browser() {\n  const id = useThing();\n  const [value] = useStore(owner, \"none\");\n  const [count] = useStore(\"cart/count\", 0);\n  return <p id={id}>{value}{count}</p>;\n}\n";
+  let vue = "<script setup lang=\"ts\">\nimport { inject } from \"vue\";\nimport { useStore } from \"@snapfire/fsr/client/vue\";\nimport { owner } from \"../store\";\nconst tone = inject(\"tone\", () => \"plain\", true);\nconst value = useStore(owner, \"none\");\nconst count = useStore(\"cart/count\", 0);\n</script>\n<template><p>{{ value }} {{ count }} {{ tone }}</p></template>\n";
+  let tsx = "import { useThing } from \"thing-lib\";\nimport { useStore } from \"@snapfire/fsr/client/react\";\nimport { owner } from \"../store\";\nexport default function Browser() {\n  const id = useThing();\n  const [value] = useStore(owner, \"none\");\n  const [count] = useStore(\"cart/count\", 0);\n  return <p id={id}>{value}{count}</p>;\n}\n";
   let dir = app("reads", &[("src/store.ts", STORE_KEYS), ("src/ui/Browser.tsx", tsx)]);
   let mut set = ComponentSet::new(&dir);
   set.describe("src/ui/Foreign.vue", describe(&compiler, "src/ui/Foreign.vue", vue));
@@ -1129,7 +1129,7 @@ fn an_island_that_does_not_lower_still_names_the_store_keys_it_reads() {
 
 #[test]
 fn an_island_reading_a_key_the_build_cannot_follow_reads_nothing_it_knows() {
-  let tsx = "import { useStore } from \"@snapfire/fsr-client/react\";\nexport default function Dynamic({ which }: { which: string }) {\n  const [value] = useStore(which, \"none\");\n  return <p>{value}</p>;\n}\n";
+  let tsx = "import { useStore } from \"@snapfire/fsr/client/react\";\nexport default function Dynamic({ which }: { which: string }) {\n  const [value] = useStore(which, \"none\");\n  return <p>{value}</p>;\n}\n";
   let dir = app("reads-unknown", &[("src/ui/Dynamic.tsx", tsx)]);
   let mut set = ComponentSet::new(&dir);
   assert!(set.store_reads("src/ui/Dynamic.tsx").is_empty());
@@ -1548,7 +1548,7 @@ fn an_options_child_that_emits_from_created_writes_its_parents_data_before_the_p
 fn use_link_status_renders_no_link_pending_as_vue_does() {
   let compiler = Compiler::new().expect("the compiler boots");
   let dir = app("link_status", &[]);
-  let source = "<script setup lang=\"ts\">\nimport { useLinkStatus } from \"@snapfire/fsr-client/vue\";\nconst status = useLinkStatus();\n</script>\n<template>\n  <span class=\"opening\" :class=\"{ 'opening-on': status.pending }\">{{ status.pending ? \"opening\" : \"\" }}</span>\n</template>\n";
+  let source = "<script setup lang=\"ts\">\nimport { useLinkStatus } from \"@snapfire/fsr/client/vue\";\nconst status = useLinkStatus();\n</script>\n<template>\n  <span class=\"opening\" :class=\"{ 'opening-on': status.pending }\">{{ status.pending ? \"opening\" : \"\" }}</span>\n</template>\n";
   let html = agree(&compiler, &dir, "src/ui/Opening.vue", source, &props(&[]), "");
   assert_eq!(html, "<span class=\"opening\"></span>");
   std::fs::remove_dir_all(&dir).unwrap();

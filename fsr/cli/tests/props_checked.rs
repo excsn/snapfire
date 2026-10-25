@@ -39,7 +39,7 @@ fn diagnostics(root: &Path, checker: &Path) -> Vec<String> {
   checked.expect("the checker ran").diagnostics.iter().map(|d| d.to_string()).collect()
 }
 
-const CONTINENT_LOADER: &str = r#"import type { Failure } from "@snapfire/fsr";
+const CONTINENT_LOADER: &str = r#"import type { Failure } from "@snapfire/fsr/host";
 
 function lookup(code: string): { name: string } {
   if (code === "") throw new Error("none");
@@ -57,7 +57,7 @@ export async function load() {
 "#;
 
 const CONTINENT_PAGE: &str = r#"import type { RootProps } from "@generated/client";
-import type { FailureKind } from "@snapfire/fsr";
+import type { FailureKind } from "@snapfire/fsr/host";
 
 export default function Index({ continent, failed }: RootProps) {
   const kind: FailureKind | null = failed;
@@ -70,7 +70,7 @@ const RECIPES: &str = "export const RECIPES = [{ slug: \"a\", title: \"A\" }, { 
 const RECIPE_PAGE: &str = "import type { RecipeSlugProps } from \"@generated/client\";\n\nexport default function Recipe({ recipe }: RecipeSlugProps) {\n  return <h1>{recipe.title}</h1>;\n}\n";
 
 fn recipe_loader(guard: &str) -> String {
-  format!("import {{ fail }} from \"@snapfire/fsr\";\nimport type {{ Ctx }} from \"@snapfire/fsr\";\nimport {{ RECIPES }} from \"../../../src/recipes\";\n\nexport async function load({{ params }}: Ctx<\"/recipe/{{slug}}\">) {{\n  const recipe = RECIPES.find((r) => r.slug === params.slug);\n  {guard}\n  return {{ recipe }};\n}}\n")
+  format!("import {{ fail }} from \"@snapfire/fsr/host\";\nimport type {{ Ctx }} from \"@snapfire/fsr/host\";\nimport {{ RECIPES }} from \"../../../src/recipes\";\n\nexport async function load({{ params }}: Ctx<\"/recipe/{{slug}}\">) {{\n  const recipe = RECIPES.find((r) => r.slug === params.slug);\n  {guard}\n  return {{ recipe }};\n}}\n")
 }
 
 /// DEFECTS 1.156 and 1.157: a union from `try` and `catch`, a cast in the `catch` and every guard that rules a value out type as the checker reads the loader.

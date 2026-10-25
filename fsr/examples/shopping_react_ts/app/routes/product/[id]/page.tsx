@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { get, optimistic } from "@snapfire/fsr-client";
+import { get, optimistic } from "@snapfire/fsr/client";
 
 import { actions, type ProductIdProps } from "@generated/client";
 import { cartCount } from "@src/store";

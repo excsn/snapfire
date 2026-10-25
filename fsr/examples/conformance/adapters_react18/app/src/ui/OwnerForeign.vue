@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { inject } from "vue";
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 
 import { owner } from "@src/store";
 

@@ -37,7 +37,7 @@ export type DateStyle = "short" | "medium" | "long" | "full";
 
 export type TextWidth = "long" | "short" | "narrow";
 
-/** A date at a `style`, or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
+/** A date at a `style` or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
 export interface DateOptions {
   style?: DateStyle;
   weekday?: TextWidth;
@@ -65,7 +65,7 @@ export const intl = {
     const { locale, display, ...rest } = options ?? {};
     return bridged<string>("intl.currency", [n, code, options ?? null]) ?? new Intl.NumberFormat(locale ?? localeTag(), { style: "currency", currency: code, currencyDisplay: display ?? "code", ...rest }).format(n);
   },
-  /** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style`, `medium` by default, or at the parts the options name. */
+  /** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style` (`medium` by default) or at the parts the options name. */
   date(when: number | string, style: DateStyle | DateOptions = "medium"): string {
     const ms = typeof when === "string" ? time.parse(when) : when;
     if (ms === null) throw new Error(`intl.date: \`${when}\` is not an ISO 8601 date`);
@@ -303,7 +303,7 @@ export interface Spawned {
   off(event: "exit" | "close" | "error", f: (...args: never[]) => void): void;
 }
 
-/** A value scoped to a call: `run(value, fn)` holds `value` while `fn` runs, `get()` reads it, `undefined` outside any `run`, and `set(value)` holds it from then on. A terminal page keeps it across the awaits inside `fn`. */
+/** A value scoped to a call: `run(value, fn)` holds `value` while `fn` runs, `get()` reads it (`undefined` outside any `run`) and `set(value)` holds it from then on. A terminal page keeps it across the awaits inside `fn`. */
 export class Scope<T> {
   #value: T | undefined = undefined;
   run<R>(value: T, fn: (...args: never[]) => R, ...args: never[]): R {
@@ -323,7 +323,7 @@ export class Scope<T> {
   }
 }
 
-/** A member whose Rust half is the only one: `fsr test` answers it through the runner, and a browser has no answer. */
+/** A member whose Rust half is the only one: `fsr test` answers it through the runner. A browser has no answer. */
 function terminalOnly<T>(name: string, args: unknown[]): T {
   const sf = (globalThis as { __sf?: Bridge }).__sf;
   if (!sf?.ext) throw new Error(`${name} runs in a terminal page only`);
@@ -470,26 +470,32 @@ function sha256(s: string): Uint8Array {
 
 /** A structured line at each level, `fields` whatever goes with the message; on the server it is a `tracing` event under `fsr::app`, here a console line. `fatal` is `error` in the console. */
 export const log = {
+  /** `message` at trace level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
   trace(message: string, fields?: unknown): null {
     console.debug(message, ...(fields === undefined ? [] : [fields]));
     return null;
   },
+  /** `message` at debug level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
   debug(message: string, fields?: unknown): null {
     console.debug(message, ...(fields === undefined ? [] : [fields]));
     return null;
   },
+  /** `message` at info level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
   info(message: string, fields?: unknown): null {
     console.info(message, ...(fields === undefined ? [] : [fields]));
     return null;
   },
+  /** `message` at warn level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
   warn(message: string, fields?: unknown): null {
     console.warn(message, ...(fields === undefined ? [] : [fields]));
     return null;
   },
+  /** `message` at error level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
   error(message: string, fields?: unknown): null {
     console.error(message, ...(fields === undefined ? [] : [fields]));
     return null;
   },
+  /** `message` at fatal level with `fields` beside it: the server traces it at error under `fsr::app`, the browser writes it to the console. */
   fatal(message: string, fields?: unknown): null {
     console.error(message, ...(fields === undefined ? [] : [fields]));
     return null;
@@ -509,7 +515,7 @@ export const crypto = {
     for (let i = 0; i < Math.min(computed.length, given.length); i++) diff |= computed.charCodeAt(i) ^ given.charCodeAt(i);
     return diff === 0;
   },
-  /** `bytes` random bytes as `hex`, the default, or `base64`. Server only on a render path. */
+  /** `bytes` random bytes as `hex` (the default) or `base64`. Server only on a render path. */
   random(bytes: number, encoding: "hex" | "base64" = "hex"): string {
     const buf = new Uint8Array(Math.max(0, Math.min(1024, bytes)));
     globalThis.crypto.getRandomValues(buf);

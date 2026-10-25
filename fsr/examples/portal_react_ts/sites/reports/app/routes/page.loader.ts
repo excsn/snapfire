@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 import { og } from "@generated/head";
 
 export async function load({ services }: Ctx) {

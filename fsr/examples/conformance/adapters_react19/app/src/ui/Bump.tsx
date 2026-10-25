@@ -1,4 +1,4 @@
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 
 import { owner } from "@src/store";
 

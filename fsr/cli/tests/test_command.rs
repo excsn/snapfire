@@ -9,7 +9,7 @@ const SPEC: &str = "import { expect, test } from \"@snapfire/fsr/testing\";\n\nt
 fn project(tag: &str, rust_test: Option<&str>) -> Scratch {
   let root = Scratch::new(tag);
   root.write("config/app.toml", "[server]\nlisten = \"127.0.0.1:0\"\n\n[session]\nkey = \"test-command-key\"\nttl = \"1h\"\n");
-  root.write("app/importmap.json", r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#);
+  root.write("app/importmap.json", r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js"}}"#);
   root.write("app/routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n");
   root.write("app/tests/page.test.ts", SPEC);
   if let Some(body) = rust_test {

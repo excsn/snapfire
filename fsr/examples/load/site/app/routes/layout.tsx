@@ -1,4 +1,4 @@
-import type { Children } from "@snapfire/fsr-authoring/template";
+import type { Children } from "@snapfire/fsr/template";
 import { Link } from "@snapfire/fsr/components";
 
 export default function Layout({ children }: { children: Children }) {

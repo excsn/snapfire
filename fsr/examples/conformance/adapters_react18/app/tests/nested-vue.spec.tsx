@@ -1,4 +1,4 @@
-import { advance, ctx, expect, fireEvent, load, settle, spyOn, test } from "@snapfire/fsr-client/testing";
+import { advance, ctx, expect, fireEvent, load, settle, spyOn, test } from "@snapfire/fsr/client/testing";
 
 
 const finishPantry = async () => {

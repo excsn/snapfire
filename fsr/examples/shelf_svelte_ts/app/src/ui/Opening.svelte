@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { useLinkStatus } from "@snapfire/fsr-client/svelte";
+  import { useLinkStatus } from "@snapfire/fsr/client/svelte";
 
   const status = useLinkStatus();
 </script>

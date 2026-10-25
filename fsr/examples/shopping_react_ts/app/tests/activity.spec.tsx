@@ -1,5 +1,5 @@
-import { enableNavigation } from "@snapfire/fsr-client";
-import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { enableNavigation } from "@snapfire/fsr/client";
+import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 const order = { id: 5001n, total_cents: 7200n, lines: [{ product_id: 1n, name: "PLA filament", quantity: 2n, line_cents: 4800n }] };
 

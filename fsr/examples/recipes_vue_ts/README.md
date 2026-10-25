@@ -2,7 +2,7 @@
 
 A household recipe box: six recipes, a page per recipe, what is planned for tonight kept in the session and two panels beside them of which one is always down.
 
-What it shows is a second framework fitting the seam. The pages are TypeScript templates the build lowers and the host renders, the same as every other example. Every interactive piece is a Vue single-file component: a `.vue` file under `src/ui/`, compiled by `snapfirec-vue` out of process, placed by a page as an island and mounted by Vue in the browser. There is no React anywhere in the application: not in the import map, not in the vendor tree, not in the bundle and not in the type declarations, since the templates import `Island`, `Link` and `Children` from `@snapfire/fsr-authoring/template` and the typecheck reads JSX through the dialect's own declarations.
+What it shows is a second framework fitting the seam. The pages are TypeScript templates the build lowers and the host renders, the same as every other example. Every interactive piece is a Vue single-file component: a `.vue` file under `src/ui/`, compiled by `snapfirec-vue` out of process, placed by a page as an island and mounted by Vue in the browser. There is no React anywhere in the application: not in the import map, not in the vendor tree, not in the bundle and not in the type declarations, since the templates import `Island`, `Link` and `Children` from `@snapfire/fsr/template` and the typecheck reads JSX through the dialect's own declarations.
 
 ## Running it
 
@@ -82,7 +82,7 @@ Break a component. Put an unclosed tag in `src/ui/Scaler.vue` and build: the plu
 Give a page state. Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. This application's import map has no React, so the build stops:
 
 ```text
-`routes/page.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
+`routes/page.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react`, `react` or `react-dom/client`
 ```
 
 That line is the whole reason the static rule exists.

@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 
 import DensityLabel from "@src/planner/DensityLabel";
 import Export from "@src/planner/Export";

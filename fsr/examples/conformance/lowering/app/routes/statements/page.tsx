@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 
 import Badge from "@src/ui/Badge";
 import Chooser from "@src/ui/Chooser";

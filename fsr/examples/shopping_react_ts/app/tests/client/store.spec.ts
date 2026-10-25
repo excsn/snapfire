@@ -1,6 +1,6 @@
-import { clear, derive, get, key, optimistic, seed, set, snapshot, subscribe, transaction } from "@snapfire/fsr-client";
-import { contribute } from "@snapfire/fsr-client/store";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { clear, derive, get, key, optimistic, seed, set, snapshot, subscribe, transaction } from "@snapfire/fsr/client";
+import { contribute } from "@snapfire/fsr/client/store";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 let n = 0;
 /** A fresh key per test, since the store is one map for the whole run. */

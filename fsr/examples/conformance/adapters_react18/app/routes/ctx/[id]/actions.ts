@@ -1,5 +1,5 @@
-import { action } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { Touch } from "@schemas/ctx";
 
 export const touch = action(async ({ input, session, identity, locale, services }: ActionCtx<Touch>) => {

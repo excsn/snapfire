@@ -21,7 +21,7 @@ fn fixture(name: &str) -> Vec<u8> {
   std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(name)).unwrap()
 }
 
-const PAGE: &str = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+const PAGE: &str = r#"import { Picture } from "@snapfire/fsr/template";
 import hero from "../src/img/hero.png";
 import inter from "../fonts/Inter-Regular.woff2";
 
@@ -41,7 +41,7 @@ fn built(tag: &str, toml: &str) -> (PathBuf, Built) {
   let root = root(tag);
   create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
-  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
   std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
   std::fs::create_dir_all(app.join("src/img")).unwrap();
@@ -114,15 +114,15 @@ fn the_build_sees_the_image_and_the_fonts_and_writes_the_manifest_the_plan_rows_
   assert!(map["assets"]["fonts/Inter-Bold.woff2"]["url"].as_str().unwrap().ends_with(".woff2"), "every face is in the map, imported or not");
   assert!(fonts.referenced.is_empty(), "a face under the directory is not a referenced file too: {:?}", fonts.referenced);
   let declarations = &built.files.iter().find(|(n, _)| n == "generated/assets.d.ts").unwrap().1;
-  assert!(declarations.contains("declare module \"*.png\" { const asset: import(\"@snapfire/fsr-authoring/template\").ImageAsset; export default asset; }"), "{declarations}");
+  assert!(declarations.contains("declare module \"*.png\" { const asset: import(\"@snapfire/fsr/template\").ImageAsset; export default asset; }"), "{declarations}");
   assert!(declarations.contains("declare module \"*.woff2\" { const url: string; export default url; }"), "{declarations}");
 
   write(&app, &built).unwrap();
   let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(app.join("generated/assets.json")).unwrap()).unwrap();
   assert_eq!(manifest["version"], 1);
   assert_eq!(manifest["entries"][0]["source"], "src/img/hero.png");
-  assert!(app.join("types/@snapfire/fsr-authoring/template.d.ts").is_file());
-  assert!(std::fs::read_to_string(app.join("types/@snapfire/fsr-authoring/template.d.ts")).unwrap().contains("export function Picture(props: PictureProps): TemplateNode;"));
+  assert!(app.join("types/@snapfire/fsr/authoring/template.d.ts").is_file());
+  assert!(std::fs::read_to_string(app.join("types/@snapfire/fsr/authoring/template.d.ts")).unwrap().contains("export function Picture(props: PictureProps): TemplateNode;"));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn the_derive_pass_writes_the_variants_and_the_font_copies_once_and_keeps_them_a
   assert_eq!(std::fs::read(dist.join(format!("src/img/hero.{hash}.png"))).unwrap(), fixture("hero.png"));
 }
 
-const TAGGED_PAGE: &str = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+const TAGGED_PAGE: &str = r#"import { Picture } from "@snapfire/fsr/template";
 import photo from "../src/img/photo.jpg";
 
 export default function Page() {
@@ -178,7 +178,7 @@ fn tagged(strip: &str) -> (PathBuf, Built) {
   let root = root("tagged");
   create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
-  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
   std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
   std::fs::create_dir_all(app.join("src/img")).unwrap();

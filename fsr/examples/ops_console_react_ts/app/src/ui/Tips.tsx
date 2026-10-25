@@ -1,4 +1,4 @@
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 export function TipList() {
   return (

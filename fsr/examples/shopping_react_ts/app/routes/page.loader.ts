@@ -1,4 +1,4 @@
-import type { Ctx, DataOf, MetaCtx } from "@snapfire/fsr";
+import type { Ctx, DataOf, MetaCtx } from "@snapfire/fsr/host";
 import { preloadImage } from "@snapfire/fsr/head";
 import { PHOTOS } from "@src/ui/photos";
 

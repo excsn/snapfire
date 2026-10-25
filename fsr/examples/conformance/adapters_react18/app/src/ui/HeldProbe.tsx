@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 
 import HeldLate from "@src/ui/HeldLate";
 import { probeCount, probeOther } from "@src/store";

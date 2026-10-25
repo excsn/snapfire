@@ -23,7 +23,7 @@ cd /tmp/trails && C5_SESSION__KEY=$(openssl rand -hex 32) RELEASE_ENV=production
 | The browser offers to install it | `[pwa]` in `config/app.toml` writes `/manifest.webmanifest` from `name`, `short_name`, `theme_color` and `background_color`, with the 192 and 512 icons from `app/icons/`. |
 | A trail you opened reads the same with the server stopped | The host's worker at `/sw.js` keeps each page and payload it fetched that is not `private`. When the network fails it answers from those. |
 | A trail you never opened shows "No signal" | `offline = "/offline"`: the worker precaches that route and shows it for a page it never kept. |
-| "Offline: you are reading saved pages." in the header | `Status` reads `online` from `@snapfire/fsr-client` through `useStore`; the client keeps it current from the browser's `online` and `offline` events. |
+| "Offline: you are reading saved pages." in the header | `Status` reads `online` from `@snapfire/fsr/client` through `useStore`; the client keeps it current from the browser's `online` and `offline` events. |
 | "A new version is ready. Open it" after a deploy | The new build's worker takes over the open page and the client sets `updateReady`. The page keeps running on the modules it loaded, which the worker kept from the build before. |
 
 ## Checking it

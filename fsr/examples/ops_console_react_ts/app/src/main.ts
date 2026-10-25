@@ -1,7 +1,7 @@
-import { boot, derive, enableNavigation, get } from "@snapfire/fsr-client";
+import { boot, derive, enableNavigation, get } from "@snapfire/fsr/client";
 import { registerIslands } from "@generated/islands.js";
 
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 import { headline, openAlerts, watching } from "./store.js";
 

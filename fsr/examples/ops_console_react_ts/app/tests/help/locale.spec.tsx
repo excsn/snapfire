@@ -1,5 +1,5 @@
-import { currentLocale, localePath } from "@snapfire/fsr-client";
-import { ctx, expect, load, render, screen, test } from "@snapfire/fsr-client/testing";
+import { currentLocale, localePath } from "@snapfire/fsr/client";
+import { ctx, expect, load, render, screen, test } from "@snapfire/fsr/client/testing";
 
 import Help from "@routes/help/page";
 

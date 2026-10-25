@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import { useState, type ReactNode } from "react";
 
 import DensityLabel from "@src/planner/DensityLabel";

@@ -1,4 +1,4 @@
-import type { ImageAsset } from "@snapfire/fsr-client/react";
+import type { ImageAsset } from "@snapfire/fsr/client/react";
 
 import p1 from "../img/products/1.png";
 import p2 from "../img/products/2.png";

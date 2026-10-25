@@ -1,4 +1,4 @@
-import { get, subscribe } from "@snapfire/fsr-client/store";
+import { get, subscribe } from "@snapfire/fsr/client/store";
 
 import { reservedCount } from "../store.js";
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 
 import { watchedKey } from "./Watch.js";
 

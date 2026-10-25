@@ -12,14 +12,14 @@ fn app() -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let dir = std::env::temp_dir().join(format!("fsr-cli-types-{}-{nanos}-{n}", std::process::id()));
   std::fs::create_dir_all(dir.join("types/react")).unwrap();
-  std::fs::create_dir_all(dir.join("types/@snapfire/fsr-client")).unwrap();
+  std::fs::create_dir_all(dir.join("types/@snapfire/fsr/client")).unwrap();
   std::fs::create_dir_all(dir.join("types/sweetalert2")).unwrap();
   std::fs::create_dir_all(dir.join("types/csstype")).unwrap();
   std::fs::write(dir.join("types/react/index.d.ts"), "export = React;").unwrap();
-  std::fs::write(dir.join("types/@snapfire/fsr-client/index.d.ts"), "export {};").unwrap();
+  std::fs::write(dir.join("types/@snapfire/fsr/client/index.d.ts"), "export {};").unwrap();
   std::fs::write(dir.join("types/sweetalert2/sweetalert2.d.ts"), "declare module 'sweetalert2' {}").unwrap();
   std::fs::write(dir.join("types/csstype/index.d.ts"), "export {};").unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","react/jsx-runtime":"/x","sweetalert2":"/y","@snapfire/fsr-client":"/z","lodash":"/w"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","react/jsx-runtime":"/x","sweetalert2":"/y","@snapfire/fsr/client":"/z","lodash":"/w"}}"#).unwrap();
   let mut manifest = TypesManifest::default();
   manifest.packages.insert("react".into(), TypedPackage::new("18.3.31".into(), "@types/react".into(), "index.d.ts".into(), false));
   manifest.packages.insert("sweetalert2".into(), TypedPackage::new("11.26.25".into(), "sweetalert2".into(), "sweetalert2.d.ts".into(), true));
@@ -31,14 +31,14 @@ fn app() -> PathBuf {
 fn the_tsconfig_maps_every_typed_package_and_includes_ambient_entries() {
   let dir = app();
   let ts = tsconfig(&dir, true, false, false, &[]).unwrap();
-  assert!(ts.contains("\"@snapfire/fsr\": [\"./generated/fsr\"]"), "{ts}");
+  assert!(ts.contains("\"@snapfire/fsr/host\": [\"./generated/host\"]"), "{ts}");
   assert!(ts.contains("\"react\": [\"./types/react/index.d.ts\"]"), "{ts}");
   assert!(ts.contains("\"react/*\": [\"./types/react/*\"]"), "a subpath such as react/jsx-runtime resolves under the package: {ts}");
   assert!(ts.contains("\"csstype\": [\"./types/csstype/index.d.ts\"]"), "a dependency with no import map entry is still mapped: {ts}");
-  assert!(ts.contains("\"@snapfire/fsr-client\": [\"./types/@snapfire/fsr-client/index.d.ts\"]"), "{ts}");
+  assert!(ts.contains("\"@snapfire/fsr/client\": [\"./types/@snapfire/fsr/client/index.d.ts\"]"), "{ts}");
   assert!(!ts.contains("\"sweetalert2\": ["), "an ambient entry is not path-mapped: {ts}");
   assert!(ts.contains("\"types/sweetalert2/sweetalert2.d.ts\"]"), "it is included instead: {ts}");
-  assert!(ts.contains("\"@snapfire/fsr-authoring/template\": [\"./types/@snapfire/fsr-authoring/template.react\"]"), "with react served the dialect's module is typed through React: {ts}");
+  assert!(ts.contains("\"@snapfire/fsr/template\": [\"./types/@snapfire/fsr/authoring/template.react\"]"), "with react served the dialect's module is typed through React: {ts}");
   assert!(!ts.contains("jsxImportSource"), "{ts}");
   assert!(ts.contains("\"strict\": true"));
   assert!(ts.contains("\"include\": [\"generated/**/*\", \"types/sweetalert2/sweetalert2.d.ts\"]"), "only the directories the app has, plus generated when the build is writing it: {ts}");
@@ -48,7 +48,7 @@ fn the_tsconfig_maps_every_typed_package_and_includes_ambient_entries() {
   assert_eq!(row("react"), "types/react  @types/react 18.3.31");
   assert!(!rows.iter().any(|(n, _)| n == "csstype"), "a dependency the import map does not name is not a row");
   assert_eq!(row("lodash"), "missing; run `fsr types`");
-  assert_eq!(row("@snapfire/fsr-authoring"), format!("types/@snapfire/fsr-authoring  fsr {}", env!("CARGO_PKG_VERSION")), "the fsr packages are always listed");
+  assert_eq!(row("@snapfire/fsr/authoring"), format!("types/@snapfire/fsr/authoring  fsr {}", env!("CARGO_PKG_VERSION")), "the fsr packages are always listed");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -79,9 +79,9 @@ fn the_foreign_shim_comes_from_the_sources_and_the_placements_and_lands_under_ty
 #[test]
 fn without_react_the_dialect_types_its_own_module() {
   let dir = app();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client":"/z"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client":"/z"}}"#).unwrap();
   let ts = tsconfig(&dir, true, false, false, &[]).unwrap();
-  assert!(ts.contains("\"jsxImportSource\": \"@snapfire/fsr-authoring\""), "{ts}");
+  assert!(ts.contains("\"jsxImportSource\": \"@snapfire/fsr/authoring\""), "{ts}");
   assert!(!ts.contains("template.react"), "{ts}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -92,11 +92,11 @@ fn each_package_has_one_status_row_wherever_the_import_map_repeats_it() {
   let dir = app();
   std::fs::write(
     dir.join("importmap.json"),
-    r#"{"imports":{"@snapfire/fsr-client":"/a","react":"/b","@snapfire/fsr-authoring/template":"/c","@snapfire/fsr-client/store":"/d"}}"#,
+    r#"{"imports":{"@snapfire/fsr/client":"/a","react":"/b","@snapfire/fsr/template":"/c","@snapfire/fsr/client/store":"/d"}}"#,
   )
   .unwrap();
   let rows: Vec<String> = status(&dir).unwrap().into_iter().map(|(package, _)| package).collect();
-  assert_eq!(rows, vec!["@snapfire/fsr-authoring", "@snapfire/fsr-client", "react"]);
+  assert_eq!(rows, vec!["@snapfire/fsr/authoring", "@snapfire/fsr/client", "react"]);
 }
 
 #[test]
@@ -104,20 +104,20 @@ fn a_build_that_rewrites_fsrs_own_declarations_records_the_version_it_wrote() {
   let dir = app();
   let layout = Layout::default();
   let mut manifest = TypesManifest::read(&dir, &layout).unwrap();
-  manifest.packages.insert("@snapfire/fsr-client".into(), TypedPackage::new("0.5.0".into(), "fsr".into(), "index.d.ts".into(), false));
+  manifest.packages.insert("@snapfire/fsr/client".into(), TypedPackage::new("0.5.0".into(), "fsr".into(), "index.d.ts".into(), false));
   manifest.write(&dir, &layout).unwrap();
 
   snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
   let after = TypesManifest::read(&dir, &layout).unwrap();
-  assert_eq!(after.packages["@snapfire/fsr-client"].version, env!("CARGO_PKG_VERSION"), "the record names the binary whose declarations are on disk");
+  assert_eq!(after.packages["@snapfire/fsr/client"].version, env!("CARGO_PKG_VERSION"), "the record names the binary whose declarations are on disk");
   assert_eq!(after.packages["react"].version, "18.3.31", "a package fsr did not write keeps its record");
 
   snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
   manifest = TypesManifest::read(&dir, &layout).unwrap();
-  manifest.packages.get_mut("@snapfire/fsr-client").unwrap().version = "0.8.1".into();
+  manifest.packages.get_mut("@snapfire/fsr/client").unwrap().version = "0.8.1".into();
   manifest.write(&dir, &layout).unwrap();
   snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
-  assert_eq!(TypesManifest::read(&dir, &layout).unwrap().packages["@snapfire/fsr-client"].version, env!("CARGO_PKG_VERSION"), "the files already matched, and the record still says what wrote them");
+  assert_eq!(TypesManifest::read(&dir, &layout).unwrap().packages["@snapfire/fsr/client"].version, env!("CARGO_PKG_VERSION"), "the files already matched and the record still says what wrote them");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -148,7 +148,7 @@ fn fsr_types_reports_each_package_it_wrote_once() {
   snapfire_fsr_cli::new::create(root.path(), snapfire_fsr_cli::new::NewOptions::default().fetch(false)).unwrap();
   let report = snapfire_fsr_cli::types::fetch(&root.join("app"), false).unwrap();
   let mut packages: Vec<&str> = report.fetched.iter().map(|(package, _, _)| package.as_str()).collect();
-  assert!(packages.contains(&"@snapfire/fsr-client"), "{:?}", report.fetched);
+  assert!(packages.contains(&"@snapfire/fsr/client"), "{:?}", report.fetched);
   let all = packages.len();
   packages.sort();
   packages.dedup();

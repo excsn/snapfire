@@ -1,6 +1,6 @@
-import { catalog, setLocale } from "@snapfire/fsr-client";
-import { t } from "@snapfire/fsr-client/std";
-import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
+import { catalog, setLocale } from "@snapfire/fsr/client";
+import { t } from "@snapfire/fsr/client";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr/client/testing";
 
 function services() {
   return { fleet: { listAgents: () => [], listAlerts: () => [] } };

@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, settle, spyOn, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, settle, spyOn, test } from "@snapfire/fsr/client/testing";
 
 test("a Svelte island among an island's children reads the context it sets and follows it", async () => {
   const warned = spyOn(console, "warn");

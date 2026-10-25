@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load(_: Ctx<"/streamed">) {
   return { by: "alpha" };

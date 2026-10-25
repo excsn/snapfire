@@ -1,4 +1,4 @@
-# @snapfire/fsr-client
+# @snapfire/fsr/client
 
 The browser half of SnapFire FSR. It decodes the tagged JSON the server encoded, mounts island components over server-rendered markup, fills streamed slots as they arrive, navigates between routes by patching segments instead of reloading and calls server actions by id. The server halves it pairs with are `snapfire_fsr_payload`, which owns the JSON pair, the HTML serialiser and the row protocol; and `snapfire_fsr_runtime`, which owns segments, streaming and the action endpoint. Task-by-task instructions live in [README.USAGE.md](README.USAGE.md) and every signature is in [API_REFERENCE.md](API_REFERENCE.md).
 
@@ -22,8 +22,8 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
   "imports": {
     "react": "/static/js/vendor/react/react.js",
     "react-dom/client": "/static/js/vendor/react/react-dom-client.js",
-    "@snapfire/fsr-client": "/static/js/fsr/index.js",
-    "@snapfire/fsr-client/react": "/static/js/fsr/react.js",
+    "@snapfire/fsr/client": "/static/js/fsr/index.js",
+    "@snapfire/fsr/client/react": "/static/js/fsr/react.js",
     "react/jsx-runtime": "/static/js/vendor/react/react-jsx-runtime.js"
   }
 }
@@ -31,11 +31,11 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 
 | Entry point | Output file | Bare imports it needs |
 | --- | --- | --- |
-| `@snapfire/fsr-client` | `dist/index.js` | none |
-| `@snapfire/fsr-client/react` | `dist/react.js` | `react`, `react-dom/client` |
-| `@snapfire/fsr-client/vue` | `dist/vue.js` | `vue` |
-| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelte`, `svelte/reactivity` |
-| `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | none |
+| `@snapfire/fsr/client` | `dist/index.js` | none |
+| `@snapfire/fsr/client/react` | `dist/react.js` | `react`, `react-dom/client` |
+| `@snapfire/fsr/client/vue` | `dist/vue.js` | `vue` |
+| `@snapfire/fsr/client/svelte` | `dist/svelte.js` | `svelte`, `svelte/reactivity` |
+| `@snapfire/fsr/client/jsx-runtime` | `dist/jsx-runtime.js` | none |
 
 `react/jsx-runtime` is not imported by this package. It is what `snapfirec` emits for a `.tsx` component compiled under `"jsx": "react-jsx"`, so an application with JSX components needs the entry even though its components carry no React import.
 
@@ -56,12 +56,12 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | End the islands in a subtree you are about to remove | `discard`, `reactUnmounter` |
 | Delay hydration until the island scrolls into view | `when: "visible"` |
 | Place a link, a picture, another framework's island, a video embed or a place in any framework | `Link`, `Picture`, `Mount`, `Embed`, `Place` from `@snapfire/fsr/components` |
-| Mount React components | `reactMounter` from `@snapfire/fsr-client/react` |
-| Mount Vue components | `vueMounter` from `@snapfire/fsr-client/vue` |
-| Read the store as a Vue ref | `useStore` from `@snapfire/fsr-client/vue` |
-| Mount Svelte components | `svelteMounter` from `@snapfire/fsr-client/svelte` |
-| Read the store as a Svelte store | `useStore` from `@snapfire/fsr-client/svelte`, then `$count` |
-| Place another framework's island in markup a Svelte component writes itself | `{@attach island(module, props)}` from `@snapfire/fsr-client/svelte` |
+| Mount React components | `reactMounter` from `@snapfire/fsr/client/react` |
+| Mount Vue components | `vueMounter` from `@snapfire/fsr/client/vue` |
+| Read the store as a Vue ref | `useStore` from `@snapfire/fsr/client/vue` |
+| Mount Svelte components | `svelteMounter` from `@snapfire/fsr/client/svelte` |
+| Read the store as a Svelte store | `useStore` from `@snapfire/fsr/client/svelte`, then `$count` |
+| Place another framework's island in markup a Svelte component writes itself | `{@attach island(module, props)}` from `@snapfire/fsr/client/svelte` |
 | Mount anything else | your own `Mounter` |
 | Take over link clicks and history | `enableNavigation` |
 | Warm a route before its link is clicked | `prefetch`, on by default for hovered, focused and touched links |
@@ -72,7 +72,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Send as fast as someone types and take rows back | `socket`, one WebSocket per topic |
 | Call a server action by id | `action` |
 | Match on why an action failed | `ActionFailure` and its `kind` |
-| Render a page or load a route, query it by role and act as a user, under `fsr test` | `render`, `load`, `screen`, `userEvent`, `fireEvent`, `describe`, `it`, `expect` and `fn` from `@snapfire/fsr-client/testing` |
+| Render a page or load a route, query it by role and act as a user, under `fsr test` | `render`, `load`, `screen`, `userEvent`, `fireEvent`, `describe`, `it`, `expect` and `fn` from `@snapfire/fsr/client/testing` |
 | Parse a whole payload response yourself | `parsePayload` |
 | Parse a single node row | `decodeNode` |
 | Turn a decoded node back into HTML | `nodeToHtml`, `renderSegment` |

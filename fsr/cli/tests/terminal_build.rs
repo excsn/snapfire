@@ -17,7 +17,7 @@ fn app(files: &[(&str, &str)]) -> std::path::PathBuf {
 }
 
 /// The import map `fsr new` writes: the client and no framework.
-const IMPORT_MAP: &str = r#"{"imports":{"@snapfire/fsr-client":"/c","@snapfire/fsr-client/jsx-runtime":"/j","@snapfire/fsr-client/std":"/s","@snapfire/fsr-client/store":"/st"}}"#;
+const IMPORT_MAP: &str = r#"{"imports":{"@snapfire/fsr/client":"/c","@snapfire/fsr/client/jsx-runtime":"/j","@snapfire/fsr":"/s","@snapfire/fsr/client/store":"/st"}}"#;
 
 fn islands(built: &snapfire_fsr_cli::Built) -> Vec<String> {
   built.files.iter().map(|(f, _)| f.clone()).filter(|f| f.contains(".island")).collect()

@@ -1,6 +1,6 @@
-import { localePath } from "@snapfire/fsr-client";
-import { useLocale } from "@snapfire/fsr-client/react";
-import { t } from "@snapfire/fsr-client/std";
+import { localePath } from "@snapfire/fsr/client";
+import { useLocale } from "@snapfire/fsr/client/react";
+import { t } from "@snapfire/fsr/client";
 
 const NAMES: Record<string, string> = { en_US: "English", fr_FR: "Français" };
 

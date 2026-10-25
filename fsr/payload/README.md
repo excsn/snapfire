@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_payload/badge.svg)](https://docs.rs/snapfire_fsr_payload)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The encoding layer of SnapFire FSR. It turns the `Value` and `Node` vocabulary of `snapfire_fsr_core` into the three forms a response can leave the server in: the lossless tagged JSON pair, the HTML string with island markers and props, then the line-oriented row protocol the browser client reads while the response is still open. The browser half that decodes the same tags and rows is `@snapfire/fsr-client` under `fsr/client`. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+The encoding layer of SnapFire FSR. It turns the `Value` and `Node` vocabulary of `snapfire_fsr_core` into the three forms a response can leave the server in: the lossless tagged JSON pair, the HTML string with island markers and props, then the line-oriented row protocol the browser client reads while the response is still open. The browser half that decodes the same tags and rows is `@snapfire/fsr/client` under `fsr/client`. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 

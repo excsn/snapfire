@@ -1,4 +1,4 @@
-import { use } from "@snapfire/fsr-authoring/template";
+import { use } from "@snapfire/fsr/template";
 import { Link } from "@snapfire/fsr/components";
 
 import type { Tool } from "@generated/client";

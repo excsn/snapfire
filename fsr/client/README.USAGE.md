@@ -1,4 +1,4 @@
-# Usage Guide: @snapfire/fsr-client
+# Usage Guide: @snapfire/fsr/client
 
 How to build the package, register and hydrate islands, keep up with a streamed response, navigate without reloading, call actions and move values across the boundary without losing their type.
 
@@ -89,8 +89,8 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 One module registers every island, boots them and takes over navigation:
 
 ```ts
-import { boot, enableNavigation, registerIsland } from "@snapfire/fsr-client";
-import { reactMounter, reactPatcher, reactUnmounter } from "@snapfire/fsr-client/react";
+import { boot, enableNavigation, registerIsland } from "@snapfire/fsr/client";
+import { reactMounter, reactPatcher, reactUnmounter } from "@snapfire/fsr/client/react";
 
 registerIsland("components/ServerChart.tsx#default", {
   loader: () => import("./ServerChart.js").then((m) => m.default),
@@ -155,8 +155,8 @@ Nothing serves `dist/` in an application. `snapfire_fsr_host` carries the module
   "imports": {
     "react": "/static/js/vendor/react/react.js",
     "react-dom/client": "/static/js/vendor/react/react-dom-client.js",
-    "@snapfire/fsr-client": "/static/js/fsr/index.js",
-    "@snapfire/fsr-client/react": "/static/js/fsr/react.js",
+    "@snapfire/fsr/client": "/static/js/fsr/index.js",
+    "@snapfire/fsr/client/react": "/static/js/fsr/react.js",
     "react/jsx-runtime": "/static/js/vendor/react/react-jsx-runtime.js"
   }
 }
@@ -181,8 +181,8 @@ snapfiretc --root . --config tsconfig.json
 An entry is a loader, a mounter, an optional patcher, an optional unmounter and an optional timing. The loader resolves to whatever the mounter expects, which for `reactMounter` is the component itself; the patcher re-renders the island with new props when a navigation or a revalidation keeps its DOM; the unmounter ends it when a navigation takes its marker out of the document, so its effects clean up:
 
 ```ts
-import { registerIsland } from "@snapfire/fsr-client";
-import { reactMounter, reactPatcher, reactUnmounter } from "@snapfire/fsr-client/react";
+import { registerIsland } from "@snapfire/fsr/client";
+import { reactMounter, reactPatcher, reactUnmounter } from "@snapfire/fsr/client/react";
 
 registerIsland("components/ServerChart.tsx#default", {
   loader: () => import("./ServerChart.js").then((m) => m.default),
@@ -250,7 +250,7 @@ Without this the definition runs when the entry module does, which is right for 
 The server writes a custom element's shadow template as a `<template shadowrootmode>` inside the element, open unless the template declares its own root. The parser attaches it before any script runs. Markup that arrives through `innerHTML` keeps the template as an ordinary child instead, which is what an htmx swap does. `shadowOf` answers both:
 
 ```ts
-import { shadowOf } from "@snapfire/fsr-client/elements";
+import { shadowOf } from "@snapfire/fsr/client/elements";
 
 class LoanPlanner extends HTMLElement {
   static formAssociated = true;
@@ -270,7 +270,7 @@ It returns the root the parser attached. With none, it attaches one from the tem
 `Link`, `Picture`, `Mount`, `Embed` and `Place` are imported from `@snapfire/fsr/components` in a `.tsx`, a `.vue` or a `.svelte` file and written the same way in each:
 
 ```tsx
-import type { Children } from "@snapfire/fsr-authoring/template";
+import type { Children } from "@snapfire/fsr/template";
 import { Link, Place } from "@snapfire/fsr/components";
 
 export default function Layout({ children }: { children: Children }) {
@@ -297,11 +297,11 @@ The server renders each one the same way whatever framework the file is in. `fsr
 
 | Importing file | The import becomes |
 | --- | --- |
-| `.vue` | `@snapfire/fsr-client/vue` |
+| `.vue` | `@snapfire/fsr/client/vue` |
 | `.svelte` | one import per component, from the Svelte component the build writes for it under `generated/components` and compiles with the application's Svelte, so a file loads only the components it names. `@generated/components` exports all five for a file that wants them together. |
 | any other, reached by an island | that island's adapter |
-| any other, in an application that serves React | `@snapfire/fsr-client/react` |
-| any other | `@snapfire/fsr-client/jsx-runtime` |
+| any other, in an application that serves React | `@snapfire/fsr/client/react` |
+| any other | `@snapfire/fsr/client/jsx-runtime` |
 
 `tsconfig.json` maps the specifier to React's declarations when the application serves React and to the template dialect's otherwise. The per-framework modules keep exporting the same components, so an existing import of them still works.
 
@@ -330,7 +330,7 @@ Nothing rendered these on the server, so both are mounted fresh. `Island` stays 
 A page or a layout is composition, so a component it renders inline that holds state of its own is placed as an island by the renderer, mounting on load. `Island` from the React adapter places one by hand, with the timing on the use:
 
 ```tsx
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import { OrderHelp } from "@src/ui/OrderHelp";
 
 <Island when="visible">
@@ -347,7 +347,7 @@ A placement inside a `.map` is one region per item and the build names each of t
 An island placed among the children of an island of the same framework renders in that island's tree, so it reads what the components above it provide and their error boundaries catch what it throws. The page places them as it places any island:
 
 ```tsx
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/template";
 import Kitchen from "@src/nested/Kitchen.svelte";
 import Portions from "@src/nested/Portions.svelte";
 import Remains from "@src/nested/Remains.svelte";
@@ -412,7 +412,7 @@ An island whose events round-trip to the server. The browser holds its props and
 A layout has one slot for its page and as many named ones as it places. A parallel segment under `slots/<name>/` beside the layout arrives as a prop of that name; a slot an intercepted route opens in is placed with `Slot`:
 
 ```tsx
-import { Slot } from "@snapfire/fsr-client/react";
+import { Slot } from "@snapfire/fsr/client/react";
 
 export default function Layout({ cartCount, children, promo }: LayoutProps & { children: ReactNode; promo: ReactNode }) {
   return (
@@ -442,7 +442,7 @@ import { Link } from "@snapfire/fsr/components";
 A navigation that changes only the query keeps the page's islands: its region is morphed rather than replaced, so every island the new markup places again keeps its DOM and its state and takes the new props. `navigate` says otherwise for one navigation with `keep`, as does a `Link` with `keep` or an anchor with `data-sf-keep`. `replace` puts the target in place of the current history entry and `scroll: false` leaves the window where it is. Together they suit a control that navigates on every change:
 
 ```ts
-import { navigate } from "@snapfire/fsr-client";
+import { navigate } from "@snapfire/fsr/client";
 
 void navigate(`/wave/${id}?at=${step}`, true, { replace: true, scroll: false });
 void navigate("/?category=printing", true, { keep: false });
@@ -454,7 +454,7 @@ A layout and its page are composition and share no framework root, so React cont
 
 ```tsx
 // src/ui/ModeSwitch.tsx, placed in the layout
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { mode } from "@src/store";
 
 export function ModeSwitch() {
@@ -465,7 +465,7 @@ export function ModeSwitch() {
 
 ```tsx
 // src/ui/Abstract.tsx, placed in the page
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { mode } from "@src/store";
 
 export function Abstract({ text }: { text: string }) {
@@ -481,8 +481,8 @@ A navigation swaps the page's region and leaves the layout's DOM alone, so the s
 The `/vue` entry is the second mounter the package ships. Register a `.vue` module with it and Vue mounts the component in the marker, creating the app over the server's markup when there is any, which is what the build writes for a component it lowered. It creates the app fresh when there is none, which is what a component the build could not read gets:
 
 ```ts
-import { registerIsland } from "@snapfire/fsr-client";
-import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
+import { registerIsland } from "@snapfire/fsr/client";
+import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr/client/vue";
 
 registerIsland("src/ui/Tonight.vue#default", {
   loader: () => import("../src/ui/Tonight.vue").then((m) => m.default),
@@ -499,7 +499,7 @@ The island's children are its default slot. The server writes them in an `<sf-s 
 Inside the component the store is a ref:
 
 ```ts
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 import { plannedCount } from "@src/store";
 
 const held = useStore(plannedCount, props.count);
@@ -533,8 +533,8 @@ export function Panel() {
 The `/svelte` entry mounts a Svelte 5 component, runes or legacy mode. `fsr build` registers every `.svelte` island a template places with it, the same way it registers a `.vue` one:
 
 ```ts
-import { registerIsland } from "@snapfire/fsr-client";
-import { svelteMounter, sveltePatcher, svelteUnmounter } from "@snapfire/fsr-client/svelte";
+import { registerIsland } from "@snapfire/fsr/client";
+import { svelteMounter, sveltePatcher, svelteUnmounter } from "@snapfire/fsr/client/svelte";
 
 registerIsland("src/ui/Counter.svelte#default", {
   loader: () => import("../src/ui/Counter.svelte").then((m) => m.default),
@@ -549,7 +549,7 @@ When the server rendered the component, the mounter hydrates that markup rather 
 ```svelte
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { useStore } from "@snapfire/fsr-client/svelte";
+  import { useStore } from "@snapfire/fsr/client/svelte";
   import { cartCount } from "@src/store";
 
   let { label, children }: { label: string; children?: Snippet } = $props();
@@ -567,7 +567,7 @@ A `.svelte` file imports FSR's components from `@snapfire/fsr/components`, as [I
 
 ```svelte
 <script lang="ts">
-  import { island, link, picture } from "@snapfire/fsr-client/svelte";
+  import { island, link, picture } from "@snapfire/fsr/client/svelte";
 
   let { label }: { label: string } = $props();
   const image = picture({ src: "/pictures/shelf.png", alt: "shelf", width: 320, height: 200 });
@@ -584,7 +584,7 @@ When `label` changes, Svelte runs the attachment again and the chart is patched 
 A `Mounter` receives the loaded module, the decoded props, the marker element, whether the server rendered the island's markup and the island's children as pieces. Its return value is kept by the caller and handed back to the entry's `Unmounter` when a navigation takes the marker out of the document, so return whatever the framework needs for teardown:
 
 ```ts
-import { registerIsland, type Mounter, type Props, type Unmounter } from "@snapfire/fsr-client";
+import { registerIsland, type Mounter, type Props, type Unmounter } from "@snapfire/fsr/client";
 import { mount, unmount, type Component } from "svelte";
 
 const svelteMounter: Mounter = (module, props, el, hydrate, _children) => {
@@ -608,7 +608,7 @@ An entry without `unmount` has its root dropped as it stands, which leaves the f
 `hydrate` is true when the server rendered the island's markup, which the marker says with `data-sf-ssr`. A mounter whose framework finds the markup does not match calls `hydrationMismatch(el, detail)` for that island, which logs it as an error naming the module:
 
 ```ts
-import { hydrationMismatch, type Mounter } from "@snapfire/fsr-client";
+import { hydrationMismatch, type Mounter } from "@snapfire/fsr/client";
 import { hydrate, mount, type Component } from "svelte";
 
 const svelteMounter: Mounter = (module, props, el, hydrating) => {
@@ -630,7 +630,7 @@ A mounter that ignores `children` leaves the region the server wrote them in as 
 A mounter that renders the children in its own framework's tree says so with `rendersNested`. A scan then leaves the islands of its framework among the children to it. Each island piece carries its registry entry, its props and its timing. `loadedModule` already holds the module of every one timed `load` when the mounter runs:
 
 ```ts
-import { loadedModule, markRendered, rendersNested, type IslandPiece, type Mounter, type Piece } from "@snapfire/fsr-client";
+import { loadedModule, markRendered, rendersNested, type IslandPiece, type Mounter, type Piece } from "@snapfire/fsr/client";
 
 const ownIslands = (pieces: Piece[]): IslandPiece[] =>
   pieces.flatMap((piece) => (piece.kind === "island" ? [piece] : piece.kind === "element" ? ownIslands(piece.children) : []));
@@ -655,7 +655,7 @@ rendersNested(solidMounter);
 `boot` scans the document once the DOM is ready and again on every `sf:fill` event, which the server's inline fill script dispatches after it moves a resolved template into its slot. Islands inside a late chunk mount without any extra call:
 
 ```ts
-import { boot } from "@snapfire/fsr-client";
+import { boot } from "@snapfire/fsr/client";
 
 boot();
 ```
@@ -663,7 +663,7 @@ boot();
 `scan` is what does the work. It is idempotent: it only matches `sf-i` markers without `data-sf-scheduled` and it stamps that attribute as it takes each one. `data-sf-mounted` is a different statement, stamped when the mounter has run, so an island waiting on `visible` or `idle` carries the first and not yet the second. Call `scan` directly for markup you inserted yourself:
 
 ```ts
-import { scan } from "@snapfire/fsr-client";
+import { scan } from "@snapfire/fsr/client";
 
 const host = document.querySelector("#panel")!;
 host.innerHTML = fetchedMarkup;
@@ -677,7 +677,7 @@ Props are looked up by the marker's `id` inside the scanned root first, then acr
 `enableNavigation` reads the segment sidecar the server embedded, intercepts same-origin link clicks and owns history from then on:
 
 ```ts
-import { enableNavigation } from "@snapfire/fsr-client";
+import { enableNavigation } from "@snapfire/fsr/client";
 
 enableNavigation();
 ```
@@ -745,7 +745,7 @@ a[data-sf-pending] {
 A component inside the link reads the same thing with `useLinkStatus`, the counterpart of Next's hook. Each adapter has one:
 
 ```tsx
-import { useLinkStatus } from "@snapfire/fsr-client/react";
+import { useLinkStatus } from "@snapfire/fsr/client/react";
 
 export default function Opening() {
   const { pending } = useLinkStatus();
@@ -760,7 +760,7 @@ export default function Opening() {
 </Link>
 ```
 
-The component reads the `Link` it renders inside when an island renders that link. Otherwise it reads the link the server placed the island in. So the same component works in a layout the server renders and inside an island. The server renders it with `pending` false, since nothing is pending at first paint. `pending` turns false once the eager part of the new page is shown, before its deferred segments arrive. A second click moves it to the second link. A navigation started from code with `navigate` has no link and marks none. Vue's `useLinkStatus()` returns a reactive `{ pending }`; Svelte's is a store of `{ pending }`, read as `$status.pending`. `pendingLink()` and `subscribePendingLink(watcher)` from `@snapfire/fsr-client` are the neutral form for any other library.
+The component reads the `Link` it renders inside when an island renders that link. Otherwise it reads the link the server placed the island in. So the same component works in a layout the server renders and inside an island. The server renders it with `pending` false, since nothing is pending at first paint. `pending` turns false once the eager part of the new page is shown, before its deferred segments arrive. A second click moves it to the second link. A navigation started from code with `navigate` has no link and marks none. Vue's `useLinkStatus()` returns a reactive `{ pending }`; Svelte's is a store of `{ pending }`, read as `$status.pending`. `pendingLink()` and `subscribePendingLink(watcher)` from `@snapfire/fsr/client` are the neutral form for any other library.
 
 ## Animating a Navigation
 
@@ -802,7 +802,7 @@ What comes back is what the visitor left: the same elements, text typed into a f
 `loadScript` adds a vendor's classic script once per document at the timing it is given and resolves when the script has run:
 
 ```ts
-import { loadScript } from "@snapfire/fsr-client";
+import { loadScript } from "@snapfire/fsr/client";
 
 await loadScript("https://chat.example/widget.js", { when: "interaction" });
 ```
@@ -835,7 +835,7 @@ A held payload is valid only under the session generation it was fetched in. The
 From code, `prefetch` warms a route ahead of time and `clearRouterCache` drops everything held. `refresh` drops it on its own, so an action that revalidates never leaves a payload from before the mutation behind:
 
 ```ts
-import { clearRouterCache, prefetch } from "@snapfire/fsr-client";
+import { clearRouterCache, prefetch } from "@snapfire/fsr/client";
 
 await prefetch("/cart");
 clearRouterCache();
@@ -846,7 +846,7 @@ clearRouterCache();
 `navigate` takes an href and pushes history by default; pass `false` to replay a history entry without pushing a new one:
 
 ```ts
-import { navigate, refresh } from "@snapfire/fsr-client";
+import { navigate, refresh } from "@snapfire/fsr/client";
 
 await navigate("/servers/eu");
 await navigate("/servers/eu", false);
@@ -876,7 +876,7 @@ await done; // every slot filled
 A navigation retitles the document: every `H` row of the applied payload goes through `applyHead`, which sets `document.title` and the description meta, so a streamed page that arrives after its slot retitles the document when its `S` row does. Call it yourself when you set the head from somewhere else:
 
 ```ts
-import { applyHead } from "@snapfire/fsr-client";
+import { applyHead } from "@snapfire/fsr/client";
 
 applyHead({ title: "Cart · Shopping" });
 ```
@@ -887,7 +887,7 @@ For htmx there is an entry that does it, `bindHtmx`. The whole wiring is one lin
 
 ```ts
 import htmx from "htmx.org";
-import { bindHtmx } from "@snapfire/fsr-client/htmx";
+import { bindHtmx } from "@snapfire/fsr/client/htmx";
 
 bindHtmx(htmx);
 ```
@@ -905,7 +905,7 @@ document.addEventListener("sf:fill", rewire);
 The other direction is `adopt` and `scan`. A fragment the host renders, one segment of a route with nothing around it, ends with the same inert seed script a document carries, so after a library swaps one in, `adopt()` reads the seeds nothing has read yet and `scan()` mounts any island the fragment placed:
 
 ```ts
-import { adopt, scan } from "@snapfire/fsr-client";
+import { adopt, scan } from "@snapfire/fsr/client";
 
 document.body.addEventListener("library:settled", () => {
   adopt();
@@ -921,7 +921,7 @@ document.body.addEventListener("library:settled", () => {
 
 ```tsx
 import { useEffect } from "react";
-import { live } from "@snapfire/fsr-client";
+import { live } from "@snapfire/fsr/client";
 
 export default function Live({ topic }: { topic: string }) {
   useEffect(() => live([topic]), [topic]);
@@ -944,8 +944,8 @@ Nothing happens where `EventSource` is absent, so the same component renders on 
 `boot` keeps the `online` store key current and, under the host's `[pwa]`, registers its worker. An island reads the key like any other. `updateReady` turns true once a newer build's worker has taken over the page:
 
 ```tsx
-import { online, updateReady } from "@snapfire/fsr-client";
-import { useStore } from "@snapfire/fsr-client/react";
+import { online, updateReady } from "@snapfire/fsr/client";
+import { useStore } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
 
 export default function Status() {
@@ -967,7 +967,7 @@ The link is `native`, which leaves the click to the browser, so the document loa
 `live` hears. `socket` speaks. It opens one WebSocket on a topic, writes what comes back into the store and reconnects on its own.
 
 ```ts
-import { socket } from "@snapfire/fsr-client";
+import { socket } from "@snapfire/fsr/client";
 
 const wire = socket(`wave/${id}`, { onOpen: () => setConnected(true), onClose: () => setConnected(false) });
 wire.send("typing", { parent, body });
@@ -982,7 +982,7 @@ One connection is enough for a page. Hold it in a module rather than in a compon
 `action` turns a stable id into a callable. Input and result both cross as encoded values:
 
 ```ts
-import { action, type SfValue } from "@snapfire/fsr-client";
+import { action, type SfValue } from "@snapfire/fsr/client";
 
 const addServer = action("add_server");
 
@@ -1027,7 +1027,7 @@ The build writes the placeholder on the server and `boot` listens for the click,
 `Place` is an element other components write into from elsewhere on the page. Declare it in the shell, a layout, a page or a component an island renders:
 
 ```tsx
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/template";
 import { Place } from "@snapfire/fsr/components";
 
 <header>
@@ -1073,7 +1073,7 @@ Without one it is an `<img src>` as written. `priority` loads the image eagerly 
 A login page that is a plain form posting to `/auth/callback` needs nothing from the client. `signIn` is for a page that runs the flow itself: a passkey button, a second factor shown in place or a choice of methods. It asks the host for each step as JSON and runs it. It follows a redirect to an identity provider and runs the browser's passkey prompt for a passkey step. Every other step goes to your `present`:
 
 ```ts
-import { AuthFailure, signIn } from "@snapfire/fsr-client";
+import { AuthFailure, signIn } from "@snapfire/fsr/client";
 
 try {
   await signIn({
@@ -1091,7 +1091,7 @@ On completion the browser goes to `returnTo`. Pass `navigate: false` to get the 
 `enrol` adds a method, usually a passkey, to whoever is signed in. It is a state change, so it carries the page's `csrf_token`:
 
 ```ts
-import { enrol } from "@snapfire/fsr-client";
+import { enrol } from "@snapfire/fsr/client";
 
 await enrol(csrfToken, { method: "passkey", returnTo: "/settings" });
 ```
@@ -1104,7 +1104,7 @@ A key is a string. `key` names one and gives it a type:
 
 ```ts
 // src/store.ts
-import { key } from "@snapfire/fsr-client/store";
+import { key } from "@snapfire/fsr/client/store";
 
 export const cartCount = key<number>("cart/count");
 ```
@@ -1139,7 +1139,7 @@ A `store` value wins a key a `defaults` of any segment also names.
 `useStore` is the React binding. It reads like `useState` and returns the store's value or the initial one while nothing has set the key:
 
 ```tsx
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { cartCount } from "@src/store";
 
 export function CartBadge() {
@@ -1162,7 +1162,7 @@ const [items, setItems] = useStore(cartCount, 0);
 Outside a component and outside React entirely, the module functions do the same:
 
 ```ts
-import { get, set, subscribe } from "@snapfire/fsr-client";
+import { get, set, subscribe } from "@snapfire/fsr/client";
 
 set(cartCount, 3);
 const held = get(cartCount);
@@ -1174,7 +1174,7 @@ const stop = subscribe(cartCount, (value) => console.log("now", value));
 `optimistic` shows a value at once, runs the call and puts the key back if it fails. A successful action revalidates and the seed that revalidation carries replaces the guess with what the server settled on:
 
 ```ts
-import { optimistic } from "@snapfire/fsr-client";
+import { optimistic } from "@snapfire/fsr/client";
 
 await optimistic(cartCount, (get(cartCount) ?? 0) + quantity, () =>
   actions.cart.addToCart({ product_id: id, quantity: BigInt(quantity) }),
@@ -1186,7 +1186,7 @@ await optimistic(cartCount, (get(cartCount) ?? 0) + quantity, () =>
 A derived key is computed from others and recomputed whenever one of them changes:
 
 ```ts
-import { derive, key } from "@snapfire/fsr-client";
+import { derive, key } from "@snapfire/fsr/client";
 
 const subtotal = key<number>("cart/subtotal");
 const shipping = key<number>("cart/shipping");
@@ -1213,8 +1213,8 @@ The store lives as long as the document. A soft navigation keeps it and writes w
 The host resolves a locale for every request and writes it on the document, `<html lang="fr-FR" data-sf-locale="fr_FR">` and into every payload as an `L` row. `boot` adopts the attribute before the first scan; a navigation applies the row. A payload for a route a mounted site serves carries an `E` row naming the site's entry module; the navigator imports it once, then scans again, so the site's islands register and mount on first arrival without a document load. An island reads it with `useLocale`, which the build lowers, so the server renders the same value the browser hydrates against.
 
 ```tsx
-import { localePath } from "@snapfire/fsr-client";
-import { useLocale } from "@snapfire/fsr-client/react";
+import { localePath } from "@snapfire/fsr/client";
+import { useLocale } from "@snapfire/fsr/client/react";
 
 export function LanguagePicker() {
   const locale = useLocale();
@@ -1242,7 +1242,7 @@ The call sits in the handler rather than the `href` for two reasons. The `href` 
 Outside React, `currentLocale` reads the locale and `subscribeLocale` follows it.
 
 ```ts
-import { currentLocale, subscribeLocale } from "@snapfire/fsr-client";
+import { currentLocale, subscribeLocale } from "@snapfire/fsr/client";
 
 const stop = subscribeLocale((tag) => document.title = `${document.title} (${tag})`);
 console.log(currentLocale());
@@ -1250,10 +1250,10 @@ console.log(currentLocale());
 
 ## Formatting With the Standard Library
 
-`@snapfire/fsr-client/std` is the browser half of the standard library the server's interpreter carries: the same names, the same answers under the document's locale, which every member reads from `currentLocale()` so the value React hydrates against is the one Rust rendered.
+`@snapfire/fsr/client` carries the browser half of the standard library the server's interpreter runs: `intl`, `text`, `time`, `crypto`, `i18n`, `log` and `path`, each also at `@snapfire/fsr/client/<module>`. The names and the answers are the server's under the document's locale, which every member reads from `currentLocale()` so the value React hydrates against is the one Rust rendered. The members only a host runs, `time.now`, `crypto.random`, `id.new` and `file` among them, are under `@snapfire/fsr/host`, which no browser code imports.
 
 ```tsx
-import { intl, text, time } from "@snapfire/fsr-client/std";
+import { intl, text, time } from "@snapfire/fsr/client";
 
 export function Receipt({ cents, placed, title }: { cents: number; placed: string; title: string }) {
   return (
@@ -1269,7 +1269,7 @@ export function Receipt({ cents, placed, title }: { cents: number; placed: strin
 `t(key, args?)` reads the message under `key` from the table the document embedded for its locale, `catalog(currentLocale())`, which the server built from `locales/<tag>.toml` merged over the default locale's; `args.count` picks `key.one` or `key.other` through `intl.plural` and `{name}` placeholders are filled from `args`. A navigation into another locale receives that locale's table in the payload, so `t` follows `currentLocale()` without a reload.
 
 ```tsx
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 export function Watching({ count }: { count: number }) {
   return <span>{t("agents.watching", { count })}</span>;
@@ -1283,7 +1283,7 @@ The build lowers every call to the plan, so the server computes the same member;
 `native` declares the browser half of a function whose Rust half the host registers under the same name, `module.member`; the declaration lives in an `ext/` module so the build reads it.
 
 ```ts
-import { native } from "@snapfire/fsr-client/std";
+import { native } from "@snapfire/fsr";
 
 export const queueLabel = native("fleet.queueLabel", (depth: number): string => (depth === 0 ? "idle" : `${depth} queued`));
 export const token = native<() => string>("fleet.token");
@@ -1292,8 +1292,8 @@ export const token = native<() => string>("fleet.token");
 With a function the pair has `render` reach and the function is what the browser runs; without one it has `body` reach and calling it in the browser throws, since only the server holds it. The name must be a string literal. Under `fsr test`, `native` also registers the function for the runner, which answers the server's calls to the pair with it; a `body` pair gets its stand-in the same way, from the spec:
 
 ```ts
-import { native } from "@snapfire/fsr-client/std";
-import { load, test } from "@snapfire/fsr-client/testing";
+import { native } from "@snapfire/fsr";
+import { load, test } from "@snapfire/fsr/client/testing";
 
 test("the agents page loads with a token", async () => {
   native("fleet.token", () => "spec-token");
@@ -1306,7 +1306,7 @@ test("the agents page loads with a token", async () => {
 Island props arrive decoded. Call `decodeValue` yourself only for JSON you fetched by hand:
 
 ```ts
-import { decodeValue } from "@snapfire/fsr-client";
+import { decodeValue } from "@snapfire/fsr/client";
 
 const res = await fetch("/api/summary");
 const value = decodeValue(await res.json());
@@ -1353,7 +1353,7 @@ The kinds map one to one: `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, 
 A variant is a tag with an optional payload; a reference names an action or a module. Both are branded, so test them with the guards rather than by shape:
 
 ```ts
-import { isRef, isVariant } from "@snapfire/fsr-client";
+import { isRef, isVariant } from "@snapfire/fsr/client";
 
 const v = decodeValue(json);
 if (isVariant(v)) {
@@ -1366,7 +1366,7 @@ if (isVariant(v)) {
 Build them for a round trip with `variant`, `ref`, `actionRef` and `moduleRef`:
 
 ```ts
-import { actionRef, moduleRef, variant } from "@snapfire/fsr-client";
+import { actionRef, moduleRef, variant } from "@snapfire/fsr/client";
 
 variant("Loaded", { rows: 12 });
 variant("Empty");
@@ -1379,7 +1379,7 @@ moduleRef("components/ServerChart.tsx#default");
 `action` encodes its input for you. Call `encodeValue` directly when posting somewhere else:
 
 ```ts
-import { encodeValue } from "@snapfire/fsr-client";
+import { encodeValue } from "@snapfire/fsr/client";
 
 await fetch("/api/import", {
   method: "POST",
@@ -1395,7 +1395,7 @@ JavaScript has one number type, so the mapping in this direction is not symmetri
 `parsePayload` reads a complete response body: the `V` version row, the `N` tree row, the `H`, `T`, `L`, `E` and `D` rows of the eager wave, the `G` segment row that closes it and one `S` row per resolved slot:
 
 ```ts
-import { parsePayload } from "@snapfire/fsr-client";
+import { parsePayload } from "@snapfire/fsr/client";
 
 const res = await fetch("/servers/eu?__payload");
 const payload = parsePayload(await res.text());
@@ -1409,7 +1409,7 @@ for (const { slot, node } of payload.resolutions) {
 `linesOf` yields a response's rows as its body streams and `parseRow` reads one, which is how the navigator consumes a payload. The `G` row is the last of the eager wave, so a reader that acts on it has the whole tree and every fallback in hand:
 
 ```ts
-import { linesOf, parseRow } from "@snapfire/fsr-client";
+import { linesOf, parseRow } from "@snapfire/fsr/client";
 
 for await (const line of linesOf(await fetch("/servers/eu?__payload"))) {
   const row = parseRow(line);
@@ -1421,7 +1421,7 @@ for await (const line of linesOf(await fetch("/servers/eu?__payload"))) {
 `decodeNode` reads one node row on its own:
 
 ```ts
-import { decodeNode } from "@snapfire/fsr-client";
+import { decodeNode } from "@snapfire/fsr/client";
 
 const node = decodeNode(JSON.parse(line.slice(line.indexOf(" ", 2) + 1)));
 ```
@@ -1431,7 +1431,7 @@ const node = decodeNode(JSON.parse(line.slice(line.indexOf(" ", 2) + 1)));
 `nodeToHtml` turns a decoded node into markup with island markers and props scripts in it, ready for `scan`. It takes an id allocator, which must be shared across every call that contributes to the same document so ids stay unique:
 
 ```ts
-import { nodeToHtml, scan } from "@snapfire/fsr-client";
+import { nodeToHtml, scan } from "@snapfire/fsr/client";
 
 const ids = { next: 0 };
 const host = document.querySelector("#panel")!;
@@ -1442,7 +1442,7 @@ scan(host);
 Client-allocated ids use the `sf-c` prefix, so they can never collide with the server's `sf-i` sequence. `renderSegment` does the same for a subtree that has to stay navigable, wrapping it in the comment delimiters the navigator looks for:
 
 ```ts
-import { renderSegment } from "@snapfire/fsr-client";
+import { renderSegment } from "@snapfire/fsr/client";
 
 const html = renderSegment(payload.tree, payload.segments!, ids);
 ```
@@ -1453,7 +1453,7 @@ In a window opened by `fsr dev --desktop` or `fsr serve --desktop`, page code ca
 
 ```tsx
 import { useState } from "react";
-import { desktop } from "@snapfire/fsr-client";
+import { desktop } from "@snapfire/fsr/client";
 
 export function Attach() {
   const [paths, setPaths] = useState<string[]>([]);
@@ -1478,7 +1478,7 @@ export function Attach() {
 A failed action rejects with `ActionFailure`, carrying the server's failure kind and message:
 
 ```ts
-import { action, ActionFailure, navigate } from "@snapfire/fsr-client";
+import { action, ActionFailure, navigate } from "@snapfire/fsr/client";
 
 const addServer = action("add_server");
 

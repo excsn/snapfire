@@ -8,8 +8,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "paths": {
-      "@snapfire/fsr-client": ["./types/@snapfire/fsr-client/index.d.ts"],
-      "@snapfire/fsr-client/*": ["./types/@snapfire/fsr-client/*"],
+      "@snapfire/fsr/client": ["./types/@snapfire/fsr/client/index.d.ts"],
+      "@snapfire/fsr/client/*": ["./types/@snapfire/fsr/client/*"],
       "csstype": ["./types/csstype/index.d.ts"],
       "csstype/*": ["./types/csstype/*"],
       "react": ["./types/react/index.d.ts"],

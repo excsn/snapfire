@@ -18,7 +18,7 @@ fn project(config: &str, files: &[(&str, &str)]) -> PathBuf {
   std::fs::create_dir_all(app.join("routes")).unwrap();
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::write(root.join("config/app.toml"), format!("[app]\ndir = \"app\"\n\n{config}")).unwrap();
-  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
   std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1"},"react-dom":{"version":"19.3.1"}}}"#).unwrap();
   for (name, source) in files {
@@ -143,7 +143,7 @@ fn a_collection_lists_the_files_in_its_subdirectories_by_their_path() {
 
 #[test]
 fn a_template_import_page_builds_with_one_component_per_file() {
-  let loader = "import { posts } from \"@generated/content\";\nimport type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/post/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => posts.map((p) => ({ slug: p.slug }));\n";
+  let loader = "import { posts } from \"@generated/content\";\nimport type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load({ params }: Ctx<\"/post/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => posts.map((p) => ({ slug: p.slug }));\n";
   let page = "import type { PostSlugProps } from \"@generated/client\";\nexport default async function Post({ slug }: PostSlugProps) {\n  const { default: Body, meta } = await import(`../../../content/posts/${slug}.mdx`);\n  return <article><h1>{meta.title}</h1><Body /></article>;\n}\n";
   let files = [
     ("routes/post/[slug]/page.tsx", page),

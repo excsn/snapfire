@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, render, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, render, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 import LocalClock from "@src/ui/LocalClock";
 

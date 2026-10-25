@@ -1,5 +1,5 @@
 import Cart from "@routes/cart/page";
-import { advance, ctx, expect, fireEvent, render, screen, test } from "@snapfire/fsr-client/testing";
+import { advance, ctx, expect, fireEvent, render, screen, test } from "@snapfire/fsr/client/testing";
 
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: null, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "", tags: [], attributes: [], quantity: 2n };
 

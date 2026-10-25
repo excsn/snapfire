@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 const SHELF = [
   { name: "pear", price: 3, tags: ["fruit", "green"] },

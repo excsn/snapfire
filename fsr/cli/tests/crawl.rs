@@ -61,11 +61,11 @@ fn site_files() -> Vec<(&'static str, &'static str)> {
     ("routes/hidden/page.loader.ts", "import { robots } from \"@snapfire/fsr/head\";\nexport async function load() {\n  return { n: 1 };\n}\nexport const meta = () => ({ head: [robots(\"noindex, follow\")] });\n"),
     ("routes/account/page.tsx", PAGE),
     ("routes/post/[slug]/page.tsx", PAGE),
-    ("routes/post/[slug]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nimport { modified } from \"@snapfire/fsr/head\";\nconst POSTS = [{ slug: \"first\", updated: \"2026-05-01T08:00:00Z\" }, { slug: \"second\", updated: \"2026-05-02\" }];\nexport async function load({ params }: Ctx<\"/post/{slug}\">) {\n  return { updated: POSTS.find((p) => p.slug === params.slug)?.updated ?? \"\" };\n}\nexport const meta = ({ data }: { data: { updated: string } }) => ({ head: [modified(data.updated)] });\nexport const paths = () => POSTS.map((p) => ({ slug: p.slug }));\n"),
+    ("routes/post/[slug]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr/host\";\nimport { modified } from \"@snapfire/fsr/head\";\nconst POSTS = [{ slug: \"first\", updated: \"2026-05-01T08:00:00Z\" }, { slug: \"second\", updated: \"2026-05-02\" }];\nexport async function load({ params }: Ctx<\"/post/{slug}\">) {\n  return { updated: POSTS.find((p) => p.slug === params.slug)?.updated ?? \"\" };\n}\nexport const meta = ({ data }: { data: { updated: string } }) => ({ head: [modified(data.updated)] });\nexport const paths = () => POSTS.map((p) => ({ slug: p.slug }));\n"),
     ("routes/item/[id]/page.tsx", PAGE),
-    ("routes/item/[id]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/item/{id}\">) {\n  return { id: params.id };\n}\n"),
+    ("routes/item/[id]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load({ params }: Ctx<\"/item/{id}\">) {\n  return { id: params.id };\n}\n"),
     ("routes/api/ping/route.ts", "export async function GET() {\n  return { ok: true };\n}\n"),
-    ("middleware.ts", "import type { MiddlewareCtx } from \"@snapfire/fsr\";\nexport async function middleware({ request, identity }: MiddlewareCtx) {\n  if (request.path.startsWith(\"/account\") && !identity?.subject) return Response.redirect(\"/\", 307);\n}\n"),
+    ("middleware.ts", "import type { MiddlewareCtx } from \"@snapfire/fsr/host\";\nexport async function middleware({ request, identity }: MiddlewareCtx) {\n  if (request.path.startsWith(\"/account\") && !identity?.subject) return Response.redirect(\"/\", 307);\n}\n"),
   ]
 }
 

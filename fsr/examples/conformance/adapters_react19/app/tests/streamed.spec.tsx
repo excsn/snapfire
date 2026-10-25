@@ -1,5 +1,5 @@
-import { contribute, get, isPending, reset, retain, whenSettled } from "@snapfire/fsr-client/store";
-import { describe, expect, fireEvent, load, render, settle, spyOn, test } from "@snapfire/fsr-client/testing";
+import { contribute, get, isPending, reset, retain, whenSettled } from "@snapfire/fsr/client/store";
+import { describe, expect, fireEvent, load, render, settle, spyOn, test } from "@snapfire/fsr/client/testing";
 
 import { owner, slotOwner } from "@src/store";
 import Owner from "@src/ui/Owner";

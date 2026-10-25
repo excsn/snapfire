@@ -1,4 +1,4 @@
-import { intl } from "@snapfire/fsr-client/std";
+import { intl } from "@snapfire/fsr/client";
 
 export function Stars({ rating, reviews }: { rating: number; reviews: bigint | number }) {
   const full = Math.round(rating);

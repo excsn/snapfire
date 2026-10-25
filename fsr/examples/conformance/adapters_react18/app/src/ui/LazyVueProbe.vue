@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { defineAsyncComponent } from "vue";
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 
 import { probeCount } from "@src/store";
 

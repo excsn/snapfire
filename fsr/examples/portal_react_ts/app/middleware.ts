@@ -1,4 +1,4 @@
-import type { MiddlewareCtx } from "@snapfire/fsr";
+import type { MiddlewareCtx } from "@snapfire/fsr/host";
 
 /** The portal's rules hold on every route, a mounted site's included: `request.site` names the site a path belongs to or is absent on the portal's own routes. */
 export async function middleware({ request, identity, next }: MiddlewareCtx) {

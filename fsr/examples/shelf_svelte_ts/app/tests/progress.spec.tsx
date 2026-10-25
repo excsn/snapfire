@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 test("reading ten more pages saves them through the action and moves the bar", async () => {
   const c = ctx({ session: { reading: "", progress: { piranesi: 20 }, done: {} } });

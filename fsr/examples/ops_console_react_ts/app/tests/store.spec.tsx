@@ -1,5 +1,5 @@
-import { get } from "@snapfire/fsr-client";
-import { ctx, expect, f64, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { get } from "@snapfire/fsr/client";
+import { ctx, expect, f64, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 import { headline, openAlerts, region, selected, watching } from "@src/store";
 

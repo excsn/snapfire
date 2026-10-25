@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ services }: Ctx<"/widths">) {
   const ledger = await services.shopping.getLedger();

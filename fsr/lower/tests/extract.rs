@@ -19,7 +19,7 @@ fn set(files: &[(&str, &str)]) -> ComponentSet {
 }
 
 const TALK: &str = r#"import { useState } from "react";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/client/react";
 
 export default function Talk({ talk, alongside }: { talk: { title: string }; alongside: { id: string; title: string }[] }) {
   const [open, setOpen] = useState(true);

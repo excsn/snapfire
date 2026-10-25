@@ -86,7 +86,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
 * **Client** is a document under `clients/`, `<name>.openapi.json`, `<name>.proto` or `<name>.graphql`, imported as the service `<name>`; the host reaches the first over HTTP, the second over gRPC and the third by posting each operation to the endpoint.
 * **Schema** is a TypeScript module under `schemas/` whose exported interfaces become contract types; one named `Session` types `ctx.session`.
-* **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `fsr.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
+* **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `host.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
 * **Vendor** is `vendor/`, committed: the runtime modules the browser loads, one directory per package, written by `fsr add` from esm.sh and named in `importmap.json`.
 * **Types** is `types/`, gitignored: the declarations of every package the import map names, one directory per package, written by `fsr types` and path-mapped by the generated tsconfig. Never served, never load-bearing.
 * **Layout** is where those live: `vendor/`, `types/`, `importmap.json` and `/static/js/vendor` by default; a site serves its vendor tree under its own prefix and an `xwpm.wmf` in the app names its own.
@@ -127,7 +127,7 @@ wrote app/generated/plan.sexp
 wrote app/generated/contracts/shopping.json
 wrote app/generated/contracts/schemas.json
 wrote app/generated/services.d.ts
-wrote app/generated/fsr.ts
+wrote app/generated/host.ts
 ```
 
 ## Laying Out Routes
@@ -169,7 +169,7 @@ export default function NotFound({ params }: { params: { path: string } }) {
 `page.loader.ts` exports `load`. It is lowered, never run, so it may import types freely and values not at all.
 
 ```ts
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ params, services }: Ctx<"/product/{id}">) {
   return { product: await services.shopping.getProduct({ id: BigInt(params.id) }) };
@@ -257,7 +257,7 @@ Reading it leaves a route prerenderable, the way reading the locale does, since 
 A layout places named regions beside its page. `slots/<name>/` beside the `layout.tsx` is a parallel segment with the ordinary route files, `page.tsx`, `page.loader.ts`, `loading.tsx` and `error.tsx`, that the layout receives as a prop of that name:
 
 ```tsx
-import { Slot } from "@snapfire/fsr-client/react";
+import { Slot } from "@snapfire/fsr/client/react";
 
 export default function Layout({ cartCount, children, promo }: LayoutProps & { children: ReactNode; promo: ReactNode }) {
   return (
@@ -290,7 +290,7 @@ The two forms are not interchangeable. A prop is a slot only because `slots/<nam
 `actions.ts` exports constants built with `action`. The type argument names the input type. The file sits beside a `page.tsx` or in a slot, since an action is named for its page's route id; one anywhere else under `routes/` stops the build.
 
 ```ts
-import { action, fail } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr/host";
 import type { AddToCart } from "../../schemas/cart";
 
 export const addToCart = action<AddToCart>(async ({ input, session }) => {
@@ -308,7 +308,7 @@ A plain form can post an action too: `<form method="post" action="/_sf/action/ca
 `redirect(to)` ends an action and sends its caller to another page of this origin. A form post is answered with a 303 there instead of back to the page that posted. A call through `actions` navigates there instead of refreshing:
 
 ```ts
-import { action, redirect } from "@snapfire/fsr";
+import { action, redirect } from "@snapfire/fsr/host";
 import type { NewPost } from "@schemas/newpost";
 
 export const createPost = action<NewPost>(async ({ input, services }) => {
@@ -324,8 +324,8 @@ It ends the body where it stands, as a `return` would; `return redirect(to)` say
 `route.ts` exports one function per HTTP method it answers. A plain function reads the request body as `input` unchecked; an `action<T>` has the body checked against `T` first, the way an action's input is. A value returned is the JSON response; `fail` sets the status by its kind.
 
 ```ts
-import { action, fail } from "@snapfire/fsr";
-import type { ActionCtx, Ctx } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr/host";
+import type { ActionCtx, Ctx } from "@snapfire/fsr/host";
 import type { AddToCart } from "../../../schemas/cart";
 
 export async function GET({ session }: Ctx<"/api/cart">) {
@@ -344,7 +344,7 @@ The handler runs before any page is matched, sees the same `session`, `identity`
 A handler that answers with something other than JSON returns a `Response`. `new Response(body, { status, headers })` takes a string or a `Uint8Array`; a string with no `content-type` is sent as `text/plain;charset=UTF-8`. `Response.json(value, { status })` writes the value with `application/json`. `Response.redirect(url, status)` sends the caller to a path or to another site, 302 unless the status says otherwise, which is what a sign-in that starts at an identity provider needs; `redirect(to)` from `@snapfire/fsr` answers 303 to a path on this origin.
 
 ```ts
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export function GET({ origin }: Ctx<"/robots.txt">) {
   return new Response(`User-agent: *\nSitemap: ${origin}/sitemap.xml\n`, {
@@ -354,7 +354,7 @@ export function GET({ origin }: Ctx<"/robots.txt">) {
 ```
 
 ```ts
-import type { ActionCtx } from "@snapfire/fsr";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { NewNote } from "@schemas/notes";
 
 export async function POST({ input, services }: ActionCtx<NewNote>) {
@@ -370,7 +370,7 @@ The status must lie between 200 and 599 and a redirect's must be 301, 302, 303, 
 `middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method`, `request.path` and `request.payload`, true for a navigation's payload and false for a document, plus the same `query`, `session`, `identity`, `locale` and `services` a loader gets. `request.path` has no locale prefix: the host strips it before anything reads the path, so `/fr_FR/basket` reaches the middleware as `/basket` with `locale` set to `fr_FR`. It works with `Request` and `Response` only. A `Response` it returns is the answer, so `Response.redirect` or `new Response(body, { status })` ends the request there. `await next()` runs the route and answers its `Response`, whose headers the middleware may change before returning it; `next(new Request("/"))` runs the route for another path under the same URL. Returning nothing goes on to the route.
 
 ```ts
-import type { MiddlewareCtx } from "@snapfire/fsr";
+import type { MiddlewareCtx } from "@snapfire/fsr/host";
 
 export async function middleware({ request, identity, next }: MiddlewareCtx) {
   if (request.path.startsWith("/account") && !identity?.subject) return Response.redirect("/login", 307);
@@ -485,7 +485,7 @@ export const theme = { name: "ledger", force: true };
 `app/theme.ts` decides per request with the route's theme as `ctx.theme`:
 
 ```ts
-import type { Theme, ThemeChoice, ThemeCtx } from "@snapfire/fsr";
+import type { Theme, ThemeChoice, ThemeCtx } from "@snapfire/fsr/host";
 
 export function theme({ theme, session }: ThemeCtx): ThemeChoice {
   if (theme.forced) return { name: theme.name, scheme: session.scheme === "dark" ? "dark" : null };
@@ -652,7 +652,7 @@ export interface Services {
   };
 }
 
-// generated/fsr.ts
+// generated/host.ts
 export interface Routes { "/": {}; "/cart": {}; "/product/{id}": { id: string }; }
 export interface Ctx<P extends keyof Routes = keyof Routes> { params: Routes[P]; query: Record<string, string>; path: string; session: Session; identity: Identity | null; services: Services; now: bigint }
 export function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): ...
@@ -665,7 +665,7 @@ Every integer width is `bigint`, because a body runs over the value model where 
 `generated/islands.ts` registers every module the browser mounts, so the browser mounts exactly what the plan refers to: every component a template places as an island, every component with state or handlers that a page or layout renders inline, every island the build split out of a page and every component that did not lower. A page, a layout or a boundary is composition: the server renders it and nothing mounts it, so it is reported `static` and is neither registered nor compiled. `main.ts` calls the registration and registers only what the build cannot know, such as the component of a route added in Rust.
 
 ```ts
-import { boot, enableNavigation } from "@snapfire/fsr-client";
+import { boot, enableNavigation } from "@snapfire/fsr/client";
 import { registerIslands } from "../generated/islands.js";
 
 registerIslands();
@@ -673,11 +673,11 @@ boot();
 enableNavigation();
 ```
 
-The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`. A module's owner picks its mounter: a Vue component is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr-client/vue`. A React component, a component that did not lower among them, is registered with `reactMounter`, `reactPatcher` and `reactUnmounter` from `@snapfire/fsr-client/react`. FSR is no JSX framework: in an application without React a component that does not lower stops the build, with the ways out. A component placed in server mode is not registered, since no adapter mounts it; placing one module both in server mode and as a browser island stops the build. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
+The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`. A module's owner picks its mounter: a Vue component is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr/client/vue`. A React component, a component that did not lower among them, is registered with `reactMounter`, `reactPatcher` and `reactUnmounter` from `@snapfire/fsr/client/react`. FSR is no JSX framework: in an application without React a component that does not lower stops the build, with the ways out. A component placed in server mode is not registered, since no adapter mounts it; placing one module both in server mode and as a browser island stops the build. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
 
 ```ts
-import { registerIsland } from "@snapfire/fsr-client";
-import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
+import { registerIsland } from "@snapfire/fsr/client";
+import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr/client/vue";
 
 export function registerIslands(): void {
   registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
@@ -687,7 +687,7 @@ export function registerIslands(): void {
 The build refuses a registry the browser could not mount. A component whose extension no framework claims stops it. When the app has an import map, every adapter the registry imports has to resolve in it along with what that adapter imports; a site may lean on the shell's map instead:
 
 ```text
-`src/ui/Saved.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`
+`src/ui/Saved.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react`, `react` or `react-dom/client`
 ```
 
 A `.vue` file a template imports is placed as an island and refused anywhere but inside `<Island>`. With `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`, the build asks it to describe every `.vue` file under the source directories before any route is lowered and lowers each one through the Vue front end of `snapfire_fsr_lower`: the server then writes the component's markup the way Vue's server renderer would and the browser hydrates it. The report's `rendered` row says `lowered` with `vue` in the detail column. A component holding what that front end does not read stays foreign: `v-model` on an element other than a form control or a `.vue` child is one case and a component placed inside the template that is not a `.vue` file the script imports is another. The server writes a foreign component empty with its props, Vue mounts it fresh and the report says why under `foreign` with the line. Without the plugin every `.vue` component is foreign and the report says so under `plugins`; the bundle stops on the same binary. A component whose `<script setup lang="ts">` declares `defineProps<T>()` gets a declaration of its own, `generated/vue/<path>.d.vue.ts`, typing it as a function of `T` with each key `withDefaults` defaults made optional. The editor tsconfig finds it ahead of everything else for both a relative import and an alias, so a placement passing the wrong type, a `bigint` where the component expects a number for one, fails the check at the line of the placement. The script's interfaces, type aliases and type-only imports are copied beside `T`, so `T` may name them. Any other component falls back to `types/foreign.d.ts`, which declares `*.vue` with loose props and is written by the build and by `fsr types` alike.
@@ -767,7 +767,7 @@ The build reads the React version back from `vendor/.fsr-vendor.json` and writes
 
 ## Adopting a Direction
 
-`fsr new` writes a bare application: no framework is vendored, the import map names the client, its element builder `/jsx-runtime`, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr-authoring/template`. Its `config/app.toml` starts with a strict policy in `[document.csp_report_only]`, which the browser reports against and never enforces. Renaming the table to `[document.csp]` enforces it. A site scaffold writes none, since a mounted site's document is its shell's. Beside it, `config/development.toml` sets `server.dev = true`; the host reads it while `RELEASE_ENV` is `development`, its default, so `fsr build` on a developer's machine is readable and the host signs sessions with a key it generates at boot. `config/production.toml` is read under `RELEASE_ENV=production`: `server.dev = false`, `session.secure = true` and `session.key = "replace-this-with-a-generated-key"`, which the host refuses until `C5_SESSION__KEY` or a secret replaces it. No key is written in the clear anywhere. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
+`fsr new` writes a bare application: no framework is vendored, the import map names the client, its element builder `/jsx-runtime`, `/std` and `/store` and the layout imports its placements from `@snapfire/fsr/template`. Its `config/app.toml` starts with a strict policy in `[document.csp_report_only]`, which the browser reports against and never enforces. Renaming the table to `[document.csp]` enforces it. A site scaffold writes none, since a mounted site's document is its shell's. Beside it, `config/development.toml` sets `server.dev = true`; the host reads it while `RELEASE_ENV` is `development`, its default, so `fsr build` on a developer's machine is readable and the host signs sessions with a key it generates at boot. `config/production.toml` is read under `RELEASE_ENV=production`: `server.dev = false`, `session.secure = true` and `session.key = "replace-this-with-a-generated-key"`, which the host refuses until `C5_SESSION__KEY` or a secret replaces it. No key is written in the clear anywhere. A direction is added to that application when it is wanted, by `fsr use`. A second one is added the same way later. Each run writes the adapter's import map line, vendors the framework the direction pins, fetches its declarations and regenerates, then prints what the application changes by hand.
 
 ```sh
 fsr new shop
@@ -775,12 +775,12 @@ fsr use shop/app vue --example
 ```
 
 ```
-mapped    @snapfire/fsr-client/vue     /static/js/fsr/vue.js
+mapped    @snapfire/fsr/client/vue     /static/js/fsr/vue.js
 added     vue                          vue/vue.bundle.mjs  128682 bytes
 types     vue                          vue 3.5.44
 wrote     shop/app/src/ui/Counter.vue
 edit      a page: import Counter from "@src/ui/Counter.vue";
-edit      a page: import { Island } from "@snapfire/fsr-authoring/template";
+edit      a page: import { Island } from "@snapfire/fsr/template";
 edit      a page: <Island><Counter start={0} /></Island>
 ```
 
@@ -800,15 +800,15 @@ fsr new shop --with react --with htmx
 
 ## Fetching Declarations
 
-`fsr types` reads the import map and for every package it names fills `types/<package>/` from the npm registry: the package's own declarations when it publishes them, through `types`, `typings` or the `types` condition of `exports`, else `@types/<package>` from DefinitelyTyped. Then the packages those declarations import, `vue` re-exporting `@vue/runtime-dom` for one, each at the highest version every package asking for it accepts: `vue` 3.5.42 pins `@vue/runtime-dom` at 3.5.42, so that is the version taken even after 3.5.43 is out. A package `fsr add` vendored is fetched at the same major, with declarations the package publishes itself taken at the vendored version exactly, so moving a vendored Vue moves its declarations at the next build. A vendored package that carries its declarations beside its entry, `index.d.ts` next to `index.min.js`, takes them from the vendor tree instead and nothing is fetched; the manifest records it `from` `vendor`. A range no published version meets is reported as `unmet` with the package that asked. The build report's `types` row for it says the same. The fsr packages, `@snapfire/fsr-client` and `@snapfire/fsr-authoring`, come from the binary itself. What was taken is recorded in `types/.fsr-types.json`; a package already present is kept until `--refresh`. It then writes what the typechecker needs beside them: `types/foreign.d.ts` when a source under `src/` is a `.vue` file, a component in a language the build does not read, plus `tsconfig.json` with every package mapped to the entry it recorded, so an application hosted from Rust that never runs `fsr build` typechecks from this one command.
+`fsr types` reads the import map and for every package it names fills `types/<package>/` from the npm registry: the package's own declarations when it publishes them, through `types`, `typings` or the `types` condition of `exports`, else `@types/<package>` from DefinitelyTyped. Then the packages those declarations import, `vue` re-exporting `@vue/runtime-dom` for one, each at the highest version every package asking for it accepts: `vue` 3.5.42 pins `@vue/runtime-dom` at 3.5.42, so that is the version taken even after 3.5.43 is out. A package `fsr add` vendored is fetched at the same major, with declarations the package publishes itself taken at the vendored version exactly, so moving a vendored Vue moves its declarations at the next build. A vendored package that carries its declarations beside its entry, `index.d.ts` next to `index.min.js`, takes them from the vendor tree instead and nothing is fetched; the manifest records it `from` `vendor`. A range no published version meets is reported as `unmet` with the package that asked. The build report's `types` row for it says the same. The fsr packages, `@snapfire/fsr/client` and `@snapfire/fsr/authoring`, come from the binary itself. What was taken is recorded in `types/.fsr-types.json`; a package already present is kept until `--refresh`. It then writes what the typechecker needs beside them: `types/foreign.d.ts` when a source under `src/` is a `.vue` file, a component in a language the build does not read, plus `tsconfig.json` with every package mapped to the entry it recorded, so an application hosted from Rust that never runs `fsr build` typechecks from this one command.
 
 ```sh
 fsr types app
 ```
 
 ```
-types     @snapfire/fsr-authoring      fsr 0.1.0
-types     @snapfire/fsr-client         fsr 0.1.0
+types     @snapfire/fsr/authoring      fsr 0.1.0
+types     @snapfire/fsr/client         fsr 0.1.0
 types     react                        @types/react 18.3.31
 types     react-dom                    @types/react-dom 18.3.7
 types     sweetalert2                  sweetalert2 11.26.25
@@ -819,10 +819,10 @@ wrote     tsconfig.json
 
 `fsr types` reports a package with nothing to fetch as `missing`. The build stops on it with `no declarations for <package>`, since the checker cannot resolve its imports. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit` and never shipped. A fresh checkout's first `fsr build` fetches what its import map needs before it typechecks. A package whose recorded entry is not on disk is fetched again by either command. So is one held at a version a range asked of it refuses, as in a `types/` written before the fetch followed dependencies.
 
-Templates are JSX; what types their JSX follows the import map. With `react` in it the templates are React components, typed by `@types/react`. Without it, `tsconfig.json` gets `"jsxImportSource": "@snapfire/fsr-authoring"` and the templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, which come from the binary with the rest of the authoring package; no React declarations are fetched. Those declarations type a hyphenated tag as a custom element whose attributes are its own, so `<shed-tally count={reserved}>` passes where `<divv>` does not. They also type `<template shadowrootmode="open">`, for a shadow root the server writes. Under either set of declarations an element template's tag is typed with its props by `generated/elements.d.ts`, as [Writing an Element's Shadow Template](#writing-an-elements-shadow-template) shows.
+Templates are JSX; what types their JSX follows the import map. With `react` in it the templates are React components, typed by `@types/react`. Without it, `tsconfig.json` gets `"jsxImportSource": "@snapfire/fsr/authoring"` and the templates are typed by the dialect's own declarations, `@snapfire/fsr/template`, which come from the binary with the rest of the authoring package; no React declarations are fetched. Those declarations type a hyphenated tag as a custom element whose attributes are its own, so `<shed-tally count={reserved}>` passes where `<divv>` does not. They also type `<template shadowrootmode="open">`, for a shadow root the server writes. Under either set of declarations an element template's tag is typed with its props by `generated/elements.d.ts`, as [Writing an Element's Shadow Template](#writing-an-elements-shadow-template) shows.
 
 ```tsx
-import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Island, type Children } from "@snapfire/fsr/template";
 import { Link } from "@snapfire/fsr/components";
 ```
 
@@ -895,7 +895,7 @@ place beside it: the binary, the logging configuration
 
 The tree has one directory a web server is pointed at, `serve/`, with everything else outside it. Where a file lands is decided by what it is rather than by where it sat in the project: configuration under `config/`, everything the host reads at boot under `app/` and each static root under `serve/` at the route it answers. A `[[static]]` root pointing at a shared build outside the project, `dir = "../../client/dist"`, is a normal thing to write in a monorepo and a meaningless path on a server, so the tree keeps the route and drops the provenance.
 
-`serve/static/js/fsr` has no `[[static]]` behind it. The host carries `@snapfire/fsr-client` in its binary and answers that prefix from there, so the tree writes the modules only for a web server that answers `serve/` before a request reaches the host. An application that configures a root on the same route is serving a client of its own and the tree writes nothing there.
+`serve/static/js/fsr` has no `[[static]]` behind it. The host carries `@snapfire/fsr/client` in its binary and answers that prefix from there, so the tree writes the modules only for a web server that answers `serve/` before a request reaches the host. An application that configures a root on the same route is serving a client of its own and the tree writes nothing there.
 
 Both lists come from what the host itself reads, so neither is a copy list to keep in step. That covers files no setting names: `app/clients/` because each service document is imported at boot; `app/locales/` because the host reads that directory by name and an application whose catalogs did not ship serves message keys; each `.tera` template at its path under `app/` because the host loads every one at boot, partials included.
 
@@ -928,11 +928,11 @@ cp fibre_logging.production.yaml dist/fibre_logging.yaml
 
 ## Reading the Generated tsconfig
 
-`fsr build` writes `tsconfig.json` from the layout: `@snapfire/fsr` to the generated context module, every package under `types/` to its declaration entry, `<package>/*` to its directory so a subpath such as `react/jsx-runtime` resolves; an entry that is a script of `declare module` blocks is included rather than mapped; `jsxImportSource` names `@snapfire/fsr-authoring` when the import map has no `react`. It is the whole editor configuration, so there is nothing to keep in step by hand.
+`fsr build` writes `tsconfig.json` from the layout: `@snapfire/fsr/host` to the generated context module, `@snapfire/fsr` to the client's `native`, every package under `types/` to its declaration entry, `<package>/*` to its directory so a subpath such as `react/jsx-runtime` resolves; an entry that is a script of `declare module` blocks is included rather than mapped; `jsxImportSource` names `@snapfire/fsr/authoring` when the import map has no `react`. It is the whole editor configuration, so there is nothing to keep in step by hand.
 
 ```json
 "paths": {
-  "@snapfire/fsr": ["./generated/fsr"],
+  "@snapfire/fsr/host": ["./generated/host"],
   "react": ["./types/react/index.d.ts"],
   "react/*": ["./types/react/*"],
   "sweetalert2/*": ["./types/sweetalert2/*"]
@@ -1052,8 +1052,8 @@ After each test the runner ends the islands still on the page and empties the bo
 A mock may write an integer field as a number. `minutes: 35` reaches the loader as the `i64` the contract names, since a JavaScript number is a double whatever it holds; `toEqual` reads `35` and `35n` as the same value where either side is whole; the generated mock types take `number` wherever a field is `bigint`.
 
 ```ts
-import { get, set } from "@snapfire/fsr-client";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { get, set } from "@snapfire/fsr/client";
+import { expect, test } from "@snapfire/fsr/client/testing";
 import { headline, openAlerts } from "@src/store";
 
 test("the entry module's derive is registered", () => {
@@ -1220,7 +1220,7 @@ With `shell` set, the build reads the shell contract and writes `generated/shell
 A mounted site vendors no framework of its own. The shell serves React at `/static/js/vendor` and its import map overrides the site's there, so the site's build reads the version it renders under out of the contract's `frameworks` rather than out of a `vendor/` directory it would have to keep in step. A site still names `react` in its own import map, which is what gives its `.tsx` files React's JSX and `fsr types` React's declarations; the URL it names is the shell's, since the shell's wins at mount. The build refuses a framework specifier the site maps anywhere else. `fsr add` on a package the shell serves writes the shell's URL rather than fetching a copy, so those entries cannot drift. A framework the shell pins is always the shell's: the build, the declarations, the compiler and `fsr test` ignore a site's own vendored copy. A copy at another version is a `warning` row. `fsr add` of that package in the site drops the copy from `vendor/`. Moving the shell's React is then one `fsr add` in the shell. Each site follows at its next build. A package only the site uses is vendored the usual way and served under the site's own prefix, which is where a mount keeps a static root. Its specs need no vendor tree either: `fsr test` fetches the development builds of React and Vue at the versions the contract records.
 
 ```ts
-import { key } from "@snapfire/fsr-client/store";
+import { key } from "@snapfire/fsr/client/store";
 import type { ShellStore } from "@generated/shell";
 
 export const who = key<ShellStore["portal/who"]>("portal/who");
@@ -1328,7 +1328,7 @@ cookies = "disk"
 
 `fsr serve app --desktop` prints the routes that stream and refuses `--listen` under the scheme. `fsr doctor` reports a scheme window over a route that streams as a `desktop` finding.
 
-The window installs a bridge before the page's scripts run, which `desktop` from `@snapfire/fsr-client` calls: `desktop.openFile()` opens the system file dialog on the window's thread and `desktop.openExternal(url)` hands an `http`, `https` or `mailto` link to the system. The client's guide has the calls.
+The window installs a bridge before the page's scripts run, which `desktop` from `@snapfire/fsr/client` calls: `desktop.openFile()` opens the system file dialog on the window's thread and `desktop.openExternal(url)` hands an `http`, `https` or `mailto` link to the system. The client's guide has the calls.
 
 ## Running a Terminal App
 
@@ -1402,7 +1402,7 @@ export default function Menu() {
 
 `useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do. `ms`, `stripAnsi`, `stringWidth` and `wrapAnsi` from `@snapfire/fsr/terminal` run natively; `fsr migrate` rewrites the default imports of the `ms`, `strip-ansi`, `string-width` and `wrap-ansi` packages to them. `wrapAnsi` keeps escape codes where they stand rather than reopening a style on the next row. `Spinner` from `@snapfire/fsr/terminal/spinner` and the spinners of `@snapfire/fsr/terminal/spinners` are TypeScript modules written as `ink-spinner` and `cli-spinners` are, so `<Spinner type="line" />` steps through its frames at the interval the spinners give it. `TextInput` and `UncontrolledTextInput` from `@snapfire/fsr/terminal/text-input` are written as `ink-text-input`'s are, with the cursor drawn in Ink's `inverse` where the package writes chalk's escape codes. `BigText` from `@snapfire/fsr/terminal/big-text` takes `ink-big-text`'s props with `font` the JSON of a cfonts font file the application ships, since FSR ships no font: `import block from "../fonts/block.json"` and `<BigText text="hi" font={block} />`. `getHours()`, the other local getters, `getTimezoneOffset()` and `toLocaleTimeString()` read this machine's time zone, since the machine running the page is the viewer; without a locale, `toLocaleTimeString()` takes the system's from `LC_ALL`, `LC_TIME` or `LANG`. A Box's `width` and `height` may be a percentage of its parent, `width="50%"`.
 
-An effect or a handler may start a process with `system.spawn` from `@snapfire/fsr-client/std`. The terminal runs it with its output piped. Its listeners step the page as handlers do and may call the component's setters. A local the listeners write keeps its value from one report to the next; each run of the effect gets its own:
+An effect or a handler may start a process with `system.spawn` from `@snapfire/fsr/terminal`. The terminal runs it with its output piped. Its listeners step the page as handlers do and may call the component's setters. A local the listeners write keeps its value from one report to the next; each run of the effect gets its own:
 
 ```tsx
 useEffect(() => {
@@ -1421,7 +1421,7 @@ useEffect(() => {
 
 `stdout` and `stderr` give `data`; the process gives `exit` and `close` with the code and signal. It gives `error` when it cannot start. `sub.stdin.write(text)` writes its standard input and `sub.stdin.end()` closes it. The options read are `cwd`, `env`, `shell` and `stdio: "inherit"`. `fsr migrate` rewrites Node's `spawn` to it.
 
-A page may read the machine it runs on through `file`, `path` and `system` from `@snapfire/fsr-client/std`. `file` has `read`, `write`, `exists`, `list`, `makeDir` and `stat`, which answers `{ isFile, isDirectory, size, mtimeMs }`; `path` has `join`, `resolve`, `normalize`, `dirname`, `basename`, `extname`, `relative` and `isAbsolute`; `system` has `env(name)`, `home()`, `platform()`, `tempDir()`, `lineEnd()`, `cwd()` and `memory()`, the resident set in bytes; `clipboard` has `write(text)` and `read()`, through the platform's copy and paste commands, and `fsr migrate` rewrites `clipboardy` calls to them. Each runs natively. Ink's `useApp().exit(code)` in a handler ends the session and `fsr dev --terminal` exits with the code. `useStdout().stdout.columns` and `rows` are the terminal's size. `stdout.on("resize", f)` runs `f` when the size changes, `f` a function the effect declares or a `const` arrow in it; `stdout.off("resize", f)` in the effect's cleanup takes it off. A page that imports one of Node's modules or reads `process` is refused; `fsr migrate` rewrites Node's `fs`, `path` and `os` and `process` onto these members. `console.log(message, ...rest)` writes each item of `rest`. `log.info(message, fields)` from `@snapfire/fsr-client/std`, with `trace`, `debug`, `warn`, `error` and `fatal` beside it, writes a structured `tracing` line under `fsr::app`. `text.frontMatter(source, { delimiters })` reads the YAML block at the top of a text into `{ data, content }` and `text.withFrontMatter(content, data, { delimiters })` writes one; `fsr migrate` rewrites `gray-matter` calls to them and a `pino` or `winston` logger to `log`, the message first and a `child`'s fields merged into each call. `crypto.uuid()`, `crypto.random(n, encoding?)` and `crypto.digest("sha256", encoding, ...parts)` from `@snapfire/fsr-client/std` run natively, as members of the `crypto` extension an application's own Rust may register over; `fsr migrate` rewrites Node's `randomUUID`, `randomBytes(n).toString(encoding)` and `createHash` chain to them. `performance.now()` is the milliseconds since the process started. A `Scope` from `@snapfire/fsr-client/std` in a module `const` scopes a value to a call: `scope.run(value, fn)` holds it while `fn` runs across its awaits, `scope.get()` reads it and `scope.set(value)` holds it from then on; `fsr migrate` rewrites Node's `AsyncLocalStorage` to it. A module-level constant that reads the machine, `const config = JSON.parse(file.read(configPath))`, is evaluated once when the session opens. A file that is missing throws an error whose `code` is `ENOENT` for a `catch` to read, an awaited `file.read` or `file.stat` inside a `try` too; `error instanceof Error` is true for it, as for any thrown `Error`. A function that writes fields of an object it is passed changes the caller's object; a callback of an array method that changes its item is refused, as is an async function that writes a field of its parameter. `fsr migrate` rewrites a callback that only writes fields of its parameter to return the changed object and the function calling it to take what it returns.
+A page may read the machine it runs on through `file` and `path` from `@snapfire/fsr/host` and `system` and `clipboard` from `@snapfire/fsr/terminal`. `file` has `read`, `write`, `exists`, `list`, `makeDir` and `stat`, which answers `{ isFile, isDirectory, size, mtimeMs }`; `path` has `join`, `resolve`, `normalize`, `dirname`, `basename`, `extname`, `relative` and `isAbsolute`; `system` has `env(name)`, `home()`, `platform()`, `tempDir()`, `lineEnd()`, `cwd()` and `memory()`, the resident set in bytes; `clipboard` has `write(text)` and `read()`, through the platform's copy and paste commands. `fsr migrate` rewrites `clipboardy` calls to them. Each runs natively. Ink's `useApp().exit(code)` in a handler ends the session and `fsr dev --terminal` exits with the code. `useStdout().stdout.columns` and `rows` are the terminal's size. `stdout.on("resize", f)` runs `f` when the size changes, `f` a function the effect declares or a `const` arrow in it; `stdout.off("resize", f)` in the effect's cleanup takes it off. A page that imports one of Node's modules or reads `process` is refused; `fsr migrate` rewrites Node's `fs`, `path` and `os` and `process` onto these members. `console.log(message, ...rest)` writes each item of `rest`. `log.info(message, fields)` from `@snapfire/fsr/host`, with `trace`, `debug`, `warn`, `error` and `fatal` beside it, writes a structured `tracing` line under `fsr::app`. `text.frontMatter(source, { delimiters })` reads the YAML block at the top of a text into `{ data, content }` and `text.withFrontMatter(content, data, { delimiters })` writes one; `fsr migrate` rewrites `gray-matter` calls to them and a `pino` or `winston` logger to `log`, the message first and a `child`'s fields merged into each call. `crypto.uuid()`, `crypto.random(n, encoding?)` and `crypto.digest("sha256", encoding, ...parts)` from `@snapfire/fsr/host` run natively, as members of the `crypto` extension an application's own Rust may register over; `fsr migrate` rewrites Node's `randomUUID`, `randomBytes(n).toString(encoding)` and `createHash` chain to them. `performance.now()` is the milliseconds since the process started. A `Scope` from `@snapfire/fsr/terminal` in a module `const` scopes a value to a call: `scope.run(value, fn)` holds it while `fn` runs across its awaits, `scope.get()` reads it and `scope.set(value)` holds it from then on; `fsr migrate` rewrites Node's `AsyncLocalStorage` to it. A module-level constant that reads the machine, `const config = JSON.parse(file.read(configPath))`, is evaluated once when the session opens. A file that is missing throws an error whose `code` is `ENOENT` for a `catch` to read, an awaited `file.read` or `file.stat` inside a `try` too; `error instanceof Error` is true for it, as for any thrown `Error`. A function that writes fields of an object it is passed changes the caller's object; a callback of an array method that changes its item is refused, as is an async function that writes a field of its parameter. `fsr migrate` rewrites a callback that only writes fields of its parameter to return the changed object and the function calling it to take what it returns.
 
 A promise runs as JavaScript runs it. `new Promise((resolve, reject) => …)` makes one whose `resolve` and `reject` settle it, `setTimeout(resolve, ms)` among them. `Promise.resolve(value)` and `Promise.reject(error)` make one already settled. An `await`, in an async function called where it is written, runs the rest of the function once the promise settles. A loop whose body awaits, `for (const name of names) { const text = await file.read(name); … }`, runs its passes in turn, a `continue` at the top of the body skipping to the next and a `return` there answering the function; `break` inside it is refused. A module-level `let` keeps what a function writes from one step to the next, as does a module-level `Map` or `Set` a function changes in place. A callback handed to `setTimeout` runs when it is due with the values it read. A component that throws a pending promise under `Suspense` shows the fallback until it settles:
 
@@ -1629,7 +1629,7 @@ default = "en_US"
 remember = true
 ```
 
-A loader, an action, a handler and the middleware read `ctx.locale`. A component reads `useLocale()` from `@snapfire/fsr-client/react`, which the build lowers, so the server renders the same value the browser hydrates against. An action runs in the locale of the document that called it. A link is served exactly as written; nothing prefixes a URL the application did not write.
+A loader, an action, a handler and the middleware read `ctx.locale`. A component reads `useLocale()` from `@snapfire/fsr/client/react`, which the build lowers, so the server renders the same value the browser hydrates against. An action runs in the locale of the document that called it. A link is served exactly as written; nothing prefixes a URL the application did not write.
 
 ```ts
 export async function load({ locale, services }: Ctx) {
@@ -1753,7 +1753,7 @@ The server writes the template inside the element as a declarative shadow root, 
 <loan-planner days="7" max="14"><template shadowrootmode="open"><label>Borrow for<input type="range" name="days" min="1" max="14" value="7"/></label></template></loan-planner>
 ```
 
-The template is markup. State or a handler stops the build, since the element's class owns its behaviour. An array or an object the page passes reaches the template as a prop and is never written on the host. In the browser the class takes the root with `shadowOf(this)` from `@snapfire/fsr-client/elements`, which also attaches it from the `<template>` when the markup came through `innerHTML`, an htmx swap among it.
+The template is markup. State or a handler stops the build, since the element's class owns its behaviour. An array or an object the page passes reaches the template as a prop and is never written on the host. In the browser the class takes the root with `shadowOf(this)` from `@snapfire/fsr/client/elements`, which also attaches it from the `<template>` when the markup came through `innerHTML`, an htmx swap among it.
 
 The root is open unless the template declares its own. A template does that by returning a `<template>` carrying the attributes the parser reads:
 
@@ -1815,10 +1815,10 @@ islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
 
 ## Calling the Standard Library
 
-`@snapfire/fsr-client/std` is one import that works in a component, a loader, an action, a handler and middleware. It answers the same on the server and in the browser under the document's locale:
+The standard library comes from one of two roots and the path says where the code runs. `@snapfire/fsr/client` has what a server render and the browser both run, so a page, a component or an island imports from it. `@snapfire/fsr/host` has those members and the ones a host alone runs, so a loader, an action, a route handler, middleware or a terminal page imports from it. Each module also has a path of its own, `@snapfire/fsr/client/intl` or `@snapfire/fsr/host/file`. A member both roots have answers the same on the server and in the browser under the document's locale:
 
 ```tsx
-import { intl, text, time } from "@snapfire/fsr-client/std";
+import { intl, text, time } from "@snapfire/fsr/client";
 
 export function Stars({ rating, reviews }: { rating: number; reviews: bigint | number }) {
   return <span className="stars-reviews">({intl.number(Number(reviews))})</span>;
@@ -1826,7 +1826,7 @@ export function Stars({ rating, reviews }: { rating: number; reviews: bigint | n
 ```
 
 ```ts
-import { crypto, id, intl, time } from "@snapfire/fsr-client/std";
+import { crypto, id, intl, time } from "@snapfire/fsr/host";
 
 export async function load({ params, services }: Ctx<"/order/{id}">) {
   const order = await services.shopping.getOrder({ id: BigInt(params.id) });
@@ -1834,16 +1834,16 @@ export async function load({ params, services }: Ctx<"/order/{id}">) {
 }
 ```
 
-`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `intl.list(items)`, `intl.compare(a, b)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` may sit anywhere. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random` and `id.new` are the server's: a loader, an action, middleware or an event handler may call them and a component's render path may not, which is a build error naming the line rather than a client row, since the browser would run that component too:
+`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `intl.list(items)`, `intl.compare(a, b)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` are under both roots. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random`, `crypto.uuid`, `id.new` and `file` are under `@snapfire/fsr/host` only. A component that asks `@snapfire/fsr/client` for one is refused with where it is. A component that imports `@snapfire/fsr/host` is refused too, since the browser would run it:
 
 ```
-routes/page.tsx:3:14: `id.new` on a render path; it runs on the server only, and a component's render path runs in the browser too
+routes/page.tsx:3:14: `id.new` from `@snapfire/fsr/host` in code the browser also runs: it runs only in a host. Read it in the route's loader `page.loader.ts` and pass it to the page as a prop
 ```
 
 `t(key, args?)` is the message under `key` for the document's locale, read from `locales/<tag>.toml` beside the app, with `{name}` placeholders filled from `args` and `key.one` or `key.other` chosen by `args.count`:
 
 ```tsx
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 export default function Help({ watching }: { watching: number }) {
   return <h1 title={t("agents.watching", { count: watching })}>{t("help.title")}</h1>;
@@ -1852,13 +1852,22 @@ export default function Help({ watching }: { watching: number }) {
 
 The build lowers each call to the plan and Rust answers it from ICU4X or from the catalog for `t`; the bundle's copy calls `Intl` or reads the table the document carried. A call whose inputs are props only is hoisted like a helper call, so the browser reads the server's value and calls nothing.
 
+The platform's own globals work the same way with no import. `new Intl.NumberFormat(locale, options).format(n)`, `toLocaleString`, `Intl.DateTimeFormat`, `Intl.ListFormat` and `localeCompare` lower to the same Rust. A call the build cannot read leaves its component to render in the browser, where the platform runs it. A browser handler reads the clock and makes ids with `Date.now()` and `crypto.randomUUID()`, which the browser has.
+
+`file` resolves a relative path against the application and reaches only the directories `[files] roots` names in `config/app.toml`; a path outside them is refused with the key named. A terminal program has no roots and resolves against its working directory:
+
+```toml
+[files]
+roots = ["content", "data"]
+```
+
 ## Writing an Extension
 
 `ext/` beside `routes/` holds the application's own extensions, reached as `@ext/<name>` from anywhere under the app. A module there is written in the same subset as any helper and every export must lower: a helper the server cannot run is not an extension, so a `new Date()` in one stops the build naming the line instead of dropping a page to the browser.
 
 ```ts
 // ext/labels.ts
-import { intl } from "@snapfire/fsr-client/std";
+import { intl } from "@snapfire/fsr/client";
 
 export function count(n: number, noun: string): string {
   return `${intl.number(n)} ${noun}${intl.plural(n) === "one" ? "" : "s"}`;
@@ -1869,7 +1878,7 @@ A native pair is a function with a Rust half. Its browser half is declared in an
 
 ```ts
 // ext/fleet.ts
-import { native } from "@snapfire/fsr-client/std";
+import { native } from "@snapfire/fsr";
 
 export const queueLabel = native("fleet.queueLabel", (depth: number) => (depth === 0 ? "idle" : depth === 1 ? "1 queued" : `${depth} queued`));
 export const token = native<() => string>("fleet.token");

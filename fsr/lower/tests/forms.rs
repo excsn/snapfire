@@ -149,9 +149,9 @@ const BODY: &str = "async ({ input }: ActionCtx<AddInput>) => ({ n: input.n })";
 
 #[test]
 fn an_action_is_recognised_by_the_name_it_was_imported_under() {
-  let plain = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr\";\nexport const add = action({BODY});\n")).unwrap();
-  let aliased = lower_actions("a.ts", &format!("import {{ action as act }} from \"@snapfire/fsr\";\nexport const add = act({BODY});\n")).unwrap();
-  let namespaced = lower_actions("a.ts", &format!("import * as fsr from \"@snapfire/fsr\";\nexport const add = fsr.action({BODY});\n")).unwrap();
+  let plain = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr/host\";\nexport const add = action({BODY});\n")).unwrap();
+  let aliased = lower_actions("a.ts", &format!("import {{ action as act }} from \"@snapfire/fsr/host\";\nexport const add = act({BODY});\n")).unwrap();
+  let namespaced = lower_actions("a.ts", &format!("import * as fsr from \"@snapfire/fsr/host\";\nexport const add = fsr.action({BODY});\n")).unwrap();
 
   for (form, lowered) in [("aliased", &aliased), ("namespaced", &namespaced)] {
     assert_eq!(lowered.len(), 1, "an {form} `action` is still an action: {lowered:?}");
@@ -163,14 +163,14 @@ fn an_action_is_recognised_by_the_name_it_was_imported_under() {
 
 #[test]
 fn an_action_is_found_however_the_module_exports_it() {
-  let beside = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr\";\nexport const add = action({BODY}), drop = action({BODY});\n")).unwrap();
+  let beside = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr/host\";\nexport const add = action({BODY}), drop = action({BODY});\n")).unwrap();
   assert_eq!(beside.iter().map(|a| a.export.as_str()).collect::<Vec<_>>(), ["add", "drop"], "both declarators of one `export const`: {beside:?}");
 
-  let apart = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr\";\nconst add = action({BODY});\nexport {{ add }};\n")).unwrap();
+  let apart = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr/host\";\nconst add = action({BODY});\nexport {{ add }};\n")).unwrap();
   assert_eq!(apart.len(), 1, "a declaration and an `export {{ … }}` that names it: {apart:?}");
   assert_eq!(apart[0].export, "add");
 
-  let renamed = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr\";\nconst add = action({BODY});\nexport {{ add as plus }};\n")).unwrap();
+  let renamed = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr/host\";\nconst add = action({BODY});\nexport {{ add as plus }};\n")).unwrap();
   assert_eq!(renamed[0].export, "plus", "the exported name is the action's, not the local one: {renamed:?}");
 }
 
@@ -190,9 +190,9 @@ fn a_body_may_return_from_a_concise_arrow_as_meta_and_store_always_could() {
 
 #[test]
 fn fail_is_a_guard_under_whatever_name_it_was_imported() {
-  let plain = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr\";\nexport async function load({ params }) {\n  if (!params.id) fail(\"invalid\", \"no id\");\n  return { id: params.id };\n}\n").unwrap();
-  let aliased = lower_loader("l.ts", "import { fail as bail } from \"@snapfire/fsr\";\nexport async function load({ params }) {\n  if (!params.id) bail(\"invalid\", \"no id\");\n  return { id: params.id };\n}\n").unwrap();
-  let namespaced = lower_loader("l.ts", "import * as fsr from \"@snapfire/fsr\";\nexport async function load({ params }) {\n  if (!params.id) fsr.fail(\"invalid\", \"no id\");\n  return { id: params.id };\n}\n").unwrap();
+  let plain = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr/host\";\nexport async function load({ params }) {\n  if (!params.id) fail(\"invalid\", \"no id\");\n  return { id: params.id };\n}\n").unwrap();
+  let aliased = lower_loader("l.ts", "import { fail as bail } from \"@snapfire/fsr/host\";\nexport async function load({ params }) {\n  if (!params.id) bail(\"invalid\", \"no id\");\n  return { id: params.id };\n}\n").unwrap();
+  let namespaced = lower_loader("l.ts", "import * as fsr from \"@snapfire/fsr/host\";\nexport async function load({ params }) {\n  if (!params.id) fsr.fail(\"invalid\", \"no id\");\n  return { id: params.id };\n}\n").unwrap();
 
   assert!(matches!(plain.first(), Some(Stmt::Guard { .. })), "{plain:?}");
   assert_eq!(aliased, plain, "an aliased `fail` guards: {aliased:?}");
@@ -216,18 +216,18 @@ fn a_dialect_tag_is_read_from_its_import_rather_than_its_spelling() {
   let island = lower(
     &[
       help,
-      ("routes/a/page.tsx", "import { Island as Zone } from \"@snapfire/fsr-client/react\";\nimport { Help } from \"../../src/ui/Help\";\nexport default function A() {\n  return <Zone when=\"idle\"><Help /></Zone>;\n}\n"),
+      ("routes/a/page.tsx", "import { Island as Zone } from \"@snapfire/fsr/client/react\";\nimport { Help } from \"../../src/ui/Help\";\nexport default function A() {\n  return <Zone when=\"idle\"><Help /></Zone>;\n}\n"),
     ],
     "routes/a/page.tsx#default",
   );
   assert_eq!(island_in(render_of(&island, "routes/a/page.tsx#default")), Some(("src/ui/Help.tsx#Help", Some("idle"), None)));
 
-  let link = lower(&[("routes/a/page.tsx", "import { Link as A } from \"@snapfire/fsr-client/react\";\nexport default function P() {\n  return <A href=\"/x\">x</A>;\n}\n")], "routes/a/page.tsx#default");
+  let link = lower(&[("routes/a/page.tsx", "import { Link as A } from \"@snapfire/fsr/client/react\";\nexport default function P() {\n  return <A href=\"/x\">x</A>;\n}\n")], "routes/a/page.tsx#default");
   let Tmpl::Element { tag, attrs, .. } = render_of(&link, "routes/a/page.tsx#default") else { panic!("{:?}", render_of(&link, "routes/a/page.tsx#default")) };
   assert_eq!(tag, "a", "an aliased `Link` is still an anchor");
   assert_eq!(attrs[0], Entry::Field("href".to_owned(), Expr::lit_str("/x")));
 
-  let mut slot = ComponentSet::new(&app(&[("routes/layout.tsx", "import { Slot as Region } from \"@snapfire/fsr-client/react\";\nexport default function L({ children }: { children: unknown }) {\n  return <div>{children}<Region name=\"modal\" /></div>;\n}\n")]));
+  let mut slot = ComponentSet::new(&app(&[("routes/layout.tsx", "import { Slot as Region } from \"@snapfire/fsr/client/react\";\nexport default function L({ children }: { children: unknown }) {\n  return <div>{children}<Region name=\"modal\" /></div>;\n}\n")]));
   slot.layouts.push("routes/layout.tsx#default".to_owned());
   slot.slots.push(("routes/layout.tsx#default".to_owned(), vec!["modal".to_owned()]));
   slot.lower("routes/layout.tsx#default").unwrap();
@@ -239,7 +239,7 @@ fn a_dialect_tag_is_read_from_its_import_rather_than_its_spelling() {
 fn an_aliased_island_declaration_still_places_the_island() {
   let set = lower(
     &[
-      ("src/ui/Help.tsx", "import { island as isle } from \"@snapfire/fsr-client/react\";\nexport function Help() {\n  return <p>help</p>;\n}\nexport const Lazy = isle(Help, { when: \"idle\" });\n"),
+      ("src/ui/Help.tsx", "import { island as isle } from \"@snapfire/fsr/client/react\";\nexport function Help() {\n  return <p>help</p>;\n}\nexport const Lazy = isle(Help, { when: \"idle\" });\n"),
       ("routes/a/page.tsx", "import { Lazy } from \"../../src/ui/Help\";\nexport default function A() {\n  return <main><Lazy /></main>;\n}\n"),
     ],
     "routes/a/page.tsx#default",
@@ -251,8 +251,8 @@ fn an_aliased_island_declaration_still_places_the_island() {
 fn an_aliased_action_import_in_a_handler_still_lowers_to_act() {
   let set = lower(
     &[
-      ("src/Lot.tsx", "import { action as act } from \"@snapfire/fsr-client\";\nconst save = act(\"desk.save\");\nexport function Lot() {\n  return <button onClick={() => void save({ by: 1 })}>s</button>;\n}\n"),
-      ("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Lot } from \"../../src/Lot\";\nexport default function A() {\n  return <Island mode=\"server\"><Lot /></Island>;\n}\n"),
+      ("src/Lot.tsx", "import { action as act } from \"@snapfire/fsr/client\";\nconst save = act(\"desk.save\");\nexport function Lot() {\n  return <button onClick={() => void save({ by: 1 })}>s</button>;\n}\n"),
+      ("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Lot } from \"../../src/Lot\";\nexport default function A() {\n  return <Island mode=\"server\"><Lot /></Island>;\n}\n"),
     ],
     "routes/a/page.tsx#default",
   );
@@ -266,8 +266,8 @@ fn an_aliased_action_import_in_a_handler_still_lowers_to_act() {
 fn an_aliased_store_key_is_still_the_key_it_names() {
   let set = lower(
     &[
-      ("src/store.ts", "import { key as k } from \"@snapfire/fsr-client/store\";\nexport const cartCount = k<number>(\"cart/count\");\n"),
-      ("routes/a/page.tsx", "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [n] = useStore(cartCount, 0);\n  return <p>{n}</p>;\n}\n"),
+      ("src/store.ts", "import { key as k } from \"@snapfire/fsr/client/store\";\nexport const cartCount = k<number>(\"cart/count\");\n"),
+      ("routes/a/page.tsx", "import { useStore } from \"@snapfire/fsr/client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [n] = useStore(cartCount, 0);\n  return <p>{n}</p>;\n}\n"),
     ],
     "routes/a/page.tsx#default",
   );
@@ -280,7 +280,7 @@ fn an_aliased_store_key_is_still_the_key_it_names() {
 fn a_handler_that_reaches_an_action_through_a_binding_the_build_cannot_follow_is_refused() {
   let mut set = ComponentSet::new(&app(&[
     ("src/Lot.tsx", "import { actions } from \"../generated/client\";\nconst { $root } = actions;\nexport function Lot() {\n  return <button onClick={() => void $root.play({})}>s</button>;\n}\n"),
-    ("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Lot } from \"../../src/Lot\";\nexport default function A() {\n  return <Island mode=\"server\"><Lot /></Island>;\n}\n"),
+    ("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Lot } from \"../../src/Lot\";\nexport default function A() {\n  return <Island mode=\"server\"><Lot /></Island>;\n}\n"),
   ]));
   set.lower("routes/a/page.tsx#default").unwrap();
   let (_, lot) = set.components.iter().find(|(m, _)| m == "src/Lot.tsx#Lot").unwrap();
@@ -300,8 +300,8 @@ fn a_hook_reached_through_a_namespace_import_is_still_that_hook() {
 
   let store = lower(
     &[
-      ("src/store.ts", "import { key } from \"@snapfire/fsr-client/store\";\nexport const cartCount = key<number>(\"cart/count\");\n"),
-      ("routes/a/page.tsx", "import * as sf from \"@snapfire/fsr-client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [n] = sf.useStore(cartCount, 0);\n  return <p>{n}</p>;\n}\n"),
+      ("src/store.ts", "import { key } from \"@snapfire/fsr/client/store\";\nexport const cartCount = key<number>(\"cart/count\");\n"),
+      ("routes/a/page.tsx", "import * as sf from \"@snapfire/fsr/client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [n] = sf.useStore(cartCount, 0);\n  return <p>{n}</p>;\n}\n"),
     ],
     "routes/a/page.tsx#default",
   );
@@ -317,7 +317,7 @@ fn a_method_call_on_a_local_object_is_not_mistaken_for_a_hook() {
 
 #[test]
 fn an_actions_module_export_the_build_cannot_read_is_an_error() {
-  let unknown = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr\";\nexport const add = action({BODY});\nexport const drop = wrap(async () => 1);\n")).unwrap_err().to_string();
+  let unknown = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr/host\";\nexport const add = action({BODY});\nexport const drop = wrap(async () => 1);\n")).unwrap_err().to_string();
   assert!(unknown.contains("`drop`") && unknown.contains("does not recognise"), "an unrecognised call is refused rather than skipped: {unknown}");
 
   let foreign = lower_actions("a.ts", "import { pay } from \"./shared\";\nexport { pay };\n").unwrap_err().to_string();
@@ -334,7 +334,7 @@ fn an_actions_module_export_the_build_cannot_read_is_an_error() {
 fn an_actions_module_still_passes_over_what_is_plainly_not_an_action() {
   let lowered = lower_actions(
     "a.ts",
-    &format!("import {{ action }} from \"@snapfire/fsr\";\nexport type Pair = {{ a: number }};\nexport interface Row {{ b: string }}\nexport const LIMIT = 10;\nexport const TAGS = [\"a\"];\nexport function helper(n: number) {{ return n; }}\nexport const add = action({BODY});\n"),
+    &format!("import {{ action }} from \"@snapfire/fsr/host\";\nexport type Pair = {{ a: number }};\nexport interface Row {{ b: string }}\nexport const LIMIT = 10;\nexport const TAGS = [\"a\"];\nexport function helper(n: number) {{ return n; }}\nexport const add = action({BODY});\n"),
   )
   .unwrap();
   assert_eq!(lowered.iter().map(|a| a.export.as_str()).collect::<Vec<_>>(), ["add"], "a type, a literal, an array and a plain function are skipped on what they are: {lowered:?}");
@@ -353,7 +353,7 @@ fn a_session_module_refuses_a_defaults_export_the_build_cannot_read() {
 
 #[test]
 fn a_fail_message_is_any_expression_and_the_kind_stays_a_literal() {
-  let body = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr\";\nexport async function load({ params }) {\n  if (!params.id) fail(\"not_found\", `there is no talk ${params.id}`);\n  return { id: params.id };\n}\n").unwrap();
+  let body = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr/host\";\nexport async function load({ params }) {\n  if (!params.id) fail(\"not_found\", `there is no talk ${params.id}`);\n  return { id: params.id };\n}\n").unwrap();
   match &body[0] {
     Stmt::Guard { kind, message, .. } => {
       assert_eq!(kind, "not_found");
@@ -361,7 +361,7 @@ fn a_fail_message_is_any_expression_and_the_kind_stays_a_literal() {
     }
     other => panic!("{other:?}"),
   }
-  let refused = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr\";\nexport async function load({ params }) {\n  if (!params.id) fail(params.kind, \"no\");\n  return {};\n}\n").unwrap_err().to_string();
+  let refused = lower_loader("l.ts", "import { fail } from \"@snapfire/fsr/host\";\nexport async function load({ params }) {\n  if (!params.id) fail(params.kind, \"no\");\n  return {};\n}\n").unwrap_err().to_string();
   assert!(refused.contains("kind as a string literal"), "{refused}");
 }
 
@@ -439,7 +439,7 @@ const ROW: &str = "export default function Row({ label, shown, toggle }: { label
 
 #[test]
 fn a_handler_passed_as_a_prop_is_bound_where_the_child_places_it() {
-  let page = |mode: &str| format!("import {{ Island }} from \"@snapfire/fsr-authoring/template\";\nimport Panel from \"@src/ui/Panel\";\nexport default function Page() {{\n  return <Island{mode}><Panel /></Island>;\n}}\n");
+  let page = |mode: &str| format!("import {{ Island }} from \"@snapfire/fsr/template\";\nimport Panel from \"@src/ui/Panel\";\nexport default function Page() {{\n  return <Island{mode}><Panel /></Island>;\n}}\n");
   for (mode, marks) in [("", false), (" mode=\"server\"", true)] {
     let source = page(mode);
     let set = lower(&[("routes/page.tsx", &source), ("src/ui/Panel.tsx", PANEL), ("src/ui/Row.tsx", ROW)], "routes/page.tsx#default");
@@ -472,7 +472,7 @@ fn a_handler_prop_that_does_not_lower_leaves_its_reason_on_the_placement() {
 #[test]
 fn a_react_island_holds_the_children_its_first_render_did_not_place() {
   let panel = "import { useState, type ReactNode } from \"react\";\nexport default function Panel({ children }: { children: ReactNode }) {\n  const [open, setOpen] = useState(false);\n  return (\n    <div>\n      <button onClick={() => setOpen(!open)}>more</button>\n      {open && children}\n    </div>\n  );\n}\n";
-  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Panel from \"@src/ui/Panel\";\nexport default function Page({ n }: { n: number }) {\n  let note = `n=${n}`;\n  if (n > 1) {\n    note += \" many\";\n  }\n  return <Island><Panel><p className=\"kept\">{note}</p></Panel></Island>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/template\";\nimport Panel from \"@src/ui/Panel\";\nexport default function Page({ n }: { n: number }) {\n  let note = `n=${n}`;\n  if (n > 1) {\n    note += \" many\";\n  }\n  return <Island><Panel><p className=\"kept\">{note}</p></Panel></Island>;\n}\n";
   let set = lower(&[("routes/page.tsx", page), ("src/ui/Panel.tsx", panel)], "routes/page.tsx#default");
   let library = library(&set);
   let props: ValueMap = [("n".to_owned(), Value::F64(2.0))].into_iter().collect();

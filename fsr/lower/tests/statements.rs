@@ -239,7 +239,7 @@ fn a_helper_reading_the_date_clock_is_left_to_the_browser_as_an_inline_read_is()
 
 #[test]
 fn a_helper_calling_time_now_itself_is_still_refused() {
-  let page = "import { time } from \"@snapfire/fsr-client/std\";\nfunction now() {\n  return time.now();\n}\nexport default function Page() {\n  return <p>{now()}</p>;\n}\n";
+  let page = "import { time } from \"@snapfire/fsr/host\";\nfunction now() {\n  return time.now();\n}\nexport default function Page() {\n  return <p>{now()}</p>;\n}\n";
   let dir = app("time_helper", &[("routes/page.tsx", page)]);
   let mut set = ComponentSet::new(&dir);
   let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());

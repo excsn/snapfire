@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
 
 import { savedCount } from "@src/store";

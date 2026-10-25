@@ -101,7 +101,7 @@ fn picture_of(tmpl: &Tmpl) -> (&[Tmpl], &[Entry]) {
   (&children[..children.len() - 1], attrs)
 }
 
-const PAGE_WITH_PICTURE: &str = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+const PAGE_WITH_PICTURE: &str = r#"import { Picture } from "@snapfire/fsr/template";
 import hero from "../img/hero.png";
 export default function Page() {
   return <Picture src={hero} alt="The harbour" className="hero" />;
@@ -177,7 +177,7 @@ export default function Page() {
 
 #[test]
 fn a_priority_picture_loads_eagerly_and_asks_the_head_for_a_preload_that_the_placing_page_inherits() {
-  let hero = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let hero = r#"import { Picture } from "@snapfire/fsr/template";
 import hero from "../img/hero.png";
 export default function Hero() {
   return <Picture src={hero} alt="x" priority sizes="50vw" widths={[320, 640]} quality={{ avif: 70 }} />;
@@ -215,7 +215,7 @@ export default function Page() {
 
 #[test]
 fn a_computed_priority_decides_loading_and_fetchpriority_when_rendered() {
-  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let page = r#"import { Picture } from "@snapfire/fsr/template";
 import hero from "../img/hero.png";
 export default function Page({ rank }: { rank: string }) {
   return <Picture src={hero} alt="x" priority={rank === "high"} />;
@@ -237,7 +237,7 @@ export default function Page({ rank }: { rank: string }) {
 
 #[test]
 fn an_image_served_as_it_is_gets_an_img_alone() {
-  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let page = r#"import { Picture } from "@snapfire/fsr/template";
 import logo from "../img/logo.svg";
 export default function Page() {
   return <Picture src={logo} alt="logo" />;
@@ -250,7 +250,7 @@ export default function Page() {
 
 #[test]
 fn a_string_src_through_a_named_source_writes_srcset_from_the_template() {
-  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let page = r#"import { Picture } from "@snapfire/fsr/template";
 export default function Page() {
   const photo = "shots/dock.jpg";
   return <Picture src={photo} source="cms" alt="dock" width={800} height={600} />;
@@ -266,7 +266,7 @@ export default function Page() {
 
 #[test]
 fn a_string_src_with_no_source_is_an_img_as_written_and_a_path_literal_is_refused() {
-  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let page = r#"import { Picture } from "@snapfire/fsr/template";
 export default function Page(props: { url: string }) {
   return <Picture src={props.url} alt="remote" />;
 }
@@ -276,7 +276,7 @@ export default function Page(props: { url: string }) {
   assert_eq!(tag, "img");
   assert!(attr(attrs, "srcset").is_none());
 
-  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let page = r#"import { Picture } from "@snapfire/fsr/template";
 export default function Page() {
   return <Picture src="./hero.png" alt="x" />;
 }
@@ -286,7 +286,7 @@ export default function Page() {
   let err = set.lower("src/ui/Page.tsx#default").unwrap_err().to_string();
   assert!(err.contains("import the file and pass the import"), "{err}");
 
-  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let page = r#"import { Picture } from "@snapfire/fsr/template";
 export default function Page() {
   return <Picture src="x" source="nowhere" alt="x" />;
 }
@@ -313,7 +313,7 @@ export default function Page() {
 
 #[test]
 fn a_record_of_imports_indexed_by_a_key_lowers_to_one_branch_per_entry() {
-  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+  let page = r#"import { Picture } from "@snapfire/fsr/template";
 import hero from "../img/hero.png";
 import logo from "../img/logo.svg";
 const PHOTOS = { "hero.png": hero, "logo.svg": logo };
@@ -347,7 +347,7 @@ export default function Page(props: { file: string }) {
 /// its order and a `{ key, type, srcSet, sizes }` row per format.
 #[test]
 fn a_svelte_picture_call_answers_the_parts_the_client_builds() {
-  let source = "<script>import { picture } from '@snapfire/fsr-client/svelte'; import hero from '../img/hero.png'; const image = picture({ src: hero, alt: 'h' }); const logo = picture({ src: '/x.svg', alt: '', width: 3 });</script><picture>{#each image.sources as s}<source {...s} />{/each}<img {...image.img} /></picture><p>{image.sources === null} {logo.sources === null}</p><img {...logo.img} />";
+  let source = "<script>import { picture } from '@snapfire/fsr/client/svelte'; import hero from '../img/hero.png'; const image = picture({ src: hero, alt: 'h' }); const logo = picture({ src: '/x.svg', alt: '', width: 3 });</script><picture>{#each image.sources as s}<source {...s} />{/each}<img {...image.img} /></picture><p>{image.sources === null} {logo.sources === null}</p><img {...logo.img} />";
   let dir = app(&[("src/ui/P.svelte", source)]);
   let fake = Rc::new(Fake::default());
   let mut set = ComponentSet::new(&dir).with_assets(fake, false);

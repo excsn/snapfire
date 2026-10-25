@@ -1,4 +1,4 @@
-import type { MiddlewareCtx } from "@snapfire/fsr";
+import type { MiddlewareCtx } from "@snapfire/fsr/host";
 
 export async function middleware({ request, identity, next }: MiddlewareCtx) {
   if (request.path === "/dashboard") return Response.redirect("/", 307);

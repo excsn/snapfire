@@ -1,4 +1,4 @@
-import type { Ctx, DataOf, MetaCtx } from "@snapfire/fsr";
+import type { Ctx, DataOf, MetaCtx } from "@snapfire/fsr/host";
 
 export async function load({ params, session, services }: Ctx<"/product/{id}">) {
   const product = await services.shopping.getProduct({ id: BigInt(params.id) });

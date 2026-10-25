@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, screen, test } from "@snapfire/fsr/client/testing";
 
 const trimmer = { id: "1", name: "Hedge trimmer", category: "Garden", keeper: "Dev", deposit: 20, days: 3, note: "Two batteries." };
 const shed = { name: "The Shed", strap: "A street's worth of tools", categories: ["Garden"] };

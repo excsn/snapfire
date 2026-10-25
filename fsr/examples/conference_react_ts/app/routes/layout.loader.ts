@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 import { linkTag } from "@snapfire/fsr/head";
 
 export async function load({ session, services }: Ctx) {

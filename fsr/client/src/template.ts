@@ -1,5 +1,5 @@
 /**
- * What `@snapfire/fsr-authoring/template` resolves to in the browser. Lowering
+ * What `@snapfire/fsr/template` resolves to in the browser. Lowering
  * removes the dialect from every page and layout and the build points an
  * island's import of it at the island's framework, so this is reached only
  * by a file nothing mounts: the placements as plain elements, loading no

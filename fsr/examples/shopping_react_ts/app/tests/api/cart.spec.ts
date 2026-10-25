@@ -1,4 +1,4 @@
-import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, test } from "@snapfire/fsr/client/testing";
 
 test("the cart handler answers GET and POST with JSON under the spec's session", async () => {
   const c = ctx({ session: { cart: { "1": 2n } }, services: { shopping: { listProducts: () => [] } } });

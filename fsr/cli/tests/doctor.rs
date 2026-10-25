@@ -184,7 +184,7 @@ fn the_client_the_binary_serves_needs_no_file_under_a_static_root() {
   let embedded = app(
     "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n",
     &[
-      ("app/importmap.json", r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#),
+      ("app/importmap.json", r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js"}}"#),
       ("app/public/robots.txt", "User-agent: *\n"),
     ],
   );
@@ -192,7 +192,7 @@ fn the_client_the_binary_serves_needs_no_file_under_a_static_root() {
 
   let own = app(
     "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[[static]]\ndir = \"client\"\nroute = \"/static/js/fsr\"\n",
-    &[("app/importmap.json", r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#), ("app/client/.keep", "")],
+    &[("app/importmap.json", r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js"}}"#), ("app/client/.keep", "")],
   );
   assert_eq!(findings(&own), vec!["vendor"], "{}", report(&own));
 }

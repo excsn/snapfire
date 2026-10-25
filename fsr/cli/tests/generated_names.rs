@@ -12,7 +12,7 @@ const PAGE: &str = "export default function Page({ title }: { title: string }) {
 
 const LOADER: &str = "export async function load() {\n  return { title: \"intro\" };\n}\n";
 
-const ACTIONS: &str = "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\n\nexport const join = action(async (_ctx: ActionCtx) => {\n  return { ok: true };\n});\n";
+const ACTIONS: &str = "import { action } from \"@snapfire/fsr/host\";\nimport type { ActionCtx } from \"@snapfire/fsr/host\";\n\nexport const join = action(async (_ctx: ActionCtx) => {\n  return { ok: true };\n});\n";
 
 fn client(tag: &str, files: &[(&str, &str)]) -> String {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

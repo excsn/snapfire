@@ -1,7 +1,7 @@
 import * as React from "react";
 
-import { contribute, reset } from "@snapfire/fsr-client/store";
-import { describe, expect, render, settle, test } from "@snapfire/fsr-client/testing";
+import { contribute, reset } from "@snapfire/fsr/client/store";
+import { describe, expect, render, settle, test } from "@snapfire/fsr/client/testing";
 
 import ReactProbe from "@src/ui/ReactProbe";
 

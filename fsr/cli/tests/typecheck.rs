@@ -95,12 +95,12 @@ fn check_typechecks_the_generated_files_of_the_build_it_holds() {
   std::fs::write(app.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   std::fs::write(app.join("routes/index/page.tsx"), "export default function Page() {\n  return <p>page</p>;\n}\n").unwrap();
   let loader = app.join("routes/index/actions.ts");
-  std::fs::write(&loader, "import { action } from \"@snapfire/fsr\";\n\nexport const count = action(async () => 2);\n").unwrap();
+  std::fs::write(&loader, "import { action } from \"@snapfire/fsr/host\";\n\nexport const count = action(async () => 2);\n").unwrap();
   let earlier = build(&app, &Options::default()).unwrap();
   write_generated(&app, &earlier).unwrap();
   assert!(std::fs::read_to_string(app.join("generated/client.ts")).unwrap().contains("count"));
 
-  std::fs::write(&loader, "import { action } from \"@snapfire/fsr\";\n\nexport const total = action(async () => 2);\n").unwrap();
+  std::fs::write(&loader, "import { action } from \"@snapfire/fsr/host\";\n\nexport const total = action(async () => 2);\n").unwrap();
   let checker = dir.join("snapfiretc");
   std::fs::write(&checker, "#!/bin/sh\ncp \"$2/generated/client.ts\" \"$2/seen.ts\"\necho '{\"tsc\":\"/c/tsc\",\"version\":\"7.0.2\",\"source\":\"cache\",\"sha512\":null,\"pinned\":true,\"diagnostics\":[]}'\n").unwrap();
   std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -144,7 +144,7 @@ fn shadowed_app(tag: &str, page: &str) -> PathBuf {
 #[test]
 fn a_component_beside_a_module_of_its_own_name_typechecks_as_the_component() {
   use snapfire_fsr_cli::{build, write, Options};
-  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Card from \"@src/ui/Card.svelte\";\n\nexport default function Page() {\n  return (\n    <Island when=\"load\">\n      <Card />\n    </Island>\n  );\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/template\";\nimport Card from \"@src/ui/Card.svelte\";\n\nexport default function Page() {\n  return (\n    <Island when=\"load\">\n      <Card />\n    </Island>\n  );\n}\n";
   let app = shadowed_app("shadowed", page);
   let built = build(&app, &Options::default()).unwrap();
   write(&app, &built).unwrap();
@@ -159,7 +159,7 @@ fn a_component_beside_a_module_of_its_own_name_typechecks_as_the_component() {
 #[test]
 fn a_relative_import_of_a_component_beside_a_module_of_its_own_name_is_refused_naming_the_alias() {
   use snapfire_fsr_cli::{build, Options};
-  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Card from \"../src/ui/Card.svelte\";\n\nexport default function Page() {\n  return (\n    <Island when=\"load\">\n      <Card />\n    </Island>\n  );\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/template\";\nimport Card from \"../src/ui/Card.svelte\";\n\nexport default function Page() {\n  return (\n    <Island when=\"load\">\n      <Card />\n    </Island>\n  );\n}\n";
   let app = shadowed_app("shadowed-relative", page);
   let refused = match build(&app, &Options::default()) {
     Err(e) => e.to_string(),

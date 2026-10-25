@@ -453,7 +453,7 @@ impl Pass for RouteLift {
         Some((page, load, fails)) => {
           let mut loader = String::new();
           if fails {
-            loader.push_str("import { fail } from \"@snapfire/fsr\";\n");
+            loader.push_str("import { fail } from \"@snapfire/fsr/host\";\n");
           }
           loader.push_str(&load.imports);
           loader.push('\n');
@@ -645,7 +645,7 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   let (inlined_imports, inlined) = inline_memoized(tree, parsed, &mut needed, path, loader_path, report);
   let decls = format!("{inlined}{}", copied(text, parsed, &items, &taken, path, report));
   let body_text = format!("{decls}export async function load({ctx}) {{\n{statements}  return {{ {} }};\n}}\n", fields.join(", "));
-  let ctx_import = if typed_ctx { "import type { Ctx } from \"@snapfire/fsr\";\n" } else { "" };
+  let ctx_import = if typed_ctx { "import type { Ctx } from \"@snapfire/fsr/host\";\n" } else { "" };
   let imports = format!("{ctx_import}{inlined_imports}{}", imports_for(text, parsed, &needed.difference(&left_out).cloned().collect(), path, loader_path));
 
   let mut page = Edits::default();
@@ -1048,7 +1048,7 @@ impl Pass for ComponentLift {
         tree.insert(loader_path, tidy(&loader));
       }
       keys.extend(file_keys);
-      let header = format!("import {{ useStore }} from \"@snapfire/fsr-client/react\";\nimport {{ {} }} from \"@src/store\";\n", key_names.join(", "));
+      let header = format!("import {{ useStore }} from \"@snapfire/fsr/client/react\";\nimport {{ {} }} from \"@src/store\";\n", key_names.join(", "));
       let mut removable = needed.clone();
       removable.insert("use".to_owned());
       let body = crate::items::prune(&path, &edits.apply(&text), &removable);
@@ -1058,8 +1058,8 @@ impl Pass for ComponentLift {
       return;
     }
     let mut store = tree.text("app/src/store.ts").unwrap_or_default().to_owned();
-    if !store.contains("@snapfire/fsr-client/store") {
-      store.insert_str(0, "import { key } from \"@snapfire/fsr-client/store\";\n\n");
+    if !store.contains("@snapfire/fsr/client/store") {
+      store.insert_str(0, "import { key } from \"@snapfire/fsr/client/store\";\n\n");
     }
     for (name, id) in keys {
       store.push_str(&format!("export const {name} = key<any>(\"{id}\");\n"));
@@ -1341,7 +1341,7 @@ mod tests {
     let (out, report) = lift(&input);
     assert_eq!(
       out.text("app/routes/page.loader.ts").unwrap(),
-      "import { fail } from \"@snapfire/fsr\";\nimport type { Ctx } from \"@snapfire/fsr\";\nimport prisma from \"../src/lib/prisma\";\n\nexport async function load({ query }: Ctx<\"/\">) {\n  const { q } = query;\n  const products = await prisma.product.findMany({ where: { q } });\n  if (!products) fail(\"not_found\", \"not found\");\n  return { products };\n}\n"
+      "import { fail } from \"@snapfire/fsr/host\";\nimport type { Ctx } from \"@snapfire/fsr/host\";\nimport prisma from \"../src/lib/prisma\";\n\nexport async function load({ query }: Ctx<\"/\">) {\n  const { q } = query;\n  const products = await prisma.product.findMany({ where: { q } });\n  if (!products) fail(\"not_found\", \"not found\");\n  return { products };\n}\n"
     );
     assert_eq!(
       out.text("app/routes/page.tsx").unwrap(),
@@ -1418,7 +1418,7 @@ mod tests {
       out.text("app/routes/page.loader.ts").unwrap(),
       "function fetchData(url) {\n  return getData(url);\n}\n\nasync function getData(url) {\n  return [url];\n}\n\nexport async function load() {\n  const albumsAlbums = await fetchData('/albums');\n  return { albumsAlbums };\n}\n\nexport const store = ({ data }) => ({ \"albums/albums\": data.albumsAlbums });\n"
     );
-    assert_eq!(out.text("app/src/App.js").unwrap(), "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { albumsAlbums } from \"@src/store\";\n\nexport default function Albums() {\n  const [albums] = useStore(albumsAlbums, null);\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n");
+    assert_eq!(out.text("app/src/App.js").unwrap(), "import { useStore } from \"@snapfire/fsr/client/react\";\nimport { albumsAlbums } from \"@src/store\";\n\nexport default function Albums() {\n  const [albums] = useStore(albumsAlbums, null);\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n");
   }
 
   #[test]
@@ -1438,7 +1438,7 @@ mod tests {
     let (out, report) = lift(&input);
     assert_eq!(
       out.text("app/routes/[lang]/layout.loader.ts").unwrap(),
-      "import type { Ctx } from \"@snapfire/fsr\";\nimport { getDictionary } from \"../../src/dictionaries\";\n\nexport async function load({ params }: Ctx) {\n  const dict = await getDictionary(params.lang);\n  return { params, dict };\n}\n"
+      "import type { Ctx } from \"@snapfire/fsr/host\";\nimport { getDictionary } from \"../../src/dictionaries\";\n\nexport async function load({ params }: Ctx) {\n  const dict = await getDictionary(params.lang);\n  return { params, dict };\n}\n"
     );
     assert_eq!(
       out.text("app/routes/[lang]/layout.tsx").unwrap(),
@@ -1460,9 +1460,9 @@ mod tests {
     );
     assert_eq!(
       out.text("app/src/Albums.js").unwrap(),
-      "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { albumsAlbums } from \"@src/store\";\n\nexport default function Albums() {\n  const [albums] = useStore(albumsAlbums, null);\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n"
+      "import { useStore } from \"@snapfire/fsr/client/react\";\nimport { albumsAlbums } from \"@src/store\";\n\nexport default function Albums() {\n  const [albums] = useStore(albumsAlbums, null);\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n"
     );
-    assert_eq!(out.text("app/src/store.ts").unwrap(), "import { key } from \"@snapfire/fsr-client/store\";\n\nexport const albumsAlbums = key<any>(\"albums/albums\");\n");
+    assert_eq!(out.text("app/src/store.ts").unwrap(), "import { key } from \"@snapfire/fsr/client/store\";\n\nexport const albumsAlbums = key<any>(\"albums/albums\");\n");
     assert_eq!(report.notes.len(), 1, "{:?}", report.notes);
   }
 

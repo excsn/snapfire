@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 import { Link } from "@snapfire/fsr/components";
 
 import Figure from "@src/ui/Figure.svelte";

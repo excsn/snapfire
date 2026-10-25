@@ -2779,10 +2779,10 @@ fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, stat
 /// client's React module, which a React application also mounts with or the
 /// dialect's own declarations, which an application without React types
 /// against.
-pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-authoring/template", "@snapfire/fsr-client/react", "@snapfire/fsr-client/vue", "@snapfire/fsr-client/jsx-runtime"];
+pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr/template", "@snapfire/fsr/client/react", "@snapfire/fsr/client/vue", "@snapfire/fsr/client/jsx-runtime"];
 
 /// The client library's root, where `action` comes from.
-pub const CLIENT_SOURCE: &str = "@snapfire/fsr-client";
+pub const CLIENT_SOURCE: &str = "@snapfire/fsr/client";
 
 /// Every file under `dir` as its path relative to it, `/`-separated, leaving
 /// out a directory whose name starts with `.` and `node_modules`.
@@ -11249,7 +11249,7 @@ export default function Index({ items, tree }: { items: string[]; tree: { label:
       (
         "src/ui/Card.tsx",
         r#"
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import Body from "@src/ui/Body";
 export default function Card({ label }: { label: string }) {
   return <Island when="load"><Body label={label} /></Island>;
@@ -11325,7 +11325,7 @@ export default function Page({ blip, note }: { blip: { body: string }; note: { _
         "routes/cart/page.tsx",
         r#"
 import { useState } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { money } from "@src/ui/money";
 export default function Cart({ lines, total }: { lines: { price: number }[]; total: number }) {
   const [qty, setQty] = useState(1);
@@ -11396,7 +11396,7 @@ export default function Cart({ lines, total }: { lines: { price: number }[]; tot
       (
         "routes/index/page.tsx",
         r#"
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import { Lot } from "@src/Lot";
 export default function Page() {
   return <Island mode="server"><Lot size={10} /></Island>;
@@ -11407,7 +11407,7 @@ export default function Page() {
         "src/Lot.tsx",
         r#"
 import { useState } from "react";
-import { action } from "@snapfire/fsr-client";
+import { action } from "@snapfire/fsr/client";
 import { actions } from "@generated/client";
 const step = action("desk.lot");
 const save = action("desk.save");
@@ -11464,7 +11464,7 @@ export function Lot({ size }: { size: number }) {
       (
         "routes/index/page.tsx",
         r#"
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import { Gate } from "@src/Gate";
 export default function Page() {
   return <Island mode="server"><Gate limit={3} /></Island>;
@@ -11475,7 +11475,7 @@ export default function Page() {
         "src/Gate.tsx",
         r#"
 import { useState } from "react";
-import { action } from "@snapfire/fsr-client";
+import { action } from "@snapfire/fsr/client";
 const save = action("desk.save");
 export function Gate({ limit }: { limit: number }) {
   const [n, setN] = useState(0);
@@ -11572,7 +11572,7 @@ export function Gate({ limit }: { limit: number }) {
       (
         "routes/index/page.tsx",
         r#"
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import { Sizes } from "@src/Sizes";
 import { Stepper } from "@src/Stepper";
 export default function Page() {
@@ -11583,7 +11583,7 @@ export default function Page() {
       (
         "src/keys.ts",
         r#"
-import { key } from "@snapfire/fsr-client/store";
+import { key } from "@snapfire/fsr/client/store";
 export const size = key<string>("order/size");
 export const price = key<number>("order/price");
 export const qty = key<number>("order/qty");
@@ -11592,8 +11592,8 @@ export const qty = key<number>("order/qty");
       (
         "src/Sizes.tsx",
         r#"
-import { useStore } from "@snapfire/fsr-client/react";
-import { set, transaction } from "@snapfire/fsr-client/store";
+import { useStore } from "@snapfire/fsr/client/react";
+import { set, transaction } from "@snapfire/fsr/client/store";
 import { price, size } from "@src/keys";
 export function Sizes() {
   const [chosen] = useStore(size, "250g");
@@ -11604,9 +11604,9 @@ export function Sizes() {
       (
         "src/Stepper.tsx",
         r#"
-import { useStore } from "@snapfire/fsr-client/react";
-import { optimistic } from "@snapfire/fsr-client/store";
-import { action } from "@snapfire/fsr-client";
+import { useStore } from "@snapfire/fsr/client/react";
+import { optimistic } from "@snapfire/fsr/client/store";
+import { action } from "@snapfire/fsr/client";
 import { qty } from "@src/keys";
 const setQty = action("order.setQty");
 export function Stepper() {
@@ -11649,7 +11649,7 @@ export function Stepper() {
       (
         "routes/index/page.tsx",
         r#"
-import { Island, island } from "@snapfire/fsr-client/react";
+import { Island, island } from "@snapfire/fsr/client/react";
 import { Stepper } from "@src/Stepper";
 const Lazy = island(Stepper, { when: "idle", mode: "server" });
 export default function Page() {
@@ -11728,7 +11728,7 @@ export function Stepper({ start, max = 9 }: { start: number; max?: number }) {
         "routes/index/page.tsx",
         r#"
 import { useState } from "react";
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import { Price } from "@src/Price";
 import { Counter } from "@src/Counter";
 import { Chart } from "@src/Chart";
@@ -11787,7 +11787,7 @@ export default function Page({ items, note }: { items: { id: number; price: numb
 
   const PANEL: &str = "export function Panel({ n }: { n: number }) {\n  return <div className=\"panel\"><b>{n}</b><i>{(n / 100).toFixed(2)}</i></div>;\n}\n";
   const PANEL_ON_PROPS: &str = "import { Panel } from \"@src/Panel\";\nexport default function Fixed({ n }: { n: number }) {\n  return <main><Panel n={n} /></main>;\n}\n";
-  const PANEL_ON_STATE: &str = "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { Panel } from \"@src/Panel\";\nexport default function Live() {\n  const [n] = useStore(\"demo/n\", 0);\n  return <main><Panel n={n} /></main>;\n}\n";
+  const PANEL_ON_STATE: &str = "import { useStore } from \"@snapfire/fsr/client/react\";\nimport { Panel } from \"@src/Panel\";\nexport default function Live() {\n  const [n] = useStore(\"demo/n\", 0);\n  return <main><Panel n={n} /></main>;\n}\n";
 
   fn panel(set: &ComponentSet) -> (Vec<(String, u32)>, Vec<u32>, usize) {
     let component = &set.components.iter().find(|(m, _)| m == "src/Panel.tsx#Panel").unwrap().1;
@@ -12093,7 +12093,7 @@ export default function Page({ title, kind = "note", ...rest }: { title: string;
       (
         "routes/order/page.tsx",
         r#"
-import { Island, island } from "@snapfire/fsr-client/react";
+import { Island, island } from "@snapfire/fsr/client/react";
 import { Help } from "../../src/ui/Help";
 import { Chart } from "../../src/ui/Chart";
 const LazyChart = island(Chart, { when: "idle" });
@@ -12127,7 +12127,7 @@ export default function Order({ id }: { id: number }) {
     let files = [
       (
         "routes/layout.tsx",
-        "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function Layout({ children, feed, title }: { children: unknown; feed: unknown; title: string }) {\n  return <div><h1>{title}</h1>{children}<aside>{feed}</aside><Slot name=\"modal\" /></div>;\n}\n",
+        "import { Slot } from \"@snapfire/fsr/client/react\";\nexport default function Layout({ children, feed, title }: { children: unknown; feed: unknown; title: string }) {\n  return <div><h1>{title}</h1>{children}<aside>{feed}</aside><Slot name=\"modal\" /></div>;\n}\n",
       ),
     ];
     let mut set = ComponentSet::new(&app(&files));
@@ -12144,7 +12144,7 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn a_slot_outside_a_layout_is_residue() {
-    let page = [("routes/a/page.tsx", "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <Slot name=\"x\" />;\n}\n")];
+    let page = [("routes/a/page.tsx", "import { Slot } from \"@snapfire/fsr/client/react\";\nexport default function A() {\n  return <Slot name=\"x\" />;\n}\n")];
     let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("outside a layout"), "{err}");
   }
@@ -12153,7 +12153,7 @@ export default function Order({ id }: { id: number }) {
   fn a_slot_placement_carries_its_fallback_by_element_and_by_prop() {
     let files = [(
       "routes/layout.tsx",
-      "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function L({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed ?? <p>no feed</p>}<Slot name=\"modal\"><p>closed</p></Slot></div>;\n}\n",
+      "import { Slot } from \"@snapfire/fsr/client/react\";\nexport default function L({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed ?? <p>no feed</p>}<Slot name=\"modal\"><p>closed</p></Slot></div>;\n}\n",
     )];
     let mut set = ComponentSet::new(&app(&files));
     set.layouts.push("routes/layout.tsx#default".to_owned());
@@ -12179,9 +12179,9 @@ export default function Order({ id }: { id: number }) {
     let files = [
       (
         "routes/index/page.tsx",
-        "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [items, setItems] = useStore(cartCount, 0);\n  const [name] = useStore(\"user/name\", \"guest\");\n  return <p onClick={() => setItems(items + 1)}>{name}{items}</p>;\n}\n",
+        "import { useStore } from \"@snapfire/fsr/client/react\";\nimport { cartCount } from \"../../src/store\";\nexport default function P() {\n  const [items, setItems] = useStore(cartCount, 0);\n  const [name] = useStore(\"user/name\", \"guest\");\n  return <p onClick={() => setItems(items + 1)}>{name}{items}</p>;\n}\n",
       ),
-      ("src/store.ts", "import { key } from \"@snapfire/fsr-client/store\";\nexport const cartCount = key<number>(\"cart/count\");\n"),
+      ("src/store.ts", "import { key } from \"@snapfire/fsr/client/store\";\nexport const cartCount = key<number>(\"cart/count\");\n"),
     ];
     let lowered = lower(&files, "routes/index/page.tsx#default").unwrap();
     let component = &lowered[0].1;
@@ -12202,7 +12202,7 @@ export default function Order({ id }: { id: number }) {
   fn a_store_key_the_build_cannot_read_is_residue() {
     let files = [(
       "routes/index/page.tsx",
-      "import { useStore } from \"@snapfire/fsr-client/react\";\nexport default function P({ id }: { id: string }) {\n  const [n] = useStore(id, 0);\n  return <p>{n}</p>;\n}\n",
+      "import { useStore } from \"@snapfire/fsr/client/react\";\nexport default function P({ id }: { id: string }) {\n  const [n] = useStore(id, 0);\n  return <p>{n}</p>;\n}\n",
     )];
     let err = lower(&files, "routes/index/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("`useStore` key"), "{err}");
@@ -12212,7 +12212,7 @@ export default function Order({ id }: { id: number }) {
   fn use_locale_lowers_to_the_locale_read() {
     let files = [(
       "routes/help/page.tsx",
-      "import { useLocale } from \"@snapfire/fsr-client/react\";\nexport default function Help() {\n  const locale = useLocale();\n  return <p lang={locale}>{locale === \"fr_FR\" ? \"Bonjour\" : \"Hello\"}</p>;\n}\n",
+      "import { useLocale } from \"@snapfire/fsr/client/react\";\nexport default function Help() {\n  const locale = useLocale();\n  return <p lang={locale}>{locale === \"fr_FR\" ? \"Bonjour\" : \"Hello\"}</p>;\n}\n",
     )];
     let lowered = lower(&files, "routes/help/page.tsx#default").unwrap();
     let component = &lowered[0].1;
@@ -12223,7 +12223,7 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn a_link_lowers_to_an_anchor_the_navigator_reads() {
-    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A({ id }: { id: number }) {\n  return <p><Link href={`/photo/${id}`} className=\"x\" full>full</Link><Link href=\"/photo/1\" into=\"modal\" prefetch=\"none\">quick</Link></p>;\n}\n")];
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr/client/react\";\nexport default function A({ id }: { id: number }) {\n  return <p><Link href={`/photo/${id}`} className=\"x\" full>full</Link><Link href=\"/photo/1\" into=\"modal\" prefetch=\"none\">quick</Link></p>;\n}\n")];
     let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
     let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
     let Tmpl::Element { tag, attrs, children: text } = &children[0] else { panic!("{:?}", children[0]) };
@@ -12239,7 +12239,7 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn a_link_writes_its_keep_out_since_a_false_attribute_is_dropped() {
-    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A({ on }: { on: boolean }) {\n  return <p><Link href=\"?at=1\" keep={false}>a</Link><Link href=\"?at=2\" keep>b</Link><Link href=\"?at=3\" keep={on}>c</Link></p>;\n}\n")];
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr/client/react\";\nexport default function A({ on }: { on: boolean }) {\n  return <p><Link href=\"?at=1\" keep={false}>a</Link><Link href=\"?at=2\" keep>b</Link><Link href=\"?at=3\" keep={on}>c</Link></p>;\n}\n")];
     let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
     let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
     let keep = |i: usize| match &children[i] {
@@ -12253,7 +12253,7 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn a_link_carries_the_rule_that_marks_it_current_and_the_mark_itself() {
-    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <p><Link href=\"/billing\">a</Link><Link href=\"/billing\" match=\"prefix\">b</Link><Link href=\"/billing\" match=\"none\">c</Link><Link href=\"/billing\" aria-current=\"page\">d</Link></p>;\n}\n")];
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr/client/react\";\nexport default function A() {\n  return <p><Link href=\"/billing\">a</Link><Link href=\"/billing\" match=\"prefix\">b</Link><Link href=\"/billing\" match=\"none\">c</Link><Link href=\"/billing\" aria-current=\"page\">d</Link></p>;\n}\n")];
     let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
     let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
     let attrs = |i: usize| match &children[i] {
@@ -12275,10 +12275,10 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn a_link_marked_by_the_document_compares_the_documents_path_and_says_so() {
-    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <p><Link href=\"/agents\" match=\"prefix\" current=\"document\">a</Link><Link href=\"/help\" current=\"url\">b</Link><Link href=\"/help\" current=\"page\">c</Link></p>;\n}\n")];
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr/client/react\";\nexport default function A() {\n  return <p><Link href=\"/agents\" match=\"prefix\" current=\"document\">a</Link><Link href=\"/help\" current=\"url\">b</Link><Link href=\"/help\" current=\"page\">c</Link></p>;\n}\n")];
     let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("`current` is \"url\" or \"document\""), "{err}");
-    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <p><Link href=\"/agents\" match=\"prefix\" current=\"document\">a</Link><Link href=\"/help\" current=\"url\">b</Link></p>;\n}\n")];
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr/client/react\";\nexport default function A() {\n  return <p><Link href=\"/agents\" match=\"prefix\" current=\"document\">a</Link><Link href=\"/help\" current=\"url\">b</Link></p>;\n}\n")];
     let lowered = lower(&page, "routes/a/page.tsx#default").unwrap();
     let Tmpl::Element { children, .. } = &lowered[0].1.render else { panic!() };
     let Tmpl::Element { attrs, .. } = &children[0] else { panic!("{:?}", children[0]) };
@@ -12297,7 +12297,7 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn a_link_with_a_computed_match_is_residue() {
-    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr-client/react\";\nexport default function A({ on }: { on: boolean }) {\n  return <Link href=\"/x\" match={on ? \"prefix\" : \"none\"}>a</Link>;\n}\n")];
+    let page = [("routes/a/page.tsx", "import { Link } from \"@snapfire/fsr/client/react\";\nexport default function A({ on }: { on: boolean }) {\n  return <Link href=\"/x\" match={on ? \"prefix\" : \"none\"}>a</Link>;\n}\n")];
     let err = lower(&page, "routes/a/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("written out"), "{err}");
   }
@@ -12325,10 +12325,10 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn an_island_around_an_element_or_with_a_computed_timing_is_residue() {
-    let element = [("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nexport default function A() {\n  return <Island when=\"visible\"><p>x</p></Island>;\n}\n")];
+    let element = [("routes/a/page.tsx", "import { Island } from \"@snapfire/fsr/client/react\";\nexport default function A() {\n  return <Island when=\"visible\"><p>x</p></Island>;\n}\n")];
     let err = lower(&element, "routes/a/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("an island must be a component"), "{err}");
-    let timing = [("routes/b/page.tsx", "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Help } from \"../../src/ui/Help\";\nexport default function B({ n }: { n: number }) {\n  return <Island when={n > 0 ? \"visible\" : \"load\"}><Help /></Island>;\n}\n"), ("src/ui/Help.tsx", "export function Help() {\n  return <p>help</p>;\n}\n")];
+    let timing = [("routes/b/page.tsx", "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Help } from \"../../src/ui/Help\";\nexport default function B({ n }: { n: number }) {\n  return <Island when={n > 0 ? \"visible\" : \"load\"}><Help /></Island>;\n}\n"), ("src/ui/Help.tsx", "export function Help() {\n  return <p>help</p>;\n}\n")];
     let err = lower(&timing, "routes/b/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("written out"), "{err}");
   }
@@ -12413,8 +12413,8 @@ export default function Order({ id }: { id: number }) {
   #[test]
   fn a_template_context_lowers_like_reacts_and_leaves_the_page_to_the_server() {
     let files = [
-      ("src/reserved.ts", "import { createContext } from \"@snapfire/fsr-authoring/template\";\nexport const Reserved = createContext<string[]>([]);\n"),
-      ("src/Row.tsx", "import { use } from \"@snapfire/fsr-authoring/template\";\nimport { Reserved } from \"./reserved\";\nexport function Row({ id }: { id: string }) {\n  return <li>{use(Reserved).includes(id) ? \"kept\" : \"free\"}</li>;\n}\n"),
+      ("src/reserved.ts", "import { createContext } from \"@snapfire/fsr/template\";\nexport const Reserved = createContext<string[]>([]);\n"),
+      ("src/Row.tsx", "import { use } from \"@snapfire/fsr/template\";\nimport { Reserved } from \"./reserved\";\nexport function Row({ id }: { id: string }) {\n  return <li>{use(Reserved).includes(id) ? \"kept\" : \"free\"}</li>;\n}\n"),
       ("routes/a/page.tsx", "import { Reserved } from \"../../src/reserved\";\nimport { Row } from \"../../src/Row\";\nexport default function A({ reserved }: { reserved: string[] }) {\n  return <Reserved.Provider value={reserved}><ul><Row id=\"a\" /></ul></Reserved.Provider>;\n}\n"),
     ];
     let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
@@ -12428,7 +12428,7 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn the_template_use_of_something_other_than_a_context_is_residue() {
-    let files = [("routes/a/page.tsx", "import { use } from \"@snapfire/fsr-authoring/template\";\nexport default function A({ theme }: { theme: string }) {\n  return <p>{use(theme)}</p>;\n}\n")];
+    let files = [("routes/a/page.tsx", "import { use } from \"@snapfire/fsr/template\";\nexport default function A({ theme }: { theme: string }) {\n  return <p>{use(theme)}</p>;\n}\n")];
     let err = lower(&files, "routes/a/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("`use` of something other than a `createContext`"), "{err}");
   }
@@ -12467,7 +12467,7 @@ export default function Order({ id }: { id: number }) {
 
   #[test]
   fn tree_is_refused_with_what_to_write_instead() {
-    let layout = "import type { ReactNode } from \"react\";\nimport { tree } from \"@snapfire/fsr-client/react\";\nfunction Layout({ children }: { children: ReactNode }) {\n  return <main>{children}</main>;\n}\nexport default tree(Layout);\n";
+    let layout = "import type { ReactNode } from \"react\";\nimport { tree } from \"@snapfire/fsr/client/react\";\nfunction Layout({ children }: { children: ReactNode }) {\n  return <main>{children}</main>;\n}\nexport default tree(Layout);\n";
     let mut set = ComponentSet::new(&app(&[("routes/layout.tsx", layout)]));
     set.layouts.push("routes/layout.tsx#default".to_owned());
     let err = set.lower("routes/layout.tsx#default").unwrap_err();

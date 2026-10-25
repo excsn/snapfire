@@ -1,5 +1,5 @@
-import { get, set } from "@snapfire/fsr-client";
-import { advance, ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { get, set } from "@snapfire/fsr/client";
+import { advance, ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 import { cartCount } from "@src/store";
 

@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 const DELIVERIES = [
   { id: "d1", at: "2026-10-01T09:30:00Z", kind: "fruit", n: 3, price: 4.5 },

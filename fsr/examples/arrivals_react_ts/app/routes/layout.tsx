@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 
 import Live from "@src/ui/Live";
 

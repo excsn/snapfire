@@ -45,13 +45,13 @@ fn refused(tag: &str, page: &str) -> String {
 
 #[test]
 fn a_place_is_an_element_named_by_its_id_holding_its_outlet() {
-  let page = "import { Place } from \"@snapfire/fsr-client/react\";\nexport default function Page() {\n  return <main><Place name=\"modals\" className=\"modal-root\" /><Place name=\"toasts\" as=\"aside\" /></main>;\n}\n";
+  let page = "import { Place } from \"@snapfire/fsr/client/react\";\nexport default function Page() {\n  return <main><Place name=\"modals\" className=\"modal-root\" /><Place name=\"toasts\" as=\"aside\" /></main>;\n}\n";
   assert_eq!(html("place", page), format!("<main><div id=\"modals\" class=\"modal-root\">{OUTLET_MARK}modals\u{0}</div><aside id=\"toasts\">{OUTLET_MARK}toasts\u{0}</aside></main>"));
 }
 
 #[test]
 fn a_place_is_written_out_by_name_and_holds_nothing_of_its_own() {
-  let page = |body: &str| format!("import {{ Place }} from \"@snapfire/fsr-client/react\";\nexport default function Page({{ n }}: {{ n: string }}) {{\n  return <main>{body}</main>;\n}}\n");
+  let page = |body: &str| format!("import {{ Place }} from \"@snapfire/fsr/client/react\";\nexport default function Page({{ n }}: {{ n: string }}) {{\n  return <main>{body}</main>;\n}}\n");
   assert_eq!(refused("unnamed", &page("<Place />")), "a `<Place>` with no `name`");
   assert_eq!(refused("computed", &page("<Place name={n} />")), "a `<Place>`'s `name` is written out, in letters, digits, `-` and `_`");
   assert_eq!(refused("spaced", &page("<Place name=\"a b\" />")), "a `<Place>`'s `name` is written out, in letters, digits, `-` and `_`");
@@ -62,7 +62,7 @@ fn a_place_is_written_out_by_name_and_holds_nothing_of_its_own() {
 #[test]
 fn a_place_inside_an_island_holds_its_outlet_since_the_framework_leaves_its_content_alone() {
   let panel = "import { Place } from \"@snapfire/fsr/components\";\nexport default function Panel() {\n  return <section className=\"panel\"><Place name=\"panel-notes\" /></section>;\n}\n";
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport Panel from \"../src/Panel\";\nexport default function Page() {\n  return <main><Island><Panel /></Island></main>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport Panel from \"../src/Panel\";\nexport default function Page() {\n  return <main><Island><Panel /></Island></main>;\n}\n";
   let dir = app("island", &[("routes/page.tsx", page), ("src/Panel.tsx", panel)]);
   let mut set = ComponentSet::new(&dir);
   set.lower("routes/page.tsx#default").unwrap_or_else(|e| panic!("lowers: {e}"));

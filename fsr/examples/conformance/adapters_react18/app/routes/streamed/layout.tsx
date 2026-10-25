@@ -1,4 +1,5 @@
-import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
+import { type Children } from "@snapfire/fsr/template";
 
 import OwnerForeign from "@src/ui/OwnerForeign.vue";
 import OwnerBrowser from "@src/ui/OwnerBrowser";

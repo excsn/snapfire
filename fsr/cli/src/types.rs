@@ -28,7 +28,11 @@ const FOREIGN_COMPONENTS: &[&str] = &["vue", "svelte"];
 const SOURCE_DIRS: &[&str] = &["src", "ext", "elements", "routes", "schemas", "tests"];
 
 /// The packages generated code imports, so their declarations are written whether or not the import map names them.
-const ALWAYS: &[&str] = &["@snapfire/fsr-authoring", "@snapfire/fsr-client"];
+/// The declarations of FSR's client, which an application's `@snapfire/fsr/client`, `@snapfire/fsr/host` and `@snapfire/fsr` resolve into.
+pub const CLIENT_PACKAGE: &str = "@snapfire/fsr/client";
+/// The declarations behind the generated modules and the template dialect, which no application imports by this name.
+pub const AUTHORING_PACKAGE: &str = "@snapfire/fsr/authoring";
+const ALWAYS: &[&str] = &[AUTHORING_PACKAGE, CLIENT_PACKAGE];
 
 /// The declarations the fsr packages carry, written by `fsr types` without a
 /// registry since the binary is the same version as the runtime they describe.
@@ -354,7 +358,7 @@ pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   let mut refreshed = Vec::new();
   let mut manifest = TypesManifest::read(app, &layout)?;
   let mut recorded = false;
-  for (package, files) in [("@snapfire/fsr-client", FSR_CLIENT), ("@snapfire/fsr-authoring", FSR_AUTHORING)] {
+  for (package, files) in [(CLIENT_PACKAGE, FSR_CLIENT), (AUTHORING_PACKAGE, FSR_AUTHORING)] {
     let dir = root.join(package);
     let stale = files.iter().any(|(name, content)| std::fs::read_to_string(dir.join(name)).map(|held| held != *content).unwrap_or(true));
     if stale {
@@ -385,6 +389,9 @@ fn write_embedded(app: &Path, layout: &Layout, package: &str, files: &[(&str, &s
   std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
   for (name, content) in files {
     let path = dir.join(name);
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+    }
     std::fs::write(&path, content).map_err(|e| BuildError::Io(path, e))?;
   }
   Ok(())
@@ -548,13 +555,13 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
     let asks = asked.get(&package).cloned().unwrap_or_default();
     let dir = app.join(&layout.types).join(&package);
     let embedded = match package.as_str() {
-      "@snapfire/fsr-client" => Some(FSR_CLIENT),
-      "@snapfire/fsr-authoring" => Some(FSR_AUTHORING),
+      CLIENT_PACKAGE => Some(FSR_CLIENT),
+      AUTHORING_PACKAGE => Some(FSR_AUTHORING),
       _ => None,
     };
     if let Some(files) = embedded {
       write_embedded(app, layout, &package, files)?;
-      if package == "@snapfire/fsr-client" && crate::is_terminal_app(app) {
+      if package == CLIENT_PACKAGE && crate::is_terminal_app(app) {
         write_terminal(app, layout, refresh)?;
       }
       manifest.packages.insert(package.clone(), embedded_record());
@@ -1093,7 +1100,9 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool, shadowe
   let layout = Layout::of(app)?;
   let types = layout.types.trim_end_matches('/');
   let mut paths: Vec<(String, String)> = vec![
-    ("@snapfire/fsr".to_owned(), "./generated/fsr".to_owned()),
+    ("@snapfire/fsr".to_owned(), format!("./{types}/{CLIENT_PACKAGE}/native.d.ts")),
+    ("@snapfire/fsr/host".to_owned(), "./generated/host".to_owned()),
+    ("@snapfire/fsr/host/*".to_owned(), format!("./{types}/{CLIENT_PACKAGE}/host/*")),
     ("@snapfire/fsr/head".to_owned(), "./generated/head".to_owned()),
     (CONFIG_MODULE.0.to_owned(), CONFIG_MODULE.1.to_owned()),
     ("@snapfire/fsr/testing".to_owned(), "./generated/testing".to_owned()),
@@ -1130,22 +1139,24 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool, shadowe
   let terminal = crate::is_terminal_app(app);
   if terminal {
     paths.push((TERMINAL_TYPES.to_owned(), format!("./{types}/{TERMINAL_TYPES}/index.d.ts")));
+    for module in ["system", "clipboard"] {
+      paths.push((format!("{TERMINAL_TYPES}/{module}"), format!("./{types}/{CLIENT_PACKAGE}/terminal/{module}.d.ts")));
+    }
     paths.push((format!("{TERMINAL_TYPES}/*"), format!("./{types}/{TERMINAL_TYPES}/*")));
   }
   // Templates are JSX. An application with React reads them as React
   // components, since its browser mounts the ones with state that way; one
   // without React reads them through the dialect's own declarations.
   let react = terminal || serves_react(app, &layout)?;
-  if react {
-    paths.push(("@snapfire/fsr-authoring/template".to_owned(), format!("./{types}/@snapfire/fsr-authoring/template.react")));
-  }
+  let template = if react { "template.react" } else { "template" };
+  paths.push((snapfire_fsr_lower::TEMPLATE_MODULE.to_owned(), format!("./{types}/{AUTHORING_PACKAGE}/{template}")));
   // FSR's components type as React's in an app with React and as the
   // dialect's otherwise; the bundle points each file at its own framework.
-  let components = if react { "@snapfire/fsr-client/react" } else { "@snapfire/fsr-authoring/template" };
+  let components = if react { format!("{CLIENT_PACKAGE}/react") } else { format!("{AUTHORING_PACKAGE}/template") };
   paths.push((snapfire_fsr_lower::COMPONENTS_MODULE.to_owned(), format!("./{types}/{components}")));
   let jsx_source = match react {
     true => String::new(),
-    false => "    \"jsxImportSource\": \"@snapfire/fsr-authoring\",\n".to_owned(),
+    false => format!("    \"jsxImportSource\": \"{AUTHORING_PACKAGE}\",\n"),
   };
   let mut compile = CompileOptions::of(app).lines();
   if declared {
@@ -1213,7 +1224,7 @@ fn alias_paths() -> Vec<(String, String)> {
 /// builder, which a spec's JSX and a template the browser never loads need
 /// and which mounts nothing.
 pub(crate) fn jsx_source(app: &Path, layout: &Layout) -> Result<&'static str, BuildError> {
-  Ok(if serves_react(app, layout)? { "react" } else { "@snapfire/fsr-client" })
+  Ok(if serves_react(app, layout)? { "react" } else { CLIENT_PACKAGE })
 }
 
 /// Whether the import map serves React, whose declarations then type the templates' JSX.
@@ -1235,7 +1246,7 @@ pub fn element_declarations(app: &Path, layout: &Layout, elements: &[(String, St
   }
   out.push_str(match react {
     true => "import type { DetailedHTMLProps, HTMLAttributes } from \"react\";\n",
-    false => "import type { Attributes } from \"@snapfire/fsr-authoring/template\";\n",
+    false => "import type { Attributes } from \"@snapfire/fsr/template\";\n",
   });
   for (i, (_, module)) in elements.iter().enumerate() {
     let file = module.split_once('#').map_or(module.as_str(), |(file, _)| file).trim_end_matches(".tsx");
@@ -1254,7 +1265,7 @@ pub fn element_declarations(app: &Path, layout: &Layout, elements: &[(String, St
   let entries = |indent: &str| elements.iter().enumerate().map(|(i, (tag, _))| format!("{indent}\"{tag}\": Placed<typeof Template{i}>;\n")).collect::<String>();
   match react {
     true => out.push_str(&format!("declare module \"react\" {{\n  namespace JSX {{\n    interface IntrinsicElements {{\n      [custom: `${{string}}-${{string}}`]: Omit<Host, Taken> & Loose;\n{}    }}\n  }}\n}}\n", entries("      "))),
-    false => out.push_str(&format!("declare module \"@snapfire/fsr-authoring/template\" {{\n  interface ElementTemplates {{\n{}  }}\n}}\n", entries("    "))),
+    false => out.push_str(&format!("declare module \"@snapfire/fsr/template\" {{\n  interface ElementTemplates {{\n{}  }}\n}}\n", entries("    "))),
   }
   Ok(out)
 }

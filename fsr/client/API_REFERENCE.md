@@ -1,4 +1,4 @@
-# API Reference: @snapfire/fsr-client
+# API Reference: @snapfire/fsr/client
 
 The browser half of SnapFire FSR: payload decoding, island hydration, streamed slot filling, segment navigation and the action client.
 
@@ -197,15 +197,15 @@ Eight ES module entry points, resolved through an import map. There is no packag
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
-| `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure`, `upload`, `signIn`, `enrol`, `answer` and `AuthFailure` | none |
-| `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale`, `useLinkStatus` and the placement elements | `react`, `react-dom/client` |
-| `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
-| `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore`, `useLinkStatus` | `vue` |
-| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `registerTree`, `held`, `opaque`, `nested`, `useStore`, `useLocale`, `useLinkStatus`, `holdLink`, `link`, `picture`, `embed`, `island` | `svelte`, `svelte/reactivity` |
-| `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
-| `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
-| `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
-| `@snapfire/fsr-authoring/template` | `dist/template.js` | `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the JSX runtime | none |
+| `@snapfire/fsr/client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure`, `upload`, `signIn`, `enrol`, `answer` and `AuthFailure` | none |
+| `@snapfire/fsr/client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale`, `useLinkStatus` and the placement elements | `react`, `react-dom/client` |
+| `@snapfire/fsr/client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
+| `@snapfire/fsr/client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore`, `useLinkStatus` | `vue` |
+| `@snapfire/fsr/client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `registerTree`, `held`, `opaque`, `nested`, `useStore`, `useLocale`, `useLinkStatus`, `holdLink`, `link`, `picture`, `embed`, `island` | `svelte`, `svelte/reactivity` |
+| `@snapfire/fsr/client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
+| `@snapfire/fsr/client/elements` | `dist/elements.js` | `shadowOf` | none |
+| `@snapfire/fsr/client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
+| `@snapfire/fsr/template` | `dist/template.js` | `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the JSX runtime | none |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is the dialect's placements as plain elements and loads no framework. The build rewrites a React or Vue island's import of the dialect to that framework's entry, so the template entry is reached only by a file nothing mounts. `Link` and `Picture` in the React, Vue and JSX runtime entries build their elements from the same attributes, computed in `dist/link.js` and `dist/picture.js`, which no specifier names.
 
@@ -726,7 +726,7 @@ Opens a WebSocket on `topic` at `path` (`/_sf/socket` by default) and keeps it o
 * `online: StoreKey<boolean>`, the key `sf/online`
 * `updateReady: StoreKey<boolean>`, the key `sf/update-ready`
 
-Writes `online` from `navigator.onLine` and keeps it current from the window's `online` and `offline` events. When the document carries `<meta name="sf:worker" content="…">`, which the host writes under `[pwa]` outside development, registers that worker with scope `/`. When a newer worker takes over a page an older one controlled, sets `updateReady` to true and dispatches `sf:update-ready` on the document. `boot` calls it; a second call on the same document does nothing. The build reads `online` and `updateReady` imported from `@snapfire/fsr-client` as their key strings, so `useStore(online, true)` lowers.
+Writes `online` from `navigator.onLine` and keeps it current from the window's `online` and `offline` events. When the document carries `<meta name="sf:worker" content="…">`, which the host writes under `[pwa]` outside development, registers that worker with scope `/`. When a newer worker takes over a page an older one controlled, sets `updateReady` to true and dispatches `sf:update-ready` on the document. `boot` calls it; a second call on the same document does nothing. The build reads `online` and `updateReady` imported from `@snapfire/fsr/client` as their key strings, so `useStore(online, true)` lowers.
 
 ### applyHead
 
@@ -800,7 +800,7 @@ Posts `params` as JSON to `/auth/callback` and returns the next step without fol
 
 ## 8. The Store
 
-One keyed map per document, outside every island root, so two islands can show the same value. Its own entry point, `@snapfire/fsr-client/store`, re-exported from the core entry. Module state: there is one store per document, not one per import.
+One keyed map per document, outside every island root, so two islands can show the same value. Its own entry point, `@snapfire/fsr/client/store`, re-exported from the core entry. Module state: there is one store per document, not one per import.
 
 A route seeds it from its loaders, one contribution per segment. The store is the merge of the contributions it holds, a deeper segment winning a key an outer one also sets and, at one depth, the slot the application's `[store] slot_order` ranks later, by name where it says nothing, so it comes out the same whatever order the segments arrived in; a segment's contribution leaves with the segment. Over the merge sit the writes islands make, each standing until a contribution names its key again. The contributions reach the browser as `script[data-sf-store]` in a document, as `T` rows in a payload and as `__sfStore(…)` calls in a streamed resolution, each ahead of the markup it rendered. An island's props carry the values its markup was rendered from as `$sv`, which the adapters hydrate against, so a key that moved in between never fails a hydration.
 
@@ -1137,7 +1137,7 @@ Where React has `Activity`, from 19.2, every root `reactMounter` creates renders
 
 ## 11. The Vue Mounter
 
-`@snapfire/fsr-client/vue`: its own entry point, so the core package never imports Vue and a page with no Vue island never loads it. Requires `vue` in the page's import map.
+`@snapfire/fsr/client/vue`: its own entry point, so the core package never imports Vue and a page with no Vue island never loads it. Requires `vue` in the page's import map.
 
 ### vueMounter
 
@@ -1177,7 +1177,7 @@ A store key as a Vue ref: reads the store's value (`initial` while nothing has s
 
 ## 12. The Svelte Mounter
 
-`@snapfire/fsr-client/svelte`: its own entry point, so the core package never imports Svelte and a page with no Svelte island never loads it. Requires `svelte` and `svelte/reactivity` in the page's import map, which `fsr use <app> svelte` writes. Svelte 5.5 or later, since `Pieces.svelte` exports a snippet from its module script.
+`@snapfire/fsr/client/svelte`: its own entry point, so the core package never imports Svelte and a page with no Svelte island never loads it. Requires `svelte` and `svelte/reactivity` in the page's import map, which `fsr use <app> svelte` writes. Svelte 5.5 or later, since `Pieces.svelte` exports a snippet from its module script.
 
 ### svelteMounter
 
@@ -1262,7 +1262,7 @@ The attachment the Svelte `Mount` puts on its `<sf-s data-sf-island>` region: th
 
 ## 13. The JSX Element Builder
 
-`@snapfire/fsr-client/jsx-runtime`, served at `/static/js/fsr/jsx-runtime.js`: what TSX compiles against where no JSX framework is, which is a spec's JSX in an application without React and a template the browser never loads. FSR is no JSX framework, so nothing here mounts, renders or updates an element.
+`@snapfire/fsr/client/jsx-runtime`, served at `/static/js/fsr/jsx-runtime.js`: what TSX compiles against where no JSX framework is, which is a spec's JSX in an application without React and a template the browser never loads. FSR is no JSX framework, so nothing here mounts, renders or updates an element.
 
 * `namespace JSX { type Element = FsrElement; type ElementType = string | FsrComponent; interface IntrinsicElements { [tag: string]: Record<string, unknown> } }`, what TypeScript checks a file compiled against this entry by.
 
@@ -1284,11 +1284,11 @@ An element is a description and nothing more: `render` in a spec reads its `type
 * `function island<P>(component: (props: P) => FsrNode): (props: P) => FsrNode`
 * `function Slot(props: { children?: FsrNode }): FsrElement`
 
-The dialect's placements as plain elements, which `@snapfire/fsr-authoring/template` resolves to in the browser. `Link` describes an anchor with the marks the navigator reads and `Picture` the `<picture>` or `<img>` the server writes for the same props. `Island` and `Slot` describe their child where it stands and `island` returns the component unchanged.
+The dialect's placements as plain elements, which `@snapfire/fsr/template` resolves to in the browser. `Link` describes an anchor with the marks the navigator reads and `Picture` the `<picture>` or `<img>` the server writes for the same props. `Island` and `Slot` describe their child where it stands and `island` returns the component unchanged.
 
 ## 14. Custom Elements and htmx
 
-`@snapfire/fsr-client/elements` and `@snapfire/fsr-client/htmx`: two entry points for markup nothing mounts, each importing nothing outside the package. htmx itself is the application's, passed in, so the binding works with whatever version the import map names.
+`@snapfire/fsr/client/elements` and `@snapfire/fsr/client/htmx`: two entry points for markup nothing mounts, each importing nothing outside the package. htmx itself is the application's, passed in, so the binding works with whatever version the import map names.
 
 ### shadowOf
 
@@ -1316,7 +1316,7 @@ On `htmx:before:history:restore` on `document`, while `enableNavigation` has wir
 
 ## 15. The Standard Library
 
-`@snapfire/fsr-client/std`: the browser half of the standard library the server's interpreter carries under the same names. Every `render` member agrees with the server byte for byte under the same locale, which is `currentLocale()`; a member marked server only has no such promise and the build refuses it on a component's render path. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.
+`@snapfire/fsr/client` and its modules `intl`, `text`, `time`, `crypto`, `i18n`, `log` and `path`: the browser half of the standard library the server's interpreter carries under the same names, each also at `@snapfire/fsr/client/<module>`. Every member agrees with the server byte for byte under the same locale, which is `currentLocale()`. A member only a host runs is under `@snapfire/fsr/host` and has no browser half; `@snapfire/fsr/host` is never in the import map. `native` is at `@snapfire/fsr`. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.
 
 ### localeTag
 
@@ -1411,7 +1411,7 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 
 ## 16. Testing
 
-`@snapfire/fsr-client/testing`: what a page spec imports under `fsr test`, which runs it in QuickJS over linkedom. Its names are the ones Jest, Vitest and Testing Library use, so a suite written for those moves over with small changes; guide chapter 107 lists them. Every call that acts on the page returns a promise that settles the engine before it resolves.
+`@snapfire/fsr/client/testing`: what a page spec imports under `fsr test`, which runs it in QuickJS over linkedom. Its names are the ones Jest, Vitest and Testing Library use, so a suite written for those moves over with small changes; guide chapter 107 lists them. Every call that acts on the page returns a promise that settles the engine before it resolves.
 
 ### test and it
 

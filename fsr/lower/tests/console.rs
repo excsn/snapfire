@@ -82,7 +82,7 @@ fn a_console_call_reading_the_viewers_clock_is_left_to_the_browser_and_the_compo
 
 #[test]
 fn a_console_call_reaching_a_server_only_extension_is_still_refused() {
-  let page = "import { id } from \"@snapfire/fsr-client/std\";\nexport default function Page() {\n  console.log(id.new());\n  return <h1>Hello</h1>;\n}\n";
+  let page = "import { id } from \"@snapfire/fsr/host\";\nexport default function Page() {\n  console.log(id.new());\n  return <h1>Hello</h1>;\n}\n";
   let dir = app("body_ext", &[("routes/page.tsx", page)]);
   let mut set = ComponentSet::new(&dir);
   let result = set.lower("routes/page.tsx#default");

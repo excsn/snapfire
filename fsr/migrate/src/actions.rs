@@ -339,7 +339,7 @@ fn write_actions(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, conve
   let imports = imports_for(text, parsed, &needed, path, &actions_path);
   let existing = if actions_path == path { String::new() } else { tree.text(&actions_path).unwrap_or_default().to_owned() };
   let fsr = if redirects { "action, redirect" } else { "action" };
-  let mut actions = format!("import {{ {fsr} }} from \"@snapfire/fsr\";\nimport type {{ ActionCtx }} from \"@snapfire/fsr\";\n{schemas}{imports}\n{existing}");
+  let mut actions = format!("import {{ {fsr} }} from \"@snapfire/fsr/host\";\nimport type {{ ActionCtx }} from \"@snapfire/fsr/host\";\n{schemas}{imports}\n{existing}");
   for c in converted {
     actions.push('\n');
     actions.push_str(&c.text);
@@ -935,7 +935,7 @@ mod tests {
     assert_eq!(out.text("app/schemas/feature.ts").unwrap(), "export interface Feature {\n  id: string;\n  title: string;\n}\n");
     assert_eq!(
       out.text("app/routes/actions.ts").unwrap(),
-      "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { Feature } from \"@schemas/feature\";\nimport { kv } from \"@vercel/kv\";\n\nexport const upvote = action(async ({ input }: ActionCtx<Feature>) => {\n  const feature = input;\n  await kv.hset(`item:${feature.id}`, feature);\n});\n"
+      "import { action } from \"@snapfire/fsr/host\";\nimport type { ActionCtx } from \"@snapfire/fsr/host\";\nimport type { Feature } from \"@schemas/feature\";\nimport { kv } from \"@vercel/kv\";\n\nexport const upvote = action(async ({ input }: ActionCtx<Feature>) => {\n  const feature = input;\n  await kv.hset(`item:${feature.id}`, feature);\n});\n"
     );
     assert!(out.text("app/routes/item.tsx").unwrap().contains("onClick={() => actions.$root.upvote(feature)}"), "{}", out.text("app/routes/item.tsx").unwrap());
     assert!(out.text("app/routes/item.tsx").unwrap().starts_with("import { actions } from \"@generated/client\";\n"));
@@ -954,7 +954,7 @@ mod tests {
     assert_eq!(out.text("app/schemas/createuserinput.ts").unwrap(), "export interface CreateUserInput {\n  name: string;\n  email: string;\n}\n");
     assert_eq!(
       out.text("app/routes/actions.ts").unwrap(),
-      "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { CreateUserInput } from \"@schemas/createuserinput\";\nimport { db } from \"./db\";\n\nexport const createUser = action(async ({ input }: ActionCtx<CreateUserInput>) => {\n  const name = input.name as string;\n  const email = input.email as string;\n  await db.create({ name, email });\n});\n"
+      "import { action } from \"@snapfire/fsr/host\";\nimport type { ActionCtx } from \"@snapfire/fsr/host\";\nimport type { CreateUserInput } from \"@schemas/createuserinput\";\nimport { db } from \"./db\";\n\nexport const createUser = action(async ({ input }: ActionCtx<CreateUserInput>) => {\n  const name = input.name as string;\n  const email = input.email as string;\n  await db.create({ name, email });\n});\n"
     );
     assert!(!report.notes.iter().any(|n| n.message.contains("FormData")), "{:?}", report.notes);
   }
@@ -972,7 +972,7 @@ mod tests {
     assert_eq!(out.text("app/schemas/deletepostinput.ts").unwrap(), "export interface DeletePostInput {\n  reason: string;\n  postId: number;\n}\n");
     assert_eq!(
       out.text("app/routes/posts/[id]/actions.ts").unwrap(),
-      "import { action, redirect } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\nimport { db } from \"@src/lib/db\";\n\nexport const deletePost = action(async ({ input }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n\n  const reason = input.reason as string;\n  await db.remove(postId, reason);\n  redirect(\"/posts\");\n});\n"
+      "import { action, redirect } from \"@snapfire/fsr/host\";\nimport type { ActionCtx } from \"@snapfire/fsr/host\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\nimport { db } from \"@src/lib/db\";\n\nexport const deletePost = action(async ({ input }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n\n  const reason = input.reason as string;\n  await db.remove(postId, reason);\n  redirect(\"/posts\");\n});\n"
     );
     let page = out.text("app/routes/posts/[id]/page.tsx").unwrap();
     for expected in [
@@ -995,7 +995,7 @@ mod tests {
     let input = tree(&[("package.json", r#"{ "dependencies": { "next": "latest" } }"#), ("app/page.tsx", "export default function Page() {\n  return <main />;\n}\n"), ("app/actions.ts", module)]);
     let (out, report) = migrate(&input);
     let actions = out.text("app/routes/actions.ts").unwrap();
-    assert!(actions.starts_with("import { action, redirect } from \"@snapfire/fsr\";\n"), "{actions}");
+    assert!(actions.starts_with("import { action, redirect } from \"@snapfire/fsr/host\";\n"), "{actions}");
     assert!(actions.contains("  redirect(`/p/${id}`);\n"), "{actions}");
     assert!(!actions.contains("permanentRedirect") && !actions.contains("return redirect"), "{actions}");
     let notes: Vec<&str> = report.notes.iter().map(|n| n.message.as_str()).collect();

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { Link } from "@snapfire/fsr/components";
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 /** Local React state in a layout that two routes share. A navigation between them swaps the page region and keeps this island's DOM, so the count survives. */
 export default function StateLayout({ children }: { children: ReactNode }) {

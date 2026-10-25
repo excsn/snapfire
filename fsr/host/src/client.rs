@@ -1,6 +1,6 @@
 //! The browser half of FSR, carried by the binary.
 //!
-//! `@snapfire/fsr-client` is an import map entry rather than a package
+//! `@snapfire/fsr/client` is an import map entry rather than a package
 //! install, so the URLs that entry names are answered out of here and an
 //! application holds no copy of the client. The files are the same version as
 //! the host that serves them, which is what a `[[static]]` root pointed at a
@@ -53,6 +53,15 @@ pub const FILES: &[(&str, &str)] = &[
   ("testing.js", include_str!("../embedded/client/testing.js")),
   ("values.js", include_str!("../embedded/client/values.js")),
   ("vue.js", include_str!("../embedded/client/vue.js")),
+  ("intl.js", include_str!("../embedded/client/intl.js")),
+  ("text.js", include_str!("../embedded/client/text.js")),
+  ("time.js", include_str!("../embedded/client/time.js")),
+  ("crypto.js", include_str!("../embedded/client/crypto.js")),
+  ("i18n.js", include_str!("../embedded/client/i18n.js")),
+  ("log.js", include_str!("../embedded/client/log.js")),
+  ("path.js", include_str!("../embedded/client/path.js")),
+  ("standard.js", include_str!("../embedded/client/standard.js")),
+  ("native.js", include_str!("../embedded/client/native.js")),
 ];
 
 #[cfg(not(feature = "client_readable"))]
@@ -90,6 +99,15 @@ pub const FILES: &[(&str, &str)] = &[
   ("testing.js", include_str!("../embedded/client/testing.min.js")),
   ("values.js", include_str!("../embedded/client/values.min.js")),
   ("vue.js", include_str!("../embedded/client/vue.min.js")),
+  ("intl.js", include_str!("../embedded/client/intl.min.js")),
+  ("text.js", include_str!("../embedded/client/text.min.js")),
+  ("time.js", include_str!("../embedded/client/time.min.js")),
+  ("crypto.js", include_str!("../embedded/client/crypto.min.js")),
+  ("i18n.js", include_str!("../embedded/client/i18n.min.js")),
+  ("log.js", include_str!("../embedded/client/log.min.js")),
+  ("path.js", include_str!("../embedded/client/path.min.js")),
+  ("standard.js", include_str!("../embedded/client/standard.min.js")),
+  ("native.js", include_str!("../embedded/client/native.min.js")),
 ];
 
 /// Whether the readable build is in this binary. `false` makes a configured
@@ -135,6 +153,28 @@ pub const TYPES: &[(&str, &str)] = &[
   ("testing.d.ts", include_str!("../embedded/client/testing.d.ts")),
   ("values.d.ts", include_str!("../embedded/client/values.d.ts")),
   ("vue.d.ts", include_str!("../embedded/client/vue.d.ts")),
+  ("intl.d.ts", include_str!("../embedded/client/intl.d.ts")),
+  ("text.d.ts", include_str!("../embedded/client/text.d.ts")),
+  ("time.d.ts", include_str!("../embedded/client/time.d.ts")),
+  ("crypto.d.ts", include_str!("../embedded/client/crypto.d.ts")),
+  ("i18n.d.ts", include_str!("../embedded/client/i18n.d.ts")),
+  ("log.d.ts", include_str!("../embedded/client/log.d.ts")),
+  ("path.d.ts", include_str!("../embedded/client/path.d.ts")),
+  ("standard.d.ts", include_str!("../embedded/client/standard.d.ts")),
+  ("native.d.ts", include_str!("../embedded/client/native.d.ts")),
+  ("host/crypto.d.ts", include_str!("../embedded/client/host/crypto.d.ts")),
+  ("host/file.d.ts", include_str!("../embedded/client/host/file.d.ts")),
+  ("host/i18n.d.ts", include_str!("../embedded/client/host/i18n.d.ts")),
+  ("host/id.d.ts", include_str!("../embedded/client/host/id.d.ts")),
+  ("host/index.d.ts", include_str!("../embedded/client/host/index.d.ts")),
+  ("host/intl.d.ts", include_str!("../embedded/client/host/intl.d.ts")),
+  ("host/log.d.ts", include_str!("../embedded/client/host/log.d.ts")),
+  ("host/path.d.ts", include_str!("../embedded/client/host/path.d.ts")),
+  ("host/text.d.ts", include_str!("../embedded/client/host/text.d.ts")),
+  ("host/time.d.ts", include_str!("../embedded/client/host/time.d.ts")),
+  ("terminal/clipboard.d.ts", include_str!("../embedded/client/terminal/clipboard.d.ts")),
+  ("terminal/index.d.ts", include_str!("../embedded/client/terminal/index.d.ts")),
+  ("terminal/system.d.ts", include_str!("../embedded/client/terminal/system.d.ts")),
 ];
 
 /// The same modules minified, keyed by the same plain names. A minified module
@@ -174,6 +214,15 @@ pub const MINIFIED: &[(&str, &str)] = &[
   ("testing.js", include_str!("../embedded/client/testing.min.js")),
   ("values.js", include_str!("../embedded/client/values.min.js")),
   ("vue.js", include_str!("../embedded/client/vue.min.js")),
+  ("intl.js", include_str!("../embedded/client/intl.min.js")),
+  ("text.js", include_str!("../embedded/client/text.min.js")),
+  ("time.js", include_str!("../embedded/client/time.min.js")),
+  ("crypto.js", include_str!("../embedded/client/crypto.min.js")),
+  ("i18n.js", include_str!("../embedded/client/i18n.min.js")),
+  ("log.js", include_str!("../embedded/client/log.min.js")),
+  ("path.js", include_str!("../embedded/client/path.min.js")),
+  ("standard.js", include_str!("../embedded/client/standard.min.js")),
+  ("native.js", include_str!("../embedded/client/native.min.js")),
 ];
 
 /// Each module's source map with its TypeScript inlined, by the name its
@@ -246,6 +295,24 @@ pub const MAPS: &[(&str, &str)] = &[
   ("values.min.js.map", include_str!("../embedded/client/values.min.js.map")),
   ("vue.js.map", include_str!("../embedded/client/vue.js.map")),
   ("vue.min.js.map", include_str!("../embedded/client/vue.min.js.map")),
+  ("intl.js.map", include_str!("../embedded/client/intl.js.map")),
+  ("intl.min.js.map", include_str!("../embedded/client/intl.min.js.map")),
+  ("text.js.map", include_str!("../embedded/client/text.js.map")),
+  ("text.min.js.map", include_str!("../embedded/client/text.min.js.map")),
+  ("time.js.map", include_str!("../embedded/client/time.js.map")),
+  ("time.min.js.map", include_str!("../embedded/client/time.min.js.map")),
+  ("crypto.js.map", include_str!("../embedded/client/crypto.js.map")),
+  ("crypto.min.js.map", include_str!("../embedded/client/crypto.min.js.map")),
+  ("i18n.js.map", include_str!("../embedded/client/i18n.js.map")),
+  ("i18n.min.js.map", include_str!("../embedded/client/i18n.min.js.map")),
+  ("log.js.map", include_str!("../embedded/client/log.js.map")),
+  ("log.min.js.map", include_str!("../embedded/client/log.min.js.map")),
+  ("path.js.map", include_str!("../embedded/client/path.js.map")),
+  ("path.min.js.map", include_str!("../embedded/client/path.min.js.map")),
+  ("standard.js.map", include_str!("../embedded/client/standard.js.map")),
+  ("standard.min.js.map", include_str!("../embedded/client/standard.min.js.map")),
+  ("native.js.map", include_str!("../embedded/client/native.js.map")),
+  ("native.min.js.map", include_str!("../embedded/client/native.min.js.map")),
 ];
 
 /// The source map `name` names, carried under `client_source_maps`.
@@ -419,7 +486,9 @@ mod tests {
         "{file} is served with no {declared} beside it"
       );
     }
-    assert_eq!(FILES.len(), TYPES.len());
+    let (served, declared_only): (Vec<_>, Vec<_>) = TYPES.iter().partition(|(name, _)| !name.contains('/'));
+    assert_eq!(FILES.len(), served.len());
+    assert!(declared_only.iter().all(|(name, _)| name.starts_with("host/") || name.starts_with("terminal/")), "only the host and terminal sides are declared without being served");
   }
 
   #[test]

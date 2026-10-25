@@ -1,5 +1,5 @@
-import type { Identity } from "@snapfire/fsr-authoring";
-import { useStore } from "@snapfire/fsr-client/react";
+import type { Identity } from "@snapfire/fsr/host";
+import { useStore } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
 
 import { teams, who } from "@src/store";

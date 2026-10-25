@@ -1,4 +1,4 @@
-import type { MiddlewareCtx } from "@snapfire/fsr";
+import type { MiddlewareCtx } from "@snapfire/fsr/host";
 
 export async function middleware({ request, next }: MiddlewareCtx) {
   if (request.path === "/basket") return Response.redirect("/cart", 307);

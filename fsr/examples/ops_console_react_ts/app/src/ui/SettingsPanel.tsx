@@ -1,6 +1,6 @@
-import { get, optimistic } from "@snapfire/fsr-client";
-import { useStore } from "@snapfire/fsr-client/react";
-import { t } from "@snapfire/fsr-client/std";
+import { get, optimistic } from "@snapfire/fsr/client";
+import { useStore } from "@snapfire/fsr/client/react";
+import { t } from "@snapfire/fsr/client";
 
 import { actions, type Agent } from "@generated/client";
 import { density, watching } from "@src/store";

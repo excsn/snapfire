@@ -1,6 +1,6 @@
-import { setLocale } from "@snapfire/fsr-client";
-import { crypto, intl, text, time } from "@snapfire/fsr-client/std";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { setLocale } from "@snapfire/fsr/client";
+import { crypto, intl, text, time } from "@snapfire/fsr/client";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 test("the standard library answers under the document's locale, through the runner where the engine has no Intl", () => {
   setLocale("fr_FR");

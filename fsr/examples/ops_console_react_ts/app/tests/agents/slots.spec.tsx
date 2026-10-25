@@ -1,4 +1,4 @@
-import { ctx, expect, f64, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, f64, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 const agents = [
   { id: 1n, name: "builder-eu-1", region: "eu", status: "up", queue_depth: 3n, cpu: 61.5 },

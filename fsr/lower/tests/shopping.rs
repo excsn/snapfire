@@ -30,7 +30,7 @@ export async function load({ session, services }: Ctx) {
 "#;
 
 const ACTIONS: &str = r#"
-import { action, fail } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr/host";
 import type { AddToCart } from "../../schemas/cart";
 
 export const addToCart = action<AddToCart>(async ({ input, session }) => {
@@ -347,7 +347,7 @@ export const addToCart = action<AddToCart>(async ({ input, session }) => {
 
 #[test]
 fn the_input_type_reads_from_the_parameter_annotation() {
-  let annotated = "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { AddToCart } from \"../../schemas/cart\";\n\nexport const addToCart = action(async ({ input, session }: ActionCtx<AddToCart>) => {\n  session.cart = { ...session.cart, [String(input.product_id)]: input.quantity };\n});\n\nexport const remove = action(async (ctx: ActionCtx<RemoveFromCart>) => {\n  delete ctx.session.cart[String(ctx.input.product_id)];\n});\n\nexport const checkout = action(async ({ session }: ActionCtx) => {\n  session.cart = {};\n});\n";
+  let annotated = "import { action } from \"@snapfire/fsr/host\";\nimport type { ActionCtx } from \"@snapfire/fsr/host\";\nimport type { AddToCart } from \"../../schemas/cart\";\n\nexport const addToCart = action(async ({ input, session }: ActionCtx<AddToCart>) => {\n  session.cart = { ...session.cart, [String(input.product_id)]: input.quantity };\n});\n\nexport const remove = action(async (ctx: ActionCtx<RemoveFromCart>) => {\n  delete ctx.session.cart[String(ctx.input.product_id)];\n});\n\nexport const checkout = action(async ({ session }: ActionCtx) => {\n  session.cart = {};\n});\n";
   let actions = lower_actions("actions.ts", annotated).unwrap();
   assert_eq!(actions.iter().map(|a| (a.export.as_str(), a.input.as_deref())).collect::<Vec<_>>(), vec![("addToCart", Some("AddToCart")), ("remove", Some("RemoveFromCart")), ("checkout", None)]);
   let older = lower_actions("actions.ts", ACTIONS).unwrap();
@@ -433,21 +433,21 @@ export async function load(ctx: Ctx) {
 
 #[test]
 fn an_action_or_a_route_handler_redirects_and_a_loader_may_not() {
-  let src = "import { action, redirect } from \"@snapfire/fsr\";\n\nexport const save = action(async ({ input }) => {\n  if (input.id == null) {\n    redirect(\"/posts\");\n  }\n  redirect(`/posts/${input.id}`);\n});\n";
+  let src = "import { action, redirect } from \"@snapfire/fsr/host\";\n\nexport const save = action(async ({ input }) => {\n  if (input.id == null) {\n    redirect(\"/posts\");\n  }\n  redirect(`/posts/${input.id}`);\n});\n";
   let actions = lower_actions("actions.ts", src).unwrap();
   let redirect = |to: Expr| Stmt::Return(Expr::Builtin { name: Builtin::RedirectTo, args: vec![to] });
   let Stmt::If { then, .. } = &actions[0].body[0] else { panic!("{:?}", actions[0].body) };
   assert_eq!(then[0], redirect(Expr::Lit(Lit::Str("/posts".into()))), "a redirect is a return of the response that sends the caller there: {then:?}");
   assert!(matches!(&actions[0].body[1], Stmt::Return(Expr::Builtin { name: Builtin::RedirectTo, .. })), "{:?}", actions[0].body);
 
-  let import = "import { redirect } from \"@snapfire/fsr\";\n";
+  let import = "import { redirect } from \"@snapfire/fsr/host\";\n";
   let r = residue(lower_loader("page.loader.ts", &format!("{import}export async function load() {{\n  redirect(\"/a\");\n  return {{}};\n}}\n")).unwrap_err());
   assert!(r.message.contains("`redirect` outside an action or a route handler"), "{r}");
   let handlers = lower_handlers("route.ts", &format!("{import}export async function POST() {{\n  redirect(\"/a\");\n  return {{}};\n}}\n")).unwrap();
   assert_eq!(handlers[0].body[0], redirect(Expr::Lit(Lit::Str("/a".into()))));
-  let held = lower_actions("actions.ts", "import { action, redirect } from \"@snapfire/fsr\";\nexport const a = action(async () => {\n  const to = redirect(\"/a\");\n  return to;\n});\n").unwrap();
+  let held = lower_actions("actions.ts", "import { action, redirect } from \"@snapfire/fsr/host\";\nexport const a = action(async () => {\n  const to = redirect(\"/a\");\n  return to;\n});\n").unwrap();
   assert!(matches!(&held[0].body[0], Stmt::Let { expr: Expr::Builtin { name: Builtin::RedirectTo, .. }, .. }), "a redirect is a value: {:?}", held[0].body);
-  let r = residue(lower_actions("actions.ts", "import { action, redirect } from \"@snapfire/fsr\";\nexport const a = action(async () => {\n  redirect();\n});\n").unwrap_err());
+  let r = residue(lower_actions("actions.ts", "import { action, redirect } from \"@snapfire/fsr/host\";\nexport const a = action(async () => {\n  redirect();\n});\n").unwrap_err());
   assert!(r.message.contains("`redirect` takes the path"), "{r}");
 }
 

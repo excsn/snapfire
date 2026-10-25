@@ -88,7 +88,7 @@ fn an_entry_that_declares_the_component_it_renders_is_kept_and_exports_it() {
     ("lrn.tsx", "import React, { useState } from 'react';\nimport { render, Text, useInput } from 'ink';\nimport { readFileSync } from 'node:fs';\n\nconst cards = readFileSync('cards.txt', 'utf8');\n\nfunction AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n\nrender(<AppMatch />);\n"),
   ]);
   let (out, report) = migrate(&t);
-  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React, { useState } from 'react';\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { file } from \"@snapfire/fsr-client/std\";\n\nconst cards = file.read('cards.txt');\n\nexport function AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React, { useState } from 'react';\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { file } from \"@snapfire/fsr/host\";\n\nconst cards = file.read('cards.txt');\n\nexport function AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n", "{:?}", report.notes);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
   assert!(report.notes.is_empty(), "{:?}", report.notes);
 }
@@ -209,7 +209,7 @@ fn a_local_function_and_constant_the_loader_body_reads_come_along_with_what_they
   let (out, report) = migrate(&t);
   let loader = out.text("app/routes/page.loader.ts").unwrap();
   assert!(loader.contains("\nconst NAME = 'tool';\n\nfunction getInvocationCommand(): string {\n  return path.join('bin', NAME);\n}\n\nexport async function load("), "{loader}\n{:?}", report.notes);
-  assert!(loader.contains("import { path } from \"@snapfire/fsr-client/std\";"), "{loader}");
+  assert!(loader.contains("import { path } from \"@snapfire/fsr/host\";"), "{loader}");
   assert!(!loader.contains("function unused") && !loader.contains("async function main"), "{loader}");
 }
 

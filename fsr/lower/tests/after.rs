@@ -32,7 +32,7 @@ fn field(args: &ValueMap, name: &str) -> Value {
   args.get(name).cloned().unwrap_or_else(|| panic!("no `{name}` in {args:?}"))
 }
 
-const HEAD: &str = "import { after } from \"@snapfire/fsr\";\nimport type { Ctx } from \"@snapfire/fsr\";\n";
+const HEAD: &str = "import { after } from \"@snapfire/fsr/host\";\nimport type { Ctx } from \"@snapfire/fsr/host\";\n";
 
 #[test]
 fn a_handlers_after_runs_only_when_the_host_runs_what_it_left() {
@@ -57,7 +57,7 @@ fn a_handlers_after_runs_only_when_the_host_runs_what_it_left() {
 
 #[test]
 fn a_loaders_after_reads_what_was_bound_when_it_was_called_and_runs_when_the_body_fails() {
-  let source = format!("import {{ after, fail }} from \"@snapfire/fsr\";\nimport type {{ Ctx }} from \"@snapfire/fsr\";\nexport async function load({{ services, params }}: Ctx) {{\n  const page = \"home\";\n  after(() => services.audit.log({{ page }}));\n  fail(\"not_found\", \"nothing here\");\n}}\n");
+  let source = format!("import {{ after, fail }} from \"@snapfire/fsr/host\";\nimport type {{ Ctx }} from \"@snapfire/fsr/host\";\nexport async function load({{ services, params }}: Ctx) {{\n  const page = \"home\";\n  after(() => services.audit.log({{ page }}));\n  fail(\"not_found\", \"nothing here\");\n}}\n");
   let body = snapfire_fsr_lower::lower_loader("page.loader.ts", &source).unwrap_or_else(|e| panic!("{e}"));
   let audit = Arc::new(Audit::default());
   let ctx = ctx(&audit);

@@ -9,7 +9,7 @@ use snapfire_fsr_cli::{build, write, Options};
 
 const PAGE: &str = "export default function Page({ notice }: { notice: { title: string } }) {\n  return <main>{notice.title}</main>;\n}\n";
 
-const LOADER: &str = "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/notice/{id}\">) {\n  return { notice: { title: `Notice ${params.id}` } };\n}\n";
+const LOADER: &str = "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load({ params }: Ctx<\"/notice/{id}\">) {\n  return { notice: { title: `Notice ${params.id}` } };\n}\n";
 
 const IMAGE: &str = "export const size = { width: 300, height: 160 };\nexport const alt = \"A notice\";\n\nexport default function Image({ notice }: { notice: { title: string } }) {\n  return <div style={{ display: \"grid\", width: \"100%\", height: \"100%\", backgroundColor: \"#1e3a8a\", color: \"white\" }}>{notice.title}</div>;\n}\n";
 

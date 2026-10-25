@@ -1,5 +1,5 @@
 import OrderPage from "@routes/order/[id]/page";
-import { expect, render, screen, test } from "@snapfire/fsr-client/testing";
+import { expect, render, screen, test } from "@snapfire/fsr/client/testing";
 
 const order = { id: 5001n, total_cents: 7200n, lines: [{ product_id: 1n, name: "PLA filament", quantity: 2, line_cents: 4800n }, { product_id: 3n, name: "Nozzle", quantity: 1, line_cents: 2400n }] };
 

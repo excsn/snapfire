@@ -1,4 +1,4 @@
-import { createEvent, ctx, expect, load, settle, test } from "@snapfire/fsr-client/testing";
+import { createEvent, ctx, expect, load, settle, test } from "@snapfire/fsr/client/testing";
 
 const soup = { id: "1", title: "Leek and potato soup", course: "Starter", cook: "Ama", minutes: 35, serves: 4, ingredients: [], method: "" };
 const box = { name: "The Sunday Box", tagline: "Six recipes", courses: ["Starter"] };

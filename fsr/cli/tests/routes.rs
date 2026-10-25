@@ -10,7 +10,7 @@ fn app(files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let dir = std::env::temp_dir().join(format!("fsr-cli-routes-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   vendor_react(&dir, "18.3.1");
   for (name, source) in files {
     let path = dir.join(name);
@@ -27,7 +27,7 @@ fn vendor_react(dir: &Path, version: &str) {
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"react":{{"version":"{version}"}},"react-dom":{{"version":"{version}"}}}}}}"#)).unwrap();
 }
 
-const LAYOUT: &str = "import { Slot } from \"@snapfire/fsr-client/react\";\nexport default function Layout({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed}<Slot name=\"modal\"><p>closed</p></Slot><Slot name=\"drawer\" /></div>;\n}\n";
+const LAYOUT: &str = "import { Slot } from \"@snapfire/fsr/client/react\";\nexport default function Layout({ children, feed }: { children: unknown; feed: unknown }) {\n  return <div>{children}{feed}<Slot name=\"modal\"><p>closed</p></Slot><Slot name=\"drawer\" /></div>;\n}\n";
 const PAGE: &str = "export default function Page() {\n  return <p>page</p>;\n}\n";
 
 fn fails(dir: &Path) -> BuildError {
@@ -45,7 +45,7 @@ fn plan_json(dir: &Path) -> serde_json::Value {
 const HANDLED: &str = "export default function Page() {\n  async function go(): Promise<void> {}\n  return <button onClick={() => void go()}>go</button>;\n}\n";
 
 fn placing(component: &str) -> String {
-  format!("import {{ Island }} from \"@snapfire/fsr-client/react\";\nimport Chart from \"../src/ui/{component}\";\nexport default function Page() {{\n  return <Island><Chart /></Island>;\n}}\n")
+  format!("import {{ Island }} from \"@snapfire/fsr/client/react\";\nimport Chart from \"../src/ui/{component}\";\nexport default function Page() {{\n  return <Island><Chart /></Island>;\n}}\n")
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn a_framework_older_than_the_release_the_renderer_was_checked_against_is_refuse
     }
     other => panic!("{other}"),
   }
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/vue":"/v","vue":"/v"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/vue":"/v","vue":"/v"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.4.38"}}}"#).unwrap();
   assert!(matches!(fails(&dir), BuildError::FrameworkUnchecked { package, .. } if package == "vue"));
   std::fs::remove_dir_all(&dir).unwrap();
@@ -139,7 +139,7 @@ fn a_sites_vendored_package_is_mapped_under_its_own_prefix() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
   let shell = shell_json(&dir, r#","frameworks":{"react":"18.3.1","react-dom":"18.3.1"}"#);
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"sweetalert2":{"version":"11.6.15","entries":{"sweetalert2":"sweetalert2/sweetalert2.bundle.mjs"}}}}"#).unwrap();
-  let map = |url: &str| format!(r#"{{"imports":{{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","sweetalert2":"{url}"}}}}"#);
+  let map = |url: &str| format!(r#"{{"imports":{{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d","sweetalert2":"{url}"}}}}"#);
 
   std::fs::write(dir.join("importmap.json"), map("/static/js/vendor/sweetalert2/sweetalert2.bundle.mjs")).unwrap();
   let refused = match build(&dir, &site_against(shell.clone())) {
@@ -157,7 +157,7 @@ fn a_sites_vendored_package_is_mapped_under_its_own_prefix() {
 fn a_standalone_apps_vendor_urls_keep_the_default_prefix() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1","entries":{"react":"react/react.bundle.mjs"}},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/d"}}"#).unwrap();
   build(&dir, &Options::default()).unwrap();
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -234,7 +234,7 @@ fn a_site_mapping_a_framework_specifier_away_from_its_shell_is_refused() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
   std::fs::remove_dir_all(dir.join("vendor")).unwrap();
   let shell = shell_json(&dir, r#","frameworks":{"react":"18.3.1","react-dom":"18.3.1"}"#);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/billing/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/billing/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/d"}}"#).unwrap();
   match build(&dir, &site_against(shell)) {
     Err(BuildError::ShellUrl { specifier, found, want, .. }) => {
       assert_eq!(specifier, "react");
@@ -358,7 +358,7 @@ fn an_element_template_whose_root_template_cannot_be_the_shadow_root_is_refused(
 
 #[test]
 fn an_actions_file_in_a_directory_with_no_page_is_refused_by_directory() {
-  let action = "import { action } from \"@snapfire/fsr\";\nexport const ping = action(async () => {\n  return 1;\n});\n";
+  let action = "import { action } from \"@snapfire/fsr/host\";\nexport const ping = action(async () => {\n  return 1;\n});\n";
   for (dir, beside) in [("routes/admin", None), ("routes/api", Some(("routes/api/route.ts", "export function GET() {\n  return { ok: true };\n}\n")))] {
     let actions = format!("{dir}/actions.ts");
     let mut files = vec![("routes/page.tsx", PAGE), (actions.as_str(), action)];
@@ -385,7 +385,7 @@ fn each_element_template_types_its_tag_for_the_jsx_the_templates_are_read_as() {
   std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
   let dialect = declarations(&dir);
   assert!(dialect.contains("type Host = Attributes;"), "{dialect}");
-  assert!(dialect.contains("declare module \"@snapfire/fsr-authoring/template\" {\n  interface ElementTemplates {\n    \"x-box\": Placed<typeof Template0>;\n"), "{dialect}");
+  assert!(dialect.contains("declare module \"@snapfire/fsr/template\" {\n  interface ElementTemplates {\n    \"x-box\": Placed<typeof Template0>;\n"), "{dialect}");
   assert!(!dialect.contains("react"), "{dialect}");
   std::fs::remove_file(dir.join("elements/x-box.tsx")).unwrap();
   assert!(declarations(&dir).ends_with("\n\nexport {};\n"), "a dialect app with no template declares nothing");
@@ -411,11 +411,11 @@ fn a_tag_with_no_template_leaves_unchecked_only_the_attributes_some_template_red
 fn a_vue_island_registers_through_the_vue_adapter_without_react_in_the_map() {
   let page = placing("Chart.vue");
   let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.vue", "<template><p /></template>\n")]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/vue":"/v","vue":"/v"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/vue":"/v","vue":"/v"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.44"}}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("import { vueMounter, vuePatcher, vueUnmounter } from \"@snapfire/fsr-client/vue\";"), "{islands}");
+  assert!(islands.contains("import { vueMounter, vuePatcher, vueUnmounter } from \"@snapfire/fsr/client/vue\";"), "{islands}");
   assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "{islands}");
   assert!(!islands.contains("reactMounter"), "a page with no React island imports no React adapter: {islands}");
   std::fs::remove_dir_all(&dir).unwrap();
@@ -428,7 +428,7 @@ fn a_svelte_island_whose_adapter_the_import_map_does_not_name_is_refused_with_th
   match fails(&dir) {
     BuildError::IslandImports { module, adapter, remedy, .. } => {
       assert_eq!(module, "src/ui/Chart.svelte#default");
-      assert_eq!(adapter, "@snapfire/fsr-client/svelte");
+      assert_eq!(adapter, "@snapfire/fsr/client/svelte");
       assert!(remedy.contains("`fsr use <app dir> svelte` writes it"), "{remedy}");
     }
     other => panic!("{other}"),
@@ -448,7 +448,7 @@ fn the_modules_a_svelte_island_imports_reach_the_browser_whether_or_not_it_lower
       ("src/ui/held.svelte.ts", "export const held = $state({ n: 1 });\n"),
       ("src/store.ts", "export const count = 2;\n"),
     ]);
-    std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/svelte":"/s","svelte":"/s","svelte/":"/s/"}}"#).unwrap();
+    std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/svelte":"/s","svelte":"/s","svelte/":"/s/"}}"#).unwrap();
     std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"5.57.2"}}}"#).unwrap();
     let built = build(&dir, &Options::default()).unwrap();
     let config = built.files.iter().find(|(name, _)| name == "tsconfig.build.json").map(|(_, text)| text.clone()).unwrap();
@@ -481,8 +481,8 @@ fn an_island_no_framework_claims_is_refused() {
 fn an_island_whose_adapter_the_import_map_cannot_supply_is_refused_by_name() {
   let dir = app(&[("routes/page.tsx", HANDLED)]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/r"}}"#).unwrap();
-  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react` or `react-dom/client`; `fsr use <app dir> react` writes it");
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/":"/fsr/","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react` or `react-dom/client`; `fsr use <app dir> react` writes it");
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/":"/fsr/","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   build(&dir, &Options::default()).expect("a trailing-slash key covers the adapter beneath it");
   std::fs::remove_file(dir.join("importmap.json")).unwrap();
   build(&dir, &Options::default()).expect("an app with no import map has nothing to check against");
@@ -494,7 +494,7 @@ fn a_site_is_checked_against_the_shells_import_map_as_well_as_its_own() {
   let dir = app(&[("routes/page.tsx", HANDLED)]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   let shell = dir.join("shell.json");
-  std::fs::write(&shell, r#"{"version":1,"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(&shell, r#"{"version":1,"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   let mut options = Options::default();
   options.site = Some(snapfire_fsr_cli::SiteOptions::new("billing".to_owned(), "/billing".to_owned()).shell(Some(shell)));
   build(&dir, &options).expect("the shell serves React, so the site need not");
@@ -634,7 +634,7 @@ fn a_layout_declared_tree_is_refused() {
   let dir = app(&[
     (
       "routes/layout.tsx",
-      "import { tree } from \"@snapfire/fsr-client/react\";\nfunction Layout({ children }: { children: unknown }) {\n  return <main>{children}</main>;\n}\nexport default tree(Layout);\n",
+      "import { tree } from \"@snapfire/fsr/client/react\";\nfunction Layout({ children }: { children: unknown }) {\n  return <main>{children}</main>;\n}\nexport default tree(Layout);\n",
     ),
     ("routes/page.tsx", PAGE),
   ]);
@@ -648,7 +648,7 @@ fn a_handler_in_a_page_moves_into_an_island_and_a_component_placed_as_an_island_
   let dir = app(&[
     (
       "routes/index/page.tsx",
-      "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Tips } from \"../../src/ui/Tips\";\nexport default function Page() {\n  async function go(): Promise<void> {}\n  return <div><button onClick={() => void go()}>go</button><Island when=\"idle\"><Tips /></Island></div>;\n}\n",
+      "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Tips } from \"../../src/ui/Tips\";\nexport default function Page() {\n  async function go(): Promise<void> {}\n  return <div><button onClick={() => void go()}>go</button><Island when=\"idle\"><Tips /></Island></div>;\n}\n",
     ),
     ("src/ui/Tips.tsx", "export function Tips() {\n  return <details><summary>tips</summary></details>;\n}\n"),
   ]);
@@ -717,7 +717,7 @@ fn a_page_loaders_paths_export_lowers_on_a_route_with_a_parameter_and_nowhere_el
     ("routes/blog/[slug]/page.tsx", PAGE),
     (
       "routes/blog/[slug]/page.loader.ts",
-      "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/blog/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => [{ slug: \"hello\" }, { slug: \"world\" }];\n",
+      "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load({ params }: Ctx<\"/blog/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => [{ slug: \"hello\" }, { slug: \"world\" }];\n",
     ),
   ]);
   let plan = plan_json(&dir);
@@ -751,7 +751,7 @@ fn a_graphql_document_under_clients_is_a_contract_a_loader_calls() {
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/[slug]/page.tsx", "import type { SlugProps } from \"@generated/client\";\nexport default function Page({ post }: SlugProps) {\n  return <h1>{post.post?.title}</h1>;\n}\n"),
-    ("routes/[slug]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params, services }: Ctx<\"/{slug}\">) {\n  return { post: await services.cms.postBySlug({ slug: params.slug }) };\n}\n"),
+    ("routes/[slug]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load({ params, services }: Ctx<\"/{slug}\">) {\n  return { post: await services.cms.postBySlug({ slug: params.slug }) };\n}\n"),
     ("clients/cms.graphql", "type Query {\n  post(slug: String!): Post\n}\n\ntype Post {\n  title: String!\n}\n\nquery PostBySlug($slug: String!) {\n  post(slug: $slug) {\n    title\n  }\n}\n"),
   ]);
   let built = build(&dir, &Options::default()).unwrap();
@@ -768,10 +768,10 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/page.tsx", "import { useState } from \"react\";\nimport { TipList } from \"../src/Tips\";\nexport default function Page() {\n  const [open, setOpen] = useState(false);\n  return <section><button onClick={() => setOpen(!open)}>{open ? \"hide\" : \"show\"}</button><div><TipList /></div></section>;\n}\n"),
-    ("routes/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load(ctx: Ctx<\"/\">) {\n  return { items: await ctx.services.ledger.list({}) };\n}\n"),
-    ("routes/actions.ts", "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { Add } from \"../schemas/inputs\";\nexport const add = action(async ({ input }: ActionCtx<Add>) => {\n  return input.n;\n});\n"),
+    ("routes/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load(ctx: Ctx<\"/\">) {\n  return { items: await ctx.services.ledger.list({}) };\n}\n"),
+    ("routes/actions.ts", "import { action } from \"@snapfire/fsr/host\";\nimport type { ActionCtx } from \"@snapfire/fsr/host\";\nimport type { Add } from \"../schemas/inputs\";\nexport const add = action(async ({ input }: ActionCtx<Add>) => {\n  return input.n;\n});\n"),
     ("schemas/inputs.ts", "export interface Add {\n  n: number;\n}\n"),
-    ("routes/api/ping/route.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function GET(ctx: Ctx) {\n  return { ok: true, locale: ctx.locale };\n}\n"),
+    ("routes/api/ping/route.ts", "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function GET(ctx: Ctx) {\n  return { ok: true, locale: ctx.locale };\n}\n"),
     ("src/Tips.tsx", "import { money } from \"./money\";\nexport function TipList({ cents = 5 }: { cents?: number }) {\n  return <ul>{money(cents)}</ul>;\n}\n"),
     ("src/money.ts", "export function money(cents: number): string {\n  return `$${cents}`;\n}\n"),
     ("clients/ledger.openapi.json", r##"{"openapi":"3.0.0","info":{"title":"ledger","version":"1"},"paths":{"/list":{"get":{"operationId":"list","responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Invoice"}}}}}}}}},"components":{"schemas":{"Invoice":{"type":"object","required":["id"],"properties":{"id":{"type":"integer","format":"int64"}}}}}}"##),
@@ -801,7 +801,7 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   assert!(client.contains("call(\"billing:$root.add\")") && client.contains("  $root: {"), "{client}");
   let declarations = file("generated/services.d.ts");
   assert!(declarations.contains("ledger") && !declarations.contains("billing:"), "the TypeScript surface keeps the unprefixed names: {declarations}");
-  let fsr = file("generated/fsr.ts");
+  let fsr = file("generated/host.ts");
   assert!(fsr.contains("\"/\":") && !fsr.contains("/billing"), "route keys stay as written: {fsr}");
   let overlay = file(".fsr/bundle/src/Tips.tsx");
   assert!(overlay.contains("__sfUseHoisted(\"billing:src/Tips.tsx#TipList\")") && overlay.contains("__sfh.c(1, (__sfHtml) => <ul dangerouslySetInnerHTML={__sfHtml} />)"), "the reader keys under the prefixed module the host renders and the list is a proven subtree: {overlay}");
@@ -815,7 +815,7 @@ fn a_shell_emits_its_contract_and_a_site_built_against_it_gets_the_declarations(
     ("routes/layout.tsx", LAYOUT),
     ("routes/layout.loader.ts", "export async function load() {\n  return { count: 2, who: \"norm\" };\n}\nexport const store = ({ data }: { data: { count: number; who: string } }) => ({ \"cart/count\": data.count, \"session/who\": data.who });\n"),
     ("routes/index/page.tsx", PAGE),
-    ("importmap.json", r#"{"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#),
+    ("importmap.json", r#"{"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","@snapfire/fsr/client":"/static/js/fsr/index.js"}}"#),
   ]);
   let built = build(&shell, &Options::default()).unwrap();
   let (_, contract) = built.files.iter().find(|(n, _)| n == "generated/shell.json").expect("a shell writes its contract");
@@ -837,7 +837,7 @@ fn a_shell_emits_its_contract_and_a_site_built_against_it_gets_the_declarations(
   assert!(built.files.iter().all(|(n, _)| n != "generated/shell.json"), "a site emits no contract of its own");
   let (_, declarations) = built.files.iter().find(|(n, _)| n == "generated/shell.d.ts").expect("a site gets the shell's declarations");
   assert!(declarations.contains("export interface ShellStore {\n  \"cart/count\": number;\n  \"session/who\": string;\n}"), "{declarations}");
-  assert!(declarations.contains("export type ShellImport = \"@snapfire/fsr-client\" | \"react\";"), "{declarations}");
+  assert!(declarations.contains("export type ShellImport = \"@snapfire/fsr/client\" | \"react\";"), "{declarations}");
   let report = built.report.verbose().to_string();
   assert!(report.contains("shell     ") && report.contains("2 store keys, 2 imports") && report.contains("react mapped differently here"), "{report}");
   std::fs::remove_dir_all(&shell).unwrap();
@@ -869,11 +869,11 @@ fn a_route_and_its_parameterised_child_get_ids_of_their_own() {
 fn an_action_imports_redirect_from_the_module_it_imports_action_from() {
   let dir = app(&[
     ("routes/posts/page.tsx", PAGE),
-    ("routes/posts/actions.ts", "import { action, redirect } from \"@snapfire/fsr\";\n\nexport const save = action(async () => {\n  redirect(\"/posts\");\n});\n"),
+    ("routes/posts/actions.ts", "import { action, redirect } from \"@snapfire/fsr/host\";\n\nexport const save = action(async () => {\n  redirect(\"/posts\");\n});\n"),
   ]);
   let built = build(&dir, &Options::default()).unwrap();
-  let fsr = &built.files.iter().find(|(name, _)| name == "generated/fsr.ts").unwrap().1;
-  assert!(fsr.contains("import { action as declare, after, fail, redirect } from \"@snapfire/fsr-authoring\";"), "{fsr}");
+  let fsr = &built.files.iter().find(|(name, _)| name == "generated/host.ts").unwrap().1;
+  assert!(fsr.contains("import { action as declare, after, fail, redirect } from \"@snapfire/fsr/authoring\";"), "{fsr}");
   assert!(fsr.contains("\nexport { after, fail, redirect };\n"), "{fsr}");
 }
 
@@ -932,12 +932,12 @@ fn two_rows_claiming_one_id_are_refused_by_name() {
 
 #[test]
 fn an_island_in_server_mode_needs_no_framework_in_the_map_and_has_no_registry_entry() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
   let dir = app(&[
     ("routes/index/page.tsx", page),
     ("src/Widget.tsx", "import { useState } from \"react\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
   ]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client":"/c"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client":"/c"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
@@ -948,7 +948,7 @@ fn an_island_in_server_mode_needs_no_framework_in_the_map_and_has_no_registry_en
 
 #[test]
 fn a_module_placed_in_server_mode_and_as_a_browser_island_is_refused() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <div><Island mode=\"server\"><Widget /></Island><Island><Widget /></Island></div>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <div><Island mode=\"server\"><Widget /></Island><Island><Widget /></Island></div>;\n}\n";
   let dir = app(&[
     ("routes/index/page.tsx", page),
     ("src/Widget.tsx", "import { useState } from \"react\";\nexport function Widget() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
@@ -960,7 +960,7 @@ fn a_module_placed_in_server_mode_and_as_a_browser_island_is_refused() {
 
 #[test]
 fn an_island_in_server_mode_is_refused_over_a_handler_it_passes_a_child_that_did_not_lower() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", page),
@@ -977,7 +977,7 @@ fn an_island_in_server_mode_is_refused_over_a_handler_it_passes_a_child_that_did
 
 #[test]
 fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_impure_component_inside() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget /></Island>;\n}\n";
   let shouting = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", page),
@@ -1047,7 +1047,7 @@ fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_i
 
 #[test]
 fn a_vue_island_in_server_mode_answers_its_handlers_or_is_refused_over_one_that_did_not_lower() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport Counter from \"../../src/Counter.vue\";\nexport default function Page() {\n  return <Island mode=\"server\"><Counter /></Island>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport Counter from \"../../src/Counter.vue\";\nexport default function Page() {\n  return <Island mode=\"server\"><Counter /></Island>;\n}\n";
   let counter = |handler: &str| format!("<script setup lang=\"ts\">\nimport {{ ref }} from \"vue\";\nconst n = ref(0);\nfunction bump(by: number) {{\n  n.value += by;\n}}\n</script>\n\n<template>\n  <div><button class=\"one\" @click=\"n++\">{{{{ n }}}}</button><button class=\"two\" {handler}>more</button></div>\n</template>\n");
   let answered = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page), ("src/Counter.vue", &counter("@click=\"bump(2)\""))]);
   let built = build(&answered, &Options::default()).unwrap();
@@ -1065,7 +1065,7 @@ fn a_vue_island_in_server_mode_answers_its_handlers_or_is_refused_over_one_that_
 
 #[test]
 fn a_typed_vue_component_s_props_are_declared_where_the_editor_tsconfig_finds_them_first() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport Card from \"../../src/Card.vue\";\nexport default function Page() {\n  return <Island mode=\"server\"><Card title=\"t\" /></Island>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport Card from \"../../src/Card.vue\";\nexport default function Page() {\n  return <Island mode=\"server\"><Card title=\"t\" /></Island>;\n}\n";
   let card = "<script setup lang=\"ts\">\ndefineProps<{ title: string }>();\n</script>\n\n<template>\n  <p>{{ title }}</p>\n</template>\n";
   let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page), ("src/Card.vue", card)]);
   let built = build(&dir, &Options::default()).unwrap();
@@ -1088,7 +1088,7 @@ fn a_typed_vue_component_s_props_are_declared_where_the_editor_tsconfig_finds_th
 /// markup comes back empty and the patch removes whatever filled it.
 #[test]
 fn an_island_in_server_mode_is_refused_over_a_slot_it_renders() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget><b>held</b></Widget></Island>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Widget } from \"../../src/Widget\";\nexport default function Page() {\n  return <Island mode=\"server\"><Widget><b>held</b></Widget></Island>;\n}\n";
   let slotted = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", page),
@@ -1112,7 +1112,7 @@ fn a_loader_reads_the_navigations_own_request_as_the_address() {
   let built = build(&dir, &Options::default()).unwrap();
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
   assert!(file("generated/plan.sexp").contains("(address)"), "{}", file("generated/plan.sexp"));
-  let ctx = file("generated/fsr.ts");
+  let ctx = file("generated/host.ts");
   assert_eq!((ctx.matches("export interface Address {").count(), ctx.matches("  address: Address | null;").count()), (1, 1), "{ctx}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1132,12 +1132,12 @@ fn a_handler_the_browser_runs_as_written_is_a_browser_row() {
 
 #[test]
 fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlowerable_export_fails_the_build() {
-  let page = "import { intl } from \"@snapfire/fsr-client/std\";\nimport { weight } from \"@ext/fmt\";\nimport { useState } from \"react\";\nexport default function Page({ grams }: { grams: number }) {\n  const [n, setN] = useState(1);\n  return <p onClick={() => setN(n + 1)} title={weight(grams)}>{intl.number(n * grams)}</p>;\n}\n";
+  let page = "import { intl } from \"@snapfire/fsr/client\";\nimport { weight } from \"@ext/fmt\";\nimport { useState } from \"react\";\nexport default function Page({ grams }: { grams: number }) {\n  const [n, setN] = useState(1);\n  return <p onClick={() => setN(n + 1)} title={weight(grams)}>{intl.number(n * grams)}</p>;\n}\n";
   let fine = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", page),
-    ("routes/index/page.loader.ts", "import { weight } from \"@ext/fmt\";\nimport { time } from \"@snapfire/fsr-client/std\";\nexport async function load() {\n  return { grams: 1500, label: weight(1500), at: time.now() };\n}\n"),
-    ("ext/fmt.ts", "import { intl, native } from \"@snapfire/fsr-client/std\";\nexport function weight(grams: number): string {\n  return `${intl.number(grams / 1000)} kg`;\n}\nexport const pretty = native(\"fmt.pretty\", (n: number) => String(n));\nexport const stamp = native<() => string>(\"fmt.stamp\");\n"),
+    ("routes/index/page.loader.ts", "import { weight } from \"@ext/fmt\";\nimport { time } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { grams: 1500, label: weight(1500), at: time.now() };\n}\n"),
+    ("ext/fmt.ts", "import { intl } from \"@snapfire/fsr/client\";\nimport { native } from \"@snapfire/fsr\";\nexport function weight(grams: number): string {\n  return `${intl.number(grams / 1000)} kg`;\n}\nexport const pretty = native(\"fmt.pretty\", (n: number) => String(n));\nexport const stamp = native<() => string>(\"fmt.stamp\");\n"),
   ]);
   let built = build(&fine, &Options::default()).unwrap();
   assert_eq!(
@@ -1156,9 +1156,9 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
   assert!(plan.contains("\"ext\"") && plan.contains("\"intl\"") && plan.contains("\"time\""), "{plan}");
   std::fs::remove_dir_all(&fine).unwrap();
 
-  let reach = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", "import { id } from \"@snapfire/fsr-client/std\";\nexport default function Page() {\n  return <p>{id.new()}</p>;\n}\n")]);
+  let reach = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", "import { id } from \"@snapfire/fsr/host\";\nexport default function Page() {\n  return <p>{id.new()}</p>;\n}\n")]);
   let err = fails(&reach).to_string();
-  assert!(err.contains("routes/index/page.tsx:3:14: `id.new` on a render path") && err.contains("runs on the server only"), "{err}");
+  assert!(err.contains("routes/index/page.tsx:3:14: `id.new` from `@snapfire/fsr/host` in code the browser also runs"), "{err}");
   std::fs::remove_dir_all(&reach).unwrap();
 
   let unlowerable = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("ext/bad.ts", "export function stamp(): string {\n  return String(new WeakMap());\n}\n")]);
@@ -1175,7 +1175,7 @@ fn a_page_tera_is_a_route_the_plan_names_and_nothing_lowers() {
     ("routes/index/page.tsx", PAGE),
     ("routes/board/page.tera", "<h1>{{ title }}</h1>\n"),
     ("routes/board/page.loader.ts", "export async function load() {\n  return { title: \"Board\" };\n}\n"),
-    ("routes/board/actions.ts", "import { action } from \"@snapfire/fsr\";\nexport const poke = action(async () => 1);\n"),
+    ("routes/board/actions.ts", "import { action } from \"@snapfire/fsr/host\";\nexport const poke = action(async () => 1);\n"),
     ("routes/wall/layout.tera", "<section>{{ slot(name=\"content\") }}{{ island(module=\"src/Tips.tsx#TipList\", props=dict(cents=7), when=\"visible\") }}</section>\n"),
     ("routes/wall/page.tsx", PAGE),
     ("src/Tips.tsx", "import { useState } from \"react\";\nexport function TipList({ cents = 5 }: { cents?: number }) {\n  const [n, setN] = useState(cents);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
@@ -1228,20 +1228,20 @@ fn a_page_tera_is_refused_by_an_fsr_built_without_the_feature() {
 
 #[test]
 fn an_island_takes_the_dialects_placements_from_its_own_framework() {
-  const PAGE: &str = "import { useState } from \"react\";\nimport { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  const [n, set] = useState(0);\n  return <section><button onClick={() => set(n + 1)}>{n}</button><Link href=\"/\">home</Link></section>;\n}\n";
+  const PAGE: &str = "import { useState } from \"react\";\nimport { Link } from \"@snapfire/fsr/template\";\nexport default function Page() {\n  const [n, set] = useState(0);\n  return <section><button onClick={() => set(n + 1)}>{n}</button><Link href=\"/\">home</Link></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", PAGE)]);
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\"") && islands.contains("reactMounter"), "{islands}");
   let island = built.files.iter().find(|(name, _)| name == ".fsr/bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
-  assert!(island.contains("import { Link } from \"@snapfire/fsr-client/react\";"), "{island}");
-  assert!(!island.contains("@snapfire/fsr-authoring/template"), "the map need not serve the dialect for an island: {island}");
+  assert!(island.contains("import { Link } from \"@snapfire/fsr/client/react\";"), "{island}");
+  assert!(!island.contains("@snapfire/fsr/template"), "the map need not serve the dialect for an island: {island}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn a_static_page_on_the_dialect_needs_no_template_line() {
-  const PAGE: &str = "import { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  return <Link href=\"/\">home</Link>;\n}\n";
+  const PAGE: &str = "import { Link } from \"@snapfire/fsr/template\";\nexport default function Page() {\n  return <Link href=\"/\">home</Link>;\n}\n";
   let dir = app(&[("routes/page.tsx", PAGE)]);
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.components.iter().any(|(module, _, detail)| module == "routes/page.tsx#default" && detail == "static"), "{}", built.report);
@@ -1348,7 +1348,7 @@ fn a_module_that_does_not_lower_travels_in_the_plan_with_its_cause() {
     ("routes/other/page.tsx", "import { Stars } from \"../../src/ui/Stars\";\nexport default function Page() {\n  return <div><Stars /></div>;\n}\n"),
     ("src/ui/Stars.tsx", "export function Stars() {\n  return <p>{\"a\".normalize().length}</p>;\n}\n"),
   ]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr/client/jsx-runtime":"/j"}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let cause = built.report.causes.iter().find(|c| c.at.starts_with("src/ui/Stars.tsx:")).unwrap_or_else(|| panic!("{}", built.report));
   let mut clients: Vec<(&str, &str, &str, Option<&str>)> = built.manifest.clients.iter().map(|c| (c.module.as_str(), c.at.as_str(), c.message.as_str(), c.hint.as_deref())).collect();
@@ -1453,7 +1453,7 @@ fn a_routes_own_boundary_owns_every_kind() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-const NO_REACT: &str = r#"{"imports":{"@snapfire/fsr-client/jsx-runtime":"/j"}}"#;
+const NO_REACT: &str = r#"{"imports":{"@snapfire/fsr/client/jsx-runtime":"/j"}}"#;
 
 fn generated(built: &snapfire_fsr_cli::Built, name: &str) -> Option<String> {
   built.files.iter().find(|(file, _)| file == name).map(|(_, text)| text.clone())
@@ -1504,27 +1504,27 @@ fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_react_islan
 
 #[test]
 fn an_island_takes_the_dialects_placements_from_its_own_framework_wherever_it_reaches() {
-  let page = "import { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone} <Link href=\"/\">home</Link></p></section>;\n}\n";
+  let page = "import { Link } from \"@snapfire/fsr/template\";\nexport default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone} <Link href=\"/\">home</Link></p></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", page)]);
   let built = build(&dir, &Options::default()).unwrap();
   let island = generated(&built, ".fsr/bundle/routes/page.island0.tsx").expect("the island's bundle copy");
-  assert!(island.contains("import { Link } from \"@snapfire/fsr-client/react\";"), "{island}");
+  assert!(island.contains("import { Link } from \"@snapfire/fsr/client/react\";"), "{island}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn a_page_whose_residue_no_island_can_hold_is_refused_with_that_residue() {
-  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nexport default function Page({ rooms }: { rooms: string[] }) {\n  return (\n    <main>\n      <Island define=\"@src/elements/room-count.ts\">\n        <room-count n={new WeakSet(rooms) ? 1 : 0}>rooms</room-count>\n      </Island>\n    </main>\n  );\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/template\";\nexport default function Page({ rooms }: { rooms: string[] }) {\n  return (\n    <main>\n      <Island define=\"@src/elements/room-count.ts\">\n        <room-count n={new WeakSet(rooms) ? 1 : 0}>rooms</room-count>\n      </Island>\n    </main>\n  );\n}\n";
   let dir = app(&[("routes/page.tsx", page), ("src/elements/room-count.ts", "customElements.define(\"room-count\", class extends HTMLElement {});\n")]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/jsx-runtime":"/j"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/jsx-runtime":"/j"}}"#).unwrap();
   let error = fails(&dir).to_string();
   assert!(error.contains("routes/page.tsx:6:") && error.contains("`new WeakSet`"), "the residue that started it, not what the split left behind: {error}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-const PANEL_PAGE: &str = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport { Panel } from \"../src/ui/Panel\";\nexport default function Page() {\n  return <main><Island><Panel /></Island></main>;\n}\n";
+const PANEL_PAGE: &str = "import { Island } from \"@snapfire/fsr/template\";\nimport { Panel } from \"../src/ui/Panel\";\nexport default function Page() {\n  return <main><Island><Panel /></Island></main>;\n}\n";
 
-const REACT_AND_VUE: &str = r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/vue":"/v","vue":"/v"}}"#;
+const REACT_AND_VUE: &str = r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr/client/vue":"/v","vue":"/v"}}"#;
 
 fn panel_app(chart: &str) -> PathBuf {
   let dir = app(&[("routes/page.tsx", PANEL_PAGE), ("src/ui/Panel.tsx", &panel(chart)), ("src/ui/Chart.vue", "<template><p /></template>\n")]);
@@ -1561,7 +1561,7 @@ fn a_component_another_framework_mounts_takes_no_children_from_a_react_island() 
 
 const DIGEST: &str = "use snapfire_fsr_macros::native;\n\npub struct Summary {\n  pub words: i64,\n  pub longest: String,\n}\n\npub struct Digest;\n\n#[native]\nimpl Digest {\n  pub fn words(&self, bodies: Vec<String>) -> i64 {\n    bodies.len() as i64\n  }\n\n  pub fn summary(&self, bodies: Vec<String>) -> Summary {\n    Summary { words: bodies.len() as i64, longest: String::new() }\n  }\n}\n";
 
-const DIGEST_LOADER: &str = "import type { Ctx } from \"@snapfire/fsr\";\n\nexport async function load({ native }: Ctx<\"/\">) {\n  return { words: native.digest.words({ bodies: [\"a b\"] }), summary: native.digest.summary({ bodies: [] }) };\n}\n";
+const DIGEST_LOADER: &str = "import type { Ctx } from \"@snapfire/fsr/host\";\n\nexport async function load({ native }: Ctx<\"/\">) {\n  return { words: native.digest.words({ bodies: [\"a b\"] }), summary: native.digest.summary({ bodies: [] }) };\n}\n";
 
 #[test]
 fn a_pages_props_type_a_native_result_as_the_rust_returns_it() {
@@ -1586,7 +1586,7 @@ fn included(built: &snapfire_fsr_cli::Built) -> Vec<String> {
   config["include"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect()
 }
 
-const BARE: &str = r#"{"imports":{"@snapfire/fsr-client":"/f","@snapfire/fsr-client/elements":"/e"}}"#;
+const BARE: &str = r#"{"imports":{"@snapfire/fsr/client":"/f","@snapfire/fsr/client/elements":"/e"}}"#;
 
 /// A template nothing mounts was compiled for the browser, which
 /// in an application without React asked the import map for the dialect.
@@ -1595,7 +1595,7 @@ fn the_bundle_compiles_what_the_browser_loads_and_not_a_template_nothing_mounts(
   let page = "import { Home } from \"@src/ui/Home\";\nexport default function Page() {\n  return <main><Home /></main>;\n}\n";
   let dir = app(&[
     ("routes/page.tsx", page),
-    ("src/ui/Home.tsx", "import { Link } from \"@snapfire/fsr-authoring/template\";\nexport function Home() {\n  return <Link href=\"/\">home</Link>;\n}\n"),
+    ("src/ui/Home.tsx", "import { Link } from \"@snapfire/fsr/template\";\nexport function Home() {\n  return <Link href=\"/\">home</Link>;\n}\n"),
     ("src/main.ts", "document.documentElement.dataset.booted = \"1\";\n"),
   ]);
   std::fs::write(dir.join("importmap.json"), BARE).unwrap();
@@ -1608,7 +1608,7 @@ fn the_bundle_compiles_what_the_browser_loads_and_not_a_template_nothing_mounts(
 
 #[test]
 fn a_server_island_and_a_static_component_are_not_bundle_roots_and_a_browser_island_is() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Clock } from \"@src/ui/Clock\";\nimport { Help } from \"@src/ui/Help\";\nimport { Card } from \"@src/ui/Card\";\nexport default function Page() {\n  return <main><Island><Clock /></Island><Island mode=\"server\"><Help /></Island><Card /></main>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Clock } from \"@src/ui/Clock\";\nimport { Help } from \"@src/ui/Help\";\nimport { Card } from \"@src/ui/Card\";\nexport default function Page() {\n  return <main><Island><Clock /></Island><Island mode=\"server\"><Help /></Island><Card /></main>;\n}\n";
   let dir = app(&[
     ("routes/page.tsx", page),
     ("src/ui/Clock.tsx", "import { useState } from \"react\";\nexport function Clock() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
@@ -1635,7 +1635,7 @@ fn jsx_the_browser_loads_in_an_application_without_a_jsx_framework_is_refused_na
 /// One copy, compiled for the root that renders it, shared by the one that does not.
 #[test]
 fn jsx_a_react_island_also_reaches_is_shared_by_a_plain_root() {
-  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Badge } from \"@src/ui/Badge\";\nexport default function Page() {\n  return <main><Island><Badge /></Island></main>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Badge } from \"@src/ui/Badge\";\nexport default function Page() {\n  return <main><Island><Badge /></Island></main>;\n}\n";
   let dir = app(&[
     ("routes/page.tsx", page),
     ("src/ui/Badge.tsx", "import { useState } from \"react\";\nexport const LABEL = \"new\";\nexport function Badge() {\n  const [n, setN] = useState(0);\n  return <b onClick={() => setN(n + 1)}>{LABEL} {n}</b>;\n}\n"),
@@ -1749,7 +1749,7 @@ fn fsr_components_point_at_the_framework_of_each_file_that_imports_them_the_over
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or_else(|| panic!("no {name}"));
   for name in [".fsr/bundle/routes/page.island0.tsx", ".fsr/bundle/routes/layout.tsx"] {
     let overlay = file(name);
-    assert!(overlay.contains("import { Link } from \"@snapfire/fsr-client/react\";") && !overlay.contains("@snapfire/fsr/components"), "{name}: {overlay}");
+    assert!(overlay.contains("import { Link } from \"@snapfire/fsr/client/react\";") && !overlay.contains("@snapfire/fsr/components"), "{name}: {overlay}");
   }
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1759,7 +1759,7 @@ fn a_svelte_file_importing_fsr_components_gets_the_svelte_components_the_build_w
   let page = placing("Chart.svelte");
   let chart = "<script lang=\"ts\">\n  import { Link, Picture as Shot } from \"@snapfire/fsr/components\";\n</script>\n\n<Link href=\"/next\">next</Link><Shot src=\"/p.png\" alt=\"p\" />\n";
   let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.svelte", chart)]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/svelte":"/s","svelte":"/s","svelte/":"/s/"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr/client/svelte":"/s","svelte":"/s","svelte/":"/s/"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"},"svelte":{"version":"5.57.2"}}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or_else(|| panic!("no {name}"));
@@ -1778,7 +1778,7 @@ fn a_svelte_file_importing_fsr_components_gets_the_svelte_components_the_build_w
 #[test]
 fn a_vendored_module_importing_a_package_the_import_map_does_not_name_is_refused() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/static/js/vendor/react-dom/client.bundle.mjs"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/static/js/vendor/react-dom/client.bundle.mjs"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1","entries":{"react":"react/react.bundle.mjs"}},"react-dom":{"version":"19.3.1","externals":["react"],"entries":{"react-dom/client":"react-dom/client.bundle.mjs"}}}}"#).unwrap();
   std::fs::create_dir_all(dir.join("vendor/react")).unwrap();
   std::fs::create_dir_all(dir.join("vendor/react-dom")).unwrap();

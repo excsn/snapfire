@@ -10,11 +10,11 @@ use snapfire_fsr_runtime::RequestCtx;
 
 /// How the module reaches `action`, and the callee that spelling calls.
 const ACTION_IMPORTS: &[(&str, &str)] = &[
-  ("import { action } from \"@snapfire/fsr\";", "action"),
-  ("import { action as act } from \"@snapfire/fsr\";", "act"),
-  ("import * as fsr from \"@snapfire/fsr\";", "fsr.action"),
-  ("import { fail, action } from \"@snapfire/fsr\";", "action"),
-  ("import type { ActionCtx } from \"@snapfire/fsr\";\nimport { action } from \"@snapfire/fsr\";", "action"),
+  ("import { action } from \"@snapfire/fsr/host\";", "action"),
+  ("import { action as act } from \"@snapfire/fsr/host\";", "act"),
+  ("import * as fsr from \"@snapfire/fsr/host\";", "fsr.action"),
+  ("import { fail, action } from \"@snapfire/fsr/host\";", "action"),
+  ("import type { ActionCtx } from \"@snapfire/fsr/host\";\nimport { action } from \"@snapfire/fsr/host\";", "action"),
 ];
 
 const ACTION_BODIES: &[&str] = &[
@@ -40,7 +40,7 @@ fn action_modules(call: &str, body: &str) -> Vec<(&'static str, String)> {
 
 #[test]
 fn every_spelling_of_an_action_lowers_like_the_plainest() {
-  let reference = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr\";\nexport const add = action({});\n", ACTION_BODIES[0])).unwrap();
+  let reference = lower_actions("a.ts", &format!("import {{ action }} from \"@snapfire/fsr/host\";\nexport const add = action({});\n", ACTION_BODIES[0])).unwrap();
   let mut failed = Vec::new();
   let mut tried = 0;
   for (import, call) in ACTION_IMPORTS {
@@ -78,7 +78,7 @@ const LOADERS: &[(&str, &str)] = &[
   ("an arrow in an export list", "const load = async ({ params }) => ({ id: params.id });\nexport { load };\n"),
   ("the context by name", "export async function load(ctx) {\n  return { id: ctx.params.id };\n}\n"),
   ("the params destructured inside", "export async function load(ctx) {\n  const { params } = ctx;\n  return { id: params.id };\n}\n"),
-  ("a typed context", "import type { LoaderCtx } from \"@snapfire/fsr\";\nexport async function load({ params }: LoaderCtx) {\n  return { id: params.id };\n}\n"),
+  ("a typed context", "import type { LoaderCtx } from \"@snapfire/fsr/host\";\nexport async function load({ params }: LoaderCtx) {\n  return { id: params.id };\n}\n"),
   ("a field shorthand", "export async function load({ params }) {\n  const id = params.id;\n  return { id };\n}\n"),
   ("the field destructured from the params", "export async function load({ params }) {\n  const { id } = params;\n  return { id };\n}\n"),
   ("the field renamed out of the params", "export async function load({ params }) {\n  const { id: itemId } = params;\n  return { id: itemId };\n}\n"),
@@ -86,9 +86,9 @@ const LOADERS: &[(&str, &str)] = &[
   ("the field destructured from the context's params", "export async function load(ctx) {\n  const { id } = ctx.params;\n  return { id };\n}\n"),
   ("the context under another name", "export async function load(ctx) {\n  const c = ctx;\n  return { id: c.params.id };\n}\n"),
   ("an arrow in parentheses", "export const load = (async ({ params }) => ({ id: params.id }));\n"),
-  ("an arrow that satisfies a type", "import type { Loader } from \"@snapfire/fsr\";\nexport const load = (async ({ params }) => ({ id: params.id })) satisfies Loader;\n"),
-  ("an arrow cast to a type", "import type { Loader } from \"@snapfire/fsr\";\nexport const load = (async ({ params }) => ({ id: params.id })) as Loader;\n"),
-  ("a typed binding", "import type { Loader } from \"@snapfire/fsr\";\nexport const load: Loader = async ({ params }) => ({ id: params.id });\n"),
+  ("an arrow that satisfies a type", "import type { Loader } from \"@snapfire/fsr/host\";\nexport const load = (async ({ params }) => ({ id: params.id })) satisfies Loader;\n"),
+  ("an arrow cast to a type", "import type { Loader } from \"@snapfire/fsr/host\";\nexport const load = (async ({ params }) => ({ id: params.id })) as Loader;\n"),
+  ("a typed binding", "import type { Loader } from \"@snapfire/fsr/host\";\nexport const load: Loader = async ({ params }) => ({ id: params.id });\n"),
 ];
 
 /// What `body` returns for the route `/item/7`.

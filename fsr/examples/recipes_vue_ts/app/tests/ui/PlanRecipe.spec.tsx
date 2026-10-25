@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, render, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, render, settle, test } from "@snapfire/fsr/client/testing";
 
 import PlanRecipe from "@src/ui/PlanRecipe.vue";
 

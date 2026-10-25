@@ -15,7 +15,7 @@ use swc_core::ecma::ast as js;
 
 /// Which of FSR's standard-library roots a module object or member was imported from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Side {
+pub enum Side {
   /// `@snapfire/fsr/client`: what a server render and the browser both run.
   Client,
   /// `@snapfire/fsr/host`: what every host body runs.
@@ -25,7 +25,7 @@ pub(crate) enum Side {
 }
 
 impl Side {
-  pub(crate) fn root(self) -> &'static str {
+  pub fn root(self) -> &'static str {
     match self {
       Side::Client => CLIENT_ROOT,
       Side::Host => HOST_ROOT,
@@ -34,7 +34,7 @@ impl Side {
   }
 
   /// Whether a standard member of `module` with `reach` is under this side.
-  pub(crate) fn holds(self, module: &str, reach: snapfire_fsr_ir::Reach) -> bool {
+  pub fn holds(self, module: &str, reach: snapfire_fsr_ir::Reach) -> bool {
     use snapfire_fsr_ir::Reach;
     let terminal_module = TERMINAL_STD_MODULES.contains(&module);
     match self {
@@ -60,7 +60,7 @@ fn side_has(side: Side, module: &str, name: &str) -> Option<(&'static str, &'sta
 }
 
 /// Each standard module under `side`, with the members it holds there.
-pub(crate) fn side_modules(side: Side) -> Vec<(&'static str, Vec<&'static str>)> {
+pub fn side_modules(side: Side) -> Vec<(&'static str, Vec<&'static str>)> {
   let mut out: Vec<(&'static str, Vec<&'static str>)> = Vec::new();
   for member in snapfire_fsr_ir::STANDARD {
     if !side.holds(member.module, member.reach) {
@@ -176,14 +176,16 @@ pub(crate) enum Construct {
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
-const PLACEMENT_MODULES: [&str; 4] = ["@snapfire/fsr-authoring/template", "@snapfire/fsr-client/react", "@snapfire/fsr-client/vue", "@snapfire/fsr-client/jsx-runtime"];
+const PLACEMENT_MODULES: [&str; 4] = ["@snapfire/fsr/template", "@snapfire/fsr/client/react", "@snapfire/fsr/client/vue", "@snapfire/fsr/client/jsx-runtime"];
 const PLACEMENTS: [&str; 9] = ["Island", "island", "Link", "Slot", "Picture", "Mount", "Embed", "Place", "tree"];
 /// FSR's own components, which an application imports in every framework; the build points the specifier at the importing file's framework.
 pub const COMPONENTS_MODULE: &str = "@snapfire/fsr/components";
+/// The template dialect's own API: `createContext`, `use` and the types a template's JSX is checked with.
+pub const TEMPLATE_MODULE: &str = "@snapfire/fsr/template";
 
 /// The module whose `config` and named exports are the deployment's `[public]` values, read anywhere.
 pub const CONFIG_MODULE: &str = "@snapfire/fsr/config";
-const COMPONENTS: [&str; 5] = ["Link", "Picture", "Mount", "Embed", "Place"];
+const COMPONENTS: [&str; 6] = ["Link", "Picture", "Mount", "Embed", "Place", "Island"];
 /// The modules FSR's terminal primitives are imported from: FSR's Ink and the primitives it is written over.
 const TERMINAL_MODULES: [&str; 2] = [crate::terminal::INK_MODULE, "@snapfire/fsr/terminal/core"];
 
@@ -292,54 +294,37 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("react", "useEffectEvent", Construct::Hook("useEffectEvent")),
   ("react", "lazy", Construct::AsyncComponent),
   ("react-dom", "useFormStatus", Construct::Hook("useFormStatus")),
-  ("@snapfire/fsr-client/react", "useStore", Construct::Hook("useStore")),
-  ("@snapfire/fsr-client/react", "useLocale", Construct::Hook("useLocale")),
-  ("@snapfire/fsr-client/react", "useLinkStatus", Construct::Hook("useLinkStatus")),
-  ("@snapfire/fsr-client/react", "useHoisted", Construct::Hook("useHoisted")),
-  ("@snapfire/fsr-authoring/template", "createContext", Construct::CreateContext { react: false }),
-  ("@snapfire/fsr-authoring/template", "use", Construct::Hook("use")),
-  ("@snapfire/fsr-client/vue", "useStore", Construct::Hook("useStore")),
-  ("@snapfire/fsr-client/vue", "useLocale", Construct::Hook("useLocale")),
-  ("@snapfire/fsr-client/vue", "useLinkStatus", Construct::Hook("useLinkStatus")),
-  ("@snapfire/fsr-client/svelte", "useStore", Construct::Hook("useStore")),
-  ("@snapfire/fsr-client/svelte", "useLocale", Construct::Hook("useLocale")),
-  ("@snapfire/fsr-client/svelte", "useLinkStatus", Construct::Hook("useLinkStatus")),
-  ("@snapfire/fsr-client/svelte", "link", Construct::Placement("link")),
-  ("@snapfire/fsr-client/svelte", "picture", Construct::Placement("picture")),
-  ("@snapfire/fsr-client/svelte", "embed", Construct::Placement("embed")),
-  ("@snapfire/fsr-client/svelte", "island", Construct::Placement("island")),
-  ("@snapfire/fsr-client/store", "key", Construct::StoreKey),
-  ("@snapfire/fsr-client", "key", Construct::StoreKey),
-  ("@snapfire/fsr-client", "online", Construct::NamedKey("sf/online")),
-  ("@snapfire/fsr-client", "updateReady", Construct::NamedKey("sf/update-ready")),
-  ("@snapfire/fsr-client/store", "derive", Construct::Derive),
-  ("@snapfire/fsr-client", "derive", Construct::Derive),
-  ("@snapfire/fsr-client/store", "set", Construct::StoreCall("set")),
-  ("@snapfire/fsr-client", "set", Construct::StoreCall("set")),
-  ("@snapfire/fsr-client/store", "clear", Construct::StoreCall("clear")),
-  ("@snapfire/fsr-client", "clear", Construct::StoreCall("clear")),
-  ("@snapfire/fsr-client/store", "transaction", Construct::StoreCall("transaction")),
-  ("@snapfire/fsr-client", "transaction", Construct::StoreCall("transaction")),
-  ("@snapfire/fsr-client/store", "optimistic", Construct::StoreCall("optimistic")),
-  ("@snapfire/fsr-client", "optimistic", Construct::StoreCall("optimistic")),
-  ("@snapfire/fsr-client", "action", Construct::ClientAction),
-  ("@snapfire/fsr", "action", Construct::Server("action")),
-  ("@snapfire/fsr", "fail", Construct::Server("fail")),
-  ("@snapfire/fsr", "redirect", Construct::Server("redirect")),
-  ("@snapfire/fsr", "after", Construct::Server("after")),
-  ("@snapfire/fsr-client/std", "t", Construct::Std("t")),
-  ("@snapfire/fsr-client/std", "native", Construct::Std("native")),
-  ("@snapfire/fsr-client/std", "localeTag", Construct::Std("localeTag")),
-  ("@snapfire/fsr-client/std", "intl", Construct::Std("intl")),
-  ("@snapfire/fsr-client/std", "text", Construct::Std("text")),
-  ("@snapfire/fsr-client/std", "time", Construct::Std("time")),
-  ("@snapfire/fsr-client/std", "crypto", Construct::Std("crypto")),
-  ("@snapfire/fsr-client/std", "id", Construct::Std("id")),
-  ("@snapfire/fsr-client/std", "log", Construct::Std("log")),
-  ("@snapfire/fsr-client/std", "file", Construct::Std("file")),
-  ("@snapfire/fsr-client/std", "path", Construct::Std("path")),
-  ("@snapfire/fsr-client/std", "system", Construct::Std("system")),
-  ("@snapfire/fsr-client/std", "clipboard", Construct::Std("clipboard")),
+  ("@snapfire/fsr/client/react", "useStore", Construct::Hook("useStore")),
+  ("@snapfire/fsr/client/react", "useLocale", Construct::Hook("useLocale")),
+  ("@snapfire/fsr/client/react", "useLinkStatus", Construct::Hook("useLinkStatus")),
+  ("@snapfire/fsr/client/react", "useHoisted", Construct::Hook("useHoisted")),
+  ("@snapfire/fsr/template", "createContext", Construct::CreateContext { react: false }),
+  ("@snapfire/fsr/template", "use", Construct::Hook("use")),
+  ("@snapfire/fsr/client/vue", "useStore", Construct::Hook("useStore")),
+  ("@snapfire/fsr/client/vue", "useLocale", Construct::Hook("useLocale")),
+  ("@snapfire/fsr/client/vue", "useLinkStatus", Construct::Hook("useLinkStatus")),
+  ("@snapfire/fsr/client/svelte", "useStore", Construct::Hook("useStore")),
+  ("@snapfire/fsr/client/svelte", "useLocale", Construct::Hook("useLocale")),
+  ("@snapfire/fsr/client/svelte", "useLinkStatus", Construct::Hook("useLinkStatus")),
+  ("@snapfire/fsr/client/svelte", "link", Construct::Placement("link")),
+  ("@snapfire/fsr/client/svelte", "picture", Construct::Placement("picture")),
+  ("@snapfire/fsr/client/svelte", "embed", Construct::Placement("embed")),
+  ("@snapfire/fsr/client/svelte", "island", Construct::Placement("island")),
+  ("@snapfire/fsr/client/store", "key", Construct::StoreKey),
+  ("@snapfire/fsr/client", "key", Construct::StoreKey),
+  ("@snapfire/fsr/client", "online", Construct::NamedKey("sf/online")),
+  ("@snapfire/fsr/client", "updateReady", Construct::NamedKey("sf/update-ready")),
+  ("@snapfire/fsr/client/store", "derive", Construct::Derive),
+  ("@snapfire/fsr/client", "derive", Construct::Derive),
+  ("@snapfire/fsr/client/store", "set", Construct::StoreCall("set")),
+  ("@snapfire/fsr/client", "set", Construct::StoreCall("set")),
+  ("@snapfire/fsr/client/store", "clear", Construct::StoreCall("clear")),
+  ("@snapfire/fsr/client", "clear", Construct::StoreCall("clear")),
+  ("@snapfire/fsr/client/store", "transaction", Construct::StoreCall("transaction")),
+  ("@snapfire/fsr/client", "transaction", Construct::StoreCall("transaction")),
+  ("@snapfire/fsr/client/store", "optimistic", Construct::StoreCall("optimistic")),
+  ("@snapfire/fsr/client", "optimistic", Construct::StoreCall("optimistic")),
+  ("@snapfire/fsr/client", "action", Construct::ClientAction),
   ("vue", "ref", Construct::Vue("ref")),
   ("vue", "shallowRef", Construct::Vue("shallowRef")),
   ("vue", "computed", Construct::Vue("computed")),

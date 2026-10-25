@@ -1,5 +1,5 @@
-import { action, fail } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { LookForm, SchemeChoice, ThemeChoice } from "@schemas/session";
 
 export const setScheme = action(async ({ input, session }: ActionCtx<SchemeChoice>) => {

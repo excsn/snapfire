@@ -1,7 +1,7 @@
-import { get, optimistic, set } from "@snapfire/fsr-client";
-import { useStore } from "@snapfire/fsr-client/react";
+import { get, optimistic, set } from "@snapfire/fsr/client";
+import { useStore } from "@snapfire/fsr/client/react";
 import { Link } from "@snapfire/fsr/components";
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 import { queueLabel } from "@ext/fleet";
 import { actions, type Agent } from "@generated/client";

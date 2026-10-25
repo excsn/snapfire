@@ -1,4 +1,4 @@
-import { shadowOf } from "@snapfire/fsr-client/elements";
+import { shadowOf } from "@snapfire/fsr/client/elements";
 
 /** A loan length picker inside the shadow root the server writes from `elements/loan-planner.tsx`. Form-associated, so the length inside the shadow root is posted with the reservation. */
 class LoanPlanner extends HTMLElement {

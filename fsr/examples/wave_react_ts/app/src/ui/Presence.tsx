@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
-import { key } from "@snapfire/fsr-client/store";
+import { useStore } from "@snapfire/fsr/client/react";
+import { key } from "@snapfire/fsr/client/store";
 
 import { join } from "@src/ui/wire";
 

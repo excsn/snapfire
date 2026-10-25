@@ -14,7 +14,7 @@ fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
   dir
 }
 
-const TIPS: &str = r#"import { island } from "@snapfire/fsr-client/react";
+const TIPS: &str = r#"import { island } from "@snapfire/fsr/client/react";
 export function TipList({ tips }: { tips: string[] }) {
   return <ul>{tips.map((t) => <li key={t}>{t}</li>)}</ul>;
 }
@@ -65,7 +65,7 @@ fn a_bad_alias_in_the_imported_file_is_refused_at_the_placement() {
   let dir = app(
     "bad",
     &[
-      ("src/ui/Tips.tsx", "import { island } from \"@snapfire/fsr-client/react\";\nexport function TipList() {\n  return <ul />;\n}\nexport const Tips = island(TipList, { when: \"sometimes\" });\n"),
+      ("src/ui/Tips.tsx", "import { island } from \"@snapfire/fsr/client/react\";\nexport function TipList() {\n  return <ul />;\n}\nexport const Tips = island(TipList, { when: \"sometimes\" });\n"),
       ("routes/a/page.tsx", "import { Tips } from \"../../src/ui/Tips\";\nexport default function A() {\n  return <main><Tips /></main>;\n}\n"),
     ],
   );
@@ -76,7 +76,7 @@ fn a_bad_alias_in_the_imported_file_is_refused_at_the_placement() {
 
 const NOTE: &str = "import type { ReactNode } from \"react\";\nexport function Note({ id, children }: { id?: string; children?: ReactNode }) {\n  return <h2 id={id}><a href={`#${id}`}>#</a> {children}</h2>;\n}\n";
 const OPENER: &str = "import { useState } from \"react\";\nimport { Note } from \"./Note\";\nexport function Opener() {\n  const [open, setOpen] = useState(false);\n  return <div><button onClick={() => setOpen(!open)}>open</button>{open ? <Note id=\"later\">Later</Note> : null}</div>;\n}\n";
-const SHOWS: &str = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Note } from \"../src/ui/Note\";\nimport { Opener } from \"../src/ui/Opener\";\nexport default function Page() {\n  return <main><Note id=\"now\">Now</Note><Island><Opener /></Island></main>;\n}\n";
+const SHOWS: &str = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Note } from \"../src/ui/Note\";\nimport { Opener } from \"../src/ui/Opener\";\nexport default function Page() {\n  return <main><Note id=\"now\">Now</Note><Island><Opener /></Island></main>;\n}\n";
 
 /// A chunk the browser renders without the server's markup when a stateful
 /// component opens a branch the server left closed: `Note` is rendered by the

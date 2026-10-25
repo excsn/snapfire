@@ -1,5 +1,5 @@
-import { key, set } from "@snapfire/fsr-client/store";
-import { ctx, expect, fireEvent, load, settle, spyOn, test } from "@snapfire/fsr-client/testing";
+import { key, set } from "@snapfire/fsr/client/store";
+import { ctx, expect, fireEvent, load, settle, spyOn, test } from "@snapfire/fsr/client/testing";
 
 interface Gadget {
   kind: string;

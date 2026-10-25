@@ -13,4 +13,5 @@ export { applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMis
 export { isServerIsland, morph, mountServer } from "./server.js";
 export { desktop } from "./desktop.js";
 export { enablePwa, online, updateReady } from "./pwa.js";
+export * from "./standard.js";
 //# sourceMappingURL=index.js.map

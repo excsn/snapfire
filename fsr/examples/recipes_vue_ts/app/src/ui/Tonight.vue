@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 
 import { plannedCount } from "@src/store";
 

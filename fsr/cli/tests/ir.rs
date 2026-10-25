@@ -13,7 +13,7 @@ fn app(files: &[(&str, &str)]) -> PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr-ir-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
   for (name, source) in files {
     let path = dir.join(name);
@@ -28,7 +28,7 @@ fn a_view_prints_one_row_or_one_section_of_a_source_from_the_written_plan() {
   let dir = app(&[
     ("routes/page.tsx", "export default function Page({ data }: { data: { count: number } }) {\n  return <p>{data.count}</p>;\n}\n"),
     ("routes/page.loader.ts", "export async function load() {\n  return { count: 2 };\n}\nexport const meta = ({ data }: { data: { count: number } }) => ({ title: `${data.count} in the cart` });\n"),
-    ("routes/actions.ts", "import { action } from \"@snapfire/fsr\";\nexport const add = action(async () => ({ ok: true }));\n"),
+    ("routes/actions.ts", "import { action } from \"@snapfire/fsr/host\";\nexport const add = action(async () => ({ ok: true }));\n"),
   ]);
   let missing = ir::view(&dir, "$root", None).unwrap_err().to_string();
   assert!(missing.contains("run `fsr build` first"), "{missing}");

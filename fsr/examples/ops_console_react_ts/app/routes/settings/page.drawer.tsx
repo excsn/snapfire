@@ -1,5 +1,5 @@
 import { Link } from "@snapfire/fsr/components";
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 import type { SettingsProps } from "@generated/client";
 import { SettingsPanel } from "@src/ui/SettingsPanel";

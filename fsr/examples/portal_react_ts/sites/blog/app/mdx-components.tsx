@@ -1,5 +1,5 @@
 import type { MDXComponents } from "mdx/types";
-import type { Children } from "@snapfire/fsr-authoring/template";
+import type { Children } from "@snapfire/fsr/template";
 
 /** A second-level heading with a link to itself. */
 function Heading({ id, className, children }: { id?: string; className?: string; children?: Children }) {

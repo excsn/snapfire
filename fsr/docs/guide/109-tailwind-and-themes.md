@@ -149,7 +149,7 @@ Down a route's layouts the deepest one that sets a theme wins, unless a level ab
 `app/theme.ts` decides for each request, after middleware and before the page. It is lowered like a loader, so it reads the session, the query and the identity. `ctx.theme` is the route's own choice:
 
 ```ts
-import type { Scheme, Theme, ThemeChoice, ThemeCtx } from "@snapfire/fsr";
+import type { Scheme, Theme, ThemeChoice, ThemeCtx } from "@snapfire/fsr/host";
 
 export function theme({ theme, query, session }: ThemeCtx): ThemeChoice {
   const scheme = session.scheme === "light" || session.scheme === "dark" ? (session.scheme as Scheme) : null;

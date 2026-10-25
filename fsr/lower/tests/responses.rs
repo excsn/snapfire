@@ -76,9 +76,9 @@ fn a_redirect_status_that_is_not_one_fails_as_javascript_does() {
 
 #[test]
 fn redirect_in_a_handler_answers_see_other_to_a_path_on_this_origin() {
-  let r = response("import { redirect } from \"@snapfire/fsr\";\nexport function POST() {\n  redirect(\"/done\");\n}\n", "POST");
+  let r = response("import { redirect } from \"@snapfire/fsr/host\";\nexport function POST() {\n  redirect(\"/done\");\n}\n", "POST");
   assert_eq!((r.status, header(&r, "location")), (303, Some("/done")));
-  let refused = answered("import { redirect } from \"@snapfire/fsr\";\nexport function POST() {\n  redirect(\"https://elsewhere.example/\");\n}\n", "POST");
+  let refused = answered("import { redirect } from \"@snapfire/fsr/host\";\nexport function POST() {\n  redirect(\"https://elsewhere.example/\");\n}\n", "POST");
   assert!(refused.as_ref().is_err_and(|(kind, _)| *kind == FailureKind::Invalid), "{refused:?}");
 }
 
@@ -119,7 +119,7 @@ mod middleware {
     (value, asked)
   }
 
-  const MIDDLEWARE: &str = "import type { MiddlewareCtx } from \"@snapfire/fsr\";\n\nexport async function middleware({ request, next }: MiddlewareCtx) {\n  if (request.path === \"/dashboard\") return Response.redirect(\"/\", 307);\n  if (request.path === \"/fleet\") return next(new Request(\"/agents\"));\n  const response = await next();\n  response.headers.set(\"x-ops-console\", \"fsr\");\n  if (response.status === 404) response.headers.set(\"x-missing\", request.path);\n  return response;\n}\n";
+  const MIDDLEWARE: &str = "import type { MiddlewareCtx } from \"@snapfire/fsr/host\";\n\nexport async function middleware({ request, next }: MiddlewareCtx) {\n  if (request.path === \"/dashboard\") return Response.redirect(\"/\", 307);\n  if (request.path === \"/fleet\") return next(new Request(\"/agents\"));\n  const response = await next();\n  response.headers.set(\"x-ops-console\", \"fsr\");\n  if (response.status === 404) response.headers.set(\"x-missing\", request.path);\n  return response;\n}\n";
 
   #[test]
   fn a_redirect_is_a_response_of_its_own_and_runs_no_route() {

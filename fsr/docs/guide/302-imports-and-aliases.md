@@ -30,7 +30,7 @@ An import is read by three things and each resolves an alias to the same file.
 
 **The lowerers** resolve the five prefixes themselves when a page imports a component or a helper and when a test imports a loader. The table they use is the one the build writes, so the three cannot disagree.
 
-A bare specifier that is not an alias is still an external: `react`, `sweetalert2`, `@snapfire/fsr-client`. Those resolve through the import map [chapter 301](301-dependencies-without-npm.md) maintains; snapfirec refuses a build whose import map does not cover one.
+A bare specifier that is not an alias is still an external: `react`, `sweetalert2`, `@snapfire/fsr/client`. Those resolve through the import map [chapter 301](301-dependencies-without-npm.md) maintains; snapfirec refuses a build whose import map does not cover one.
 
 ## Custom aliases
 

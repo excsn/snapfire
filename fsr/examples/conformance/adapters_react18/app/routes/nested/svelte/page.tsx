@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 
 import Basket from "@src/nested/Basket.svelte";
 import Guard from "@src/nested/Guard.svelte";

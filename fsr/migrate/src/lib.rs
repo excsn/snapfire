@@ -13,6 +13,7 @@ mod edit;
 mod head;
 mod ink;
 mod items;
+mod layout;
 mod lift;
 mod map;
 mod meta;
@@ -31,6 +32,7 @@ mod workspace;
 pub use big_text::CFONTS_DIR;
 pub use map::{schema as map_schema, Entry, MigrationMap, MAP_FILE};
 pub use workspace::WORKSPACE_DIR;
+pub use layout::{is_old_layout, relayout};
 
 use std::collections::BTreeMap;
 

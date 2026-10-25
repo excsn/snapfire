@@ -1,4 +1,4 @@
-import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, test } from "@snapfire/fsr/client/testing";
 
 const board = {
   at: "08:25",

@@ -76,7 +76,7 @@ fn the_first_build_maps_the_fsr_packages_it_writes() {
   snapfire_fsr_cli::write(&app, &built).unwrap();
   let text = &built.files.iter().find(|(name, _)| name == "tsconfig.json").expect("written").1;
   let config: serde_json::Value = serde_json::from_str(text).unwrap();
-  for package in ["@snapfire/fsr-client", "@snapfire/fsr-authoring"] {
+  for package in ["@snapfire/fsr/client", "@snapfire/fsr/authoring"] {
     let targets = config["compilerOptions"]["paths"][package].as_array().unwrap_or_else(|| panic!("{package} is mapped: {text}"));
     for target in targets {
       let target = target.as_str().unwrap();

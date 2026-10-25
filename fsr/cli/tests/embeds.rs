@@ -12,7 +12,7 @@ use snapfire_fsr_runtime::SessionCell;
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-const PAGE: &str = r#"import { Embed } from "@snapfire/fsr-authoring/template";
+const PAGE: &str = r#"import { Embed } from "@snapfire/fsr/template";
 
 export default function Page() {
   return (
@@ -75,7 +75,7 @@ fn a_local_still_is_served_from_the_application_and_the_policy_names_no_image_ho
   std::fs::remove_dir_all(&root).unwrap();
 }
 
-const LOADED: &str = r#"import { Embed } from "@snapfire/fsr-authoring/template";
+const LOADED: &str = r#"import { Embed } from "@snapfire/fsr/template";
 
 export default function Page({ video, name, film }: { video: string; name: string; film: string }) {
   return (
@@ -151,17 +151,17 @@ fn verbose_names_each_embed_whose_id_is_computed_under_local_stills() {
 fn an_embed_the_build_cannot_place_is_refused() {
   let island = "import Player from \"@src/ui/Player\";\nexport default function Page() {\n  return <main><Player /></main>;\n}\n";
   for (tag, page, says) in [
-    ("untitled", "import { Embed } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  return <Embed provider=\"youtube\" id=\"x\" />;\n}\n", "needs a `title`"),
-    ("unknown", "import { Embed } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  return <Embed provider=\"tiktok\" id=\"x\" title=\"t\" />;\n}\n", "`youtube` or `vimeo`, not `tiktok`"),
-    ("computed-provider", "import { Embed } from \"@snapfire/fsr-authoring/template\";\nexport default function Page({ p }: { p: string }) {\n  return <Embed provider={p} id=\"x\" title=\"t\" />;\n}\n", "an `<Embed>`'s `provider` is a string written out"),
+    ("untitled", "import { Embed } from \"@snapfire/fsr/template\";\nexport default function Page() {\n  return <Embed provider=\"youtube\" id=\"x\" />;\n}\n", "needs a `title`"),
+    ("unknown", "import { Embed } from \"@snapfire/fsr/template\";\nexport default function Page() {\n  return <Embed provider=\"tiktok\" id=\"x\" title=\"t\" />;\n}\n", "`youtube` or `vimeo`, not `tiktok`"),
+    ("computed-provider", "import { Embed } from \"@snapfire/fsr/template\";\nexport default function Page({ p }: { p: string }) {\n  return <Embed provider={p} id=\"x\" title=\"t\" />;\n}\n", "an `<Embed>`'s `provider` is a string written out"),
     ("island", island, "places an `<Embed>` and hydrates"),
   ] {
     let root = project(tag, page, "");
     let app = root.join("app");
     if tag == "island" {
-      std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+      std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
       std::fs::create_dir_all(app.join("src/ui")).unwrap();
-      std::fs::write(app.join("src/ui/Player.tsx"), "import { useState } from \"react\";\nimport { Embed } from \"@snapfire/fsr-client/react\";\nexport default function Player() {\n  const [n, set] = useState(0);\n  return <div><button onClick={() => set(n + 1)}>{n}</button><Embed provider=\"youtube\" id=\"dQw4w9WgXcQ\" title=\"t\" /></div>;\n}\n").unwrap();
+      std::fs::write(app.join("src/ui/Player.tsx"), "import { useState } from \"react\";\nimport { Embed } from \"@snapfire/fsr/client/react\";\nexport default function Player() {\n  const [n, set] = useState(0);\n  return <div><button onClick={() => set(n + 1)}>{n}</button><Embed provider=\"youtube\" id=\"dQw4w9WgXcQ\" title=\"t\" /></div>;\n}\n").unwrap();
     }
     let error = build(&app, &Options::beside(&app)).err().unwrap_or_else(|| panic!("{tag}: refused")).to_string();
     assert!(error.contains(says), "{tag}: {error}");
@@ -173,7 +173,7 @@ fn an_embed_the_build_cannot_place_is_refused() {
 fn a_check_typechecks_against_the_client_this_binary_carries() {
   let root = project("stale", "export default function Page() {\n  return <main />;\n}\n", "");
   let app = root.join("app");
-  let held = app.join("types/@snapfire/fsr-client/react.d.ts");
+  let held = app.join("types/@snapfire/fsr/client/react.d.ts");
   std::fs::create_dir_all(held.parent().unwrap()).unwrap();
   std::fs::write(&held, "export {};\n").unwrap();
   let off = snapfire_fsr_cli::typecheck::Typecheck::default().enabled(false);
@@ -192,7 +192,7 @@ fn a_bare_application_placing_an_embed_typechecks() {
   let checked = checked.expect("the checker ran");
   let errors: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
   assert!(errors.is_empty(), "{errors:?}");
-  let declared = std::fs::read_to_string(app.join("types/@snapfire/fsr-authoring/template.d.ts")).unwrap();
+  let declared = std::fs::read_to_string(app.join("types/@snapfire/fsr/authoring/template.d.ts")).unwrap();
   assert!(declared.contains("export function Embed(props: EmbedProps): TemplateNode;"), "{declared}");
   std::fs::remove_dir_all(&root).unwrap();
 }

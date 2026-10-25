@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ session, services }: Ctx<"/cart">) {
   const catalog = await services.shopping.listProducts({});

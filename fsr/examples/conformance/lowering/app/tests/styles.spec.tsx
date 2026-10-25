@@ -1,4 +1,4 @@
-import { describe, expect, load, settle, test } from "@snapfire/fsr-client/testing";
+import { describe, expect, load, settle, test } from "@snapfire/fsr/client/testing";
 
 describe("the styles page", () => {
   test("renders each bar's width and opacity as a style attribute", async () => {

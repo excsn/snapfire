@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, screen, test } from "@snapfire/fsr/client/testing";
 
 const alerts = [{ id: 21n, agent_id: 3n, level: "page", text: "builder-us-1 stopped answering" }];
 

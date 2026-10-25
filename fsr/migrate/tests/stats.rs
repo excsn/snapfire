@@ -20,12 +20,12 @@ fn a_stat_method_call_is_read_as_its_field() {
     ("package.json", PACKAGE),
     ("src/cli.tsx", ENTRY),
     ("src/ui.tsx", UI),
-    ("src/files.ts", "import { file } from \"@snapfire/fsr-client/std\";\n\nexport async function kind(path: string) {\n  const s = await file.stat(path);\n  if (s.isDirectory()) return 'dir';\n  return file.stat(path).isFile() ? 'file' : 'other';\n}\n"),
+    ("src/files.ts", "import { file } from \"@snapfire/fsr/host\";\n\nexport async function kind(path: string) {\n  const s = await file.stat(path);\n  if (s.isDirectory()) return 'dir';\n  return file.stat(path).isFile() ? 'file' : 'other';\n}\n"),
   ]);
   let (out, report) = migrate(&t);
   assert_eq!(
     out.text("app/src/files.ts").unwrap(),
-    "import { file } from \"@snapfire/fsr-client/std\";\n\nexport async function kind(path: string) {\n  const s = await file.stat(path);\n  if (s.isDirectory) return 'dir';\n  return file.stat(path).isFile ? 'file' : 'other';\n}\n",
+    "import { file } from \"@snapfire/fsr/host\";\n\nexport async function kind(path: string) {\n  const s = await file.stat(path);\n  if (s.isDirectory) return 'dir';\n  return file.stat(path).isFile ? 'file' : 'other';\n}\n",
     "{:?}",
     report.notes
   );
@@ -34,7 +34,7 @@ fn a_stat_method_call_is_read_as_its_field() {
 
 #[test]
 fn a_stat_result_that_leaves_its_function_is_noted() {
-  let source = "import { file } from \"@snapfire/fsr-client/std\";\n\nexport async function read(path: string, use: (s: unknown) => void) {\n  const s = await file.stat(path);\n  use(s);\n  return s.isFile();\n}\n";
+  let source = "import { file } from \"@snapfire/fsr/host\";\n\nexport async function read(path: string, use: (s: unknown) => void) {\n  const s = await file.stat(path);\n  use(s);\n  return s.isFile();\n}\n";
   let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/files.ts", source)]);
   let (out, report) = migrate(&t);
   assert_eq!(out.text("app/src/files.ts").unwrap(), source.replace("s.isFile()", "s.isFile"));

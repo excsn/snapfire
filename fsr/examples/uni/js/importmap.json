@@ -1,9 +1,9 @@
 {
   "imports": {
-    "@snapfire/fsr-client": "/static/js/fsr/index.js",
-    "@snapfire/fsr-client/react": "/static/js/fsr/react.js",
-    "@snapfire/fsr-client/vue": "/static/js/fsr/vue.js",
-    "@snapfire/fsr-client/htmx": "/static/js/fsr/htmx.js",
+    "@snapfire/fsr/client": "/static/js/fsr/index.js",
+    "@snapfire/fsr/client/react": "/static/js/fsr/react.js",
+    "@snapfire/fsr/client/vue": "/static/js/fsr/vue.js",
+    "@snapfire/fsr/client/htmx": "/static/js/fsr/htmx.js",
     "react": "/static/js/vendor/react/react.bundle.mjs",
     "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs",
     "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",
@@ -27,6 +27,6 @@
     "svelte/reactivity": "/static/js/vendor/svelte/src/reactivity/index-client.js",
     "svelte/store": "/static/js/vendor/svelte/src/store/index-client.js",
     "svelte/transition": "/static/js/vendor/svelte/src/transition/index.js",
-    "@snapfire/fsr-client/svelte": "/static/js/fsr/svelte.js"
+    "@snapfire/fsr/client/svelte": "/static/js/fsr/svelte.js"
   }
 }

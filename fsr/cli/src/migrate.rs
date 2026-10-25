@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_migrate::{migrate, Report, Tree, CFONTS_DIR, MAP_FILE, WORKSPACE_DIR};
+use snapfire_fsr_migrate::{is_old_layout, migrate, relayout as relayout_tree, Report, Tree, CFONTS_DIR, MAP_FILE, WORKSPACE_DIR};
 
 use crate::new::{self, Created, NewOptions};
 use crate::BuildError;
@@ -162,6 +162,60 @@ fn read_cfonts(from: &Path, tree: &mut Tree) -> Result<(), BuildError> {
     if path.extension().is_some_and(|x| x == "json") {
       let bytes = std::fs::read(&path).map_err(|e| BuildError::Io(path.clone(), e))?;
       tree.insert(format!("{CFONTS_DIR}{}", entry.file_name().to_string_lossy()), bytes);
+    }
+  }
+  Ok(())
+}
+
+/// What the build writes or fetches under `app/`, which `relayout` leaves alone.
+const BUILT: &[&str] = &["vendor", "generated", "types", "dist", ".fsr"];
+
+/// One file `relayout` changed: its path under the project and each changed line, as it was and as it is.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Relaid {
+  pub path: String,
+  pub lines: Vec<(String, String)>,
+}
+
+/// Rewrites the FSR project at `project` from `@snapfire/fsr-client`, `@snapfire/fsr-authoring` and `@snapfire/fsr`'s `Ctx` onto `@snapfire/fsr/client`, `/host`, `/terminal`, `/template` and `/components`, in place unless `dry_run`.
+pub fn relayout(project: &Path, dry_run: bool) -> Result<Vec<Relaid>, BuildError> {
+  let mut tree = Tree::new();
+  read_app(&project.join("app"), project, &mut tree)?;
+  if !is_old_layout(&tree) {
+    return Ok(Vec::new());
+  }
+  let (out, _) = relayout_tree(&tree);
+  let mut changed = Vec::new();
+  for (path, bytes) in out.iter() {
+    if tree.get(path) == Some(bytes) {
+      continue;
+    }
+    let (before, after) = (tree.text(path).unwrap_or_default(), std::str::from_utf8(bytes).unwrap_or_default());
+    let old: Vec<&str> = before.lines().collect();
+    let new: Vec<&str> = after.lines().collect();
+    let lines = old.iter().filter(|l| !new.contains(l)).map(|l| ((*l).to_owned(), String::new())).chain(new.iter().filter(|l| !old.contains(l)).map(|l| (String::new(), (*l).to_owned()))).collect();
+    if !dry_run {
+      let target = project.join(path);
+      std::fs::write(&target, bytes).map_err(|e| BuildError::Io(target, e))?;
+    }
+    changed.push(Relaid { path: path.to_owned(), lines });
+  }
+  Ok(changed)
+}
+
+fn read_app(dir: &Path, root: &Path, tree: &mut Tree) -> Result<(), BuildError> {
+  let entries = std::fs::read_dir(dir).map_err(|e| BuildError::Io(dir.to_path_buf(), e))?;
+  for entry in entries.flatten() {
+    let path = entry.path();
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if path.is_dir() {
+      if !BUILT.contains(&name.as_str()) && !SKIPPED.contains(&name.as_str()) {
+        read_app(&path, root, tree)?;
+      }
+    } else if path.is_file() {
+      let bytes = std::fs::read(&path).map_err(|e| BuildError::Io(path.clone(), e))?;
+      tree.insert(path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/"), bytes);
     }
   }
   Ok(())

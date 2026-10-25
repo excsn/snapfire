@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 const STOCK = [
   { sku: "pear", left: 0, kind: "fruit" },

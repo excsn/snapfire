@@ -105,9 +105,11 @@ struct Migrate {
   /// The application to migrate: the directory holding its package.json.
   #[arg(required_unless_present = "schema")]
   from: Option<PathBuf>,
-  /// The directory to create the project in.
-  #[arg(required_unless_present = "schema")]
+  /// The directory to create the project in. Left out, `from` is an FSR project rewritten in place onto `@snapfire/fsr/client` and `@snapfire/fsr/host`.
   project_dir: Option<PathBuf>,
+  /// With an FSR project alone: prints each line the rewrite would change and writes nothing.
+  #[arg(long)]
+  dry_run: bool,
   /// Skips vendoring packages and fetching declarations.
   #[arg(long)]
   no_fetch: bool,
@@ -866,7 +868,31 @@ fn run_migrate(args: Migrate) -> ExitCode {
     println!("{}", serde_json::to_string_pretty(&snapfire_fsr_migrate::map_schema()).expect("a schema serializes"));
     return ExitCode::SUCCESS;
   }
-  let (Some(from), Some(project_dir)) = (args.from.as_deref(), args.project_dir.clone()) else { return ExitCode::FAILURE };
+  let Some(from) = args.from.as_deref() else { return ExitCode::FAILURE };
+  let Some(project_dir) = args.project_dir.clone() else {
+    return match snapfire_fsr_cli::migrate::relayout(from, args.dry_run) {
+      Ok(changed) if changed.is_empty() => {
+        println!("nothing   {} names no old specifier", from.display());
+        ExitCode::SUCCESS
+      }
+      Ok(changed) => {
+        for file in &changed {
+          println!("{}  {}", if args.dry_run { "would" } else { "wrote" }, file.path);
+          for (old, new) in &file.lines {
+            if !old.is_empty() {
+              println!("  - {old}");
+            }
+            if !new.is_empty() {
+              println!("  + {new}");
+            }
+          }
+        }
+        println!("next      fsr check {}", from.join("app").display());
+        ExitCode::SUCCESS
+      }
+      Err(e) => failed(e),
+    };
+  };
   match snapfire_fsr_cli::migrate::run(from, &project_dir, !args.no_fetch, args.map.as_deref()) {
     Ok(migrated) => {
       if let Some(source) = migrated.report.source {

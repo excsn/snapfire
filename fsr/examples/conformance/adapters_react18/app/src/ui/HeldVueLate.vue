@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUpdated } from "vue";
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 
 import { rendered } from "@src/probes";
 import { probeCount } from "@src/store";

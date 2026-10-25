@@ -1,4 +1,4 @@
-import { ctx, describe, expect, fireEvent, load, render, settle, test, waitFor } from "@snapfire/fsr-client/testing";
+import { ctx, describe, expect, fireEvent, load, render, settle, test, waitFor } from "@snapfire/fsr/client/testing";
 
 import CtxAction from "@src/ui/CtxAction";
 

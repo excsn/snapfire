@@ -1,5 +1,5 @@
-import { boot, enableNavigation, registerIsland } from "@snapfire/fsr-client";
-import { reactMounter } from "@snapfire/fsr-client/react";
+import { boot, enableNavigation, registerIsland } from "@snapfire/fsr/client";
+import { reactMounter } from "@snapfire/fsr/client/react";
 
 registerIsland("components/ServerChart.tsx#default", {
   loader: () => import("./ServerChart.js").then((m) => m.default),

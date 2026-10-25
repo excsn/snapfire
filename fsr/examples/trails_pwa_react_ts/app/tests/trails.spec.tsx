@@ -1,5 +1,5 @@
-import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
-import { set, online, updateReady } from "@snapfire/fsr-client";
+import { ctx, expect, load, test } from "@snapfire/fsr/client/testing";
+import { set, online, updateReady } from "@snapfire/fsr/client";
 
 test("the list links every trail and the status says nothing while connected", async () => {
   await load("/", { ctx: ctx() });

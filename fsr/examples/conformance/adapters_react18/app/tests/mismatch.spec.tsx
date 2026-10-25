@@ -1,5 +1,5 @@
-import { encodeValue, scan, type SfValue } from "@snapfire/fsr-client";
-import { expect, settle, spyOn, test } from "@snapfire/fsr-client/testing";
+import { encodeValue, scan, type SfValue } from "@snapfire/fsr/client";
+import { expect, settle, spyOn, test } from "@snapfire/fsr/client/testing";
 
 const placed = (id: string, module: string, html: string): string =>
   `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}" data-sf-ssr>${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encodeValue({ label: id, nest: [] } as SfValue))}</script></sf-s>`;

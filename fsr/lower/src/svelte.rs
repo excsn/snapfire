@@ -25,7 +25,7 @@ use crate::vue::ChildRef;
 use crate::{Lowered, Lowerer, Residue};
 
 /// The client's Svelte adapter, where `useStore` and `useLocale` come from.
-pub const SVELTE_CLIENT: &str = "@snapfire/fsr-client/svelte";
+pub const SVELTE_CLIENT: &str = "@snapfire/fsr/client/svelte";
 
 const BLOCK_OPEN: &str = "<!--[-->";
 const BLOCK_OPEN_ELSE: &str = "<!--[!-->";

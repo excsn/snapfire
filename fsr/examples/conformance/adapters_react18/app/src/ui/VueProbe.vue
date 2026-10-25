@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, onUpdated } from "vue";
-import { useLocale, useStore } from "@snapfire/fsr-client/vue";
+import { useLocale, useStore } from "@snapfire/fsr/client/vue";
 import { Link, Mount, Picture } from "@snapfire/fsr/components";
 
 import { rendered, unmounted } from "@src/probes";

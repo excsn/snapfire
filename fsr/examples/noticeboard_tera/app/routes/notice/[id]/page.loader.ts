@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 import { modified } from "@snapfire/fsr/head";
 import { notices } from "@src/content";
 

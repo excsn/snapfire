@@ -1,4 +1,4 @@
-import { useLinkStatus } from "@snapfire/fsr-client/react";
+import { useLinkStatus } from "@snapfire/fsr/client/react";
 
 /** Shown beside a link's text while the navigation it started is in flight. */
 export default function Opening() {

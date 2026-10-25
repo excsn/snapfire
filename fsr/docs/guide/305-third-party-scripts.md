@@ -35,7 +35,7 @@ A `script` is not in that list and is a row of its own kind, the next section bu
 Anything the page runs is a module the entry imports. A cookie banner, a theme toggle, a keyboard shortcut: each is a file under `src/` that `main.ts` imports for its effect and the build compiles it with everything else.
 
 ```ts
-import { boot, enableNavigation } from "@snapfire/fsr-client";
+import { boot, enableNavigation } from "@snapfire/fsr/client";
 import { registerIslands } from "@generated/islands.js";
 
 import "./consent";
@@ -52,10 +52,10 @@ A library that has to be a `<script src>` because its vendor says so is loaded w
 
 ## Loading a vendor's script
 
-`loadScript` from `@snapfire/fsr-client` adds a classic script once per document and resolves when it has run. A second call for the same URL returns the first call's promise and adds nothing, so a module can ask for its vendor on every navigation:
+`loadScript` from `@snapfire/fsr/client` adds a classic script once per document and resolves when it has run. A second call for the same URL returns the first call's promise and adds nothing, so a module can ask for its vendor on every navigation:
 
 ```ts
-import { loadScript } from "@snapfire/fsr-client";
+import { loadScript } from "@snapfire/fsr/client";
 
 await loadScript("https://maps.example/widget.js", { when: "interaction", attrs: { crossorigin: "anonymous" } });
 window.mapsWidget.draw();
@@ -111,8 +111,8 @@ run({ onConsent, onChange: onConsent, categories: { necessary: { enabled: true, 
 
 ```ts
 // src/analytics.ts
-import { loadScript } from "@snapfire/fsr-client";
-import { get } from "@snapfire/fsr-client/store";
+import { loadScript } from "@snapfire/fsr/client";
+import { get } from "@snapfire/fsr/client/store";
 
 import { analytics } from "./store";
 
@@ -170,7 +170,7 @@ export const store = ({ data }: { data: { analyticsId: string } }) => ({ "site/a
 
 ```ts
 // src/store.ts
-import { key } from "@snapfire/fsr-client/store";
+import { key } from "@snapfire/fsr/client/store";
 
 export const analytics = key<string>("site/analytics");
 ```

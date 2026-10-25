@@ -1,4 +1,4 @@
-//! The store keys `@snapfire/fsr-client` names, read by `useStore` as the key strings they hold.
+//! The store keys `@snapfire/fsr/client` names, read by `useStore` as the key strings they hold.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,7 +31,7 @@ fn html(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
 
 #[test]
 fn use_store_of_the_clients_online_and_update_keys_lowers() {
-  let status = "import { online, updateReady } from \"@snapfire/fsr-client\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\n\nexport default function Status() {\n  const [connected] = useStore(online, true);\n  const [ready] = useStore(updateReady, false);\n  return <p>{connected ? \"online\" : \"offline\"} {ready ? \"ready\" : \"current\"}</p>;\n}\n";
+  let status = "import { online, updateReady } from \"@snapfire/fsr/client\";\nimport { useStore } from \"@snapfire/fsr/client/react\";\n\nexport default function Status() {\n  const [connected] = useStore(online, true);\n  const [ready] = useStore(updateReady, false);\n  return <p>{connected ? \"online\" : \"offline\"} {ready ? \"ready\" : \"current\"}</p>;\n}\n";
   let page = "import Status from \"@src/Status\";\n\nexport default function Page() {\n  return <main><Status /></main>;\n}\n";
   let out = html("keys", &[("src/Status.tsx", status), ("routes/page.tsx", page)]);
   assert!(out.as_ref().is_ok_and(|h| h.contains("online current")), "{out:?}");

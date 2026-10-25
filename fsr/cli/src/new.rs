@@ -182,7 +182,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
       .replace("{{site}}", &site_section)
       .replace("{{csp}}", if site_scope.is_some() { "" } else { CSP_REPORT_ONLY })
       .replace("{{htmx_import}}", if htmx { "import htmx from \"htmx.org\";\n" } else { "" })
-      .replace("{{htmx_bind_import}}", if htmx { "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";\n" } else { "" })
+      .replace("{{htmx_bind_import}}", if htmx { "import { bindHtmx } from \"@snapfire/fsr/client/htmx\";\n" } else { "" })
       .replace("{{htmx_bind}}", if htmx { "bindHtmx(htmx);\n" } else { "" });
     let contents = match (tailwind && path.starts_with("app/styles/"), &site_scope) {
       (true, None) => format!("@import \"tailwindcss\";\n\n{contents}"),

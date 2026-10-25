@@ -31,6 +31,7 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
 7. [Extensions](#7-extensions)
    * [Reach](#reach)
    * [Ambient](#ambient)
+   * [FileRoots](#fileroots)
    * [Table](#table)
    * [Catalogs](#catalogs)
    * [Argument Helpers](#argument-helpers)
@@ -300,9 +301,19 @@ What a call runs under. `#[non_exhaustive]`: build one with `Default` and the se
 * `pub locale: String` - the request's locale in the application's spelling, `fr_FR`; empty when nothing set one.
 * `pub now: i128` - milliseconds since the Unix epoch, the clock `ctx.now` reads.
 * `pub catalogs: Option<Arc<Catalogs>>` - the catalogs the host loaded, which `i18n.t` reads; `None` when the application has none.
+* `pub files: Option<Arc<FileRoots>>` - where `file` resolves in a web host and what it reaches; `None` in a terminal program, where a path is the working directory's.
 * `pub fn bcp47(&self) -> String` - the locale as BCP 47, `fr-FR` for `fr_FR`; `en` when the locale is empty. The browser half converts the same way.
-* `pub fn locale(self, locale: String) -> Self`, `pub fn now(self, now: i128) -> Self`, `pub fn catalogs(self, catalogs: Option<Arc<Catalogs>>) -> Self` - setters for the field of the same name.
+* `pub fn locale(self, locale: String) -> Self`, `pub fn now(self, now: i128) -> Self`, `pub fn catalogs(self, catalogs: Option<Arc<Catalogs>>) -> Self`, `pub fn files(self, files: Option<Arc<FileRoots>>) -> Self` - setters for the field of the same name.
 * Derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Default`.
+
+### FileRoots
+
+The directories a web host's bodies read and write.
+
+* `pub fn new(base: impl Into<PathBuf>, roots: Vec<PathBuf>) -> FileRoots` - `base` the application's directory, `roots` relative to it or absolute.
+* `pub fn roots(&self) -> &[PathBuf]`
+* `pub fn place(&self, what: &str, path: &str) -> Result<PathBuf, Fail>` - `path` against `base`, `.` and `..` resolved, when it lies under a root once links are followed through its longest existing ancestor. A `Forbidden` failure otherwise naming `[files] roots` and the roots by name, never where the host keeps them; with no roots, one saying the host reads and writes no files.
+* Derives `Debug`, `Clone`, `PartialEq` and `Eq`.
 
 ### Table
 

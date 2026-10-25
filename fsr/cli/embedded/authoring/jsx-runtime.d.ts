@@ -1,5 +1,5 @@
 /**
- * What `"jsxImportSource": "@snapfire/fsr-authoring"` points the checker at:
+ * What `"jsxImportSource": "@snapfire/fsr/authoring"` points the checker at:
  * the JSX namespace of the template dialect. The build writes that setting
  * into `tsconfig.json` for an application whose import map has no React, so
  * its templates are typed by this file and by `./template` rather than by

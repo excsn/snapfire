@@ -256,7 +256,7 @@ The build facts are read from `dist/` or, failing that, from whichever directory
 
 Anything written in the file wins over the inference. `[[static]]` entries add roots the conventions do not cover, with `dir` relative to the app directory.
 
-`/static/js/fsr` is not inferred from anything and needs no entry. The host carries `@snapfire/fsr-client` in its own binary and answers the prefix from there, so the client a page loads is the version of the host serving it and an application vendors no copy. The boot report names it on a `client` row rather than a `static` one. `fsr bundle` writes the same modules under `serve/static/js/fsr`, for a deployment whose web server answers `serve/` before a request reaches the host. A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client of its own.
+`/static/js/fsr` is not inferred from anything and needs no entry. The host carries `@snapfire/fsr/client` in its own binary and answers the prefix from there, so the client a page loads is the version of the host serving it and an application vendors no copy. The boot report names it on a `client` row rather than a `static` one. `fsr bundle` writes the same modules under `serve/static/js/fsr`, for a deployment whose web server answers `serve/` before a request reaches the host. A `[[static]]` root on that route takes the prefix back and the host serves nothing there, which is how an application ships a client of its own.
 
 The binary holds two builds of those modules and `document.client` says which one the prefix answers with: `auto`, the default, is the minified build unless `server.dev` is on and `readable` or `minified` say so outright. The minified modules are about a third smaller and import their siblings as `./boot.min.js`, so those names are answered too and the graph a page loads follows its entry point. The `client` row names the build. Building `snapfire_fsr_host` with `default-features = false` drops the readable set, about 215 KiB, so every name answers minified.
 
@@ -422,7 +422,7 @@ tokio::spawn(async move {
 
 The endpoint is `GET /_sf/live?topics=a,b`, framework-owned like the action path and on whether or not `dev` is set. It answers with a `text/event-stream`: a comment frame at once so the browser knows the connection stands, then one `data: {"topic":"a"}` per publish of a topic that stream asked for. A topic nobody asked for is skipped and a publish nobody is listening to costs a send into an empty channel.
 
-The browser half is `live(topics)` from `@snapfire/fsr-client`, which by default calls `refresh()`: the route's loaders run again and the page is patched in place. So the server says only that something changed and what changed is answered the ordinary way, by a loader. A page that wants something else passes `onTopic`.
+The browser half is `live(topics)` from `@snapfire/fsr/client`, which by default calls `refresh()`: the route's loaders run again and the page is patched in place. So the server says only that something changed and what changed is answered the ordinary way, by a loader. A page that wants something else passes `onTopic`.
 
 A topic is a string anyone can ask for, so anything private needs a rule:
 

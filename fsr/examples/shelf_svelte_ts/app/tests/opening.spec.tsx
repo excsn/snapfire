@@ -1,4 +1,4 @@
-import { createEvent, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { createEvent, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 /** Clicks `link` without settling, so the navigation it starts is still in flight when the caller looks. */
 async function startFollowing(link: Element): Promise<void> {

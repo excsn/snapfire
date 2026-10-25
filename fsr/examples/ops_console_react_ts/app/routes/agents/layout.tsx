@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { Slot } from "@snapfire/fsr-client/react";
-import { t } from "@snapfire/fsr-client/std";
+import { Slot } from "@snapfire/fsr/client/react";
+import { t } from "@snapfire/fsr/client";
 
 import type { AgentsLayoutProps } from "@generated/client";
 import { AgentRows } from "@src/ui/AgentRows";

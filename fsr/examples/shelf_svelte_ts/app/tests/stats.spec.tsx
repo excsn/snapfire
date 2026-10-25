@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, settle, test } from "@snapfire/fsr/client/testing";
 
 const titles = () => [...document.querySelectorAll(".ranks tbody th")].map((th) => th.textContent);
 

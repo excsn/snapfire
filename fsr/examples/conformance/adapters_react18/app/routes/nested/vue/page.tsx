@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 
 import Leftovers from "@src/nested/Leftovers.vue";
 import Pantry from "@src/nested/Pantry.vue";

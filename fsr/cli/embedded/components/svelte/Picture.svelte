@@ -1,5 +1,5 @@
 <script>
-  import { picture } from "@snapfire/fsr-client/svelte";
+  import { picture } from "@snapfire/fsr/client/svelte";
   let options = $props();
   let parts = $derived(picture(options));
 </script>

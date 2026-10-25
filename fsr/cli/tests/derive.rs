@@ -12,10 +12,10 @@ use snapfire_fsr_runtime::SessionCell;
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-const STORE: &str = "import { key } from \"@snapfire/fsr-client/store\";\nexport const price = key<number>(\"order/price\");\nexport const qty = key<number>(\"order/qty\");\nexport const total = key<number>(\"order/total\");\n";
-const DERIVE: &str = "import { derive } from \"@snapfire/fsr-client/store\";\nimport { price, qty, total } from \"./store\";\nderive(total, [price, qty], (read) => (read(price) ?? 0) * (read(qty) ?? 0));\n";
-const TOTAL: &str = "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { total } from \"@src/store\";\nexport function Total() {\n  const [t] = useStore(total, 0);\n  return <p className=\"total\">Total: {t}</p>;\n}\n";
-const PAGE: &str = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Total } from \"@src/Total\";\nexport default function Page() {\n  return <main><Island><Total /></Island></main>;\n}\n";
+const STORE: &str = "import { key } from \"@snapfire/fsr/client/store\";\nexport const price = key<number>(\"order/price\");\nexport const qty = key<number>(\"order/qty\");\nexport const total = key<number>(\"order/total\");\n";
+const DERIVE: &str = "import { derive } from \"@snapfire/fsr/client/store\";\nimport { price, qty, total } from \"./store\";\nderive(total, [price, qty], (read) => (read(price) ?? 0) * (read(qty) ?? 0));\n";
+const TOTAL: &str = "import { useStore } from \"@snapfire/fsr/client/react\";\nimport { total } from \"@src/store\";\nexport function Total() {\n  const [t] = useStore(total, 0);\n  return <p className=\"total\">Total: {t}</p>;\n}\n";
+const PAGE: &str = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Total } from \"@src/Total\";\nexport default function Page() {\n  return <main><Island><Total /></Island></main>;\n}\n";
 const LOADER: &str = "export async function load() {\n  return {};\n}\n\nexport const store = () => ({ \"order/price\": 12, \"order/qty\": 5 });\n";
 
 /// A React application whose page places `Total` with `main` as its document entry.
@@ -25,7 +25,7 @@ fn project(tag: &str, main: &str, loader: &str) -> PathBuf {
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
-  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client":"/f","@snapfire/fsr-client/store":"/s","@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client":"/f","@snapfire/fsr/client/store":"/s","@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
   std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1"},"react-dom":{"version":"19.3.1"}}}"#).unwrap();
   std::fs::create_dir_all(app.join("src")).unwrap();
@@ -110,7 +110,7 @@ fn derived_keys_that_feed_each_other_fail_the_build() {
 
 #[test]
 fn a_derive_computes_under_the_request_s_locale() {
-  let main = DERIVE.replace("import { derive } from \"@snapfire/fsr-client/store\";", "import { derive } from \"@snapfire/fsr-client/store\";\nimport { t } from \"@snapfire/fsr-client/std\";").replace("(read) => (read(price) ?? 0) * (read(qty) ?? 0)", "(read) => t(\"order.total\", { count: (read(price) ?? 0) * (read(qty) ?? 0) })");
+  let main = DERIVE.replace("import { derive } from \"@snapfire/fsr/client/store\";", "import { derive } from \"@snapfire/fsr/client/store\";\nimport { t } from \"@snapfire/fsr/client\";").replace("(read) => (read(price) ?? 0) * (read(qty) ?? 0)", "(read) => t(\"order.total\", { count: (read(price) ?? 0) * (read(qty) ?? 0) })");
   let total = TOTAL.replace("useStore(total, 0)", "useStore(total, \"\")");
   let root = project("locale", &main, LOADER);
   let app = root.join("app");

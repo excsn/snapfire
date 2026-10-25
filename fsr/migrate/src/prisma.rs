@@ -314,7 +314,7 @@ fn with_services(path: &str, text: &str) -> String {
     return text.to_owned();
   }
   let ctx = crate::lift::ctx_type(path);
-  let import = if text.contains("import type { Ctx }") { "" } else { "import type { Ctx } from \"@snapfire/fsr\";\n" };
+  let import = if text.contains("import type { Ctx }") { "" } else { "import type { Ctx } from \"@snapfire/fsr/host\";\n" };
   if let Some(at) = text.find("export async function load() {") {
     return format!("{import}{}export async function load({{ services }}: {ctx}) {{{}", &text[..at], &text[at + "export async function load() {".len()..]);
   }
@@ -493,7 +493,7 @@ mod tests {
     let (out, _) = migrate(&input);
     assert_eq!(
       out.text("app/routes/page.loader.ts").unwrap(),
-      "import type { Ctx } from \"@snapfire/fsr\";\n\nexport async function load({ services }: Ctx<\"/\">) {\n  const products = await services.db.productFindManyWithCategory();\n  return { products };\n}\n"
+      "import type { Ctx } from \"@snapfire/fsr/host\";\n\nexport async function load({ services }: Ctx<\"/\">) {\n  const products = await services.db.productFindManyWithCategory();\n  return { products };\n}\n"
     );
     let db = out.text("src/db.rs").unwrap();
     for expected in [
@@ -546,7 +546,7 @@ mod tests {
     let (out, _) = migrate(&input);
     assert_eq!(
       out.text("app/routes/posts/[id]/actions.ts").unwrap(),
-      "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\n\nexport const deletePost = action(async ({ input, services }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n  await services.db.postDeleteById({ id: postId });\n});\n"
+      "import { action } from \"@snapfire/fsr/host\";\nimport type { ActionCtx } from \"@snapfire/fsr/host\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\n\nexport const deletePost = action(async ({ input, services }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n  await services.db.postDeleteById({ id: postId });\n});\n"
     );
     let db = out.text("src/db.rs").unwrap();
     assert!(db.contains("  pub fn post_delete_by_id(&self, id: i32) -> Result<Post, ServiceError> {"), "{db}");

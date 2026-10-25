@@ -1,5 +1,5 @@
-import { set } from "@snapfire/fsr-client";
-import { expect, fireEvent, render, screen, test } from "@snapfire/fsr-client/testing";
+import { set } from "@snapfire/fsr/client";
+import { expect, fireEvent, render, screen, test } from "@snapfire/fsr/client/testing";
 
 import { cartCount } from "@src/store";
 import { Header } from "@src/ui/Header";

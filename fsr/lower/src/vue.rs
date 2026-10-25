@@ -29,7 +29,7 @@ use crate::placements::{self, At, Attr, Placer, Value};
 use crate::{Lowered, Lowerer, Residue};
 
 /// The client's Vue adapter, where `useStore` and `useLocale` come from.
-pub const VUE_CLIENT: &str = "@snapfire/fsr-client/vue";
+pub const VUE_CLIENT: &str = "@snapfire/fsr/client/vue";
 
 /// The template tree as the plugin's `describeNode` writes it.
 #[derive(Debug, Deserialize)]

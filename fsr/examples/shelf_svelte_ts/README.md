@@ -2,7 +2,7 @@
 
 A reading shelf: six books, a page per book, how far you have read each one kept in the session and a masthead that counts the ones you have finished.
 
-The pages are TypeScript templates the build lowers and the host renders, as in every other example. Every interactive piece is a Svelte component: a `.svelte` file under `src/ui/`, compiled by `snapfirec-svelte` out of process, placed by a page as an island and mounted by Svelte in the browser. There is no React anywhere in the application. The templates import `Island`, `Link` and `Children` from `@snapfire/fsr-authoring/template`, so the typecheck reads their JSX through the dialect's own declarations.
+The pages are TypeScript templates the build lowers and the host renders, as in every other example. Every interactive piece is a Svelte component: a `.svelte` file under `src/ui/`, compiled by `snapfirec-svelte` out of process, placed by a page as an island and mounted by Svelte in the browser. There is no React anywhere in the application. The templates import `Island`, `Link` and `Children` from `@snapfire/fsr/template`, so the typecheck reads their JSX through the dialect's own declarations.
 
 ## Running it
 
@@ -41,7 +41,7 @@ Svelte itself is vendored as published, `fsr add --published app svelte@5.57.2`,
 
 `Progress` holds the page count in `$state`, derives the percentage with `$derived` and saves through `actions.book.$id.progress`. Finishing a book or starting it again moves `shelf/done` through `optimistic`, so the masthead changes before the action answers and goes back if it fails.
 
-`Tally` is a Svelte 4 component: `export let`, a `$:` statement and a store read as `$count`. `useStore` from `@snapfire/fsr-client/svelte` returns a Svelte store over the FSR key, so a legacy component subscribes the way it always has.
+`Tally` is a Svelte 4 component: `export let`, a `$:` statement and a store read as `$count`. `useStore` from `@snapfire/fsr/client/svelte` returns a Svelte store over the FSR key, so a legacy component subscribes the way it always has.
 
 `Recent` reads `recent.svelte.ts`, which exports a `$state` object and a `visit` function. `Progress` calls `visit` when it mounts. Both islands import the same module, so they share the one object and the list updates as you open books. The list is browser state and starts empty on a reload.
 

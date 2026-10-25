@@ -32,7 +32,7 @@ fn app_of(root: &Path, example: &Path, scratch: &Path) -> PathBuf {
   std::fs::copy(root.join("template_svelte/app.toml"), dir.join("config/app.toml")).unwrap();
   copy(example, &dir.join("app/src"));
   std::fs::create_dir_all(dir.join("app/routes")).unwrap();
-  std::fs::write(dir.join("app/routes/page.tsx"), "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport App from \"@src/App.svelte\";\n\nexport default function Page() {\n  return (\n    <Island>\n      <App />\n    </Island>\n  );\n}\n").unwrap();
+  std::fs::write(dir.join("app/routes/page.tsx"), "import { Island } from \"@snapfire/fsr/template\";\nimport App from \"@src/App.svelte\";\n\nexport default function Page() {\n  return (\n    <Island>\n      <App />\n    </Island>\n  );\n}\n").unwrap();
   dir.join("app")
 }
 

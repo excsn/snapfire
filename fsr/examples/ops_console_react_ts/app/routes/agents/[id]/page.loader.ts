@@ -1,5 +1,5 @@
-import type { Ctx } from "@snapfire/fsr";
-import { t } from "@snapfire/fsr-client/std";
+import type { Ctx } from "@snapfire/fsr/host";
+import { t } from "@snapfire/fsr/host";
 
 export async function load({ params, services, session }: Ctx<"/agents/{id}">) {
   const id = BigInt(params.id);

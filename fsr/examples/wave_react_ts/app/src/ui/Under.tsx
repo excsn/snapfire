@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, KeyboardEvent, MouseEvent } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
-import { key } from "@snapfire/fsr-client/store";
+import { useStore } from "@snapfire/fsr/client/react";
+import { key } from "@snapfire/fsr/client/store";
 
 import { actions } from "@generated/client";
 import { follow, reveal } from "@src/ui/follow";

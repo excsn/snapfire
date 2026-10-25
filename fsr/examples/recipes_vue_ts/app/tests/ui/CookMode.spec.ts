@@ -1,4 +1,4 @@
-import { expect, fireEvent, render, settle, test } from "@snapfire/fsr-client/testing";
+import { expect, fireEvent, render, settle, test } from "@snapfire/fsr/client/testing";
 
 import CookMode from "@src/ui/CookMode.vue";
 

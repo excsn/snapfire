@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ query, session, services }: Ctx) {
   const recipes = await services.kitchen.listRecipes();

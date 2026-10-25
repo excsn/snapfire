@@ -1,6 +1,6 @@
-import { optimistic } from "@snapfire/fsr-client";
+import { optimistic } from "@snapfire/fsr/client";
 import { Link } from "@snapfire/fsr/components";
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 import { actions, type LayoutAlertsProps } from "@generated/client";
 import { openAlerts } from "@src/store";

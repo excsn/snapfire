@@ -47,7 +47,7 @@ That needs `snapfirec-vue` and `snapfirec-svelte` on `PATH`, `cargo install snap
 export const watchedKey = key<string>("uni/watched");
 ```
 
-React reads it with `useStore` from `@snapfire/fsr-client/react`, Vue with `useStore` from `@snapfire/fsr-client/vue`. Both are the same store under two adapters, so clicking a row in the Vue table moves the symbol in the React masthead without either knowing the other exists. Each island is also rendered on the server with that symbol as a prop, so the first paint agrees with the store before any script runs.
+React reads it with `useStore` from `@snapfire/fsr/client/react`, Vue with `useStore` from `@snapfire/fsr/client/vue`. Both are the same store under two adapters, so clicking a row in the Vue table moves the symbol in the React masthead without either knowing the other exists. Each island is also rendered on the server with that symbol as a prop, so the first paint agrees with the store before any script runs.
 
 ## Four mounting models, one page
 

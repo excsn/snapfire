@@ -1,5 +1,5 @@
-import { action, fail } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { ReleaseTool, ReserveTool } from "@schemas/shed";
 
 export const reserve = action(async ({ input, session, services }: ActionCtx<ReserveTool>) => {

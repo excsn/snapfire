@@ -84,7 +84,7 @@ impl Pass for Links {
       }
       if let Some(status) = &status {
         let clause = if status == "useLinkStatus" { "{ useLinkStatus }".to_owned() } else { format!("{{ useLinkStatus as {status} }}") };
-        lines.push(format!("import {clause} from \"@snapfire/fsr-client/react\";"));
+        lines.push(format!("import {clause} from \"@snapfire/fsr/client/react\";"));
       }
       if lines.is_empty() {
         continue;
@@ -112,7 +112,7 @@ impl Pass for Links {
             "passHref" => edits.replace(range, ""),
             "replace" | "scroll" | "shallow" | "locale" => {
               edits.replace(range, "");
-              report.note(&path, line, format!("`{}` was dropped: FSR's `Link` has no such prop; `navigate(href, true, {{ replace, scroll }})` from `@snapfire/fsr-client` takes `replace` and `scroll`", name.sym));
+              report.note(&path, line, format!("`{}` was dropped: FSR's `Link` has no such prop; `navigate(href, true, {{ replace, scroll }})` from `@snapfire/fsr/client` takes `replace` and `scroll`", name.sym));
             }
             "legacyBehavior" => {
               edits.replace(range, "");
@@ -136,7 +136,7 @@ impl Pass for Links {
 
 /// The boundary `catchError` stands for, written once into the application.
 const CATCH_ERROR: &str = r#"import { Component, type ReactNode } from "react";
-import { refresh } from "@snapfire/fsr-client";
+import { refresh } from "@snapfire/fsr/client";
 
 /** What a fallback is given beside its props: what was thrown, `retry` to fetch the page again and render the children anew, `reset` to render them again as they are. */
 export interface ErrorInfo {
@@ -689,9 +689,9 @@ mod tests {
     ]);
     let (out, _) = migrate(&input);
     let page = out.text("app/routes/page.tsx").unwrap();
-    assert!(page.starts_with("import { Link } from \"@snapfire/fsr/components\";\nimport { useLinkStatus } from \"@snapfire/fsr-client/react\";\n\nfunction Hint() {"), "{page}");
+    assert!(page.starts_with("import { Link } from \"@snapfire/fsr/components\";\nimport { useLinkStatus } from \"@snapfire/fsr/client/react\";\n\nfunction Hint() {"), "{page}");
     let b = out.text("app/routes/b/page.tsx").unwrap();
-    assert!(b.starts_with("import { useLinkStatus as linkStatus } from \"@snapfire/fsr-client/react\";\n"), "{b}");
+    assert!(b.starts_with("import { useLinkStatus as linkStatus } from \"@snapfire/fsr/client/react\";\n"), "{b}");
   }
 
   #[test]

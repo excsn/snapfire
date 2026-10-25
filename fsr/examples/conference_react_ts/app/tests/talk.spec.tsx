@@ -1,4 +1,4 @@
-import { ctx, expect, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 const talks = [
   { id: "1", title: "A plan is not a program", track: "Runtime", room: "Hall B", starts: "09:30", ends: "10:10", speaker: "Ada Okonjo", level: "intro", abstract: "What you get back when the thing your server reads is data." },

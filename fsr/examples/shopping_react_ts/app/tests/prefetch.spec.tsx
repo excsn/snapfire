@@ -1,5 +1,5 @@
-import { enableNavigation } from "@snapfire/fsr-client";
-import { ctx, expect, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { enableNavigation } from "@snapfire/fsr/client";
+import { ctx, expect, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "A spool.", tags: ["pla"], attributes: [] };
 

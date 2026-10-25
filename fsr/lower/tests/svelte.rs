@@ -26,9 +26,9 @@ fn runtime() -> PathBuf {
 /// What the components a fixture imports by bare specifier stand for in the oracle.
 fn stubs() -> BTreeMap<String, String> {
   BTreeMap::from([
-    ("@snapfire/fsr-client/svelte".to_owned(), "import { getContext, setContext } from 'svelte';\nexport function held(get) { const listed = getContext('sf-pieces'); return () => get() ?? listed; }\nexport function opaque() { return () => () => {}; }\nexport function nested(get) { const piece = get(); setContext('sf-pieces', piece.children); const component = piece.ssr ? getContext('sf-components')[piece.moduleId] : null; return { component, props: piece.props, attach: () => {} }; }\nexport function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function useLinkStatus() { return { subscribe(run) { run({ pending: false }); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
-    ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\nexport function key(name) { return name; }\n".to_owned()),
-    ("@snapfire/fsr-client/store".to_owned(), "export function key(name) { return name; }\n".to_owned()),
+    ("@snapfire/fsr/client/svelte".to_owned(), "import { getContext, setContext } from 'svelte';\nexport function held(get) { const listed = getContext('sf-pieces'); return () => get() ?? listed; }\nexport function opaque() { return () => () => {}; }\nexport function nested(get) { const piece = get(); setContext('sf-pieces', piece.children); const component = piece.ssr ? getContext('sf-components')[piece.moduleId] : null; return { component, props: piece.props, attach: () => {} }; }\nexport function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function useLinkStatus() { return { subscribe(run) { run({ pending: false }); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
+    ("@snapfire/fsr/client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\nexport function key(name) { return name; }\n".to_owned()),
+    ("@snapfire/fsr/client/store".to_owned(), "export function key(name) { return name; }\n".to_owned()),
   ])
 }
 
@@ -230,7 +230,7 @@ fn element_attributes_follow_svelte_server() {
 
 #[test]
 fn picture_answers_what_the_client_answers() {
-  let source = "<script>import { picture } from '@snapfire/fsr-client/svelte'; let { p, n } = $props(); const image = picture({ src: '/pictures/probe.png', alt: 'probe', width: 4, height: 4 }); const hero = picture({ src: p, alt: n, priority: true, loading: 'auto', 'data-x': 1 });</script>\
+  let source = "<script>import { picture } from '@snapfire/fsr/client/svelte'; let { p, n } = $props(); const image = picture({ src: '/pictures/probe.png', alt: 'probe', width: 4, height: 4 }); const hero = picture({ src: p, alt: n, priority: true, loading: 'auto', 'data-x': 1 });</script>\
     {#if image.sources}<picture>{#each image.sources as source, i (i)}<source {...source} />{/each}<img {...image.img} /></picture>{:else}<img {...image.img} />{/if}\
     <img {...hero.img}>{#if n}{@const low = picture({ src: n, alt: '' })}<img {...low.img}>{/if}";
   check("picture", source, &props(&[("p", s("/a.png")), ("n", s("b"))]));
@@ -684,7 +684,7 @@ fn fsr_components(compiler: &Compiler, modules: &mut BTreeMap<String, String>, d
   if modules.contains_key(&index) {
     return;
   }
-  let client = modules.get_mut("@snapfire/fsr-client/svelte").unwrap();
+  let client = modules.get_mut("@snapfire/fsr/client/svelte").unwrap();
   if !client.contains("export function mount(") {
     *client = client.replace("export function link(options) { return { href: options.href }; }\n", "") + COMPONENT_PARTS;
   }
@@ -1091,7 +1091,7 @@ fn fsr_components_in_svelte_write_what_their_svelte_components_write() {
   let app = app("fsr-components", &[("src/P.svelte", parent)]);
   let mut set = ComponentSet::new(&app);
   let mut modules = stubs();
-  let client = modules.get_mut("@snapfire/fsr-client/svelte").unwrap();
+  let client = modules.get_mut("@snapfire/fsr/client/svelte").unwrap();
   *client = client.replace("export function link(options) { return { href: options.href }; }\n", "") + COMPONENT_PARTS;
   let mut index = String::new();
   COMPILER.with(|compiler| {
@@ -1127,5 +1127,5 @@ fn fsr_components_in_svelte_write_what_their_svelte_components_write() {
 
 #[test]
 fn use_link_status_renders_no_link_pending_as_svelte_does() {
-  check("link_status", "<script>import { useLinkStatus } from '@snapfire/fsr-client/svelte'; const status = useLinkStatus();</script><span class={$status.pending ? 'opening opening-on' : 'opening'}>{$status.pending ? 'opening' : ''}</span>", &props(&[]));
+  check("link_status", "<script>import { useLinkStatus } from '@snapfire/fsr/client/svelte'; const status = useLinkStatus();</script><span class={$status.pending ? 'opening opening-on' : 'opening'}>{$status.pending ? 'opening' : ''}</span>", &props(&[]));
 }

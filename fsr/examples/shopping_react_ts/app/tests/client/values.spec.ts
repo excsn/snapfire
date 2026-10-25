@@ -1,5 +1,5 @@
-import { decodeValue, encodeValue, f64, ref, variant } from "@snapfire/fsr-client";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { decodeValue, encodeValue, f64, ref, variant } from "@snapfire/fsr/client";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 test("integers are tagged on the way out and come back as numbers while they fit", () => {
   expect(encodeValue(12n)).toEqual({ $: "i", v: "12" });

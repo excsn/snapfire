@@ -1,4 +1,5 @@
-import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
+import { type Children } from "@snapfire/fsr/template";
 import { Link } from "@snapfire/fsr/components";
 
 import PlaceProbe from "@src/ui/PlaceProbe.vue";

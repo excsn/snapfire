@@ -1,5 +1,5 @@
-import { AuthFailure, signIn } from "@snapfire/fsr-client";
-import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
+import { AuthFailure, signIn } from "@snapfire/fsr/client";
+import { ctx, expect, load, test } from "@snapfire/fsr/client/testing";
 
 const teams = [{ name: "Platform", site: "billing", lead: "alice" }];
 

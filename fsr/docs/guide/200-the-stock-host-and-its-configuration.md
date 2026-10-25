@@ -48,7 +48,7 @@ inferred  document.entry from dist/.snapfire-build.json
 
 The `styles/`, `icons/` and `fonts/` directories are conventions a `[dirs]` table moves, with the routes staying what they are; what `fsr build` derived from the images and the fonts reaches the head through `generated/assets.json`, which the host reads at boot when the file is there. Chapter 108 covers both.
 
-One prefix is not inferred and cannot be written away. `/static/js/fsr` is answered out of the binary, because `@snapfire/fsr-client` is carried by `snapfire_fsr_host` itself, so the client a page loads is the version of the host serving it and there is no copy in the project to fall behind. The boot report gives it a `client` row of its own rather than a `static` one:
+One prefix is not inferred and cannot be written away. `/static/js/fsr` is answered out of the binary, because `@snapfire/fsr/client` is carried by `snapfire_fsr_host` itself, so the client a page loads is the version of the host serving it and there is no copy in the project to fall behind. The boot report gives it a `client` row of its own rather than a `static` one:
 
 ```
 client    /static/js/fsr         23 modules, minified, 156 KiB from the binary
@@ -117,6 +117,25 @@ offline = "/offline"
 ```
 
 The worker precaches the build's modules under their hashed names and keeps every page a visitor opened that was not served `private`. With the network gone a kept page answers from the cache and any other page shows `offline`. A deploy installs the new build beside the old one: open pages keep their modules, the `updateReady` store key turns true and the next full load is the new build. An island shows the connection by reading the `online` key. `fsr/examples/trails_pwa_react_ts` is the whole of it in an application.
+## Files a body reads
+
+A loader, an action, a route handler or middleware reads and writes files through `file` from `@snapfire/fsr/host`. A relative path is the application's, `content/a.md` under `app/`. The host reaches only the directories `[files] roots` names:
+
+```toml
+[files]
+roots = ["content", "data"]
+```
+
+```ts
+import { file } from "@snapfire/fsr/host";
+
+export async function load() {
+  return { notes: file.read("content/notes.md") };
+}
+```
+
+A path outside every root is refused with the key to change, a link inside a root that points out of it included. With no `[files]` section the host reads and writes no files. A loader that reads a file is read per request, so its route is not prerendered. A terminal program has no roots and resolves a path against the directory it runs in.
+
 ## The host this deployment answers on
 
 A body reads `ctx.host`. It is null until `[server]` lists the hosts the deployment answers on:

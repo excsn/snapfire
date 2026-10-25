@@ -624,7 +624,7 @@ fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, 
   }
   let fields: Vec<String> = values.iter().map(|(name, value)| if name == value { name.clone() } else { format!("{name}: {value}") }).collect();
   body.push_str(&format!("  return {{ {} }};\n", fields.join(", ")));
-  let mut out = String::from("import type { Ctx } from \"@snapfire/fsr\";\n");
+  let mut out = String::from("import type { Ctx } from \"@snapfire/fsr/host\";\n");
   for line in imports {
     out.push_str(&line);
     out.push('\n');

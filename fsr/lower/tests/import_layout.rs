@@ -126,10 +126,9 @@ fn terminal_page(tag: &str, imports: &str) -> String {
 }
 
 #[test]
-fn a_terminal_page_spawns_through_the_terminal_root_and_reads_the_host_side_as_it_did_the_old_module() {
-  let old = terminal_page("terminal_old", "import { system, intl, time } from \"@snapfire/fsr-client/std\";");
-  let new = terminal_page("terminal_new", "import { system } from \"@snapfire/fsr/terminal\";\nimport { intl, time } from \"@snapfire/fsr/host\";");
-  assert_eq!(new, old);
+fn a_terminal_page_spawns_through_the_terminal_root_and_reads_the_host_side() {
+  let lowered = terminal_page("terminal", "import { system } from \"@snapfire/fsr/terminal\";\nimport { intl, time } from \"@snapfire/fsr/host\";");
+  assert!(lowered.contains("action: \"$spawn\"") && lowered.contains("name: \"localTime\""), "{lowered}");
 }
 
 
@@ -151,4 +150,20 @@ fn pure_path_members_are_on_the_client_side_and_the_working_directory_ones_on_th
   assert_eq!(body_exts(&body), vec!["path.resolve/1", "intl.localTime/1", "time.now/0", "time.localOffset/1", "time.now/0", "text.frontMatter/1"]);
   let why = residue(&mut set, "routes/b/page.tsx#default");
   assert!(why.contains("`path.resolve` is not in `@snapfire/fsr/client`"), "{why}");
+}
+
+/// DEFECTS 1.147: the refusal of Node's `fs` names what a web body can use. Using it lowers.
+#[test]
+fn the_node_fs_refusal_names_the_host_file_module_a_web_action_can_use() {
+  let dir = app(
+    "node_fs",
+    &[
+      ("routes/actions.ts", "import { readFile } from \"node:fs/promises\";\nimport { action } from \"@snapfire/fsr/host\";\nexport const note = action(async () => {\n  return { text: await readFile(\"content/a.md\", \"utf8\") };\n});\n"),
+      ("routes/fixed/actions.ts", "import { action, file } from \"@snapfire/fsr/host\";\nexport const note = action(async () => {\n  return { text: file.read(\"content/a.md\") };\n});\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  let why = set.lower_actions("routes/actions.ts").err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(why.contains("`file`") && why.contains("@snapfire/fsr/host") && why.contains("[files] roots"), "{why}");
+  set.lower_actions("routes/fixed/actions.ts").unwrap_or_else(|e| panic!("{e}"));
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
-import { key } from "@snapfire/fsr-client/store";
+import { useStore } from "@snapfire/fsr/client/react";
+import { key } from "@snapfire/fsr/client/store";
 
 import { actions } from "@generated/client";
 import { hold, release, rewriting } from "@src/ui/wire";

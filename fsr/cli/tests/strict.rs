@@ -8,7 +8,7 @@ use snapfire_fsr_cli::{build, BuildError, Options};
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-const PAGE: &str = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Clock } from \"../src/Clock\";\nexport default function Page() {\n  return <main><p>page</p><Island><Clock /></Island></main>;\n}\n";
+const PAGE: &str = "import { Island } from \"@snapfire/fsr/client/react\";\nimport { Clock } from \"../src/Clock\";\nexport default function Page() {\n  return <main><p>page</p><Island><Clock /></Island></main>;\n}\n";
 const CLOCK: &str = "import { useTransition } from \"react\";\nexport function Clock() {\n  const transition = useTransition();\n  return <time>{transition[0] ? \"…\" : \"now\"}</time>;\n}\n";
 
 /// A React scaffold whose page places a component that does not lower, with `toml` appended to its configuration.
@@ -18,7 +18,7 @@ fn project(tag: &str, toml: &str) -> PathBuf {
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
-  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
   std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1"},"react-dom":{"version":"19.3.1"}}}"#).unwrap();
   std::fs::write(app.join("routes/page.tsx"), PAGE).unwrap();

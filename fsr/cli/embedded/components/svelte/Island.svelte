@@ -1,6 +1,6 @@
 <script>
   import { tree } from "./Pieces.svelte";
-  import { nested } from "@snapfire/fsr-client/svelte";
+  import { nested } from "@snapfire/fsr/client/svelte";
   let { piece } = $props();
   const island = nested(() => piece);
 </script>

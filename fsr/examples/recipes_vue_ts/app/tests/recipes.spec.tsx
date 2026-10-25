@@ -1,4 +1,4 @@
-import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr/client/testing";
 
 const recipes = [
   { id: "1", title: "Leek and potato soup", course: "Starter", cook: "Ama", minutes: 35, serves: 4, ingredients: [], method: "" },

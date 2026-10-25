@@ -1,4 +1,4 @@
-import { fail, type Ctx } from "@snapfire/fsr";
+import { fail, type Ctx } from "@snapfire/fsr/host";
 
 const ORDER = {
   id: "A-17",

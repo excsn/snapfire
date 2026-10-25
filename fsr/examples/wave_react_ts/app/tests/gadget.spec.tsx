@@ -1,5 +1,5 @@
-import { morph, registerIsland, scan } from "@snapfire/fsr-client";
-import { expect, settle, test } from "@snapfire/fsr-client/testing";
+import { morph, registerIsland, scan } from "@snapfire/fsr/client";
+import { expect, settle, test } from "@snapfire/fsr/client/testing";
 
 /// A gadget is a server island, so every click patches its markup in with `morph`. An island placed inside it is not the gadget's to redraw: its marker keeps the id and the marks the document gave it, its children stay as the browser drew them and only its props follow the gadget's render.
 test("a gadget's step leaves an island inside it alone and hands it the new props", async () => {

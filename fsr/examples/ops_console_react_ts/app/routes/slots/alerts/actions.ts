@@ -1,5 +1,5 @@
-import { action } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { AckAlert } from "@schemas/fleet";
 
 export const ackAlert = action(async ({ input, services }: ActionCtx<AckAlert>) => {

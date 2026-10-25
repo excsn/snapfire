@@ -12,7 +12,7 @@ export interface CurrencyOptions extends NumberOptions {
 }
 export type DateStyle = "short" | "medium" | "long" | "full";
 export type TextWidth = "long" | "short" | "narrow";
-/** A date at a `style`, or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
+/** A date at a `style` or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
 export interface DateOptions {
 	style?: DateStyle;
 	weekday?: TextWidth;
@@ -32,7 +32,7 @@ export declare const intl: {
 	number(n: number | bigint, options?: NumberOptions): string;
 	/** `n` as an amount of the ISO currency `code`, the code spelled out unless `options.display` says the symbol, the currency's own fraction digits unless the options give them. */
 	currency(n: number | bigint, code: string, options?: CurrencyOptions): string;
-	/** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style`, `medium` by default, or at the parts the options name. */
+	/** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style` (`medium` by default) or at the parts the options name. */
 	date(when: number | string, style?: DateStyle | DateOptions): string;
 	/** The cardinal plural category of `n`: `zero`, `one`, `two`, `few`, `many` or `other`. */
 	plural(n: number | bigint): string;
@@ -159,7 +159,7 @@ export interface Spawned {
 	on(event: "error", f: (error: Error) => void): void;
 	off(event: "exit" | "close" | "error", f: (...args: never[]) => void): void;
 }
-/** A value scoped to a call: `run(value, fn)` holds `value` while `fn` runs, `get()` reads it, `undefined` outside any `run`, and `set(value)` holds it from then on. A terminal page keeps it across the awaits inside `fn`. */
+/** A value scoped to a call: `run(value, fn)` holds `value` while `fn` runs, `get()` reads it (`undefined` outside any `run`) and `set(value)` holds it from then on. A terminal page keeps it across the awaits inside `fn`. */
 export declare class Scope<T> {
 	#private;
 	run<R>(value: T, fn: (...args: never[]) => R, ...args: never[]): R;
@@ -182,11 +182,17 @@ export declare const time: {
 };
 /** A structured line at each level, `fields` whatever goes with the message; on the server it is a `tracing` event under `fsr::app`, here a console line. `fatal` is `error` in the console. */
 export declare const log: {
+	/** `message` at trace level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
 	trace(message: string, fields?: unknown): null;
+	/** `message` at debug level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
 	debug(message: string, fields?: unknown): null;
+	/** `message` at info level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
 	info(message: string, fields?: unknown): null;
+	/** `message` at warn level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
 	warn(message: string, fields?: unknown): null;
+	/** `message` at error level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
 	error(message: string, fields?: unknown): null;
+	/** `message` at fatal level with `fields` beside it: the server traces it at error under `fsr::app`, the browser writes it to the console. */
 	fatal(message: string, fields?: unknown): null;
 };
 export declare const crypto: {
@@ -194,7 +200,7 @@ export declare const crypto: {
 	hash(s: string): string;
 	/** Whether `hash` is the hash of `s`. */
 	verify(s: string, hash: string): boolean;
-	/** `bytes` random bytes as `hex`, the default, or `base64`. Server only on a render path. */
+	/** `bytes` random bytes as `hex` (the default) or `base64`. Server only on a render path. */
 	random(bytes: number, encoding?: "hex" | "base64"): string;
 	/** A version 4 UUID. Server only on a render path. */
 	uuid(): string;

@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 import { books } from "@src/books";
 
 export async function load({ session, query }: Ctx<"/">) {

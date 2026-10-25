@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { navigate } from "@snapfire/fsr-client";
+import { navigate } from "@snapfire/fsr/client";
 
 import { follow, toEnd } from "@src/ui/follow";
 

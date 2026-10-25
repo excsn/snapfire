@@ -1,5 +1,5 @@
-import { action, fail } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action, fail } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { PlanRecipe } from "@schemas/kitchen";
 
 export const plan = action(async ({ input, session, services }: ActionCtx<PlanRecipe>) => {

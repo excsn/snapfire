@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { system } from "@snapfire/fsr-client/std";
+import { system } from "@snapfire/fsr/terminal";
 import { stripAnsi } from "@snapfire/fsr/terminal";
 import { Box, Text, useAnimation, useApp, useBoxMetrics, useInput, useWindowSize } from "@snapfire/fsr/terminal/ink";
 

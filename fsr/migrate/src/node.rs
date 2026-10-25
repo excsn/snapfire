@@ -10,7 +10,7 @@ use swc_core::ecma::visit::{Visit, VisitWith};
 
 use crate::edit::Edits;
 use crate::items::line_range;
-use crate::packages::STD;
+use crate::packages::std_home;
 use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
@@ -123,7 +123,11 @@ impl Pass for Node {
           specifiers.push(member.clone());
         }
       }
-      let import = (!specifiers.is_empty()).then(|| format!("import {{ {} }} from \"{STD}\";", specifiers.join(", ")));
+      let mut by_home: std::collections::BTreeMap<&str, Vec<String>> = std::collections::BTreeMap::new();
+      for (member, specifier) in members.iter().zip(&specifiers) {
+        by_home.entry(std_home(member)).or_default().push(specifier.clone());
+      }
+      let import = (!specifiers.is_empty()).then(|| by_home.iter().map(|(home, names)| format!("import {{ {} }} from \"{home}\";", names.join(", "))).collect::<Vec<_>>().join("\n"));
       let mut written = edits.apply(&text);
       for (member, alias) in &renamed {
         written = written.replace(&format!("\u{0}{member}"), alias);

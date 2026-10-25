@@ -43,12 +43,20 @@ const LINKEDOM: &str = "0.18.12";
 /// application vendors them, so each framework's own messages arrive in words,
 /// one group per framework.
 const DEV_BUILDS: &[&[&str]] = &[&["react", "react/jsx-runtime", "react-dom/client"], &["vue"]];
-const TESTING_SPECIFIER: &str = "@snapfire/fsr-client/testing";
+const TESTING_SPECIFIER: &str = "@snapfire/fsr/client/testing";
 const TESTING_URL: &str = "/static/js/fsr/testing.js";
-const STD_SPECIFIER: &str = "@snapfire/fsr-client/std";
-const STD_URL: &str = "/static/js/fsr/std.js";
+/// The client's standard modules and `native`, which a spec may import whether or not the application's import map lists them.
+fn standard_entries() -> Vec<(String, String)> {
+  let mut entries: Vec<(String, String)> = snapfire_fsr_lower::meaning::side_modules(snapfire_fsr_lower::meaning::Side::Client)
+    .into_iter()
+    .map(|(module, _)| (format!("@snapfire/fsr/client/{module}"), format!("/static/js/fsr/{module}.js")))
+    .collect();
+  entries.push(("@snapfire/fsr".to_owned(), "/static/js/fsr/native.js".to_owned()));
+  entries.push(("@snapfire/fsr/client".to_owned(), "/static/js/fsr/index.js".to_owned()));
+  entries
+}
 /// What a spec's JSX compiles against in an application without React.
-const JSX_SPECIFIER: &str = "@snapfire/fsr-client/jsx-runtime";
+const JSX_SPECIFIER: &str = "@snapfire/fsr/client/jsx-runtime";
 const JSX_URL: &str = "/static/js/fsr/jsx-runtime.js";
 
 /// The app compiled for the engine: where the modules landed, how a specifier reaches a file and the DOM bundle.
@@ -116,7 +124,7 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lo
     let name = file.file_name().unwrap_or_default().to_string_lossy().trim_end_matches(".ts").to_owned();
     boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));
   }
-  boot_source.push_str("import { discard } from \"@snapfire/fsr-client\";\nglobalThis.__sf.discard = discard;\nimport { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\nglobalThis.__sf.islands = (load) => import(`./dist/generated/islands.js?load=${load}`).then((m) => m.registerIslands());\n");
+  boot_source.push_str("import { discard } from \"@snapfire/fsr/client\";\nglobalThis.__sf.discard = discard;\nimport { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\nglobalThis.__sf.islands = (load) => import(`./dist/generated/islands.js?load=${load}`).then((m) => m.registerIslands());\n");
   for (register, modules) in [("registerComposition", compositions), ("registerLowered", lowered)] {
     if modules.is_empty() {
       continue;
@@ -610,7 +618,9 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path, roots: &[String], 
   let mut map = vendor::read_import_map(app, layout)?;
   let mut imports = imports_of(&map);
   imports.insert(TESTING_SPECIFIER.to_owned(), serde_json::Value::String(TESTING_URL.to_owned()));
-  imports.entry(STD_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(STD_URL.to_owned()));
+  for (specifier, url) in standard_entries() {
+    imports.entry(specifier).or_insert_with(|| serde_json::Value::String(url));
+  }
   imports.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(JSX_URL.to_owned()));
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   let text = serde_json::to_string_pretty(&serde_json::Value::Object(map)).expect("serialisable");

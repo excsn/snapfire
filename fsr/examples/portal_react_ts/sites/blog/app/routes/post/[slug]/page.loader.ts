@@ -1,5 +1,5 @@
-import { fail } from "@snapfire/fsr";
-import type { Ctx } from "@snapfire/fsr";
+import { fail } from "@snapfire/fsr/host";
+import type { Ctx } from "@snapfire/fsr/host";
 import { posts } from "@src/posts";
 
 export async function load({ params }: Ctx<"/post/{slug}">) {

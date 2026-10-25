@@ -8,7 +8,7 @@ A blog as a site the portal mounts under `/blog`: an index, a tag list and one p
 | The same site prerendering its own documents when it runs alone, one per post from `paths` | `fsr prerender app`, `dist/prerender/post/<slug>/index.html` |
 | A route that names its parameter set | `export const paths` in `routes/post/[slug]/page.loader.ts` |
 | A post that does not exist answering 404 | `fail("not_found", ...)` in the same loader |
-| Placements written against the portable template module in a React site | `@snapfire/fsr-authoring/template` in every route file |
+| Placements written against the portable template module in a React site | `@snapfire/fsr/template` in every route file |
 | Every post listed for the index, the tags and `paths` without a list of its own | `[mdx.collections]` in `config/app.toml`, `@generated/content` in `src/posts.ts` |
 | One page for every post, importing the file the post's data names | the template `import()` in `routes/post/[slug]/page.tsx` |
 | Posts grouped in subdirectories, listed by the collection and imported by the template `import()` with their path, the URL keeping the file name | `content/posts/sites/`, `content/posts/design/`, `content/posts/runtime/host/drain-before-stop.md` two directories down, `slug` in `src/posts.ts` |

@@ -49,7 +49,7 @@ store = "data/passkeys"
 The login page runs the ceremony with the client:
 
 ```ts
-import { signIn } from "@snapfire/fsr-client";
+import { signIn } from "@snapfire/fsr/client";
 
 passkeyButton.onclick = () => signIn({ method: "passkey", returnTo: "/account" });
 ```
@@ -95,7 +95,7 @@ store = "data/passkeys"
 An enrolment is a state change, so it carries the page's CSRF token:
 
 ```ts
-import { enrol } from "@snapfire/fsr-client";
+import { enrol } from "@snapfire/fsr/client";
 
 await enrol(csrfToken, { method: "passkey", returnTo: "/settings" });
 ```

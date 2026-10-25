@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Mount, useStore } from "@snapfire/fsr-client/vue";
+import { Mount, useStore } from "@snapfire/fsr/client/vue";
 
 import { watchedKey } from "./Watch.js";
 

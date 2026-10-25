@@ -1,4 +1,5 @@
-import { Island, Slot, type Children } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
+import { Slot, type Children } from "@snapfire/fsr/template";
 
 import Owner from "@src/ui/Owner";
 import OwnerVue from "@src/ui/OwnerVue.vue";

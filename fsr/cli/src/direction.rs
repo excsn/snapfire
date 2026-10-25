@@ -37,17 +37,17 @@ pub struct Direction {
 pub const DIRECTIONS: &[Direction] = &[
   Direction {
     name: "react",
-    maps: &[("@snapfire/fsr-client/react", "react.js"), ("@snapfire/fsr-authoring/template", "template.js")],
+    maps: &[("@snapfire/fsr/client/react", "react.js"), ("@snapfire/fsr/template", "template.js")],
     adapter: Some(&crate::REACT),
     vendors: &[("react", REACT, None), ("react", REACT, Some("jsx-runtime")), ("react-dom", REACT, Some("client"))],
     published: false,
    
     edits: &[],
   },
-  Direction { name: "vue", maps: &[("@snapfire/fsr-client/vue", "vue.js")], adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], published: false, edits: &[] },
+  Direction { name: "vue", maps: &[("@snapfire/fsr/client/vue", "vue.js")], adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], published: false, edits: &[] },
   Direction {
     name: "svelte",
-    maps: &[("@snapfire/fsr-client/svelte", "svelte.js")],
+    maps: &[("@snapfire/fsr/client/svelte", "svelte.js")],
     adapter: Some(&crate::SVELTE),
     vendors: &[
       ("svelte", SVELTE, None),
@@ -67,15 +67,15 @@ pub const DIRECTIONS: &[Direction] = &[
     published: true,
     edits: &[],
   },
-  Direction { name: "elements", maps: &[("@snapfire/fsr-client/elements", "elements.js")], adapter: None, vendors: &[], published: false, edits: &[] },
+  Direction { name: "elements", maps: &[("@snapfire/fsr/client/elements", "elements.js")], adapter: None, vendors: &[], published: false, edits: &[] },
   Direction {
     name: "htmx",
-    maps: &[("@snapfire/fsr-client/htmx", "htmx.js")],
+    maps: &[("@snapfire/fsr/client/htmx", "htmx.js")],
     adapter: None,
     vendors: &[("htmx.org", HTMX, None)],
     published: false,
    
-    edits: &[("src/main.ts", "import htmx from \"htmx.org\";"), ("src/main.ts", "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";"), ("src/main.ts", "bindHtmx(htmx); after enableNavigation()")],
+    edits: &[("src/main.ts", "import htmx from \"htmx.org\";"), ("src/main.ts", "import { bindHtmx } from \"@snapfire/fsr/client/htmx\";"), ("src/main.ts", "bindHtmx(htmx); after enableNavigation()")],
   },
   Direction { name: "tailwind", maps: &[], adapter: None, vendors: &[], published: false, edits: &[] },
   #[cfg(feature = "tera")]
@@ -120,8 +120,8 @@ impl Direction {
   /// place the example, each a file and a line.
   fn example(&self) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, &'static str)>) {
     match self.name {
-      "react" => (vec![("src/ui/Counter.tsx", REACT_COUNTER)], vec![("a page", "import Counter from \"@src/ui/Counter\";"), ("a page", "import { Island } from \"@snapfire/fsr-client/react\";"), ("a page", "<Island><Counter start={0} /></Island>")]),
-      "vue" => (vec![("src/ui/Counter.vue", VUE_COUNTER)], vec![("a page", "import Counter from \"@src/ui/Counter.vue\";"), ("a page", "import { Island } from \"@snapfire/fsr-authoring/template\";"), ("a page", "<Island><Counter start={0} /></Island>")]),
+      "react" => (vec![("src/ui/Counter.tsx", REACT_COUNTER)], vec![("a page", "import Counter from \"@src/ui/Counter\";"), ("a page", "import { Island } from \"@snapfire/fsr/client/react\";"), ("a page", "<Island><Counter start={0} /></Island>")]),
+      "vue" => (vec![("src/ui/Counter.vue", VUE_COUNTER)], vec![("a page", "import Counter from \"@src/ui/Counter.vue\";"), ("a page", "import { Island } from \"@snapfire/fsr/template\";"), ("a page", "<Island><Counter start={0} /></Island>")]),
       "elements" => (vec![("elements/hello-tag.tsx", ELEMENT_TEMPLATE), ("src/elements/hello-tag.ts", ELEMENT_CLASS)], vec![("src/main.ts", "import \"./elements/hello-tag.js\";"), ("a page", "<hello-tag name=\"world\" />")]),
       "htmx" => (vec![("routes/pulse/page.loader.ts", HTMX_LOADER), ("routes/pulse/page.tsx", HTMX_PAGE)], vec![("a page", "<div hx-get=\"/pulse?__fragment\" hx-trigger=\"every 5s\" hx-swap=\"innerHTML\" />")]),
       "tera" => (vec![("routes/hello/page.loader.ts", TERA_LOADER), ("routes/hello/page.tera", TERA_PAGE)], vec![("routes/layout.tera", "in place of routes/layout.tsx, which puts the shell in templates too")]),
@@ -517,7 +517,7 @@ const ELEMENT_TEMPLATE: &str = r#"export default function HelloTag({ name }: { n
 }
 "#;
 
-const ELEMENT_CLASS: &str = r#"import { shadowOf } from "@snapfire/fsr-client/elements";
+const ELEMENT_CLASS: &str = r#"import { shadowOf } from "@snapfire/fsr/client/elements";
 
 class HelloTag extends HTMLElement {
   connectedCallback(): void {
@@ -531,8 +531,8 @@ class HelloTag extends HTMLElement {
 customElements.define("hello-tag", HelloTag);
 "#;
 
-const HTMX_LOADER: &str = r#"import type { Ctx } from "@snapfire/fsr";
-import { time } from "@snapfire/fsr-client/std";
+const HTMX_LOADER: &str = r#"import type { Ctx } from "@snapfire/fsr/host";
+import { time } from "@snapfire/fsr/host";
 
 export async function load(_ctx: Ctx<"/pulse">) {
   return { at: time.now() };
@@ -546,7 +546,7 @@ export default function Pulse({ at }: PulseProps) {
 }
 "#;
 
-const TERA_LOADER: &str = r#"import type { Ctx } from "@snapfire/fsr";
+const TERA_LOADER: &str = r#"import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load(_ctx: Ctx<"/hello">) {
   return { greeting: "Hello from a template" };

@@ -1,4 +1,4 @@
-import { action } from "@snapfire/fsr-client";
+import { action } from "@snapfire/fsr/client";
 
 const lot = action("desk.lot");
 

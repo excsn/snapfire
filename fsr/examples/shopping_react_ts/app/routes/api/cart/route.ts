@@ -1,5 +1,5 @@
-import { action } from "@snapfire/fsr";
-import type { ActionCtx, Ctx } from "@snapfire/fsr";
+import { action } from "@snapfire/fsr/host";
+import type { ActionCtx, Ctx } from "@snapfire/fsr/host";
 import type { AddToCart } from "@schemas/cart";
 
 export async function GET({ session }: Ctx<"/api/cart">) {

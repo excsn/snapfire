@@ -1,5 +1,5 @@
 <script>
-  import { mount } from "@snapfire/fsr-client/svelte";
+  import { mount } from "@snapfire/fsr/client/svelte";
   let { module, props = {}, when } = $props();
 </script>
 

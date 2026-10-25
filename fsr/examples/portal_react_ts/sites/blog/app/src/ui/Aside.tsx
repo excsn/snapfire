@@ -1,4 +1,4 @@
-import type { Children } from "@snapfire/fsr-authoring/template";
+import type { Children } from "@snapfire/fsr/template";
 
 /** A note set apart from the post's text. */
 export function Aside({ label, children }: { label: string; children?: Children }) {

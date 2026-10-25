@@ -450,7 +450,7 @@ fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) 
     }
   }
   if fails {
-    loader.insert_str(0, "import { fail } from \"@snapfire/fsr\";\n");
+    loader.insert_str(0, "import { fail } from \"@snapfire/fsr/host\";\n");
   }
 
   let mut kept: BTreeSet<usize> = items.iter().enumerate().filter(|(_, i)| !i.import && i.data.is_none()).map(|(n, _)| n).collect();
@@ -838,7 +838,7 @@ mod tests {
     let (out, report) = migrate(&input);
     assert_eq!(
       out.text("app/routes/blog/[slug]/page.loader.ts").unwrap(),
-      "import { fail } from \"@snapfire/fsr\";\nimport fs from \"fs\";\nimport { getPost } from \"../../../src/lib/posts\";\n\nconst DIR = \"posts\";\n\nexport async function load({ params }) {\n  const post = getPost(DIR, params.slug, fs);\n  if (!post) {\n    fail(\"not_found\", \"not found\");\n  }\n  return { post };\n}\n\nexport async function paths() {\n  return [{ slug: \"a\" }, { slug: \"b\" }];\n}\n"
+      "import { fail } from \"@snapfire/fsr/host\";\nimport fs from \"fs\";\nimport { getPost } from \"../../../src/lib/posts\";\n\nconst DIR = \"posts\";\n\nexport async function load({ params }) {\n  const post = getPost(DIR, params.slug, fs);\n  if (!post) {\n    fail(\"not_found\", \"not found\");\n  }\n  return { post };\n}\n\nexport async function paths() {\n  return [{ slug: \"a\" }, { slug: \"b\" }];\n}\n"
     );
     assert_eq!(
       out.text("app/routes/blog/[slug]/page.js").unwrap(),

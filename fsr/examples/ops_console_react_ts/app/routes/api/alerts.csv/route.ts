@@ -1,4 +1,4 @@
-import type { Ctx, Failure } from "@snapfire/fsr";
+import type { Ctx, Failure } from "@snapfire/fsr/host";
 
 export async function GET({ services }: Ctx<"/api/alerts.csv">) {
   let body = "id,agent,level,text\n";

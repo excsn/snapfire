@@ -15,7 +15,7 @@ export interface FsrElement {
 	key?: unknown;
 }
 export type FsrNode = FsrElement | string | number | bigint | boolean | null | undefined | FsrNode[];
-/** The types TypeScript checks a file compiled with `@jsxImportSource @snapfire/fsr-client` against: an element is a description and any tag takes HTML attributes as they are written. */
+/** The types TypeScript checks a file compiled with `@jsxImportSource @snapfire/fsr/client` against: an element is a description and any tag takes HTML attributes as they are written. */
 export declare namespace JSX {
 	type Element = FsrElement;
 	type ElementType = string | FsrComponent;

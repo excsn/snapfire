@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ params, services }: Ctx<"/invoice/{id}">) {
   const invoice = await services.ledger.getInvoice({ id: BigInt(params.id) });

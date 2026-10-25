@@ -15,8 +15,8 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 
 const PAGE: &str = "export default function Page({ notice }: { notice: { title: string } }) {\n  return <main>{notice.title}</main>;\n}\n";
 
-const LOADER: &str = r#"import { fail } from "@snapfire/fsr";
-import type { Ctx } from "@snapfire/fsr";
+const LOADER: &str = r#"import { fail } from "@snapfire/fsr/host";
+import type { Ctx } from "@snapfire/fsr/host";
 
 const notices = [{ id: "roof", title: "Roof work on the east stair" }];
 
@@ -160,7 +160,7 @@ fn an_image_with_its_own_loader_draws_from_that_loaders_data() {
   let root = project("loader", &[
     ("routes/about/page.tsx", "export default function Page() {\n  return <main>about</main>;\n}\n"),
     ("routes/about/opengraph-image.tsx", "export default function Image({ headline }: { headline: string }) {\n  return <div>{headline}</div>;\n}\n"),
-    ("routes/about/opengraph-image.loader.ts", "import { fail } from \"@snapfire/fsr\";\nexport async function load() {\n  fail(\"not_found\", \"the card has no headline yet\");\n  return { headline: \"\" };\n}\n"),
+    ("routes/about/opengraph-image.loader.ts", "import { fail } from \"@snapfire/fsr/host\";\nexport async function load() {\n  fail(\"not_found\", \"the card has no headline yet\");\n  return { headline: \"\" };\n}\n"),
   ]);
   let host = boot(&root);
   let (status, _, body) = get(&host, "/about/opengraph-image.png");

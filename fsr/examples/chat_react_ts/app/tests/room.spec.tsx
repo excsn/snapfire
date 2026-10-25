@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, test, waitFor } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, test, waitFor } from "@snapfire/fsr/client/testing";
 
 const transcript = {
   room: { id: "lobby", name: "Lobby", about: "Anyone, anything", messages: 2 },

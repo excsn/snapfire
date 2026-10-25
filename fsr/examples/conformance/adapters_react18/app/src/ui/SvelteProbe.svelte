@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, type Snippet } from "svelte";
-  import { useLocale, useStore } from "@snapfire/fsr-client/svelte";
+  import { useLocale, useStore } from "@snapfire/fsr/client/svelte";
   import { Link, Mount, Picture } from "@snapfire/fsr/components";
 
   import { rendered, unmounted } from "@src/probes";

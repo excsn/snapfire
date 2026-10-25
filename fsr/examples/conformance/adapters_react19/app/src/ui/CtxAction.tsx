@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocale } from "@snapfire/fsr-client/react";
+import { useLocale } from "@snapfire/fsr/client/react";
 
 import { actions } from "@generated/client";
 

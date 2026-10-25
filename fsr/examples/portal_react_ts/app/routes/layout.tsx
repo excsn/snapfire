@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Identity } from "@snapfire/fsr-authoring";
+import type { Identity } from "@snapfire/fsr/host";
 
 import { Header } from "@src/ui/Header";
 import { LocalTime } from "@src/ui/LocalTime";

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
-import { Mount, useStore } from "@snapfire/fsr-client/react";
-import { action, key } from "@snapfire/fsr-client";
+import { Mount, useStore } from "@snapfire/fsr/client/react";
+import { action, key } from "@snapfire/fsr/client";
 
 /** The symbol the desk is watching, shared with every other island on the page. */
 export const watchedKey = key<string>("uni/watched");

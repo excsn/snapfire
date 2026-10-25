@@ -64,7 +64,7 @@ fn imported(parsed: &Parsed) -> (BTreeSet<String>, Vec<(String, &'static [&'stat
   let mut namespaces = Vec::new();
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if import.src.value.to_string_lossy() != crate::packages::STD {
+    if !crate::packages::is_std_source(&import.src.value.to_string_lossy()) {
       continue;
     }
     for specifier in &import.specifiers {

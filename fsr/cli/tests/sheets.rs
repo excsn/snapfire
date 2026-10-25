@@ -7,7 +7,7 @@ fn app(files: &[(&str, &str)]) -> std::path::PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr-cli-sheets-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
   for (name, source) in files {
     let path = dir.join(name);

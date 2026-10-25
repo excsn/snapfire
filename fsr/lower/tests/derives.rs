@@ -9,7 +9,7 @@ use snapfire_fsr_lower::component::{ComponentSet, LoweredDerive};
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-const KEYS: &str = "import { key } from \"@snapfire/fsr-client/store\";\nexport const price = key<number>(\"order/price\");\nexport const qty = key<number>(\"order/qty\");\nexport const total = key<number>(\"order/total\");\n";
+const KEYS: &str = "import { key } from \"@snapfire/fsr/client/store\";\nexport const price = key<number>(\"order/price\");\nexport const qty = key<number>(\"order/qty\");\nexport const total = key<number>(\"order/total\");\n";
 
 fn derives(files: &[(&str, &str)]) -> Result<Vec<LoweredDerive>, String> {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -36,7 +36,7 @@ fn main_ts(header: &str, call: &str) -> String {
 
 #[test]
 fn every_spelling_of_derive_lowers_the_same_row() {
-  for module in ["@snapfire/fsr-client/store", "@snapfire/fsr-client"] {
+  for module in ["@snapfire/fsr/client/store", "@snapfire/fsr/client"] {
     let spellings = [
       (format!("import {{ derive }} from \"{module}\";"), "derive".to_owned(), None),
       (format!("import {{ derive as computeKey }} from \"{module}\";"), "computeKey".to_owned(), None),
@@ -61,9 +61,9 @@ fn every_spelling_of_derive_lowers_the_same_row() {
 
 #[test]
 fn a_block_compute_a_function_compute_and_literal_keys_lower() {
-  let block = "import { derive } from \"@snapfire/fsr-client/store\";\nimport { price, qty, total } from \"./keys\";\nderive(total, [price, qty], (read) => {\n  const p = read(price) ?? 0;\n  if (p > 100) return 0;\n  return p * (read(qty) ?? 0);\n});\n";
+  let block = "import { derive } from \"@snapfire/fsr/client/store\";\nimport { price, qty, total } from \"./keys\";\nderive(total, [price, qty], (read) => {\n  const p = read(price) ?? 0;\n  if (p > 100) return 0;\n  return p * (read(qty) ?? 0);\n});\n";
   assert_eq!(computed(&derives(&[("src/main.ts", block)]).unwrap()[0]), Some(Value::Int(60)));
-  let function = "import { derive } from \"@snapfire/fsr-client/store\";\nderive(\"order/total\", [\"order/price\", \"order/qty\"], function (get) {\n  return (get(\"order/price\") ?? 0) * (get(\"order/qty\") ?? 0);\n});\n";
+  let function = "import { derive } from \"@snapfire/fsr/client/store\";\nderive(\"order/total\", [\"order/price\", \"order/qty\"], function (get) {\n  return (get(\"order/price\") ?? 0) * (get(\"order/qty\") ?? 0);\n});\n";
   let rows = derives(&[("src/main.ts", function)]).unwrap();
   assert_eq!(rows[0].key, "order/total");
   assert_eq!(computed(&rows[0]), Some(Value::Int(60)));
@@ -71,7 +71,7 @@ fn a_block_compute_a_function_compute_and_literal_keys_lower() {
 
 #[test]
 fn a_derive_inside_a_function_is_the_browser_s_with_where_and_why() {
-  let source = "import { derive } from \"@snapfire/fsr-client/store\";\nimport { price, qty, total } from \"./keys\";\nexport function start() {\n  derive(total, [price, qty], (read) => (read(price) ?? 0) * (read(qty) ?? 0));\n}\nstart();\n";
+  let source = "import { derive } from \"@snapfire/fsr/client/store\";\nimport { price, qty, total } from \"./keys\";\nexport function start() {\n  derive(total, [price, qty], (read) => (read(price) ?? 0) * (read(qty) ?? 0));\n}\nstart();\n";
   let rows = derives(&[("src/main.ts", source)]).unwrap();
   assert_eq!(rows.len(), 1);
   assert_eq!((rows[0].key.as_str(), rows[0].body.is_none()), ("order/total", true));
@@ -81,7 +81,7 @@ fn a_derive_inside_a_function_is_the_browser_s_with_where_and_why() {
 
 #[test]
 fn a_compute_that_does_not_lower_is_the_browser_s_with_its_residue() {
-  let source = "import { derive } from \"@snapfire/fsr-client/store\";\nimport { price, total } from \"./keys\";\nderive(total, [price], (read) => (read(price) ?? 0) + (Date.now() % 7));\n";
+  let source = "import { derive } from \"@snapfire/fsr/client/store\";\nimport { price, total } from \"./keys\";\nderive(total, [price], (read) => (read(price) ?? 0) + (Date.now() % 7));\n";
   let rows = derives(&[("src/main.ts", source)]).unwrap();
   assert_eq!((rows[0].key.as_str(), rows[0].body.is_none()), ("order/total", true));
   assert_eq!(rows[0].at.as_deref(), Some("src/main.ts:3:1"));
@@ -90,7 +90,7 @@ fn a_compute_that_does_not_lower_is_the_browser_s_with_its_residue() {
 
 #[test]
 fn a_derived_key_the_build_cannot_read_fails_the_build() {
-  let source = "import { derive } from \"@snapfire/fsr-client/store\";\nimport { price } from \"./keys\";\nconst name = location.hash;\nderive(name, [price], (read) => read(price));\n";
+  let source = "import { derive } from \"@snapfire/fsr/client/store\";\nimport { price } from \"./keys\";\nconst name = location.hash;\nderive(name, [price], (read) => read(price));\n";
   let refused = derives(&[("src/main.ts", source)]).unwrap_err();
   assert!(refused.contains("src/main.ts"), "{refused}");
 }

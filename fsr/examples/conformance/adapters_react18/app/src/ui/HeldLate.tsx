@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 
 import { rendered } from "@src/probes";
 import { probeCount } from "@src/store";

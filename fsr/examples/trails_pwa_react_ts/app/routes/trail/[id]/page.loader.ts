@@ -1,5 +1,5 @@
-import type { Ctx } from "@snapfire/fsr";
-import { fail } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
+import { fail } from "@snapfire/fsr/host";
 import { trails } from "@src/trails";
 
 export async function load({ params }: Ctx<"/trail/{id}">) {

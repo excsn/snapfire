@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { navigate } from "@snapfire/fsr-client";
-import { useStore } from "@snapfire/fsr-client/react";
+import { navigate } from "@snapfire/fsr/client";
+import { useStore } from "@snapfire/fsr/client/react";
 
 import { cartCount } from "@src/store";
 

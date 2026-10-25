@@ -126,8 +126,8 @@ fn json(case: &Case) -> String {
   )
 }
 
-const SPEC: &str = r#"import { contribute, derive, get, isPending, reset, setSlotOrder } from "@snapfire/fsr-client/store";
-import { expect, test } from "@snapfire/fsr-client/testing";
+const SPEC: &str = r#"import { contribute, derive, get, isPending, reset, setSlotOrder } from "@snapfire/fsr/client/store";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 interface Case {
   slotOrder: string[];
@@ -171,7 +171,7 @@ fn app(spec: &str) -> PathBuf {
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::write(root.join("config/app.toml"), "[server]\nlisten = \"127.0.0.1:0\"\n\n[session]\nkey = \"crosscheck-key\"\nttl = \"1h\"\n").unwrap();
   for (name, source) in [
-    ("importmap.json", r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js","@snapfire/fsr-client/store":"/static/js/fsr/store.js"}}"#),
+    ("importmap.json", r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js","@snapfire/fsr/client/store":"/static/js/fsr/store.js"}}"#),
     ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
     ("tests/store.spec.ts", spec),
   ] {

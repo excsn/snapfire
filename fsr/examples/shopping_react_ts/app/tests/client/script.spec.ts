@@ -1,5 +1,5 @@
-import { applyHead, loadScript } from "@snapfire/fsr-client";
-import { expect, settle, test } from "@snapfire/fsr-client/testing";
+import { applyHead, loadScript } from "@snapfire/fsr/client";
+import { expect, settle, test } from "@snapfire/fsr/client/testing";
 
 const tags = (name: string) => Array.from(document.querySelectorAll<HTMLScriptElement>("script[src]")).filter((s) => s.src.endsWith(name));
 

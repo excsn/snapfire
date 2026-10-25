@@ -1,4 +1,4 @@
-import { key } from "@snapfire/fsr-client/store";
+import { key } from "@snapfire/fsr/client/store";
 
 /** Who is signed in, seeded by the root layout for every document, the mounted sites' included. */
 export const who = key<string>("portal/who");

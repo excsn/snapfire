@@ -1,4 +1,4 @@
-import { t } from "@snapfire/fsr-client/std";
+import { t } from "@snapfire/fsr/client";
 
 import type { LoginProps } from "@generated/client";
 

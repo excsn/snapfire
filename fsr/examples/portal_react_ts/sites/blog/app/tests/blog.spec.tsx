@@ -1,4 +1,4 @@
-import { expect, load, test } from "@snapfire/fsr-client/testing";
+import { expect, load, test } from "@snapfire/fsr/client/testing";
 
 test("the index lists every post with a literal link under the prefix", async () => {
   await load("/blog");

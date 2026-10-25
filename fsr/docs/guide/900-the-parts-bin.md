@@ -78,9 +78,9 @@ Every block in every crate, one line each, sorted by what you would be looking f
 
 ## I want the browser to do its part
 
-- **`@snapfire/fsr-client`**: `signIn`, `enrol` and `answer` run a sign-in from the page, the passkey prompt included; `boot` and `registerIsland` to mount islands, hydrating over server markup; `discard` to end the islands in a subtree before it is removed; `enableNavigation`, `navigate` and `refresh` for segment-preserving navigation; `action` and `ActionFailure` for calling actions by id; `parsePayload` and `renderSegment` for the wire form.
-- **`@snapfire/fsr-client/react`**, the React mounter, patcher and unmounter.
-- **`@snapfire/fsr-authoring`**, `Ctx`, `ActionCtx`, `action` and `fail`, the types a body is written against, projected per application into `generated/fsr.ts`.
+- **`@snapfire/fsr/client`**: `signIn`, `enrol` and `answer` run a sign-in from the page, the passkey prompt included; `boot` and `registerIsland` to mount islands, hydrating over server markup; `discard` to end the islands in a subtree before it is removed; `enableNavigation`, `navigate` and `refresh` for segment-preserving navigation; `action` and `ActionFailure` for calling actions by id; `parsePayload` and `renderSegment` for the wire form.
+- **`@snapfire/fsr/client/react`**, the React mounter, patcher and unmounter.
+- **`@snapfire/fsr/host`**, `Ctx`, `ActionCtx`, `action` and `fail`, the types a body is written against, projected per application into `generated/host.ts` beside every host standard module. **`@snapfire/fsr/client`**, the browser runtime and the standard modules a server render and the browser both run.
 
 ## I want to test
 

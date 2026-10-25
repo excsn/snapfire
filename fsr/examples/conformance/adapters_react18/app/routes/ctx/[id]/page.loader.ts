@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ params, query, path, locale, identity, session, services }: Ctx<"/ctx/{id}">) {
   const stamped = await services.probe.getStamp();

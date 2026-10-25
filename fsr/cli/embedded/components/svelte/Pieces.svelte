@@ -5,7 +5,7 @@
 
 <script>
   import Island from "./Island.svelte";
-  import { held, opaque } from "@snapfire/fsr-client/svelte";
+  import { held, opaque } from "@snapfire/fsr/client/svelte";
   let { pieces } = $props();
   const list = held(() => pieces);
   const own = opaque();

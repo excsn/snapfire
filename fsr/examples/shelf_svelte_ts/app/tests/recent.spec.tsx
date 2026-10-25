@@ -1,4 +1,4 @@
-import { expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 test("the books opened lately come from a runes module the progress island writes", async () => {
   await load("/");

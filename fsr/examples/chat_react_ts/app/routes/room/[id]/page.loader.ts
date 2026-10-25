@@ -1,4 +1,4 @@
-import type { Ctx, DataOf, MetaCtx } from "@snapfire/fsr";
+import type { Ctx, DataOf, MetaCtx } from "@snapfire/fsr/host";
 
 export async function load({ params, services, session, native }: Ctx<"/room/{id}">) {
   session.rooms = { ...(session.rooms ?? {}), [params.id]: true };

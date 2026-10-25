@@ -1,5 +1,5 @@
-import { get, set } from "@snapfire/fsr-client";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { get, set } from "@snapfire/fsr/client";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 import { headline, openAlerts, watching } from "@src/store";
 

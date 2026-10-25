@@ -1,4 +1,4 @@
-import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr/client/testing";
 
 test("a path no route matches renders the not-found page with status 404", async () => {
   const { status } = await load("/nowhere/at/all", { ctx: ctx({ services: { shopping: { listProducts: () => [] } } }) });

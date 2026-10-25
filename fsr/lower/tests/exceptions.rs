@@ -46,7 +46,7 @@ fn field(fields: &ValueMap, name: &str) -> Value {
   fields.get(name).cloned().unwrap_or_else(|| panic!("no `{name}` in {fields:?}"))
 }
 
-const LOAD: &str = "import { fail } from \"@snapfire/fsr\";\nimport type { Ctx } from \"@snapfire/fsr\";\n";
+const LOAD: &str = "import { fail } from \"@snapfire/fsr/host\";\nimport type { Ctx } from \"@snapfire/fsr/host\";\n";
 
 #[test]
 fn a_catch_runs_when_an_awaited_service_call_fails_and_reads_its_kind_and_message() {

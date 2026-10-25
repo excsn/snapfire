@@ -81,7 +81,7 @@ A page test is a `*.spec.tsx` under `app/tests/`:
 ```tsx
 // app/tests/product/page.spec.tsx
 import ProductPage from "@routes/product/[id]/page";
-import { advance, ctx, expect, render, screen, test, userEvent } from "@snapfire/fsr-client/testing";
+import { advance, ctx, expect, render, screen, test, userEvent } from "@snapfire/fsr/client/testing";
 
 test("choosing a quantity and adding runs the action with it", async () => {
   const c = ctx({ session: { cart: {} } });

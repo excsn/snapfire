@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 const SLUG = /[^a-z0-9]+/g;
 const TITLES = ["Pears & Figs: a Field Guide", "Leeks, Onions and Other Alliums", "Salt (Coarse) vs. Fine"];

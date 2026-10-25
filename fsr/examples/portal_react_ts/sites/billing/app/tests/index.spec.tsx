@@ -1,5 +1,5 @@
-import { enableNavigation } from "@snapfire/fsr-client";
-import { ctx, expect, fireEvent, load, settle, test } from "@snapfire/fsr-client/testing";
+import { enableNavigation } from "@snapfire/fsr/client";
+import { ctx, expect, fireEvent, load, settle, test } from "@snapfire/fsr/client/testing";
 
 const invoices = [
   { id: 1n, customer: "Northwind", total: 1250.5, status: "open" },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useLinkStatus } from "@snapfire/fsr-client/vue";
+import { useLinkStatus } from "@snapfire/fsr/client/vue";
 
 const status = useLinkStatus();
 </script>

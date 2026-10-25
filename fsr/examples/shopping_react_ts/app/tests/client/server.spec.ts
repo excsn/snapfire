@@ -1,5 +1,5 @@
-import { morph } from "@snapfire/fsr-client";
-import { expect, test } from "@snapfire/fsr-client/testing";
+import { morph } from "@snapfire/fsr/client";
+import { expect, test } from "@snapfire/fsr/client/testing";
 
 function box(html: string): HTMLElement {
   const el = document.createElement("div");

@@ -618,6 +618,8 @@ struct Stderr {
   partial: Vec<u8>,
   batch: Vec<String>,
   live: bool,
+  /// The compiler closed its end; what it wrote is still in `batch`.
+  closed: bool,
 }
 
 #[cfg(unix)]
@@ -630,17 +632,21 @@ impl Stderr {
       let flags = libc::fcntl(fd, libc::F_GETFL);
       libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
     }
-    Self { pipe, partial: Vec::new(), batch: Vec::new(), live }
+    Self { pipe, partial: Vec::new(), batch: Vec::new(), live, closed: false }
   }
 
   /// Reads what the pipe holds now without waiting. `false` once the compiler closed it.
   fn drain(&mut self) -> bool {
     use std::io::Read;
+    if self.closed {
+      return false;
+    }
     let mut buf = [0u8; 8192];
     loop {
       match self.pipe.read(&mut buf) {
         Ok(0) => {
           self.line_out(true);
+          self.closed = true;
           return false;
         }
         Ok(n) => {
@@ -649,7 +655,10 @@ impl Stderr {
         }
         Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return true,
         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-        Err(_) => return false,
+        Err(_) => {
+          self.closed = true;
+          return false;
+        }
       }
     }
   }
@@ -712,7 +721,11 @@ impl Driven {
       Ok(()) => Ok(driven),
       Err(e) if driven.alive() => Err(e),
       Err(e) => match driven.child.wait().ok().filter(|status| !status.success()) {
-        Some(status) => Err(BuildError::Dev(format!("{} exited with {status} before its first build", snapfirec.display()))),
+        Some(status) => {
+          let (said, _) = driven.batch_errors();
+          let said = if said.is_empty() { String::new() } else { format!(":\n{}", said.join("\n")) };
+          Err(BuildError::Dev(format!("{} exited with {status} before its first build{said}", snapfirec.display())))
+        }
         None => Err(e),
       },
     }
@@ -768,7 +781,7 @@ impl Driven {
   fn await_stdout(&mut self) {
     use std::os::fd::AsRawFd;
     while self.stdout.buffer().is_empty() {
-      let Some(stderr) = self.stderr.as_mut() else { return };
+      let Some(stderr) = self.stderr.as_mut().filter(|stderr| !stderr.closed) else { return };
       let mut fds = [
         libc::pollfd { fd: self.stdout.get_ref().as_raw_fd(), events: libc::POLLIN, revents: 0 },
         libc::pollfd { fd: stderr.pipe.as_raw_fd(), events: libc::POLLIN, revents: 0 },
@@ -781,8 +794,8 @@ impl Driven {
         }
         return;
       }
-      if fds[1].revents != 0 && !stderr.drain() {
-        self.stderr = None;
+      if fds[1].revents != 0 {
+        stderr.drain();
       }
       if fds[0].revents != 0 {
         return;
@@ -1588,6 +1601,24 @@ mod tests {
     };
     assert!(error.contains("snapfirec-vue is not installed"), "{error}");
     assert!(!error.contains("compiled 3 modules"), "progress is not the cause: {error}");
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
+  #[test]
+  fn a_compiler_that_exits_before_its_first_build_is_named_with_what_it_wrote() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("fsr-cli-dev-exits-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let compiler = dir.join("snapfirec");
+    let script = format!("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"snapfirec 99.0.0\"; exit 0; fi\necho \"{}\"\necho \"Error: Failed to read importmap.json\" >&2\nexit 1\n", protocol::hello());
+    std::fs::write(&compiler, script).unwrap();
+    std::fs::set_permissions(&compiler, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut plugins = Plugins::new();
+    let error = match Driven::spawn(Command::new(&compiler), &compiler, &mut |_: &[String]| Ok(()), &mut plugins, true) {
+      Err(e) => e.to_string(),
+      Ok(_) => panic!("the compiler exited"),
+    };
+    assert!(error.contains("before its first build") && error.contains("Failed to read importmap.json"), "{error}");
     let _ = std::fs::remove_dir_all(&dir);
   }
 

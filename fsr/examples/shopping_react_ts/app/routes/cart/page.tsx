@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { navigate } from "@snapfire/fsr-client";
+import { navigate } from "@snapfire/fsr/client";
 
 import { actions, type CartProps } from "@generated/client";
 import { confirmOrder, failed, orderPlaced, removedFromCart } from "@src/ui/feedback";

@@ -13,7 +13,7 @@ fn app(files: &[(&str, &str)]) -> PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr-census-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
   for (name, source) in files {
     let path = dir.join(name);

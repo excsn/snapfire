@@ -3,7 +3,7 @@
  * written in. TSX that the build lowers and the server renders, typed here
  * without React, so an application that ships no React reads no React
  * declarations either. `Island`, `island`, `Link` and `Slot` are the same
- * placements `@snapfire/fsr-client/react` offers a React application; the
+ * placements `@snapfire/fsr/client/react` offers a React application; the
  * lowerer reads either import.
  */
 

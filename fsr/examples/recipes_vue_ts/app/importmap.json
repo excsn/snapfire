@@ -1,9 +1,16 @@
 {
   "imports": {
-    "@snapfire/fsr-client": "/static/js/fsr/index.js",
-    "@snapfire/fsr-client/std": "/static/js/fsr/std.js",
-    "@snapfire/fsr-client/store": "/static/js/fsr/store.js",
-    "@snapfire/fsr-client/vue": "/static/js/fsr/vue.js",
+    "@snapfire/fsr/client": "/static/js/fsr/index.js",
+    "@snapfire/fsr/client/intl": "/static/js/fsr/intl.js",
+    "@snapfire/fsr/client/text": "/static/js/fsr/text.js",
+    "@snapfire/fsr/client/time": "/static/js/fsr/time.js",
+    "@snapfire/fsr/client/crypto": "/static/js/fsr/crypto.js",
+    "@snapfire/fsr/client/i18n": "/static/js/fsr/i18n.js",
+    "@snapfire/fsr/client/log": "/static/js/fsr/log.js",
+    "@snapfire/fsr/client/path": "/static/js/fsr/path.js",
+    "@snapfire/fsr": "/static/js/fsr/native.js",
+    "@snapfire/fsr/client/store": "/static/js/fsr/store.js",
+    "@snapfire/fsr/client/vue": "/static/js/fsr/vue.js",
     "vue": "/static/js/vendor/vue/vue.bundle.mjs"
   }
 }

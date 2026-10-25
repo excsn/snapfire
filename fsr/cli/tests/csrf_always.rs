@@ -26,8 +26,8 @@ const SIGNUP: &str = r#"export default function Page({ csrf_token }: { csrf_toke
 }
 "#;
 
-const ACTIONS: &str = r#"import { action } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+const ACTIONS: &str = r#"import { action } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 
 export const join = action(async (_ctx: ActionCtx) => {
   return { ok: true };

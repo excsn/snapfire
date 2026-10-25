@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 
 import { owner } from "@src/store";
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 
 import HeldVueLate from "@src/ui/HeldVueLate.vue";
 import { probeCount, probeOther } from "@src/store";

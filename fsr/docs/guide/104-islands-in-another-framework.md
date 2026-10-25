@@ -15,7 +15,7 @@ An island written in Vue works the same way with a different runtime. The templa
 A template imports the component as a file and places it inside `Island`:
 
 ```tsx
-import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Island, type Children } from "@snapfire/fsr/template";
 import { Link } from "@snapfire/fsr/components";
 import Tonight from "@src/ui/Tonight.vue";
 
@@ -45,7 +45,7 @@ foreign   src/ui/Tonight.vue:10:1            a class in `<script setup>`
             src/ui/Tonight.vue#default
 ```
 
-What lowers is the subset a server can evaluate. In `<script setup>`: `defineProps`, with `withDefaults` around it, `ref`, `shallowRef`, `computed` of an arrow, `reactive`, `useStore` from `@snapfire/fsr-client/vue`, a `const` bound to an expression the build reads and functions, which an `@event` can name as its handler. Lifecycle and watch calls are the browser's and are passed over. In the template: interpolation, `v-if`, `v-else-if` and `v-else`, `v-for` over a list with an item and an index, a bound attribute, `:class` as a string, an array or an object, `:style`, `v-show`, `v-html`, `v-text` and a plain `<slot />`. `v-model` on an input, a checkbox, a radio, a textarea, a select or a `.vue` child writes the value Vue's server renderer writes and the browser keeps them in step; a child reads it with `defineModel`. `v-bind` of a whole object, named and scoped slots between `.vue` files and `provide` with `inject` lower too. A component written with the Options API lowers too: `props`, `data`, `computed`, `methods` and a `created` that calls `this.$emit`. A child that calls `emit` in `<script setup>` (or `this.$emit` in `created`) runs the parent's `@event` handler while it sets up, so state the handler writes shows in the parent's markup after the child, as it does under Vue's server renderer. `<Transition>`, `<TransitionGroup>` and `<KeepAlive>` render what Vue writes for them. `<Teleport to="body">` writes its content at the end of the body, where Vue hydrates it. `<Teleport to="#notices">` writes it inside the `<Place name="notices">` a shell, layout or page declares. When the component's own template has an element whose `id` is `notices`, it writes it there instead. Outside that is residue: a component placed inside the template that is not a `.vue` file the script imports, `v-slot`, a `<Teleport>` to a target that is neither `body` nor `#` and an id, a `<Teleport defer>` (Vue never updates a deferred Teleport it has hydrated) and a `created` that does anything but call `this.$emit`. The residue names its line in the `.vue` file.
+What lowers is the subset a server can evaluate. In `<script setup>`: `defineProps`, with `withDefaults` around it, `ref`, `shallowRef`, `computed` of an arrow, `reactive`, `useStore` from `@snapfire/fsr/client/vue`, a `const` bound to an expression the build reads and functions, which an `@event` can name as its handler. Lifecycle and watch calls are the browser's and are passed over. In the template: interpolation, `v-if`, `v-else-if` and `v-else`, `v-for` over a list with an item and an index, a bound attribute, `:class` as a string, an array or an object, `:style`, `v-show`, `v-html`, `v-text` and a plain `<slot />`. `v-model` on an input, a checkbox, a radio, a textarea, a select or a `.vue` child writes the value Vue's server renderer writes and the browser keeps them in step; a child reads it with `defineModel`. `v-bind` of a whole object, named and scoped slots between `.vue` files and `provide` with `inject` lower too. A component written with the Options API lowers too: `props`, `data`, `computed`, `methods` and a `created` that calls `this.$emit`. A child that calls `emit` in `<script setup>` (or `this.$emit` in `created`) runs the parent's `@event` handler while it sets up, so state the handler writes shows in the parent's markup after the child, as it does under Vue's server renderer. `<Transition>`, `<TransitionGroup>` and `<KeepAlive>` render what Vue writes for them. `<Teleport to="body">` writes its content at the end of the body, where Vue hydrates it. `<Teleport to="#notices">` writes it inside the `<Place name="notices">` a shell, layout or page declares. When the component's own template has an element whose `id` is `notices`, it writes it there instead. Outside that is residue: a component placed inside the template that is not a `.vue` file the script imports, `v-slot`, a `<Teleport>` to a target that is neither `body` nor `#` and an id, a `<Teleport defer>` (Vue never updates a deferred Teleport it has hydrated) and a `created` that does anything but call `this.$emit`. The residue names its line in the `.vue` file.
 
 Vue's `ref` and `computed` are signals and the build lowers them as state and as a derived value; chapter 102 maps the rest of a signals vocabulary onto the store.
 
@@ -59,7 +59,7 @@ A `.vue` component can be placed in server mode too, `<Island mode="server"><Ser
 
 Integers need a conversion. An integer a contract types as `bigint` reaches the server as an integer and a Vue component that multiplies it by a literal fails the render, the way chapter 100 says a loader must convert one before arithmetic. The recipe page passes `serves={Number(recipe.serves)}` for that reason: the browser handles either type, but the server render fails without the conversion.
 
-`Island`, `island` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. `Link` comes from `@snapfire/fsr/components`, which the build points at the framework of each file that imports it. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. An island written on the template module loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type-check. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
+`Island`, `island` and `Slot` come from `@snapfire/fsr/template` here rather than from `@snapfire/fsr/client/react`. They are the same placements and the build reads either import. `Link` comes from `@snapfire/fsr/components`, which the build points at the framework of each file that imports it. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. An island written on the template module loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type-check. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
 
 ## The component itself
 
@@ -68,7 +68,7 @@ Integers need a conversion. An integer a contract types as `bigint` reaches the 
 ```vue
 <script setup lang="ts">
 import { ref } from "vue";
-import { useStore } from "@snapfire/fsr-client/vue";
+import { useStore } from "@snapfire/fsr/client/vue";
 import { plannedCount } from "@src/store";
 
 const props = defineProps<{ count: number }>();
@@ -85,7 +85,7 @@ const open = ref(false);
 </style>
 ```
 
-`useStore` from `@snapfire/fsr-client/vue` is the store as a Vue ref: the same keyed store the layout's loader seeds and a React island reads with its own `useStore`, so a Vue masthead and a React panel would show the same number. On the server it reads the store the loader seeded, so the count is in the markup. The plan control in the example calls `actions.recipe.$id.plan(...)` from the generated client and writes the store optimistically, the same way the storefront's React button does.
+`useStore` from `@snapfire/fsr/client/vue` is the store as a Vue ref: the same keyed store the layout's loader seeds and a React island reads with its own `useStore`, so a Vue masthead and a React panel would show the same number. On the server it reads the store the loader seeded, so the count is in the markup. The plan control in the example calls `actions.recipe.$id.plan(...)` from the generated client and writes the store optimistically, the same way the storefront's React button does.
 
 The server writes what Vue's server renderer would write for the same component and props, anchors included: `<!---->` where the panel's `v-if` rendered nothing, `<!--[-->` and `<!--]-->` around a list or a fragment and the `data-v-` stamp of a scoped style on every element. That is what Vue's client walks when it hydrates. It is checked byte for byte against `@vue/server-renderer` in the lowerer's own tests:
 
@@ -111,8 +111,8 @@ That is not the `foreign` fallback. A component goes foreign when the plugin rea
 What comes back is a module and a stylesheet: `dist/src/ui/Tonight.vue`, the compiled module under the component's own name, whose imports the build resolves like any other module's, plus `dist/src/ui/Tonight.vue.css`, the component's `<style scoped>` with its `data-v-` attribute. The template's `import Tonight from "@src/ui/Tonight.vue"` stays as written and the host serves the module as JavaScript. The island registry the build writes registers the module with the Vue mounter:
 
 ```ts
-import { registerIsland } from "@snapfire/fsr-client";
-import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
+import { registerIsland } from "@snapfire/fsr/client";
+import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr/client/vue";
 
 export function registerIslands(): void {
   registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
@@ -159,7 +159,7 @@ Put an unclosed tag in `Scaler.vue` and build. The plugin's diagnostic names the
 Give `routes/page.tsx` a `useState` from `react` and a button that sets it. Build: the state and the button move into `routes/page.island0.tsx`, an island beside the page. The page stays `static`. The island is React's, since its state comes from `react`. This application's import map has no React, so the build stops:
 
 ```text
-`routes/page.island0.tsx#default` mounts through `@snapfire/fsr-client/react`, but the import map does not name `@snapfire/fsr-client/react`, `react` or `react-dom/client`; `fsr use <app dir> react` writes it
+`routes/page.island0.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react`, `react` or `react-dom/client`; `fsr use <app dir> react` writes it
 ```
 
 Remove the `useState` again and the application loads no React.

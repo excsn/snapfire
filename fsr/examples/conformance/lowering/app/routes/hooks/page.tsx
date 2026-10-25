@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 
 import Counters from "@src/ui/Counters";
 import Fields from "@src/ui/Fields";

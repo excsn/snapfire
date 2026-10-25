@@ -130,8 +130,8 @@ fn a_module_let_declared_without_a_value_starts_undefined_and_a_function_may_wri
 
 #[test]
 fn a_handler_calling_a_helper_that_sets_a_store_key_writes_the_key() {
-  let counter = "import { key, set } from \"@snapfire/fsr-client/store\";\n\nexport const count = key<number>(\"demo/count\");\n\nexport function bump(n: number) {\n  set(count, n + 1);\n}\n\nexport const reset = () => set(count, 0);\n";
-  let page = "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { bump, count, reset } from \"@src/counter\";\nexport default function Page() {\n  const [n] = useStore(count, 0);\n  return <div><button onClick={() => bump(n)}>{n}</button><button onClick={() => { reset(); }}>reset</button></div>;\n}\n";
+  let counter = "import { key, set } from \"@snapfire/fsr/client/store\";\n\nexport const count = key<number>(\"demo/count\");\n\nexport function bump(n: number) {\n  set(count, n + 1);\n}\n\nexport const reset = () => set(count, 0);\n";
+  let page = "import { useStore } from \"@snapfire/fsr/client/react\";\nimport { bump, count, reset } from \"@src/counter\";\nexport default function Page() {\n  const [n] = useStore(count, 0);\n  return <div><button onClick={() => bump(n)}>{n}</button><button onClick={() => { reset(); }}>reset</button></div>;\n}\n";
   let out = lower("helper_set", &[("src/counter.ts", counter), ("routes/page.tsx", page)]).unwrap();
   let library: Components = out.set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
   let module = "routes/page.tsx#default";

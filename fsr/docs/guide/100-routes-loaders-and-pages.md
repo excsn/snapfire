@@ -198,7 +198,7 @@ A value the layout and the page both show goes in the store rather than in React
 
 ```tsx
 // src/ui/ModeSwitch.tsx, placed in the layout
-import { useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr/client/react";
 import { mode } from "@src/store";
 
 export function ModeSwitch() {
@@ -215,10 +215,10 @@ Three rules cover what Next calls parallel and intercepting routes: a directory 
 
 A **parallel slot** is a segment beside the page with its own loader, loading and error boundary, rendered into a region the layout places. It lives under `slots/<name>/` beside the `layout.tsx`, holding the ordinary route files: `page.tsx`, `page.loader.ts`, `loading.tsx`, `error.tsx`. The layout places it as a prop of that name or as `<Slot name>`; either way the region is `<sf-s data-sf-name>` in the markup, which the navigator fills and empties. Children of `<Slot>` are the fallback the region shows while nothing fills it and takes back when a navigation empties it. The prop form has no fallback to offer: the `slots/` directory that makes it a slot also puts a page on every plan under the layout, so the prop is always filled and a `{promo ?? …}` right-hand side never runs. Write `{promo}` for placement and use `<Slot name>` with children for a region that can genuinely be empty. Its props type is `Layout<Name>Props` and its source id is `layout.<name>`. It is keyed, cached and kept across navigation like any segment. The storefront's `routes/slots/promo/` shows snacks under the header on every page, loaded once per document by its own loader and stays put when the page under it changes.
 
-The samples from here on are the storefront's, which is a React application: a project started with `fsr new <dir> --with react` or given React later with `fsr use app react`. A plain `fsr new` writes a bare application with no framework. There the same placements come from `@snapfire/fsr-authoring/template` with `Children` where a React layout writes `ReactNode`, as chapter 104 shows.
+The samples from here on are the storefront's, which is a React application: a project started with `fsr new <dir> --with react` or given React later with `fsr use app react`. A plain `fsr new` writes a bare application with no framework. There the same placements come from `@snapfire/fsr/template` with `Children` where a React layout writes `ReactNode`, as chapter 104 shows.
 
 ```tsx
-import { Slot } from "@snapfire/fsr-client/react";
+import { Slot } from "@snapfire/fsr/client/react";
 
 export default function Layout({ cartCount, children, promo }: LayoutProps & { children: ReactNode; promo: ReactNode }) {
   return (
@@ -275,7 +275,7 @@ The two differ only while an intercept is open. The console's header does this: 
 The link a click follows carries `data-sf-pending` until the page it names is shown, so `a[data-sf-pending] { opacity: 0.7; }` dims it while the payload is on its way. A component placed inside the link reads the same thing with `useLinkStatus` from its framework's adapter, as Next's hook does:
 
 ```tsx
-import { useLinkStatus } from "@snapfire/fsr-client/react";
+import { useLinkStatus } from "@snapfire/fsr/client/react";
 
 export default function Opening() {
   const { pending } = useLinkStatus();

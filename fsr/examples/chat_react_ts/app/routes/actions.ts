@@ -1,5 +1,5 @@
-import { action, redirect } from "@snapfire/fsr";
-import type { ActionCtx } from "@snapfire/fsr";
+import { action, redirect } from "@snapfire/fsr/host";
+import type { ActionCtx } from "@snapfire/fsr/host";
 import type { NameInput } from "@schemas/inputs";
 
 export const name = action(async ({ input, session }: ActionCtx<NameInput>) => {

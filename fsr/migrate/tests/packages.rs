@@ -27,12 +27,12 @@ fn gray_matter_is_the_front_matter_members() {
   let (out, report) = migrate(&t);
   assert_eq!(
     out.text("app/src/sync.ts").unwrap(),
-    "import { text } from \"@snapfire/fsr-client/std\";\n\nexport const read = (s: string) => text.frontMatter(s, { delimiters: ['<!--', '-->'] }).data;\nexport const write = (content: string, data: Record<string, unknown>) =>\n  text.withFrontMatter(content, data, { delimiters: ['<!--', '-->'] });\nexport const again = (body: string, data: Record<string, unknown>) => text.withFrontMatter(body.trim(), data);\n",
+    "import { text } from \"@snapfire/fsr/host\";\n\nexport const read = (s: string) => text.frontMatter(s, { delimiters: ['<!--', '-->'] }).data;\nexport const write = (content: string, data: Record<string, unknown>) =>\n  text.withFrontMatter(content, data, { delimiters: ['<!--', '-->'] });\nexport const again = (body: string, data: Record<string, unknown>) => text.withFrontMatter(body.trim(), data);\n",
     "{:?}",
     report.notes
   );
-  assert_eq!(out.text("app/src/hash.ts").unwrap(), "import { text } from \"@snapfire/fsr-client/std\";\nexport async function hash(s: string) {\n  const parsed = text.frontMatter(s, { delimiters: ['<!--', '-->'] });\n  return parsed.content;\n}\n");
-  assert_eq!(out.text("app/src/shadow.ts").unwrap(), "import { text as std_text } from \"@snapfire/fsr-client/std\";\n\nexport const body = (text: string) => std_text.frontMatter(text).content;\n");
+  assert_eq!(out.text("app/src/hash.ts").unwrap(), "import { text } from \"@snapfire/fsr/host\";\nexport async function hash(s: string) {\n  const parsed = text.frontMatter(s, { delimiters: ['<!--', '-->'] });\n  return parsed.content;\n}\n");
+  assert_eq!(out.text("app/src/shadow.ts").unwrap(), "import { text as std_text } from \"@snapfire/fsr/host\";\n\nexport const body = (text: string) => std_text.frontMatter(text).content;\n");
   assert!(report.packages.is_empty(), "{:?}", report.packages);
   assert!(report.notes.is_empty(), "{:?}", report.notes);
 }
@@ -65,7 +65,7 @@ fn a_pino_logger_is_the_log_member_with_the_message_first() {
   let (out, report) = migrate(&t);
   assert_eq!(
     out.text("app/src/run.ts").unwrap(),
-    "import { log } from \"@snapfire/fsr-client/std\";\n\nexport function run(id: string, extra: object) {\n  log.info('starting');\n  log.info('running', { id });\n  log.warn('slow', { module: 'sync', id });\n  log.error('failed', { module: 'sync' });\n  log.info('more', { module: 'sync', ...extra });\n  log.debug(\"\", { id });\n}\n",
+    "import { log } from \"@snapfire/fsr/host\";\n\nexport function run(id: string, extra: object) {\n  log.info('starting');\n  log.info('running', { id });\n  log.warn('slow', { module: 'sync', id });\n  log.error('failed', { module: 'sync' });\n  log.info('more', { module: 'sync', ...extra });\n  log.debug(\"\", { id });\n}\n",
     "{:?}",
     report.notes
   );
@@ -85,7 +85,7 @@ fn a_winston_logger_is_the_log_member_at_the_nearest_level() {
   let (out, report) = migrate(&t);
   assert_eq!(
     out.text("app/src/save.ts").unwrap(),
-    "import { log as std_log } from \"@snapfire/fsr-client/std\";\n\nexport const save = (path: string, log: string[]) => {\n  std_log.info('saved', { path, n: log.length });\n  std_log.debug('detail');\n  std_log.debug('request');\n  std_log.trace('noise');\n};\n",
+    "import { log as std_log } from \"@snapfire/fsr/host\";\n\nexport const save = (path: string, log: string[]) => {\n  std_log.info('saved', { path, n: log.length });\n  std_log.debug('detail');\n  std_log.debug('request');\n  std_log.trace('noise');\n};\n",
     "{:?}",
     report.notes
   );
@@ -171,5 +171,5 @@ fn clipboardy_is_the_clipboard_member() {
   let copier = copier.replace("\nexport const later = () => clip.read().then((t) => t.trim());\n", "");
   let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/copy.ts", &copier)]);
   let (out, _) = migrate(&t);
-  assert_eq!(out.text("app/src/copy.ts").unwrap(), "import { clipboard } from \"@snapfire/fsr-client/std\";\n\nexport async function copy(text: string) {\n  clipboard.write(text);\n  clipboard.write(text);\n  const back = clipboard.read();\n  return back + clipboard.read();\n}\n");
+  assert_eq!(out.text("app/src/copy.ts").unwrap(), "import { clipboard } from \"@snapfire/fsr/terminal\";\n\nexport async function copy(text: string) {\n  clipboard.write(text);\n  clipboard.write(text);\n  const back = clipboard.read();\n  return back + clipboard.read();\n}\n");
 }

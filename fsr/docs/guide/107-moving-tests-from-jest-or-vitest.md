@@ -11,7 +11,7 @@ FSR's testing API is inspired by Jest, Vitest and Testing Library so that a suit
 A page spec, `*.spec.tsx`, imports everything from one module:
 
 ```tsx
-import { describe, expect, it, render, screen, userEvent } from "@snapfire/fsr-client/testing";
+import { describe, expect, it, render, screen, userEvent } from "@snapfire/fsr/client/testing";
 ```
 
 A body test, `*.test.ts`, imports its helpers from `@snapfire/fsr/testing` and the loader or action under test by alias:
@@ -80,7 +80,7 @@ The same spec under `fsr test`:
 
 ```tsx
 import CartPage from "@routes/cart/page";
-import { ctx, describe, expect, fn, it, render, screen, userEvent } from "@snapfire/fsr-client/testing";
+import { ctx, describe, expect, fn, it, render, screen, userEvent } from "@snapfire/fsr/client/testing";
 
 describe("the cart", () => {
   it("checks out", async () => {

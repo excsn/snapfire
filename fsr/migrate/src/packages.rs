@@ -60,7 +60,22 @@ impl Pass for Terminal {
   }
 }
 
-pub(crate) const STD: &str = "@snapfire/fsr-client/std";
+/// Where a migrated terminal application imports the standard library's members from.
+pub(crate) const HOST: &str = "@snapfire/fsr/host";
+pub(crate) const TERMINAL_ROOT: &str = "@snapfire/fsr/terminal";
+
+/// The path a standard `member` is imported from in a terminal application.
+pub(crate) fn std_home(member: &str) -> &'static str {
+  match member {
+    "system" | "clipboard" | "Scope" => TERMINAL_ROOT,
+    _ => HOST,
+  }
+}
+
+/// Whether `source` is a path a standard member is imported from.
+pub(crate) fn is_std_source(source: &str) -> bool {
+  source == HOST || source == TERMINAL_ROOT
+}
 
 /// `clipboardy`'s `write`, `writeSync`, `read` and `readSync` as `clipboard.write` and `clipboard.read`, which answer at once, so an `await` of one goes with it. A file that uses it any other way is left as written with a note for each use.
 struct Clipboardy;
@@ -262,7 +277,7 @@ impl Visit for Dynamic<'_> {
 pub(crate) fn std_member(parsed: &Parsed, member: &str) -> (String, Option<String>) {
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if import.src.value.to_string_lossy() != STD {
+    if !is_std_source(&import.src.value.to_string_lossy()) {
       continue;
     }
     for specifier in &import.specifiers {
@@ -281,9 +296,9 @@ pub(crate) fn std_member(parsed: &Parsed, member: &str) -> (String, Option<Strin
   let mut names = Names(BTreeSet::new());
   parsed.module.visit_with(&mut names);
   if names.0.contains(member) {
-    (format!("std_{member}"), Some(format!("import {{ {member} as std_{member} }} from \"{STD}\";")))
+    (format!("std_{member}"), Some(format!("import {{ {member} as std_{member} }} from \"{}\";", std_home(member))))
   } else {
-    (member.to_owned(), Some(format!("import {{ {member} }} from \"{STD}\";")))
+    (member.to_owned(), Some(format!("import {{ {member} }} from \"{}\";", std_home(member))))
   }
 }
 

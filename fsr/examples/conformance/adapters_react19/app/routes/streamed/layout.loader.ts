@@ -1,4 +1,4 @@
-import type { Ctx } from "@snapfire/fsr";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ query }: Ctx<"/streamed">) {
   return { by: query.by ?? "layout" };

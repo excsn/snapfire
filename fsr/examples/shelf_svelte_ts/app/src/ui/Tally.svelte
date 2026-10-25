@@ -1,5 +1,5 @@
 <script>
-  import { useStore } from "@snapfire/fsr-client/svelte";
+  import { useStore } from "@snapfire/fsr/client/svelte";
   import { doneCount } from "@src/store";
 
   export let done;

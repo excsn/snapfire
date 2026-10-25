@@ -4,8 +4,8 @@
 
 import { useId } from "react";
 import type { ReactElement } from "react";
-import { action } from "@snapfire/fsr-client";
-import { useStore } from "@snapfire/fsr-client/react";
+import { action } from "@snapfire/fsr/client";
+import { useStore } from "@snapfire/fsr/client/react";
 import { Box, emit, suspendTerminal } from "@snapfire/fsr/terminal/core";
 
 /** The terminal's size in cells. */

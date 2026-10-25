@@ -21,7 +21,7 @@ fn node_modules_and_process_are_fsr_members() {
   let (out, report) = migrate(&t);
   assert_eq!(
     out.text("app/src/load.ts").unwrap(),
-    "import { file, path, system } from \"@snapfire/fsr-client/std\";\n\nexport async function load(dir: string) {\n  const at = path.join(system.home(), dir, 'config.json');\n  if (!file.exists(at)) return null;\n  const text = file.read(at);\n  await file.write(at + '.bak', text);\n  const s = await file.stat(at);\n  return [text, system.lineEnd(), system.env(\"HOME\"), system.env(dir), system.platform() === 'macos', system.cwd(), system.memory(), s.isFile];\n}\n",
+    "import { file, path } from \"@snapfire/fsr/host\";\nimport { system } from \"@snapfire/fsr/terminal\";\n\nexport async function load(dir: string) {\n  const at = path.join(system.home(), dir, 'config.json');\n  if (!file.exists(at)) return null;\n  const text = file.read(at);\n  await file.write(at + '.bak', text);\n  const s = await file.stat(at);\n  return [text, system.lineEnd(), system.env(\"HOME\"), system.env(dir), system.platform() === 'macos', system.cwd(), system.memory(), s.isFile];\n}\n",
     "{:?}",
     report.notes
   );
@@ -33,7 +33,7 @@ fn a_name_the_file_already_uses_takes_the_member_under_another() {
   let source = "import { readFileSync } from 'fs';\n\nexport const show = (file: string) => readFileSync(file, 'utf8');\n";
   let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/show.ts", source)]);
   let (out, report) = migrate(&t);
-  assert_eq!(out.text("app/src/show.ts").unwrap(), "import { file as std_file } from \"@snapfire/fsr-client/std\";\n\nexport const show = (file: string) => std_file.read(file);\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/src/show.ts").unwrap(), "import { file as std_file } from \"@snapfire/fsr/host\";\n\nexport const show = (file: string) => std_file.read(file);\n", "{:?}", report.notes);
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn a_process_use_with_no_fsr_member_is_noted() {
   let source = "export const quit = () => {\n  const dir = process.cwd();\n  process.exit(dir.length);\n};\n";
   let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/quit.ts", source)]);
   let (out, report) = migrate(&t);
-  assert_eq!(out.text("app/src/quit.ts").unwrap(), "import { system } from \"@snapfire/fsr-client/std\";\nexport const quit = () => {\n  const dir = system.cwd();\n  process.exit(dir.length);\n};\n");
+  assert_eq!(out.text("app/src/quit.ts").unwrap(), "import { system } from \"@snapfire/fsr/terminal\";\nexport const quit = () => {\n  const dir = system.cwd();\n  process.exit(dir.length);\n};\n");
   assert!(report.notes.iter().any(|n| n.message.contains("process.exit") && n.message.contains("useApp")), "{:?}", report.notes);
 }
 
@@ -61,7 +61,7 @@ fn spawn_crypto_and_async_local_storage_are_fsr_members() {
   let (out, report) = migrate(&t);
   assert_eq!(
     out.text("app/src/go.ts").unwrap(),
-    "import { Scope, crypto, system } from \"@snapfire/fsr-client/std\";\n\nconst storage: Scope<string> = new Scope();\n\nexport function go(part: string) {\n  const child = system.spawn('git', ['log'], { cwd: '/tmp' });\n  storage.set(crypto.uuid());\n  return [child, storage.get(), crypto.random(8), crypto.random(4, 'base64'), crypto.digest('sha256', 'hex', part, '!'), storage.run('x', () => 1)];\n}\n",
+    "import { crypto } from \"@snapfire/fsr/host\";\nimport { Scope, system } from \"@snapfire/fsr/terminal\";\n\nconst storage: Scope<string> = new Scope();\n\nexport function go(part: string) {\n  const child = system.spawn('git', ['log'], { cwd: '/tmp' });\n  storage.set(crypto.uuid());\n  return [child, storage.get(), crypto.random(8), crypto.random(4, 'base64'), crypto.digest('sha256', 'hex', part, '!'), storage.run('x', () => 1)];\n}\n",
     "{:?}",
     report.notes
   );

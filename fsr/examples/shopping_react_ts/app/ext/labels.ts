@@ -1,4 +1,4 @@
-import { intl } from "@snapfire/fsr-client/std";
+import { intl } from "@snapfire/fsr/client";
 
 /** `n` grouped for the locale with `noun` in the number the locale's plural rules give it: `1 item`, `1,234 items`. */
 export function count(n: number, noun: string): string {

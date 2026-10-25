@@ -1,4 +1,4 @@
-import { ctx, expect, load, screen, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, load, screen, test } from "@snapfire/fsr/client/testing";
 
 const soup = {
   id: "1",

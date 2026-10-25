@@ -1,6 +1,6 @@
 export function sf() {
     const s = globalThis.__sf;
-    if (!s) throw new Error("@snapfire/fsr-client/testing runs under `fsr test` only");
+    if (!s) throw new Error("@snapfire/fsr/client/testing runs under `fsr test` only");
     return s;
 }
 export function settle() {

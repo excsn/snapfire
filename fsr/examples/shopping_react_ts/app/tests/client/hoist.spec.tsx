@@ -1,5 +1,5 @@
-import { useHoisted, withHoisted } from "@snapfire/fsr-client/react";
-import { expect, render, test } from "@snapfire/fsr-client/testing";
+import { useHoisted, withHoisted } from "@snapfire/fsr/client/react";
+import { expect, render, test } from "@snapfire/fsr/client/testing";
 
 function same(actual: unknown, expected: unknown, message?: string): void {
   expect(JSON.stringify(actual), message).toEqual(JSON.stringify(expected));

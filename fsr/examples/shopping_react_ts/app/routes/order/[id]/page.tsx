@@ -1,6 +1,6 @@
 import type { OrderIdProps } from "@generated/client";
 import { count } from "@ext/labels";
-import { Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr/client/react";
 import { OrderHelp } from "@src/ui/OrderHelp";
 import { money } from "@src/ui/money";
 

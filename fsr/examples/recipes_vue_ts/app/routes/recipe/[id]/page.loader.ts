@@ -1,5 +1,5 @@
-import { fail } from "@snapfire/fsr";
-import type { Ctx } from "@snapfire/fsr";
+import { fail } from "@snapfire/fsr/host";
+import type { Ctx } from "@snapfire/fsr/host";
 
 export async function load({ params, session, services }: Ctx<"/recipe/{id}">) {
   const recipes = await services.kitchen.listRecipes();

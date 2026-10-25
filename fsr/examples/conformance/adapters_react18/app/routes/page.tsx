@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr/components";
 import { Place } from "@snapfire/fsr/components";
 
 import ReactProbe from "@src/ui/ReactProbe";
