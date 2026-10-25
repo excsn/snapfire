@@ -66,11 +66,11 @@ The migration column counts the by-design examples that render on the server onc
 
 Next.js's own examples go through `fsr migrate` first, then build as FSR applications ([held outcomes](examples/corpus/next_outcomes.txt)). They are whole applications with backends, CSS modules and component libraries rather than one-component samples, so most stop at the build:
 
-| Corpus | Examples | Rendered on the server after migration | Some components in the browser | Refused at build |
-|---|---|---|---|---|
-| Next.js | 223 | 44 (19.7%) | 66 | 113 |
+| Corpus | Examples | Rendered on the server after migration | Some components in the browser | Refused at build | Not migrated, CommonJS |
+|---|---|---|---|---|---|
+| Next.js | 223 | 44 (19.7%) | 65 | 111 | 3 |
 
-Each refused line names the construct it stopped at. Three more examples are not Next.js applications and five directories hold no application.
+Each refused line names the construct it stopped at. `fsr migrate` reads ES modules only, so an application whose pages reach a CommonJS file is not migrated and the file is named. Three more examples are not Next.js applications and five directories hold no application.
 
 ## Desktop apps (experimental)
 

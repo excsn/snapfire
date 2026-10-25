@@ -24,6 +24,8 @@ next      fsr check ./my-fsr-app/app
 
 `fsr add` vendors the packages the application imports. `fsr check` builds and typechecks it, which is where the build names any component it leaves to the browser and why.
 
+`fsr migrate` reads ES modules only. When a page, a layout, a route handler or a file they import is CommonJS, `require` or `module.exports`, nothing is written: the command names each such file and the line that shows it, to be rewritten as `import` and `export` first. `next.config.js` and a server entry beside the application are not migrated, so CommonJS there is not refused.
+
 ## Where the files go
 
 | Next.js | FSR |
