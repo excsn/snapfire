@@ -1,6 +1,6 @@
 import { createApp, createCommentVNode, createSSRApp, createTextVNode, defineAsyncComponent, defineComponent, getCurrentInstance, h, hydrateOnIdle, hydrateOnVisible, inject, onBeforeUnmount, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref, type VNode } from "vue";
 
-import { childrenRegion, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
+import { adoptNodes, childrenRegion, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -39,8 +39,15 @@ function ownProps(props: Props): Record<string, unknown> {
   return own;
 }
 
+/** What an island's children are: their pieces, their markup and the region the server wrote them in, whose nodes a mount takes; null for children a patch brought. */
+interface HeldChildren {
+  pieces: Piece[];
+  html: string;
+  from: ParentNode | null;
+}
+
 /** What each island's children are now: the pieces boot read when it mounted the island, then what each patch gave them. */
-const childrenHeld = new WeakMap<Element, Ref<{ pieces: Piece[]; html: string } | null>>();
+const childrenHeld = new WeakMap<Element, Ref<HeldChildren | null>>();
 
 /** Whether a piece is or holds an island Vue renders in this app. */
 function holdsOwn(piece: Piece): boolean {
@@ -49,8 +56,9 @@ function holdsOwn(piece: Piece): boolean {
 }
 
 /** A region of an island's markup holding what the server placed in it. Pieces that hold a Vue island render in this app, that island included; a region that holds none is markup Vue sets once and a patch morphs. */
-function regionNode(attrs: Record<string, string>, pieces: Piece[], html: string): VNode {
-  if (!pieces.some(holdsOwn)) return h(Opaque, { tag: "sf-s", attrs, html });
+function regionNode(attrs: Record<string, string>, held: HeldChildren): VNode {
+  const { pieces, html, from } = held;
+  if (!pieces.some(holdsOwn)) return h(Opaque, { tag: "sf-s", attrs, html, from });
   return h(Scanned, { tag: "sf-s", attrs }, () => vnodesOf(pieces));
 }
 
@@ -69,16 +77,18 @@ const Scanned = defineComponent({
   },
 });
 
-/** An element whose markup Vue sets once and never patches, scanned for the islands inside it. New markup is morphed in, so an island inside keeps its DOM and its state. Taken away, it releases those islands. */
+/** An element whose markup Vue sets once and never patches, scanned for the islands inside it. Mounted, it takes the nodes of `from`, the element the server wrote. New markup is morphed in, so an island inside keeps its DOM and its state. Taken away, it releases those islands. */
 const Opaque = defineComponent({
   name: "SfOpaque",
-  props: { tag: { type: String, required: true }, attrs: { type: Object, required: true }, html: { type: String, required: true } },
+  props: { tag: { type: String, required: true }, attrs: { type: Object, required: true }, html: { type: String, required: true }, from: { type: Object as () => ParentNode | null, default: null } },
   setup(props) {
     const node = shallowRef<Element | null>(null);
     const first = unmarked(props.html);
     let shown = props.html;
     onMounted(() => {
-      if (node.value) scan(node.value);
+      if (!node.value) return;
+      adoptNodes(node.value, props.from);
+      scan(node.value);
     });
     watch(
       () => props.html,
@@ -113,7 +123,7 @@ function vnodesOf(pieces: Piece[]): VNode[] {
     }
     else if (VOID_TAGS.has(piece.tag)) out.push(h(piece.tag, { ...piece.attrs, key }));
     else if (piece.children.some(holdsOwn)) out.push(h(piece.tag, { ...piece.attrs, key }, vnodesOf(piece.children)));
-    else out.push(h(Opaque, { key, tag: piece.tag, attrs: piece.attrs, html: piece.node.innerHTML }));
+    else out.push(h(Opaque, { key, tag: piece.tag, attrs: piece.attrs, html: piece.node.innerHTML, from: piece.node }));
   });
   return out;
 }
@@ -140,6 +150,9 @@ const Foreign = defineComponent({
   setup(props) {
     const node = shallowRef<Element | null>(null);
     const html = unmarked(props.piece.marker.innerHTML);
+    onMounted(() => {
+      if (node.value) adoptNodes(node.value, props.piece.marker);
+    });
     watch(
       () => props.piece,
       (piece) => {
@@ -206,7 +219,8 @@ const NestedIsland = defineComponent({
       const attrs = { ...markerAttrs(piece.marker), ref: node };
       if (!live.value) return h("sf-i", { ...attrs, innerHTML: html });
       const values = (piece.props as { $sv?: { [key: string]: unknown } }).$sv ?? {};
-      const slots = piece.children === null ? undefined : { default: () => regionNode({ [CHILDREN_ATTR]: "" }, piece.children ?? [], childrenRegion(piece.marker)?.innerHTML ?? "") };
+      const region = childrenRegion(piece.marker);
+      const slots = piece.children === null ? undefined : { default: () => regionNode({ [CHILDREN_ATTR]: "" }, { pieces: piece.children ?? [], html: region?.innerHTML ?? "", from: region }) };
       const body = h(IslandScope, { at: find, values }, () => h(component, ownProps(piece.props), slots));
       return h("sf-i", attrs, [body]);
     };
@@ -220,17 +234,17 @@ const NestedIsland = defineComponent({
  * and nothing else. The held children region is taken out before the app
  * mounts, since mounting empties `el`.
  */
-function rootFor(component: Component, props: Props, el: Element, pieces: Piece[] | null): { root: Component; props: Record<string, unknown>; children: Ref<{ pieces: Piece[]; html: string } | null> } {
+function rootFor(component: Component, props: Props, el: Element, pieces: Piece[] | null): { root: Component; props: Record<string, unknown>; children: Ref<HeldChildren | null> } {
   const state = reactive(ownProps(props));
   const region = childrenRegion(el);
-  const children = shallowRef<{ pieces: Piece[]; html: string } | null>(pieces === null ? null : { pieces, html: region?.innerHTML ?? "" });
+  const children = shallowRef<HeldChildren | null>(pieces === null ? null : { pieces, html: region?.innerHTML ?? "", from: region });
   if (region?.tagName === "TEMPLATE") region.remove();
   const root = defineComponent({
     name: "SfIsland",
     setup() {
       return () => {
         const held = children.value;
-        return h(component, state, held === null ? undefined : { default: () => regionNode({ [CHILDREN_ATTR]: "" }, held.pieces, held.html) });
+        return h(component, state, held === null ? undefined : { default: () => regionNode({ [CHILDREN_ATTR]: "" }, held) });
       };
     },
   });
@@ -293,7 +307,7 @@ export const vuePatcher: Patcher = (handle, module, props, el) => {
   Object.assign(state, next);
   const fresh = islandState(el)?.children ?? null;
   const children = childrenHeld.get(el);
-  if (fresh !== null && children?.value && children.value.html !== fresh) children.value = { pieces: piecesOf(fresh), html: fresh };
+  if (fresh !== null && children?.value && children.value.html !== fresh) children.value = { pieces: piecesOf(fresh), html: fresh, from: null };
 };
 
 rendersNested(vueMounter);

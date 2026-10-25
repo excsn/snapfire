@@ -77,6 +77,8 @@ export declare function rendersNested(mount: Mounter, takes?: (el: Element) => b
 export declare function nestsIn(outer: IslandEntry | undefined, inner: IslandEntry | undefined): boolean;
 /** The region holding `el`'s children: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after its markup when its render did not place them. Never one inside an island nested in `el`. */
 export declare function childrenRegion(el: Element): Element | null;
+/** Moves what the server wrote inside `from` into `to`, the element a framework made in its place, so a listener or anything else bound to those nodes before the mount stays bound. Nothing moves when `to` is `from`, as it is while hydrating. Nothing moves either when `from` holds nothing any more. A template gives its content. */
+export declare function adoptNodes(to: Element, from: ParentNode | null): void;
 /** `el`'s children as pieces, null when the server placed none. */
 export declare function islandChildren(el: Element): Piece[] | null;
 /** Children markup a patch carries, as pieces. */

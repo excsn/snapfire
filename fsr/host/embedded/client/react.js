@@ -1,7 +1,7 @@
 import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import { childrenRegion, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired } from "./boot.js";
+import { adoptNodes, childrenRegion, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -23,9 +23,21 @@ function namedSlotsOf(el) {
     return Array.from(el.querySelectorAll("sf-s[data-sf-name]")).filter((slot)=>slot.parentElement?.closest("sf-i") === el);
 }
 function adopted(slot, name) {
+    return createElement(Adopted, {
+        slot,
+        name
+    });
+}
+function Adopted({ slot, name }) {
+    const node = useRef(null);
+    const [html] = useState(()=>slot?.innerHTML ?? "");
+    useLayoutEffect(()=>{
+        if (node.current) adoptNodes(node.current, slot);
+    }, []);
     const props = {
+        ref: node,
         dangerouslySetInnerHTML: {
-            __html: slot?.innerHTML ?? ""
+            __html: html
         },
         suppressHydrationWarning: true
     };
@@ -33,10 +45,11 @@ function adopted(slot, name) {
     if (slot?.hasAttribute(CHILDREN_ATTR)) props[CHILDREN_ATTR] = "";
     return createElement("sf-s", props);
 }
-function boxOf(pieces, html) {
+function boxOf(pieces, html, from = null) {
     return {
         pieces,
         html,
+        from,
         listeners: new Set()
     };
 }
@@ -63,7 +76,8 @@ function PiecesRegion({ box, attrs }) {
         key: "opaque",
         tag: "sf-s",
         attrs,
-        html: box.html
+        html: box.html,
+        from: box.from
     });
     return createElement("sf-s", {
         key: "tree",
@@ -72,11 +86,14 @@ function PiecesRegion({ box, attrs }) {
         suppressHydrationWarning: true
     }, ...nodesOf(pieces));
 }
-function Opaque({ tag, attrs, html }) {
+function Opaque({ tag, attrs, html, from }) {
     const [first] = useState(()=>unmarked(html));
     const shown = useRef(html);
     const node = useRef(null);
     useReleasing(node);
+    useLayoutEffect(()=>{
+        if (node.current) adoptNodes(node.current, from);
+    }, []);
     useEffect(()=>{
         const el = node.current;
         if (!el) return;
@@ -231,7 +248,8 @@ function nodesOf(pieces, svg = false) {
                 key,
                 tag: piece.tag,
                 attrs: props,
-                html: piece.node.innerHTML
+                html: piece.node.innerHTML,
+                from: piece.node
             }));
         }
     });
@@ -267,6 +285,9 @@ function Foreign({ piece }) {
     const node = useRef(null);
     const [html] = useState(()=>unmarked(piece.marker.innerHTML));
     useReleasing(node);
+    useLayoutEffect(()=>{
+        if (node.current) adoptNodes(node.current, piece.marker);
+    }, []);
     const first = useRef(piece);
     useEffect(()=>{
         const el = node.current;
@@ -319,6 +340,9 @@ function componentFor(entry) {
 function ClientOnly({ marker, at, ready, body }) {
     const [html] = useState(marker.innerHTML);
     const [mounted, setMounted] = useState(false);
+    useLayoutEffect(()=>{
+        if (at.current) adoptNodes(at.current, marker);
+    }, []);
     useEffect(()=>{
         let live = true;
         void ready().then(()=>{
@@ -344,7 +368,11 @@ function ClientOnly({ marker, at, ready, body }) {
 function NestedIsland({ piece }) {
     const node = useRef(null);
     const at = useCallback(()=>node.current, []);
-    const box = useMemo(()=>piece.children === null ? null : boxOf(piece.children, childrenRegion(piece.marker)?.innerHTML ?? ""), [
+    const box = useMemo(()=>{
+        if (piece.children === null) return null;
+        const region = childrenRegion(piece.marker);
+        return boxOf(piece.children, region?.innerHTML ?? "", region);
+    }, [
         piece
     ]);
     const entry = piece.entry;
@@ -446,7 +474,7 @@ function markupFor(el, n) {
     if (!box) {
         const placed = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
         const held = ownOf(el, `template[${MARKUP_ATTR}="${n}"]`);
-        box = placed ? boxOf(readPieces(placed.childNodes), placed.innerHTML) : held ? boxOf(readPieces(held.content.childNodes), held.innerHTML) : boxOf([], "");
+        box = placed ? boxOf(readPieces(placed.childNodes), placed.innerHTML, placed) : held ? boxOf(readPieces(held.content.childNodes), held.innerHTML, held) : boxOf([], "");
         held?.remove();
         boxes.set(n, box);
     }
@@ -566,6 +594,9 @@ export function Island({ when, mode, children }) {
     });
     const marker = claimed.held?.firstElementChild;
     const inTree = mode === undefined && marker?.tagName === "SF-I" && registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.mount === reactMounter;
+    useLayoutEffect(()=>{
+        if (node.current && !inTree) adoptNodes(node.current, claimed.held ?? null);
+    }, []);
     useEffect(()=>{
         const region = node.current;
         if (!region || !regions || claimed.inline || inTree) return;
@@ -712,12 +743,14 @@ export function island(component, options = {}) {
 }
 export function Slot({ name }) {
     const regions = useContext(RegionsContext);
-    const [html] = useState(()=>{
-        if (!regions) return "";
-        const slot = namedSlotsOf(regions.root).find((s)=>s.getAttribute("data-sf-name") === name);
-        return slot?.innerHTML ?? "";
-    });
+    const [slot] = useState(()=>regions ? namedSlotsOf(regions.root).find((s)=>s.getAttribute("data-sf-name") === name) ?? null : null);
+    const [html] = useState(()=>slot?.innerHTML ?? "");
+    const node = useRef(null);
+    useLayoutEffect(()=>{
+        if (node.current) adoptNodes(node.current, slot);
+    }, []);
     return createElement("sf-s", {
+        ref: node,
         "data-sf-name": name,
         dangerouslySetInnerHTML: {
             __html: html
@@ -1035,7 +1068,7 @@ function markActivity(el) {
 }
 export const reactMounter = (component, props, el, hydrate, pieces)=>{
     const region = childrenRegion(el);
-    if (pieces !== null) childrenBoxes.set(el, boxOf(pieces, region?.innerHTML ?? ""));
+    if (pieces !== null) childrenBoxes.set(el, boxOf(pieces, region?.innerHTML ?? "", region));
     if (region instanceof HTMLTemplateElement) region.remove();
     if (hydrate) bracketNested(el, pieces);
     const element = islandElement(component, props, el, false);

@@ -1,6 +1,7 @@
-import { getAllContexts, getContext, hydrate, mount as mountSvelte, setContext, unmount } from "svelte";
+import { createRawSnippet, getAllContexts, getContext, hydrate, mount as mountSvelte, setContext, unmount } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
-import { discard, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, rendersNested, scan, timingFired, unmarked } from "./boot.js";
+import { adoptNodes, childrenRegion, discard, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, rendersNested, scan, timingFired, unmarked } from "./boot.js";
+import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { get, set, subscribe } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
@@ -73,7 +74,8 @@ function item(branch, inner) {
             kind: "opaque",
             tag: element.tag,
             attrs: element.attrs,
-            html: unmarked(element.node.innerHTML)
+            html: unmarked(element.node.innerHTML),
+            from: element.node
         };
     }
     return {
@@ -137,7 +139,8 @@ function plain(pieces) {
             kind: "opaque",
             tag: piece.tag,
             attrs: piece.attrs,
-            html: unmarked(piece.node.innerHTML)
+            html: unmarked(piece.node.innerHTML),
+            from: piece.node
         });
     }
     flush();
@@ -165,6 +168,7 @@ export function opaque() {
     const contexts = getAllContexts();
     return (piece)=>(el)=>{
             scopes.set(el, contexts);
+            adoptNodes(el, piece.from);
             if (unmarked(el.innerHTML) !== piece.html) morph(el, piece.html);
             scan(el);
             return ()=>{
@@ -226,15 +230,15 @@ function contextsAbove(el) {
     }
     return new Map();
 }
-function liveProps(state) {
+function liveProps(state, tree = childrenTree) {
     const read = (key)=>{
         state.track();
-        if (key === "children" && state.pieces !== null) return childrenTree ?? undefined;
+        if (key === "children" && state.pieces !== null) return tree ?? undefined;
         return typeof key === "string" ? state.props[key] : undefined;
     };
     const keys = ()=>[
             ...Object.keys(state.props),
-            ...state.pieces !== null && childrenTree ? [
+            ...state.pieces !== null && tree ? [
                 "children"
             ] : []
         ];
@@ -259,6 +263,7 @@ export const svelteMounter = (module, props, el, isHydrating, children)=>{
     const state = {
         props: ownProps(props),
         pieces: children ? treeOf(children) : null,
+        region: null,
         changed: ()=>{},
         track: ()=>{}
     };
@@ -299,9 +304,24 @@ export const svelteMounter = (module, props, el, isHydrating, children)=>{
             hydrationMismatch(el, error);
         }
     }
+    const served = childrenRegion(el);
+    if (served && state.pieces !== null && !state.pieces.some((piece)=>piece.kind === "island" || piece.kind === "element")) {
+        options.props = liveProps(state, wholeRegion(served, context, (made)=>state.region = made));
+    }
     el.replaceChildren();
     return mountSvelte(component, options);
 };
+function wholeRegion(served, context, made) {
+    return createRawSnippet(()=>({
+            render: ()=>`<sf-s ${CHILDREN_ATTR}></sf-s>`,
+            setup: (region)=>{
+                adoptNodes(region, served);
+                scopes.set(region, context);
+                made(region);
+                scan(region);
+            }
+        }));
+}
 rendersNested(svelteMounter, (el)=>{
     const before = el.parentElement?.previousSibling;
     return before?.nodeType === 8 && before.data === "[0";
@@ -311,7 +331,10 @@ export const sveltePatcher = (_handle, _module, props, el)=>{
     if (!state) return;
     state.props = ownProps(props);
     const fresh = islandState(el)?.children ?? null;
-    if (fresh !== null) state.pieces = treeOf(piecesOf(fresh));
+    if (fresh !== null && state.region !== null) {
+        if (unmarked(state.region.innerHTML) !== fresh) morph(state.region, fresh);
+        scan(state.region);
+    } else if (fresh !== null) state.pieces = treeOf(piecesOf(fresh));
     state.changed();
 };
 export const svelteUnmounter = (handle, el)=>{

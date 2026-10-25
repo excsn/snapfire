@@ -87,6 +87,12 @@ export function childrenRegion(el) {
     }
     return null;
 }
+export function adoptNodes(to, from) {
+    if (from === null || to === from) return;
+    const source = from instanceof HTMLTemplateElement ? from.content : from;
+    if (source.firstChild === null) return;
+    to.replaceChildren(...Array.from(source.childNodes));
+}
 export function islandChildren(el) {
     const region = childrenRegion(el);
     if (!region) return null;

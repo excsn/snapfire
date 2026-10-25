@@ -627,6 +627,23 @@ const svelteMounter: Mounter = (module, props, el, hydrating) => {
 
 A mounter that ignores `children` leaves the region the server wrote them in as it stands while hydrating. A scan mounts every island inside it as a root of its own.
 
+A mounter that mounts afresh, because the server did not render the island or because its markup did not hydrate, still finds the children the server wrote in the region `childrenRegion` returns. Rendering them again from their markup makes copies. A copy has none of what a script bound to the original, such as htmx's listeners. `adoptNodes` moves the server's nodes into the element the framework made in their place:
+
+```ts
+import { adoptNodes, childrenRegion, type Mounter } from "@snapfire/fsr/client";
+import { createRawSnippet, mount, type Component } from "svelte";
+
+const svelteMounter: Mounter = (module, props, el) => {
+  const served = childrenRegion(el);
+  const children = createRawSnippet(() => ({
+    render: () => "<sf-s data-sf-children></sf-s>",
+    setup: (region: Element) => adoptNodes(region, served),
+  }));
+  el.replaceChildren();
+  return mount(module as Component, { target: el, props: { ...(props as Record<string, unknown>), children } });
+};
+```
+
 A mounter that renders the children in its own framework's tree says so with `rendersNested`. A scan then leaves the islands of its framework among the children to it. Each island piece carries its registry entry, its props and its timing. `loadedModule` already holds the module of every one timed `load` when the mounter runs:
 
 ```ts

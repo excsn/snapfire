@@ -37,6 +37,8 @@ export interface TreeOpaque {
 		[name: string]: string;
 	};
 	html: string;
+	/** The element the server wrote, whose nodes a mount takes. */
+	from: Element;
 }
 /** A run of text and comments. */
 export interface TreeHtml {
@@ -47,7 +49,7 @@ export interface TreeHtml {
 export declare function registerTree(tree: Snippet): void;
 /** What `Pieces.svelte` lists: the pieces it was given, else the children of the island around it. */
 export declare function held(given: () => TreePiece[] | undefined): () => TreePiece[];
-/** The attachment `Pieces.svelte` puts on an element it keeps as the server wrote it: the content stays while hydrating, is written on a fresh render and morphed when a patch changes it. The islands inside it are scanned and ended once the element leaves the document. */
+/** The attachment `Pieces.svelte` puts on an element it keeps as the server wrote it: the content stays while hydrating, is taken from the server's element on a fresh render and morphed when a patch changes it. The islands inside it are scanned and ended once the element leaves the document. */
 export declare function opaque(): (piece: TreeOpaque) => (el: Element) => () => void;
 /** What `Island.svelte` renders a Svelte island of the tree with: its props and its component, loaded already when the server rendered it, else once its timing fires. Sets the contexts the island's own children and `useLinkStatus` read. */
 export declare function nested(piece: () => TreeIsland): {

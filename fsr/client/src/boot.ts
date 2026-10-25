@@ -192,6 +192,14 @@ export function childrenRegion(el: Element): Element | null {
   return null;
 }
 
+/** Moves what the server wrote inside `from` into `to`, the element a framework made in its place, so a listener or anything else bound to those nodes before the mount stays bound. Nothing moves when `to` is `from`, as it is while hydrating. Nothing moves either when `from` holds nothing any more. A template gives its content. */
+export function adoptNodes(to: Element, from: ParentNode | null): void {
+  if (from === null || to === from) return;
+  const source = from instanceof HTMLTemplateElement ? from.content : from;
+  if (source.firstChild === null) return;
+  to.replaceChildren(...Array.from(source.childNodes));
+}
+
 /** `el`'s children as pieces, null when the server placed none. */
 export function islandChildren(el: Element): Piece[] | null {
   const region = childrenRegion(el);
@@ -330,7 +338,7 @@ export function serverRendered(el: Element): boolean {
   return el.hasAttribute(SSR_ATTR);
 }
 
-/** An island the nearest island above it has not rendered and has not yet mounted. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded and the copy carries the `data-sf-scheduled` a scan would leave. The parent's own mount reaches it instead, once that mount has run: a parent that renders nothing but its regions still holds no markup of its own then. */
+/** An island the nearest island above it has not rendered and has not yet mounted. That mount takes this element out of the document and puts it back only where its render places the region holding it, so nothing mounts here first. The parent's own mount reaches it instead, once that mount has run: a parent that renders nothing but its regions still holds no markup of its own then. */
 function awaitingAnAncestor(el: Element): boolean {
   const above = el.parentElement?.closest("sf-i");
   return above !== null && above !== undefined && !serverRendered(above) && !above.hasAttribute(MOUNTED);

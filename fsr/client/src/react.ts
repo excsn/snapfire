@@ -2,7 +2,7 @@ import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { childrenRegion, discard, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
+import { adoptNodes, childrenRegion, discard, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -33,9 +33,18 @@ function namedSlotsOf(el: Element): Element[] {
   return Array.from(el.querySelectorAll("sf-s[data-sf-name]")).filter((slot) => slot.parentElement?.closest("sf-i") === el);
 }
 
-/** An adopted region: `<sf-s>` with the markup it already holds, created once and rendered unchanged, so React takes the region at hydration and never reconciles it. Navigation rewrites what is inside. */
+/** An adopted region: `<sf-s>` holding the server's nodes, created once and rendered unchanged, so React takes the region at hydration, takes its nodes when it mounts and never reconciles it. Navigation rewrites what is inside. */
 function adopted(slot: Element | null, name?: string): ReactElement {
-  const props: { [key: string]: unknown } = { dangerouslySetInnerHTML: { __html: slot?.innerHTML ?? "" }, suppressHydrationWarning: true };
+  return createElement(Adopted, { slot, name });
+}
+
+function Adopted({ slot, name }: { slot: Element | null; name?: string }): ReactElement {
+  const node = useRef<Element | null>(null);
+  const [html] = useState(() => slot?.innerHTML ?? "");
+  useLayoutEffect(() => {
+    if (node.current) adoptNodes(node.current, slot);
+  }, []);
+  const props: { [key: string]: unknown } = { ref: node, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true };
   if (name !== undefined) props["data-sf-name"] = name;
   if (slot?.hasAttribute(CHILDREN_ATTR)) props[CHILDREN_ATTR] = "";
   return createElement("sf-s", props);
@@ -45,11 +54,13 @@ function adopted(slot: Element | null, name?: string): ReactElement {
 interface RegionBox {
   pieces: Piece[];
   html: string;
+  /** The region the server wrote, whose nodes a mount takes; null for one a patch brought. */
+  from: ParentNode | null;
   listeners: Set<() => void>;
 }
 
-function boxOf(pieces: Piece[], html: string): RegionBox {
-  return { pieces, html, listeners: new Set() };
+function boxOf(pieces: Piece[], html: string, from: ParentNode | null = null): RegionBox {
+  return { pieces, html, from, listeners: new Set() };
 }
 
 function refill(box: RegionBox, html: string): void {
@@ -71,16 +82,19 @@ function PiecesRegion({ box, attrs }: { box: RegionBox; attrs: { [name: string]:
   useEffect(() => {
     if (tree && region.current) scan(region.current);
   });
-  if (!tree) return createElement(Opaque, { key: "opaque", tag: "sf-s", attrs, html: box.html });
+  if (!tree) return createElement(Opaque, { key: "opaque", tag: "sf-s", attrs, html: box.html, from: box.from });
   return createElement("sf-s", { key: "tree", ...attrs, ref: region, suppressHydrationWarning: true }, ...nodesOf(pieces));
 }
 
-/** An element whose markup React sets once and never reconciles, scanned for the islands inside it. New markup is morphed in, so an island inside keeps its DOM and its state. Taken away, it releases those islands. */
-function Opaque({ tag, attrs, html }: { tag: string; attrs: { [prop: string]: unknown }; html: string }): ReactElement {
+/** An element whose markup React sets once and never reconciles, scanned for the islands inside it. Mounted, it takes the nodes of `from`, the element the server wrote. New markup is morphed in, so an island inside keeps its DOM and its state. Taken away, it releases those islands. */
+function Opaque({ tag, attrs, html, from }: { tag: string; attrs: { [prop: string]: unknown }; html: string; from: ParentNode | null }): ReactElement {
   const [first] = useState(() => unmarked(html));
   const shown = useRef(html);
   const node = useRef<Element | null>(null);
   useReleasing(node);
+  useLayoutEffect(() => {
+    if (node.current) adoptNodes(node.current, from);
+  }, []);
   useEffect(() => {
     const el = node.current;
     if (!el) return;
@@ -184,7 +198,7 @@ function nodesOf(pieces: Piece[], svg = false): ReactNode[] {
       if (VOID_TAGS.has(piece.tag)) out.push(createElement(piece.tag, props));
       else if (piece.tag === "textarea") out.push(createElement("textarea", { ...props, defaultValue: piece.node.textContent ?? "" }));
       else if (piece.children.some(holdsOwn)) out.push(createElement(piece.tag, props, ...nodesOf(piece.children, inSvg)));
-      else out.push(createElement(Opaque, { key, tag: piece.tag, attrs: props, html: piece.node.innerHTML }));
+      else out.push(createElement(Opaque, { key, tag: piece.tag, attrs: props, html: piece.node.innerHTML, from: piece.node }));
     }
   });
   return out;
@@ -220,6 +234,9 @@ function Foreign({ piece }: { piece: IslandPiece }): ReactElement {
   const node = useRef<Element | null>(null);
   const [html] = useState(() => unmarked(piece.marker.innerHTML));
   useReleasing(node);
+  useLayoutEffect(() => {
+    if (node.current) adoptNodes(node.current, piece.marker);
+  }, []);
   const first = useRef(piece);
   useEffect(() => {
     const el = node.current;
@@ -270,6 +287,9 @@ function componentFor(entry: IslandEntry): ComponentType<object> {
 function ClientOnly({ marker, at, ready, body }: { marker: Element; at: { current: Element | null }; ready: () => Promise<unknown>; body: () => ReactNode }): ReactElement {
   const [html] = useState(marker.innerHTML);
   const [mounted, setMounted] = useState(false);
+  useLayoutEffect(() => {
+    if (at.current) adoptNodes(at.current, marker);
+  }, []);
   useEffect(() => {
     let live = true;
     void ready().then(() => {
@@ -287,7 +307,11 @@ function ClientOnly({ marker, at, ready, body }: { marker: Element; at: { curren
 function NestedIsland({ piece }: { piece: IslandPiece }): ReactElement {
   const node = useRef<Element | null>(null);
   const at = useCallback(() => node.current, []);
-  const box = useMemo(() => (piece.children === null ? null : boxOf(piece.children, childrenRegion(piece.marker)?.innerHTML ?? "")), [piece]);
+  const box = useMemo(() => {
+    if (piece.children === null) return null;
+    const region = childrenRegion(piece.marker);
+    return boxOf(piece.children, region?.innerHTML ?? "", region);
+  }, [piece]);
   const entry = piece.entry as IslandEntry;
   const [component] = useState(() => componentFor(entry));
   const [id] = useState(piece.marker.id);
@@ -379,7 +403,7 @@ function markupFor(el: Element, n: number): ReactElement {
   if (!box) {
     const placed = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
     const held = ownOf(el, `template[${MARKUP_ATTR}="${n}"]`) as HTMLTemplateElement | null;
-    box = placed ? boxOf(readPieces(placed.childNodes), placed.innerHTML) : held ? boxOf(readPieces(held.content.childNodes), held.innerHTML) : boxOf([], "");
+    box = placed ? boxOf(readPieces(placed.childNodes), placed.innerHTML, placed) : held ? boxOf(readPieces(held.content.childNodes), held.innerHTML, held) : boxOf([], "");
     held?.remove();
     boxes.set(n, box);
   }
@@ -527,6 +551,10 @@ export function Island({ when, mode, children }: IslandProps): ReactElement {
   const marker = claimed.held?.firstElementChild;
   const inTree = mode === undefined && marker?.tagName === "SF-I" && registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.mount === reactMounter;
 
+  useLayoutEffect(() => {
+    if (node.current && !inTree) adoptNodes(node.current, claimed.held ?? null);
+  }, []);
+
   useEffect(() => {
     const region = node.current;
     if (!region || !regions || claimed.inline || inTree) return;
@@ -659,12 +687,13 @@ export interface SlotProps {
 /** A named slot of a layout: the region a parallel route renders into or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands and navigation fills and empties it without React reconciling it. */
 export function Slot({ name }: SlotProps): ReactElement {
   const regions = useContext(RegionsContext);
-  const [html] = useState(() => {
-    if (!regions) return "";
-    const slot = namedSlotsOf(regions.root).find((s) => s.getAttribute("data-sf-name") === name);
-    return slot?.innerHTML ?? "";
-  });
-  return createElement("sf-s", { "data-sf-name": name, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
+  const [slot] = useState(() => (regions ? (namedSlotsOf(regions.root).find((s) => s.getAttribute("data-sf-name") === name) ?? null) : null));
+  const [html] = useState(() => slot?.innerHTML ?? "");
+  const node = useRef<Element | null>(null);
+  useLayoutEffect(() => {
+    if (node.current) adoptNodes(node.current, slot);
+  }, []);
+  return createElement("sf-s", { ref: node, "data-sf-name": name, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
 }
 
 /** A store key as state: the value the store holds (or `initial` while nothing does) and a setter that writes the store. Every island reading the key re-renders, whichever root it is in. Hydration reads the value the server rendered this island from, which its props carry, so a key another island wrote or a later segment seeded in the meantime moves the island after it hydrates rather than failing it; the build lowers this call, so the key must be a literal or a `key()`. */
@@ -1024,7 +1053,7 @@ function markActivity(el: Element): void {
 
 export const reactMounter: Mounter = (component, props, el, hydrate, pieces) => {
   const region = childrenRegion(el);
-  if (pieces !== null) childrenBoxes.set(el, boxOf(pieces, region?.innerHTML ?? ""));
+  if (pieces !== null) childrenBoxes.set(el, boxOf(pieces, region?.innerHTML ?? "", region));
   if (region instanceof HTMLTemplateElement) region.remove();
   if (hydrate) bracketNested(el, pieces);
   const element = islandElement(component, props, el, false);

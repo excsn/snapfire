@@ -1,7 +1,8 @@
-import { getAllContexts, getContext, hydrate, mount as mountSvelte, setContext, unmount, type Component, type Snippet } from "svelte";
+import { createRawSnippet, getAllContexts, getContext, hydrate, mount as mountSvelte, setContext, unmount, type Component, type Snippet } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 
-import { discard, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
+import { adoptNodes, childrenRegion, discard, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
+import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
@@ -46,6 +47,8 @@ export interface TreeOpaque {
   tag: string;
   attrs: { [name: string]: string };
   html: string;
+  /** The element the server wrote, whose nodes a mount takes. */
+  from: Element;
 }
 
 /** A run of text and comments. */
@@ -54,10 +57,11 @@ export interface TreeHtml {
   html: string;
 }
 
-/** A mounted island's props and children, so a patch updates both in place. */
+/** A mounted island's props and children, so a patch updates both in place. `region` is the children region of an island mounted over children Svelte renders nothing of, which holds the server's nodes and which a patch morphs. */
 interface Held {
   props: { [key: string]: unknown };
   pieces: TreePiece[] | null;
+  region: Element | null;
   changed: () => void;
   track: () => void;
 }
@@ -129,7 +133,7 @@ function item(branch: string, inner: Piece[]): TreePiece {
     const island = element.children.find((piece): piece is IslandPiece => piece.kind === "island");
     if (branch === "[0" && island) return treeIsland(island, element.attrs);
     if (branch === "[1") return { kind: "element", tag: element.tag, attrs: element.attrs, children: treeOf(element.children) };
-    if (branch === "[2") return { kind: "opaque", tag: element.tag, attrs: element.attrs, html: unmarked(element.node.innerHTML) };
+    if (branch === "[2") return { kind: "opaque", tag: element.tag, attrs: element.attrs, html: unmarked(element.node.innerHTML), from: element.node };
   }
   return { kind: "html", html: serialised(inner.slice(1, -1)) };
 }
@@ -184,7 +188,7 @@ function plain(pieces: Piece[]): TreePiece[] {
     const island = wrapped(piece);
     if (island) out.push(treeIsland(island, piece.attrs));
     else if (holdsIsland(piece.children)) out.push({ kind: "element", tag: piece.tag, attrs: piece.attrs, children: plain(piece.children) });
-    else out.push({ kind: "opaque", tag: piece.tag, attrs: piece.attrs, html: unmarked(piece.node.innerHTML) });
+    else out.push({ kind: "opaque", tag: piece.tag, attrs: piece.attrs, html: unmarked(piece.node.innerHTML), from: piece.node });
   }
   flush();
   return out;
@@ -213,11 +217,12 @@ export function held(given: () => TreePiece[] | undefined): () => TreePiece[] {
   return () => given() ?? around?.read() ?? [];
 }
 
-/** The attachment `Pieces.svelte` puts on an element it keeps as the server wrote it: the content stays while hydrating, is written on a fresh render and morphed when a patch changes it. The islands inside it are scanned and ended once the element leaves the document. */
+/** The attachment `Pieces.svelte` puts on an element it keeps as the server wrote it: the content stays while hydrating, is taken from the server's element on a fresh render and morphed when a patch changes it. The islands inside it are scanned and ended once the element leaves the document. */
 export function opaque(): (piece: TreeOpaque) => (el: Element) => () => void {
   const contexts = getAllContexts();
   return (piece) => (el) => {
     scopes.set(el, contexts);
+    adoptNodes(el, piece.from);
     if (unmarked(el.innerHTML) !== piece.html) morph(el, piece.html);
     scan(el);
     return () => {
@@ -290,13 +295,13 @@ function contextsAbove(el: Element): Map<unknown, unknown> {
  * what reads the prop and keeps the component's own `$state`. `children` is
  * the tree's snippet when the server placed children.
  */
-function liveProps(state: Held): { [key: string]: unknown } {
+function liveProps(state: Held, tree: Snippet | null = childrenTree): { [key: string]: unknown } {
   const read = (key: string | symbol) => {
     state.track();
-    if (key === "children" && state.pieces !== null) return childrenTree ?? undefined;
+    if (key === "children" && state.pieces !== null) return tree ?? undefined;
     return typeof key === "string" ? state.props[key] : undefined;
   };
-  const keys = () => [...Object.keys(state.props), ...(state.pieces !== null && childrenTree ? ["children"] : [])];
+  const keys = () => [...Object.keys(state.props), ...(state.pieces !== null && tree ? ["children"] : [])];
   return new Proxy(
     {},
     {
@@ -315,7 +320,7 @@ function liveProps(state: Held): { [key: string]: unknown } {
 }
 
 export const svelteMounter: Mounter = (module, props, el, isHydrating, children) => {
-  const state: Held = { props: ownProps(props), pieces: children ? treeOf(children) : null, changed: () => {}, track: () => {} };
+  const state: Held = { props: ownProps(props), pieces: children ? treeOf(children) : null, region: null, changed: () => {}, track: () => {} };
   state.track = createSubscriber((update) => {
     state.changed = update;
     return () => {
@@ -334,9 +339,26 @@ export const svelteMounter: Mounter = (module, props, el, isHydrating, children)
       hydrationMismatch(el, error);
     }
   }
+  const served = childrenRegion(el);
+  if (served && state.pieces !== null && !state.pieces.some((piece) => piece.kind === "island" || piece.kind === "element")) {
+    options.props = liveProps(state, wholeRegion(served, context, (made) => (state.region = made)));
+  }
   el.replaceChildren();
   return mountSvelte(component, options);
 };
+
+/** The children of an island mounted over children Svelte renders nothing of: one `<sf-s data-sf-children>` holding the nodes the server wrote in `served`, which Svelte never renders inside. */
+function wholeRegion(served: Element, context: Map<unknown, unknown>, made: (region: Element) => void): Snippet {
+  return createRawSnippet(() => ({
+    render: () => `<sf-s ${CHILDREN_ATTR}></sf-s>`,
+    setup: (region: Element) => {
+      adoptNodes(region, served);
+      scopes.set(region, context);
+      made(region);
+      scan(region);
+    },
+  }));
+}
 
 /** A Svelte island of the tree is one the server wrote in the branch of `Pieces.svelte` that renders it, which a later timing never is: that one hydrates as a root of its own. */
 rendersNested(svelteMounter, (el) => {
@@ -349,7 +371,10 @@ export const sveltePatcher: Patcher = (_handle, _module, props, el) => {
   if (!state) return;
   state.props = ownProps(props);
   const fresh = islandState(el)?.children ?? null;
-  if (fresh !== null) state.pieces = treeOf(piecesOf(fresh));
+  if (fresh !== null && state.region !== null) {
+    if (unmarked(state.region.innerHTML) !== fresh) morph(state.region, fresh);
+    scan(state.region);
+  } else if (fresh !== null) state.pieces = treeOf(piecesOf(fresh));
   state.changed();
 };
 

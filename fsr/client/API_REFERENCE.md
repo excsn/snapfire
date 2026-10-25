@@ -34,6 +34,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Piece](#piece)
   * [rendersNested](#rendersnested)
   * [childrenRegion and islandChildren](#childrenregion-and-islandchildren)
+  * [adoptNodes](#adoptnodes)
   * [readPieces and piecesOf](#readpieces-and-piecesof)
   * [loadedModule and loadModule](#loadedmodule-and-loadmodule)
   * [markRendered and unmarked](#markrendered-and-unmarked)
@@ -455,6 +456,12 @@ Says that `mount`'s adapter renders an island of its own framework nested in one
 * `function islandChildren(el: Element): Piece[] | null`
 
 The region holding the children of the island at `el`: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after the markup when its render did not place them. Never one inside an island nested in `el`. `islandChildren` reads that region as pieces, null when there is none.
+
+### adoptNodes
+
+* `function adoptNodes(to: Element, from: ParentNode | null): void`
+
+Moves the nodes inside `from` into `to`, in place of what `to` held, so whatever a script bound to them before a mount stays bound. A template gives its content. Nothing moves when `to` is `from`, as it is while hydrating. Nothing moves either when `from` holds nothing. The React, Vue and Svelte mounters call it for every region and every element they keep as the server wrote it, so an island mounted over the server's markup keeps the server's nodes, as does one whose hydration fell back to a mount.
 
 ### readPieces and piecesOf
 

@@ -1,5 +1,5 @@
 import { createApp, createCommentVNode, createSSRApp, createTextVNode, defineAsyncComponent, defineComponent, getCurrentInstance, h, hydrateOnIdle, hydrateOnVisible, inject, onBeforeUnmount, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch } from "vue";
-import { childrenRegion, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked } from "./boot.js";
+import { adoptNodes, childrenRegion, hydrationMismatch, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -31,11 +31,13 @@ function holdsOwn(piece) {
     if (piece.kind === "island") return piece.entry?.mount === vueMounter;
     return piece.kind === "element" && piece.children.some(holdsOwn);
 }
-function regionNode(attrs, pieces, html) {
+function regionNode(attrs, held) {
+    const { pieces, html, from } = held;
     if (!pieces.some(holdsOwn)) return h(Opaque, {
         tag: "sf-s",
         attrs,
-        html
+        html,
+        from
     });
     return h(Scanned, {
         tag: "sf-s",
@@ -81,6 +83,10 @@ const Opaque = defineComponent({
         html: {
             type: String,
             required: true
+        },
+        from: {
+            type: Object,
+            default: null
         }
     },
     setup (props) {
@@ -88,7 +94,9 @@ const Opaque = defineComponent({
         const first = unmarked(props.html);
         let shown = props.html;
         onMounted(()=>{
-            if (node.value) scan(node.value);
+            if (!node.value) return;
+            adoptNodes(node.value, props.from);
+            scan(node.value);
         });
         watch(()=>props.html, (html)=>{
             const el = node.value;
@@ -148,7 +156,8 @@ function vnodesOf(pieces) {
             key,
             tag: piece.tag,
             attrs: piece.attrs,
-            html: piece.node.innerHTML
+            html: piece.node.innerHTML,
+            from: piece.node
         }));
     });
     return out;
@@ -179,6 +188,9 @@ const Foreign = defineComponent({
     setup (props) {
         const node = shallowRef(null);
         const html = unmarked(props.piece.marker.innerHTML);
+        onMounted(()=>{
+            if (node.value) adoptNodes(node.value, props.piece.marker);
+        });
         watch(()=>props.piece, (piece)=>{
             const el = node.value;
             if (el?.hasAttribute("data-sf-scheduled")) void patchIsland(el, piece.props, null, childrenRegion(piece.marker)?.innerHTML ?? null, piece.encoded);
@@ -259,10 +271,15 @@ const NestedIsland = defineComponent({
                 innerHTML: html
             });
             const values = piece.props.$sv ?? {};
+            const region = childrenRegion(piece.marker);
             const slots = piece.children === null ? undefined : {
                 default: ()=>regionNode({
                         [CHILDREN_ATTR]: ""
-                    }, piece.children ?? [], childrenRegion(piece.marker)?.innerHTML ?? "")
+                    }, {
+                        pieces: piece.children ?? [],
+                        html: region?.innerHTML ?? "",
+                        from: region
+                    })
             };
             const body = h(IslandScope, {
                 at: find,
@@ -279,7 +296,8 @@ function rootFor(component, props, el, pieces) {
     const region = childrenRegion(el);
     const children = shallowRef(pieces === null ? null : {
         pieces,
-        html: region?.innerHTML ?? ""
+        html: region?.innerHTML ?? "",
+        from: region
     });
     if (region?.tagName === "TEMPLATE") region.remove();
     const root = defineComponent({
@@ -290,7 +308,7 @@ function rootFor(component, props, el, pieces) {
                 return h(component, state, held === null ? undefined : {
                     default: ()=>regionNode({
                             [CHILDREN_ATTR]: ""
-                        }, held.pieces, held.html)
+                        }, held)
                 });
             };
         }
@@ -355,7 +373,8 @@ export const vuePatcher = (handle, module, props, el)=>{
     const children = childrenHeld.get(el);
     if (fresh !== null && children?.value && children.value.html !== fresh) children.value = {
         pieces: piecesOf(fresh),
-        html: fresh
+        html: fresh,
+        from: null
     };
 };
 rendersNested(vueMounter);

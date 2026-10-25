@@ -9,7 +9,7 @@ export { loadDeclaredScripts, loadMarkedScript, loadScript } from "./script.js";
 export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, pendingLink, prefetch, refresh, subscribePendingLink } from "./navigator.js";
 export { live } from "./live.js";
 export { socket } from "./socket.js";
-export { applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
+export { adoptNodes, applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
 export { enablePwa, online, updateReady } from "./pwa.js";
 export * from "./standard.js";
