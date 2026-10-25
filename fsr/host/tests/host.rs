@@ -7101,6 +7101,16 @@ fn an_application_runs_on_the_web_unless_its_app_section_says_terminal() {
 }
 
 #[test]
+fn the_hosts_fsr_add_fetches_from_are_read_from_the_vendor_section() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  assert_eq!(snapfire_fsr_host::config::Config::load(dir.join("app.toml")).unwrap().vendor, None);
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[vendor]\nhosts = [\"https://esm.internal\", \"https://esm.sh\"]\n")).unwrap();
+  let config = snapfire_fsr_host::config::Config::load(dir.join("app.toml")).unwrap();
+  assert_eq!(config.vendor.map(|v| v.hosts), Some(vec!["https://esm.internal".to_owned(), "https://esm.sh".to_owned()]));
+}
+
+#[test]
 fn a_desktop_name_is_read_from_its_section_and_absent_without_one() {
   let dir = app_dir();
   let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();

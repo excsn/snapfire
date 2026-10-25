@@ -272,12 +272,36 @@ pub(crate) fn file_name(path: &str) -> String {
 /// manifest and points the import map at it. Under xwpm the same specs go to
 /// `xwpm add`, which converts and carries dependencies itself, so `externals`
 /// has nothing to say and a subpath is the package's own `exports` business.
-pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport, BuildError> {
-  add_from(app, specs, externals, ESM_HOST)
+pub fn add(app: &Path, specs: &[Spec], externals: &[String], hosts: &[String]) -> Result<AddReport, BuildError> {
+  add_from(app, specs, externals, hosts)
 }
 
-/// [`add`] against `host` in place of esm.sh.
-fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Result<AddReport, BuildError> {
+/// The hosts `fsr add` fetches from, in order: `given` when it names any, else the `[vendor] hosts` of the application's configuration, else esm.sh.
+pub fn hosts(app: &Path, given: &[String]) -> Vec<String> {
+  if !given.is_empty() {
+    return given.iter().map(|host| host.trim_end_matches('/').to_owned()).collect();
+  }
+  let configured = crate::config_beside(app).and_then(|config| config.vendor).map(|vendor| vendor.hosts).unwrap_or_default();
+  match configured.is_empty() {
+    true => vec![ESM_HOST.to_owned()],
+    false => configured.iter().map(|host| host.trim_end_matches('/').to_owned()).collect(),
+  }
+}
+
+/// The stub esm.sh answers for `spec` bundled with `external` left bare and the host that answered it, asking each of `hosts` in order. A host that fails passes the package on; one that has no such package or version ends the search, since the next would say the same.
+fn stub_from(client: &reqwest::blocking::Client, hosts: &[String], spec: &Spec, external: &[&str]) -> Result<(String, Option<Vec<u8>>), BuildError> {
+  let mut failed = Vec::new();
+  for host in hosts {
+    match get(client, &bundle_url(host, spec, external)) {
+      Ok(stub) => return Ok((host.clone(), stub)),
+      Err(error) => failed.push(error.to_string()),
+    }
+  }
+  Err(BuildError::Http(spec.specifier(), format!("no host answered:\n  {}", failed.join("\n  "))))
+}
+
+/// [`add`] against `hosts`, tried in order.
+fn add_from(app: &Path, specs: &[Spec], externals: &[String], hosts: &[String]) -> Result<AddReport, BuildError> {
   let layout = Layout::of(app)?;
   if layout.xwpm {
     let mut delegated = Vec::new();
@@ -354,8 +378,9 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
         external.push(package);
       }
     }
-    let url = bundle_url(host, spec, &external);
-    let stub = get(&client, &url)?.ok_or_else(|| BuildError::Http(url.clone(), "HTTP 404: no such package or version".to_owned()))?;
+    let (host, stub) = stub_from(&client, hosts, spec, &external)?;
+    let url = bundle_url(&host, spec, &external);
+    let stub = stub.ok_or_else(|| BuildError::Http(url.clone(), "HTTP 404: no such package or version".to_owned()))?;
     let stub = String::from_utf8_lossy(&stub).into_owned();
     let paths = stub_paths(&stub);
     let entry_path = paths
@@ -429,7 +454,7 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
   }
 
   let fresh: Vec<&str> = wanted.iter().map(|spec| spec.package.as_str()).collect();
-  let repaired = repair_maps(app, &layout, &manifest, &client, host, &shared, &fresh)?;
+  let repaired = repair_maps(app, &layout, &manifest, &client, hosts, &shared, &fresh)?;
   if specs.is_empty() && remapped.is_empty() {
     return Ok(AddReport { added, remapped, from_shell, dropped, delegated: Vec::new(), repaired });
   }
@@ -492,7 +517,7 @@ fn unname_map(file: &Path) -> Result<(), BuildError> {
 /// leaves the module's bytes alone. A module whose map esm.sh lacks, or that
 /// esm.sh no longer serves, loses the comment. `fresh` packages were just
 /// vendored whole.
-fn repair_maps(app: &Path, layout: &Layout, manifest: &VendorManifest, client: &reqwest::blocking::Client, host: &str, shared: &[String], fresh: &[&str]) -> Result<Vec<String>, BuildError> {
+fn repair_maps(app: &Path, layout: &Layout, manifest: &VendorManifest, client: &reqwest::blocking::Client, hosts: &[String], shared: &[String], fresh: &[&str]) -> Result<Vec<String>, BuildError> {
   let mut repaired = Vec::new();
   for (package, mut broken) in unmapped_modules(app, layout, manifest) {
     if fresh.contains(&package.as_str()) {
@@ -511,7 +536,7 @@ fn repair_maps(app: &Path, layout: &Layout, manifest: &VendorManifest, client: &
           external.push(other);
         }
       }
-      let Some(stub) = get(client, &bundle_url(host, &spec, &external))? else { continue };
+      let (host, Some(stub)) = stub_from(client, hosts, &spec, &external)? else { continue };
       let mut queue = stub_paths(&String::from_utf8_lossy(&stub));
       let mut seen: Vec<String> = Vec::new();
       while let Some(path) = queue.pop() {
@@ -656,7 +681,7 @@ mod tests {
     let app = std::env::temp_dir().join(format!("fsr-vendor-maps-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
-    add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], &esm_stub()).unwrap();
+    add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], &[esm_stub()]).unwrap();
     let dir = app.join(Layout::of(&app).unwrap().vendor).join("vue");
     let mut named = Vec::new();
     for entry in std::fs::read_dir(&dir).unwrap().flatten() {
@@ -672,11 +697,37 @@ mod tests {
   }
 
   #[test]
+  fn a_host_that_fails_hands_the_package_to_the_next() {
+    let app = std::env::temp_dir().join(format!("fsr-vendor-fallback-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(&app).unwrap();
+    let down = answering(Some("HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"));
+    let report = add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], &[down, esm_stub()]).unwrap();
+    assert_eq!(report.added.len(), 1, "{:?}", report.added);
+    let dir = app.join(Layout::of(&app).unwrap().vendor).join("vue");
+    assert!(dir.join("vue.bundle.mjs").is_file() && dir.join("shared.mjs").is_file(), "the bundle and its siblings came from the host that answered");
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_version_the_first_host_says_does_not_exist_is_not_asked_of_the_next() {
+    let app = std::env::temp_dir().join(format!("fsr-vendor-missing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(&app).unwrap();
+    let first = esm_stub();
+    let down = answering(Some("HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"));
+    let Err(error) = add_from(&app, &[Spec::parse("vue@9.9.9").unwrap()], &[], &[first.clone(), down]) else { panic!("vendored a version that does not exist") };
+    let message = error.to_string();
+    assert!(message.contains(&format!("{first}/vue@9.9.9")) && message.contains("404"), "{message}");
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
   fn a_run_with_nothing_to_add_or_repair_writes_nothing() {
     let app = std::env::temp_dir().join(format!("fsr-vendor-nothing-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
-    let report = add_from(&app, &[], &[], &esm_stub()).unwrap();
+    let report = add_from(&app, &[], &[], &[esm_stub()]).unwrap();
     assert!(report.added.is_empty() && report.repaired.is_empty());
     let left: Vec<_> = std::fs::read_dir(&app).unwrap().flatten().map(|entry| entry.file_name()).collect();
     assert!(left.is_empty(), "{left:?}");
@@ -689,7 +740,7 @@ mod tests {
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
     let host = esm_stub();
-    add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], &host).unwrap();
+    add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], std::slice::from_ref(&host)).unwrap();
     let dir = app.join(Layout::of(&app).unwrap().vendor).join("vue");
     std::fs::remove_file(dir.join("vue.bundle.mjs.map")).unwrap();
     std::fs::remove_file(dir.join("shared.mjs.map")).unwrap();
@@ -700,14 +751,14 @@ mod tests {
     manifest.packages.get_mut("vue").unwrap().externals.push("vue".to_owned());
     manifest.write(&app, &layout).unwrap();
 
-    let report = add_from(&app, &[], &[], &host).unwrap();
+    let report = add_from(&app, &[], &[], std::slice::from_ref(&host)).unwrap();
     assert!(dir.join("vue.bundle.mjs.map").is_file() && dir.join("shared.mjs.map").is_file(), "the maps esm.sh has are vendored");
     assert_eq!(std::fs::read_to_string(dir.join("vue.bundle.mjs")).unwrap(), bundle, "a repaired module keeps its bytes");
     assert_eq!(std::fs::read_to_string(dir.join("unmapped.mjs")).unwrap().trim_end(), "export const u = 1;", "a map esm.sh lacks takes the comment with it");
     let mut repaired = report.repaired.clone();
     repaired.sort();
     assert_eq!(repaired, ["vue/shared.mjs", "vue/unmapped.mjs", "vue/vue.bundle.mjs"]);
-    assert!(add_from(&app, &[], &[], &host).unwrap().repaired.is_empty(), "a repaired tree has nothing left to repair");
+    assert!(add_from(&app, &[], &[], std::slice::from_ref(&host)).unwrap().repaired.is_empty(), "a repaired tree has nothing left to repair");
     std::fs::remove_dir_all(&app).unwrap();
   }
 }

@@ -738,6 +738,17 @@ A `types` row follows for each package whose declarations it fetched, naming whe
 
 A framework comes with every module its client adapter imports, at the version named: `react@19.3.1` or `react-dom@19.3.1` vendors `react`, `react/jsx-runtime` and `react-dom/client`; `svelte@5.60.0` vendors Svelte's subpaths as published, so the halves of a framework never disagree. A package of no framework is vendored as named.
 
+esm.sh is one service. A copy of it run elsewhere answers the same API. `[vendor] hosts` in the configuration lists the hosts `fsr add` and `fsr use` fetch from, tried in order. `--host` names them for one command. A host that fails hands the package to the next one. A host that says the package or version does not exist ends the search:
+
+```toml
+[vendor]
+hosts = ["https://esm.internal.example", "https://esm.sh"]
+```
+
+```sh
+fsr add app htmx.org@4.0.0 --host https://esm.internal.example --host https://esm.sh
+```
+
 A module that imports a package outside its bundle stops the command naming it; vendor that package and repeat with it in `--external`. The host serves `vendor/` at `/static/js/vendor` by convention, which is the prefix the import map entries carry.
 
 A site is the exception: its tree is served under its own prefix, `/billing/static/js/vendor`, since a mount drops a static root outside it. `fsr add` rewrites every entry the vendor manifest records to the current prefix and prints `remapped` for each one it moved, so an application that becomes a site is migrated by its next add. The build refuses a map entry for a vendored package that points anywhere else, naming the URL it expects. A package the site's shell already serves is not vendored at all: `fsr add` writes the shell's URL into the map and prints `shell` for it, since the shell's map overrides the site's at mount.

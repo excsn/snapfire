@@ -182,10 +182,11 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr add
 
-* `fsr add <app dir> <name@version[/subpath]>... [--external <name,...> | --published]`
+* `fsr add <app dir> <name@version[/subpath]>... [--external <name,...> | --published] [--host <url>]...`
 * A package `vendor/.fsr-vendor.json` records as vendored as published takes the new version the same way: `published::recorded` widens the specs to every specifier the record names, so `fsr add app svelte@5.60.0` updates the whole runtime. `--published` vendors a package that way the first time, through `published::add_published`.
 * Otherwise `vendor::add` over the specs; prints `added <specifier> <file> <bytes>` per entry, `remapped <specifier> <url>` per entry moved to the layout's base or `xwpm add <spec>` per delegated call. Same exit codes; a spec without a version exits 2.
 * Each module's source map is vendored beside it under the name its `sourceMappingURL` comment gives. A module whose map esm.sh does not have loses the comment.
+* `vendor::hosts(app, given)` names the hosts a package is fetched from: each `--host` in order, else the `[vendor] hosts` of the configuration, else esm.sh. Each host answers the esm.sh API. A host that fails hands the package to the next one and the modules and maps behind its stub come from the host that answered it. A host that answers 404 ends the search, since the next would say the same. When every host fails the command fails naming each one's error.
 
 ### fsr types
 

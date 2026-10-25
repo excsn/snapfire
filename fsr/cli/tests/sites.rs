@@ -441,7 +441,7 @@ fn a_sites_add_of_a_framework_its_shell_serves_drops_the_sites_own_copy() {
   std::fs::write(own.join("react.bundle.mjs"), "export {};\n").unwrap();
   std::fs::write(app.join(&layout.vendor).join(".fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1","entries":{"react":"react/react.bundle.mjs"}}}}"#).unwrap();
 
-  let report = add(&app, &[Spec::parse("react@19.3.1").unwrap()], &[]).unwrap();
+  let report = add(&app, &[Spec::parse("react@19.3.1").unwrap()], &[], &snapfire_fsr_cli::vendor::hosts(&app, &[])).unwrap();
   assert_eq!(report.from_shell, [("react".to_owned(), "/static/js/vendor/react/react.bundle.mjs".to_owned())]);
   assert_eq!(report.dropped, ["react"]);
   assert!(!VendorManifest::read(&app, &layout).unwrap().packages.contains_key("react"));

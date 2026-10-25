@@ -52,6 +52,8 @@ pub struct Config {
   /// Which TypeScript `fsr` checks the application with; absent means the
   /// checker's own default version.
   pub typecheck: Option<TypecheckSection>,
+  /// `[vendor]`: where `fsr add` fetches packages from; absent means esm.sh.
+  pub vendor: Option<VendorSection>,
   /// `[build]`: how `fsr` builds the application; absent means the defaults.
   pub build: Option<BuildSection>,
   /// `[trace]`: which requests a client may read its own trace of; absent
@@ -1376,6 +1378,19 @@ pub struct TypecheckSection {
   pub enabled: Option<bool>,
 }
 
+/// The `[vendor]` section, read by `fsr add` rather than by the host: the
+/// hosts it fetches a package from, tried in order. Each one answers the
+/// esm.sh API, as esm.sh itself or a copy of it run elsewhere does. A host
+/// that fails hands the package to the next; one that says the package or
+/// version does not exist ends the search.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct VendorSection {
+  #[serde(default)]
+  pub hosts: Vec<String>,
+}
+
 /// The `[trace]` section. Both lists hold route patterns as `matchit` reads
 /// them: `/` is the home page alone and `/docs/{*rest}` the paths under
 /// `/docs`. `expose` lists the paths whose requests carry an `x-sf-request`
@@ -1559,6 +1574,7 @@ const SECTIONS: &[&str] = &[
   "locales",
   "auth",
   "typecheck",
+  "vendor",
   "build",
   "trace",
   "crawl",
@@ -1701,6 +1717,7 @@ pub fn config_schema() -> serde_json::Value {
     ("locales", of::<LocalesSection>(&mut generator)),
     ("auth", of::<AuthSection>(&mut generator)),
     ("typecheck", of::<TypecheckSection>(&mut generator)),
+    ("vendor", of::<VendorSection>(&mut generator)),
     ("build", of::<BuildSection>(&mut generator)),
     ("trace", of::<TraceSection>(&mut generator)),
     ("crawl", of::<CrawlSection>(&mut generator)),
@@ -2414,6 +2431,21 @@ impl Config {
       } else {
         None
       };
+    let vendor: Option<VendorSection> = if store.path_exists("vendor") || !store.key_paths_with_prefix(Some("vendor")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in store.key_paths_with_prefix(Some("vendor")) {
+        let name = key.strip_prefix("vendor.").and_then(|rest| rest.split('.').next()).unwrap_or_default();
+        if !name.is_empty() && name != "hosts" {
+          return Err(HostError::Config(at.clone(), format!("vendor.{name} is not a key; [vendor] takes hosts")));
+        }
+      }
+      if let Some(value) = store.get("vendor.hosts") {
+        json.insert("hosts".to_owned(), to_json(&value));
+      }
+      Some(serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("vendor: {e}")))?)
+    } else {
+      None
+    };
 
     let build: Option<BuildSection> = if store.path_exists("build") || !store.key_paths_with_prefix(Some("build")).is_empty() {
       const KEYS: [&str; 5] = ["strict", "target", "lib", "before", "after"];
@@ -3013,6 +3045,7 @@ impl Config {
       locales,
       auth,
       typecheck,
+      vendor,
       build,
       trace,
       crawl,

@@ -370,6 +370,9 @@ struct Add {
   /// Vendors each package as published on npm, its module tree kept, rather than one bundle per subpath; for a package whose subpaths share state, as Svelte's do.
   #[arg(long, conflicts_with = "external")]
   published: bool,
+  /// A host answering the esm.sh API to fetch from, in place of the `[vendor] hosts` of the configuration; repeat it for several, tried in order.
+  #[arg(long = "host", conflicts_with = "published")]
+  hosts: Vec<String>,
 }
 
 #[cfg(feature = "web")]
@@ -1054,7 +1057,7 @@ fn run_add(args: Add) -> ExitCode {
     .map(|s| s.trim().to_owned())
     .filter(|s| !s.is_empty())
     .collect();
-  let added = match snapfire_fsr_cli::add::add(&args.app_dir, specs, &externals, args.published) {
+  let added = match snapfire_fsr_cli::add::add(&args.app_dir, specs, &externals, args.published, &args.hosts) {
     Ok(added) => added,
     Err(e) => return failed(e),
   };

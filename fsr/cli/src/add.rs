@@ -20,7 +20,7 @@ pub struct Added {
 }
 
 /// Vendors `specs` into `app`, a package vendored as published before by every specifier it recorded and a framework with what its adapter imports, then fetches the types the import map names. `published` vendors the rest as published too.
-pub fn add(app: &Path, specs: Vec<Spec>, externals: &[String], published: bool) -> Result<Added, BuildError> {
+pub fn add(app: &Path, specs: Vec<Spec>, externals: &[String], published: bool, hosts: &[String]) -> Result<Added, BuildError> {
   let groups = match crate::published::recorded(app, &specs)? {
     Some(specs) => vec![(specs, true)],
     None => {
@@ -32,7 +32,7 @@ pub fn add(app: &Path, specs: Vec<Spec>, externals: &[String], published: bool) 
   for (specs, published) in groups {
     added.groups.push(match published {
       true => crate::published::add_published(app, &specs)?,
-      false => vendor::add(app, &specs, externals)?,
+      false => vendor::add(app, &specs, externals, &vendor::hosts(app, hosts))?,
     });
   }
   match crate::types::fetch(app, false) {

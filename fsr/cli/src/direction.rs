@@ -277,7 +277,7 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
   // A package the site's shell serves needs no fetch: `add` writes the
   // shell's URL into the map from the contract alone.
   if !served.is_empty() {
-    let report = vendor::add(app, &served, &[])?;
+    let report = vendor::add(app, &served, &[], &vendor::hosts(app, &[]))?;
     adopted.from_shell = report.from_shell;
   }
 
@@ -304,7 +304,7 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
   let add_published = line(" --published", &published);
   if options.fetch {
     if !wanted.is_empty() {
-      match vendor::add(app, &wanted, &[]) {
+      match vendor::add(app, &wanted, &[], &vendor::hosts(app, &[])) {
         Ok(report) => {
           adopted.vendored = report.added;
           adopted.from_shell.extend(report.from_shell);

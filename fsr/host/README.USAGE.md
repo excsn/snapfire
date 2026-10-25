@@ -178,6 +178,9 @@ login = "/login"                  # the application's login page, the default
 version = "7.0.2"                 # the TypeScript a build checks with; fsr records the one it resolved
 enabled = true                    # the default; false builds without checking types
 
+[vendor]                          # optional: read by fsr, not by the host
+hosts = ["https://esm.sh"]        # the default; hosts answering the esm.sh API that fsr add fetches from, in order
+
 [build]                           # optional: read by fsr, not by the host
 strict = false                    # the default; true refuses a component that renders in the browser alone
 target = "es2022"                 # the default; the target every generated tsconfig carries, es2017 or later or esnext
