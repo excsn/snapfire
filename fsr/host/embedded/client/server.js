@@ -6,43 +6,78 @@ import { decodeValue, encodeValue } from "./values.js";
 const STATE_PROP = "$s";
 const READS_PROP = "$sk";
 const STORE_PROP = "$store";
+const RENDERED_STORE_PROP = "$sv";
+function carriedProps(encoded) {
+    const { [STATE_PROP]: state, [READS_PROP]: reads, [RENDERED_STORE_PROP]: rendered, ...own } = encoded ?? {};
+    return {
+        own,
+        state,
+        reads,
+        rendered
+    };
+}
+function storeMoved(island, rendered) {
+    const from = rendered ?? {};
+    for (const read of island.reads){
+        const value = get(key(read));
+        const was = from[read];
+        if (value === undefined && was === undefined) continue;
+        if (value === undefined || was === undefined) return true;
+        if (JSON.stringify(encodeValue(value)) !== JSON.stringify(was)) return true;
+    }
+    return false;
+}
 const islands = new WeakMap();
 export function isServerIsland(el) {
     return islands.has(el);
 }
 export function mountServer(el, module, encoded) {
-    const carried = encoded ?? {};
-    const { [STATE_PROP]: state, [READS_PROP]: reads, ...props } = carried;
+    const { own, state, reads, rendered } = carriedProps(encoded);
     const island = {
         module,
-        props,
+        props: own,
         state: state ?? {},
         pending: false,
         listening: new Set(),
         reads: Array.isArray(reads) ? reads.map(String) : [],
         stale: false,
         applying: false,
+        held: false,
         unsubscribe: []
     };
     islands.set(el, island);
     for (const read of island.reads){
         island.unsubscribe.push(subscribe(read, ()=>{
             if (island.applying) return;
-            if (island.pending) island.stale = true;
+            if (island.pending || island.held) island.stale = true;
             else void step(el, island, null, null);
         }));
     }
-    if (!el.firstElementChild) {
+    if (!el.firstElementChild || storeMoved(island, rendered)) {
         void step(el, island, null, null);
         return;
     }
     listen(el, island);
 }
+export function pauseServer(el) {
+    const island = islands.get(el);
+    if (!island) return false;
+    island.held = true;
+    return true;
+}
+export function resumeServer(el) {
+    const island = islands.get(el);
+    if (!island) return;
+    island.held = false;
+    if (!island.stale || island.pending) return;
+    island.stale = false;
+    void step(el, island, null, null);
+}
 export async function patchServer(el, props, encoded) {
     const island = islands.get(el);
     if (!island) return false;
-    const carried = encoded ?? encodeValue(props);
-    const { [STATE_PROP]: _initial, [READS_PROP]: _reads, ...own } = carried;
+    const { own } = carriedProps(encoded ?? encodeValue(props));
+    if (JSON.stringify(own) === JSON.stringify(island.props) && !island.stale) return true;
     island.props = own;
     await step(el, island, null, null);
     return true;
@@ -153,7 +188,7 @@ async function step(el, island, handler, event) {
         island.pending = false;
         el.removeAttribute("data-sf-pending");
     }
-    if (island.stale && islands.get(el) === island) {
+    if (island.stale && !island.held && islands.get(el) === island) {
         island.stale = false;
         await step(el, island, null, null);
     }
@@ -247,8 +282,8 @@ function morphNested(current, next) {
     const raw = JSON.parse(text);
     const island = islands.get(current);
     if (island) {
-        const { [STATE_PROP]: state, ...props } = raw;
-        island.props = props;
+        const { own, state } = carriedProps(raw);
+        island.props = own;
         if (state !== undefined) island.state = state;
         void step(current, island, null, null);
         return;

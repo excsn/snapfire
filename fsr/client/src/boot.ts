@@ -4,7 +4,7 @@ import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { settlePlaced, unplaced } from "./places.js";
 import { enablePwa } from "./pwa.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, REGION_KEY, SSR_ATTR } from "./render.js";
-import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
+import { endServer, isServerIsland, mountServer, patchServer, pauseServer, resumeServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef, SfValue } from "./values.js";
 
@@ -393,11 +393,15 @@ export function discard(root: ParentNode): void {
   }
 }
 
-/** Readies every island under `root` for a stay outside the document that may end with the nodes put back. A mounted island whose entry pauses is paused and kept. Any other island whose entry has an `unmount` is ended as `discard` ends it and its marker unmarked, so a later morph replaces it and a scan mounts it afresh; a server island and a mount still waiting on its timing the same. An island with no `unmount`, a custom element's, stays as it is: the browser disconnects the element and connects it again when the nodes come back. */
+/** Readies every island under `root` for a stay outside the document that may end with the nodes put back. A mounted island whose entry pauses is paused and kept. So is a server island, which runs nothing in the browser. Any other island whose entry has an `unmount` is ended as `discard` ends it and its marker unmarked, so a later morph replaces it and a scan mounts it afresh; a mount still waiting on its timing the same. An island with no `unmount`, a custom element's, stays as it is: the browser disconnects the element and connects it again when the nodes come back. */
 export function release(root: ParentNode): void {
   const markers = Array.from(root.querySelectorAll("sf-i"));
   if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
   for (const el of markers.reverse()) {
+    if (pauseServer(el)) {
+      paused.add(el);
+      continue;
+    }
     const island = mounted.get(el);
     if (island && !island.entry.unmount) continue;
     if (island && island.root !== undefined && island.entry.pause?.(island.root, el, true)) {
@@ -417,6 +421,10 @@ export function resume(root: ParentNode): Promise<void> {
   const shown: Promise<void>[] = [];
   for (const el of markers) {
     if (!paused.delete(el)) continue;
+    if (isServerIsland(el)) {
+      resumeServer(el);
+      continue;
+    }
     const island = mounted.get(el);
     const showing = island && island.root !== undefined ? island.entry.pause?.(island.root, el, false) : undefined;
     if (showing instanceof Promise) shown.push(showing);

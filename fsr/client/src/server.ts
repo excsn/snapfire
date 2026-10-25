@@ -17,6 +17,8 @@ interface ServerIsland {
   stale: boolean;
   /** Set while the island sets the keys its own step wrote, which it already rendered from. */
   applying: boolean;
+  /** Set while its nodes are out of the document, held for a way back: a write to a key it reads marks it stale and nothing steps. */
+  held: boolean;
   unsubscribe: (() => void)[];
 }
 
@@ -28,6 +30,28 @@ const READS_PROP = "$sk";
 
 /** The props key a step carries the browser's values of those keys under. */
 const STORE_PROP = "$store";
+
+/** The props key the store values the server rendered the island from arrive under, the keys it reads that the store held. */
+const RENDERED_STORE_PROP = "$sv";
+
+/** A server island's props as the server wrote them, split into the component's own and what rides beside them. */
+function carriedProps(encoded: unknown): { own: { [key: string]: unknown }; state: unknown; reads: unknown; rendered: unknown } {
+  const { [STATE_PROP]: state, [READS_PROP]: reads, [RENDERED_STORE_PROP]: rendered, ...own } = (encoded ?? {}) as { [key: string]: unknown };
+  return { own, state, reads, rendered };
+}
+
+/** Whether the browser's store holds, for a key the island reads, a value other than the one the server rendered it from: a key another island wrote, which the server never saw. */
+function storeMoved(island: ServerIsland, rendered: unknown): boolean {
+  const from = (rendered ?? {}) as { [key: string]: unknown };
+  for (const read of island.reads) {
+    const value = get(key(read));
+    const was = from[read];
+    if (value === undefined && was === undefined) continue;
+    if (value === undefined || was === undefined) return true;
+    if (JSON.stringify(encodeValue(value as SfValue)) !== JSON.stringify(was)) return true;
+  }
+  return false;
+}
 
 const islands = new WeakMap<Element, ServerIsland>();
 
@@ -46,35 +70,53 @@ export function isServerIsland(el: Element): boolean {
  * binds.
  */
 export function mountServer(el: Element, module: string, encoded: unknown): void {
-  const carried = (encoded ?? {}) as { [key: string]: unknown };
-  const { [STATE_PROP]: state, [READS_PROP]: reads, ...props } = carried;
-  const island: ServerIsland = { module, props, state: state ?? {}, pending: false, listening: new Set(), reads: Array.isArray(reads) ? reads.map(String) : [], stale: false, applying: false, unsubscribe: [] };
+  const { own, state, reads, rendered } = carriedProps(encoded);
+  const island: ServerIsland = { module, props: own, state: state ?? {}, pending: false, listening: new Set(), reads: Array.isArray(reads) ? reads.map(String) : [], stale: false, applying: false, held: false, unsubscribe: [] };
   islands.set(el, island);
   for (const read of island.reads) {
     island.unsubscribe.push(
       subscribe(read, () => {
         if (island.applying) return;
-        if (island.pending) island.stale = true;
+        if (island.pending || island.held) island.stale = true;
         else void step(el, island, null, null);
       }),
     );
   }
   // A marker the renderer left empty: the component was placed by something
   // that cannot render it, a template of another tier for one, so the first
-  // render is a step of its own. A marker the server filled is left alone.
-  if (!el.firstElementChild) {
+  // render is a step of its own. A marker the server filled is left alone
+  // unless the browser's store moved past what the server rendered it from.
+  if (!el.firstElementChild || storeMoved(island, rendered)) {
     void step(el, island, null, null);
     return;
   }
   listen(el, island);
 }
 
-/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. `encoded` is the props as the server wrote them, handed back as they are; props the server never wrote, a page's own, are encoded here. */
+/** Holds the server island at `el` while its nodes are out of the document, its props and state kept. False when none is mounted there. */
+export function pauseServer(el: Element): boolean {
+  const island = islands.get(el);
+  if (!island) return false;
+  island.held = true;
+  return true;
+}
+
+/** Shows a held server island again, stepping it once when a key it reads was written while it was held. */
+export function resumeServer(el: Element): void {
+  const island = islands.get(el);
+  if (!island) return;
+  island.held = false;
+  if (!island.stale || island.pending) return;
+  island.stale = false;
+  void step(el, island, null, null);
+}
+
+/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. `encoded` is the props as the server wrote them, handed back as they are; props the server never wrote, a page's own, are encoded here. Props equal to the ones it holds, with no key it reads written since, render what it shows, so nothing steps. */
 export async function patchServer(el: Element, props: Props, encoded?: unknown): Promise<boolean> {
   const island = islands.get(el);
   if (!island) return false;
-  const carried = (encoded ?? encodeValue(props as SfValue)) as { [key: string]: unknown };
-  const { [STATE_PROP]: _initial, [READS_PROP]: _reads, ...own } = carried;
+  const { own } = carriedProps(encoded ?? encodeValue(props as SfValue));
+  if (JSON.stringify(own) === JSON.stringify(island.props) && !island.stale) return true;
   island.props = own;
   await step(el, island, null, null);
   return true;
@@ -181,7 +223,7 @@ async function step(el: Element, island: ServerIsland, handler: string | null, e
     island.pending = false;
     el.removeAttribute("data-sf-pending");
   }
-  if (island.stale && islands.get(el) === island) {
+  if (island.stale && !island.held && islands.get(el) === island) {
     island.stale = false;
     await step(el, island, null, null);
   }
@@ -298,8 +340,8 @@ function morphNested(current: Element, next: Element): void {
   const raw = JSON.parse(text) as { [key: string]: unknown };
   const island = islands.get(current);
   if (island) {
-    const { [STATE_PROP]: state, ...props } = raw;
-    island.props = props;
+    const { own, state } = carriedProps(raw);
+    island.props = own;
     if (state !== undefined) island.state = state;
     void step(current, island, null, null);
     return;

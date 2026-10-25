@@ -4,7 +4,7 @@ import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { settlePlaced, unplaced } from "./places.js";
 import { enablePwa } from "./pwa.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, REGION_KEY, SSR_ATTR } from "./render.js";
-import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
+import { endServer, isServerIsland, mountServer, patchServer, pauseServer, resumeServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef } from "./values.js";
 const mounted = new WeakMap();
@@ -290,6 +290,10 @@ export function release(root) {
     const markers = Array.from(root.querySelectorAll("sf-i"));
     if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
     for (const el of markers.reverse()){
+        if (pauseServer(el)) {
+            paused.add(el);
+            continue;
+        }
         const island = mounted.get(el);
         if (island && !island.entry.unmount) continue;
         if (island && island.root !== undefined && island.entry.pause?.(island.root, el, true)) {
@@ -307,6 +311,10 @@ export function resume(root) {
     const shown = [];
     for (const el of markers){
         if (!paused.delete(el)) continue;
+        if (isServerIsland(el)) {
+            resumeServer(el);
+            continue;
+        }
         const island = mounted.get(el);
         const showing = island && island.root !== undefined ? island.entry.pause?.(island.root, el, false) : undefined;
         if (showing instanceof Promise) shown.push(showing);

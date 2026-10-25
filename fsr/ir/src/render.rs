@@ -138,8 +138,9 @@ pub struct RenderedIsland {
   /// each step and watches for a write by any other island, as `$sk`.
   pub reads: Vec<String>,
   /// The store values the island's markup was rendered from, the keys it
-  /// reads that the store held, as `$sv`: what a framework hydrates against
-  /// when the browser's store has moved on since.
+  /// reads that the store held, as `$sv`. A framework hydrates against them
+  /// when the browser's store has moved on since; a server-mode island steps
+  /// when it mounts into a store that has.
   pub rendered_store: ValueMap,
   /// The pending store keys the island reads, as `$aw`: the server held it, rendering none of its
   /// own markup. The browser mounts it once a seed has settled each.
@@ -212,6 +213,7 @@ impl RenderedIsland {
       props.insert(STATE_PROP.to_owned(), Value::Map(self.state.clone()));
       if !self.reads.is_empty() {
         props.insert(READS_PROP.to_owned(), Value::seq(self.reads.iter().map(|key| Value::str(key.clone())).collect::<Vec<_>>()));
+        props.insert(RENDERED_STORE_PROP.to_owned(), Value::Map(self.rendered_store.clone()));
       }
     } else if !self.rendered_store.is_empty() {
       props.insert(RENDERED_STORE_PROP.to_owned(), Value::Map(self.rendered_store.clone()));
@@ -4415,7 +4417,7 @@ mod markup_tests {
 
     let server = Interpreter::default().render_module("routes/page.tsx#default", &place(Some(SERVER_MODE)), &seeded, &library).unwrap();
     let mounted = server.islands[0].mount_props();
-    assert!(!mounted.contains_key(RENDERED_STORE_PROP), "a server island sends the live values with each step instead: {mounted:?}");
+    assert_eq!(mounted.get(RENDERED_STORE_PROP), Some(&Value::Map([("cart/count".to_owned(), Value::Int(2))].into_iter().collect())), "a server island carries what it rendered from, to step when it mounts into a store that moved past it: {mounted:?}");
     assert!(mounted.contains_key(READS_PROP));
 
     let unseeded = Interpreter::default().render_module("routes/page.tsx#default", &place(None), &ValueMap::default(), &library).unwrap();

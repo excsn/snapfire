@@ -11,7 +11,11 @@ export declare function isServerIsland(el: Element): boolean;
 * binds.
 */
 export declare function mountServer(el: Element, module: string, encoded: unknown): void;
-/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. `encoded` is the props as the server wrote them, handed back as they are; props the server never wrote, a page's own, are encoded here. */
+/** Holds the server island at `el` while its nodes are out of the document, its props and state kept. False when none is mounted there. */
+export declare function pauseServer(el: Element): boolean;
+/** Shows a held server island again, stepping it once when a key it reads was written while it was held. */
+export declare function resumeServer(el: Element): void;
+/** Gives a mounted server island new props, the way navigation gives a browser island new props: the server renders it again from them and the state it holds, then the markup is patched in. `encoded` is the props as the server wrote them, handed back as they are; props the server never wrote, a page's own, are encoded here. Props equal to the ones it holds, with no key it reads written since, render what it shows, so nothing steps. */
 export declare function patchServer(el: Element, props: Props, encoded?: unknown): Promise<boolean>;
 /** Forgets the server island mounted at `el` and stops it following the store, as `discard` does for a mounted root. */
 export declare function endServer(el: Element): void;
