@@ -1,10 +1,5 @@
 {
   "imports": {
-    "@snapfire/fsr-client": "/static/js/fsr/index.js",
-    "@snapfire/fsr-client/jsx-runtime": "/static/js/fsr/jsx-runtime.js",
-    "@snapfire/fsr-client/std": "/static/js/fsr/std.js",
-    "@snapfire/fsr-client/store": "/static/js/fsr/store.js",
-    "@snapfire/fsr-client/svelte": "/static/js/fsr/svelte.js",
     "clsx": "/static/js/vendor/clsx/dist/clsx.mjs",
     "esm-env": "/static/js/vendor/esm-env/index.js",
     "esm-env/browser": "/static/js/vendor/esm-env/true.js",
@@ -22,7 +17,6 @@
     "svelte/motion": "/static/js/vendor/svelte/src/motion/index.js",
     "svelte/reactivity": "/static/js/vendor/svelte/src/reactivity/index-client.js",
     "svelte/store": "/static/js/vendor/svelte/src/store/index-client.js",
-    "svelte/transition": "/static/js/vendor/svelte/src/transition/index.js",
-    "@snapfire/fsr-authoring/template": "/static/js/fsr/template.js"
+    "svelte/transition": "/static/js/vendor/svelte/src/transition/index.js"
   }
 }
