@@ -22,6 +22,13 @@ const TEMPLATE: &[(&str, &str)] = &[
   ("app/styles/app.css", include_str!("../templates/new/app/styles/app.css")),
 ];
 
+/// `fsr new --terminal`: a terminal program, its root page drawn with FSR's Ink, and nothing a browser loads.
+const TERMINAL_TEMPLATE: &[(&str, &str)] = &[
+  (".gitignore", include_str!("../templates/new/gitignore")),
+  ("config/app.toml", include_str!("../templates/new_terminal/config/app.toml")),
+  ("app/routes/page.tsx", include_str!("../templates/new_terminal/app/routes/page.tsx")),
+];
+
 /// A site's stylesheet, scoped under the site's own class, since a mounted
 /// site's sheets load on top of the shell's and must not restyle its page.
 const SITE_STYLES: &str = include_str!("../templates/new/app/styles/site.css");
@@ -42,6 +49,8 @@ pub struct NewOptions {
   pub shell: bool,
   /// Scaffolds a site, mounted at a path and optionally linked into a shell.
   pub site: Option<SiteScaffold>,
+  /// Scaffolds a terminal program: `[app] runs = "terminal"` and an Ink root page.
+  pub terminal: bool,
 }
 
 impl NewOptions {
@@ -62,6 +71,11 @@ impl NewOptions {
 
   pub fn site(mut self, site: Option<SiteScaffold>) -> Self {
     self.site = site;
+    self
+  }
+
+  pub fn terminal(mut self, terminal: bool) -> Self {
+    self.terminal = terminal;
     self
   }
 }
@@ -97,7 +111,7 @@ impl SiteScaffold {
 
 impl Default for NewOptions {
   fn default() -> Self {
-    Self { fetch: true, with: Vec::new(), shell: false, site: None }
+    Self { fetch: true, with: Vec::new(), shell: false, site: None, terminal: false }
   }
 }
 
@@ -117,6 +131,34 @@ pub struct Created {
   pub linked: Option<crate::sites::Linked>,
 }
 
+/// [`create`] for `--terminal`: [`TERMINAL_TEMPLATE`], then the declarations a terminal page reads.
+fn create_terminal(root: &Path, fetch: bool) -> Result<Created, BuildError> {
+  let name = root.file_name().and_then(|n| n.to_str()).unwrap_or("app").to_owned();
+  let app = root.join("app");
+  let mut created = Created::default();
+  for (path, contents) in TERMINAL_TEMPLATE {
+    let path = root.join(path);
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+    }
+    std::fs::write(&path, contents.replace("{{name}}", &name)).map_err(|e| BuildError::Io(path.clone(), e))?;
+    created.written.push(path);
+  }
+  if fetch {
+    match types::fetch(&app, false) {
+      Ok(report) => {
+        created.typed = report.fetched;
+        created.pinned = report.pinned;
+      }
+      Err(e) => created.notes.push(format!("fetching types failed ({e}); run `fsr types {}`", app.display())),
+    }
+  } else {
+    created.next.push(format!("fsr types {}", app.display()));
+  }
+  created.next.push(format!("fsr dev {}", app.display()));
+  Ok(created)
+}
+
 /// Writes the project at `root`, whose app directory is `root/app`. Refuses a
 /// `root` that already holds `app/` or `config/`, so a second run cannot
 /// overwrite an application.
@@ -129,6 +171,12 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
   }
   if options.shell && options.site.is_some() {
     return Err(BuildError::Dev("a site cannot mount sites; pass --shell or --site, not both".to_owned()));
+  }
+  if options.terminal {
+    if options.shell || options.site.is_some() || !options.with.is_empty() {
+      return Err(BuildError::Dev("a terminal program serves no pages, so --terminal takes no --shell, --site or --with".to_owned()));
+    }
+    return create_terminal(root, options.fetch);
   }
   for direction in &options.with {
     direction::find(direction)?;

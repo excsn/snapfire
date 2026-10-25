@@ -37,6 +37,22 @@ fn a_scaffolded_project_builds_with_every_module_lowered() {
 }
 
 #[test]
+fn a_terminal_scaffold_is_an_ink_page_the_configuration_runs_in_a_terminal() {
+  let dir = root("terminal");
+  let created = create(&dir, offline().terminal(true)).unwrap();
+  let config = std::fs::read_to_string(dir.join("config/app.toml")).unwrap();
+  assert!(config.contains("[app]\nruns = \"terminal\""), "{config}");
+  assert!(std::fs::read_to_string(dir.join("app/routes/page.tsx")).unwrap().contains("@snapfire/fsr/terminal/ink"));
+  for web in ["app/importmap.json", "app/src/main.ts", "app/routes/layout.tsx", "app/styles/app.css"] {
+    assert!(!dir.join(web).exists(), "a terminal program has no {web}");
+  }
+  assert!(snapfire_fsr_cli::is_terminal_app(&dir.join("app")));
+  assert!(created.next.last().unwrap().starts_with("fsr dev"), "{:?}", created.next);
+  let refused = create(&root("terminal-with"), offline().terminal(true).with(vec!["react".to_owned()])).unwrap_err().to_string();
+  assert!(refused.contains("--terminal"), "{refused}");
+}
+
+#[test]
 fn an_offline_scaffold_names_the_steps_it_skipped() {
   let created = create(&root("offline"), offline()).unwrap();
   assert!(created.vendored.is_empty());

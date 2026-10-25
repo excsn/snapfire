@@ -2179,6 +2179,8 @@ mod tests {
     let root = std::env::temp_dir().join(format!("fsr-cli-dev-{}-terminal-no-map", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let app = root.join("app");
+    std::fs::create_dir_all(root.join("config")).unwrap();
+    std::fs::write(root.join("config/app.toml"), "[app]\nruns = \"terminal\"\n").unwrap();
     std::fs::create_dir_all(app.join("routes")).unwrap();
     std::fs::write(app.join("routes/page.tsx"), "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Page() {\n  return <Text>hi</Text>;\n}\n").unwrap();
     std::fs::create_dir_all(app.join("types/react")).unwrap();

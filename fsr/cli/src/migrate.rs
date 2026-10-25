@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_migrate::{is_old_layout, migrate, relayout as relayout_tree, Report, Tree, CFONTS_DIR, MAP_FILE, WORKSPACE_DIR};
+use snapfire_fsr_migrate::{is_old_layout, migrate, relayout as relayout_tree, Report, Source, Tree, CFONTS_DIR, MAP_FILE, WORKSPACE_DIR};
 
 use crate::new::{self, Created, NewOptions};
 use crate::BuildError;
@@ -58,7 +58,11 @@ pub fn run(from: &Path, to: &Path, fetch: bool, map: Option<&Path>) -> Result<Mi
   if report.passes.is_empty() {
     return Err(BuildError::Dev(format!("{}: {} is not migrated yet", from.display(), source.name())));
   }
-  let created = new::create(to, NewOptions::default().fetch(fetch).with(vec![source.direction().to_owned()]))?;
+  let scaffold = match source {
+    Source::Ink => NewOptions::default().fetch(fetch).terminal(true),
+    _ => NewOptions::default().fetch(fetch).with(vec![source.direction().to_owned()]),
+  };
+  let created = new::create(to, scaffold)?;
   let routes = to.join("app/routes");
   std::fs::remove_dir_all(&routes).map_err(|e| BuildError::Io(routes.clone(), e))?;
   let mut written = Vec::new();

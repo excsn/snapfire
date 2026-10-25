@@ -1,0 +1,3 @@
+#:schema ../app/generated/config.schema.json
+[app]
+runs = "terminal"

@@ -61,6 +61,8 @@ fn an_ink_big_text_font_comes_from_the_cfonts_package_installed_above_the_applic
   );
   let to = dir.join("fsr");
   run(&from, &to, false, None).unwrap();
+  assert!(std::fs::read_to_string(to.join("config/app.toml")).unwrap().contains("runs = \"terminal\""), "an Ink application is migrated to a terminal program");
+  assert!(!to.join("app/routes/layout.tsx").exists() && !to.join("app/vendor").exists(), "no web scaffold and no vendored React");
   assert_eq!(std::fs::read_to_string(to.join("app/fonts/block.json")).unwrap(), font);
   assert!(!to.join("app/fonts/tiny.json").exists() && !to.join(".cfonts").exists());
   std::fs::remove_dir_all(&dir).unwrap();

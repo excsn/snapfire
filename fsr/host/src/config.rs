@@ -29,6 +29,8 @@ use crate::locale::LocalesSection;
 pub struct Config {
   pub root: PathBuf,
   pub app: PathBuf,
+  /// `[app] runs`.
+  pub runs: Runs,
   pub sources: Vec<PathBuf>,
   pub server: ServerConfig,
   pub document: DocumentConfig,
@@ -424,12 +426,23 @@ impl SiteSection {
 pub struct AppSection {
   #[serde(default = "default_app_dir")]
   pub dir: String,
+  #[serde(default)]
+  pub runs: Runs,
 }
 
 impl Default for AppSection {
   fn default() -> Self {
-    Self { dir: default_app_dir() }
+    Self { dir: default_app_dir(), runs: Runs::default() }
   }
+}
+
+/// `[app] runs`: `web` serves pages to a browser, a desktop window among them; `terminal` draws the root page in a terminal with FSR's Ink and serves nothing.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Runs {
+  #[default]
+  Web,
+  Terminal,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
@@ -2987,6 +3000,7 @@ impl Config {
     Ok(Self {
       root,
       app,
+      runs: app_section.runs,
       sources: Vec::new(),
       server,
       document,

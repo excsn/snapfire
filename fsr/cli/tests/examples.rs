@@ -85,6 +85,9 @@ fn skipped(example: &Path, config: &str) -> Option<&'static str> {
   if config.lines().any(|l| l.starts_with("[site]")) {
     return Some("a site ships inside its shell's tree");
   }
+  if config.lines().any(|l| l.trim() == "runs = \"terminal\"") {
+    return Some("a terminal program serves nothing");
+  }
   if config.lines().any(|l| l.starts_with("[sites")) {
     return Some("a shell needs its site artifacts placed beside the tree");
   }

@@ -96,6 +96,8 @@ pub enum BuildError {
   ServerIsland { module: String, reason: String },
   #[error("{file}:{line} imports `@snapfire/fsr/host` and the browser loads this file; a host member runs only in a host. Read the value in the route's loader `page.loader.ts` from `@snapfire/fsr/host` and pass it to the page as a prop. A member `@snapfire/fsr/client` also has is imported from there")]
   HostInBrowser { file: String, line: u32 },
+  #[error("{file} draws with FSR's Ink, which runs only in a terminal; a terminal program says so with `runs = \"terminal\"` under `[app]` in config/app.toml")]
+  TerminalUndeclared { file: String },
   #[error("`{module}` is a .{ext} component, but this fsr has no client adapter that mounts one")]
   NoAdapter { module: String, ext: String },
   #[error("`{module}` is not a component this build can mount: no framework claims its extension")]
@@ -561,9 +563,9 @@ pub const CONTRACTS_DIR: &str = "generated/contracts";
 /// The page at `/`, the one a terminal application draws.
 pub const ROOT_PAGE: &str = "routes/page.tsx";
 
-/// Whether the application under `app` runs in a terminal: its root page, or a local file it reaches, imports a value from Ink's API.
+/// Whether the application under `app` runs in a terminal: `[app] runs = "terminal"` in the configuration beside it.
 pub fn is_terminal_app(app: &Path) -> bool {
-  app.join(ROOT_PAGE).is_file() && ComponentSet::new(app).draws_in_terminal(ROOT_PAGE)
+  config_beside(app).is_some_and(|config| config.runs == snapfire_fsr_host::config::Runs::Terminal)
 }
 /// The file under `CONTRACTS_DIR` holding every `#[service]` block's contract.
 pub const RUST_CONTRACT: &str = "rust.json";
@@ -1030,6 +1032,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let terminal = is_terminal_app(app);
   if terminal {
     set = set.for_terminal();
+  } else if app.join(ROOT_PAGE).is_file() && set.draws_in_terminal(ROOT_PAGE) {
+    return Err(BuildError::TerminalUndeclared { file: ROOT_PAGE.to_owned() });
   }
   let mdx_settings = mdx::settings(&config_beside(app).map(|config| config.mdx).unwrap_or_default())?;
   #[cfg_attr(not(feature = "mdx"), allow(unused_mut))]

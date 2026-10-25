@@ -6,7 +6,13 @@ It builds on three earlier chapters. [002](002-a-body-is-data.md) says what lowe
 
 ## Terminal mode is a feature of the CLI
 
-The `terminal` Cargo feature of the CLI lets `fsr dev` run a terminal app. It is off by default. An app is a terminal app when its root page or a local file the page imports takes a value from `@snapfire/fsr/terminal/ink`: `fsr dev` draws it in the terminal and `fsr build` lowers it with no browser half.
+The `terminal` Cargo feature of the CLI lets `fsr dev` run a terminal app. It is off by default. An app is a terminal app when its configuration says so with `runs = "terminal"` under `[app]`: `fsr dev` draws it in the terminal and `fsr build` lowers it with no browser half. `fsr new --terminal` writes that line and an Ink page. `fsr migrate` writes it for an Ink application. A root page that draws with `@snapfire/fsr/terminal/ink` in an app without it is refused with the line named.
+
+```toml
+# config/app.toml
+[app]
+runs = "terminal"
+```
 
 ```sh
 cargo install --path fsr/cli --features terminal

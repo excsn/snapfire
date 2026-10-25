@@ -7036,6 +7036,19 @@ fn a_trace_expose_entry_that_is_not_a_path_is_refused() {
 }
 
 #[test]
+fn an_application_runs_on_the_web_unless_its_app_section_says_terminal() {
+  use snapfire_fsr_host::config::{Config, Runs};
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  assert_eq!(Config::load(dir.join("app.toml")).unwrap().runs, Runs::Web);
+  std::fs::write(dir.join("app.toml"), toml.replacen("[app]\n", "[app]\nruns = \"terminal\"\n", 1)).unwrap();
+  assert_eq!(Config::load(dir.join("app.toml")).unwrap().runs, Runs::Terminal);
+  std::fs::write(dir.join("app.toml"), toml.replacen("[app]\n", "[app]\nruns = \"window\"\n", 1)).unwrap();
+  let err = Config::load(dir.join("app.toml")).unwrap_err().to_string();
+  assert!(err.contains("window"), "{err}");
+}
+
+#[test]
 fn a_desktop_name_is_read_from_its_section_and_absent_without_one() {
   let dir = app_dir();
   let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();

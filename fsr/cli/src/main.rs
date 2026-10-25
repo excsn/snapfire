@@ -146,6 +146,9 @@ struct New {
   /// The shell to write the mount into. Belongs to --site.
   #[arg(long)]
   into: Option<PathBuf>,
+  /// Scaffolds a terminal program: `[app] runs = "terminal"` and a root page drawn with FSR's Ink.
+  #[arg(long)]
+  terminal: bool,
 }
 
 #[derive(Args)]
@@ -806,7 +809,7 @@ fn main() -> ExitCode {
 }
 
 fn run_new(args: New) -> ExitCode {
-  let mut options = NewOptions::default().fetch(!args.no_fetch).with(args.with).shell(args.shell);
+  let mut options = NewOptions::default().fetch(!args.no_fetch).with(args.with).shell(args.shell).terminal(args.terminal);
   if args.site {
     let Some(at) = args.at else {
       return refused("fsr new --site needs --at <path>, the prefix a shell mounts it under");

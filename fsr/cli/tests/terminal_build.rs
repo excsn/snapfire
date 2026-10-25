@@ -4,10 +4,18 @@ use snapfire_fsr_cli::{build, Options};
 
 static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// A project whose `config/app.toml` says `runs = "terminal"`, holding `files` under `app/`.
 fn app(files: &[(&str, &str)]) -> std::path::PathBuf {
+  project("[app]\nruns = \"terminal\"\n", files)
+}
+
+fn project(config: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let app = std::env::temp_dir().join(format!("fsr-terminal-build-{}-{n}", std::process::id())).join("app");
-  let _ = std::fs::remove_dir_all(&app);
+  let root = std::env::temp_dir().join(format!("fsr-terminal-build-{}-{n}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("config")).unwrap();
+  std::fs::write(root.join("config/app.toml"), config).unwrap();
+  let app = root.join("app");
   for (name, source) in files {
     let path = app.join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -35,12 +43,21 @@ fn a_terminal_app_builds_with_its_loader_in_root_props() {
   assert_eq!(islands(&built), Vec::<String>::new(), "an Ink page has no browser half");
 }
 
+const INK_PAGE: &str = "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Page() {\n  return <Text>hi</Text>;\n}\n";
+
 #[test]
-fn an_app_runs_in_a_terminal_when_its_root_page_draws_with_ink() {
-  let ink = app(&[("routes/page.tsx", "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Page() {\n  return <Text>hi</Text>;\n}\n")]);
-  let web = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>hi</p>;\n}\n")]);
-  assert!(snapfire_fsr_cli::is_terminal_app(&ink));
-  assert!(!snapfire_fsr_cli::is_terminal_app(&web));
+fn an_app_runs_in_a_terminal_when_its_configuration_says_so() {
+  let terminal = app(&[("routes/page.tsx", INK_PAGE)]);
+  let web = project("", &[("routes/page.tsx", INK_PAGE)]);
+  assert!(snapfire_fsr_cli::is_terminal_app(&terminal));
+  assert!(!snapfire_fsr_cli::is_terminal_app(&web), "an Ink import alone does not make a terminal app");
+}
+
+#[test]
+fn a_root_page_drawing_with_ink_in_an_app_that_runs_on_the_web_is_refused_naming_the_setting() {
+  let web = project("", &[("routes/page.tsx", INK_PAGE), ("importmap.json", IMPORT_MAP)]);
+  let error = build(&web, &Options::default()).err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(error.contains("routes/page.tsx") && error.contains("runs = \"terminal\"") && error.contains("[app]"), "{error}");
 }
 
 #[test]
