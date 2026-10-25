@@ -70,6 +70,8 @@ fn a_terminal_app_has_declarations_for_fsrs_terminal_modules_and_asks_for_react(
       assert!(index.contains(&signature.declare(member.name)), "{} in {index}", member.name);
     }
   }
+  assert!(index.contains("export * from \"@snapfire/fsr/client/terminal/index.js\";"), "system, clipboard and Scope under the terminal's root: {index}");
+  assert!(std::fs::read_to_string(app.join("types/@snapfire/fsr/client/terminal/index.d.ts")).unwrap().contains("export * as system from"));
   let core = std::fs::read_to_string(app.join("types/@snapfire/fsr/terminal/core.d.ts")).unwrap();
   assert!(core.contains(&snapfire_fsr_terminal::prop_declarations()), "{core}");
   let ink = std::fs::read_to_string(app.join("types/@snapfire/fsr/terminal/ink.d.ts")).unwrap();
@@ -107,4 +109,12 @@ fn the_key_a_handler_gets_is_declared_from_the_fields_the_terminal_sets() {
     assert_eq!(set.len(), 3 + own, "{code:?} sets ctrl, shift and meta and a field of its own in KEYS: {set:?}");
     assert_eq!(key.len(), snapfire_fsr_cli::terminal::KEYS.len(), "{code:?}");
   }
+}
+
+#[test]
+fn a_terminal_app_reports_no_call_left_to_a_browser() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nfunction clock(seconds: number) {\n  return `${String(Math.floor(seconds / 60)).padStart(2, \"0\")}:${String(seconds % 60).padStart(2, \"0\")}`;\n}\n\nexport default function Page() {\n  const [left, setLeft] = useState(90);\n  useInput(() => setLeft(left - 1));\n  return <Text>{clock(left)}</Text>;\n}\n";
+  let app = app(&[("routes/page.tsx", page)]);
+  let built = build(&app, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(built.report.browser, Vec::<(String, String)>::new(), "a terminal app has no browser half");
 }

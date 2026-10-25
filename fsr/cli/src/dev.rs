@@ -1093,7 +1093,8 @@ pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Resu
       };
       return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`{failure}", missing.join(", "))));
     }
-    let checked = app.compile(&built, &mut plugins)?;
+    // A terminal app has no browser half, so there is no bundle and no import map for one.
+    let checked = if crate::is_terminal_app(&app.dir) { app.compile_with(|| Ok(()))? } else { app.compile(&built, &mut plugins)? };
     if let Some(checked) = &checked {
       if checked.errors() > 0 {
         let lines: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
@@ -2044,6 +2045,30 @@ mod tests {
     assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
     assert_eq!(recorded(&app, "@htmx/ext").map(|t| t.entry), Some("lib/index.d.ts".to_owned()));
     assert!(app.join("types/@htmx/core/index.d.ts").is_file(), "and what its declarations import");
+  }
+
+  #[cfg(feature = "terminal")]
+  #[test]
+  fn a_terminal_app_builds_without_an_import_map_or_a_bundle() {
+    let root = std::env::temp_dir().join(format!("fsr-cli-dev-{}-terminal-no-map", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let app = root.join("app");
+    std::fs::create_dir_all(app.join("routes")).unwrap();
+    std::fs::write(app.join("routes/page.tsx"), "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Page() {\n  return <Text>hi</Text>;\n}\n").unwrap();
+    std::fs::create_dir_all(app.join("types/react")).unwrap();
+    std::fs::write(app.join("types/react/package.json"), r#"{"name":"react","types":"index.d.ts"}"#).unwrap();
+    std::fs::write(app.join("types/react/index.d.ts"), "export {};\n").unwrap();
+    let layout = crate::xwpm::Layout::of(&app).unwrap();
+    let mut manifest = crate::types::TypesManifest::read(&app, &layout).unwrap();
+    manifest.packages.insert("react".to_owned(), crate::types::TypedPackage { version: "19.2.0".to_owned(), from: "react".to_owned(), entry: "index.d.ts".to_owned(), ambient: false });
+    manifest.write(&app, &layout).unwrap();
+    let mut options = DevOptions::beside(&app);
+    options.typecheck.enabled = false;
+    options.snapfirec = Some(root.join("no-snapfirec"));
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(result.is_ok(), "{:?}", result.err());
+    assert!(!app.join("dist").exists(), "a terminal app has no browser bundle");
+    let _ = std::fs::remove_dir_all(&root);
   }
 
   #[test]

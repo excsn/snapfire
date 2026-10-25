@@ -1467,7 +1467,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     }
   }
   report.hoisted.sort();
-  report.browser = set.remaining.iter().chain(set.browser_texts.iter()).map(|(module, site)| (format!("{}{module}", options.prefix()), site.clone())).collect();
+  report.browser = set.remaining.iter().chain(set.browser_texts.iter()).filter(|_| !terminal).map(|(module, site)| (format!("{}{module}", options.prefix()), site.clone())).collect();
   for (module, component) in &set.components {
     let file = module.split('#').next().unwrap_or(module);
     for why in unlowered_handlers(&component.render) {

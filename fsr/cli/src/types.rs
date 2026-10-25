@@ -60,7 +60,8 @@ fn native_terminal() -> Vec<(String, String)> {
     names.push(name);
   }
   let ink = format!("export * from \"./hooks\";\nexport {{ {} }} from \"./core\";\nexport type {{ BoxProps, Extent, Key, TextProps }} from \"./core\";\n", names.join(", "));
-  vec![("index.d.ts".to_owned(), declared_members("terminal")), ("core.d.ts".to_owned(), core), ("ink.d.ts".to_owned(), ink)]
+  let index = format!("export * from \"{CLIENT_PACKAGE}/terminal/index.js\";\n{}", declared_members("terminal"));
+  vec![("index.d.ts".to_owned(), index), ("core.d.ts".to_owned(), core), ("ink.d.ts".to_owned(), ink)]
 }
 
 /// The declarations of the standard members of `module`, from the signatures their rows carry.
