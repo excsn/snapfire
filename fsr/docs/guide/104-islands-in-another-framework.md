@@ -159,7 +159,7 @@ Put an unclosed tag in `Scaler.vue` and build. The plugin's diagnostic names the
 Give `routes/page.tsx` a `useState` from `react` and a button that sets it. Build: the state and the button move into `routes/page.island0.tsx`, an island beside the page. The page stays `static`. The island is React's, since its state comes from `react`. This application's import map has no React, so the build stops:
 
 ```text
-`routes/page.island0.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react`, `react` or `react-dom/client`; `fsr use <app dir> react` writes it
+`routes/page.island0.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `react` or `react-dom/client`; `fsr use <app dir> react` writes it
 ```
 
 Remove the `useState` again and the application loads no React.

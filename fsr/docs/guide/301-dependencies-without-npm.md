@@ -10,7 +10,7 @@ A browser dependency is a module the browser fetches. fsr keeps those under `app
 
 `fsr add <app> react@19.1.0 react-dom@19.1.0/client` is how a module gets there. It fetches each package from a CDN that serves npm packages as ES modules, bundled as one file per specifier, then writes the file, the import map entry and a manifest recording what was added. A package that depends on another is bundled with it unless `--external` names the dependency, in which case the import stays bare and the dependency is vendored on its own, which is how React and React DOM share one React. A package that imports something outside its bundle that nobody named is refused with the name rather than becoming a runtime 404.
 
-The client library itself, `@snapfire/fsr/client`, is not a package to add. It is built from `fsr/client` with snapfirec and served from that build; the storefront's import map points at it.
+The client library itself, `@snapfire/fsr/client`, is not a package to add. It is built from `fsr/client` with snapfirec and the host serves that build from its own binary at `/static/js/fsr`. The host also adds an entry for each of its modules to the import map it serves, wherever `app/importmap.json` names none. `fsr dev` and `fsr build` compile against that served map. The storefront's map can list its own packages alone.
 
 ## Type declarations
 

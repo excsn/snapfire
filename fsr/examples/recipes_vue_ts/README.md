@@ -82,7 +82,7 @@ Break a component. Put an unclosed tag in `src/ui/Scaler.vue` and build: the plu
 Give a page state. Add a `useState` to `routes/page.tsx` and build: the page stops being `static`, so the registry would mount it through React. This application's import map has no React, so the build stops:
 
 ```text
-`routes/page.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react`, `react` or `react-dom/client`
+`routes/page.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `react` or `react-dom/client`; `fsr use <app dir> react` writes it
 ```
 
 That line is the whole reason the static rule exists.
