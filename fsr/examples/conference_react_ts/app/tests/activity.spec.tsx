@@ -157,3 +157,66 @@ test("a link that says data-sf-activity none renders the page afresh", async () 
   const fresh = document.querySelector("textarea[name=note]") as HTMLTextAreaElement;
   expect(fresh !== note && fresh.value === "", "a new textarea, empty").toBeTruthy();
 });
+
+test("a step back puts back the tab the visitor chose on the venue, though the schedule names the same radio group", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  const notices = document.getElementById("view-notices") as HTMLInputElement;
+  await fireEvent.click(notices);
+  expect(notices.checked).toEqual(true);
+  await fireEvent.click(screen.getByText("Schedule"));
+  await settle();
+  expect((document.getElementById("view-day") as HTMLInputElement).checked, "the schedule shows its own first tab").toEqual(true);
+  history.back();
+  await settle();
+  expect(document.getElementById("view-notices"), "the same radio came back").toBe(notices);
+  expect(notices.checked, "still the one chosen").toEqual(true);
+  expect((document.getElementById("view-walk") as HTMLInputElement).checked).toEqual(false);
+});
+
+test("a step back keeps what a script set on the venue's markup", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  const heading = document.querySelector(".venue-page h2") as HTMLElement;
+  heading.setAttribute("data-seen", "1");
+  heading.classList.add("seen");
+  await fireEvent.click(screen.getByText("Schedule"));
+  await settle();
+  history.back();
+  await settle();
+  expect(document.querySelector(".venue-page h2"), "the same heading came back").toBe(heading);
+  expect(heading.getAttribute("data-seen"), "with the attribute the script set").toEqual("1");
+  expect(heading.className, "and the class").toEqual("seen");
+});
+
+test("a step back keeps what the help desk held and what it sees in the store", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  await fireEvent.click(screen.getByText("Ask the help desk"));
+  await settle();
+  await fireEvent.click(screen.getByText("Ask the help desk"));
+  await settle();
+  await fireEvent.click(screen.getByLabelText("Coffee"));
+  await settle();
+  expect(document.querySelector(".asked")?.textContent).toEqual("Asked 2 times");
+  expect(document.querySelector(".desk-packed")?.textContent, "the desk stepped when the checklist wrote the key").toEqual("The desk sees 1 packed");
+  await fireEvent.click(screen.getByText("Schedule"));
+  await settle();
+  history.back();
+  await settle();
+  expect(document.querySelector(".asked")?.textContent, "the server island's own state came back").toEqual("Asked 2 times");
+  expect(document.querySelector(".desk-packed")?.textContent, "and what it read from the store").toEqual("The desk sees 1 packed");
+});
+
+test("a server island the navigation renders afresh shows the store value a browser island wrote", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  await fireEvent.click(screen.getByLabelText("Coffee"));
+  await settle();
+  await navigate("/", true, { activity: false });
+  await settle();
+  await navigate("/venue", true, { activity: false });
+  await settle();
+  expect(document.querySelector(".checklist-count")?.textContent, "the React checklist reads the store").toEqual("1 of 3 packed");
+  expect(document.querySelector(".desk-packed")?.textContent, "and so does the server island").toEqual("The desk sees 1 packed");
+});

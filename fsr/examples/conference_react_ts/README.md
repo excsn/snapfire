@@ -36,10 +36,11 @@ The programme is on <http://127.0.0.1:8150/>.
 | `src/ui/SaveTalk.tsx` | the action call, optimistic against the store |
 | `src/ui/Feedback.tsx` | placed with `island(Feedback, { when: "visible" })` |
 | `src/ui/LocalClock.tsx` | the visitor's time zone, which only a browser knows: it does not lower, so React renders it in the browser alone; it imports nothing, and JSX that imports nothing is this React application's |
-| `src/ui/Checklist.tsx` | a React island holding which items are ticked, on the venue page, which activity pauses under `<Activity>` rather than unmounting |
+| `src/ui/Checklist.tsx` | a React island writing which items are ticked to the `venue/packed` store key, on the venue page, which activity pauses under `<Activity>` rather than unmounting |
 | `src/ui/Floors.vue` | the rooms, a Vue island the build lowers and Vue hydrates |
 | `src/elements/talk-count.ts` | the day's talks in words, a custom element the venue page defines at load through `<Island define>` |
-| `src/ui/AskDesk.tsx` | the help desk, a server island: its state lives on the server and each click is a round trip |
+| `src/ui/AskDesk.tsx` | the help desk, a server island: its state lives on the server, each click is a round trip and it reads `venue/packed`, a key only the browser holds |
+| `routes/venue/notices/` | the venue's notices, a page htmx fetches with `?__fragment` once the Notices tab is open |
 
 ## Every body is lowered
 
@@ -79,7 +80,9 @@ The same file shows the session defaults folded in. `session.saved` is written p
 | A page's own state moved into an island | the talk page's `useState` and the button that sets it become `routes/talk/[id]/page.island0.tsx`, listed under `extracted` in the `--verbose` report; the page around it stays `static` |
 | An island of every owner on one page | `/venue`: `Saved` in the layout hydrates under React, `LocalClock` mounts fresh under React, `Floors.vue` hydrates under Vue, `talk-count` defines itself and `AskDesk` steps on the server, while the page is server markup; `tests/venue.spec.tsx` |
 | A navigation animated by the browser | `enableNavigation({ transitions: true })` in `src/main.ts`; the masthead has a `view-transition-name` in `styles/conference.css`, so it holds still while the page crossfades |
-| A page kept while the visitor is elsewhere | `activity: true` beside `transitions` in `src/main.ts`: leave `/venue` and come back by the back button or the nav: the note typed into its textarea, the video's position, the `talk-count` element and the React checklist's ticks come back as they were, the checklist paused under React 19's `<Activity>`; the Vue rooms mount afresh, so a chosen room is not kept; `tests/activity.spec.tsx` |
+| A page kept while the visitor is elsewhere | `activity: true` beside `transitions` in `src/main.ts`: leave `/venue` and come back by the back button or the nav: the note typed into its textarea, the video's position, the `talk-count` element and the React checklist's ticks come back as they were, the checklist paused under React 19's `<Activity>`; the chosen tab, though the schedule's tabs are the same radio group; the help desk's count; an attribute a script set; the Vue rooms mount afresh, so a chosen room is not kept; `tests/activity.spec.tsx` |
+| A server island reading a key a browser island wrote | tick an item on `/venue`'s checklist and the help desk steps to say how many are packed; leave and come back without activity and it steps again on mount, since the server rendered it without the key; `tests/activity.spec.tsx` |
+| htmx beside the navigator | `bindHtmx(htmx)` in `src/main.ts`; the venue's Notices tab is an `hx-trigger="intersect once"` placeholder that loads when the tab is first opened, including after the page was held and put back |
 | A script only one route loads | the venue loader's `meta` declares `scriptTag("/static/demo/venue-map.js", "interaction")`: the stand-in map widget under `demo/` loads on the first key or click on `/venue`, once, whether the page was loaded or navigated to |
 
 The island timings are the one thing the test suite cannot tell apart, since the spec harness reports every observed element as in view. Scroll the talk page in a browser instead: the pace control hydrates when it comes into view and not before.
