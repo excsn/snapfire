@@ -1,0 +1,10 @@
+body { margin: 0; background: #111; color: #ddd; font: 15px/1.5 system-ui, sans-serif; }
+main { max-width: 44rem; margin: 0 auto; padding: 2rem 1rem; }
+h1 { margin: 0 0 1rem; color: #fff; }
+h2 { font-size: 0.9rem; color: #999; word-break: break-all; }
+.picker { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+button { padding: 0.4rem 0.8rem; border: 1px solid #444; border-radius: 6px; background: #222; color: #eee; cursor: pointer; }
+nav { display: flex; gap: 1rem; margin: 1.5rem 0 0; }
+a { color: #6cf; }
+pre { white-space: pre-wrap; padding: 1rem; border: 1px solid #333; border-radius: 6px; background: #181818; }
+.said, .refused { color: #f99; }

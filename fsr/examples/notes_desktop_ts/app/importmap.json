@@ -1,0 +1,19 @@
+{
+  "imports": {
+    "@snapfire/fsr/client": "/static/js/fsr/index.js",
+    "@snapfire/fsr/client/intl": "/static/js/fsr/intl.js",
+    "@snapfire/fsr/client/text": "/static/js/fsr/text.js",
+    "@snapfire/fsr/client/time": "/static/js/fsr/time.js",
+    "@snapfire/fsr/client/crypto": "/static/js/fsr/crypto.js",
+    "@snapfire/fsr/client/i18n": "/static/js/fsr/i18n.js",
+    "@snapfire/fsr/client/log": "/static/js/fsr/log.js",
+    "@snapfire/fsr/client/path": "/static/js/fsr/path.js",
+    "@snapfire/fsr": "/static/js/fsr/native.js",
+    "@snapfire/fsr/client/store": "/static/js/fsr/store.js",
+    "@snapfire/fsr/client/react": "/static/js/fsr/react.js",
+    "@snapfire/fsr/template": "/static/js/fsr/template.js",
+    "react": "/static/js/vendor/react/react.bundle.mjs",
+    "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",
+    "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs"
+  }
+}

@@ -1,6 +1,6 @@
 # FSR examples
 
-Twenty-eight applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Twenty-nine applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
 Each has a `README.md` saying what it shows and where. They are grouped by what renders in the browser. Within a group, read in order: each carries the part the ones before it do not reach.
 
@@ -22,6 +22,7 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | [blog_site_react_ts](portal_react_ts/sites/blog/README.md) | A blog the portal mounts at `/blog`, its posts baked in at build | A static site under a shell that reads the session: the shell's `fsr prerender` renders each page ahead and splices it under the live layout, the same site prerenders its own documents when it runs alone, one per post from `paths`; a slug off the blog answers 404 and React comes from the shell contract, so nothing is vendored and there is no Rust project |
 | [status](portal_react_ts/sites/status/README.md) | A status page the portal mounts at `/status` | A site the shell fetches itself: the table names a version the cache lacks and the portal takes it from `[sites] store`, verified against its manifest |
 | [uploads_react_ts](uploads_react_ts/README.md) | A file posted to an action, with JavaScript and without | Multipart where the body never sees a parser: a part with a filename arrives as the built-in `Upload` beside the text fields, refused above `server.max_upload` before the body runs, posted both by a native form and by `upload` from the page |
+| [notes_desktop_ts](notes_desktop_ts/README.md) | A notes reader in a desktop window | `fsr dev app --desktop`: a loader reading files under `[files] roots`, the system's open dialog through `openFile` and a link handed to the system's browser through `openExternal`, both from `@snapfire/fsr/desktop` |
 | [counter_terminal_ts](counter_terminal_ts/README.md) | An Ink component in the terminal | `fsr dev app` with an fsr built with its `terminal` feature: Ink's `Box`, `Text` and `useInput` imported from FSR's `@snapfire/fsr/terminal/ink`, lowered and drawn by FSR with no Node, each key stepping the state and redrawing only the cells that changed |
 | [tasks_terminal_ts](tasks_terminal_ts/README.md) | A task list in the terminal | A reducer, a prompt with its cursor placed by `useCursor`, rows `useFocus` makes focusable, a log `Static` prints above the page and percentage columns, all from `ink` with no Node |
 | [log_terminal_ts](log_terminal_ts/README.md) | A scrolling `git log` viewer in the terminal | A process a mount effect spawns and streams, `stripAnsi`, a spinner from `useAnimation`, a clock on its own timer and a scroll view `useBoxMetrics` measures |

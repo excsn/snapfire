@@ -1,0 +1,17 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8240"
+
+[document]
+title = "Notes"
+
+[desktop]
+name = "Notes"
+
+[files]
+roots = ["notes"]
+
+[typecheck]
+version = "7.0.2"

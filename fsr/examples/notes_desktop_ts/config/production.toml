@@ -1,0 +1,9 @@
+# Read when RELEASE_ENV or APP_ENV is production.
+[server]
+dev = false
+static_max_age = 3600
+
+[session]
+secure = true
+# The host refuses to start on this value. Set C5_SESSION__KEY, or replace it with a generated key kept out of the repository as a c5store secret.
+key = "replace-this-with-a-generated-key"
