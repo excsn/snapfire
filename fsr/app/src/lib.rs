@@ -324,22 +324,72 @@ impl Handlers {
 #[derive(Default)]
 pub struct Images {
   matcher: MatchitMatcher,
+  under_catch_all: Vec<CatchAllImage>,
   entries: Vec<snapfire_fsr_plan::ImageEntry>,
+}
+
+/// An image under a catch-all page. matchit allows nothing after `{*name}`,
+/// so the page's own pattern is matched once the image's tail is off the path.
+struct CatchAllImage {
+  page: MatchitMatcher,
+  /// `/opengraph-image.png`, or `/opengraph-image` when the module lists its images.
+  tail: String,
+  listed: bool,
+  entry: snapfire_fsr_runtime::EntryId,
+}
+
+impl CatchAllImage {
+  /// `pattern` split after its catch-all, when anything follows it.
+  fn split(pattern: &str) -> Option<(&str, &str)> {
+    let start = pattern.find("{*")?;
+    let end = start + pattern[start..].find('}')? + 1;
+    (end < pattern.len()).then(|| pattern.split_at(end))
+  }
+
+  fn match_path(&self, path: &str) -> Option<Params> {
+    let (head, id) = match self.listed {
+      false => (path, None),
+      true => path.rsplit_once('/').filter(|(_, id)| !id.is_empty()).map(|(head, id)| (head, Some(id)))?,
+    };
+    let mut found = self.page.match_path(head.strip_suffix(self.tail.as_str())?)?;
+    if let Some(id) = id {
+      found.params.insert(snapfire_fsr_plan::IMAGE_PARAM.to_owned(), id.to_owned());
+    }
+    Some(found.params)
+  }
 }
 
 impl Images {
   fn new(entries: Vec<snapfire_fsr_plan::ImageEntry>) -> Result<Self, BindError> {
     let mut matcher = MatchitMatcher::new();
+    let mut under_catch_all = Vec::new();
+    let listed_tail = format!("/{{{}}}", snapfire_fsr_plan::IMAGE_PARAM);
     for (i, entry) in entries.iter().enumerate() {
-      matcher.insert(&entry.pattern, snapfire_fsr_runtime::EntryId(i as u32)).map_err(|e| BindError::Image(entry.pattern.clone(), e.to_string()))?;
+      let id = snapfire_fsr_runtime::EntryId(i as u32);
+      let Some((page, tail)) = CatchAllImage::split(&entry.pattern) else {
+        matcher.insert(&entry.pattern, id).map_err(|e| BindError::Image(entry.pattern.clone(), e.to_string()))?;
+        continue;
+      };
+      let (tail, listed) = match tail.strip_suffix(listed_tail.as_str()) {
+        Some(tail) => (tail, true),
+        None => (tail, false),
+      };
+      if tail.contains('{') {
+        return Err(BindError::Image(entry.pattern.clone(), "a parameter after a catch-all is not routed".to_owned()));
+      }
+      let mut page_matcher = MatchitMatcher::new();
+      page_matcher.insert(page, id).map_err(|e| BindError::Image(entry.pattern.clone(), e.to_string()))?;
+      under_catch_all.push(CatchAllImage { page: page_matcher, tail: tail.to_owned(), listed, entry: id });
     }
-    Ok(Self { matcher, entries })
+    Ok(Self { matcher, under_catch_all, entries })
   }
 
   /// The image `path` names, with the page's params.
   pub fn match_path(&self, path: &str) -> Option<(&snapfire_fsr_plan::ImageEntry, Params)> {
-    let found = self.matcher.match_path(path)?;
-    Some((self.entries.get(found.entry.0 as usize)?, found.params))
+    if let Some(found) = self.matcher.match_path(path) {
+      return Some((self.entries.get(found.entry.0 as usize)?, found.params));
+    }
+    self.under_catch_all.iter().find_map(|image| Some((self.entries.get(image.entry.0 as usize)?, image.match_path(path)?)))
   }
 
   pub fn entries(&self) -> &[snapfire_fsr_plan::ImageEntry] {

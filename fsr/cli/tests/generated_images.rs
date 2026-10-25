@@ -283,3 +283,51 @@ fn an_image_with_its_own_loader_gets_a_generated_props_type() {
   assert_eq!(client.matches("export type NoticeIdProps =").count(), 1, "an image drawing from its page's data adds no second page type: {client}");
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+const DOC_PAGE: &str = "export default function Page({ doc }: { doc: { title: string } }) {\n  return <main>{doc.title}</main>;\n}\n";
+
+const DOC_LOADER: &str = r#"import { fail } from "@snapfire/fsr/host";
+import type { Ctx } from "@snapfire/fsr/host";
+
+export async function load({ params }: Ctx<"/docs/{*rest}">) {
+  if (params.rest === "missing") fail("not_found", "no such doc");
+  return { doc: { title: `Doc ${params.rest}` } };
+}
+"#;
+
+const DOC_IMAGE: &str = r##"export const size = { width: 600, height: 315 };
+
+export default function Image({ doc }: { doc: { title: string } }) {
+  return <div style={{ display: "flex", width: "100%", height: "100%", backgroundColor: "#1e3a8a", color: "white" }}>{doc.title}</div>;
+}
+"##;
+
+#[test]
+fn an_image_beside_a_catch_all_page_is_drawn_at_the_pages_own_url() {
+  let root = project("catch-all", &[("routes/docs/[...rest]/page.tsx", DOC_PAGE), ("routes/docs/[...rest]/page.loader.ts", DOC_LOADER), ("routes/docs/[...rest]/opengraph-image.tsx", DOC_IMAGE)]);
+  let host = boot(&root);
+  let page = page_html(&host, "/docs/guide/intro");
+  assert!(page.contains("<main>Doc guide/intro</main>"), "the page still answers its own URL: {page}");
+  assert!(page.contains("<meta property=\"og:image\" content=\"https://board.example/docs/guide/intro/opengraph-image.png?v="), "{page}");
+  let (status, kind, bytes) = get(&host, "/docs/guide/intro/opengraph-image.png");
+  assert_eq!((status, kind.as_str()), (200, "image/png"), "{}", String::from_utf8_lossy(&bytes));
+  assert_eq!(png_size(&bytes), (600, 315));
+  let (status, _, _) = get(&host, "/docs/missing/opengraph-image.png");
+  assert_eq!(status, 404, "the loader's not found answers the image too");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_catch_all_page_listing_its_images_draws_each_at_its_id() {
+  let listed = "export function images() {\n  return [{ id: \"small\", size: { width: 300, height: 150 } }];\n}\n\nexport default function Image({ id }: { id: string }) {\n  return <div style={{ display: \"flex\", width: \"100%\", height: \"100%\" }}>{id}</div>;\n}\n";
+  let root = project("catch-all-listed", &[("routes/docs/[...rest]/page.tsx", DOC_PAGE), ("routes/docs/[...rest]/page.loader.ts", DOC_LOADER), ("routes/docs/[...rest]/opengraph-image.tsx", listed)]);
+  let host = boot(&root);
+  let page = page_html(&host, "/docs/guide/intro");
+  assert!(page.contains("<meta property=\"og:image\" content=\"https://board.example/docs/guide/intro/opengraph-image/small?v="), "{page}");
+  let (status, kind, bytes) = get(&host, "/docs/guide/intro/opengraph-image/small");
+  assert_eq!((status, kind.as_str()), (200, "image/png"), "{}", String::from_utf8_lossy(&bytes));
+  assert_eq!(png_size(&bytes), (300, 150));
+  let (status, _, _) = get(&host, "/docs/guide/intro/opengraph-image/nope");
+  assert_eq!(status, 404, "an id the list does not name");
+  std::fs::remove_dir_all(&root).unwrap();
+}
