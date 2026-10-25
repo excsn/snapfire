@@ -447,14 +447,17 @@ fn imports_tailwind(css: &str) -> bool {
   })
 }
 
-/// Writes the direction's lines into the map. A line already at the host's
-/// URL is left alone; one pointing anywhere else is refused, since the module
-/// the build registers is the one the host serves.
+/// Writes the direction's lines into the map of an application serving its
+/// own client; the host names them for every other one when its bundle
+/// imports them. A line already at the host's URL is left alone; one pointing
+/// anywhere else is refused, since the module the build registers is the one
+/// the host serves.
 fn write_map(app: &Path, layout: &Layout, direction: &Direction, adopted: &mut Adopted) -> Result<(), BuildError> {
   let lines = direction.lines();
   if lines.is_empty() {
     return Ok(());
   }
+  let own_client = !crate::host_serves_client(app);
   let mut map = vendor::read_import_map(app, layout)?;
   let mut imports = map.get("imports").and_then(|v| v.as_object()).cloned().unwrap_or_default();
   let mut written = false;
@@ -467,6 +470,7 @@ fn write_map(app: &Path, layout: &Layout, direction: &Direction, adopted: &mut A
       Some(found) => {
         return Err(BuildError::AdapterUrl { map: format!("`{}`", app.join(&layout.importmap).display()), specifier, found: found.to_owned(), want });
       }
+      None if !own_client => continue,
       None => {}
     }
     imports.insert(specifier.clone(), serde_json::Value::String(want.clone()));

@@ -32,17 +32,33 @@ fn imports(dir: &Path) -> serde_json::Value {
 }
 
 #[test]
-fn a_direction_writes_the_adapters_line_and_names_what_it_would_vendor() {
+fn a_direction_leaves_the_adapters_line_to_the_host_and_names_what_it_would_vendor() {
   let dir = bare(&[]);
+  let before = std::fs::read(dir.join("importmap.json")).unwrap();
   let adopted = adopt(&dir, &["vue".to_owned()], offline()).unwrap();
-  assert_eq!(adopted.mapped, vec![("@snapfire/fsr/client/vue".to_owned(), "/static/js/fsr/vue.js".to_owned())]);
+  assert!(adopted.mapped.is_empty(), "the host names the adapter when the bundle imports it: {:?}", adopted.mapped);
   let react = adopt(&dir, &["react".to_owned()], offline()).unwrap();
-  assert_eq!(react.mapped, vec![("@snapfire/fsr/client/react".to_owned(), "/static/js/fsr/react.js".to_owned()), ("@snapfire/fsr/template".to_owned(), "/static/js/fsr/template.js".to_owned())]);
+  assert!(react.mapped.is_empty(), "{:?}", react.mapped);
   assert!(react.edits.is_empty(), "a portable layout needs no edit: {:?}", react.edits);
-  assert_eq!(imports(&dir)["@snapfire/fsr/client/vue"], "/static/js/fsr/vue.js");
-  assert_eq!(imports(&dir)["@snapfire/fsr/client/intl"], "/static/js/fsr/intl.js", "the other lines survive");
+  assert_eq!(std::fs::read(dir.join("importmap.json")).unwrap(), before);
   assert_eq!(adopted.next, vec![format!("fsr add {} vue@3.5.44", dir.display()), format!("fsr types {}", dir.display()), format!("fsr build {}", dir.display())]);
   std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_application_serving_its_own_client_is_given_the_adapters_lines() {
+  let root = std::env::temp_dir().join(format!("fsr-cli-direction-own-client-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&root);
+  std::fs::create_dir_all(root.join("config")).unwrap();
+  std::fs::write(root.join("config/app.toml"), "[app]\ndir = \"app\"\n\n[[static]]\nroute = \"/static/js/fsr\"\ndir = \"client\"\n").unwrap();
+  let app = root.join("app");
+  std::fs::create_dir_all(app.join("routes")).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  std::fs::write(app.join("routes/page.tsx"), "export default function Page() {\n  return <p>page</p>;\n}\n").unwrap();
+  let react = adopt(&app, &["react".to_owned()], offline()).unwrap();
+  assert_eq!(react.mapped, vec![("@snapfire/fsr/client/react".to_owned(), "/static/js/fsr/react.js".to_owned()), ("@snapfire/fsr/template".to_owned(), "/static/js/fsr/template.js".to_owned())]);
+  assert_eq!(imports(&app)["@snapfire/fsr/client/react"], "/static/js/fsr/react.js");
+  std::fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
@@ -55,7 +71,6 @@ fn adopting_twice_changes_nothing() {
   let before = std::fs::read(dir.join("importmap.json")).unwrap();
   let again = adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   assert!(again.mapped.is_empty(), "{:?}", again.mapped);
-  assert_eq!(again.present, ["@snapfire/fsr/client/react", "@snapfire/fsr/template", "@snapfire/fsr/client/htmx"]);
   assert_eq!(again.kept, ["react", "react/jsx-runtime", "react-dom/client", "htmx.org"]);
   assert!(!again.next.iter().any(|s| s.starts_with("fsr add")), "nothing is left to vendor: {:?}", again.next);
   assert_eq!(std::fs::read(dir.join("importmap.json")).unwrap(), before);
@@ -174,7 +189,7 @@ fn the_react_a_direction_vendors_pauses_an_island_under_activity() {
 fn svelte_maps_its_adapter_and_names_a_published_add_for_its_runtime() {
   let dir = bare(&[]);
   let adopted = adopt(&dir, &["svelte".to_owned()], offline()).unwrap();
-  assert_eq!(adopted.mapped, vec![("@snapfire/fsr/client/svelte".to_owned(), "/static/js/fsr/svelte.js".to_owned())]);
+  assert!(adopted.mapped.is_empty(), "{:?}", adopted.mapped);
   let svelte = snapfire_fsr_cli::direction::SVELTE;
   let add = adopted.next.first().expect("an add line");
   assert!(add.starts_with(&format!("fsr add {} --published svelte@{svelte} ", dir.display())), "the runtime is vendored as published, one copy for every subpath: {add}");

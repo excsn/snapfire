@@ -25,6 +25,7 @@ fn a_scaffolded_project_builds_with_every_module_lowered() {
 
   let map = std::fs::read_to_string(root.join("app/importmap.json")).unwrap();
   assert!(!map.contains("react"), "a bare scaffold serves no framework: {map}");
+  assert!(!map.contains("@snapfire/fsr"), "the host names the client modules the bundle imports: {map}");
   assert!(std::fs::read_to_string(root.join("app/routes/layout.tsx")).unwrap().contains("@snapfire/fsr/template"));
 
   let built = build(&root.join("app"), &Options::beside(&root.join("app"))).unwrap();
@@ -50,10 +51,7 @@ fn with_adopts_each_direction_after_the_template() {
   let root = root("with");
   let created = create(&root, offline().with(vec!["react".to_owned(), "htmx".to_owned()])).unwrap();
   let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("app/importmap.json")).unwrap()).unwrap();
-  assert_eq!(map["imports"]["@snapfire/fsr/client/react"], "/static/js/fsr/react.js");
-  assert_eq!(map["imports"]["@snapfire/fsr/template"], "/static/js/fsr/template.js");
-  assert_eq!(map["imports"]["@snapfire/fsr/client/htmx"], "/static/js/fsr/htmx.js");
-  assert!(map["imports"].get("@snapfire/fsr/client/vue").is_none(), "{map}");
+  assert!(map["imports"].as_object().unwrap().keys().all(|key| !key.starts_with("@snapfire/fsr")), "{map}");
   assert!(!created.next.iter().any(|s| s.starts_with("fsr use")), "a scaffold with a direction is not told to add one: {:?}", created.next);
   let add = created.next.iter().find(|s| s.starts_with("fsr add")).expect("the vendoring step is named offline");
   let react = snapfire_fsr_cli::direction::REACT;
@@ -235,7 +233,7 @@ fn a_site_with_a_direction_takes_the_framework_its_shell_serves() {
   assert!(created.linked.is_some());
   let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(site.join("app/importmap.json")).unwrap()).unwrap();
   assert_eq!(map["imports"]["react"], "/static/js/vendor/react/react.bundle.mjs", "the shell's URL, taken from the contract: {map}");
-  assert_eq!(map["imports"]["@snapfire/fsr/client/react"], "/static/js/fsr/react.js");
+  assert!(map["imports"].get("@snapfire/fsr/client/react").is_none(), "{map}");
   assert!(created.vendored.is_empty() && !site.join("app/vendor").exists(), "nothing is vendored for a package the shell serves");
   assert!(!created.next.iter().any(|s| s.starts_with("fsr add")), "nothing is left to fetch: {:?}", created.next);
 }

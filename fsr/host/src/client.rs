@@ -429,9 +429,9 @@ pub fn imports(name: &str, minified: bool) -> Vec<&'static str> {
   found
 }
 
-/// The import map entries for every module [`ROUTE`] answers: `@snapfire/fsr/client` for `index.js`, `@snapfire/fsr/client/<name>` for `<name>.js`, `@snapfire/fsr` for `native.js` and [`DESKTOP_SPECIFIER`] for [`DESKTOP_FILE`].
+/// The import map entries for every module [`ROUTE`] answers: `@snapfire/fsr/client` for `index.js`, `@snapfire/fsr/client/<name>` for `<name>.js`, `@snapfire/fsr` for `native.js`, `@snapfire/fsr/template` for `template.js` and [`DESKTOP_SPECIFIER`] for [`DESKTOP_FILE`].
 pub fn import_entries() -> Vec<(String, String)> {
-  let mut entries = vec![("@snapfire/fsr/client".to_owned(), format!("{ROUTE}/index.js")), ("@snapfire/fsr".to_owned(), format!("{ROUTE}/native.js"))];
+  let mut entries = vec![("@snapfire/fsr/client".to_owned(), format!("{ROUTE}/index.js")), ("@snapfire/fsr".to_owned(), format!("{ROUTE}/native.js")), ("@snapfire/fsr/template".to_owned(), format!("{ROUTE}/template.js"))];
   for (name, _) in FILES {
     if let Some(stem) = name.strip_suffix(".js") {
       entries.push((format!("@snapfire/fsr/client/{stem}"), format!("{ROUTE}/{name}")));
