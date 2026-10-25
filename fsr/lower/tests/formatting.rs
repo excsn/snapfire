@@ -155,3 +155,12 @@ fn a_formatter_made_with_the_documents_locale_formats_under_the_requests() {
   let root = "import { localeTag } from \"@snapfire/fsr/client\";\nexport default function Page() {\n  return <p>{localeTag()}</p>;\n}\n";
   assert_eq!(html("locale_tag_root", &[("routes/page.tsx", root)]).as_deref(), Ok("<p>en</p>"));
 }
+
+#[test]
+fn a_bare_to_locale_string_formats_under_the_requests_locale_as_the_browser_formats_under_the_documents() {
+  let dir = app("bare_locale", &[("routes/page.tsx", "export default function Page({ n }: { n: number }) {\n  return <p>{n.toLocaleString()}</p>;\n}\n")]);
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/page.tsx#default").unwrap_or_else(|e| panic!("{e}"));
+  let tree = format!("{:?}", set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap().1.render);
+  assert!(tree.contains("name: \"number\"") && !tree.contains("LocaleNumber"), "{tree}");
+}

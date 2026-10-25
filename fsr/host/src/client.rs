@@ -427,9 +427,42 @@ pub fn imports(name: &str, minified: bool) -> Vec<&'static str> {
   found
 }
 
+/// The import map entries for every module [`ROUTE`] answers: `@snapfire/fsr/client` for `index.js`, `@snapfire/fsr/client/<name>` for `<name>.js` and `@snapfire/fsr` for `native.js`.
+pub fn import_entries() -> Vec<(String, String)> {
+  let mut entries = vec![("@snapfire/fsr/client".to_owned(), format!("{ROUTE}/index.js")), ("@snapfire/fsr".to_owned(), format!("{ROUTE}/native.js"))];
+  for (name, _) in FILES {
+    if let Some(stem) = name.strip_suffix(".js") {
+      entries.push((format!("@snapfire/fsr/client/{stem}"), format!("{ROUTE}/{name}")));
+    }
+  }
+  entries
+}
+
+/// `text`, an import map, with [`import_entries`] under `imports` wherever it has no entry of its own. Text that is not a JSON object is returned as it is.
+pub fn with_import_entries(text: &str) -> String {
+  let Ok(serde_json::Value::Object(mut map)) = serde_json::from_str::<serde_json::Value>(text) else { return text.to_owned() };
+  let imports = map.entry("imports").or_insert_with(|| serde_json::Value::Object(Default::default()));
+  let Some(imports) = imports.as_object_mut() else { return text.to_owned() };
+  for (specifier, url) in import_entries() {
+    imports.entry(specifier).or_insert(serde_json::Value::String(url));
+  }
+  serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_else(|_| text.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn an_import_map_gains_every_client_module_and_keeps_its_own_entries() {
+    let served: serde_json::Value = serde_json::from_str(&with_import_entries(r#"{"imports":{"react":"/v/react.js","@snapfire/fsr/client/react":"/mine/react.js"}}"#)).unwrap();
+    let imports = &served["imports"];
+    assert_eq!(imports["@snapfire/fsr/client/intl"], "/static/js/fsr/intl.js");
+    assert_eq!(imports["@snapfire/fsr/client"], "/static/js/fsr/index.js");
+    assert_eq!(imports["@snapfire/fsr"], "/static/js/fsr/native.js");
+    assert_eq!(imports["@snapfire/fsr/client/react"], "/mine/react.js");
+    assert_eq!(imports["react"], "/v/react.js");
+  }
 
   #[cfg(feature = "client_source_maps")]
   #[test]

@@ -4013,7 +4013,11 @@ impl<'a> Lowerer<'a> {
         let side = if matches!(method.as_str(), "trimStart" | "trimLeft") { "start" } else { "end" };
         Ok(Expr::Builtin { name: Builtin::Trim, args: vec![*target, Expr::lit_str(side)] })
       }
-      "toFixed" | "repeat" | "join" | "trim" | "toUpperCase" | "toLowerCase" | "includes" | "toLocaleString" => {
+      "toLocaleString" => {
+        let formatted = self.intl_format("NumberFormat", &call.args, *target, call.span)?;
+        Ok(self.candidate(call.span, formatted))
+      }
+      "toFixed" | "repeat" | "join" | "trim" | "toUpperCase" | "toLowerCase" | "includes" => {
         let name = match method.as_str() {
           "toFixed" => Builtin::ToFixed,
           "repeat" => Builtin::Repeat,
@@ -4021,23 +4025,9 @@ impl<'a> Lowerer<'a> {
           "trim" => Builtin::Trim,
           "toUpperCase" => Builtin::Upper,
           "toLowerCase" => Builtin::Lower,
-          "includes" => Builtin::Includes,
-          _ => Builtin::LocaleNumber,
+          _ => Builtin::Includes,
         };
         let mut args = vec![*target];
-        if name == Builtin::LocaleNumber {
-          if let Some(a) = call.args.first() {
-            if !matches!(&*a.expr, js::Expr::Lit(js::Lit::Str(s)) if s.value.to_atom_lossy().as_ref() == "en-US") {
-              return Err(self.residue(a.expr.span(), "`toLocaleString` with a locale other than \"en-US\""));
-            }
-          }
-          if call.args.len() > 1 {
-            let value = args.remove(0);
-            let formatted = self.intl_format("NumberFormat", &call.args, value, call.span)?;
-            return Ok(self.candidate(call.span, formatted));
-          }
-          return Ok(self.candidate(call.span, Expr::Builtin { name, args }));
-        }
         for a in &call.args {
           args.push(self.expr(&a.expr)?);
         }

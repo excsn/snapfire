@@ -6,3 +6,5 @@ app/tsconfig.build.json
 app/types/
 # written by snapfirec and `fsr prerender app`; rebuilt from the sources
 app/dist/
+# written by `fsr dev` and `fsr test`: the served import map and the spec build
+app/.fsr/

@@ -199,7 +199,7 @@ async fn a_route_renders_through_the_stock_shell_with_the_configured_head() {
     "the title is escaped: {html}"
   );
   assert!(
-    html.contains("<script type=\"importmap\">{\"imports\":{}}</script>"),
+    html.contains("<script type=\"importmap\">{\"imports\":{") && html.contains("\"@snapfire/fsr/client/intl\":\"/static/js/fsr/intl"),
     "{html}"
   );
   assert!(

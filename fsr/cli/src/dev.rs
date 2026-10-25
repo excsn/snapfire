@@ -107,6 +107,9 @@ pub(crate) fn find_snapfirec(explicit: Option<&Path>) -> PathBuf {
   }
 }
 
+/// Where the loop writes the import map the page is served with, under the application.
+const SERVED_IMPORT_MAP: &str = ".fsr/importmap.json";
+
 /// One application the loop builds: the shell or a site mounted into it from a working tree.
 struct App {
   dir: PathBuf,
@@ -146,9 +149,21 @@ impl App {
     Ok(built)
   }
 
+  /// The import map the page is served with, which the compiler checks bare imports against: the application's own with the client's modules the host answers, at [`SERVED_IMPORT_MAP`]. The application's when it has none to read.
+  fn served_import_map(&self) -> String {
+    let Ok(text) = std::fs::read_to_string(self.dir.join(&self.layout.importmap)) else { return self.layout.importmap.clone() };
+    let path = self.dir.join(SERVED_IMPORT_MAP);
+    let written = path.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&path, snapfire_fsr_host::client::with_import_entries(&text)));
+    match written {
+      Ok(_) => SERVED_IMPORT_MAP.to_owned(),
+      Err(_) => self.layout.importmap.clone(),
+    }
+  }
+
   /// The compiler invocation the driven child is built from.
   fn compiler(&self) -> Command {
     let mut command = Command::new(&self.snapfirec);
+    let import_map = self.served_import_map();
     command.arg("--root").arg(&self.dir).args([
       "--config",
       "tsconfig.build.json",
@@ -156,9 +171,11 @@ impl App {
       "--public-path",
       &self.options.public_path,
       "--import-map",
-      &self.layout.importmap,
+      &import_map,
       "--asset-map",
       crate::assets::MAP_FILE,
+      "--locale-from",
+      snapfire_fsr_lower::meaning::PAGE_LOCALE_MODULE,
     ]);
     if self.production {
       command.args(["--minify", "compact"]);
@@ -736,6 +753,13 @@ impl Driven {
   fn hello(&mut self) -> Result<(), BuildError> {
     let mut line = String::new();
     let read = self.stdout.read_line(&mut line).map_err(|e| BuildError::Dev(format!("snapfirec: {e}")))?;
+    if read == 0 {
+      let _ = self.child.wait();
+      let (said, _) = self.batch_errors();
+      if !said.is_empty() {
+        return Err(BuildError::Tool(format!("{} exited before announcing the driven protocol:\n{}", self.snapfirec.display(), said.join("\n"))));
+      }
+    }
     let theirs = if read == 0 { None } else { protocol::parse_hello(&line) };
     match theirs {
       Some(version) if version == protocol::PROTOCOL => Ok(()),
@@ -1590,6 +1614,23 @@ mod tests {
     path
   }
 
+  #[test]
+  fn a_compiler_that_refuses_an_argument_is_named_with_what_it_wrote() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("fsr-cli-dev-refusing-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let compiler = dir.join("snapfirec");
+    std::fs::write(&compiler, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"snapfirec 99.0.0\"; exit 0; fi\necho \"error: unexpected argument '--locale-from' found\" >&2\nexit 2\n").unwrap();
+    std::fs::set_permissions(&compiler, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut plugins = Plugins::new();
+    let error = match Driven::spawn(Command::new(&compiler), &compiler, &mut |_: &[String]| Ok(()), &mut plugins, true) {
+      Err(e) => e.to_string(),
+      Ok(_) => panic!("the compiler refused its arguments"),
+    };
+    assert!(error.contains("unexpected argument '--locale-from'") && !error.contains("asset map"), "{error}");
+    let _ = std::fs::remove_dir_all(&dir);
+  }
+
   /// DEFECTS 1.168.
   #[test]
   fn a_failed_build_names_what_the_compiler_wrote_to_stderr() {
@@ -1634,6 +1675,26 @@ mod tests {
 
   fn args(app: &App) -> Vec<String> {
     app.compiler().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+  }
+
+  #[test]
+  fn the_compiler_checks_imports_against_the_map_the_host_serves() {
+    let root = std::env::temp_dir().join(format!("fsr-cli-dev-served-map-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("importmap.json"), r#"{"imports":{"react":"/v/react.js"}}"#).unwrap();
+    let args = args(&app(&root));
+    let at = args.iter().position(|a| a == "--import-map").expect("--import-map is passed");
+    let map = std::fs::read_to_string(root.join(&args[at + 1])).unwrap();
+    assert!(map.contains("\"@snapfire/fsr/client/intl\"") && map.contains("\"react\""), "{map}");
+    std::fs::remove_dir_all(&root).unwrap();
+  }
+
+  #[test]
+  fn the_compiler_gives_a_formatter_written_without_a_locale_the_pages() {
+    let args = args(&app(Path::new("/p/app")));
+    let at = args.iter().position(|a| a == "--locale-from").expect("--locale-from is passed");
+    assert_eq!(args[at + 1], "@snapfire/fsr/client/intl");
   }
 
   #[test]

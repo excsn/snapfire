@@ -49,6 +49,8 @@ impl Side {
 pub const CLIENT_ROOT: &str = "@snapfire/fsr/client";
 pub const HOST_ROOT: &str = "@snapfire/fsr/host";
 pub const TERMINAL_ROOT: &str = "@snapfire/fsr/terminal";
+/// The client module whose `localeTag()` is the page's locale, which the browser compile gives a formatter written without one.
+pub const PAGE_LOCALE_MODULE: &str = "@snapfire/fsr/client/intl";
 /// The standard modules only a terminal program has, under [`TERMINAL_ROOT`].
 const TERMINAL_STD_MODULES: [&str; 2] = ["system", "clipboard"];
 /// Members a side's module has that are not extensions, with what the build reads each as: `system.spawn` is an act the terminal runs.

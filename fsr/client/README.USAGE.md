@@ -1250,17 +1250,16 @@ console.log(currentLocale());
 
 ## Formatting With the Standard Library
 
-A component formats with the platform's own `Intl`, `toLocaleString` and `localeCompare`. It imports nothing for them. The server answers each call it reads with Rust checked against Chrome's output, so the text React hydrates against is the text the browser computes. `localeTag()` from `@snapfire/fsr/client/intl` is the document's locale as BCP 47, read from `currentLocale()`. On the server it is the request's, so a formatter made with it agrees on both sides.
+A component formats with the platform's own `Intl`, `toLocaleString` and `localeCompare`. It imports nothing for them. The server answers each call it reads with Rust checked against Chrome's output, so the text React hydrates against is the text the browser computes. A formatter written without a locale formats under the document's locale: the compiler gives it `localeTag()` from `@snapfire/fsr/client/intl`, the document's locale as BCP 47 read from `currentLocale()`. The server formats under the request's, which is the same one.
 
 `@snapfire/fsr/client` carries the browser half of what the platform has no form for: `intl.localeTag`, `text`, `time`, `crypto`, `i18n`, `log` and `path`, each also at `@snapfire/fsr/client/<module>`. The members only a host runs, `crypto.random`, `id.new` and `file` among them, are under `@snapfire/fsr/host`, which no browser code imports.
 
 ```tsx
-import { localeTag } from "@snapfire/fsr/client/intl";
 import { text, time } from "@snapfire/fsr/client";
 
 export function Receipt({ cents, placed, title }: { cents: number; placed: string; title: string }) {
-  const money = new Intl.NumberFormat(localeTag(), { style: "currency", currency: "USD" }).format(cents / 100);
-  const day = new Intl.DateTimeFormat(localeTag(), { dateStyle: "long", timeZone: "UTC" }).format(new Date(placed));
+  const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
+  const day = new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeZone: "UTC" }).format(new Date(placed));
   return (
     <p id={text.slug(title)}>
       {money} on {day}, {time.format(time.parse(placed) ?? 0, "YYYY-MM-DD")}

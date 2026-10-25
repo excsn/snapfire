@@ -629,6 +629,7 @@ impl HostBuilder {
       Some(rel) => {
         let path = config.resolve(rel);
         let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
+        let text = if serve_client { client::with_import_entries(&text) } else { text };
         Some(bundle_urls(&client_urls(&text, serve_client && client_minified), served_bundle(&config)))
       }
       None => None,

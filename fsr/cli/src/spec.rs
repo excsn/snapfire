@@ -45,16 +45,6 @@ const LINKEDOM: &str = "0.18.12";
 const DEV_BUILDS: &[&[&str]] = &[&["react", "react/jsx-runtime", "react-dom/client"], &["vue"]];
 const TESTING_SPECIFIER: &str = "@snapfire/fsr/client/testing";
 const TESTING_URL: &str = "/static/js/fsr/testing.js";
-/// The client's standard modules and `native`, which a spec may import whether or not the application's import map lists them.
-fn standard_entries() -> Vec<(String, String)> {
-  let mut entries: Vec<(String, String)> = snapfire_fsr_lower::meaning::side_modules(snapfire_fsr_lower::meaning::Side::Client)
-    .into_iter()
-    .map(|(module, _)| (format!("@snapfire/fsr/client/{module}"), format!("/static/js/fsr/{module}.js")))
-    .collect();
-  entries.push(("@snapfire/fsr".to_owned(), "/static/js/fsr/native.js".to_owned()));
-  entries.push(("@snapfire/fsr/client".to_owned(), "/static/js/fsr/index.js".to_owned()));
-  entries
-}
 /// What a spec's JSX compiles against in an application without React.
 const JSX_SPECIFIER: &str = "@snapfire/fsr/client/jsx-runtime";
 const JSX_URL: &str = "/static/js/fsr/jsx-runtime.js";
@@ -99,6 +89,9 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lo
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
   import_map.insert(TESTING_SPECIFIER.to_owned(), TESTING_URL.to_owned());
   import_map.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| JSX_URL.to_owned());
+  for (specifier, url) in snapfire_fsr_host::client::import_entries() {
+    import_map.entry(specifier).or_insert(url);
+  }
   let dist = test_dir.join("dist");
   let mut roots = vec![(layout.base.clone(), app.join(&layout.vendor)), (bundle.clone(), dist.clone())];
   roots.extend(static_roots(&app)?);
@@ -618,7 +611,7 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path, roots: &[String], 
   let mut map = vendor::read_import_map(app, layout)?;
   let mut imports = imports_of(&map);
   imports.insert(TESTING_SPECIFIER.to_owned(), serde_json::Value::String(TESTING_URL.to_owned()));
-  for (specifier, url) in standard_entries() {
+  for (specifier, url) in snapfire_fsr_host::client::import_entries() {
     imports.entry(specifier).or_insert_with(|| serde_json::Value::String(url));
   }
   imports.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(JSX_URL.to_owned()));
@@ -639,7 +632,7 @@ fn compile(app: &Path, test_dir: &Path, bundle: &str, plugins: &mut crate::plugi
   let config = format!("{TEST_DIR}/tsconfig.json");
   let import_map = format!("{TEST_DIR}/importmap.json");
   let mut command = Command::new(&snapfirec);
-  command.current_dir(app).args(["--config", &config, "--source-map", "--public-path", bundle, "--import-map", &import_map]);
+  command.current_dir(app).args(["--config", &config, "--source-map", "--public-path", bundle, "--import-map", &import_map, "--locale-from", snapfire_fsr_lower::meaning::PAGE_LOCALE_MODULE]);
   if app.join(dev::BUNDLE_OVERLAY).is_dir() {
     command.args(["--overlay", dev::BUNDLE_OVERLAY]);
   }

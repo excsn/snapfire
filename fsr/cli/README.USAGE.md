@@ -1836,14 +1836,12 @@ islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
 Code formats, compares and counts with the platform's own globals `Intl`, `Date` and `crypto`. It imports nothing for them. The build reads each call it knows and answers it on the server with Rust that is checked against what Chrome writes for the same call, so the server's text and the browser's agree. A call the build cannot read leaves its component to render in the browser, where the platform runs it. A loader or an action has no browser to hand it to, so there the call is refused with the option named.
 
 ```tsx
-import { localeTag } from "@snapfire/fsr/client/intl";
-
 export function Stars({ reviews }: { reviews: bigint | number }) {
-  return <span className="stars-reviews">({new Intl.NumberFormat(localeTag()).format(Number(reviews))})</span>;
+  return <span className="stars-reviews">({new Intl.NumberFormat().format(Number(reviews))})</span>;
 }
 ```
 
-`localeTag()` is the request's locale on the server and the document's in the browser, which are the same one. A formatter made with no locale formats under the request's locale on the server and under the browser's own in the browser, which can differ.
+A formatter, `toLocaleString`, `toLocaleDateString`, `toLocaleTimeString` or `localeCompare` written without a locale formats under the page's locale on both sides. The server formats under the request's locale. In the browser, the compiler gives the call `localeTag()` from `@snapfire/fsr/client/intl`, the document's locale, in place of the browser's own language, which the path prefix, the locale cookie or the app's `[locales]` can make differ. A locale written in the code formats the same everywhere.
 
 `Intl.NumberFormat` reads `style` (`decimal`, `percent` or `currency` with `currency` and `currencyDisplay`), the fraction digits, `minimumIntegerDigits`, `useGrouping` and `signDisplay`. `Intl.DateTimeFormat` reads `dateStyle`, `timeStyle` `short` or `medium` and the `weekday`, `year`, `month` and `day` parts, in UTC: a `timeStyle` needs `timeZone: "UTC"` written, since without it the browser formats in the viewer's zone. `Intl.PluralRules` reads `type`, `Intl.Collator` reads `sensitivity` and `numeric`, `Intl.RelativeTimeFormat` reads `numeric` and `style` and `Intl.ListFormat` reads `type` and `style`. An option outside those names itself in the refusal:
 
@@ -1981,10 +1979,8 @@ roots = ["content", "data"]
 
 ```ts
 // ext/labels.ts
-import { localeTag } from "@snapfire/fsr/client/intl";
-
 export function count(n: number, noun: string): string {
-  return `${new Intl.NumberFormat(localeTag()).format(n)} ${noun}${new Intl.PluralRules(localeTag()).select(n) === "one" ? "" : "s"}`;
+  return `${new Intl.NumberFormat().format(n)} ${noun}${new Intl.PluralRules().select(n) === "one" ? "" : "s"}`;
 }
 ```
 
