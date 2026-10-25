@@ -490,6 +490,16 @@ fn an_island_whose_adapter_the_import_map_cannot_supply_is_refused_by_name() {
 }
 
 #[test]
+fn a_page_calling_the_desktop_module_builds_with_the_call_in_the_browser() {
+  let page = "import { openExternal } from \"@snapfire/fsr/desktop\";\nexport default function Page() {\n  return <button onClick={() => void openExternal(\"https://example.com\")}>open</button>;\n}\n";
+  let dir = app(&[("routes/page.tsx", page)]);
+  let built = build(&dir, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
+  let island = built.files.iter().find(|(name, _)| name.ends_with(".island0.tsx")).map(|(_, text)| text.clone()).unwrap_or_else(|| panic!("{}", built.report));
+  assert!(island.contains("@snapfire/fsr/desktop") && island.contains("openExternal"), "{island}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn the_adapter_the_host_serves_need_not_be_in_the_apps_import_map() {
   let project = app(&[]);
   let dir = project.join("app");

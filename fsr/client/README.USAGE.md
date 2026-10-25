@@ -1453,29 +1453,29 @@ const html = renderSegment(payload.tree, payload.segments!, ids);
 
 ## Calling the Desktop Window
 
-In a window opened by `fsr dev --desktop` or `fsr serve --desktop`, page code can ask the process for what a browser does not give it. This is experimental and has two calls so far.
+In a window opened by `fsr dev --desktop` or `fsr serve --desktop`, page code can ask the process for what a browser does not give it, through `@snapfire/fsr/desktop`. This is experimental and has two calls so far.
 
 ```tsx
 import { useState } from "react";
-import { desktop } from "@snapfire/fsr/client";
+import { openExternal, openFile } from "@snapfire/fsr/desktop";
 
 export function Attach() {
   const [paths, setPaths] = useState<string[]>([]);
   async function pick() {
-    const chosen = await desktop.openFile({ multiple: true, filters: [{ name: "Images", extensions: ["png", "jpg"] }] });
+    const chosen = await openFile({ multiple: true, filters: [{ name: "Images", extensions: ["png", "jpg"] }] });
     if (chosen) setPaths(chosen);
   }
   return (
     <div>
       <button type="button" onClick={pick}>Attach</button>
-      <button type="button" onClick={() => desktop.openExternal("https://example.com/help")}>Help</button>
+      <button type="button" onClick={() => openExternal("https://example.com/help")}>Help</button>
       <ul>{paths.map((path) => <li key={path}>{path}</li>)}</ul>
     </div>
   );
 }
 ```
 
-`desktop.isDesktop()` says whether the page is in a desktop window, so the same page can hide what a browser cannot do. Outside one, `openFile` and `openExternal` reject. The calls run in the browser, so a component using them is an island.
+The module is a desktop app's alone. Under `--desktop` the host serves it and the page's import map names it; without `--desktop` the host does neither, so a page that imports it is a desktop page and runs with the flag. `@snapfire/fsr/client` does not carry it, so a web page never loads it. The calls run in the browser, so a component using them is an island. Under `fsr test` a spec can import the module and its calls reject, since no window answers them.
 
 ## Error Handling
 

@@ -7,10 +7,7 @@ export interface OpenFileOptions {
 	multiple?: boolean;
 	filters?: FileFilter[];
 }
-/** What a desktop window offers the page beyond the web: `fsr --desktop` answers it in the process that opened the window. */
-export interface Desktop {
-	isDesktop(): boolean;
-	openFile(options?: OpenFileOptions): Promise<string[] | null>;
-	openExternal(url: string): Promise<void>;
-}
-export declare const desktop: Desktop;
+/** The system's open dialog: the chosen paths, `null` when the user cancels. */
+export declare function openFile(options?: OpenFileOptions): Promise<string[] | null>;
+/** Opens an `http`, `https` or `mailto` link in the system's browser or mail app. */
+export declare function openExternal(url: string): Promise<void>;

@@ -184,7 +184,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [settle and advance](#settle-and-advance)
   * [assert](#assert)
 * [17. The Desktop Bridge](#17-the-desktop-bridge)
-  * [desktop](#desktop)
+  * [openFile and openExternal](#openfile-and-openexternal)
   * [FileFilter and OpenFileOptions](#filefilter-and-openfileoptions)
 * [18. Error Handling](#18-error-handling)
   * [ActionFailure](#actionfailure)
@@ -193,7 +193,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
 
 ## 1. Entry Points
 
-Eight ES module entry points, resolved through an import map. There is no package manifest and no default export.
+The ES module entry points, resolved through an import map. There is no package manifest and no default export.
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
@@ -206,6 +206,7 @@ Eight ES module entry points, resolved through an import map. There is no packag
 | `@snapfire/fsr/client/elements` | `dist/elements.js` | `shadowOf` | none |
 | `@snapfire/fsr/client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
 | `@snapfire/fsr/template` | `dist/template.js` | `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the JSX runtime | none |
+| `@snapfire/fsr/desktop` | `dist/desktop.js` | `openFile`, `openExternal`, `FileFilter`, `OpenFileOptions`; mapped only under `--desktop` | none |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is the dialect's placements as plain elements and loads no framework. The build rewrites a React or Vue island's import of the dialect to that framework's entry, so the template entry is reached only by a file nothing mounts. `Link` and `Picture` in the React, Vue and JSX runtime entries build their elements from the same attributes, computed in `dist/link.js` and `dist/picture.js`, which no specifier names.
 
@@ -1541,15 +1542,13 @@ The assertions specs used before `expect`, kept for code outside this repository
 
 ## 17. The Desktop Bridge
 
-What a page can ask of the process that opened its window under `fsr dev --desktop` or `fsr serve --desktop`, exported from the entry point. Experimental.
+What a page can ask of the process that opened its window under `fsr dev --desktop` or `fsr serve --desktop`. `@snapfire/fsr/desktop`, built to `dist/desktop.js`; `@snapfire/fsr/client` does not re-export it. Only a host serving a desktop window answers it and names it in the import map. Experimental.
 
-### desktop
+### openFile and openExternal
 
-* `desktop: Desktop`, an object of three functions.
-* `desktop.isDesktop(): boolean`: whether the page is in a desktop window, read from the `window.__sfDesktop` the window installs before the page's scripts run.
-* `desktop.openFile(options?: OpenFileOptions): Promise<string[] | null>`: the system's open dialog. It answers the chosen absolute paths, `null` when the user cancels.
-* `desktop.openExternal(url: string): Promise<void>`: opens the link in the system's browser or mail app. Only `http:`, `https:` and `mailto:` links with something after the scheme; anything else rejects.
-* Outside a desktop window `openFile` and `openExternal` reject with `desktop.<name> runs only in an fsr --desktop window`.
+* `openFile(options?: OpenFileOptions): Promise<string[] | null>`: the system's open dialog. It answers the chosen absolute paths, `null` when the user cancels.
+* `openExternal(url: string): Promise<void>`: opens the link in the system's browser or mail app. Only `http:`, `https:` and `mailto:` links with something after the scheme; anything else rejects.
+* Without the `window.__sfDesktop` the window installs before the page's scripts run, both reject with `<name> runs only in an fsr --desktop window`.
 * Each call posts `{ id, method, args }` over wry's IPC channel and the window settles it with `window.__sfDesktop.settle(id, ok, value)`. A refusal rejects with an `Error` carrying the window's message.
 
 ### FileFilter and OpenFileOptions

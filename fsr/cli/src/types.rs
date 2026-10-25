@@ -32,12 +32,15 @@ const SOURCE_DIRS: &[&str] = &["src", "ext", "elements", "routes", "schemas", "t
 pub const CLIENT_PACKAGE: &str = "@snapfire/fsr/client";
 /// The declarations behind the generated modules and the template dialect, which no application imports by this name.
 pub const AUTHORING_PACKAGE: &str = "@snapfire/fsr/authoring";
-const ALWAYS: &[&str] = &[AUTHORING_PACKAGE, CLIENT_PACKAGE];
+/// The declarations of `@snapfire/fsr/desktop`, which a page in an `fsr --desktop` window imports.
+pub const DESKTOP_PACKAGE: &str = snapfire_fsr_host::client::DESKTOP_SPECIFIER;
+const ALWAYS: &[&str] = &[AUTHORING_PACKAGE, CLIENT_PACKAGE, DESKTOP_PACKAGE];
 
 /// The declarations the fsr packages carry, written by `fsr types` without a
 /// registry since the binary is the same version as the runtime they describe.
 /// The client's are the host's, which is what serves the modules they declare.
 const FSR_CLIENT: &[(&str, &str)] = snapfire_fsr_host::client::TYPES;
+const FSR_DESKTOP: &[(&str, &str)] = &[("index.d.ts", snapfire_fsr_host::client::DESKTOP_TYPES)];
 const FSR_AUTHORING: &[(&str, &str)] = &[
   ("index.d.ts", include_str!("../embedded/authoring/index.d.ts")),
   ("template.d.ts", include_str!("../embedded/authoring/template.d.ts")),
@@ -359,7 +362,7 @@ pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   let mut refreshed = Vec::new();
   let mut manifest = TypesManifest::read(app, &layout)?;
   let mut recorded = false;
-  for (package, files) in [(CLIENT_PACKAGE, FSR_CLIENT), (AUTHORING_PACKAGE, FSR_AUTHORING)] {
+  for (package, files) in [(CLIENT_PACKAGE, FSR_CLIENT), (AUTHORING_PACKAGE, FSR_AUTHORING), (DESKTOP_PACKAGE, FSR_DESKTOP)] {
     let dir = root.join(package);
     let stale = files.iter().any(|(name, content)| std::fs::read_to_string(dir.join(name)).map(|held| held != *content).unwrap_or(true));
     if stale {
@@ -558,6 +561,7 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
     let embedded = match package.as_str() {
       CLIENT_PACKAGE => Some(FSR_CLIENT),
       AUTHORING_PACKAGE => Some(FSR_AUTHORING),
+      DESKTOP_PACKAGE => Some(FSR_DESKTOP),
       _ => None,
     };
     if let Some(files) = embedded {

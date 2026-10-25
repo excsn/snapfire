@@ -337,6 +337,9 @@ pub struct Host {
   trace_ring: Arc<Keyring>,
 }
 
+/// Set by `fsr dev --desktop` and `fsr serve --desktop` on the host process they start, so a host made by [`Host::from`] serves a desktop window.
+pub const DESKTOP_ENV: &str = "FSR_DESKTOP";
+
 /// How a host rebuilds its tables on `Host::reload`: the builder for the
 /// application as it now stands on disk.
 pub type Reloader = Box<dyn Fn() -> Result<HostBuilder, HostError> + Send + Sync>;
@@ -387,6 +390,8 @@ struct Tables {
   /// Whether [`client::ROUTE`] is answered out of the binary, which it is
   /// unless a static root claims the prefix.
   client: bool,
+  /// Whether the host serves a desktop window, [`HostBuilder::desktop`]: the route answers [`client::DESKTOP_FILE`] and the import map names [`client::DESKTOP_SPECIFIER`] while `client` holds.
+  desktop: bool,
   /// Whether that route answers with the minified build, `document.client`
   /// resolved against `server.dev`.
   client_minified: bool,
@@ -583,6 +588,7 @@ impl Host {
       socket_handler: None,
       mounts: Vec::new(),
       http2: None,
+      desktop: std::env::var_os(DESKTOP_ENV).is_some(),
       hand_built: false,
       pending: None,
     })

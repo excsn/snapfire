@@ -28,6 +28,17 @@ fn app() -> PathBuf {
 }
 
 #[test]
+fn the_desktop_module_is_typed_under_its_own_name() {
+  let dir = app();
+  snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
+  assert!(dir.join("types/@snapfire/fsr/desktop/index.d.ts").is_file());
+  assert!(!dir.join("types/@snapfire/fsr/client/desktop.d.ts").exists());
+  let ts = tsconfig(&dir, true, false, false, &[]).unwrap();
+  assert!(ts.contains("\"@snapfire/fsr/desktop\": [\"./types/@snapfire/fsr/desktop/index.d.ts\"]"), "{ts}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn the_tsconfig_maps_every_typed_package_and_includes_ambient_entries() {
   let dir = app();
   let ts = tsconfig(&dir, true, false, false, &[]).unwrap();
@@ -96,7 +107,7 @@ fn each_package_has_one_status_row_wherever_the_import_map_repeats_it() {
   )
   .unwrap();
   let rows: Vec<String> = status(&dir).unwrap().into_iter().map(|(package, _)| package).collect();
-  assert_eq!(rows, vec!["@snapfire/fsr/authoring", "@snapfire/fsr/client", "react"]);
+  assert_eq!(rows, vec!["@snapfire/fsr/authoring", "@snapfire/fsr/client", "@snapfire/fsr/desktop", "react"]);
 }
 
 #[test]

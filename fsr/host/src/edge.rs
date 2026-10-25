@@ -445,6 +445,13 @@ impl Host {
         if let Some(body) = client::get(name, t.client_minified) {
           return js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
         }
+        if let Some(body) = client::desktop(name, t.client_minified).filter(|_| t.desktop) {
+          let mut response = js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
+          if name.ends_with(".map") {
+            response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+          }
+          return response;
+        }
         if let Some(body) = client::map(name) {
           let mut response = js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
           response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));

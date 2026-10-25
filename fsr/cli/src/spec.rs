@@ -89,7 +89,7 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lo
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
   import_map.insert(TESTING_SPECIFIER.to_owned(), TESTING_URL.to_owned());
   import_map.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| JSX_URL.to_owned());
-  for (specifier, url) in snapfire_fsr_host::client::import_entries() {
+  for (specifier, url) in snapfire_fsr_host::client::import_entries().into_iter().chain([snapfire_fsr_host::client::desktop_entry()]) {
     import_map.entry(specifier).or_insert(url);
   }
   let dist = test_dir.join("dist");
@@ -101,6 +101,8 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lo
   // so an application serving its own client still wins the prefix.
   let client_dir = test_dir.join("client");
   snapfire_fsr_host::client::write_to(&client_dir, false).map_err(|e| BuildError::Io(client_dir.clone(), e))?;
+  let desktop = client_dir.join(snapfire_fsr_host::client::DESKTOP_FILE);
+  std::fs::write(&desktop, snapfire_fsr_host::client::desktop(snapfire_fsr_host::client::DESKTOP_FILE, false).unwrap_or_default()).map_err(|e| BuildError::Io(desktop.clone(), e))?;
   roots.push((snapfire_fsr_host::client::ROUTE.to_owned(), client_dir));
   let resolution = Resolution::new(import_map, roots, overrides.into_iter().filter(|(k, _)| k != "linkedom").collect());
 
@@ -611,7 +613,7 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path, roots: &[String], 
   let mut map = vendor::read_import_map(app, layout)?;
   let mut imports = imports_of(&map);
   imports.insert(TESTING_SPECIFIER.to_owned(), serde_json::Value::String(TESTING_URL.to_owned()));
-  for (specifier, url) in snapfire_fsr_host::client::import_entries() {
+  for (specifier, url) in snapfire_fsr_host::client::import_entries().into_iter().chain([snapfire_fsr_host::client::desktop_entry()]) {
     imports.entry(specifier).or_insert_with(|| serde_json::Value::String(url));
   }
   imports.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(JSX_URL.to_owned()));

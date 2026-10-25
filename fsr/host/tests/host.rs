@@ -285,6 +285,27 @@ async fn the_client_serves_the_dialects_template_entry() {
 }
 
 #[tokio::test]
+async fn only_a_host_serving_a_desktop_window_maps_and_serves_the_desktop_module() {
+  let fetch = |host: Arc<Host>| async move {
+    let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+    let response = host.handle(Request::get("/static/js/fsr/desktop.js").body(Bytes::new()).unwrap()).await;
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    (html, status, String::from_utf8_lossy(&body).into_owned())
+  };
+  let (web, _) = host();
+  let (html, status, _) = fetch(web).await;
+  assert!(!html.contains("fsr/desktop") && !html.contains("client/desktop"), "{html}");
+  assert_eq!(status, StatusCode::NOT_FOUND);
+  let desktop = Host::from(app_dir().join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).desktop(true).build().unwrap();
+  let (html, status, body) = fetch(Arc::new(desktop)).await;
+  assert!(html.contains("\"@snapfire/fsr/desktop\":\"/static/js/fsr/desktop"), "{html}");
+  assert!(!html.contains("client/desktop"), "{html}");
+  assert_eq!(status, StatusCode::OK);
+  assert!(body.contains("openFile"), "{body}");
+}
+
+#[tokio::test]
 async fn an_action_is_refused_a_body_a_cross_site_page_can_send_without_preflight() {
   let (host, _) = host();
   let call = |content_type: Option<&'static str>, origin: Option<&'static str>| {

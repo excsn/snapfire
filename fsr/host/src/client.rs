@@ -23,7 +23,6 @@ pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.js")),
   ("auth.js", include_str!("../embedded/client/auth.js")),
   ("boot.js", include_str!("../embedded/client/boot.js")),
-  ("desktop.js", include_str!("../embedded/client/desktop.js")),
   ("elements.js", include_str!("../embedded/client/elements.js")),
   ("embed.js", include_str!("../embedded/client/embed.js")),
   ("events.js", include_str!("../embedded/client/events.js")),
@@ -69,7 +68,6 @@ pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.min.js")),
   ("auth.js", include_str!("../embedded/client/auth.min.js")),
   ("boot.js", include_str!("../embedded/client/boot.min.js")),
-  ("desktop.js", include_str!("../embedded/client/desktop.min.js")),
   ("elements.js", include_str!("../embedded/client/elements.min.js")),
   ("embed.js", include_str!("../embedded/client/embed.min.js")),
   ("events.js", include_str!("../embedded/client/events.min.js")),
@@ -123,7 +121,6 @@ pub const TYPES: &[(&str, &str)] = &[
   ("actions.d.ts", include_str!("../embedded/client/actions.d.ts")),
   ("auth.d.ts", include_str!("../embedded/client/auth.d.ts")),
   ("boot.d.ts", include_str!("../embedded/client/boot.d.ts")),
-  ("desktop.d.ts", include_str!("../embedded/client/desktop.d.ts")),
   ("elements.d.ts", include_str!("../embedded/client/elements.d.ts")),
   ("embed.d.ts", include_str!("../embedded/client/embed.d.ts")),
   ("events.d.ts", include_str!("../embedded/client/events.d.ts")),
@@ -184,7 +181,6 @@ pub const MINIFIED: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.min.js")),
   ("auth.js", include_str!("../embedded/client/auth.min.js")),
   ("boot.js", include_str!("../embedded/client/boot.min.js")),
-  ("desktop.js", include_str!("../embedded/client/desktop.min.js")),
   ("elements.js", include_str!("../embedded/client/elements.min.js")),
   ("embed.js", include_str!("../embedded/client/embed.min.js")),
   ("events.js", include_str!("../embedded/client/events.min.js")),
@@ -235,8 +231,6 @@ pub const MAPS: &[(&str, &str)] = &[
   ("auth.min.js.map", include_str!("../embedded/client/auth.min.js.map")),
   ("boot.js.map", include_str!("../embedded/client/boot.js.map")),
   ("boot.min.js.map", include_str!("../embedded/client/boot.min.js.map")),
-  ("desktop.js.map", include_str!("../embedded/client/desktop.js.map")),
-  ("desktop.min.js.map", include_str!("../embedded/client/desktop.min.js.map")),
   ("elements.js.map", include_str!("../embedded/client/elements.js.map")),
   ("elements.min.js.map", include_str!("../embedded/client/elements.min.js.map")),
   ("embed.js.map", include_str!("../embedded/client/embed.js.map")),
@@ -436,6 +430,55 @@ pub fn import_entries() -> Vec<(String, String)> {
     }
   }
   entries
+}
+
+/// What a page in an `fsr --desktop` window imports to reach the window's process. Kept out of [`FILES`], so a web page never loads it and its import map never names it.
+pub const DESKTOP_SPECIFIER: &str = "@snapfire/fsr/desktop";
+
+/// The file [`DESKTOP_SPECIFIER`] is answered with under [`ROUTE`].
+pub const DESKTOP_FILE: &str = "desktop.js";
+
+#[cfg(feature = "client_readable")]
+const DESKTOP: &str = include_str!("../embedded/client/desktop.js");
+#[cfg(not(feature = "client_readable"))]
+const DESKTOP: &str = include_str!("../embedded/client/desktop.min.js");
+const DESKTOP_MINIFIED: &str = include_str!("../embedded/client/desktop.min.js");
+
+/// The declarations of [`DESKTOP_SPECIFIER`], written into an application's `types/` beside the client's.
+pub const DESKTOP_TYPES: &str = include_str!("../embedded/client/desktop.d.ts");
+
+#[cfg(feature = "client_source_maps")]
+const DESKTOP_MAPS: &[(&str, &str)] = &[
+  ("desktop.js.map", include_str!("../embedded/client/desktop.js.map")),
+  ("desktop.min.js.map", include_str!("../embedded/client/desktop.min.js.map")),
+];
+
+/// The desktop module or its source map, as [`get`] and [`map`] answer the client's.
+pub fn desktop(name: &str, minified: bool) -> Option<&'static str> {
+  match name {
+    "desktop.min.js" => Some(unmapped(DESKTOP_MINIFIED)),
+    DESKTOP_FILE if minified => Some(unmapped(DESKTOP_MINIFIED)),
+    DESKTOP_FILE => Some(unmapped(DESKTOP)),
+    #[cfg(feature = "client_source_maps")]
+    _ => DESKTOP_MAPS.iter().find(|(file, _)| *file == name).map(|(_, body)| *body),
+    #[cfg(not(feature = "client_source_maps"))]
+    _ => None,
+  }
+}
+
+/// The import map entry for [`DESKTOP_SPECIFIER`].
+pub fn desktop_entry() -> (String, String) {
+  (DESKTOP_SPECIFIER.to_owned(), format!("{ROUTE}/{DESKTOP_FILE}"))
+}
+
+/// `text`, an import map, with [`desktop_entry`] under `imports` unless it has an entry of its own.
+pub fn with_desktop_entry(text: &str) -> String {
+  let Ok(serde_json::Value::Object(mut map)) = serde_json::from_str::<serde_json::Value>(text) else { return text.to_owned() };
+  let imports = map.entry("imports").or_insert_with(|| serde_json::Value::Object(Default::default()));
+  let Some(imports) = imports.as_object_mut() else { return text.to_owned() };
+  let (specifier, url) = desktop_entry();
+  imports.entry(specifier).or_insert(serde_json::Value::String(url));
+  serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_else(|_| text.to_owned())
 }
 
 /// `text`, an import map, with [`import_entries`] under `imports` wherever it has no entry of its own. Text that is not a JSON object is returned as it is.

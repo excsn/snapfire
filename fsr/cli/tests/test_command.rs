@@ -82,3 +82,12 @@ fn an_app_with_no_crate_beside_it_runs_its_specs_and_refuses_rust_only() {
   assert_eq!(output.status.code(), Some(2), "{printed}");
   assert!(printed.contains("no Cargo.toml"), "{printed}");
 }
+
+#[test]
+fn a_spec_loads_the_desktop_module_and_its_calls_reject_outside_a_window() {
+  let root = project("test-command-desktop", None);
+  root.write("app/tests/desktop.spec.tsx", "import { expect, test } from \"@snapfire/fsr/client/testing\";\nimport { openExternal } from \"@snapfire/fsr/desktop\";\n\ntest(\"a desktop call outside a window\", async () => {\n  let message = \"\";\n  try {\n    await openExternal(\"https://example.com\");\n  } catch (e) {\n    message = String(e);\n  }\n  expect(message).toContain(\"fsr --desktop window\");\n});\n");
+  let (output, printed) = fsr_test(&root, &[]);
+  assert!(output.status.success(), "{printed}");
+  assert!(printed.contains("a desktop call outside a window ... ok"), "{printed}");
+}

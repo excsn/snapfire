@@ -48,6 +48,14 @@ impl ServeOptions {
     self
   }
 
+  /// Whether the run serves a desktop window, `--desktop`.
+  pub fn window(&self) -> bool {
+    #[cfg(feature = "desktop")]
+    return self.desktop;
+    #[cfg(not(feature = "desktop"))]
+    false
+  }
+
   /// The address to bind: `--listen`, else an ephemeral loopback port for a
   /// window, else the configured one.
   pub fn address(&self, configured: &str) -> String {
@@ -93,7 +101,7 @@ pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
 /// `app://` requests in process and listens on nothing.
 #[cfg(feature = "desktop")]
 fn scheming(app: &Path, options: ServeOptions, cookies: snapfire_fsr_host::config::DesktopCookies) -> Result<(), BuildError> {
-  let (host, _traces, logging) = host_of(app, true, &options.mounts)?;
+  let (host, _traces, logging) = host_of(app, true, &options.mounts, true)?;
   let host = Arc::new(host);
   if options.verbose {
     print!("{}", host.report());
@@ -130,7 +138,7 @@ fn scheming(app: &Path, options: ServeOptions, cookies: snapfire_fsr_host::confi
 
 /// `run`, telling `bound` the address it bound and whether it serves TLS.
 fn serving(app: &Path, options: ServeOptions, bound: impl FnOnce(&str, bool) -> Result<(), BuildError>) -> Result<(), BuildError> {
-  let (host, traces, _logging) = host_of(app, true, &options.mounts)?;
+  let (host, traces, _logging) = host_of(app, true, &options.mounts, options.window())?;
   let host = Arc::new(host);
   if options.verbose {
     print!("{}", host.report());
@@ -177,7 +185,7 @@ pub fn prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)
 }
 
 pub fn host_for(app: &Path) -> Result<Host, BuildError> {
-  host_of(app, false, &[]).map(|(host, _, _)| host)
+  host_of(app, false, &[], false).map(|(host, _, _)| host)
 }
 
 /// The builder `fsr serve` would build from, with `mounts` laid over the
@@ -206,7 +214,7 @@ pub fn builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<
 /// stderr. Only a development host collects. A span costs an atomic load and
 /// a branch while nothing keeps it; the endpoint that serves them back is not
 /// registered outside development.
-fn host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>, Option<snapfire_fsr_host::trace::LoggingGuard>), BuildError> {
+fn host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)], window: bool) -> Result<(Host, Option<Traces>, Option<snapfire_fsr_host::trace::LoggingGuard>), BuildError> {
   let given = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let root = project_root(&given);
   let builder = match mounts.is_empty() {
@@ -228,6 +236,7 @@ fn host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Hos
     }
     false => (None, None),
   };
+  let builder = if window { builder.desktop(true) } else { builder };
   let builder = snapfire_fsr_sites::mountable(builder);
   let builder = snapfire_fsr_sites::mount_all(builder).map_err(|e| BuildError::Serve(e.to_string()))?;
   let host = builder.traces(traces.clone()).build().map_err(|e| BuildError::Serve(e.to_string()))?;

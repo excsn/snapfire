@@ -11,7 +11,6 @@ export { live } from "./live.js";
 export { socket } from "./socket.js";
 export { applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
-export { desktop } from "./desktop.js";
 export { enablePwa, online, updateReady } from "./pwa.js";
 export * from "./standard.js";
 //# sourceMappingURL=index.js.map

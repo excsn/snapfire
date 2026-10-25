@@ -149,14 +149,14 @@ impl App {
     Ok(built)
   }
 
-  /// The import map the page is served with, which the compiler checks bare imports against: the application's own with the client's modules the host answers, at [`SERVED_IMPORT_MAP`]. The application's when it has none to read or serves its own client.
+  /// The import map the compiler checks bare imports against: the application's own with the client's modules the host answers and the desktop module a desktop window adds, at [`SERVED_IMPORT_MAP`]. The application's when it has none to read or serves its own client.
   fn served_import_map(&self) -> String {
     if !crate::host_serves_client(&self.dir) {
       return self.layout.importmap.clone();
     }
     let Ok(text) = std::fs::read_to_string(self.dir.join(&self.layout.importmap)) else { return self.layout.importmap.clone() };
     let path = self.dir.join(SERVED_IMPORT_MAP);
-    let written = path.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&path, snapfire_fsr_host::client::with_import_entries(&text)));
+    let written = path.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&path, snapfire_fsr_host::client::with_desktop_entry(&snapfire_fsr_host::client::with_import_entries(&text))));
     match written {
       Ok(_) => SERVED_IMPORT_MAP.to_owned(),
       Err(_) => self.layout.importmap.clone(),
@@ -309,11 +309,17 @@ struct Project {
   programs: Programs,
   /// `--verbose`: the loop's own progress lines are printed too.
   verbose: bool,
+  /// `--desktop`: the host is started with [`snapfire_fsr_host::DESKTOP_ENV`] set.
+  desktop: bool,
 }
 
 impl Project {
   fn open(app: &Path, options: DevOptions) -> Result<Self, BuildError> {
     let verbose = options.verbose;
+    #[cfg(feature = "desktop")]
+    let desktop = options.desktop;
+    #[cfg(not(feature = "desktop"))]
+    let desktop = false;
     if let Some(root) = shell_under(app, &options)? {
       let site = crate::site_beside(app).expect("a shell is found for a site alone");
       let site_root = crate::serve::project_root(app);
@@ -324,7 +330,7 @@ impl Project {
       println!("dev: serving {} under the shell at {}", site.name, root.display());
       let mut programs = programs_of(app);
       programs.verbose = verbose;
-      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), programs, verbose });
+      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), programs, verbose, desktop });
     }
     let shell = App::open(app, options)?;
     let cargo = shell.dir.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file());
@@ -338,7 +344,7 @@ impl Project {
     }
     let mut programs = programs_of(&apps[0].dir);
     programs.verbose = verbose;
-    Ok(Self { apps, cargo, mount: None, programs, verbose })
+    Ok(Self { apps, cargo, mount: None, programs, verbose, desktop })
   }
 
   /// The arguments `fsr serve` takes for the run: the shell's app directory
@@ -399,14 +405,37 @@ impl Project {
   /// looking at the build script's inputs a second time, which a script that wrote one of them
   /// makes a rebuild.
   fn spawn(&self, executable: Option<&Path>) -> Result<Child, BuildError> {
-    match (&self.cargo, executable) {
-      (Some(cargo), Some(executable)) => Command::new(executable).current_dir(cargo).spawn().map_err(|e| BuildError::Dev(format!("{}: {e}", executable.display()))),
-      (Some(cargo), None) => Command::new("cargo").arg("run").env(OWNS_BUILD, "1").current_dir(cargo).spawn().map_err(|e| BuildError::Dev(format!("cargo run: {e}"))),
-      (None, _) => {
-        let exe = std::env::current_exe().map_err(|e| BuildError::Dev(format!("fsr serve: {e}")))?;
-        Command::new(exe).args(self.serve_args()).spawn().map_err(|e| BuildError::Dev(format!("fsr serve: {e}")))
+    let named = match (&self.cargo, executable) {
+      (Some(_), Some(executable)) => executable.display().to_string(),
+      (Some(_), None) => "cargo run".to_owned(),
+      (None, _) => "fsr serve".to_owned(),
+    };
+    self.host_command(executable).spawn().map_err(|e| BuildError::Dev(format!("{named}: {e}")))
+  }
+
+  /// The command `spawn` runs.
+  fn host_command(&self, executable: Option<&Path>) -> Command {
+    let mut command = match (&self.cargo, executable) {
+      (Some(cargo), Some(executable)) => {
+        let mut command = Command::new(executable);
+        command.current_dir(cargo);
+        command
       }
+      (Some(cargo), None) => {
+        let mut command = Command::new("cargo");
+        command.arg("run").env(OWNS_BUILD, "1").current_dir(cargo);
+        command
+      }
+      (None, _) => {
+        let mut command = Command::new(std::env::current_exe().unwrap_or_else(|_| PathBuf::from("fsr")));
+        command.args(self.serve_args());
+        command
+      }
+    };
+    if self.desktop {
+      command.env(snapfire_fsr_host::DESKTOP_ENV, "1");
     }
+    command
   }
 
   /// What to watch besides the applications: the Cargo project's sources or the configuration the stock host reads.
@@ -1690,6 +1719,18 @@ mod tests {
     let at = args.iter().position(|a| a == "--import-map").expect("--import-map is passed");
     let map = std::fs::read_to_string(root.join(&args[at + 1])).unwrap();
     assert!(map.contains("\"@snapfire/fsr/client/intl\"") && map.contains("\"react\""), "{map}");
+    assert!(map.contains("\"@snapfire/fsr/desktop\""), "a page built for a desktop window compiles: {map}");
+    std::fs::remove_dir_all(&root).unwrap();
+  }
+
+  #[test]
+  fn the_host_a_desktop_run_starts_is_told_it_serves_a_window() {
+    let root = scaffold("desktop-env", "");
+    let mut project = Project::open(&root.join("app"), DevOptions::default()).unwrap();
+    let env = |project: &Project| project.host_command(None).get_envs().any(|(key, value)| key == snapfire_fsr_host::DESKTOP_ENV && value.is_some());
+    assert!(!env(&project));
+    project.desktop = true;
+    assert!(env(&project));
     std::fs::remove_dir_all(&root).unwrap();
   }
 
@@ -1754,11 +1795,11 @@ mod tests {
   }
 
   fn project(shell: &Path) -> Project {
-    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default(), verbose: false }
+    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default(), verbose: false, desktop: false }
   }
 
   fn with_site(shell: &Path, site: &Path) -> Project {
-    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default(), verbose: false }
+    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default(), verbose: false, desktop: false }
   }
 
   #[test]
