@@ -461,7 +461,7 @@ while let Some(chunk) = chunks.next().await {
 }
 ```
 
-The first chunk is the tree with each segment wrapped in comment delimiters, the sidecar as an inert script and, when anything is pending, the fill script:
+The first chunk is the tree with each segment wrapped in comment delimiters, the sidecar as an inert script, the capture script and, when anything is pending, the fill script. The capture script keeps the body as the parser first finished it in `window.__sfServer`. The fill script adds each resolution's template there before moving it, so the client can tell the markup the server wrote from what a script set when it later morphs a region:
 
 ```text
 <!--sf-g:shell.tera#default--><sf-i id="sf-i0" data-sf-module="components/Nav.tsx#default"></sf-i><script type="application/json" data-sf-props="sf-i0">{}</script><div data-sf-slot="1"><skl></skl></div><!--/sf-g--><script type="application/json" data-sf-segments>{"k":"shell.tera#default","p":[],"c":[{"k":"chart.tera#default","s":1,"c":[]}]}</script>

@@ -275,6 +275,36 @@ fn html_stream_fills_late_slots_and_keeps_island_ids_unique() {
 }
 
 #[test]
+fn a_document_keeps_the_body_the_server_wrote_before_any_module_runs() {
+  let mut plan = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
+  plan.children.push((SlotName("page".into()), PlanNode::new(NodeId(1), ModuleId::new("page.tera", "default"))));
+  let runtime = runtime_with(vec![("shell.tera", Arc::new(Shell("page"))), ("page.tera", Arc::new(Leafy("<p>page</p>")))], DataSources::new());
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let chunks = collect(html_stream(assembly));
+  let first = &chunks[0];
+  let capture = "<script>window.__sfServer=[document.body.innerHTML]</script>";
+  let sidecar = first.find("data-sf-segments").expect("the sidecar");
+  let at = first.find(capture).unwrap_or_else(|| panic!("the capture script: {first}"));
+  assert!(at > sidecar, "after the tree and its sidecar, so the parser has read every region: {first}");
+}
+
+#[test]
+fn a_fill_keeps_the_markup_it_moves_in_as_the_servers() {
+  let mut plan = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
+  plan.children.push((SlotName("late".into()), deferred_child(1, "late.tera", None)));
+  let runtime = runtime_with(
+    vec![("shell.tera", Arc::new(Shell("late"))), ("late.tera", Arc::new(Leafy("<p>late</p>"))), ("loading.tera", Arc::new(Skeleton))],
+    DataSources::new(),
+  );
+  let assembly = block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let first = &collect(html_stream(assembly))[0];
+  let kept = first.find("(window.__sfServer=window.__sfServer||[]).push(t.innerHTML)").unwrap_or_else(|| panic!("the fill script keeps the template: {first}"));
+  let moved = first.find("s.replaceWith(t.content)").expect("the fill script moves the template");
+  assert!(kept < moved, "before it moves it in");
+  assert!(first.find("window.__sfServer=[document.body.innerHTML]").expect("the capture") < first.find("function __sfFill").expect("the fill script"), "the capture is taken first, so a fill adds to it");
+}
+
+#[test]
 fn a_deferred_resolution_carries_the_segments_inside_it() {
   let mut outer = deferred_child(1, "outer.tera", None);
   outer.children.push((SlotName("inner".into()), PlanNode::new(NodeId(2), ModuleId::new("inner.tera", "default"))));

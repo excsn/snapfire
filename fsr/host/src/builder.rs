@@ -969,6 +969,7 @@ impl HostBuilder {
       if let Some(map) = import_map.as_deref() {
         policy.admit_inline("script-src", inline_hash(map));
       }
+      policy.admit_inline("script-src", inline_hash(snapfire_fsr_runtime::stream::CAPTURE_SCRIPT_BODY));
       if most_deferred > 0 {
         policy.admit_inline("script-src", inline_hash(snapfire_fsr_runtime::stream::FILL_SCRIPT_BODY));
         for slot in 1..=most_deferred {

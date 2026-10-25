@@ -795,9 +795,13 @@ pub fn segments_from_json(json: &serde_json::Value) -> Result<SegmentInfo, snapf
 
 What `segments_to_json` wrote, read back, for a memo entry a build stored beside its node. A missing `k`, a `d` that is not hex or a `p` that is not a list of numbers is a `DecodeError` naming the field; an absent `d`, `n`, `s`, `p`, `c` or `keep` is its empty value.
 
+### `CAPTURE_SCRIPT`
+
+`pub const CAPTURE_SCRIPT: &str`. A `<script>` element that sets `window.__sfServer` to `[document.body.innerHTML]`, written after the sidecar in every first chunk, so it runs once the tree is parsed and before any module or deferred script. `CAPTURE_SCRIPT_BODY` is its text, for a policy's hash.
+
 ### `FILL_SCRIPT`
 
-`pub const FILL_SCRIPT: &str`. A `<script>` element defining `__sfFill(n, g)` and `__sfHead(h)`, installed once ahead of the first fill. `__sfHead` sets `document.title` and the description meta from the fields `h` carries, creating the meta element when the head has none. It replaces the `[data-sf-slot="n"]` element with the content of `template[data-sf-fill="n"]`, removes the template, writes `g`, when given, as the children of slot `n` in the `data-sf-segments` script and dispatches a `sf:fill` `CustomEvent` on `document` whose `detail` is the slot number, which is how the boot runtime learns to rescan the inserted subtree and the navigator learns to re-read the sidecar.
+`pub const FILL_SCRIPT: &str`. A `<script>` element defining `__sfFill(n, g)` and `__sfHead(h)`, installed once ahead of the first fill. `__sfHead` sets `document.title` and the description meta from the fields `h` carries, creating the meta element when the head has none. It pushes the template's markup onto `window.__sfServer`, replaces the `[data-sf-slot="n"]` element with the content of `template[data-sf-fill="n"]`, removes the template, writes `g`, when given, as the children of slot `n` in the `data-sf-segments` script and dispatches a `sf:fill` `CustomEvent` on `document` whose `detail` is the slot number, which is how the boot runtime learns to rescan the inserted subtree and the navigator learns to re-read the sidecar.
 
 ## 13. Error handling
 
