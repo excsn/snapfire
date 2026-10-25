@@ -1,5 +1,6 @@
 {
   "imports": {
+    "htmx.org": "/static/js/vendor/htmx.org/htmx.org.bundle.mjs",
     "react": "/static/js/vendor/react/react.bundle.mjs",
     "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",
     "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs"

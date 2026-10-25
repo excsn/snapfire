@@ -1,4 +1,6 @@
+import htmx from "htmx.org";
 import { boot, derive, enableNavigation, get } from "@snapfire/fsr/client";
+import { bindHtmx } from "@snapfire/fsr/client/htmx";
 import { registerIslands } from "@generated/islands.js";
 
 import { t } from "@snapfire/fsr/client";
@@ -16,6 +18,7 @@ derive(headline, [openAlerts, watching], (read) => {
 
 boot();
 enableNavigation();
+bindHtmx(htmx);
 
 const g = globalThis as { __ops?: { headline: () => string | undefined } };
 g.__ops = { headline: () => get(headline) };

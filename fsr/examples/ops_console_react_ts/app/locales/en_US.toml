@@ -118,6 +118,8 @@ one_title = "Route one"
 one_body = "This page was rendered by the server and swapped in by the navigator. The counter above did not re-mount."
 two_title = "Route two"
 two_body = "Same layout, other page. Whatever the count was on route one, it still is."
+tally = "htmx tally {count}"
+tally_hint = "htmx swaps this from a fragment the host renders. The button is bound to the node the server wrote, so it works only if the layout above keeps that node when it starts."
 
 [document]
 title = "Ops console"

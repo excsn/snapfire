@@ -122,6 +122,8 @@ one_title = "Route un"
 one_body = "Cette page a été rendue par le serveur et insérée par la navigation du client. Le compteur au-dessus n'a pas été remonté."
 two_title = "Route deux"
 two_body = "Même layout, autre page. Le compteur garde la valeur qu'il avait sur la route un."
+tally = "compteur htmx {count}"
+tally_hint = "htmx remplace ce bloc par un fragment que l'hôte rend. Le bouton est lié au nœud écrit par le serveur : il ne marche que si le layout au-dessus garde ce nœud en démarrant."
 
 [document]
 title = "Console ops"

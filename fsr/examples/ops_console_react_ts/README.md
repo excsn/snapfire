@@ -19,6 +19,7 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | Two segments streaming behind their own fallbacks in one document | the alerts slot and an agent page, each with a `loading.tsx` |
 | An island timed on idle and one timed on visibility | `island(TipList, { when: "idle" })` on the summary, `<Island when="visible">` around the job timeline |
 | A counter held in a nested layout that survives a navigation between the two routes beneath it | `routes/state/layout.tsx`, `routes/state/one/`, `routes/state/two/` |
+| An htmx region in a page under a layout React starts in the browser, whose button stays bound to the node the server wrote | `routes/state/one/page.tsx`, `src/main.ts` |
 | The whole console over a file instead of a backend | `config/mock.toml`, `app/clients/fleet.mock.json`, `APP_ENV=mock` |
 | The fleet's reads cached for seconds on the contract's say-so, an acknowledgement dropping the alerts | `x-sf-cache` and `x-sf-writes` in `app/clients/fleet.openapi.json`, `[cache.data]` in `config/app.toml`, the `cached` rows of the report |
 | Sessions and sign-in behind a service, nothing held by the host | `store = "service"` and `provider = "service"` in `config/app.toml`, `src/backend/identity.rs`, `app/clients/identity.openapi.json`, `tests/identity.rs` |

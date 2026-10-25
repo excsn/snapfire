@@ -1,5 +1,12 @@
 {
   "packages": {
+    "htmx.org": {
+      "version": "4.0.0",
+      "externals": [],
+      "entries": {
+        "htmx.org": "htmx.org/htmx.org.bundle.mjs"
+      }
+    },
     "react": {
       "version": "18.3.1",
       "externals": [
