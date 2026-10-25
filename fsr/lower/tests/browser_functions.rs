@@ -117,3 +117,18 @@ fn a_dispatcher_passed_as_a_prop_is_a_function_in_the_child() {
   let set = lowered("dispatch_child", &[("src/Count.tsx", child), ("routes/page.tsx", page)]).unwrap();
   assert_eq!(html(&set).as_deref(), Ok("<p>wired</p>"));
 }
+
+#[test]
+fn a_handler_calling_the_desktop_window_runs_in_the_browser_and_the_button_renders_on_the_server() {
+  let page = "import { useState } from \"react\";\nimport { openFile } from \"@snapfire/fsr/desktop\";\nexport default function Page() {\n  const [said, setSaid] = useState(\"\");\n  const pick = async () => {\n    try {\n      const paths = await openFile();\n      if (paths) setSaid(paths[0]);\n    } catch (e) {\n      setSaid(e.message);\n    }\n  };\n  return <button onClick={pick}>Open{said}</button>;\n}\n";
+  let set = lowered("desktop_bridge", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html(&set).as_deref(), Ok("<button>Open</button>"));
+  assert!(unlowered(&set).iter().any(|m| m.contains("openFile")), "{:?}", unlowered(&set));
+}
+
+#[test]
+fn a_handler_using_what_an_awaited_browser_call_returned_runs_in_the_browser() {
+  let page = "import { useState } from \"react\";\nimport { navigate } from \"@snapfire/fsr/client\";\nexport default function Page() {\n  const [said, setSaid] = useState(\"\");\n  const pick = async () => {\n    try {\n      const paths = await navigate(\"/x\");\n      if (paths) setSaid(paths[0]);\n    } catch (e) {\n      setSaid(e.message);\n    }\n  };\n  return <button onClick={pick}>Open{said}</button>;\n}\n";
+  let set = lowered("awaited_navigate", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html(&set).as_deref(), Ok("<button>Open</button>"));
+}

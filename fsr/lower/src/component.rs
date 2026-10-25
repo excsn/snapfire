@@ -7339,7 +7339,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if let js::Stmt::Decl(js::Decl::Var(var)) = stmt {
         for decl in &var.decls {
           let value = match decl.init.as_deref() {
-            Some(init) => self.lowerer.expr(init)?,
+            Some(init) => self.premade_value(&decl.name, init)?,
             None => Expr::Lit(Lit::Undefined),
           };
           bind_pattern(&mut self.lowerer, &decl.name, value)?;
@@ -7349,6 +7349,21 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     });
     self.lowerer.scope.truncate(depth);
     result
+  }
+
+  /// A declaration's value for the markup [`Self::premake_block`] prepares. A value the build cannot follow outside the application's own code, an awaited browser call among them, is bound as a variable: the pass that lowers the function itself decides what becomes of it.
+  fn premade_value(&mut self, name: &js::Pat, init: &'p js::Expr) -> Lowered<Expr> {
+    match self.lowerer.expr(init) {
+      Ok(value) => Ok(value),
+      Err(residue) if self.unbound_is_followable() || self.lowerer.reach_violation => Err(residue),
+      Err(_) => {
+        self.lowerer.unbound = None;
+        Ok(match name {
+          js::Pat::Ident(id) => Expr::Var(id.id.sym.to_string()),
+          _ => Expr::Lit(Lit::Undefined),
+        })
+      }
+    }
   }
 
   /// [`Self::premake_block`] over a function's body, whose `return`s hold values the way its declarations do.
@@ -7366,7 +7381,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if let js::Stmt::Decl(js::Decl::Var(var)) = stmt {
         for decl in &var.decls {
           let value = match decl.init.as_deref() {
-            Some(init) => self.lowerer.expr(init)?,
+            Some(init) => self.premade_value(&decl.name, init)?,
             None => Expr::Lit(Lit::Undefined),
           };
           bind_pattern(&mut self.lowerer, &decl.name, value)?;
