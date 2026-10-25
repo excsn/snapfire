@@ -36,6 +36,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.list", Reach::Render, list);
   extensions.register("intl.compare", Reach::Render, compare);
   extensions.register("intl.relative", Reach::Render, relative);
+  extensions.register("intl.localeTag", Reach::Render, |ambient, _| Ok(Value::str(ambient.bcp47())));
   extensions.register("intl.localTime", Reach::Body, |_, args| Ok(Value::str(local_time(number("intl.localTime", args, 0)?, text_opt("intl.localTime", args, 1)?)?)));
 }
 

@@ -55,6 +55,7 @@ pub const STANDARD: &[Member] = &[
   written_for("new Intl.ListFormat(locale, options).format(items)", "intl", "list", Reach::Render),
   written_for("new Intl.Collator(locale, options).compare(a, b)", "intl", "compare", Reach::Render),
   written_for("new Intl.RelativeTimeFormat(locale, options).format(value, unit)", "intl", "relative", Reach::Render),
+  member("intl", "localeTag", Reach::Render),
   member("text", "slug", Reach::Render),
   member("text", "truncate", Reach::Render),
   member("text", "frontMatter", Reach::Body),

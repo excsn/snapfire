@@ -167,6 +167,7 @@ pub const TYPES: &[(&str, &str)] = &[
   ("host/i18n.d.ts", include_str!("../embedded/client/host/i18n.d.ts")),
   ("host/id.d.ts", include_str!("../embedded/client/host/id.d.ts")),
   ("host/index.d.ts", include_str!("../embedded/client/host/index.d.ts")),
+  ("host/intl.d.ts", include_str!("../embedded/client/host/intl.d.ts")),
   ("host/log.d.ts", include_str!("../embedded/client/host/log.d.ts")),
   ("host/path.d.ts", include_str!("../embedded/client/host/path.d.ts")),
   ("host/text.d.ts", include_str!("../embedded/client/host/text.d.ts")),

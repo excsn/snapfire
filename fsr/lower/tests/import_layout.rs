@@ -176,15 +176,18 @@ fn a_member_the_platform_has_a_form_for_is_refused_with_the_form_to_write() {
       ("routes/a/page.loader.ts", "import { intl } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { label: intl.number(3) };\n}\n"),
       ("routes/b/page.loader.ts", "import { now } from \"@snapfire/fsr/host/time\";\nexport async function load() {\n  return { at: now() };\n}\n"),
       ("routes/c/page.tsx", "import { intl } from \"@snapfire/fsr/client\";\nexport default function Page() {\n  return <p>{intl.compare(\"a\", \"b\")}</p>;\n}\n"),
+      ("routes/d/page.loader.ts", "import { encoding } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { text: encoding.btoa(\"hi\") };\n}\n"),
     ],
   );
   let mut set = ComponentSet::new(&dir);
   let why = set.lower_loader("routes/a/page.loader.ts").err().map(|e| e.to_string()).unwrap_or_default();
-  assert!(why.contains("`intl` is not in `@snapfire/fsr/host`") && why.contains("`new Intl.NumberFormat(locale, options).format(n)`"), "{why}");
+  assert!(why.contains("`intl.number` is not imported") && why.contains("`new Intl.NumberFormat(locale, options).format(n)`"), "{why}");
   let why = set.lower_loader("routes/b/page.loader.ts").err().map(|e| e.to_string()).unwrap_or_default();
   assert!(why.contains("`Date.now()`"), "{why}");
   let why = residue(&mut set, "routes/c/page.tsx#default");
   assert!(why.contains("`new Intl.Collator(locale, options).compare(a, b)`"), "{why}");
+  let why = set.lower_loader("routes/d/page.loader.ts").err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(why.contains("`encoding` is not in `@snapfire/fsr/host`") && why.contains("`btoa(text)`") && why.contains("`new TextDecoder().decode(bytes)`"), "{why}");
 }
 
 #[test]

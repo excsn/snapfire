@@ -147,3 +147,11 @@ fn a_loader_formats_with_intl_as_a_component_does_and_names_a_call_it_cannot_rea
   let err = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").err().map(|e| e.to_string()).unwrap_or_default();
   assert!(err.contains("`notation`") && err.contains("Intl.NumberFormat"), "{err}");
 }
+
+#[test]
+fn a_formatter_made_with_the_documents_locale_formats_under_the_requests() {
+  let page = "import { localeTag } from \"@snapfire/fsr/client/intl\";\nexport default function Page() {\n  return <p>{new Intl.NumberFormat(localeTag()).format(1234.5)} {localeTag()}</p>;\n}\n";
+  assert_eq!(html("locale_tag", &[("routes/page.tsx", page)]).as_deref(), Ok("<p>1,234.5 en</p>"));
+  let root = "import { localeTag } from \"@snapfire/fsr/client\";\nexport default function Page() {\n  return <p>{localeTag()}</p>;\n}\n";
+  assert_eq!(html("locale_tag_root", &[("routes/page.tsx", root)]).as_deref(), Ok("<p>en</p>"));
+}

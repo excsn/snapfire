@@ -75,7 +75,7 @@ fn facade(std_ts: &str, side: Side, module: &str, names: &[&str], beside: bool) 
       false => out.push_str(&format!("\n/** {doc} {} */\nexport const {name}: {ty} = {source};\n", runs(side, module, name))),
     }
   }
-  if side == Side::Client && module == "intl" {
+  if module == "intl" {
     out.push_str(&format!("\n/** {} */\nexport {{ localeTag }} from \"{std_js}\";\n", doc(std_ts, "localeTag", "localeTag").expect("std.ts declares localeTag")));
   }
   out

@@ -50,11 +50,8 @@ pub const HOST_ROOT: &str = "@snapfire/fsr/host";
 pub const TERMINAL_ROOT: &str = "@snapfire/fsr/terminal";
 /// The standard modules only a terminal program has, under [`TERMINAL_ROOT`].
 const TERMINAL_STD_MODULES: [&str; 2] = ["system", "clipboard"];
-/// Members a side's module has that are not extensions, with what the build reads each as: `system.spawn` is an act the terminal runs and `intl.localeTag` reads the document's locale.
-const SIDE_OWN: [(Side, &str, &str, Construct); 2] = [
-  (Side::Terminal, "system", "spawn", Construct::StdMember(Side::Terminal, "system", "spawn")),
-  (Side::Client, "intl", "localeTag", Construct::Std("localeTag")),
-];
+/// Members a side's module has that are not extensions, with what the build reads each as: `system.spawn` is an act the terminal runs.
+const SIDE_OWN: [(Side, &str, &str, Construct); 1] = [(Side::Terminal, "system", "spawn", Construct::StdMember(Side::Terminal, "system", "spawn"))];
 
 /// What the build reads `module.name` under `side` as.
 fn construct_of(side: Side, module: &'static str, name: &'static str) -> Construct {
@@ -301,7 +298,7 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
     for side in [Side::Client, Side::Host] {
       rows.push((side.root(), "t", Construct::StdMember(side, "i18n", "t")));
     }
-    rows.push((CLIENT_ROOT, "localeTag", Construct::Std("localeTag")));
+    rows.push((CLIENT_ROOT, "localeTag", Construct::StdMember(Side::Client, "intl", "localeTag")));
     rows.push(("@snapfire/fsr", "native", Construct::Std("native")));
     for server in ["action", "fail", "redirect", "after"] {
       rows.push((HOST_ROOT, server, Construct::Server(server)));
