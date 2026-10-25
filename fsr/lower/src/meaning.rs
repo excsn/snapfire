@@ -55,7 +55,7 @@ const SIDE_ACTS: [(Side, &str, &str); 1] = [(Side::Terminal, "system", "spawn")]
 
 /// Whether `module.name` is under `side`.
 fn side_has(side: Side, module: &str, name: &str) -> Option<(&'static str, &'static str)> {
-  let member = snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.name == name && side.holds(module, m.reach)).map(|m| (m.module, m.name));
+  let member = snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.name == name && m.platform.is_none() && side.holds(module, m.reach)).map(|m| (m.module, m.name));
   member.or_else(|| SIDE_ACTS.iter().find(|(s, m, n)| *s == side && *m == module && *n == name).map(|(_, m, n)| (*m, *n)))
 }
 
@@ -63,7 +63,7 @@ fn side_has(side: Side, module: &str, name: &str) -> Option<(&'static str, &'sta
 pub fn side_modules(side: Side) -> Vec<(&'static str, Vec<&'static str>)> {
   let mut out: Vec<(&'static str, Vec<&'static str>)> = Vec::new();
   for member in snapfire_fsr_ir::STANDARD {
-    if !side.holds(member.module, member.reach) {
+    if member.platform.is_some() || !side.holds(member.module, member.reach) {
       continue;
     }
     match out.iter_mut().find(|(m, _)| *m == member.module) {
@@ -109,6 +109,9 @@ pub(crate) fn absent(side: Side, module: &str, name: &str) -> (String, Option<St
   let Some(member) = snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.name == name) else {
     return (format!("`{key}` is not a member of the standard library"), None);
   };
+  if let Some(platform) = member.platform {
+    return (format!("`{key}` is not imported: write `{platform}`, which needs no import"), None);
+  }
   let home = [Side::Client, Side::Host, Side::Terminal].into_iter().find(|s| s.holds(module, member.reach));
   match home {
     Some(Side::Host) if side == Side::Client => (

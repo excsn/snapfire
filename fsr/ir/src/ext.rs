@@ -34,10 +34,16 @@ pub struct Member {
   pub name: &'static str,
   pub reach: Reach,
   pub signatures: &'static [Signature],
+  /// The platform form the lowerer writes this member for, such as `Intl.RelativeTimeFormat`. A member with one is under no side's modules: code writes the platform form.
+  pub platform: Option<&'static str>,
 }
 
 const fn member(module: &'static str, name: &'static str, reach: Reach) -> Member {
-  Member { module, name, reach, signatures: &[] }
+  Member { module, name, reach, signatures: &[], platform: None }
+}
+
+const fn written_for(platform: &'static str, module: &'static str, name: &'static str, reach: Reach) -> Member {
+  Member { module, name, reach, signatures: &[], platform: Some(platform) }
 }
 
 /// The standard library: the table the lowerer checks a call against and the registry fills.
@@ -48,6 +54,7 @@ pub const STANDARD: &[Member] = &[
   member("intl", "plural", Reach::Render),
   member("intl", "list", Reach::Render),
   member("intl", "compare", Reach::Render),
+  written_for("Intl.RelativeTimeFormat", "intl", "relative", Reach::Render),
   member("text", "slug", Reach::Render),
   member("text", "truncate", Reach::Render),
   member("text", "frontMatter", Reach::Body),
@@ -70,15 +77,15 @@ pub const STANDARD: &[Member] = &[
   Member { module: "terminal", name: "ms", reach: Reach::Terminal, signatures: &[
     Signature { doc: "Milliseconds for a duration such as `\"2 days\"` or `\"1h\"`; `undefined` for one it cannot read.", generics: &[], params: &[Field::required("value", Ty::String)], returns: Ty::Union(&[Ty::Number, Ty::Undefined]) },
     Signature { doc: "A duration in milliseconds written short as `\"2d\"` or long as `\"2 days\"`.", generics: &[], params: &[Field::required("value", Ty::Number), Field::optional("options", Ty::Object(&[Field::optional("long", Ty::Boolean)]))], returns: Ty::String },
-  ] },
-  Member { module: "terminal", name: "stripAnsi", reach: Reach::Terminal, signatures: &[Signature { doc: "`text` with its ANSI escape codes removed.", generics: &[], params: &[Field::required("text", Ty::String)], returns: Ty::String }] },
-  Member { module: "terminal", name: "stringWidth", reach: Reach::Terminal, signatures: &[Signature { doc: "The columns `text` takes in a terminal, its escape codes left out and wide characters counted twice.", generics: &[], params: &[Field::required("text", Ty::String)], returns: Ty::Number }] },
+  ], platform: None },
+  Member { module: "terminal", name: "stripAnsi", reach: Reach::Terminal, signatures: &[Signature { doc: "`text` with its ANSI escape codes removed.", generics: &[], params: &[Field::required("text", Ty::String)], returns: Ty::String }], platform: None },
+  Member { module: "terminal", name: "stringWidth", reach: Reach::Terminal, signatures: &[Signature { doc: "The columns `text` takes in a terminal, its escape codes left out and wide characters counted twice.", generics: &[], params: &[Field::required("text", Ty::String)], returns: Ty::Number }], platform: None },
   Member { module: "terminal", name: "wrapAnsi", reach: Reach::Terminal, signatures: &[Signature {
     doc: "`text` wrapped to `columns`, its escape codes kept where they stand.",
     generics: &[],
     params: &[Field::required("text", Ty::String), Field::required("columns", Ty::Number), Field::optional("options", Ty::Object(&[Field::optional("hard", Ty::Boolean), Field::optional("wordWrap", Ty::Boolean), Field::optional("trim", Ty::Boolean)]))],
     returns: Ty::String,
-  }] },
+  }], platform: None },
   Member { module: "terminal", name: "bigText", reach: Reach::Terminal, signatures: &[Signature {
     doc: "`text` drawn in `font`, a font file of cfonts' format, as rows joined by newlines with the font's colours as escape codes. A character the font lacks is left out and `|` starts a row.",
     generics: &[],
@@ -97,7 +104,7 @@ pub const STANDARD: &[Member] = &[
       ])),
     ],
     returns: Ty::String,
-  }] },
+  }], platform: None },
   member("path", "join", Reach::Render),
   member("path", "resolve", Reach::Body),
   member("path", "normalize", Reach::Render),
