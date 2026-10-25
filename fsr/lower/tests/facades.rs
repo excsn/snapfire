@@ -12,7 +12,6 @@ fn client_src() -> PathBuf {
 /// The types a module's members are declared with, exported beside them.
 fn types_of(module: &str) -> &'static [&'static str] {
   match module {
-    "intl" => &["NumberOptions", "CurrencyOptions", "DateOptions", "ListOptions", "DateStyle", "TextWidth"],
     "text" => &["FrontMatterOptions"],
     "file" => &["FileStat"],
     "system" => &["SpawnOptions", "Spawned", "SpawnedInput", "SpawnedOutput"],
@@ -57,7 +56,9 @@ fn facade(std_ts: &str, side: Side, module: &str, names: &[&str], beside: bool) 
   let std_js = if beside { "./std.js" } else { "../std.js" };
   let mut out = String::from(HEADER);
   let object = if module == "i18n" { "t as translate" } else { module };
-  out.push_str(&format!("import {{ {object} }} from \"{std_js}\";\n"));
+  if names.iter().any(|name| doc(std_ts, module, name).is_some()) {
+    out.push_str(&format!("import {{ {object} }} from \"{std_js}\";\n"));
+  }
   let types = types_of(module);
   if !types.is_empty() {
     out.push_str(&format!("export type {{ {} }} from \"{std_js}\";\n", types.join(", ")));

@@ -40,20 +40,20 @@ fn a_standard_member_lowers_to_an_extension_call_in_a_body_and_on_a_render_path(
   let dir = app(
     "std",
     &[
-      ("routes/a/page.loader.ts", "import { intl, time, id } from \"@snapfire/fsr/host\";\nexport async function load({ params }) {\n  const when = time.now();\n  return { label: intl.number(Number(params.n)), id: id.new(), when };\n}\n"),
-      ("routes/a/page.tsx", "import { intl, text } from \"@snapfire/fsr/client\";\nexport default function A({ n, name }: { n: number; name: string }) {\n  return <p title={text.slug(name)}>{intl.number(n)}</p>;\n}\n"),
+      ("routes/a/page.loader.ts", "import { text, crypto, id } from \"@snapfire/fsr/host\";\nexport async function load({ params }) {\n  const when = crypto.random(4);\n  return { label: text.slug(String(params.n)), id: id.new(), when };\n}\n"),
+      ("routes/a/page.tsx", "import { crypto, text } from \"@snapfire/fsr/client\";\nexport default function A({ n, name }: { n: number; name: string }) {\n  return <p title={text.slug(name)}>{crypto.hash(String(n))}</p>;\n}\n"),
     ],
   );
   let mut set = ComponentSet::new(&dir);
   let body = set.lower_loader("routes/a/page.loader.ts").unwrap();
   let Stmt::Let { expr, .. } = &body[0] else { panic!("{body:?}") };
-  assert_eq!(exts(expr), vec!["time.now/0"]);
+  assert_eq!(exts(expr), vec!["crypto.random/1"]);
   let Stmt::Return(expr) = &body[1] else { panic!("{body:?}") };
-  assert_eq!(exts(expr), vec!["intl.number/1", "id.new/0"]);
+  assert_eq!(exts(expr), vec!["text.slug/1", "id.new/0"]);
 
   set.lower("routes/a/page.tsx#default").unwrap();
   let (_, component) = &set.components[0];
-  assert_eq!(tree_exts(&component.render), vec!["text.slug/1", "intl.number/1"]);
+  assert_eq!(tree_exts(&component.render), vec!["text.slug/1", "crypto.hash/1"]);
   let hoisted: Vec<u32> = {
     let mut ids = Vec::new();
     component.visit(&mut |e| {
@@ -72,7 +72,7 @@ fn a_body_member_on_a_render_path_is_refused_and_not_downgraded() {
   let dir = app(
     "reach",
     &[
-      ("routes/a/page.tsx", "import { time } from \"@snapfire/fsr/host\";\nexport default function A() {\n  return <p>{time.now()}</p>;\n}\n"),
+      ("routes/a/page.tsx", "import { id } from \"@snapfire/fsr/host\";\nexport default function A() {\n  return <p>{id.new()}</p>;\n}\n"),
       ("routes/b/page.tsx", "import { id } from \"@snapfire/fsr/host\";\nimport { useState } from \"react\";\nexport default function B() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)} title={id.new()}>{n}</button>;\n}\n"),
       ("routes/c/page.tsx", "import { useState } from \"react\";\nimport { fresh } from \"@src/ids\";\nexport default function C() {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
       ("routes/d/page.tsx", "import { fresh } from \"@src/ids\";\nexport default function D() {\n  return <p>{fresh()}</p>;\n}\n"),
@@ -83,7 +83,7 @@ fn a_body_member_on_a_render_path_is_refused_and_not_downgraded() {
   match set.lower("routes/a/page.tsx#default") {
     Err(LowerError::Reach(residue)) => {
       assert_eq!((residue.file.as_str(), residue.line), ("routes/a/page.tsx", 3));
-      assert!(residue.message.contains("`time.now` from `@snapfire/fsr/host` in code the browser also runs"), "{}", residue.message);
+      assert!(residue.message.contains("`id.new` from `@snapfire/fsr/host` in code the browser also runs"), "{}", residue.message);
     }
     other => panic!("{other:?}"),
   }
@@ -107,14 +107,14 @@ fn a_body_member_on_a_render_path_is_refused_and_not_downgraded() {
 fn a_handler_may_call_a_body_member() {
   let dir = app(
     "handler",
-    &[("routes/a/page.tsx", "import { useState } from \"react\";\nimport { time } from \"@snapfire/fsr/host\";\nexport default function A() {\n  const [at, setAt] = useState(0);\n  return <button onClick={() => setAt(time.now())}>{at}</button>;\n}\n")],
+    &[("routes/a/page.tsx", "import { useState } from \"react\";\nimport { id } from \"@snapfire/fsr/host\";\nexport default function A() {\n  const [at, setAt] = useState(\"\");\n  return <button onClick={() => setAt(id.new())}>{at}</button>;\n}\n")],
   );
   let mut set = ComponentSet::new(&dir);
   set.lower("routes/a/page.tsx#default").unwrap();
   let (_, component) = &set.components[0];
   assert_eq!(component.handlers.len(), 1);
   let Stmt::Return(patch) = &component.handlers[0].body[0] else { panic!("{:?}", component.handlers) };
-  assert_eq!(exts(patch), vec!["time.now/0"]);
+  assert_eq!(exts(patch), vec!["id.new/0"]);
 }
 
 #[test]
@@ -122,7 +122,7 @@ fn an_ext_module_lowers_every_export_or_fails_the_build() {
   let dir = app(
     "ext",
     &[
-      ("ext/fmt.ts", "import { intl } from \"@snapfire/fsr/client\";\nexport const UNIT = \"kg\";\nexport function weight(grams: number): string {\n  return `${intl.number(grams / 1000)} ${UNIT}`;\n}\n"),
+      ("ext/fmt.ts", "import { text } from \"@snapfire/fsr/client\";\nexport const UNIT = \"kg\";\nexport function weight(grams: number): string {\n  return `${text.truncate(String(grams / 1000), 6)} ${UNIT}`;\n}\n"),
       ("ext/bad.ts", "export function stamp(): string {\n  return String(new WeakMap());\n}\n"),
       ("routes/a/page.loader.ts", "import { weight } from \"@ext/fmt\";\nexport async function load() {\n  return { label: weight(1500) };\n}\n"),
       ("routes/a/page.tsx", "import { weight } from \"@ext/fmt\";\nexport default function A({ grams }: { grams: number }) {\n  return <p>{weight(grams)}</p>;\n}\n"),
@@ -138,9 +138,9 @@ fn an_ext_module_lowers_every_export_or_fails_the_build() {
   let body = set.lower_loader("routes/a/page.loader.ts").unwrap();
   let Stmt::Return(expr) = &body[0] else { panic!("{body:?}") };
   assert!(matches!(expr, Expr::Object(_)));
-  assert_eq!(exts(expr), vec!["intl.number/1"], "the helper is inlined into the body with its extension call: {expr:?}");
+  assert_eq!(exts(expr), vec!["text.truncate/2"], "the helper is inlined into the body with its extension call: {expr:?}");
   set.lower("routes/a/page.tsx#default").unwrap();
-  assert_eq!(tree_exts(&set.components[0].1.render), vec!["intl.number/1"]);
+  assert_eq!(tree_exts(&set.components[0].1.render), vec!["text.truncate/2"]);
 }
 
 #[test]

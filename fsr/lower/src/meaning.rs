@@ -50,13 +50,21 @@ pub const HOST_ROOT: &str = "@snapfire/fsr/host";
 pub const TERMINAL_ROOT: &str = "@snapfire/fsr/terminal";
 /// The standard modules only a terminal program has, under [`TERMINAL_ROOT`].
 const TERMINAL_STD_MODULES: [&str; 2] = ["system", "clipboard"];
-/// Members a side's module has that are not extensions: `system.spawn` is an act the terminal runs.
-const SIDE_ACTS: [(Side, &str, &str); 1] = [(Side::Terminal, "system", "spawn")];
+/// Members a side's module has that are not extensions, with what the build reads each as: `system.spawn` is an act the terminal runs and `intl.localeTag` reads the document's locale.
+const SIDE_OWN: [(Side, &str, &str, Construct); 2] = [
+  (Side::Terminal, "system", "spawn", Construct::StdMember(Side::Terminal, "system", "spawn")),
+  (Side::Client, "intl", "localeTag", Construct::Std("localeTag")),
+];
+
+/// What the build reads `module.name` under `side` as.
+fn construct_of(side: Side, module: &'static str, name: &'static str) -> Construct {
+  SIDE_OWN.iter().find(|(s, m, n, _)| *s == side && *m == module && *n == name).map(|(_, _, _, c)| *c).unwrap_or(Construct::StdMember(side, module, name))
+}
 
 /// Whether `module.name` is under `side`.
 fn side_has(side: Side, module: &str, name: &str) -> Option<(&'static str, &'static str)> {
   let member = snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.name == name && m.platform.is_none() && side.holds(module, m.reach)).map(|m| (m.module, m.name));
-  member.or_else(|| SIDE_ACTS.iter().find(|(s, m, n)| *s == side && *m == module && *n == name).map(|(_, m, n)| (*m, *n)))
+  member.or_else(|| SIDE_OWN.iter().find(|(s, m, n, _)| *s == side && *m == module && *n == name).map(|(_, m, n, _)| (*m, *n)))
 }
 
 /// Each standard module under `side`, with the members it holds there.
@@ -71,9 +79,10 @@ pub fn side_modules(side: Side) -> Vec<(&'static str, Vec<&'static str>)> {
       None => out.push((member.module, vec![member.name])),
     }
   }
-  for (_, module, name) in SIDE_ACTS.iter().filter(|(s, _, _)| *s == side) {
-    if let Some((_, names)) = out.iter_mut().find(|(m, _)| m == module) {
-      names.push(name);
+  for (_, module, name, _) in SIDE_OWN.iter().filter(|(s, _, _, _)| *s == side) {
+    match out.iter_mut().find(|(m, _)| m == module) {
+      Some((_, names)) => names.push(name),
+      None => out.push((module, vec![name])),
     }
   }
   out
@@ -106,6 +115,9 @@ pub(crate) fn side_module_of(source: &str) -> Option<(Side, &'static str)> {
 /// Why `module.name` is not under `side` and where it is, for a refusal.
 pub(crate) fn absent(side: Side, module: &str, name: &str) -> (String, Option<String>) {
   let key = format!("{module}.{name}");
+  if let Some(member) = platform_spelled(module, name) {
+    return (format!("`{module}` from `{}` is the standard module, which shadows the platform's `{module}` here and does not run `{}` on this side; import the module under another name to reach the platform's", side.root(), member.platform.unwrap_or_default()), None);
+  }
   let Some(member) = snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.name == name) else {
     return (format!("`{key}` is not a member of the standard library"), None);
   };
@@ -121,6 +133,36 @@ pub(crate) fn absent(side: Side, module: &str, name: &str) -> (String, Option<St
     Some(home) => (format!("`{key}` is not in `{}`; it is in `{}`", side.root(), home.root()), None),
     None => (format!("`{key}` is not in `{}`", side.root()), None),
   }
+}
+
+/// The member of `module` written for the platform's `<module>.<name>(...)`, which a standard module named as the platform's global answers too: `crypto.randomUUID()` beside `crypto` from a side.
+fn platform_spelled(module: &str, name: &str) -> Option<&'static snapfire_fsr_ir::Member> {
+  let spelled = format!("{module}.{name}(");
+  snapfire_fsr_ir::STANDARD.iter().find(|m| m.module == module && m.platform.is_some_and(|form| form.starts_with(&spelled)))
+}
+
+/// Why `export` from `source` is not a standard module there: the platform forms its members are written as, or the side that holds it. `source` is a side's root and `export` a module it does not hold, or `source` is `<root>/<module>` for one.
+pub(crate) fn module_absent(source: &str, export: &str) -> Option<String> {
+  let sides = [Side::Client, Side::Host, Side::Terminal];
+  let (side, module) = match sides.into_iter().find(|s| s.root() == source) {
+    Some(side) => (side, export),
+    None => sides.into_iter().find_map(|s| source.strip_prefix(s.root()).and_then(|rest| rest.strip_prefix('/')).map(|module| (s, module)))?,
+  };
+  let members: Vec<&snapfire_fsr_ir::Member> = snapfire_fsr_ir::STANDARD.iter().filter(|m| m.module == module).collect();
+  if members.is_empty() || side_modules(side).iter().any(|(m, _)| *m == module) {
+    return None;
+  }
+  let forms: Vec<String> = members.iter().filter(|m| side.holds(module, m.reach)).filter_map(|m| m.platform).map(|form| format!("`{form}`")).collect();
+  if !forms.is_empty() {
+    let listed = match forms.split_last() {
+      Some((last, [])) => last.clone(),
+      Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+      None => String::new(),
+    };
+    return Some(format!("`{module}` is not in `{}`: its members are the platform's own forms, which need no import: {listed}", side.root()));
+  }
+  let home = sides.into_iter().find(|s| side_modules(*s).iter().any(|(m, _)| *m == module))?;
+  Some(format!("`{module}` is not in `{}`; it is in `{}`", side.root(), home.root()))
 }
 
 /// A library construct the build lowers, under the name its library exports it as.
@@ -253,14 +295,13 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
       for (module, names) in side_modules(side) {
         rows.push((side.root(), module, Construct::StdModule(side, module)));
         let path = module_path(side, module);
-        rows.extend(names.iter().map(|name| (path, *name, Construct::StdMember(side, module, name))));
+        rows.extend(names.iter().map(|name| (path, *name, construct_of(side, module, name))));
       }
     }
     for side in [Side::Client, Side::Host] {
       rows.push((side.root(), "t", Construct::StdMember(side, "i18n", "t")));
     }
     rows.push((CLIENT_ROOT, "localeTag", Construct::Std("localeTag")));
-    rows.push((module_path(Side::Client, "intl"), "localeTag", Construct::Std("localeTag")));
     rows.push(("@snapfire/fsr", "native", Construct::Std("native")));
     for server in ["action", "fail", "redirect", "after"] {
       rows.push((HOST_ROOT, server, Construct::Server(server)));
@@ -412,7 +453,8 @@ impl Meaning {
       Meaning::Namespace(members) => members.get(name).cloned(),
       Meaning::Library(Construct::StdModule(side, module)) => Some(
         side_has(*side, module, name)
-          .map(|(m, n)| Meaning::Library(Construct::StdMember(*side, m, n)))
+          .map(|(m, n)| Meaning::Library(construct_of(*side, m, n)))
+          .or_else(|| platform_spelled(module, name).filter(|m| side.holds(module, m.reach)).map(|m| Meaning::Library(Construct::StdMember(*side, m.module, m.name))))
           .unwrap_or_else(|| Meaning::StdAbsent { side: *side, module, name: name.to_owned() }),
       ),
       Meaning::Context { id, react, .. } if name == "Provider" => Some(Meaning::Provider { id: id.clone(), react: *react }),

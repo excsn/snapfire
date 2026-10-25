@@ -1,21 +1,22 @@
 import { setLocale } from "@snapfire/fsr/client";
-import { crypto, intl, text, time } from "@snapfire/fsr/client";
+import { crypto, text, time } from "@snapfire/fsr/client";
+import { localeTag } from "@snapfire/fsr/client/intl";
 import { expect, test } from "@snapfire/fsr/client/testing";
 
-test("the standard library answers under the document's locale, through the runner where the engine has no Intl", () => {
+test("Intl answers under the document's locale, through the runner where the engine has no Intl of its own", () => {
   setLocale("fr_FR");
-  expect(intl.number(1234.5)).toEqual("1 234,5");
-  expect(intl.plural(0)).toEqual("one");
-  expect(intl.date(Date.UTC(2026, 8, 5), "long")).toEqual("5 septembre 2026");
+  expect(new Intl.NumberFormat(localeTag()).format(1234.5)).toEqual("1\u202f234,5");
+  expect(new Intl.PluralRules(localeTag()).select(0)).toEqual("one");
+  expect(new Intl.DateTimeFormat(localeTag(), { dateStyle: "long", timeZone: "UTC" }).format(Date.UTC(2026, 8, 5))).toEqual("5 septembre 2026");
   setLocale("en_US");
-  expect(intl.number(1234.5)).toEqual("1,234.5");
-  expect(intl.number(2, { minimumFractionDigits: 2 })).toEqual("2.00");
-  expect(intl.currency(12, "USD")).toEqual("USD 12.00");
-  expect(intl.plural(1)).toEqual("one");
-  expect(intl.plural(2)).toEqual("other");
-  expect(intl.date("2026-09-05T23:59:00Z")).toEqual("Sep 5, 2026");
-  expect(["zebra", "Äpfel", "apple", "B"].sort(intl.compare), "the order Chrome sorts them in under English").toEqual(["Äpfel", "apple", "B", "zebra"]);
-  expect([intl.compare("a", "a"), intl.compare("ö", "z", { locale: "sv" })]).toEqual([0, 1]);
+  expect(new Intl.NumberFormat(localeTag()).format(1234.5)).toEqual("1,234.5");
+  expect(new Intl.NumberFormat(localeTag(), { minimumFractionDigits: 2 }).format(2)).toEqual("2.00");
+  expect(new Intl.NumberFormat(localeTag(), { style: "currency", currency: "USD", currencyDisplay: "code" }).format(12)).toEqual("USD\u00a012.00");
+  expect(new Intl.PluralRules(localeTag()).select(1)).toEqual("one");
+  expect(new Intl.PluralRules(localeTag()).select(2)).toEqual("other");
+  expect(new Intl.DateTimeFormat(localeTag(), { dateStyle: "medium", timeZone: "UTC" }).format(new Date("2026-09-05T23:59:00Z"))).toEqual("Sep 5, 2026");
+  expect(["zebra", "Äpfel", "apple", "B"].sort(new Intl.Collator(localeTag()).compare), "the order Chrome sorts them in under English").toEqual(["Äpfel", "apple", "B", "zebra"]);
+  expect(["a".localeCompare("a"), "ö".localeCompare("z", "sv")]).toEqual([0, 1]);
 });
 
 test("text, time and crypto compute in the browser half itself", () => {

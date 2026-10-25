@@ -532,10 +532,9 @@ customElements.define("hello-tag", HelloTag);
 "#;
 
 const HTMX_LOADER: &str = r#"import type { Ctx } from "@snapfire/fsr/host";
-import { time } from "@snapfire/fsr/host";
 
 export async function load(_ctx: Ctx<"/pulse">) {
-  return { at: time.now() };
+  return { at: Date.now() };
 }
 "#;
 

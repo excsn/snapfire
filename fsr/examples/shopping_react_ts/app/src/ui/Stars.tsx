@@ -1,4 +1,4 @@
-import { intl } from "@snapfire/fsr/client";
+import { localeTag } from "@snapfire/fsr/client/intl";
 
 export function Stars({ rating, reviews }: { rating: number; reviews: bigint | number }) {
   const full = Math.round(rating);
@@ -6,7 +6,7 @@ export function Stars({ rating, reviews }: { rating: number; reviews: bigint | n
     <span className="stars" title={`${rating.toFixed(1)} out of 5`}>
       <span className="stars-glyphs">{"★".repeat(full) + "☆".repeat(5 - full)}</span>
       <span className="stars-rating">{rating.toFixed(1)}</span>
-      <span className="stars-reviews">({intl.number(Number(reviews))})</span>
+      <span className="stars-reviews">({new Intl.NumberFormat(localeTag()).format(Number(reviews))})</span>
     </span>
   );
 }

@@ -40,16 +40,17 @@ fn group(source: &str) -> Option<Group> {
   }
 }
 
-/// How a Node member is written as FSR's: the standard member, the method on it and how many leading arguments it keeps, `None` for all. `call` is false for a value read such as `EOL`, which is written as a call.
+/// How a Node member is written as FSR's: the standard member, the method on it and how many leading arguments it keeps, `None` for all. `call` is false for a value read such as `EOL`, which is written as a call. `platform` is true for the platform's own global, `crypto.randomUUID`, which needs no import.
 struct Mapped {
   member: &'static str,
   method: &'static str,
   keep: Option<usize>,
   call: bool,
+  platform: bool,
 }
 
 fn mapped(group: Group, name: &str) -> Option<Mapped> {
-  let m = |member, method, keep| Some(Mapped { member, method, keep, call: true });
+  let m = |member, method, keep| Some(Mapped { member, method, keep, call: true, platform: false });
   match (group, name) {
     (Group::Fs, "existsSync") => m("file", "exists", Some(1)),
     (Group::Fs, "readFileSync" | "readFile") => m("file", "read", Some(1)),
@@ -57,13 +58,13 @@ fn mapped(group: Group, name: &str) -> Option<Mapped> {
     (Group::Fs, "mkdirSync" | "mkdir") => m("file", "makeDir", Some(2)),
     (Group::Fs, "readdirSync" | "readdir") => m("file", "list", Some(1)),
     (Group::Fs, "statSync" | "stat") => m("file", "stat", Some(1)),
-    (Group::Path, name @ ("join" | "resolve" | "normalize" | "dirname" | "basename" | "extname" | "relative" | "isAbsolute")) => Some(Mapped { member: "path", method: path_method(name), keep: None, call: true }),
+    (Group::Path, name @ ("join" | "resolve" | "normalize" | "dirname" | "basename" | "extname" | "relative" | "isAbsolute")) => Some(Mapped { member: "path", method: path_method(name), keep: None, call: true, platform: false }),
     (Group::Os, "homedir") => m("system", "home", Some(0)),
     (Group::Os, "platform") => m("system", "platform", Some(0)),
     (Group::Os, "tmpdir") => m("system", "tempDir", Some(0)),
-    (Group::Os, "EOL") => Some(Mapped { member: "system", method: "lineEnd", keep: Some(0), call: false }),
+    (Group::Os, "EOL") => Some(Mapped { member: "system", method: "lineEnd", keep: Some(0), call: false, platform: false }),
     (Group::ChildProcess, "spawn") => m("system", "spawn", None),
-    (Group::Crypto, "randomUUID") => m("crypto", "uuid", Some(0)),
+    (Group::Crypto, "randomUUID") => Some(Mapped { member: "crypto", method: "randomUUID", keep: Some(0), call: true, platform: true }),
     _ => None,
   }
 }
@@ -433,8 +434,14 @@ impl Visit for Uses<'_> {
     if let Some((group, name)) = self.member_of(callee) {
       match mapped(group, &name) {
         Some(m) if m.call => {
-          self.members.insert(m.member.to_owned());
-          self.edits.replace(self.parsed.range(callee.span()), marked(m.member, m.method));
+          let written = match m.platform {
+            true => format!("{}.{}", m.member, m.method),
+            false => {
+              self.members.insert(m.member.to_owned());
+              marked(m.member, m.method)
+            }
+          };
+          self.edits.replace(self.parsed.range(callee.span()), written);
           let keep = m.keep.unwrap_or(usize::MAX).min(n.args.len());
           if keep < n.args.len() {
             let from = match keep {

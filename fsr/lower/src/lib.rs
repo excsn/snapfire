@@ -3023,7 +3023,10 @@ impl<'a> Lowerer<'a> {
           self.unbound = Some(name.to_owned());
           match crate::component::find_import(self.parsed, name) {
             Some((source, _)) if node_module(&source) => Err(self.residue_with(id.span, format!("`{name}` from `{source}`, which is not FSR's"), NOT_FSR)),
-            Some((source, _)) => Err(self.residue(id.span, format!("`{name}` comes from `{source}`, which the build cannot follow"))),
+            Some((source, export)) => match meaning::module_absent(&source, &export) {
+              Some(why) => Err(self.residue(id.span, why)),
+              None => Err(self.residue(id.span, format!("`{name}` comes from `{source}`, which the build cannot follow"))),
+            },
             None => Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow or a name from outside the body"))),
           }
         }
@@ -3909,7 +3912,7 @@ impl<'a> Lowerer<'a> {
         Ok(Expr::Apply { f: Box::new(Expr::Lambda { params: vec![at], body: Box::new(body) }), args: vec![*target] })
       }
       "getTimezoneOffset" if self.reaches(Reach::Terminal) => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
-      "toLocaleTimeString" if self.reaches(Reach::Terminal) && call.args.len() <= 1 => {
+      "toLocaleTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.args.len() <= 1 => {
         let locale = match call.args.first().map(|a| strip_parens(&a.expr)) {
           None => Expr::Lit(Lit::Null),
           Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => Expr::Lit(Lit::Null),

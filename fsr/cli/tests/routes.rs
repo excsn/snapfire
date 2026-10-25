@@ -1132,12 +1132,12 @@ fn a_handler_the_browser_runs_as_written_is_a_browser_row() {
 
 #[test]
 fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlowerable_export_fails_the_build() {
-  let page = "import { intl } from \"@snapfire/fsr/client\";\nimport { weight } from \"@ext/fmt\";\nimport { useState } from \"react\";\nexport default function Page({ grams }: { grams: number }) {\n  const [n, setN] = useState(1);\n  return <p onClick={() => setN(n + 1)} title={weight(grams)}>{intl.number(n * grams)}</p>;\n}\n";
+  let page = "import { text } from \"@snapfire/fsr/client\";\nimport { weight } from \"@ext/fmt\";\nimport { useState } from \"react\";\nexport default function Page({ grams }: { grams: number }) {\n  const [n, setN] = useState(1);\n  return <p onClick={() => setN(n + 1)} title={weight(grams)}>{text.truncate(String(n * grams), 8)}</p>;\n}\n";
   let fine = app(&[
     ("routes/layout.tsx", LAYOUT),
     ("routes/index/page.tsx", page),
-    ("routes/index/page.loader.ts", "import { weight } from \"@ext/fmt\";\nimport { time } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { grams: 1500, label: weight(1500), at: time.now() };\n}\n"),
-    ("ext/fmt.ts", "import { intl } from \"@snapfire/fsr/client\";\nimport { native } from \"@snapfire/fsr\";\nexport function weight(grams: number): string {\n  return `${intl.number(grams / 1000)} kg`;\n}\nexport const pretty = native(\"fmt.pretty\", (n: number) => String(n));\nexport const stamp = native<() => string>(\"fmt.stamp\");\n"),
+    ("routes/index/page.loader.ts", "import { weight } from \"@ext/fmt\";\nexport async function load() {\n  return { grams: 1500, label: weight(1500), at: Date.now() };\n}\n"),
+    ("ext/fmt.ts", "import { native } from \"@snapfire/fsr\";\nexport function weight(grams: number): string {\n  return `${new Intl.NumberFormat(undefined).format(grams / 1000)} kg`;\n}\nexport const pretty = native(\"fmt.pretty\", (n: number) => String(n));\nexport const stamp = native<() => string>(\"fmt.stamp\");\n"),
   ]);
   let built = build(&fine, &Options::default()).unwrap();
   assert_eq!(

@@ -1,4 +1,3 @@
-export * as intl from "./intl.js";
 export * as text from "./text.js";
 export * as time from "./time.js";
 export * as crypto from "./crypto.js";

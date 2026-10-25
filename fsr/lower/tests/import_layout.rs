@@ -50,12 +50,12 @@ fn a_loader_reads_the_host_root_and_each_host_module_path() {
     "host",
     &[(
       "routes/a/page.loader.ts",
-      "import { intl, id } from \"@snapfire/fsr/host\";\nimport { now } from \"@snapfire/fsr/host/time\";\nimport * as crypto from \"@snapfire/fsr/host/crypto\";\nexport async function load() {\n  return { label: intl.number(3), id: id.new(), at: now(), key: crypto.uuid() };\n}\n",
+      "import { text, id } from \"@snapfire/fsr/host\";\nimport { localOffset } from \"@snapfire/fsr/host/time\";\nimport * as crypto from \"@snapfire/fsr/host/crypto\";\nexport async function load() {\n  return { label: text.slug(\"A b\"), id: id.new(), offset: localOffset(0), key: crypto.random(8) };\n}\n",
     )],
   );
   let mut set = ComponentSet::new(&dir);
   let body = set.lower_loader("routes/a/page.loader.ts").unwrap();
-  assert_eq!(body_exts(&body), vec!["intl.number/1", "id.new/0", "time.now/0", "crypto.uuid/0"]);
+  assert_eq!(body_exts(&body), vec!["text.slug/1", "id.new/0", "time.localOffset/1", "crypto.random/1"]);
 }
 
 #[test]
@@ -64,31 +64,31 @@ fn a_component_reads_the_client_root_and_each_client_module_path() {
     "client",
     &[(
       "routes/a/page.tsx",
-      "import { intl, t } from \"@snapfire/fsr/client\";\nimport { slug } from \"@snapfire/fsr/client/text\";\nimport * as time from \"@snapfire/fsr/client/time\";\nexport default function A({ n, name, at }: { n: number; name: string; at: number }) {\n  return <p title={slug(name)} data-at={time.format(at, \"yyyy\")}>{intl.number(n)} {t(\"hi\")}</p>;\n}\n",
+      "import { crypto, t } from \"@snapfire/fsr/client\";\nimport { slug } from \"@snapfire/fsr/client/text\";\nimport * as time from \"@snapfire/fsr/client/time\";\nexport default function A({ name, at }: { name: string; at: number }) {\n  return <p title={slug(name)} data-at={time.format(at, \"yyyy\")}>{crypto.hash(name)} {t(\"hi\")}</p>;\n}\n",
     )],
   );
   let mut set = ComponentSet::new(&dir);
   set.lower("routes/a/page.tsx#default").unwrap();
   let (_, component) = &set.components[0];
-  assert_eq!(tree_exts(&component.render), vec!["text.slug/1", "time.format/2", "intl.number/1", "i18n.t/1"]);
+  assert_eq!(tree_exts(&component.render), vec!["text.slug/1", "time.format/2", "crypto.hash/1", "i18n.t/1"]);
 }
 
 #[test]
 fn a_member_the_client_side_does_not_have_is_refused_with_the_loader_named() {
   let dir = app(
     "client_lacks",
-    &[("routes/a/page.tsx", "import { time } from \"@snapfire/fsr/client\";\nexport default function A() {\n  return <p>{time.now()}</p>;\n}\n")],
+    &[("routes/a/page.tsx", "import { time } from \"@snapfire/fsr/client\";\nexport default function A() {\n  return <p>{time.localOffset(0)}</p>;\n}\n")],
   );
   let mut set = ComponentSet::new(&dir);
   let why = residue(&mut set, "routes/a/page.tsx#default");
-  assert!(why.contains("`time.now` is not in `@snapfire/fsr/client`") && why.contains("@snapfire/fsr/host") && why.contains("page.loader.ts"), "{why}");
+  assert!(why.contains("`time.localOffset` is not in `@snapfire/fsr/client`") && why.contains("@snapfire/fsr/host") && why.contains("page.loader.ts"), "{why}");
 }
 
 #[test]
 fn a_component_importing_the_host_side_is_refused_with_the_client_path_named() {
   let dir = app(
     "host_in_component",
-    &[("routes/a/page.tsx", "import { intl } from \"@snapfire/fsr/host\";\nexport default function A({ n }: { n: number }) {\n  return <p>{intl.number(n)}</p>;\n}\n")],
+    &[("routes/a/page.tsx", "import { text } from \"@snapfire/fsr/host\";\nexport default function A({ name }: { name: string }) {\n  return <p>{text.slug(name)}</p>;\n}\n")],
   );
   let mut set = ComponentSet::new(&dir);
   let why = residue(&mut set, "routes/a/page.tsx#default");
@@ -111,7 +111,7 @@ fn native_comes_from_the_shared_root() {
   assert_eq!(tree_exts(&component.render), vec!["fmt.pretty/1"]);
 }
 
-const ECHO: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\nIMPORT\n\nexport default function Echo() {\n  const [heard, setHeard] = useState(\"\");\n  useEffect(() => {\n    const sub = system.spawn(\"cat\", []);\n    sub.stdout.on(\"data\", (chunk) => setHeard((held) => held + chunk));\n    sub.stdin.write(\"hello\");\n    sub.stdin.end();\n  }, []);\n  return <Text>{heard} {intl.localTime(time.now())}</Text>;\n}\n";
+const ECHO: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\nIMPORT\n\nexport default function Echo() {\n  const [heard, setHeard] = useState(\"\");\n  useEffect(() => {\n    const sub = system.spawn(\"cat\", []);\n    sub.stdout.on(\"data\", (chunk) => setHeard((held) => held + chunk));\n    sub.stdin.write(\"hello\");\n    sub.stdin.end();\n  }, []);\n  return <Text>{heard} {new Date(Date.now()).toLocaleTimeString()}</Text>;\n}\n";
 
 /// The page lowered for a terminal, with the spawn id, the offset of the call, read as `ID`.
 fn terminal_page(tag: &str, imports: &str) -> String {
@@ -127,7 +127,7 @@ fn terminal_page(tag: &str, imports: &str) -> String {
 
 #[test]
 fn a_terminal_page_spawns_through_the_terminal_root_and_reads_the_host_side() {
-  let lowered = terminal_page("terminal", "import { system } from \"@snapfire/fsr/terminal\";\nimport { intl, time } from \"@snapfire/fsr/host\";");
+  let lowered = terminal_page("terminal", "import { system } from \"@snapfire/fsr/terminal\";");
   assert!(lowered.contains("action: \"$spawn\"") && lowered.contains("name: \"localTime\""), "{lowered}");
 }
 
@@ -138,7 +138,7 @@ fn pure_path_members_are_on_the_client_side_and_the_working_directory_ones_on_th
     "path",
     &[
       ("routes/a/page.tsx", "import { path } from \"@snapfire/fsr/client\";\nexport default function A({ file }: { file: string }) {\n  return <p title={path.basename(file, \".md\")}>{path.join(\"docs\", path.dirname(file))}</p>;\n}\n"),
-      ("routes/a/page.loader.ts", "import { path, intl, time, text } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { here: path.resolve(\"a\"), at: intl.localTime(time.now()), zone: time.localOffset(time.now()), meta: text.frontMatter(\"---\\na: 1\\n---\\n\") };\n}\n"),
+      ("routes/a/page.loader.ts", "import { path, time, text } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { here: path.resolve(\"a\"), at: new Date(Date.now()).toLocaleTimeString(), zone: time.localOffset(Date.now()), meta: text.frontMatter(\"---\\na: 1\\n---\\n\") };\n}\n"),
       ("routes/b/page.tsx", "import { path } from \"@snapfire/fsr/client\";\nexport default function B() {\n  return <p>{path.resolve(\"a\")}</p>;\n}\n"),
     ],
   );
@@ -147,7 +147,7 @@ fn pure_path_members_are_on_the_client_side_and_the_working_directory_ones_on_th
   let (_, component) = set.components.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap();
   assert_eq!(tree_exts(&component.render), vec!["path.basename/2", "path.join/2", "path.dirname/1"]);
   let body = set.lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
-  assert_eq!(body_exts(&body), vec!["path.resolve/1", "intl.localTime/1", "time.now/0", "time.localOffset/1", "time.now/0", "text.frontMatter/1"]);
+  assert_eq!(body_exts(&body), vec!["path.resolve/1", "intl.localTime/2", "time.now/0", "time.localOffset/1", "time.now/0", "text.frontMatter/1"]);
   let why = residue(&mut set, "routes/b/page.tsx#default");
   assert!(why.contains("`path.resolve` is not in `@snapfire/fsr/client`"), "{why}");
 }
@@ -166,4 +166,30 @@ fn the_node_fs_refusal_names_the_host_file_module_a_web_action_can_use() {
   let why = set.lower_actions("routes/actions.ts").err().map(|e| e.to_string()).unwrap_or_default();
   assert!(why.contains("`file`") && why.contains("@snapfire/fsr/host") && why.contains("[files] roots"), "{why}");
   set.lower_actions("routes/fixed/actions.ts").unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn a_member_the_platform_has_a_form_for_is_refused_with_the_form_to_write() {
+  let dir = app(
+    "platform_members",
+    &[
+      ("routes/a/page.loader.ts", "import { intl } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { label: intl.number(3) };\n}\n"),
+      ("routes/b/page.loader.ts", "import { now } from \"@snapfire/fsr/host/time\";\nexport async function load() {\n  return { at: now() };\n}\n"),
+      ("routes/c/page.tsx", "import { intl } from \"@snapfire/fsr/client\";\nexport default function Page() {\n  return <p>{intl.compare(\"a\", \"b\")}</p>;\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  let why = set.lower_loader("routes/a/page.loader.ts").err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(why.contains("`intl` is not in `@snapfire/fsr/host`") && why.contains("`new Intl.NumberFormat(locale, options).format(n)`"), "{why}");
+  let why = set.lower_loader("routes/b/page.loader.ts").err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(why.contains("`Date.now()`"), "{why}");
+  let why = residue(&mut set, "routes/c/page.tsx#default");
+  assert!(why.contains("`new Intl.Collator(locale, options).compare(a, b)`"), "{why}");
+}
+
+#[test]
+fn a_standard_module_named_as_the_platforms_global_answers_the_platform_spelling() {
+  let dir = app("crypto_global", &[("routes/a/page.loader.ts", "import { crypto } from \"@snapfire/fsr/host\";\nexport async function load() {\n  return { id: crypto.randomUUID(), salt: crypto.random(4) };\n}\n")]);
+  let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(body_exts(&body), vec!["crypto.uuid/0", "crypto.random/1"]);
 }

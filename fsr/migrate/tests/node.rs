@@ -61,7 +61,7 @@ fn spawn_crypto_and_async_local_storage_are_fsr_members() {
   let (out, report) = migrate(&t);
   assert_eq!(
     out.text("app/src/go.ts").unwrap(),
-    "import { crypto } from \"@snapfire/fsr/host\";\nimport { Scope, system } from \"@snapfire/fsr/terminal\";\n\nconst storage: Scope<string> = new Scope();\n\nexport function go(part: string) {\n  const child = system.spawn('git', ['log'], { cwd: '/tmp' });\n  storage.set(crypto.uuid());\n  return [child, storage.get(), crypto.random(8), crypto.random(4, 'base64'), crypto.digest('sha256', 'hex', part, '!'), storage.run('x', () => 1)];\n}\n",
+    "import { crypto } from \"@snapfire/fsr/host\";\nimport { Scope, system } from \"@snapfire/fsr/terminal\";\n\nconst storage: Scope<string> = new Scope();\n\nexport function go(part: string) {\n  const child = system.spawn('git', ['log'], { cwd: '/tmp' });\n  storage.set(crypto.randomUUID());\n  return [child, storage.get(), crypto.random(8), crypto.random(4, 'base64'), crypto.digest('sha256', 'hex', part, '!'), storage.run('x', () => 1)];\n}\n",
     "{:?}",
     report.notes
   );
@@ -74,4 +74,12 @@ fn terminal_packages_are_the_terminal_modules_members() {
   let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/show.ts", source)]);
   let (out, _) = migrate(&t);
   assert_eq!(out.text("app/src/show.ts").unwrap(), "import { ms } from \"@snapfire/fsr/terminal\";\nimport { stripAnsi as strip } from \"@snapfire/fsr/terminal\";\n\nexport const show = (t: string) => `${strip(t)} ${ms(1000)}`;\n");
+}
+
+#[test]
+fn random_uuid_alone_is_the_platforms_and_imports_nothing() {
+  let source = "import { randomUUID } from 'node:crypto';\n\nexport const id = () => randomUUID();\n";
+  let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/ids.ts", source)]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/src/ids.ts").unwrap(), "\nexport const id = () => crypto.randomUUID();\n", "{:?}", report.notes);
 }

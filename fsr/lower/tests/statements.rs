@@ -238,13 +238,13 @@ fn a_helper_reading_the_date_clock_is_left_to_the_browser_as_an_inline_read_is()
 }
 
 #[test]
-fn a_helper_calling_time_now_itself_is_still_refused() {
-  let page = "import { time } from \"@snapfire/fsr/host\";\nfunction now() {\n  return time.now();\n}\nexport default function Page() {\n  return <p>{now()}</p>;\n}\n";
+fn a_helper_calling_a_body_member_itself_is_still_refused() {
+  let page = "import { id } from \"@snapfire/fsr/host\";\nfunction now() {\n  return id.new();\n}\nexport default function Page() {\n  return <p>{now()}</p>;\n}\n";
   let dir = app("time_helper", &[("routes/page.tsx", page)]);
   let mut set = ComponentSet::new(&dir);
   let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());
   std::fs::remove_dir_all(&dir).unwrap();
-  assert!(result.as_ref().is_err_and(|e| e.contains("calls `time.now` on a render path")), "{result:?}");
+  assert!(result.as_ref().is_err_and(|e| e.contains("calls `id.new` on a render path")), "{result:?}");
 }
 
 #[test]

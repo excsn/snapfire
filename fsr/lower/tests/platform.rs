@@ -59,3 +59,12 @@ fn a_random_uuid_is_made_in_a_body_and_left_to_the_browser_in_a_render() {
   let out = page("uuid_render", "  return <p>{crypto.randomUUID()}</p>;");
   assert!(out.as_ref().is_err_and(|e| e.contains("different ids")), "{out:?}");
 }
+
+#[test]
+fn a_body_reads_the_hosts_local_time_with_to_locale_time_string() {
+  let dir = app("local_time", &[("routes/a/page.loader.ts", "export async function load() {\n  return { opened: new Date(Date.now()).toLocaleTimeString(\"en-GB\") };\n}\n")]);
+  let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+  assert!(format!("{body:?}").contains("name: \"localTime\""), "{body:?}");
+  let out = page("local_time_render", "  return <p>{new Date(0).toLocaleTimeString(\"en-GB\")}</p>;");
+  assert!(out.as_ref().is_err_and(|e| e.contains("time zone")), "{out:?}");
+}

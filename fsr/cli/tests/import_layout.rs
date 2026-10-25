@@ -17,7 +17,7 @@ fn project(tag: &str, page: &str) -> Scratch {
 fn a_handler_the_browser_runs_reading_the_host_side_stops_the_build() {
   let root = project(
     "host-in-handler",
-    "import { useState } from \"react\";\nimport { time } from \"@snapfire/fsr/host\";\n\nexport default function Page() {\n  const [at, setAt] = useState(0);\n  return <button onClick={() => setAt(time.now())}>{at}</button>;\n}\n",
+    "import { useState } from \"react\";\nimport { id } from \"@snapfire/fsr/host\";\n\nexport default function Page() {\n  const [at, setAt] = useState(\"\");\n  return <button onClick={() => setAt(id.new())}>{at}</button>;\n}\n",
   );
   let app = root.join("app");
   let error = match build(&app, &Options::beside(&app)) {

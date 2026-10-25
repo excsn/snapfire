@@ -10,8 +10,5 @@ export const verify: typeof crypto.verify = crypto.verify;
 /** `bytes` random bytes as `hex` (the default) or `base64`. Server only on a render path. Runs in every host body: loaders, actions, route handlers, middleware and terminal programs. */
 export const random: typeof crypto.random = crypto.random;
 
-/** A version 4 UUID. Server only on a render path. Runs in every host body: loaders, actions, route handlers, middleware and terminal programs. */
-export const uuid: typeof crypto.uuid = crypto.uuid;
-
 /** The hash of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. Runs in a server render and in the browser. */
 export const digest: typeof crypto.digest = crypto.digest;
