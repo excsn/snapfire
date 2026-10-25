@@ -34,7 +34,7 @@ pub struct Member {
   pub name: &'static str,
   pub reach: Reach,
   pub signatures: &'static [Signature],
-  /// The platform form the lowerer writes this member for, such as `Intl.RelativeTimeFormat`. A member with one is under no side's modules: code writes the platform form.
+  /// The platform code the lowerer writes this member for, such as `new Intl.RelativeTimeFormat(locale, options).format(value, unit)`. A member with one is under no side's modules: code writes the platform form.
   pub platform: Option<&'static str>,
 }
 
@@ -54,7 +54,7 @@ pub const STANDARD: &[Member] = &[
   member("intl", "plural", Reach::Render),
   member("intl", "list", Reach::Render),
   member("intl", "compare", Reach::Render),
-  written_for("Intl.RelativeTimeFormat", "intl", "relative", Reach::Render),
+  written_for("new Intl.RelativeTimeFormat(locale, options).format(value, unit)", "intl", "relative", Reach::Render),
   member("text", "slug", Reach::Render),
   member("text", "truncate", Reach::Render),
   member("text", "frontMatter", Reach::Body),
@@ -70,6 +70,10 @@ pub const STANDARD: &[Member] = &[
   member("crypto", "random", Reach::Body),
   member("crypto", "uuid", Reach::Body),
   member("crypto", "digest", Reach::Render),
+  written_for("btoa(text)", "encoding", "btoa", Reach::Render),
+  written_for("atob(text)", "encoding", "atob", Reach::Render),
+  written_for("new TextEncoder().encode(text)", "encoding", "encode", Reach::Render),
+  written_for("new TextDecoder().decode(bytes)", "encoding", "decode", Reach::Render),
   member("id", "new", Reach::Body),
   member("i18n", "t", Reach::Render),
   member("intl", "localTime", Reach::Body),

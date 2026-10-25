@@ -316,3 +316,55 @@ fn a_textarea_keeps_what_was_typed_when_its_default_value_changes() {
   assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+const INTL_CALLS: &str = r#"  const when = new Date("2025-06-15T12:00:00Z");
+  expect(new Intl.NumberFormat("de-DE").format(1234.5)).toEqual("1.234,5");
+  expect(new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(9.5)).toEqual("$9.50");
+  expect((0.25).toLocaleString("en-US", { style: "percent" })).toEqual("25%");
+  expect(new Intl.PluralRules("en-US", { type: "ordinal" }).select(22)).toEqual("two");
+  expect(["item10", "item2"].toSorted(new Intl.Collator("en-US", { numeric: true }).compare)).toEqual(["item2", "item10"]);
+  expect("a".localeCompare("A", "en-US", { sensitivity: "base" })).toEqual(0);
+  expect(new Intl.RelativeTimeFormat("en-US", { numeric: "auto" }).format(-1, "day")).toEqual("yesterday");
+  expect(new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }).format(when)).toEqual("Jun 15, 2025, 12:00 PM");
+  expect(when.toLocaleDateString("de-DE", { dateStyle: "long", timeZone: "UTC" })).toEqual("15. Juni 2025");
+  expect(new Intl.ListFormat("en-US").format(["a", "b", "c"])).toEqual("a, b, and c");
+"#;
+
+#[test]
+fn a_body_test_formats_with_intl_as_the_server_does() {
+  let test = format!("import {{ expect, test }} from \"@snapfire/fsr/testing\";\n\ntest(\"each Intl form\", async () => {{\n{INTL_CALLS}}});\n");
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/intl.test.ts", &test)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_spec_formats_with_intl_as_the_server_does() {
+  let spec = format!("import {{ expect, test }} from \"@snapfire/fsr/client/testing\";\n\ntest(\"each Intl form\", () => {{\n{INTL_CALLS}}});\n\ntest(\"the formatters a page may call without new answer as constructed ones\", () => {{\n  expect(Intl.NumberFormat(\"de-DE\").format(1234.5)).toEqual(\"1.234,5\");\n  expect(typeof Intl.DateTimeFormat().resolvedOptions().timeZone).toEqual(\"string\");\n  expect(Intl.Collator(\"en-US\").compare(\"a\", \"b\")).toEqual(-1);\n}});\n\ntest(\"an option the server does not read is refused by name\", () => {{\n  expect(() => new Intl.NumberFormat(\"en-US\", {{ notation: \"compact\" }}).format(1234)).toThrow(\"notation\");\n}});\n");
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/intl.spec.ts", &spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (3, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_spec_has_the_platform_globals_the_build_lowers() {
+  let spec = r#"import { expect, test } from "@snapfire/fsr/client/testing";
+
+test("base64, UTF-8, a clone and a random id", () => {
+  expect(btoa("hi")).toEqual("aGk=");
+  expect(atob("6Q==")).toEqual("é");
+  expect(new TextDecoder().decode(new TextEncoder().encode("h€"))).toEqual("h€");
+  const a = { n: [1] };
+  const b = structuredClone(a);
+  b.n.push(2);
+  expect(a.n.length).toEqual(1);
+  expect(crypto.randomUUID()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+});
+"#;
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/platform.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

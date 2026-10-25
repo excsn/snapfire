@@ -272,13 +272,14 @@ fn an_intl_formatter_lowers_to_the_intl_member_that_formats_alike() {
     other => panic!("{other:?}"),
   };
   assert_eq!(ext("number", "new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(params.n)"), "intl.number");
+  assert_eq!(ext("percent", "new Intl.NumberFormat(undefined, { style: \"percent\" }).format(params.n)"), "intl.number");
   assert_eq!(ext("currency", "new Intl.NumberFormat(undefined, { style: \"currency\", currency: \"EUR\", currencyDisplay: \"code\" }).format(params.n)"), "intl.currency");
   assert_eq!(ext("date", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\" }).format(new Date(params.at))"), "intl.date");
   assert_eq!(ext("locale_date", "new Date(params.at).toLocaleDateString(undefined, { dateStyle: \"short\", timeZone: \"UTC\" })"), "intl.date");
   for (tag, expr, says) in [
     ("no_style", "new Date(params.at).toLocaleDateString()", "without a `dateStyle`"),
     ("zone", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\", timeZone: \"Europe/Paris\" }).format(params.at)", "`timeZone`"),
-    ("percent", "new Intl.NumberFormat(undefined, { style: \"percent\" }).format(params.n)", "`style`"),
+    ("compact", "new Intl.NumberFormat(undefined, { notation: \"compact\" }).format(params.n)", "`notation`"),
   ] {
     let err = lowered(tag, expr).unwrap_err();
     assert!(err.contains(says), "{tag}: {err}");

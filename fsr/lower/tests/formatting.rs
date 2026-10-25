@@ -61,8 +61,9 @@ fn to_locale_string_reads_its_options_as_number_format_does() {
   assert_eq!(page("{(9999).toLocaleString(\"en-US\", { style: \"currency\", currency: \"USD\" })}").as_deref(), Ok("<p>$9,999.00</p>"));
   assert_eq!(page("{(1234567).toLocaleString()}").as_deref(), Ok("<p>1,234,567</p>"));
   assert_eq!(page("{(1234567).toLocaleString(\"en-US\")}").as_deref(), Ok("<p>1,234,567</p>"));
-  let out = page("{(0.5).toLocaleString(\"en-US\", { style: \"percent\" })}");
-  assert!(out.as_ref().is_err_and(|e| e.contains("`style`")), "{out:?}");
+  assert_eq!(page("{(0.5).toLocaleString(\"en-US\", { style: \"percent\" })}").as_deref(), Ok("<p>50%</p>"));
+  let out = page("{(0.5).toLocaleString(\"en-US\", { style: \"unit\", unit: \"meter\" })}");
+  assert!(out.as_ref().is_err_and(|e| e.contains("`style: \"unit\"`")), "{out:?}");
 }
 
 #[test]
@@ -100,4 +101,49 @@ fn a_formatter_kept_as_a_value_formats_as_the_inline_form_would() {
   let shared = "export const money = new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\" });\n";
   let out = html("imported", &[("src/money.ts", shared), ("routes/page.tsx", "import { money } from \"@src/money\";\nexport default function Page() {\n  return <p>{money.format(3)}</p>;\n}\n")]);
   assert_eq!(out.as_deref(), Ok("<p>$3.00</p>"));
+}
+
+#[test]
+fn plural_rules_a_collator_and_relative_time_format_on_the_server() {
+  assert_eq!(page("{new Intl.PluralRules(\"en-US\").select(1)}").as_deref(), Ok("<p>one</p>"));
+  assert_eq!(page("{new Intl.PluralRules(\"en-US\", { type: \"ordinal\" }).select(22)}").as_deref(), Ok("<p>two</p>"));
+  assert_eq!(page("{new Intl.Collator(\"en-US\", { sensitivity: \"base\" }).compare(\"a\", \"á\")}").as_deref(), Ok("<p>0</p>"));
+  assert_eq!(page("{[\"item10\", \"item2\"].toSorted(new Intl.Collator(\"en-US\", { numeric: true }).compare).join(\" \")}").as_deref(), Ok("<p>item2 item10</p>"));
+  assert_eq!(page("{\"a\".localeCompare(\"A\", \"en-US\", { sensitivity: \"base\" })}").as_deref(), Ok("<p>0</p>"));
+  assert_eq!(page("{new Intl.RelativeTimeFormat(\"en-US\", { numeric: \"auto\" }).format(-1, \"day\")}").as_deref(), Ok("<p>yesterday</p>"));
+  assert_eq!(page("{new Intl.RelativeTimeFormat(\"fr-FR\").format(3, \"hours\")}").as_deref(), Ok("<p>dans 3 heures</p>"));
+  let out = page("{new Intl.Collator(\"en-US\", { caseFirst: \"upper\" }).compare(\"a\", \"A\")}");
+  assert!(out.as_ref().is_err_and(|e| e.contains("`caseFirst`")), "{out:?}");
+}
+
+#[test]
+fn number_and_date_formats_read_grouping_sign_integer_digits_and_time_styles() {
+  assert_eq!(page("{new Intl.NumberFormat(\"en-US\", { useGrouping: false }).format(1234567)}").as_deref(), Ok("<p>1234567</p>"));
+  assert_eq!(page("{new Intl.NumberFormat(\"en-US\", { minimumIntegerDigits: 3 }).format(7)}").as_deref(), Ok("<p>007</p>"));
+  assert_eq!(page("{new Intl.NumberFormat(\"en-US\", { signDisplay: \"always\" }).format(5)}").as_deref(), Ok("<p>+5</p>"));
+  assert_eq!(page("{new Intl.DateTimeFormat(\"en-US\", { timeStyle: \"short\", timeZone: \"UTC\" }).format(when)}").as_deref(), Ok("<p>12:00 PM</p>"));
+  assert_eq!(page("{new Intl.DateTimeFormat(\"en-US\", { dateStyle: \"medium\", timeStyle: \"short\", timeZone: \"UTC\" }).format(when)}").as_deref(), Ok("<p>Jun 15, 2025, 12:00 PM</p>"));
+  let viewer = "export default function Page() {\n  return <p>{new Intl.DateTimeFormat(\"en-US\", { timeStyle: \"short\" }).format(new Date(\"2025-06-15T12:00:00Z\"))}</p>;\n}\n";
+  let dir = app("viewer_zone", &[("routes/page.tsx", viewer)]);
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/page.tsx#default").unwrap_or_else(|e| panic!("{e}"));
+  let texts = format!("{:?}", set.browser_texts);
+  assert!(texts.contains("viewer's time zone") && texts.contains("timeZone: \\\"UTC\\\""), "{texts}");
+  let out = page("{new Intl.DateTimeFormat(\"en-US\", { timeStyle: \"long\", timeZone: \"UTC\" }).format(when)}");
+  assert!(out.as_ref().is_err_and(|e| e.contains("`timeStyle: \"long\"`") && e.contains("`timeStyle: \"medium\"`")), "{out:?}");
+  let out = page("{new Intl.NumberFormat(\"en-US\", { notation: \"compact\" }).format(1234)}");
+  assert!(out.as_ref().is_err_and(|e| e.contains("`notation`")), "{out:?}");
+}
+
+#[test]
+fn a_loader_formats_with_intl_as_a_component_does_and_names_a_call_it_cannot_read() {
+  let loader = "export async function load() {\n  return { share: new Intl.NumberFormat(\"en-US\", { style: \"percent\" }).format(0.25), ago: new Intl.RelativeTimeFormat(\"en-US\").format(-2, \"day\"), order: new Intl.PluralRules(\"en-US\", { type: \"ordinal\" }).select(3) };\n}\n";
+  let dir = app("loader", &[("routes/a/page.loader.ts", loader)]);
+  let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+  let printed = format!("{body:?}");
+  assert!(printed.contains("\"number\"") && printed.contains("\"relative\"") && printed.contains("\"plural\""), "{printed}");
+  let refused = "export async function load() {\n  return { short: new Intl.NumberFormat(\"en-US\", { notation: \"compact\" }).format(1234) };\n}\n";
+  let dir = app("loader_refused", &[("routes/a/page.loader.ts", refused)]);
+  let err = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(err.contains("`notation`") && err.contains("Intl.NumberFormat"), "{err}");
 }

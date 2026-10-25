@@ -12,11 +12,10 @@ interface Bridge {
   ext?: (name: string, args: string, locale: string) => string;
 }
 
-/** Under `fsr test` the engine has no `Intl`, so a member that needs it asks the runner, which answers with the Rust half; anywhere else this returns `undefined` and the member computes. */
+/** Under `fsr test` a member asks the runner, which answers with the Rust half and the app's catalogs; anywhere else this returns `undefined` and the member computes. */
 function bridged<T>(name: string, args: unknown[]): T | undefined {
-  if (typeof Intl !== "undefined") return undefined;
   const sf = (globalThis as { __sf?: Bridge }).__sf;
-  if (!sf?.ext) throw new Error(`${name} needs Intl, which this runtime does not have`);
+  if (!sf?.ext) return undefined;
   const json = JSON.stringify(args, (_, v: unknown) => (typeof v === "bigint" ? Number(v) : v === undefined ? null : v));
   return JSON.parse(sf.ext(name, json, currentLocale())) as T;
 }

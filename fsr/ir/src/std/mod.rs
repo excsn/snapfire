@@ -1,4 +1,4 @@
-//! The standard library's Rust half: `intl`, `text`, `time`, `crypto`, `id`,
+//! The standard library's Rust half: `intl`, `text`, `time`, `crypto`, `encoding`, `id`,
 //! `log`, `terminal` with `big_text`, `path`, `file`, `system` and `clipboard`, one function per
 //! row of `ext::STANDARD`. The browser half is
 //! the client library's `std` module and the two agree byte for byte on every
@@ -8,6 +8,7 @@
 pub mod big_text;
 pub mod clipboard;
 pub mod crypto;
+pub mod encoding;
 pub mod frontmatter;
 pub mod i18n;
 pub mod id;
@@ -27,6 +28,7 @@ pub fn register(extensions: &mut Extensions) {
   frontmatter::register(extensions);
   time::register(extensions);
   crypto::register(extensions);
+  encoding::register(extensions);
   id::register(extensions);
   i18n::register(extensions);
   terminal::register(extensions);

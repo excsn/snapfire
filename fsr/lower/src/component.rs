@@ -2392,7 +2392,7 @@ impl ComponentSet {
     }
     if let Global::Const(init) = &item {
       // The formatter itself has no value; `global_formatter` hands the lowerer the `new` that made it.
-      if matches!(crate::strip_parens(init), js::Expr::New(n) if crate::intl_formatter(n).is_some()) {
+      if matches!(crate::strip_parens(init), js::Expr::New(n) if crate::platform_object(n).is_some()) {
         return Ok(Some((Expr::Lit(Lit::Null), key)));
       }
       if let Some((module, member, reach)) = native_declaration(&parsed, init)? {
@@ -2589,7 +2589,7 @@ impl ComponentSet {
     let parsed = self.parsed[file].clone();
     Ok(match find_value(&parsed, name) {
       Some(Global::Const(init)) => match crate::strip_parens(init) {
-        js::Expr::New(n) if crate::intl_formatter(n).is_some() => Some(n.clone()),
+        js::Expr::New(n) if crate::platform_object(n).is_some() => Some(n.clone()),
         _ => None,
       },
       _ => None,

@@ -197,6 +197,106 @@ globalThis.__sf = {
   },
 };
 
+// QuickJS has no Intl. Each form the build lowers answers through the same Rust the server formats with. An option the server does not read throws.
+if (typeof globalThis.Intl === "undefined") {
+  const documentLocale = () => (typeof document !== "undefined" && (document.documentElement.getAttribute("data-sf-locale") || document.documentElement.getAttribute("lang"))) || "en-US";
+  const pick = (locales) => (Array.isArray(locales) ? locales[0] : locales) ?? undefined;
+  const answer = (name, args, locale) => JSON.parse(__sf_ext(name, JSON.stringify(args, (_, v) => (typeof v === "bigint" ? Number(v) : v === undefined ? null : v)), locale ?? documentLocale()));
+  const read = (formatter, options, allowed) => {
+    const out = {};
+    for (const [key, value] of Object.entries(options ?? {})) {
+      if (value === undefined) continue;
+      if (!(key in allowed)) throw new RangeError(`the Intl.${formatter} option \`${key}\` is not read under fsr test, as the server does not read it`);
+      if (allowed[key].length && typeof value === "string" && !allowed[key].includes(value)) throw new RangeError(`\`${key}: "${value}"\` in Intl.${formatter} is not read under fsr test, as the server does not read it`);
+      out[key] = value;
+    }
+    return out;
+  };
+  const instant = (when) => (when === undefined ? Date.now() : when instanceof Date ? when.getTime() : Number(when));
+  class NumberFormat {
+    constructor(locales, options) {
+      this.locale = pick(locales);
+      const given = options ?? {};
+      this.options = given.style === "currency" ? read("NumberFormat", given, { style: [], currency: [], currencyDisplay: ["symbol", "code", "narrowSymbol"], minimumFractionDigits: [], maximumFractionDigits: [] }) : read("NumberFormat", given, { style: ["decimal", "percent"], minimumFractionDigits: [], maximumFractionDigits: [], minimumIntegerDigits: [], useGrouping: ["auto", "always", "min2"], signDisplay: ["auto", "always", "exceptZero", "negative", "never"] });
+    }
+    format(n) {
+      const { style, currency, currencyDisplay, ...rest } = this.options;
+      if (style === "currency") return answer("intl.currency", [n, currency, { ...rest, display: currencyDisplay ?? "symbol", locale: this.locale }], this.locale);
+      return answer("intl.number", [n, { ...this.options, locale: this.locale }], this.locale);
+    }
+    resolvedOptions() {
+      return { locale: this.locale ?? documentLocale(), ...this.options };
+    }
+  }
+  class DateTimeFormat {
+    constructor(locales, options) {
+      this.locale = pick(locales);
+      this.options = read("DateTimeFormat", options, { dateStyle: ["short", "medium", "long", "full"], timeStyle: ["short", "medium"], timeZone: ["UTC"], weekday: ["long", "short", "narrow"], year: ["numeric"], month: ["long", "short", "narrow"], day: ["numeric"] });
+    }
+    format(when) {
+      const { dateStyle, timeZone, ...rest } = this.options;
+      if (dateStyle === undefined && rest.timeStyle === undefined && Object.keys(rest).length === 0) throw new RangeError("Intl.DateTimeFormat without a dateStyle, a timeStyle or a part is not read under fsr test, as the server does not read it");
+      if (rest.timeStyle !== undefined && timeZone === undefined) throw new RangeError("Intl.DateTimeFormat with a timeStyle formats in the viewer's time zone; the server reads it with timeZone: \"UTC\"");
+      return answer("intl.date", [instant(when), { ...rest, style: dateStyle, locale: this.locale }], this.locale);
+    }
+    resolvedOptions() {
+      return { locale: this.locale ?? documentLocale(), timeZone: "UTC", ...this.options };
+    }
+  }
+  class ListFormat {
+    constructor(locales, options) {
+      this.locale = pick(locales);
+      this.options = read("ListFormat", options, { type: ["conjunction", "disjunction", "unit"], style: ["long", "short", "narrow"] });
+    }
+    format(items) {
+      return answer("intl.list", [Array.from(items), { ...this.options, locale: this.locale }], this.locale);
+    }
+  }
+  class PluralRules {
+    constructor(locales, options) {
+      this.locale = pick(locales);
+      this.options = read("PluralRules", options, { type: ["cardinal", "ordinal"] });
+    }
+    select(n) {
+      return answer("intl.plural", [n, { ...this.options, locale: this.locale }], this.locale);
+    }
+  }
+  class Collator {
+    constructor(locales, options) {
+      const locale = pick(locales);
+      const given = read("Collator", options, { sensitivity: ["base", "accent", "case", "variant"], numeric: [], usage: ["sort"] });
+      this.compare = (a, b) => answer("intl.compare", [String(a), String(b), { ...given, locale }], locale);
+    }
+  }
+  class RelativeTimeFormat {
+    constructor(locales, options) {
+      this.locale = pick(locales);
+      this.options = read("RelativeTimeFormat", options, { numeric: ["always", "auto"], style: ["long", "short", "narrow"] });
+    }
+    format(value, unit) {
+      return answer("intl.relative", [value, unit, { ...this.options, locale: this.locale }], this.locale);
+    }
+  }
+  // NumberFormat, DateTimeFormat and Collator may be called without `new`, as ECMA-402 allows.
+  const callable = (Made) => {
+    const f = function (locales, options) {
+      return new Made(locales, options);
+    };
+    f.prototype = Made.prototype;
+    return f;
+  };
+  globalThis.Intl = { NumberFormat: callable(NumberFormat), DateTimeFormat: callable(DateTimeFormat), ListFormat, PluralRules, Collator: callable(Collator), RelativeTimeFormat };
+  Number.prototype.toLocaleString = function (locales, options) {
+    return new NumberFormat(arguments.length === 0 ? "en-US" : locales, options).format(Number(this));
+  };
+  Date.prototype.toLocaleDateString = function (locales, options) {
+    return new DateTimeFormat(locales, options).format(this);
+  };
+  String.prototype.localeCompare = function (other, locales, options) {
+    return new Collator(locales, options).compare(String(this), other);
+  };
+}
+
 globalThis.location = { href: "http://localhost/", origin: "http://localhost", protocol: "http:", host: "localhost", hostname: "localhost", port: "", pathname: "/", search: "", hash: "", reload() {}, assign(url) { globalThis.__sf_location(url); }, replace(url) { globalThis.__sf_location(url); } };
 globalThis.__sf_location = (url) => {
   const u = new URL(String(url), location.href);
@@ -478,5 +578,53 @@ class TextDecoder {
   }
 }
 
+if (typeof globalThis.crypto === "undefined") {
+  const getRandomValues = (array) => {
+    for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256);
+    return array;
+  };
+  globalThis.crypto = {
+    getRandomValues,
+    randomUUID() {
+      const b = getRandomValues(new Uint8Array(16));
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      const hex = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    },
+  };
+}
+if (typeof globalThis.structuredClone !== "function") {
+  globalThis.structuredClone = (value) => {
+    const seen = new Map();
+    const clone = (v) => {
+      if (typeof v === "function" || typeof v === "symbol") {
+        const message = `${String(v)} could not be cloned.`;
+        throw typeof DOMException === "function" ? new DOMException(message, "DataCloneError") : Object.assign(new Error(message), { name: "DataCloneError" });
+      }
+      if (v === null || typeof v !== "object") return v;
+      if (seen.has(v)) return seen.get(v);
+      if (v instanceof Date) return new Date(v.getTime());
+      if (v instanceof Map) {
+        const out = new Map();
+        seen.set(v, out);
+        for (const [k, item] of v) out.set(clone(k), clone(item));
+        return out;
+      }
+      if (v instanceof Set) {
+        const out = new Set();
+        seen.set(v, out);
+        for (const item of v) out.add(clone(item));
+        return out;
+      }
+      if (ArrayBuffer.isView(v)) return new v.constructor(v);
+      const out = Array.isArray(v) ? [] : {};
+      seen.set(v, out);
+      for (const key of Object.keys(v)) out[key] = clone(v[key]);
+      return out;
+    };
+    return clone(value);
+  };
+}
 globalThis.TextEncoder = TextEncoder;
 globalThis.TextDecoder = TextDecoder;

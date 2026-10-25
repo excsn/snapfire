@@ -1641,7 +1641,7 @@ impl<'a> Lowerer<'a> {
     match strip_parens(e) {
       js::Expr::TsAs(a) => self.formatter_of(&a.expr),
       js::Expr::TsNonNull(a) => self.formatter_of(&a.expr),
-      js::Expr::New(n) if intl_formatter(n).is_some() => Some(n.clone()),
+      js::Expr::New(n) if platform_object(n).is_some() => Some(n.clone()),
       js::Expr::Ident(id) => {
         let name = id.sym.as_ref();
         match self.scope.iter().rev().find(|(n, _)| n == name) {
@@ -1656,7 +1656,7 @@ impl<'a> Lowerer<'a> {
   /// Binds `name` to an `Intl` formatter `init` makes, so a later `.format(x)` on it lowers as the inline form; the name reads as null anywhere else.
   pub(crate) fn bind_formatter(&mut self, name: &str, init: &js::Expr) -> bool {
     let js::Expr::New(made) = strip_parens(init) else { return false };
-    if intl_formatter(made).is_none() {
+    if platform_object(made).is_none() {
       return false;
     }
     self.scope.push((name.to_owned(), Expr::Lit(Lit::Null)));
@@ -3052,6 +3052,9 @@ impl<'a> Lowerer<'a> {
 
   /// A member read. Context roots become reads; anything else is a field.
   fn member(&mut self, member: &js::MemberExpr) -> Lowered<Expr> {
+    if let Some(compare) = self.collator_compare(member)? {
+      return Ok(compare);
+    }
     if let (js::Expr::Ident(id), Some(key)) = (&*member.obj, self.member_name(member)) {
       if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.meanings.as_ref().and_then(|m| m.of_ident(id)) == Some(&crate::meaning::Meaning::Config(None)) {
         return Ok(Expr::Config(key));
@@ -3449,6 +3452,8 @@ impl<'a> Lowerer<'a> {
           "Boolean" => Ok(Expr::Not(Box::new(Expr::Not(one(self)?)))),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
           "isNaN" => Ok(Expr::Builtin { name: Builtin::IsNaN, args: vec![*one(self)?] }),
+          "btoa" | "atob" => Ok(Expr::Ext { module: "encoding".to_owned(), name: name.to_owned(), args: vec![*one(self)?] }),
+          "structuredClone" if call.args.len() <= 1 => Ok(*one(self)?),
           "parseInt" => {
             let mut args = vec![*one(self)?];
             if let Some(radix) = call.args.get(1) {
@@ -3632,6 +3637,12 @@ impl<'a> Lowerer<'a> {
               }
             };
           }
+          "crypto" if method == "randomUUID" => {
+            if self.on_render_path() && !self.reaches(Reach::Terminal) {
+              return Err(self.browser_only(call.span, "`crypto.randomUUID()` on a render path, which gives the server and the browser different ids"));
+            }
+            return Ok(Expr::Ext { module: "crypto".to_owned(), name: "uuid".to_owned(), args: Vec::new() });
+          }
           "performance" if method == "now" => {
             if self.on_render_path() && !self.reaches(Reach::Terminal) {
               return Err(self.browser_only(call.span, "the current time on a render path, which the server and the browser read at different moments"));
@@ -3711,7 +3722,7 @@ impl<'a> Lowerer<'a> {
         },
         _ => (None, None),
       };
-      if let Some(made) = segmenter.filter(|made| intl_formatter(made) == Some("Segmenter")) {
+      if let Some(made) = segmenter.filter(|made| platform_object(made) == Some("Segmenter")) {
         self.grapheme_segmenter(&made)?;
         let text = text.ok_or_else(|| self.residue(call.span, "`segment` without a string"))?;
         let mut args = vec![self.expr(&text)?];
@@ -3722,13 +3733,44 @@ impl<'a> Lowerer<'a> {
         return Ok(Expr::Builtin { name: Builtin::Graphemes, args });
       }
     }
-    if method == "format" {
+    if matches!(method.as_str(), "encode" | "decode") {
       if let Some(made) = self.formatter_of(&member.obj) {
-        if let Some(formatter) = intl_formatter(&made) {
-          let value = call.args.first().ok_or_else(|| self.residue(call.span, "`format` without a value"))?;
-          let value = self.expr(&value.expr)?;
+        match (platform_object(&made), method.as_str()) {
+          (Some("TextEncoder"), "encode") | (Some("TextDecoder"), "decode") => {
+            if method == "decode" {
+              let args = made.args.as_deref().unwrap_or_default();
+              let utf8 = match args.first().map(|a| strip_parens(&a.expr)) {
+                None => true,
+                Some(js::Expr::Lit(js::Lit::Str(s))) => matches!(s.value.to_atom_lossy().to_ascii_lowercase().as_str(), "utf-8" | "utf8" | "unicode-1-1-utf-8"),
+                Some(_) => false,
+              };
+              if !utf8 || args.len() > 1 {
+                return Err(self.residue_with(made.span, "a `TextDecoder` with a label or options", "`new TextDecoder()` decodes UTF-8, which the build reads"));
+              }
+            }
+            let value = match call.args.first() {
+              Some(a) => self.expr(&a.expr)?,
+              None => Expr::lit_str(""),
+            };
+            return Ok(Expr::Ext { module: "encoding".to_owned(), name: method.clone(), args: vec![value] });
+          }
+          _ => {}
+        }
+      }
+    }
+    if matches!(method.as_str(), "format" | "select" | "compare") {
+      if let Some(made) = self.formatter_of(&member.obj) {
+        let called = match (platform_object(&made), method.as_str()) {
+          (Some(formatter @ ("NumberFormat" | "DateTimeFormat" | "ListFormat" | "RelativeTimeFormat")), "format") | (Some(formatter @ "PluralRules"), "select") | (Some(formatter @ "Collator"), "compare") => Some(formatter),
+          _ => None,
+        };
+        if let Some(formatter) = called {
+          let mut values = Vec::with_capacity(call.args.len());
+          for a in &call.args {
+            values.push(self.expr(&a.expr)?);
+          }
           let made_args: Vec<js::ExprOrSpread> = made.args.clone().unwrap_or_default();
-          let expr = self.intl_format(formatter, &made_args, value, made.span)?;
+          let expr = self.intl_call(formatter, &made_args, values, made.span)?;
           return Ok(self.candidate(call.span, expr));
         }
       }
@@ -3801,6 +3843,11 @@ impl<'a> Lowerer<'a> {
             return Err(this.residue(a.expr.span(), format!("`{method}` takes a function; `{name}` is not bound here")));
           }
           None => {}
+        }
+      }
+      if let js::Expr::Member(m) = strip_parens(&a.expr) {
+        if let Some(compare) = this.collator_compare(m)? {
+          return Ok(Box::new(compare));
         }
       }
       let js::Expr::Arrow(arrow) = &*a.expr else {
@@ -3882,16 +3929,8 @@ impl<'a> Lowerer<'a> {
           Some(arg) => self.expr(&arg.expr)?,
           None => return Err(self.residue(call.span, "`localeCompare` without a string to compare with")),
         };
-        if call.args.len() > 2 {
-          return Err(self.residue(call.span, "`localeCompare` options; the build reads a locale"));
-        }
-        let mut entries = Vec::new();
-        if let Some(locale) = call.args.get(1) {
-          if !matches!(&*locale.expr, js::Expr::Ident(id) if id.sym == "undefined") {
-            entries.push(Entry::Field("locale".to_owned(), self.expr(&locale.expr)?));
-          }
-        }
-        Ok(Expr::Ext { module: "intl".to_owned(), name: "compare".to_owned(), args: vec![*target, other, Expr::Object(entries)] })
+        let made: Vec<js::ExprOrSpread> = call.args.iter().skip(1).cloned().collect();
+        self.intl_call("Collator", &made, vec![*target, other], call.span)
       }
       "toLocaleDateString" => {
         let mut made = call.args.clone();
@@ -4222,8 +4261,9 @@ impl<'a> Lowerer<'a> {
     }
     let global = match &*n.callee {
       _ if svelte.is_some() => svelte.expect("checked").to_owned(),
+      _ if matches!(platform_object(n), Some("TextEncoder" | "TextDecoder")) => return Err(self.residue_with(n.span, "a `TextEncoder` or `TextDecoder` kept as a value", "call its method where it is made or on a name bound to it: `new TextEncoder().encode(s)`")),
+      _ if platform_object(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
       js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
-      _ if intl_formatter(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
       other => match self.class_new(n)? {
         Some(made) => return Ok(made),
         None => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set`, `URL`, `URLSearchParams` or a class the build reads")),
@@ -4317,8 +4357,45 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// `new Intl.NumberFormat(locale, options).format(value)` and `new Intl.DateTimeFormat(locale, options).format(value)` as the `intl` member that formats the same way under the request's locale, or under the locale written there.
-  fn intl_format(&mut self, formatter: &str, made: &[js::ExprOrSpread], value: Expr, span: Span) -> Lowered<Expr> {
+  /// `collator.compare` as a value, a function of two strings, when `collator` is an `Intl.Collator`.
+  fn collator_compare(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
+    if !matches!(&member.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "compare") {
+      return Ok(None);
+    }
+    let Some(made) = self.formatter_of(&member.obj).filter(|made| platform_object(made) == Some("Collator")) else { return Ok(None) };
+    let (a, b) = (self.temp(), self.temp());
+    let made_args: Vec<js::ExprOrSpread> = made.args.clone().unwrap_or_default();
+    let body = self.intl_call("Collator", &made_args, vec![Expr::Var(a.clone()), Expr::Var(b.clone())], made.span)?;
+    Ok(Some(Expr::Lambda { params: vec![a, b], body: Box::new(body) }))
+  }
+
+  /// A formatter's call as the `intl` member that answers it the same way under the locale written where it is made, else the request's: `format` of `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.ListFormat` and `Intl.RelativeTimeFormat`, `select` of `Intl.PluralRules` and `compare` of `Intl.Collator`.
+  fn intl_call(&mut self, formatter: &str, made: &[js::ExprOrSpread], mut values: Vec<Expr>, span: Span) -> Lowered<Expr> {
+    let wants = match formatter {
+      "Collator" | "RelativeTimeFormat" => 2,
+      _ => 1,
+    };
+    if values.len() < wants {
+      return Err(self.residue(span, format!("`Intl.{formatter}` called with {} of its {wants} arguments", values.len())));
+    }
+    values.truncate(wants);
+    if matches!(formatter, "NumberFormat" | "DateTimeFormat" | "ListFormat") {
+      return self.intl_format(formatter, made, values.remove(0), span);
+    }
+    let (locale, options) = self.intl_made(formatter, made)?;
+    let (name, allowed): (&str, &[(&str, &[&str])]) = match formatter {
+      "PluralRules" => ("plural", &[("type", &["cardinal", "ordinal"])]),
+      "Collator" => ("compare", &[("sensitivity", &["base", "accent", "case", "variant"]), ("numeric", &[]), ("usage", &["sort"])]),
+      _ => ("relative", &[("numeric", &["always", "auto"]), ("style", &["long", "short", "narrow"])]),
+    };
+    let mut entries: Vec<Entry> = locale.into_iter().collect();
+    entries.extend(self.intl_options(formatter, &options, allowed, span)?);
+    values.push(Expr::Object(entries));
+    Ok(Expr::Ext { module: "intl".to_owned(), name: name.to_owned(), args: values })
+  }
+
+  /// The locale and the options a formatter is made with: the locale `None` for the request's.
+  fn intl_made(&mut self, formatter: &str, made: &[js::ExprOrSpread]) -> Lowered<(Option<Entry>, Vec<(String, js::Expr)>)> {
     let locale = match made.first().map(|a| strip_parens(&a.expr)) {
       None => None,
       Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => None,
@@ -4327,19 +4404,44 @@ impl<'a> Lowerer<'a> {
     };
     let mut options: Vec<(String, js::Expr)> = Vec::new();
     if let Some(given) = made.get(1) {
-      let js::Expr::Object(obj) = &*given.expr else { return Err(self.residue(given.expr.span(), "formatting options that are not an object literal")) };
+      let js::Expr::Object(obj) = &*given.expr else { return Err(self.residue(given.expr.span(), format!("`Intl.{formatter}` options that are not an object literal"))) };
       for prop in &obj.props {
-        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.residue(obj.span, "a spread in formatting options")) };
-        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.residue(obj.span, "a formatting option written other than `key: value`")) };
-        let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed formatting option"))?;
+        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.residue(obj.span, format!("a spread in `Intl.{formatter}` options"))) };
+        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.residue(obj.span, format!("an `Intl.{formatter}` option written other than `key: value`"))) };
+        let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), format!("a computed `Intl.{formatter}` option")))?;
         options.push((key, (*kv.value).clone()));
       }
     }
+    Ok((locale.map(|tag| Entry::Field("locale".to_owned(), tag)), options))
+  }
+
+  /// `options` as entries, each key one `allowed` names; a string written in place must be one of the key's values when it lists any.
+  fn intl_options(&mut self, formatter: &str, options: &[(String, js::Expr)], allowed: &[(&str, &[&str])], span: Span) -> Lowered<Vec<Entry>> {
+    let mut entries = Vec::new();
+    for (key, v) in options {
+      let Some((_, values)) = allowed.iter().find(|(k, _)| k == key) else {
+        let read = allowed.iter().map(|(k, _)| format!("`{k}`")).collect::<Vec<_>>();
+        return Err(self.residue(span, format!("the `Intl.{formatter}` option `{key}`; {} are read", list_and(&read))));
+      };
+      if let js::Expr::Lit(js::Lit::Str(s)) = v {
+        let text = s.value.to_atom_lossy().to_string();
+        if !values.is_empty() && !values.contains(&text.as_str()) {
+          let read = values.iter().map(|v| format!("`\"{v}\"`")).collect::<Vec<_>>();
+          return Err(self.residue(v.span(), format!("`{key}: \"{text}\"` in `Intl.{formatter}`; {} are read", list_and(&read))));
+        }
+      }
+      entries.push(Entry::Field(key.clone(), self.expr(v)?));
+    }
+    Ok(entries)
+  }
+
+  /// `new Intl.NumberFormat(locale, options).format(value)`, `new Intl.DateTimeFormat(locale, options).format(value)` and `new Intl.ListFormat(locale, options).format(items)`.
+  fn intl_format(&mut self, formatter: &str, made: &[js::ExprOrSpread], value: Expr, span: Span) -> Lowered<Expr> {
+    let (locale_entry, options) = self.intl_made(formatter, made)?;
     let literal = |options: &[(String, js::Expr)], key: &str| options.iter().find(|(k, _)| k == key).and_then(|(_, v)| match v {
       js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_atom_lossy().to_string()),
       _ => None,
     });
-    let locale_entry = locale.map(|tag| Entry::Field("locale".to_owned(), tag));
     match formatter {
       "NumberFormat" => {
         let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
@@ -4358,37 +4460,56 @@ impl<'a> Lowerer<'a> {
             match key.as_str() {
               "style" | "currency" | "currencyDisplay" => {}
               "minimumFractionDigits" | "maximumFractionDigits" => entries.push(Entry::Field(key.clone(), self.expr(v)?)),
-              other => return Err(self.residue(span, format!("the formatting option `{other}` with a currency"))),
+              other => return Err(self.residue(span, format!("the `Intl.NumberFormat` option `{other}` with a currency; `minimumFractionDigits` and `maximumFractionDigits` are read"))),
             }
           }
           return Ok(Expr::Ext { module: "intl".to_owned(), name: "currency".to_owned(), args: vec![value, code, Expr::Object(entries)] });
         }
-        for (key, v) in &options {
-          if !matches!(key.as_str(), "minimumFractionDigits" | "maximumFractionDigits") {
-            return Err(self.residue(span, format!("the number formatting option `{key}`; `minimumFractionDigits`, `maximumFractionDigits` and a currency are read")));
-          }
-          entries.push(Entry::Field(key.clone(), self.expr(v)?));
-        }
+        let allowed: &[(&str, &[&str])] = &[
+          ("style", &["decimal", "percent"]),
+          ("minimumFractionDigits", &[]),
+          ("maximumFractionDigits", &[]),
+          ("minimumIntegerDigits", &[]),
+          ("useGrouping", &["auto", "always", "min2"]),
+          ("signDisplay", &["auto", "always", "exceptZero", "negative", "never"]),
+        ];
+        entries.extend(self.intl_options("NumberFormat", &options, allowed, span)?);
         Ok(Expr::Ext { module: "intl".to_owned(), name: "number".to_owned(), args: vec![value, Expr::Object(entries)] })
       }
       "ListFormat" => {
         let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
-        for (key, v) in &options {
-          if !matches!(key.as_str(), "type" | "style") {
-            return Err(self.residue(span, format!("the list formatting option `{key}`; `type` and `style` are read")));
-          }
-          entries.push(Entry::Field(key.clone(), self.expr(v)?));
-        }
+        entries.extend(self.intl_options("ListFormat", &options, &[("type", &["conjunction", "disjunction", "unit"]), ("style", &["long", "short", "narrow"])], span)?);
         Ok(Expr::Ext { module: "intl".to_owned(), name: "list".to_owned(), args: vec![value, Expr::Object(entries)] })
       }
       _ => {
-        let utc = |options: &[(String, js::Expr)]| options.iter().all(|(k, _)| k != "timeZone") || literal(options, "timeZone").as_deref() == Some("UTC");
-        if !utc(&options) {
+        let zone = options.iter().find(|(k, _)| k == "timeZone");
+        if zone.is_some() && literal(&options, "timeZone").as_deref() != Some("UTC") {
           return Err(self.residue(span, "a `timeZone` other than `\"UTC\"`"));
+        }
+        if let Some((_, time_style)) = options.iter().find(|(k, _)| k == "timeStyle") {
+          if zone.is_none() {
+            return Err(self.browser_only(span, "a time of day without `timeZone: \"UTC\"`, which the browser formats in the viewer's time zone"));
+          }
+          if let js::Expr::Lit(js::Lit::Str(s)) = time_style {
+            let text = s.value.to_atom_lossy().to_string();
+            if !matches!(text.as_str(), "short" | "medium") {
+              return Err(self.residue(time_style.span(), format!("`timeStyle: \"{text}\"`, which names the time zone; `timeStyle: \"short\"` and `timeStyle: \"medium\"` are read")));
+            }
+          }
+          let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
+          for (key, v) in &options {
+            match key.as_str() {
+              "timeZone" => {}
+              "timeStyle" => entries.push(Entry::Field("timeStyle".to_owned(), self.expr(v)?)),
+              "dateStyle" => entries.push(Entry::Field("style".to_owned(), self.expr(v)?)),
+              other => return Err(self.residue(span, format!("the `Intl.DateTimeFormat` option `{other}` beside `timeStyle`; `dateStyle` and `timeZone: \"UTC\"` are read"))),
+            }
+          }
+          return Ok(Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::Object(entries)] });
         }
         if let Some(style) = literal(&options, "dateStyle") {
           if let Some((other, _)) = options.iter().find(|(k, _)| !matches!(k.as_str(), "dateStyle" | "timeZone")) {
-            return Err(self.residue(span, format!("the date formatting option `{other}` beside `dateStyle`")));
+            return Err(self.residue(span, format!("the `Intl.DateTimeFormat` option `{other}` beside `dateStyle`; `timeStyle` and `timeZone: \"UTC\"` are read")));
           }
           return Ok(match locale_entry {
             None => Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::lit_str(style)] },
@@ -4409,7 +4530,7 @@ impl<'a> Lowerer<'a> {
             ("year" | "day", "numeric") => true,
             ("month", "numeric" | "2-digit") => return Err(self.residue_with(v.span(), "a numeric month", "`month: \"short\"` or a `dateStyle`; the server has no digits that agree with the browser's")),
             ("weekday" | "month" | "year" | "day", _) => false,
-            _ => return Err(self.residue(span, format!("the date formatting option `{key}`; `dateStyle`, `weekday`, `year`, `month`, `day` and `timeZone: \"UTC\"` are read"))),
+            _ => return Err(self.residue(span, format!("the date formatting option `{key}`; `dateStyle`, `timeStyle`, `weekday`, `year`, `month`, `day` and `timeZone: \"UTC\"` are read"))),
           };
           if !read {
             return Err(self.residue(v.span(), format!("`{key}: \"{text}\"`")));
@@ -4717,8 +4838,15 @@ fn string_literal(e: &js::Expr) -> Option<String> {
   }
 }
 
-/// `new Intl.NumberFormat(...)`, `new Intl.DateTimeFormat(...)` or `new Intl.ListFormat(...)`: which one.
-pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
+/// Which platform constructor `n` calls whose methods the build lowers: the `Intl` formatters `NumberFormat`, `DateTimeFormat`, `ListFormat`, `Segmenter`, `PluralRules`, `Collator` and `RelativeTimeFormat`, then `TextEncoder` and `TextDecoder`.
+pub(crate) fn platform_object(n: &js::NewExpr) -> Option<&'static str> {
+  if let js::Expr::Ident(id) = &*n.callee {
+    return match id.sym.as_ref() {
+      "TextEncoder" => Some("TextEncoder"),
+      "TextDecoder" => Some("TextDecoder"),
+      _ => None,
+    };
+  }
   let js::Expr::Member(m) = &*n.callee else { return None };
   let (js::Expr::Ident(ns), js::MemberProp::Ident(name)) = (&*m.obj, &m.prop) else { return None };
   if ns.sym.as_ref() != "Intl" {
@@ -4729,7 +4857,19 @@ pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
     "DateTimeFormat" => Some("DateTimeFormat"),
     "ListFormat" => Some("ListFormat"),
     "Segmenter" => Some("Segmenter"),
+    "PluralRules" => Some("PluralRules"),
+    "Collator" => Some("Collator"),
+    "RelativeTimeFormat" => Some("RelativeTimeFormat"),
     _ => None,
+  }
+}
+
+/// `a`, `a and b` or `a, b and c`.
+fn list_and(items: &[String]) -> String {
+  match items {
+    [] => String::new(),
+    [one] => one.clone(),
+    [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
   }
 }
 

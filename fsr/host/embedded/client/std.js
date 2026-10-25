@@ -4,9 +4,8 @@ export function localeTag() {
     return tag ? tag.replace(/_/g, "-") : "en";
 }
 function bridged(name, args) {
-    if (typeof Intl !== "undefined") return undefined;
     const sf = globalThis.__sf;
-    if (!sf?.ext) throw new Error(`${name} needs Intl, which this runtime does not have`);
+    if (!sf?.ext) return undefined;
     const json = JSON.stringify(args, (_, v)=>typeof v === "bigint" ? Number(v) : v === undefined ? null : v);
     return JSON.parse(sf.ext(name, json, currentLocale()));
 }
