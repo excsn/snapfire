@@ -695,6 +695,11 @@ pub(crate) fn config_beside(app: &Path) -> Option<snapfire_fsr_host::config::Con
   (config.app.canonicalize().ok()? == given).then_some(config)
 }
 
+/// Whether the host answers the client route for `app`, adding the client modules to the import map it serves: unless a `[[static]]` root takes the route.
+pub(crate) fn host_serves_client(app: &Path) -> bool {
+  !config_beside(app).is_some_and(|config| config.statics.iter().any(|s| s.route == snapfire_fsr_host::client::ROUTE))
+}
+
 /// The `[site]` section of the configuration beside `app`, when one names
 /// this app directory.
 pub fn site_beside(app: &Path) -> Option<SiteOptions> {
@@ -3360,8 +3365,7 @@ fn served_specifiers(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&Sh
   let scopes = map.get("scopes").and_then(|scopes| scopes.as_object()).into_iter().flat_map(|scopes| scopes.values());
   let mut served: Vec<String> = map.get("imports").into_iter().chain(scopes).filter_map(|table| table.as_object()).flat_map(|table| table.keys().cloned()).collect();
   served.extend(shell.into_iter().flat_map(|contract| contract.imports.keys().cloned()));
-  let client_served_elsewhere = config_beside(app).is_some_and(|config| config.statics.iter().any(|s| s.route == snapfire_fsr_host::client::ROUTE));
-  if !client_served_elsewhere {
+  if host_serves_client(app) {
     served.extend(snapfire_fsr_host::client::import_entries().into_iter().map(|(specifier, _)| specifier));
   }
   Some(served)

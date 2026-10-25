@@ -149,8 +149,11 @@ impl App {
     Ok(built)
   }
 
-  /// The import map the page is served with, which the compiler checks bare imports against: the application's own with the client's modules the host answers, at [`SERVED_IMPORT_MAP`]. The application's when it has none to read.
+  /// The import map the page is served with, which the compiler checks bare imports against: the application's own with the client's modules the host answers, at [`SERVED_IMPORT_MAP`]. The application's when it has none to read or serves its own client.
   fn served_import_map(&self) -> String {
+    if !crate::host_serves_client(&self.dir) {
+      return self.layout.importmap.clone();
+    }
     let Ok(text) = std::fs::read_to_string(self.dir.join(&self.layout.importmap)) else { return self.layout.importmap.clone() };
     let path = self.dir.join(SERVED_IMPORT_MAP);
     let written = path.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&path, snapfire_fsr_host::client::with_import_entries(&text)));
@@ -1687,6 +1690,21 @@ mod tests {
     let at = args.iter().position(|a| a == "--import-map").expect("--import-map is passed");
     let map = std::fs::read_to_string(root.join(&args[at + 1])).unwrap();
     assert!(map.contains("\"@snapfire/fsr/client/intl\"") && map.contains("\"react\""), "{map}");
+    std::fs::remove_dir_all(&root).unwrap();
+  }
+
+  #[test]
+  fn an_app_serving_its_own_client_compiles_against_its_own_map() {
+    let root = std::env::temp_dir().join(format!("fsr-cli-dev-own-client-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::create_dir_all(root.join("config")).unwrap();
+    std::fs::write(root.join("config/app.toml"), "[[static]]\nroute = \"/static/js/fsr\"\ndir = \"client\"\n").unwrap();
+    std::fs::write(root.join("app/importmap.json"), r#"{"imports":{"react":"/v/react.js"}}"#).unwrap();
+    let args = args(&app(&root.join("app")));
+    let at = args.iter().position(|a| a == "--import-map").expect("--import-map is passed");
+    let map = std::fs::read_to_string(root.join("app").join(&args[at + 1])).unwrap();
+    assert!(!map.contains("@snapfire/fsr/client") && map.contains("\"react\""), "{map}");
     std::fs::remove_dir_all(&root).unwrap();
   }
 
