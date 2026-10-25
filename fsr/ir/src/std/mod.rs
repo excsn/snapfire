@@ -1,7 +1,7 @@
 //! The standard library's Rust half: `intl`, `text`, `time`, `crypto`, `encoding`, `id`,
 //! `log`, `terminal` with `big_text`, `path`, `file`, `system` and `clipboard`, one function per
 //! row of `ext::STANDARD`. A `render` member's browser half is the platform's
-//! own form or the client library's `std` module, and the two agree byte for
+//! own form or the client library's `std` module. The two agree byte for
 //! byte: `ir/tests/intl_browser.rs` and `ir/tests/platform_browser.rs` check the
 //! Rust half against Chrome's output, `engine/tests/std_agreement.rs` against
 //! `std.js` in QuickJS. A `terminal` member has no browser half.
