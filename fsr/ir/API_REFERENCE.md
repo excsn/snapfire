@@ -381,7 +381,7 @@ Every member takes its arguments positionally and answers a `Value`; `std::regis
 
 Every `locale` is a BCP 47 tag written in the code, formatted the same everywhere; without one the ambient locale, the request's, formats. A `file` path resolves against `Ambient.files`, a web host's application directory confined to its `[files] roots`. Without one it resolves against the working directory.
 
-The locale is `Ambient::bcp47`; a tag ICU4X cannot parse falls back to `en`. `fsr/ir/tests/conformance.rs` runs every `render` member against the client's `dist/std.js` through node over nine locales and fails on any difference the file does not list as a known CLDR divergence; it skips itself when node or the build is absent.
+The locale is `Ambient::bcp47`; a tag ICU4X cannot parse falls back to `en`. `ir/tests/intl_browser.rs` and `ir/tests/platform_browser.rs` run the `intl` and `encoding` members against calls recorded in Chrome over eight locales and fail on any difference the file does not list as a known ICU4X data difference. `engine/tests/std_agreement.rs` runs the `path`, `text`, `time` and `crypto` members against the embedded client's `std.js` in QuickJS.
 
 ### Catalogs
 
