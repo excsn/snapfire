@@ -79,3 +79,32 @@ fn test_strip_both_flags() {
   assert!(content.contains("console.warn"));
   assert!(content.contains("console.error"));
 }
+
+#[test]
+fn a_formatter_written_without_a_locale_takes_the_page_locale_when_one_is_named() {
+  let fixture = Fixture::new("page-locale");
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--locale-from").arg("@snapfire/fsr/client/intl"));
+  let content = fs::read_to_string(fixture.root().join("dist/main.js")).unwrap();
+  for written in [
+    "import { localeTag as __sf_localeTag } from \"@snapfire/fsr/client/intl\";",
+    "new Intl.NumberFormat(__sf_localeTag())",
+    "new Intl.DateTimeFormat(__sf_localeTag(), {",
+    "Intl.Collator(__sf_localeTag())",
+    ".toLocaleString(__sf_localeTag())",
+    ".toLocaleDateString(__sf_localeTag(), {",
+    "\"a\".localeCompare(\"b\", __sf_localeTag())",
+    "new Intl.NumberFormat(\"de-DE\")",
+    ".toLocaleString(\"fr-FR\")",
+    "\"a\".localeCompare(\"b\", \"sv\")",
+    ".NumberFormat();",
+  ] {
+    assert!(content.contains(written), "{written} in:\n{content}");
+  }
+
+  let plain = Fixture::new("page-locale");
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(plain.root()));
+  let content = fs::read_to_string(plain.root().join("dist/main.js")).unwrap();
+  assert!(!content.contains("localeTag") && content.contains("new Intl.NumberFormat().format(1234.5)"), "{content}");
+}

@@ -213,6 +213,7 @@ snapfirec
 | `--inline-source-map` | Embed each map as a data URI | `inlineSourceMap` |
 | `--minify[=compact\|full]` | Additionally emit a minified `.min` graph | off |
 | `--public-path <PREFIX>` | URL prefix for the preload manifest | paths, not URLs |
+| `--locale-from <SPECIFIER>` | Give a formatter written without a locale `localeTag()` from this module: `new Intl.NumberFormat()` and the other `Intl` constructors, `toLocaleString`, `toLocaleDateString`, `toLocaleTimeString` and `localeCompare`, with the locale missing or `undefined`. A call that names a locale and a local named `Intl` are left alone. | off |
 | `--import-map <PATH>` | Fail the build if an external is not in this map | off |
 | `-w`, `--watch` | Rebuild whenever a source changes | off |
 | `--driven` | Rebuild the paths named on stdin, answering on stdout | off |

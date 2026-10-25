@@ -1,6 +1,6 @@
 use crate::assets::{self, Emitted};
 use crate::config::{Aliases, Jsx, MapMode, MapOptions};
-use crate::transforms::{AssetUrls, Mapped, Import, ImportRewriter, StripConsole, relative_specifier};
+use crate::transforms::{AssetUrls, Mapped, Import, ImportRewriter, PageLocale, StripConsole, relative_specifier};
 use anyhow::{Context, Result, anyhow};
 use lightningcss::dependencies::{Dependency, DependencyOptions};
 use lightningcss::rules::CssRule;
@@ -204,11 +204,18 @@ pub struct Compiler {
   urls: AssetUrls,
   /// The root the sources are under and the directory read in its place when it holds the same relative path.
   overlay: Option<(PathBuf, PathBuf)>,
+  /// The module whose `localeTag()` a formatter written without a locale takes.
+  locale_from: Option<String>,
 }
 
 impl Compiler {
   pub fn new(targets: Option<Browsers>, jsx: Jsx, aliases: Aliases, urls: AssetUrls) -> Self {
-    Self { targets, jsx, aliases, urls, overlay: None }
+    Self { targets, jsx, aliases, urls, overlay: None, locale_from: None }
+  }
+
+  pub fn with_locale_from(mut self, specifier: Option<String>) -> Self {
+    self.locale_from = specifier;
+    self
   }
 
   pub fn urls(&self) -> &AssetUrls {
@@ -372,6 +379,11 @@ impl Compiler {
           unresolved_mark,
         )),
         _ => program,
+      };
+
+      let program = match &self.locale_from {
+        Some(specifier) => program.apply(&mut fold_pass(PageLocale::new(specifier.clone(), unresolved_mark))),
+        None => program,
       };
 
       let mut passes = (

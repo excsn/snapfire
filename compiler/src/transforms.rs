@@ -6,10 +6,10 @@ use crate::assets::{self, Emitted};
 use snapfire_compiler_wire::driven::{AssetMap, MappedAsset};
 use crate::config::Aliases;
 
-use swc_core::common::DUMMY_SP;
+use swc_core::common::{Mark, SyntaxContext, DUMMY_SP};
 use swc_core::ecma::ast::{
   BindingIdent, CallExpr, Callee, Decl, Expr, ExprOrSpread, ExprStmt, ExportSpecifier, Ident, IdentName,
-  ImportSpecifier, KeyValueProp, Lit, MemberExpr, MemberProp, MetaPropExpr, MetaPropKind, ModuleDecl,
+  ImportDecl, ImportNamedSpecifier, ImportSpecifier, KeyValueProp, Lit, MemberExpr, MemberProp, MetaPropExpr, MetaPropKind, ModuleDecl,
   ModuleExportName, ModuleItem, NewExpr, Number, ObjectLit, Pat, Prop, PropName, PropOrSpread, Stmt, Str, VarDecl,
   VarDeclKind, VarDeclarator,
 };
@@ -512,6 +512,104 @@ impl Fold for StripConsole {
         _ => true,
       })
       .collect()
+  }
+}
+
+/// The `Intl` constructors whose first argument is the locale.
+const FORMATTERS: [&str; 6] = ["NumberFormat", "DateTimeFormat", "ListFormat", "PluralRules", "Collator", "RelativeTimeFormat"];
+
+/// A formatter, `toLocaleString`, `toLocaleDateString`, `toLocaleTimeString` or `localeCompare` written with no locale, or with `undefined`, given `localeTag()` from `specifier`, so the browser formats under the page's locale as the server does rather than under its own language. A call that names a locale is left as written, and so is a local named `Intl`.
+pub struct PageLocale {
+  specifier: String,
+  unresolved: Mark,
+  local: Ident,
+  used: bool,
+}
+
+impl PageLocale {
+  pub fn new(specifier: String, unresolved: Mark) -> Self {
+    let local = Ident::new("__sf_localeTag".into(), DUMMY_SP, SyntaxContext::empty().apply_mark(Mark::new()));
+    Self { specifier, unresolved, local, used: false }
+  }
+
+  fn is_global(&self, id: &Ident, name: &str) -> bool {
+    id.sym == name && id.ctxt.outer() == self.unresolved
+  }
+
+  /// An `Intl.<formatter>` callee.
+  fn is_formatter(&self, callee: &Expr) -> bool {
+    match callee {
+      Expr::Member(MemberExpr { obj, prop: MemberProp::Ident(prop), .. }) => matches!(&**obj, Expr::Ident(id) if self.is_global(id, "Intl")) && FORMATTERS.contains(&&*prop.sym),
+      _ => false,
+    }
+  }
+
+  /// Puts `localeTag()` at `at` in `args` when nothing or `undefined` is there; a spread before it leaves the call as written.
+  fn give(&mut self, args: &mut Vec<ExprOrSpread>, at: usize) {
+    if args.iter().take(at + 1).any(|a| a.spread.is_some()) || args.len() < at {
+      return;
+    }
+    let call = ExprOrSpread {
+      spread: None,
+      expr: Box::new(Expr::Call(CallExpr { span: DUMMY_SP, ctxt: Default::default(), callee: Callee::Expr(Box::new(Expr::Ident(self.local.clone()))), args: Vec::new(), type_args: None })),
+    };
+    match args.get(at) {
+      None => args.push(call),
+      Some(ExprOrSpread { expr, .. }) if matches!(&**expr, Expr::Ident(id) if self.is_global(id, "undefined")) => args[at] = call,
+      Some(_) => return,
+    }
+    self.used = true;
+  }
+}
+
+impl Fold for PageLocale {
+  fn fold_new_expr(&mut self, n: NewExpr) -> NewExpr {
+    let mut n = n.fold_children_with(self);
+    if self.is_formatter(&n.callee) {
+      let mut args = n.args.take().unwrap_or_default();
+      self.give(&mut args, 0);
+      n.args = Some(args);
+    }
+    n
+  }
+
+  fn fold_call_expr(&mut self, n: CallExpr) -> CallExpr {
+    let mut n = n.fold_children_with(self);
+    let Callee::Expr(callee) = &n.callee else { return n };
+    let at = match &**callee {
+      callee if self.is_formatter(callee) => Some(0),
+      Expr::Member(MemberExpr { prop: MemberProp::Ident(prop), .. }) => match &*prop.sym {
+        "toLocaleString" | "toLocaleDateString" | "toLocaleTimeString" => Some(0),
+        "localeCompare" if !n.args.is_empty() => Some(1),
+        _ => None,
+      },
+      _ => None,
+    };
+    if let Some(at) = at {
+      self.give(&mut n.args, at);
+    }
+    n
+  }
+
+  fn fold_module_items(&mut self, items: Vec<ModuleItem>) -> Vec<ModuleItem> {
+    let mut items = items.fold_children_with(self);
+    if self.used {
+      let import = ImportDecl {
+        span: DUMMY_SP,
+        specifiers: vec![ImportSpecifier::Named(ImportNamedSpecifier {
+          span: DUMMY_SP,
+          local: self.local.clone(),
+          imported: Some(ModuleExportName::Ident(Ident::new_no_ctxt("localeTag".into(), DUMMY_SP))),
+          is_type_only: false,
+        })],
+        src: Box::new(Str { span: DUMMY_SP, value: self.specifier.clone().into(), raw: None }),
+        type_only: false,
+        with: None,
+        phase: Default::default(),
+      };
+      items.insert(0, ModuleItem::ModuleDecl(ModuleDecl::Import(import)));
+    }
+    items
   }
 }
 

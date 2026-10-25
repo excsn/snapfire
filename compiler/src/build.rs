@@ -37,6 +37,8 @@ pub struct Options {
   /// Prefix for the URLs the preload manifest names. Absent keeps the manifest in the output
   /// directory's own terms, which is what keeps a build usable at any mount point.
   pub public_path: Option<String>,
+  /// The module whose `localeTag()` a formatter written without a locale takes.
+  pub locale_from: Option<String>,
   pub import_map: Option<PathBuf>,
   /// A directory whose files are read in place of the root's at the same relative path. A file
   /// the config's `files` names may exist in the overlay alone; every other file is the root's.
@@ -318,7 +320,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     include_patterns: selection.include_patterns,
     map_options,
     declaration,
-    compiler: Compiler::new(targets, jsx, aliases, urls).with_overlay(overlay).with_asset_map(load_asset_map(opts)?),
+    compiler: Compiler::new(targets, jsx, aliases, urls).with_overlay(overlay).with_asset_map(load_asset_map(opts)?).with_locale_from(opts.locale_from.clone()),
     claimed: HashMap::new(),
     externals: Vec::new(),
     importers: BTreeMap::new(),

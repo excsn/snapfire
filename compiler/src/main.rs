@@ -75,6 +75,10 @@ struct Args {
   #[arg(long)]
   public_path: Option<String>,
 
+  /// The module whose `localeTag()` export is the page's locale: an `Intl` formatter, `toLocaleString`, `toLocaleDateString`, `toLocaleTimeString` or `localeCompare` written without a locale takes it
+  #[arg(long, value_name = "SPECIFIER")]
+  locale_from: Option<String>,
+
   /// Directory whose files stand in for the root's at the same relative path
   #[arg(long)]
   overlay: Option<PathBuf>,
@@ -152,6 +156,7 @@ fn main() -> Result<()> {
     minify: args.minify,
     declaration: args.declaration,
     public_path: args.public_path.map(|p| if p.ends_with('/') { p } else { format!("{p}/") }),
+    locale_from: args.locale_from,
     import_map: args.import_map,
     overlay: args.overlay,
     asset_map: args.asset_map,
