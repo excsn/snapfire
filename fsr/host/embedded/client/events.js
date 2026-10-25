@@ -419,15 +419,25 @@ function submitForm(form, submitter) {
     });
     form.dispatchEvent(event);
 }
+function setChecked(input, value) {
+    for(let proto = Object.getPrototypeOf(input); proto; proto = Object.getPrototypeOf(proto)){
+        const own = Object.getOwnPropertyDescriptor(proto, "checked");
+        if (own?.set) {
+            own.set.call(input, value);
+            return;
+        }
+    }
+    input.checked = value;
+}
 function preActivate(el) {
     if (el.tagName !== "INPUT") return null;
     const input = el;
     const type = typeOf(el);
     if (type === "checkbox") {
         const was = input.checked;
-        input.checked = !was;
+        setChecked(input, !was);
         return ()=>{
-            input.checked = was;
+            setChecked(input, was);
         };
     }
     if (type === "radio" && !input.checked) {
@@ -435,11 +445,11 @@ function preActivate(el) {
         const scope = formOf(el) ?? el.ownerDocument;
         const group = name ? Array.from(scope.querySelectorAll(`input[type=radio][name="${name}"]`)) : [];
         const before = group.find((r)=>r.checked);
-        input.checked = true;
-        if (before && before !== input) before.checked = false;
+        setChecked(input, true);
+        if (before && before !== input) setChecked(before, false);
         return ()=>{
-            input.checked = false;
-            if (before) before.checked = true;
+            setChecked(input, false);
+            if (before) setChecked(before, true);
         };
     }
     return null;

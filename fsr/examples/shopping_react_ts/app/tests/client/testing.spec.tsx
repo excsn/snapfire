@@ -275,6 +275,38 @@ test("a button carries its value and a control names the form it belongs to", ()
   expect((document.querySelector("textarea") as HTMLTextAreaElement).form, "and one in no form belongs to none").toBeNull();
 });
 
+test("a control is checked by its attribute until its checked is set", () => {
+  document.body.innerHTML = '<input type="checkbox" checked><input type="checkbox">';
+  const [on, off] = Array.from(document.querySelectorAll("input")) as HTMLInputElement[];
+  expect(on.checked, "the attribute checks it").toEqual(true);
+  expect(off.checked).toEqual(false);
+  on.checked = false;
+  expect(on.checked, "what was set wins").toEqual(false);
+  expect(on.defaultChecked, "the attribute is the default").toEqual(true);
+  off.setAttribute("checked", "");
+  expect(off.checked, "an untouched control follows its attribute").toEqual(true);
+});
+
+test("a radio checked unchecks the others of its group, the same name in the same form and tree", () => {
+  document.body.innerHTML = '<input type="radio" name="day" value="1" checked><input type="radio" name="day" value="2"><input type="radio" name="time" value="am" checked><form><input type="radio" name="day" value="3" checked></form>';
+  const [one, two, am, three] = Array.from(document.querySelectorAll("input")) as HTMLInputElement[];
+  two.checked = true;
+  expect([one.checked, two.checked], "the group moved to the one set").toEqual([false, true]);
+  expect(am.checked, "another name is another group").toEqual(true);
+  expect(three.checked, "a radio in a form is in that form's group").toEqual(true);
+});
+
+test("a radio connected while checked unchecks the group it joins; one out of the document is in a group of its own tree", () => {
+  document.body.innerHTML = '<input type="radio" name="day" value="1" checked>';
+  const held = document.createElement("div");
+  held.innerHTML = '<input type="radio" name="day" value="2" checked>';
+  const one = document.querySelector("input") as HTMLInputElement;
+  const two = held.querySelector("input") as HTMLInputElement;
+  expect([one.checked, two.checked], "a detached tree does not touch the document's group").toEqual([true, true]);
+  document.body.append(held);
+  expect([one.checked, two.checked], "the one connected last keeps its check").toEqual([false, true]);
+});
+
 test("a link writes the keep it was given for the navigator to read", async () => {
   const r = await render(
     <p>

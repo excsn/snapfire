@@ -145,6 +145,18 @@ function submitForm(form: Element, submitter: Element | null): void {
   form.dispatchEvent(event);
 }
 
+/** Sets a control's checkedness the way a browser's activation does, past a setter a library put on the element itself: React's value tracker watches the element's own `checked` and takes a write through it for its own, so a click would never read as a change. */
+function setChecked(input: HTMLInputElement, value: boolean): void {
+  for (let proto = Object.getPrototypeOf(input); proto; proto = Object.getPrototypeOf(proto)) {
+    const own = Object.getOwnPropertyDescriptor(proto, "checked");
+    if (own?.set) {
+      own.set.call(input, value);
+      return;
+    }
+  }
+  input.checked = value;
+}
+
 /** A click's effect before listeners see it, the way a browser runs it: a checkbox toggles and a radio checks. The returned function undoes it when a listener cancels the click; when none does, the change fires `input` then `change`. */
 function preActivate(el: Element): (() => void) | null {
   if (el.tagName !== "INPUT") return null;
@@ -152,9 +164,9 @@ function preActivate(el: Element): (() => void) | null {
   const type = typeOf(el);
   if (type === "checkbox") {
     const was = input.checked;
-    input.checked = !was;
+    setChecked(input, !was);
     return () => {
-      input.checked = was;
+      setChecked(input, was);
     };
   }
   if (type === "radio" && !input.checked) {
@@ -162,11 +174,11 @@ function preActivate(el: Element): (() => void) | null {
     const scope = formOf(el) ?? el.ownerDocument;
     const group = name ? Array.from(scope.querySelectorAll(`input[type=radio][name="${name}"]`)) : [];
     const before = group.find((r) => (r as HTMLInputElement).checked) as HTMLInputElement | undefined;
-    input.checked = true;
-    if (before && before !== input) before.checked = false;
+    setChecked(input, true);
+    if (before && before !== input) setChecked(before, false);
     return () => {
-      input.checked = false;
-      if (before) before.checked = true;
+      setChecked(input, false);
+      if (before) setChecked(before, true);
     };
   }
   return null;

@@ -367,7 +367,9 @@ if (typeof document.createElement === "function") {
               if (node && typeof node === "object" && node.ownerDocument && node.ownerDocument !== doc) adopt(node, doc);
             }
             const sheets = nodes.flatMap(stylesheetLinks);
+            const radios = nodes.flatMap(checkedRadios);
             const result = insert.apply(this, nodes);
+            for (const radio of radios) if (radio.isConnected && radio.checked) uncheckGroup(radio);
             for (const link of sheets) {
               if (!link.isConnected || loading.has(link)) continue;
               loading.add(link);
@@ -850,6 +852,49 @@ for (const name of ["HTMLButtonElement", "HTMLInputElement", "HTMLSelectElement"
       if (id === null) return this.closest("form");
       const named = this.ownerDocument?.getElementById(id);
       return named?.tagName === "FORM" ? named : null;
+    },
+  });
+}
+// linkedom has no checkedness. A browser's checkbox or radio is checked by its
+// `checked` attribute until `checked` is set. A radio that is set checked or
+// connected while checked unchecks every other radio of its group: the same
+// name and form in the same tree.
+const CHECKED = Symbol("sf.checked");
+function uncheckGroup(radio) {
+  if (radio.type !== "radio") return;
+  const name = radio.getAttribute("name");
+  if (!name) return;
+  let root = radio;
+  while (root.parentNode) root = root.parentNode;
+  const form = radio.form;
+  for (const other of Array.from(root.querySelectorAll?.("input") ?? [])) {
+    if (other !== radio && other.type === "radio" && other.getAttribute("name") === name && other.form === form) other[CHECKED] = false;
+  }
+}
+function checkedRadios(node) {
+  if (!node || typeof node !== "object" || (node.nodeType !== 1 && node.nodeType !== 11)) return [];
+  const own = node.nodeType === 1 && node.localName === "input" ? [node] : [];
+  return [...own, ...Array.from(node.querySelectorAll?.("input") ?? [])].filter((el) => el.type === "radio" && el.checked);
+}
+if (globalThis.HTMLInputElement && !("checked" in globalThis.HTMLInputElement.prototype)) {
+  Object.defineProperty(globalThis.HTMLInputElement.prototype, "checked", {
+    configurable: true,
+    get() {
+      return CHECKED in this ? this[CHECKED] : this.hasAttribute("checked");
+    },
+    set(value) {
+      this[CHECKED] = !!value;
+      if (this[CHECKED]) uncheckGroup(this);
+    },
+  });
+  Object.defineProperty(globalThis.HTMLInputElement.prototype, "defaultChecked", {
+    configurable: true,
+    get() {
+      return this.hasAttribute("checked");
+    },
+    set(value) {
+      if (value) this.setAttribute("checked", "");
+      else this.removeAttribute("checked");
     },
   });
 }
