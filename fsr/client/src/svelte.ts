@@ -62,11 +62,16 @@ interface Held {
   props: { [key: string]: unknown };
   pieces: TreePiece[] | null;
   region: Element | null;
+  /** The markup the region last showed from the server, which a patch is morphed against. */
+  regionHtml: string | null;
   changed: () => void;
   track: () => void;
 }
 
 const states = new WeakMap<Element, Held>();
+
+/** The markup each element `opaque` keeps last took from a piece, which the next piece is morphed against. */
+const opaqueHtml = new WeakMap<Element, string>();
 
 function ownProps(props: Props): { [key: string]: unknown } {
   const own: { [key: string]: unknown } = {};
@@ -223,7 +228,9 @@ export function opaque(): (piece: TreeOpaque) => (el: Element) => () => void {
   return (piece) => (el) => {
     scopes.set(el, contexts);
     adoptNodes(el, piece.from);
-    if (unmarked(el.innerHTML) !== piece.html) morph(el, piece.html);
+    const before = opaqueHtml.get(el);
+    if (before === undefined ? unmarked(el.innerHTML) !== piece.html : before !== piece.html) morph(el, piece.html, before);
+    opaqueHtml.set(el, piece.html);
     scan(el);
     return () => {
       queueMicrotask(() => {
@@ -320,7 +327,7 @@ function liveProps(state: Held, tree: Snippet | null = childrenTree): { [key: st
 }
 
 export const svelteMounter: Mounter = (module, props, el, isHydrating, children) => {
-  const state: Held = { props: ownProps(props), pieces: children ? treeOf(children) : null, region: null, changed: () => {}, track: () => {} };
+  const state: Held = { props: ownProps(props), pieces: children ? treeOf(children) : null, region: null, regionHtml: children ? serialised(children) : null, changed: () => {}, track: () => {} };
   state.track = createSubscriber((update) => {
     state.changed = update;
     return () => {
@@ -372,7 +379,8 @@ export const sveltePatcher: Patcher = (_handle, _module, props, el) => {
   state.props = ownProps(props);
   const fresh = islandState(el)?.children ?? null;
   if (fresh !== null && state.region !== null) {
-    if (unmarked(state.region.innerHTML) !== fresh) morph(state.region, fresh);
+    if (unmarked(state.region.innerHTML) !== fresh) morph(state.region, fresh, state.regionHtml ?? undefined);
+    state.regionHtml = fresh;
     scan(state.region);
   } else if (fresh !== null) state.pieces = treeOf(piecesOf(fresh));
   state.changed();

@@ -4,6 +4,7 @@ import { filledPlaces, placedPieces, recordFilled, type Piece } from "./places.j
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
+import { previousRegion, readyRecords, recordMorphed, recordWritten } from "./rendered.js";
 import { morphElement, morphNodes, type MorphHooks } from "./server.js";
 import { contribute, retain, transaction, type Contribution } from "./store.js";
 
@@ -48,12 +49,14 @@ function discardRegion(region: Region): void {
   }
 }
 
-/** Writes `html` into `el` the way the parser reads a document, declarative shadow roots included, where the browser has `setHTMLUnsafe`. Through `innerHTML` a `<template shadowrootmode>` stays a child, which the element's `shadowOf` answers. The placed content in it moves to the end of the body. */
+/** Writes `html` into `el` the way the parser reads a document, declarative shadow roots included, where the browser has `setHTMLUnsafe`. Through `innerHTML` a `<template shadowrootmode>` stays a child, which the element's `shadowOf` answers. The placed content in it moves to the end of the body. What it wrote is recorded as the server's, before anything else can touch it. */
 function writeMarkup(el: Element, html: string): void {
   const unsafe = (el as Element & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
   if (typeof unsafe === "function") unsafe.call(el, html);
   else el.innerHTML = html;
-  liftPlaced(el instanceof HTMLTemplateElement ? el.content : el);
+  const root = el instanceof HTMLTemplateElement ? el.content : el;
+  liftPlaced(root);
+  recordWritten(Array.from(root.childNodes));
 }
 
 function removePiece(piece: Piece): void {
@@ -525,7 +528,7 @@ function isBetween(el: Element, region: Region): boolean {
   return false;
 }
 
-/** Patches a static segment's markup in place by the rules of `morph`, so every element that stands where it stood keeps its DOM, a scrolled pane its scroll and a focused control its value. An island the new payload places again, by region key, keeps its root and its state wherever in the region it stood and takes the new props in place. A root nothing has mounted yet reads the rewritten props script when its turn comes. False when the region is not in the document, which leaves the caller to swap. */
+/** Patches a static segment's markup in place by the rules of `morph`, so every element that stands where it stood keeps its DOM, a scrolled pane its scroll and a focused control its value. An island the new payload places again, by region key, keeps its root and its state wherever in the region it stood and takes the new props in place. A root nothing has mounted yet reads the rewritten props script when its turn comes. Only what the server changed since it last wrote the region is applied, so what a script set on it stays. False when the region is not in the document, which leaves the caller to swap. */
 function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = false, values?: "kept"): boolean {
   const region = findRegion(key);
   if (!region) return false;
@@ -536,6 +539,8 @@ function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = fal
   const kept = islandRegionsIn(region);
   const sources = regionSources(node, ids);
   const old = regionNodes(region);
+  const fresh = Array.from(template.content.childNodes);
+  const before = previousRegion(region.start);
   const hooks: MorphHooks = {
     nested: (current, next) => takeIsland(current, next, sources, hooks),
     adopt: (found) => (found.startsWith("region:") ? (kept.get(found.slice("region:".length)) ?? null) : null),
@@ -544,8 +549,10 @@ function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = fal
     },
     opaque: slotsSettled ? isSegmentSlot : undefined,
     values,
+    imported: (node) => recordWritten([node]),
   };
-  morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
+  morphNodes(parent, old, fresh, region.end.nextSibling, hooks, before);
+  recordMorphed(region.start, fresh);
   return true;
 }
 
@@ -568,7 +575,9 @@ function takeIsland(current: Element, next: Element, sources: ReturnType<typeof 
   }
   const wanted = next.nextElementSibling;
   discard(current);
-  current.replaceWith(document.importNode(next, true));
+  const imported = document.importNode(next, true);
+  current.replaceWith(imported);
+  recordWritten([imported]);
   if (script && wanted?.tagName === "SCRIPT") morphElement(script, wanted, hooks);
 }
 
@@ -706,6 +715,7 @@ async function eagerOf(rows: AsyncGenerator<string>): Promise<Eager | null> {
 /** False when the eager wave could not be patched in place, which leaves the caller to fall back to a full load. With `force`, a kept leaf that is not an island is replaced anyway, which is what revalidation asks for. With `keep`, a segment whose key changed within its module is morphed rather than replaced. */
 function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
   if (!current) return false;
+  readyRecords();
   transaction(() => {
     for (const list of eager.seeds) contribute(list);
   });

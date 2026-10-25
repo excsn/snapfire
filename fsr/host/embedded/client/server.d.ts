@@ -19,8 +19,8 @@ export declare function resumeServer(el: Element): void;
 export declare function patchServer(el: Element, props: Props, encoded?: unknown): Promise<boolean>;
 /** Forgets the server island mounted at `el` and stops it following the store, as `discard` does for a mounted root. */
 export declare function endServer(el: Element): void;
-/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by key, attributes by name. An element's key is its `data-sf-key`; an island's region is keyed by the region key the build wrote, so a region that moved takes its mounted island with it. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
-export declare function morph(el: Element, html: string): void;
+/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by key, attributes by name. An element's key is its `data-sf-key`; an island's region is keyed by the region key the build wrote, so a region that moved takes its mounted island with it. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. With `before`, the markup the server wrote there last, only what the server changed between the two is applied: an attribute, a class or a node a script added is left alone. Without it the children as they stand are taken for the server's. */
+export declare function morph(el: Element, html: string, before?: string): void;
 /** What a morph asks of its caller. `nested` settles an island marker the new markup places again, along with the props script after it, which the walk leaves alone. `adopt` answers a keyed new node none of the siblings carries with a node from elsewhere to move in. Null has the new one imported. `drop` is told of each node the walk is about to remove, before it goes. */
 export interface MorphHooks {
 	nested: (current: Element, next: Element) => void;
@@ -30,8 +30,10 @@ export interface MorphHooks {
 	opaque?: (current: Element) => boolean;
 	/** Whether a form control keeps the value and the check the visitor left in it rather than taking the new markup's. A textarea keeps its text as well. */
 	values?: "kept";
+	/** Told of each node the walk brings in from the new markup, once it is in place. */
+	imported?: (node: Node) => void;
 }
-/** Patches `old`, a run of `parent`'s children, to match `fresh` by the rules of `morph`. What is new once the run is used up goes in before `end`. A node of the run that something moved to another parent is no longer part of it. */
-export declare function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks): void;
-/** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. */
-export declare function morphElement(current: Element, next: Element, hooks: MorphHooks): void;
+/** Patches `old`, a run of `parent`'s children, to match `fresh` by the rules of `morph`. What is new once the run is used up goes in before `end`. A node of the run that something moved to another parent is no longer part of it. `before` is the run as the server wrote it last: a node of the run that none of it pairs with is left where it stands. Each paired one changes only where `before` and `fresh` differ. Null takes the run as it stands for the server's. */
+export declare function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks, before?: Node[] | null): void;
+/** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. `was` is the element as the server wrote it last; left out, `current` stands for it. */
+export declare function morphElement(current: Element, next: Element, hooks: MorphHooks, was?: Element): void;

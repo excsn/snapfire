@@ -655,9 +655,9 @@ True when `mountServer` mounted `el`. `patchIsland` on such an element gives it 
 
 ### morph
 
-* `function morph(el: Element, html: string): void`
+* `function morph(el: Element, html: string, before?: string): void`
 
-Patches `el`'s children to match `html`: a text or comment node by content, an element by tag and position or by `data-sf-key`, attributes by name, with the nodes it can keep kept. A form control that has focus keeps its value; one that does not takes the server's. An `sf-i` inside is matched and left as it is, marker and children both, since the answer numbers its islands from zero and carries none of the marks mounting left; when the props script after it changed, the script takes the new text and the island mounted there takes the props, a server island by a step of its own and any other through `patchIsland`.
+Patches `el`'s children to match `html`: a text or comment node by content, an element by tag and position or by `data-sf-key`, attributes by name, with the nodes it can keep kept. `before` is the markup the server wrote there last. Given it, the morph applies only what changed between `before` and `html`: a node `before` does not account for stays where it is, an attribute the two agree on is left as it stands and one neither carries is never touched, so what a script set on the server's markup survives. Without it the children as they stand are taken for the server's. The navigator, a server island's step and the React, Vue and Svelte adapters always pass it: the navigator from the record it keeps of each region it or the document wrote, a server island from its last answer and an adapter from the markup it last applied. A form control that has focus keeps its value; one that does not takes the server's. An `sf-i` inside is matched and left as it is, marker and children both, since the answer numbers its islands from zero and carries none of the marks mounting left; when the props script after it changed, the script takes the new text and the island mounted there takes the props, a server island by a step of its own and any other through `patchIsland`.
 
 ## 6. Navigation
 

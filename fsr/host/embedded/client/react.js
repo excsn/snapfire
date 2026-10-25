@@ -98,8 +98,9 @@ function Opaque({ tag, attrs, html, from }) {
         const el = node.current;
         if (!el) return;
         if (html !== shown.current) {
+            const before = shown.current;
             shown.current = html;
-            morph(el, html);
+            morph(el, html, before);
         }
         scan(el);
     }, [

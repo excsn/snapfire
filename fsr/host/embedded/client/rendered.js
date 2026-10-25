@@ -1,0 +1,146 @@
+const regions = new WeakMap();
+const markers = new WeakMap();
+const OPEN = "sf-g:";
+const CLOSE = "/sf-g";
+const CAPTURED = "__sfServer";
+function isOpen(node) {
+    return node.nodeType === Node.COMMENT_NODE && node.data.startsWith(OPEN);
+}
+function isClose(node) {
+    return node.nodeType === Node.COMMENT_NODE && node.data === CLOSE;
+}
+function contentOf(start) {
+    const out = [];
+    let depth = 0;
+    for(let n = start.nextSibling; n; n = n.nextSibling){
+        if (isOpen(n)) depth += 1;
+        else if (isClose(n)) {
+            if (depth === 0) return out;
+            depth -= 1;
+        }
+        out.push(n);
+    }
+    return out;
+}
+function regionsIn(nodes) {
+    const out = [];
+    const visit = (n)=>{
+        if (isOpen(n)) out.push({
+            start: n,
+            key: n.data.slice(OPEN.length),
+            content: contentOf(n)
+        });
+        for(let c = n.firstChild; c; c = c.nextSibling)visit(c);
+    };
+    for (const n of nodes)visit(n);
+    return out;
+}
+function escapeText(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+export function parsed(html) {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    return Array.from(template.content.childNodes);
+}
+export function serialize(nodes) {
+    let out = "";
+    for (const n of nodes){
+        if (n instanceof Element) out += n.outerHTML;
+        else if (n.nodeType === Node.TEXT_NODE) out += escapeText(n.nodeValue ?? "");
+        else if (n.nodeType === Node.COMMENT_NODE) out += `<!--${n.nodeValue ?? ""}-->`;
+    }
+    return out;
+}
+function markersIn(nodes) {
+    const out = [];
+    for (const n of nodes){
+        if (!(n instanceof Element)) continue;
+        if (n.tagName === "SF-I") out.push(n);
+        out.push(...Array.from(n.querySelectorAll("sf-i")));
+    }
+    return out;
+}
+export function recordWritten(nodes) {
+    for (const found of regionsIn(nodes))regions.set(found.start, serialize(found.content));
+    for (const marker of markersIn(nodes))markers.set(marker, marker.innerHTML);
+}
+export function recordMorphed(start, fresh) {
+    const wrote = new Map(regionsIn(fresh).map((found)=>[
+            found.key,
+            serialize(found.content)
+        ]));
+    for (const found of regionsIn([
+        start,
+        ...contentOf(start)
+    ])){
+        const html = wrote.get(found.key);
+        if (html !== undefined) regions.set(found.start, html);
+    }
+}
+export function recordMarker(marker, html) {
+    markers.set(marker, html);
+}
+let captured = false;
+function adoptCaptured() {
+    if (captured || typeof window === "undefined") return;
+    captured = true;
+    const sources = window[CAPTURED];
+    delete window[CAPTURED];
+    if (!Array.isArray(sources)) return;
+    const byKey = new Map();
+    const byId = new Map();
+    for (const html of sources){
+        const nodes = parsed(html);
+        for (const found of regionsIn(nodes))if (!byKey.has(found.key)) byKey.set(found.key, serialize(found.content));
+        for (const marker of markersIn(nodes))if (marker.id && !byId.has(marker.id)) byId.set(marker.id, marker.innerHTML);
+    }
+    for (const found of regionsIn([
+        document.documentElement
+    ])){
+        const html = byKey.get(found.key);
+        if (html !== undefined && !regions.has(found.start)) regions.set(found.start, html);
+    }
+    for (const [id, html] of byId){
+        const marker = document.getElementById(id);
+        if (marker?.tagName === "SF-I" && !markers.has(marker)) markers.set(marker, html);
+    }
+}
+export function restartRecords() {
+    captured = false;
+}
+export function readyRecords() {
+    adoptCaptured();
+}
+export function previousRegion(start) {
+    adoptCaptured();
+    const html = regions.get(start);
+    if (html === undefined) return null;
+    const content = parsed(html);
+    const live = new Map(regionsIn(contentOf(start)).map((found)=>[
+            found.key,
+            found.start
+        ]));
+    const inside = regionsIn(content);
+    const outermost = inside.filter((inner)=>!inside.some((other)=>other !== inner && other.content.some((n)=>n === inner.start || n.contains(inner.start))));
+    for (const inner of outermost){
+        const liveStart = live.get(inner.key);
+        const newer = liveStart ? previousRegion(liveStart) : null;
+        if (newer === null) continue;
+        const parent = inner.start.parentNode;
+        if (!parent) continue;
+        for (const n of inner.content)parent.removeChild(n);
+        const close = inner.start.nextSibling;
+        for (const n of newer.slice(1, -1))parent.insertBefore(n, close);
+    }
+    return [
+        document.createComment(start.data),
+        ...content,
+        document.createComment(CLOSE)
+    ];
+}
+export function previousMarker(marker) {
+    adoptCaptured();
+    return markers.get(marker) ?? null;
+}
+//# sourceMappingURL=rendered.js.map

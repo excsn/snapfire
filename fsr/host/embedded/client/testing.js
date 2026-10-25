@@ -1,4 +1,5 @@
 import { forgetLoadedScripts } from "./script.js";
+import { restartRecords } from "./rendered.js";
 import { boot, discard, patchIsland, registeredIslands, scan } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
@@ -690,6 +691,8 @@ export async function load(path, options = {}) {
     if (!/<!doctype/i.test(html.slice(0, 256))) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
     discard(document);
     sf().load(html, path);
+    restartRecords();
+    captured().splice(0, Infinity, document.body.innerHTML);
     clearRouterCache();
     forgetLoadedScripts();
     reset();
@@ -709,6 +712,10 @@ export async function load(path, options = {}) {
         path
     };
 }
+function captured() {
+    const g = globalThis;
+    return g.__sfServer ??= [];
+}
 function applyFills() {
     const late = [];
     for (const template of Array.from(document.querySelectorAll("template[data-sf-fill]"))){
@@ -717,7 +724,10 @@ function applyFills() {
         const block = document.querySelector(`script[data-sf-fill-data="${id}"]`);
         const data = block ? JSON.parse(block.textContent ?? "{}") : {};
         if (data.store !== undefined) contribute(decodeContributions(data.store));
-        if (slot) slot.replaceWith(template.content);
+        if (slot) {
+            captured().push(template.innerHTML);
+            slot.replaceWith(template.content);
+        }
         template.remove();
         block?.remove();
         for (const script of Array.from(document.querySelectorAll("script:not([type]):not([src])"))){

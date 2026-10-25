@@ -2,6 +2,7 @@ import { patchIsland } from "./boot.js";
 import { refresh } from "./navigator.js";
 import { PLACED_OPEN } from "./render.js";
 import { get, key, set, subscribe, transaction } from "./store.js";
+import { parsed, previousMarker } from "./rendered.js";
 import { decodeValue, encodeValue } from "./values.js";
 const STATE_PROP = "$s";
 const READS_PROP = "$sk";
@@ -43,6 +44,7 @@ export function mountServer(el, module, encoded) {
         stale: false,
         applying: false,
         held: false,
+        html: previousMarker(el),
         unsubscribe: []
     };
     islands.set(el, island);
@@ -170,7 +172,8 @@ async function step(el, island, handler, event) {
         }
         const answer = JSON.parse(text);
         island.state = answer.state;
-        morph(el, answer.html);
+        morph(el, answer.html, island.html ?? undefined);
+        island.html = answer.html;
         listen(el, island);
         const written = Object.entries(answer.store ?? {});
         if (written.length > 0) {
@@ -193,12 +196,10 @@ async function step(el, island, handler, event) {
         await step(el, island, null, null);
     }
 }
-export function morph(el, html) {
-    const template = document.createElement("template");
-    template.innerHTML = html;
-    morphNodes(el, Array.from(el.childNodes), Array.from(template.content.childNodes), null, {
+export function morph(el, html, before) {
+    morphNodes(el, Array.from(el.childNodes), parsed(html), null, {
         nested: morphNested
-    });
+    }, before === undefined ? null : parsed(before));
 }
 function keyOf(node) {
     if (!(node instanceof Element)) return null;
@@ -212,48 +213,71 @@ function alike(a, b) {
     if (a instanceof Element && b instanceof Element && a.tagName !== b.tagName) return false;
     return keyOf(a) === keyOf(b);
 }
-export function morphNodes(parent, old, fresh, end, hooks) {
+function written(parent, old, before) {
+    const out = new Map();
+    if (before === null) {
+        for (const n of old)out.set(n, n);
+        return out;
+    }
+    let at = 0;
+    for (const was of before){
+        for(let k = at; k < old.length; k++){
+            if (old[k].parentNode === parent && alike(old[k], was)) {
+                out.set(old[k], was);
+                at = k + 1;
+                break;
+            }
+        }
+    }
+    return out;
+}
+export function morphNodes(parent, old, fresh, end, hooks, before = null) {
+    const was = written(parent, old, before);
     let i = 0;
     for (const next of fresh){
-        while(i < old.length && old[i].parentNode !== parent)old.splice(i, 1);
+        while(i < old.length && (old[i].parentNode !== parent || !was.has(old[i]))){
+            if (old[i].parentNode !== parent) old.splice(i, 1);
+            else i += 1;
+        }
         const current = old[i];
-        if (current && alike(current, next)) {
-            morphNode(current, next, hooks);
+        if (current && alike(was.get(current), next)) {
+            morphNode(current, next, hooks, was.get(current));
             i += 1;
             continue;
         }
         const key = keyOf(next);
-        const moved = key === null ? null : old.slice(i).find((candidate)=>candidate.parentNode === parent && keyOf(candidate) === key) ?? hooks.adopt?.(key) ?? null;
+        const moved = key === null ? null : old.slice(i).find((candidate)=>candidate.parentNode === parent && was.has(candidate) && keyOf(was.get(candidate)) === key) ?? hooks.adopt?.(key) ?? null;
         if (moved) {
             parent.insertBefore(moved, current ?? end);
             const at = old.indexOf(moved);
             if (at !== -1) old.splice(at, 1);
             old.splice(i, 0, moved);
-            morphNode(moved, next, hooks);
+            morphNode(moved, next, hooks, was.get(moved) ?? moved);
         } else {
             const imported = document.importNode(next, true);
             parent.insertBefore(imported, current ?? end);
             old.splice(i, 0, imported);
+            hooks.imported?.(imported);
         }
         i += 1;
     }
     for (const stale of old.slice(i)){
-        if (stale.parentNode !== parent) continue;
+        if (stale.parentNode !== parent || !was.has(stale)) continue;
         hooks.drop?.(stale);
         parent.removeChild(stale);
     }
 }
-export function morphElement(current, next, hooks) {
-    morphAttributes(current, next, hooks.values === "kept");
+export function morphElement(current, next, hooks, was = current) {
+    morphAttributes(current, was, next, hooks.values === "kept");
     if (hooks.values === "kept" && current.tagName === "TEXTAREA") return;
-    morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks);
+    morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, was === current ? null : Array.from(was.childNodes));
 }
-function morphNode(current, next, hooks) {
+function morphNode(current, next, hooks, was) {
     if (current.nodeType === Node.TEXT_NODE || current.nodeType === Node.COMMENT_NODE) {
-        if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+        if (was.nodeValue !== next.nodeValue && current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
         return;
     }
-    if (!(current instanceof Element) || !(next instanceof Element)) return;
+    if (!(current instanceof Element) || !(next instanceof Element) || !(was instanceof Element)) return;
     if (isPropsScript(current)) return;
     if (current.tagName === "SF-I") {
         hooks.nested(current, next);
@@ -261,10 +285,10 @@ function morphNode(current, next, hooks) {
     }
     if (hooks.opaque?.(current)) return;
     if (holdsPlaced(current)) {
-        morphAttributes(current, next, hooks.values === "kept");
+        morphAttributes(current, was, next, hooks.values === "kept");
         return;
     }
-    morphElement(current, next, hooks);
+    morphElement(current, next, hooks, was);
 }
 function holdsPlaced(el) {
     return Array.from(el.children).some((child)=>child.tagName === "TEMPLATE" && child.hasAttribute(PLACED_OPEN));
@@ -290,19 +314,20 @@ function morphNested(current, next) {
     }
     void patchIsland(current, decodeValue(raw));
 }
-function morphAttributes(current, next, keepValues = false) {
-    for (const attr of Array.from(current.attributes)){
+function morphAttributes(current, was, next, keepValues = false) {
+    for (const attr of Array.from(was.attributes)){
         if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
     }
     for (const attr of Array.from(next.attributes)){
-        if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+        if (was.getAttribute(attr.name) !== attr.value && current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
     }
     const focused = typeof document !== "undefined" && document.activeElement === current;
-    if (!focused && !keepValues && "value" in current && "value" in next) {
+    if (!focused && !keepValues && "value" in current && "value" in next && "value" in was) {
         const control = current;
+        const from = was;
         const wanted = next;
-        if (control.value !== wanted.value) control.value = wanted.value;
-        if ("checked" in wanted && control.checked !== wanted.checked) control.checked = wanted.checked;
+        if (from.value !== wanted.value && control.value !== wanted.value) control.value = wanted.value;
+        if ("checked" in wanted && from.checked !== wanted.checked && control.checked !== wanted.checked) control.checked = wanted.checked;
     }
 }
 //# sourceMappingURL=server.js.map

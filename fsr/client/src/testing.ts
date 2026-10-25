@@ -1,4 +1,5 @@
 import { forgetLoadedScripts } from "./script.js";
+import { restartRecords } from "./rendered.js";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
@@ -843,6 +844,8 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   if (!/<!doctype/i.test(html.slice(0, 256))) throw new AssertionError(`load ${show(path)}: HTTP ${res.status}: ${html.trim()}`);
   discard(document);
   sf().load(html, path);
+  restartRecords();
+  captured().splice(0, Infinity, document.body.innerHTML);
   clearRouterCache();
   forgetLoadedScripts();
   reset();
@@ -860,7 +863,13 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   return { status: res.status, path };
 }
 
-/** What a browser's script engine does with a streamed document: takes each resolution's seed from its data block, moves its template into its slot and returns its head, to apply once the document is up. linkedom runs no scripts, so the runner does this by hand. The seed lands before anything is mounted, as the fill script orders it. */
+/** Where the document's capture script and fill script keep the markup the server wrote, which the runner fills by hand since linkedom runs no scripts. */
+function captured(): string[] {
+  const g = globalThis as { __sfServer?: string[] };
+  return (g.__sfServer ??= []);
+}
+
+/** What a browser's script engine does with a streamed document: takes each resolution's seed from its data block, keeps its markup as the server's, moves its template into its slot and returns its head, to apply once the document is up. linkedom runs no scripts, so the runner does this by hand. The seed lands before anything is mounted, as the fill script orders it. */
 function applyFills(): (() => void)[] {
   const late: (() => void)[] = [];
   for (const template of Array.from(document.querySelectorAll("template[data-sf-fill]"))) {
@@ -869,7 +878,10 @@ function applyFills(): (() => void)[] {
     const block = document.querySelector(`script[data-sf-fill-data="${id}"]`);
     const data = block ? (JSON.parse(block.textContent ?? "{}") as { store?: unknown; head?: unknown }) : {};
     if (data.store !== undefined) contribute(decodeContributions(data.store as never));
-    if (slot) slot.replaceWith((template as HTMLTemplateElement).content);
+    if (slot) {
+      captured().push(template.innerHTML);
+      slot.replaceWith((template as HTMLTemplateElement).content);
+    }
     template.remove();
     block?.remove();
     for (const script of Array.from(document.querySelectorAll("script:not([type]):not([src])"))) {

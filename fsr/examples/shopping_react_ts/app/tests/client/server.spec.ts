@@ -69,3 +69,41 @@ test("an island region moves with its key rather than taking the markup of whate
   expect(el.children[0].getAttribute("data-sf-region")).toEqual("r|b");
   expect(el.children[1].getAttribute("data-sf-region")).toEqual("r|a");
 });
+
+test("a morph given the markup the server wrote before changes what the server changed and leaves what a script set", () => {
+  const before = '<p class="a" title="x">one</p><span>gone</span>';
+  const el = box(before);
+  const p = el.querySelector("p") as HTMLElement;
+  p.setAttribute("data-seen", "1");
+  p.classList.add("seen");
+  const foreign = document.createElement("i");
+  foreign.id = "foreign";
+  p.after(foreign);
+  morph(el, '<p class="a" title="y" lang="en">two</p>', before);
+  expect(el.querySelector("p"), "the same paragraph").toBe(p);
+  expect(p.getAttribute("data-seen"), "an attribute the server never wrote stays").toEqual("1");
+  expect(p.className, "a class the script added to one the server did not change stays").toEqual("a seen");
+  expect(p.getAttribute("title"), "an attribute the server changed takes its new value").toEqual("y");
+  expect(p.getAttribute("lang"), "and one it added is added").toEqual("en");
+  expect(p.textContent).toEqual("two");
+  expect(el.querySelector("span"), "a node the server stopped writing goes").toBeNull();
+  expect(el.querySelector("#foreign"), "a node a script added stays").toBe(foreign);
+});
+
+test("a morph given the markup the server wrote before removes an attribute the server stopped writing", () => {
+  const before = '<button disabled class="go">Go</button>';
+  const el = box(before);
+  const button = el.querySelector("button") as HTMLElement;
+  button.setAttribute("aria-busy", "true");
+  morph(el, '<button class="go">Go</button>', before);
+  expect(button.hasAttribute("disabled"), "the server dropped it").toEqual(false);
+  expect(button.getAttribute("aria-busy"), "the script's stays").toEqual("true");
+});
+
+test("a morph without the markup the server wrote before takes the element as it stands for it", () => {
+  const el = box('<p class="a">one</p>');
+  const p = el.querySelector("p") as HTMLElement;
+  p.setAttribute("data-seen", "1");
+  morph(el, '<p class="a">two</p>');
+  expect(p.hasAttribute("data-seen"), "with nothing to tell the server's attributes from a script's, the markup wins").toEqual(false);
+});

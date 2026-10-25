@@ -4,6 +4,7 @@ import { filledPlaces, placedPieces, recordFilled } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
+import { previousRegion, readyRecords, recordMorphed, recordWritten } from "./rendered.js";
 import { morphElement, morphNodes } from "./server.js";
 import { contribute, retain, transaction } from "./store.js";
 let current = null;
@@ -44,7 +45,9 @@ function writeMarkup(el, html) {
     const unsafe = el.setHTMLUnsafe;
     if (typeof unsafe === "function") unsafe.call(el, html);
     else el.innerHTML = html;
-    liftPlaced(el instanceof HTMLTemplateElement ? el.content : el);
+    const root = el instanceof HTMLTemplateElement ? el.content : el;
+    liftPlaced(root);
+    recordWritten(Array.from(root.childNodes));
 }
 function removePiece(piece) {
     for (const n of piece.nodes){
@@ -472,6 +475,8 @@ function morphStatic(key, node, seg, slotsSettled = false, values) {
     const kept = islandRegionsIn(region);
     const sources = regionSources(node, ids);
     const old = regionNodes(region);
+    const fresh = Array.from(template.content.childNodes);
+    const before = previousRegion(region.start);
     const hooks = {
         nested: (current, next)=>takeIsland(current, next, sources, hooks),
         adopt: (found)=>found.startsWith("region:") ? kept.get(found.slice("region:".length)) ?? null : null,
@@ -479,9 +484,13 @@ function morphStatic(key, node, seg, slotsSettled = false, values) {
             if (node instanceof Element) discard(node);
         },
         opaque: slotsSettled ? isSegmentSlot : undefined,
-        values
+        values,
+        imported: (node)=>recordWritten([
+                node
+            ])
     };
-    morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
+    morphNodes(parent, old, fresh, region.end.nextSibling, hooks, before);
+    recordMorphed(region.start, fresh);
     return true;
 }
 function isSegmentSlot(el) {
@@ -500,7 +509,11 @@ function takeIsland(current, next, sources, hooks) {
     }
     const wanted = next.nextElementSibling;
     discard(current);
-    current.replaceWith(document.importNode(next, true));
+    const imported = document.importNode(next, true);
+    current.replaceWith(imported);
+    recordWritten([
+        imported
+    ]);
     if (script && wanted?.tagName === "SCRIPT") morphElement(script, wanted, hooks);
 }
 function staticChanged(oldSeg, newSeg, same, force) {
@@ -612,6 +625,7 @@ async function eagerOf(rows) {
 }
 function applyEager(eager, force, keep) {
     if (!current) return false;
+    readyRecords();
     transaction(()=>{
         for (const list of eager.seeds)contribute(list);
     });

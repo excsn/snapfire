@@ -2,6 +2,7 @@ import { patchIsland, type Props } from "./boot.js";
 import { refresh } from "./navigator.js";
 import { PLACED_OPEN } from "./render.js";
 import { get, key, set, subscribe, transaction } from "./store.js";
+import { parsed, previousMarker } from "./rendered.js";
 import { decodeValue, encodeValue, type SfValue } from "./values.js";
 
 /** An island in server mode: the browser holds its props and state, every event round-trips to the server and the markup that comes back is patched into place. No component code runs here. `state` is kept encoded, exactly as the server wrote it, since decoding a double and encoding it again would hand back an integer: JavaScript has one number type and the tag is the only thing that says which this was. */
@@ -19,6 +20,8 @@ interface ServerIsland {
   applying: boolean;
   /** Set while its nodes are out of the document, held for a way back: a write to a key it reads marks it stale and nothing steps. */
   held: boolean;
+  /** The markup the server last wrote inside the marker, which the next step's answer is morphed against. Null when nothing recorded it. */
+  html: string | null;
   unsubscribe: (() => void)[];
 }
 
@@ -71,7 +74,7 @@ export function isServerIsland(el: Element): boolean {
  */
 export function mountServer(el: Element, module: string, encoded: unknown): void {
   const { own, state, reads, rendered } = carriedProps(encoded);
-  const island: ServerIsland = { module, props: own, state: state ?? {}, pending: false, listening: new Set(), reads: Array.isArray(reads) ? reads.map(String) : [], stale: false, applying: false, held: false, unsubscribe: [] };
+  const island: ServerIsland = { module, props: own, state: state ?? {}, pending: false, listening: new Set(), reads: Array.isArray(reads) ? reads.map(String) : [], stale: false, applying: false, held: false, html: previousMarker(el), unsubscribe: [] };
   islands.set(el, island);
   for (const read of island.reads) {
     island.unsubscribe.push(
@@ -203,7 +206,8 @@ async function step(el: Element, island: ServerIsland, handler: string | null, e
     }
     const answer = JSON.parse(text) as { state: unknown; store?: { [key: string]: unknown }; html: string; revalidate?: boolean };
     island.state = answer.state;
-    morph(el, answer.html);
+    morph(el, answer.html, island.html ?? undefined);
+    island.html = answer.html;
     listen(el, island);
     const written = Object.entries(answer.store ?? {});
     if (written.length > 0) {
@@ -229,11 +233,9 @@ async function step(el: Element, island: ServerIsland, handler: string | null, e
   }
 }
 
-/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by key, attributes by name. An element's key is its `data-sf-key`; an island's region is keyed by the region key the build wrote, so a region that moved takes its mounted island with it. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. */
-export function morph(el: Element, html: string): void {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  morphNodes(el, Array.from(el.childNodes), Array.from(template.content.childNodes), null, { nested: morphNested });
+/** Patches `el`'s children to match `html`, touching only what differs: text by content, elements by tag and position or by key, attributes by name. An element's key is its `data-sf-key`; an island's region is keyed by the region key the build wrote, so a region that moved takes its mounted island with it. A focused form control keeps its value. A nested island's marker and children are left as they stand; when the props script after it changed, the island mounted there takes the new props. With `before`, the markup the server wrote there last, only what the server changed between the two is applied: an attribute, a class or a node a script added is left alone. Without it the children as they stand are taken for the server's. */
+export function morph(el: Element, html: string, before?: string): void {
+  morphNodes(el, Array.from(el.childNodes), parsed(html), null, { nested: morphNested }, before === undefined ? null : parsed(before));
 }
 
 /** What a morph asks of its caller. `nested` settles an island marker the new markup places again, along with the props script after it, which the walk leaves alone. `adopt` answers a keyed new node none of the siblings carries with a node from elsewhere to move in. Null has the new one imported. `drop` is told of each node the walk is about to remove, before it goes. */
@@ -245,6 +247,8 @@ export interface MorphHooks {
   opaque?: (current: Element) => boolean;
   /** Whether a form control keeps the value and the check the visitor left in it rather than taking the new markup's. A textarea keeps its text as well. */
   values?: "kept";
+  /** Told of each node the walk brings in from the new markup, once it is in place. */
+  imported?: (node: Node) => void;
 }
 
 function keyOf(node: Node): string | null {
@@ -261,52 +265,77 @@ function alike(a: Node, b: Node): boolean {
   return keyOf(a) === keyOf(b);
 }
 
-/** Patches `old`, a run of `parent`'s children, to match `fresh` by the rules of `morph`. What is new once the run is used up goes in before `end`. A node of the run that something moved to another parent is no longer part of it. */
-export function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks): void {
+/** Pairs each node of `old` the server wrote with the node of `before` it was written from, in order, by the rules `alike` matches by. A node of `old` that pairs with none was put there by something else. Without `before`, each node stands for itself. */
+function written(parent: Node, old: Node[], before: Node[] | null): Map<Node, Node> {
+  const out = new Map<Node, Node>();
+  if (before === null) {
+    for (const n of old) out.set(n, n);
+    return out;
+  }
+  let at = 0;
+  for (const was of before) {
+    for (let k = at; k < old.length; k++) {
+      if (old[k].parentNode === parent && alike(old[k], was)) {
+        out.set(old[k], was);
+        at = k + 1;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Patches `old`, a run of `parent`'s children, to match `fresh` by the rules of `morph`. What is new once the run is used up goes in before `end`. A node of the run that something moved to another parent is no longer part of it. `before` is the run as the server wrote it last: a node of the run that none of it pairs with is left where it stands. Each paired one changes only where `before` and `fresh` differ. Null takes the run as it stands for the server's. */
+export function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks, before: Node[] | null = null): void {
+  const was = written(parent, old, before);
   let i = 0;
   for (const next of fresh) {
-    while (i < old.length && old[i].parentNode !== parent) old.splice(i, 1);
+    while (i < old.length && (old[i].parentNode !== parent || !was.has(old[i]))) {
+      if (old[i].parentNode !== parent) old.splice(i, 1);
+      else i += 1;
+    }
     const current = old[i];
-    if (current && alike(current, next)) {
-      morphNode(current, next, hooks);
+    if (current && alike(was.get(current) as Node, next)) {
+      morphNode(current, next, hooks, was.get(current) as Node);
       i += 1;
       continue;
     }
     const key = keyOf(next);
-    const moved = key === null ? null : (old.slice(i).find((candidate) => candidate.parentNode === parent && keyOf(candidate) === key) ?? hooks.adopt?.(key) ?? null);
+    const moved = key === null ? null : (old.slice(i).find((candidate) => candidate.parentNode === parent && was.has(candidate) && keyOf(was.get(candidate) as Node) === key) ?? hooks.adopt?.(key) ?? null);
     if (moved) {
       parent.insertBefore(moved, current ?? end);
       const at = old.indexOf(moved);
       if (at !== -1) old.splice(at, 1);
       old.splice(i, 0, moved);
-      morphNode(moved, next, hooks);
+      morphNode(moved, next, hooks, was.get(moved) ?? moved);
     } else {
       const imported = document.importNode(next, true);
       parent.insertBefore(imported, current ?? end);
       old.splice(i, 0, imported);
+      hooks.imported?.(imported);
     }
     i += 1;
   }
   for (const stale of old.slice(i)) {
-    if (stale.parentNode !== parent) continue;
+    if (stale.parentNode !== parent || !was.has(stale)) continue;
     hooks.drop?.(stale);
     parent.removeChild(stale);
   }
 }
 
-/** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. */
-export function morphElement(current: Element, next: Element, hooks: MorphHooks): void {
-  morphAttributes(current, next, hooks.values === "kept");
+/** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. `was` is the element as the server wrote it last; left out, `current` stands for it. */
+export function morphElement(current: Element, next: Element, hooks: MorphHooks, was: Element = current): void {
+  morphAttributes(current, was, next, hooks.values === "kept");
   if (hooks.values === "kept" && current.tagName === "TEXTAREA") return;
-  morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks);
+  morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, was === current ? null : Array.from(was.childNodes));
 }
 
-function morphNode(current: Node, next: Node, hooks: MorphHooks): void {
+function morphNode(current: Node, next: Node, hooks: MorphHooks, was: Node): void {
   if (current.nodeType === Node.TEXT_NODE || current.nodeType === Node.COMMENT_NODE) {
-    if (current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
+    if (was.nodeValue !== next.nodeValue && current.nodeValue !== next.nodeValue) current.nodeValue = next.nodeValue;
     return;
   }
-  if (!(current instanceof Element) || !(next instanceof Element)) return;
+  if (!(current instanceof Element) || !(next instanceof Element) || !(was instanceof Element)) return;
   if (isPropsScript(current)) return;
   if (current.tagName === "SF-I") {
     hooks.nested(current, next);
@@ -314,10 +343,10 @@ function morphNode(current: Node, next: Node, hooks: MorphHooks): void {
   }
   if (hooks.opaque?.(current)) return;
   if (holdsPlaced(current)) {
-    morphAttributes(current, next, hooks.values === "kept");
+    morphAttributes(current, was, next, hooks.values === "kept");
     return;
   }
-  morphElement(current, next, hooks);
+  morphElement(current, next, hooks, was);
 }
 
 /** A place holding placed runs. Its children are the content islands placed there, which those islands' frameworks own and the navigator replaces run by run, so the markup around it never morphs them. */
@@ -349,18 +378,20 @@ function morphNested(current: Element, next: Element): void {
   void patchIsland(current, decodeValue(raw as SfValue) as Props);
 }
 
-function morphAttributes(current: Element, next: Element, keepValues = false): void {
-  for (const attr of Array.from(current.attributes)) {
+/** Applies to `current` what changed between `was`, the element as the server wrote it last, and `next`: an attribute `was` carried and `next` does not is removed and one whose value differs is set. One they agree on is left as it stands, as is one neither carries. A control's value and check follow the same rule. */
+function morphAttributes(current: Element, was: Element, next: Element, keepValues = false): void {
+  for (const attr of Array.from(was.attributes)) {
     if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
   }
   for (const attr of Array.from(next.attributes)) {
-    if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
+    if (was.getAttribute(attr.name) !== attr.value && current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
   }
   const focused = typeof document !== "undefined" && document.activeElement === current;
-  if (!focused && !keepValues && "value" in current && "value" in next) {
+  if (!focused && !keepValues && "value" in current && "value" in next && "value" in was) {
     const control = current as HTMLInputElement;
+    const from = was as HTMLInputElement;
     const wanted = next as HTMLInputElement;
-    if (control.value !== wanted.value) control.value = wanted.value;
-    if ("checked" in wanted && control.checked !== wanted.checked) control.checked = wanted.checked;
+    if (from.value !== wanted.value && control.value !== wanted.value) control.value = wanted.value;
+    if ("checked" in wanted && from.checked !== wanted.checked && control.checked !== wanted.checked) control.checked = wanted.checked;
   }
 }

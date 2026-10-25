@@ -95,8 +95,9 @@ const Opaque = defineComponent({
       (html) => {
         const el = node.value;
         if (!el || html === shown) return;
+        const before = shown;
         shown = html;
-        morph(el, html);
+        morph(el, html, before);
         scan(el);
       },
       { flush: "post" },

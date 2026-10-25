@@ -17,6 +17,7 @@ const RUNTIME_PROPS = [
     "$sv"
 ];
 const states = new WeakMap();
+const opaqueHtml = new WeakMap();
 function ownProps(props) {
     const own = {};
     for (const key of Object.keys(props)){
@@ -169,7 +170,9 @@ export function opaque() {
     return (piece)=>(el)=>{
             scopes.set(el, contexts);
             adoptNodes(el, piece.from);
-            if (unmarked(el.innerHTML) !== piece.html) morph(el, piece.html);
+            const before = opaqueHtml.get(el);
+            if (before === undefined ? unmarked(el.innerHTML) !== piece.html : before !== piece.html) morph(el, piece.html, before);
+            opaqueHtml.set(el, piece.html);
             scan(el);
             return ()=>{
                 queueMicrotask(()=>{
@@ -264,6 +267,7 @@ export const svelteMounter = (module, props, el, isHydrating, children)=>{
         props: ownProps(props),
         pieces: children ? treeOf(children) : null,
         region: null,
+        regionHtml: children ? serialised(children) : null,
         changed: ()=>{},
         track: ()=>{}
     };
@@ -332,7 +336,8 @@ export const sveltePatcher = (_handle, _module, props, el)=>{
     state.props = ownProps(props);
     const fresh = islandState(el)?.children ?? null;
     if (fresh !== null && state.region !== null) {
-        if (unmarked(state.region.innerHTML) !== fresh) morph(state.region, fresh);
+        if (unmarked(state.region.innerHTML) !== fresh) morph(state.region, fresh, state.regionHtml ?? undefined);
+        state.regionHtml = fresh;
         scan(state.region);
     } else if (fresh !== null) state.pieces = treeOf(piecesOf(fresh));
     state.changed();

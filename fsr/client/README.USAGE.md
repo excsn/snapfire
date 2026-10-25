@@ -474,7 +474,7 @@ export function Abstract({ text }: { text: string }) {
 }
 ```
 
-A navigation swaps the page's region and leaves the layout's DOM alone, so the switch keeps its state and the new page's islands read the store as it stands. A static layout whose own markup changed is morphed around the page after the page's region is settled, so `keep: false` still replaces the page. The conference example's two layouts are composition: a click from one talk to another renders the new talk under the same crumbs and the same masthead.
+A navigation swaps the page's region and leaves the layout's DOM alone, so the switch keeps its state and the new page's islands read the store as it stands. A static layout whose own markup changed is morphed around the page after the page's region is settled, so `keep: false` still replaces the page. A morph applies only what the server changed since it last wrote that markup: an attribute, a class or a node htmx, a custom element or any other script put on it stays. For the document's own markup the record is the copy a small script at the end of the body keeps of what the parser first read, before any module runs. The conference example's two layouts are composition: a click from one talk to another renders the new talk under the same crumbs and the same masthead.
 
 ## Mounting Vue Components
 
