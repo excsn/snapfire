@@ -118,17 +118,23 @@ function remountDisplaced(before, places) {
     }
     for (const island of islands)remount(island);
 }
+function regionNodes(region) {
+    const nodes = [];
+    for(let n = region.start; n; n = n.nextSibling){
+        nodes.push(n);
+        if (n === region.end) break;
+    }
+    return nodes;
+}
 function replaceRegion(region, html) {
     const parent = region.start.parentNode;
     if (!(parent instanceof Element)) return false;
     const template = document.createElement("template");
     writeMarkup(template, html);
-    parent.insertBefore(template.content, region.start);
+    const anchor = region.end.nextSibling;
     discardRegion(region);
-    const range = document.createRange();
-    range.setStartBefore(region.start);
-    range.setEndAfter(region.end);
-    range.deleteContents();
+    for (const n of regionNodes(region))parent.removeChild(n);
+    parent.insertBefore(template.content, anchor);
     return true;
 }
 function fillSlot(slot, node, seg) {
@@ -242,12 +248,8 @@ function clearHeld() {
     for (const entry of held.values())dropHeld(entry);
     held.clear();
 }
-function holdRegion(key, region) {
-    const nodes = [];
-    for(let n = region.start; n; n = n.nextSibling){
-        nodes.push(n);
-        if (n === region.end) break;
-    }
+function holdRegion(key, region, seg) {
+    const nodes = regionNodes(region);
     for (const node of nodes)if (node instanceof Element) release(node);
     for (const node of nodes)node.parentNode?.removeChild(node);
     const before = held.get(key);
@@ -255,6 +257,7 @@ function holdRegion(key, region) {
     held.delete(key);
     held.set(key, {
         nodes,
+        seg,
         state: sessionState()
     });
     while(held.size > heldLimit){
@@ -281,17 +284,52 @@ function holdAndReplace(old, region, node, seg) {
     const parent = region.start.parentNode;
     if (!(parent instanceof Element)) return false;
     const back = takeHeld(seg.k);
-    if (back) {
-        for (const n of back.nodes)parent.insertBefore(n, region.start);
-        for (const n of back.nodes)if (n instanceof Element) revealing.push(resume(n));
-    } else {
+    const anchor = region.end.nextSibling;
+    holdRegion(old.k, region, old);
+    if (!back) {
         const template = document.createElement("template");
         writeMarkup(template, renderSegment(node, seg, ids));
-        parent.insertBefore(template.content, region.start);
+        parent.insertBefore(template.content, anchor);
+        return true;
     }
-    holdRegion(old.k, region);
-    if (!back) return true;
+    for (const n of back.nodes)parent.insertBefore(n, anchor);
+    for (const n of back.nodes)if (n instanceof Element) revealing.push(resume(n));
+    if (renderedSame(back.seg, seg) && settleIslands(seg.k, node, seg)) return true;
     return morphStatic(seg.k, node, seg, false, "kept");
+}
+function topMarkers(nodes) {
+    const out = [];
+    for (const n of nodes){
+        if (!(n instanceof Element)) continue;
+        const found = n.tagName === "SF-I" ? [
+            n
+        ] : Array.from(n.querySelectorAll("sf-i"));
+        for (const el of found){
+            const above = el.parentElement?.closest("sf-i");
+            if (!above || !nodes.some((root)=>root === above || root.contains(above))) out.push(el);
+        }
+    }
+    return out;
+}
+function settleIslands(key, node, seg) {
+    const region = findRegion(key);
+    if (!region) return false;
+    const template = document.createElement("template");
+    writeMarkup(template, renderSegment(node, seg, ids));
+    const live = topMarkers(regionNodes(region));
+    const fresh = topMarkers(Array.from(template.content.childNodes));
+    if (live.length !== fresh.length || live.some((el, i)=>el.getAttribute("data-sf-module") !== fresh[i].getAttribute("data-sf-module"))) return false;
+    const sources = regionSources(node, ids);
+    const hooks = {
+        nested: (current, next)=>takeIsland(current, next, sources, hooks),
+        values: "kept"
+    };
+    live.forEach((el, i)=>takeIsland(el, fresh[i], sources, hooks));
+    return true;
+}
+function renderedSame(a, b) {
+    if (a.k !== b.k || a.d === undefined || a.d !== b.d || a.c.length !== b.c.length) return false;
+    return a.c.every((child, i)=>child.n === b.c[i].n && renderedSame(child, b.c[i]));
 }
 function replaceChild(old, node, seg) {
     const html = ()=>seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
@@ -433,11 +471,7 @@ function morphStatic(key, node, seg, slotsSettled = false, values) {
     writeMarkup(template, renderSegment(node, seg, ids));
     const kept = islandRegionsIn(region);
     const sources = regionSources(node, ids);
-    const old = [];
-    for(let n = region.start; n; n = n.nextSibling){
-        old.push(n);
-        if (n === region.end) break;
-    }
+    const old = regionNodes(region);
     const hooks = {
         nested: (current, next)=>takeIsland(current, next, sources, hooks),
         adopt: (found)=>found.startsWith("region:") ? kept.get(found.slice("region:".length)) ?? null : null,

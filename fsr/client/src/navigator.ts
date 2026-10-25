@@ -131,18 +131,26 @@ function remountDisplaced(before: Piece[], places: Map<string, Element[]>): void
   for (const island of islands) remount(island);
 }
 
-/** Fails when the region's parent cannot hold the replacement. The root segment's delimiters are children of the document, which admits no text nodes. Inserting before deleting keeps a refusal from emptying the page. */
+/** A region's nodes, its delimiters included. */
+function regionNodes(region: Region): Node[] {
+  const nodes: Node[] = [];
+  for (let n: Node | null = region.start; n; n = n.nextSibling) {
+    nodes.push(n);
+    if (n === region.end) break;
+  }
+  return nodes;
+}
+
+/** Replaces a region, delimiters included, with `html`. The old nodes leave the document before the new ones enter it, so the two pages never share it: a radio group, an id or a form both name. Fails when the region's parent cannot hold the replacement: the root segment's delimiters are children of the document, which admits no text nodes. */
 function replaceRegion(region: Region, html: string): boolean {
   const parent = region.start.parentNode;
   if (!(parent instanceof Element)) return false;
   const template = document.createElement("template");
   writeMarkup(template, html);
-  parent.insertBefore(template.content, region.start);
+  const anchor = region.end.nextSibling;
   discardRegion(region);
-  const range = document.createRange();
-  range.setStartBefore(region.start);
-  range.setEndAfter(region.end);
-  range.deleteContents();
+  for (const n of regionNodes(region)) parent.removeChild(n);
+  parent.insertBefore(template.content, anchor);
   return true;
 }
 
@@ -229,9 +237,10 @@ function namedSlotOf(region: Region, name: string): Element | null {
   return null;
 }
 
-/** A region a navigation took out of the document with activity on: its nodes, delimiters included, the session generation it left under and the window's scroll at the time. */
+/** A region a navigation took out of the document with activity on: its nodes, delimiters included, the segment they render and the session generation it left under. */
 interface Held {
   nodes: Node[];
+  seg: Segment;
   state: string;
 }
 
@@ -284,18 +293,14 @@ function clearHeld(): void {
 }
 
 /** Takes a region's nodes out of the document and holds them under `key`, its islands released, dropping the oldest held region past the limit. */
-function holdRegion(key: string, region: Region): void {
-  const nodes: Node[] = [];
-  for (let n: Node | null = region.start; n; n = n.nextSibling) {
-    nodes.push(n);
-    if (n === region.end) break;
-  }
+function holdRegion(key: string, region: Region, seg: Segment): void {
+  const nodes = regionNodes(region);
   for (const node of nodes) if (node instanceof Element) release(node);
   for (const node of nodes) node.parentNode?.removeChild(node);
   const before = held.get(key);
   if (before) dropHeld(before);
   held.delete(key);
-  held.set(key, { nodes, state: sessionState() });
+  held.set(key, { nodes, seg, state: sessionState() });
   while (held.size > heldLimit) {
     const [oldest, entry] = held.entries().next().value as [string, Held];
     dropHeld(entry);
@@ -319,22 +324,58 @@ function takeHeld(key: string): Held | null {
   return null;
 }
 
-/** Replaces a region the way `replaceRegion` does but holds the old nodes rather than ending them. When nodes are held for `seg` they go back in its place and are morphed to what the payload renders now, so the DOM and the custom elements keep what the visitor left. */
+/** Replaces a region the way `replaceRegion` does but holds the old nodes rather than ending them, out of the document before the new ones enter it. When nodes are held for `seg` they go back in its place, so the DOM and the custom elements keep what the visitor left. They are morphed to what the payload renders now only when it renders something else. */
 function holdAndReplace(old: Segment, region: Region, node: SfNode, seg: Segment): boolean {
   const parent = region.start.parentNode;
   if (!(parent instanceof Element)) return false;
   const back = takeHeld(seg.k);
-  if (back) {
-    for (const n of back.nodes) parent.insertBefore(n, region.start);
-    for (const n of back.nodes) if (n instanceof Element) revealing.push(resume(n));
-  } else {
+  const anchor = region.end.nextSibling;
+  holdRegion(old.k, region, old);
+  if (!back) {
     const template = document.createElement("template");
     writeMarkup(template, renderSegment(node, seg, ids));
-    parent.insertBefore(template.content, region.start);
+    parent.insertBefore(template.content, anchor);
+    return true;
   }
-  holdRegion(old.k, region);
-  if (!back) return true;
+  for (const n of back.nodes) parent.insertBefore(n, anchor);
+  for (const n of back.nodes) if (n instanceof Element) revealing.push(resume(n));
+  if (renderedSame(back.seg, seg) && settleIslands(seg.k, node, seg)) return true;
   return morphStatic(seg.k, node, seg, false, "kept");
+}
+
+/** The island markers among `nodes` that sit in no other island's markup, in document order. */
+function topMarkers(nodes: Node[]): Element[] {
+  const out: Element[] = [];
+  for (const n of nodes) {
+    if (!(n instanceof Element)) continue;
+    const found = n.tagName === "SF-I" ? [n] : Array.from(n.querySelectorAll("sf-i"));
+    for (const el of found) {
+      const above = el.parentElement?.closest("sf-i");
+      if (!above || !nodes.some((root) => root === above || root.contains(above))) out.push(el);
+    }
+  }
+  return out;
+}
+
+/** Settles the islands of a region the payload renders the same and leaves every other node as it stands: each top-level marker takes the payload's props when it is still mounted and the payload's marker when `release` ended it. False when the markers do not pair up, which leaves the caller to morph. */
+function settleIslands(key: string, node: SfNode, seg: Segment): boolean {
+  const region = findRegion(key);
+  if (!region) return false;
+  const template = document.createElement("template");
+  writeMarkup(template, renderSegment(node, seg, ids));
+  const live = topMarkers(regionNodes(region));
+  const fresh = topMarkers(Array.from(template.content.childNodes));
+  if (live.length !== fresh.length || live.some((el, i) => el.getAttribute("data-sf-module") !== fresh[i].getAttribute("data-sf-module"))) return false;
+  const sources = regionSources(node, ids);
+  const hooks: MorphHooks = { nested: (current, next) => takeIsland(current, next, sources, hooks), values: "kept" };
+  live.forEach((el, i) => takeIsland(el, fresh[i], sources, hooks));
+  return true;
+}
+
+/** Whether two segment trees render the same DOM: each segment's digest agrees, child segments included. */
+function renderedSame(a: Segment, b: Segment): boolean {
+  if (a.k !== b.k || a.d === undefined || a.d !== b.d || a.c.length !== b.c.length) return false;
+  return a.c.every((child, i) => child.n === b.c[i].n && renderedSame(child, b.c[i]));
 }
 
 /** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. `seg` is the segment `node` renders as, null for a pending node written bare. */
@@ -494,11 +535,7 @@ function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = fal
   writeMarkup(template, renderSegment(node, seg, ids));
   const kept = islandRegionsIn(region);
   const sources = regionSources(node, ids);
-  const old: Node[] = [];
-  for (let n: Node | null = region.start; n; n = n.nextSibling) {
-    old.push(n);
-    if (n === region.end) break;
-  }
+  const old = regionNodes(region);
   const hooks: MorphHooks = {
     nested: (current, next) => takeIsland(current, next, sources, hooks),
     adopt: (found) => (found.startsWith("region:") ? (kept.get(found.slice("region:".length)) ?? null) : null),
