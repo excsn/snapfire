@@ -173,7 +173,7 @@ fn get(listen: &str, path: &str) -> String {
 fn a_production_serve_reads_back_the_trace_of_an_exposed_path() {
   let root = project("expose", None);
   let config = root.join("config/app.toml");
-  let text = std::fs::read_to_string(&config).unwrap() + "\n[trace]\nexpose = [\"/notice\"]\n";
+  let text = std::fs::read_to_string(&config).unwrap() + "\n[trace]\nexpose = [\"/notice/{*rest}\"]\n";
   std::fs::write(&config, text).unwrap();
   let (mut child, listen, stdout) = serving(&root, &[("RELEASE_ENV", "production"), ("C5_SESSION__KEY", "a-test-session-key-of-at-least-32-bytes")]);
   let page = get(&listen, "/notice/roof");
