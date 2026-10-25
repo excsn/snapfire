@@ -3353,12 +3353,17 @@ fn check_island_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<
 const TEMPLATE_SPECIFIER: &str = "@snapfire/fsr/template";
 
 /// Every specifier the app's import map serves, its scopes included, plus the
-/// shell's for a site. `None` when the app has no readable map.
+/// shell's for a site and the client modules the host adds unless a static
+/// root answers their route. `None` when the app has no readable map.
 fn served_specifiers(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>) -> Option<Vec<String>> {
   let map = std::fs::read_to_string(app.join(&layout.importmap)).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())?;
   let scopes = map.get("scopes").and_then(|scopes| scopes.as_object()).into_iter().flat_map(|scopes| scopes.values());
   let mut served: Vec<String> = map.get("imports").into_iter().chain(scopes).filter_map(|table| table.as_object()).flat_map(|table| table.keys().cloned()).collect();
   served.extend(shell.into_iter().flat_map(|contract| contract.imports.keys().cloned()));
+  let client_served_elsewhere = config_beside(app).is_some_and(|config| config.statics.iter().any(|s| s.route == snapfire_fsr_host::client::ROUTE));
+  if !client_served_elsewhere {
+    served.extend(snapfire_fsr_host::client::import_entries().into_iter().map(|(specifier, _)| specifier));
+  }
   Some(served)
 }
 

@@ -481,12 +481,27 @@ fn an_island_no_framework_claims_is_refused() {
 fn an_island_whose_adapter_the_import_map_cannot_supply_is_refused_by_name() {
   let dir = app(&[("routes/page.tsx", HANDLED)]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/r"}}"#).unwrap();
-  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react` or `react-dom/client`; `fsr use <app dir> react` writes it");
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/":"/fsr/","react":"/r","react-dom/client":"/d"}}"#).unwrap();
-  build(&dir, &Options::default()).expect("a trailing-slash key covers the adapter beneath it");
+  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `react-dom/client`; `fsr use <app dir> react` writes it");
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/r","react-dom/":"/d/"}}"#).unwrap();
+  build(&dir, &Options::default()).expect("a trailing-slash key covers the specifier beneath it");
   std::fs::remove_file(dir.join("importmap.json")).unwrap();
   build(&dir, &Options::default()).expect("an app with no import map has nothing to check against");
   std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_adapter_the_host_serves_need_not_be_in_the_apps_import_map() {
+  let project = app(&[]);
+  let dir = project.join("app");
+  std::fs::create_dir_all(dir.join("routes")).unwrap();
+  std::fs::write(dir.join("routes/page.tsx"), HANDLED).unwrap();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  vendor_react(&dir, "18.3.1");
+  build(&dir, &Options::default()).expect("the host adds `@snapfire/fsr/client/react` to the map it serves");
+  std::fs::create_dir_all(project.join("config")).unwrap();
+  std::fs::write(project.join("config/app.toml"), "[[static]]\nroute = \"/static/js/fsr\"\ndir = \"client\"\n").unwrap();
+  assert_eq!(fails(&dir).to_string(), "`routes/page.island0.tsx#default` mounts through `@snapfire/fsr/client/react`, but the import map does not name `@snapfire/fsr/client/react`; `fsr use <app dir> react` writes it");
+  std::fs::remove_dir_all(&project).unwrap();
 }
 
 #[test]
