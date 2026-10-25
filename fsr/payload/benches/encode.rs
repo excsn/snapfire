@@ -12,7 +12,7 @@ fn island(series_len: usize) -> Node {
     module: ModuleId::new("components/ServerChart.tsx", "default"),
     props,
     children: Vec::new(),
-    ssr: None,
+    rendered: false,
   }
 }
 

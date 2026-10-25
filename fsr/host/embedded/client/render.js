@@ -22,16 +22,7 @@ export function nodeToHtml(node, ids) {
         case "seq":
             return node.children.map((c)=>nodeToHtml(c, ids)).join("");
         case "client":
-            {
-                const id = `sf-c${ids.next++}`;
-                const outer = ids.island;
-                const key = node.props[REGION_KEY];
-                if (node.ssr) ids.island = typeof key === "string" ? key : id;
-                const inner = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
-                ids.island = outer;
-                const props = propsScript(node);
-                return `<sf-i id="${id}" data-sf-module="${node.module}"${node.ssr ? ` ${SSR_ATTR}` : ""}>${inner}</sf-i>` + `<script type="application/json" data-sf-props="${id}">${props}</script>`;
-            }
+            return clientHtml(node, ids, (children)=>children.map((c)=>nodeToHtml(c, ids)).join(""));
         case "pending":
             return `<div data-sf-slot="${node.slot}">${nodeToHtml(node.fallback, ids)}</div>`;
         case "placed":
@@ -75,6 +66,15 @@ export function renderSegment(node, seg, ids) {
     ids.segment = outer;
     return out + "<!--/sf-g-->";
 }
+function clientHtml(node, ids, inner) {
+    const id = `sf-c${ids.next++}`;
+    const outer = ids.island;
+    const key = node.props[REGION_KEY];
+    if (node.rendered) ids.island = typeof key === "string" ? key : id;
+    const html = inner(node.children);
+    ids.island = outer;
+    return `<sf-i id="${id}" data-sf-module="${node.module}"${node.rendered ? ` ${SSR_ATTR}` : ""}>${html}</sf-i><script type="application/json" data-sf-props="${id}">${propsScript(node)}</script>`;
+}
 function renderPositioned(node, positioned, ids) {
     if (positioned.length === 0) return nodeToHtml(node, ids);
     const items = (children)=>children.map((child, idx)=>{
@@ -86,10 +86,7 @@ function renderPositioned(node, positioned, ids) {
             return exact ? renderSegment(child, exact.seg, ids) : renderPositioned(child, here, ids);
         }).join("");
     if (node.kind === "seq") return items(node.children);
-    if (node.kind === "client" && !node.ssr) {
-        const id = `sf-c${ids.next++}`;
-        return `<sf-i id="${id}" data-sf-module="${node.module}">${items(node.children)}</sf-i><script type="application/json" data-sf-props="${id}">${propsScript(node)}</script>`;
-    }
+    if (node.kind === "client") return clientHtml(node, ids, items);
     return nodeToHtml(node, ids);
 }
 export const REGION_KEY = "$k";
@@ -97,7 +94,7 @@ export const SSR_ATTR = "data-sf-ssr";
 export const CHILDREN_ATTR = "data-sf-children";
 export function childrenOf(node, ids) {
     if (node.kind !== "client") return null;
-    const html = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
+    const html = node.children.map((c)=>nodeToHtml(c, ids)).join("");
     if (!html.includes(CHILDREN_ATTR)) return null;
     const template = document.createElement("template");
     template.innerHTML = html;
@@ -107,7 +104,7 @@ export function childrenOf(node, ids) {
 export const MARKUP_ATTR = "data-sf-m";
 export function markupOf(node, ids) {
     if (node.kind !== "client") return null;
-    const html = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
+    const html = node.children.map((c)=>nodeToHtml(c, ids)).join("");
     if (!html.includes(MARKUP_ATTR)) return null;
     const template = document.createElement("template");
     template.innerHTML = html;
@@ -147,8 +144,7 @@ export function regionSources(node, ids) {
         }
     };
     if (node.kind === "client") {
-        if (node.ssr) walk(node.ssr);
-        else node.children.forEach(walk);
+        node.children.forEach(walk);
         return out;
     }
     walk(node);

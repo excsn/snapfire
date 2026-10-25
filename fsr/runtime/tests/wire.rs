@@ -33,7 +33,7 @@ fn every_row_reads_back_as_what_it_was_written_from_whatever_the_chunking() {
   }).collect();
   assert_eq!(tags, ["V", "N", "H", "T", "L", "E", "C", "D", "G", "T", "S", "H"], "{text}");
   let expected = assembly();
-  assert_eq!(rows[0], Row::Version { fmt: 2, enc: "json".to_owned() });
+  assert_eq!(rows[0], Row::Version { fmt: 3, enc: "json".to_owned() });
   assert_eq!(rows[1], Row::Tree(expected.tree.clone()));
   assert_eq!(rows[2], Row::Head(Meta::default().title(Some("Acme".to_owned())).description(Some("the portal".to_owned()))));
   assert_eq!(rows[3], Row::Store(expected.contributions.clone()));
@@ -51,8 +51,8 @@ fn every_row_reads_back_as_what_it_was_written_from_whatever_the_chunking() {
 
 #[test]
 fn a_newer_format_an_unknown_tag_and_a_broken_line_are_refused_by_name() {
-  let newer = row_from_line(r#"V {"fmt":3,"enc":"json"}"#).unwrap_err().to_string();
-  assert!(newer.contains("payload format 3"), "{newer}");
+  let newer = row_from_line(r#"V {"fmt":4,"enc":"json"}"#).unwrap_err().to_string();
+  assert!(newer.contains("payload format 4"), "{newer}");
   let unknown = row_from_line("Z []").unwrap_err().to_string();
   assert!(unknown.contains("unknown payload row `Z`"), "{unknown}");
   let broken = row_from_line("N").unwrap_err().to_string();

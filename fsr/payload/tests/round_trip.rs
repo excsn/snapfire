@@ -107,8 +107,8 @@ fn node_rows_round_trip_the_walked_page() {
     Node::Client {
       module: ModuleId::new("components/ServerChart.tsx", "default"),
       props,
-      children: vec![Node::text("chart caption")],
-      ssr: Some(Box::new(Node::raw("<svg></svg>"))),
+      children: vec![Node::raw("<svg></svg>")],
+      rendered: true,
     },
     Node::Pending { slot: SlotId(1), fallback: Box::new(Node::raw("<div class=skl></div>")) },
     Node::Placed { target: Place::Body, nodes: vec![Node::raw("<dialog>"), Node::text("a < b"), Node::raw("</dialog>")] },

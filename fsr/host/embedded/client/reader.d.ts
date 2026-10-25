@@ -17,8 +17,10 @@ export type SfNode = {
 	};
 	/** `props` as the server encoded them, which is what a props script holds and a server island hands back: decoding a double and encoding it again gives an integer, since JavaScript has one number type. Absent on a node no payload brought, whose `props` are encoded where they are written. */
 	encoded?: unknown;
+	/** The island's markup: what the server rendered when `rendered`, else the regions it offers the browser. */
 	children: SfNode[];
-	ssr: SfNode | null;
+	/** Whether the server rendered the island's markup, which the browser then hydrates rather than mounts. */
+	rendered: boolean;
 } | {
 	kind: "pending";
 	slot: number;

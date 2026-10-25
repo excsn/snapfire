@@ -59,10 +59,7 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
     }
     open.push('>');
     out.push(Node::raw(open));
-    out.push(match island.rendered {
-      true => Node::Client { module, props: island.mount_props(), children: Vec::new(), ssr: Some(Box::new(island_body(&island.body))) },
-      false => Node::Client { module, props: island.mount_props(), children: vec![island_body(&island.body)], ssr: None },
-    });
+    out.push(Node::Client { module, props: island.mount_props(), children: vec![island_body(&island.body)], rendered: island.rendered });
     out.push(Node::raw("</sf-s>"));
   }
   if !rest.is_empty() {
@@ -423,8 +420,8 @@ impl ActionHandler for IrAction {
   }
 }
 
-/// Lowered components rendered in Rust. The output is a `Client` node whose
-/// `ssr` holds the markup, so the browser hydrates the module over it; a
+/// Lowered components rendered in Rust. The output is a `Client` node the
+/// server rendered, so the browser hydrates the module over its markup; a
 /// module the evaluator does not hold is not its business, which is why the
 /// registry predicate is `covers`.
 pub struct IrEvaluator {
@@ -485,7 +482,7 @@ impl Evaluator for IrEvaluator {
         props.shift_remove("$store");
         props.shift_remove(PENDING_PROP);
         props.insert(AWAITS_PROP.to_owned(), Value::seq(awaits));
-        return Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }));
+        return Ok(Chunk::Node(Node::Client { module, props, children, rendered: false }));
       }
       let rendered = interpreter.render_module(&id, &component, &props, &components).map_err(|fail| EvalError::new(id, fail.message))?;
       // A root a framework hydrates is told what it was rendered from, as a
@@ -500,7 +497,7 @@ impl Evaluator for IrEvaluator {
         props.shift_remove("$slots");
         props.shift_remove("$store");
         props.shift_remove(PENDING_PROP);
-        return Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }));
+        return Ok(Chunk::Node(Node::Client { module, props, children, rendered: false }));
       }
       let mut props = props;
       props.shift_remove("$slots");
@@ -519,10 +516,7 @@ impl Evaluator for IrEvaluator {
         let mut nodes = rendered_nodes(&rendered);
         return Ok(Chunk::Node(if nodes.len() == 1 { nodes.pop().unwrap() } else { Node::Seq(nodes) }));
       }
-      if rendered.islands.is_empty() && rendered.places.is_empty() && !rendered.html.contains(SLOT_MARK) {
-        return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(rendered.html))) }));
-      }
-      Ok(Chunk::Node(Node::Client { module, props, children: rendered_nodes(&rendered), ssr: None }))
+      Ok(Chunk::Node(Node::Client { module, props, children: rendered_nodes(&rendered), rendered: true }))
     }))
   }
 }

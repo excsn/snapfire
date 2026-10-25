@@ -27,7 +27,7 @@ export function decodeNode(row) {
                     props: decodeValue(body["p"]),
                     encoded: body["p"] ?? {},
                     children: (body["ch"] ?? []).map(decodeNode),
-                    ssr: body["s"] == null ? null : decodeNode(body["s"])
+                    rendered: body["r"] === true
                 };
             }
         case "p":

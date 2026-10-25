@@ -99,7 +99,7 @@ fn a_deferred_slot_streams_its_resolution_row() {
 
   let rows = collect(wire_stream(assembly));
   assert_eq!(rows.len(), 2);
-  assert!(rows[0].starts_with("V {\"fmt\":2,\"enc\":\"json\"}\nN "));
+  assert!(rows[0].starts_with("V {\"fmt\":3,\"enc\":\"json\"}\nN "));
   assert!(
     rows[0].contains("[\"p\",1,[\"r\",\"<skl></skl>\"]]"),
     "fallback rides inside Pending: {}",
@@ -214,7 +214,7 @@ fn html_stream_fills_late_slots_and_keeps_island_ids_unique() {
         module: ModuleId::new("components/Chart.tsx", "default"),
         props: ValueMap::default(),
         children: Vec::new(),
-        ssr: None,
+        rendered: false,
       }))]))
     }
   }
@@ -227,7 +227,7 @@ fn html_stream_fills_late_slots_and_keeps_island_ids_unique() {
           module: ModuleId::new("components/Nav.tsx", "default"),
           props: ValueMap::default(),
           children: Vec::new(),
-          ssr: None,
+          rendered: false,
         })),
         Ok(Chunk::Slot(SlotName("chart".into()))),
       ]))

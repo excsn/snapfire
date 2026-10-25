@@ -4053,10 +4053,10 @@ mod island_tests {
     assert_eq!(nodes.len(), 5, "{nodes:?}");
     assert_eq!(nodes[0], Node::raw("<main>before"));
     assert_eq!(nodes[1], Node::raw("<sf-s data-sf-island data-sf-region=\"|i9\" data-sf-when=\"visible\">"));
-    let Node::Client { module, props: island_props, ssr: Some(body), .. } = &nodes[2] else { panic!("{:?}", nodes[2]) };
+    let Node::Client { module, props: island_props, children, rendered: true } = &nodes[2] else { panic!("{:?}", nodes[2]) };
     assert_eq!(module.to_string(), "src/ui/Help.tsx#Help");
     assert_eq!(island_props.get("id"), Some(&Value::int(7i64)));
-    assert_eq!(**body, Node::raw("<p>help 7</p>"));
+    assert_eq!(children, &vec![Node::raw("<p>help 7</p>")]);
     assert_eq!(nodes[3], Node::raw("</sf-s>"));
     assert_eq!(nodes[4], Node::raw("after</main>"));
   }
@@ -4131,7 +4131,7 @@ mod island_tests {
   }
 
   #[test]
-  fn an_island_the_server_cannot_render_binds_with_no_ssr_and_its_children_as_nodes() {
+  fn an_island_the_server_cannot_render_binds_unrendered_with_its_children_as_nodes() {
     let mut library = Components::new();
     library.insert("src/ui/Body.tsx#Body".to_owned(), Arc::new(Component::new(crate::ast::Owner::React, Vec::new(), Tmpl::Text("body".to_owned()))));
     let page = Component::new(crate::ast::Owner::React, Vec::new(), Tmpl::Island { module: "src/ui/Shell.vue#default".to_owned(), props: Vec::new(), children: vec![island_at("src/ui/Body.tsx#Body", 3)], when: None, mode: None, id: 0, define: false });
@@ -4139,10 +4139,10 @@ mod island_tests {
     assert!(!rendered.islands[0].rendered, "the server had no body for the module");
     assert!(rendered.islands[0].body.islands[0].rendered, "the island among its children it rendered");
     let nodes = rendered_nodes(&rendered);
-    let Node::Client { module, ssr: None, children, .. } = &nodes[1] else { panic!("{:?}", nodes[1]) };
+    let Node::Client { module, rendered: false, children, .. } = &nodes[1] else { panic!("{:?}", nodes[1]) };
     assert_eq!(module.to_string(), "src/ui/Shell.vue#default");
     let nested = format!("{children:?}");
-    assert!(nested.contains("path: \"src/ui/Body.tsx\", export: \"Body\"") && nested.contains("ssr: Some"), "{nested}");
+    assert!(nested.contains("path: \"src/ui/Body.tsx\", export: \"Body\"") && nested.contains("rendered: true"), "{nested}");
   }
 }
 

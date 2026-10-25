@@ -165,8 +165,8 @@ impl TeraEvaluator {
     let client = Chunk::Node(Node::Client {
       module: island_module,
       props,
-      children: Vec::new(),
-      ssr: ssr.map(Box::new),
+      rendered: ssr.is_some(),
+      children: ssr.into_iter().collect(),
     });
     if when.is_none() && mode.is_none() && key.is_none() {
       return Ok(vec![client]);

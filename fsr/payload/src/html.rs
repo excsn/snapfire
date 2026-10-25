@@ -39,6 +39,14 @@ pub struct HtmlSession {
   placing: u32,
 }
 
+/// An island `HtmlSession::open_client` opened: its id and the island its placed content named before.
+#[derive(Debug)]
+#[must_use]
+pub struct OpenClient {
+  id: u32,
+  outer: Option<String>,
+}
+
 /// One `Node::Placed`'s content with the segment and island it was written in.
 struct Piece {
   segment: String,
@@ -118,32 +126,12 @@ impl HtmlSession {
           self.write(item, out);
         }
       }
-      Node::Client { module, props, children, ssr } => {
-        let id = self.next_island;
-        self.next_island += 1;
-        let rendered = if ssr.is_some() { " data-sf-ssr" } else { "" };
-        out.push_str(&format!("<sf-i id=\"sf-i{id}\" data-sf-module=\"{module}\"{rendered}>"));
-        match ssr {
-          Some(rendered) => {
-            let name = match props.get(REGION_KEY) {
-              Some(Value::Str(key)) => key.to_string(),
-              _ => format!("sf-i{id}"),
-            };
-            let outer = std::mem::replace(&mut self.island, name);
-            self.write(rendered, out);
-            self.island = outer;
-          }
-          None => {
-            for child in children {
-              self.write(child, out);
-            }
-          }
+      Node::Client { module, props, children, rendered } => {
+        let open = self.open_client(module, props, *rendered, out);
+        for child in children {
+          self.write(child, out);
         }
-        out.push_str("</sf-i>");
-        let props_json = script_safe_json(&value_to_json(&Value::Map(props.clone())));
-        out.push_str(&format!(
-          "<script type=\"application/json\" data-sf-props=\"sf-i{id}\">{props_json}</script>"
-        ));
+        self.close_client(open, props, out);
       }
       Node::Pending { slot, fallback } => {
         out.push_str(&format!("<div data-sf-slot=\"{}\">", slot.0));
@@ -191,15 +179,31 @@ impl HtmlSession {
 
   /// The open tag with a fresh island id and the close tag with the props
   /// script, for a caller that writes the island's children itself.
-  pub fn client_wrapper(&mut self, module: &ModuleId, props: &Props) -> (String, String) {
+  /// Writes an island's open tag with a fresh id and, for a rendered island, makes it the island its placed content names until `close_client`. A caller writing the children itself, as the segment writer does around a child segment, writes them between the two.
+  pub fn open_client(&mut self, module: &ModuleId, props: &Props, rendered: bool, out: &mut String) -> OpenClient {
     let id = self.next_island;
     self.next_island += 1;
-    let props_json = script_safe_json(&value_to_json(&Value::Map(props.clone())));
-    (
-      format!("<sf-i id=\"sf-i{id}\" data-sf-module=\"{module}\">"),
-      format!("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i{id}\">{props_json}</script>"),
-    )
+    let mark = if rendered { " data-sf-ssr" } else { "" };
+    out.push_str(&format!("<sf-i id=\"sf-i{id}\" data-sf-module=\"{module}\"{mark}>"));
+    let outer = rendered.then(|| {
+      let name = match props.get(REGION_KEY) {
+        Some(Value::Str(key)) => key.to_string(),
+        _ => format!("sf-i{id}"),
+      };
+      std::mem::replace(&mut self.island, name)
+    });
+    OpenClient { id, outer }
   }
+
+  /// Closes the island `open` opened and writes its props script.
+  pub fn close_client(&mut self, open: OpenClient, props: &Props, out: &mut String) {
+    if let Some(outer) = open.outer {
+      self.island = outer;
+    }
+    let props_json = script_safe_json(&value_to_json(&Value::Map(props.clone())));
+    out.push_str(&format!("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i{}\">{props_json}</script>", open.id));
+  }
+
 }
 
 fn attr(value: &str) -> String {

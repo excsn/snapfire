@@ -49,7 +49,7 @@ impl Evaluator for NullEvaluator {
       module: module.clone(),
       props: props.clone(),
       children: slot_regions(props),
-      ssr: None,
+      rendered: false,
     };
     Box::pin(stream::iter([Ok(Chunk::Node(node))]))
   }

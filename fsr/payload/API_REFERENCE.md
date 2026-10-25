@@ -14,6 +14,7 @@ The encodings of SnapFire FSR: the lossless JSON pair, the HTML serializer and t
   * [Typed Array Kinds](#typed-array-kinds)
 * [3. HTML Serialization](#3-html-serialization)
   * [HtmlSession](#htmlsession)
+  * [OpenClient](#openclient)
   * [html_serialize](#html_serialize)
   * [escape_key](#escape_key)
   * [Emitted Markup](#emitted-markup)
@@ -35,13 +36,13 @@ Modules: `html`, `json`, `rows`.
 
 The wire format announced in a response's `V` line.
 
-* `pub const FORMAT_VERSION: u32`, value `2`.
+* `pub const FORMAT_VERSION: u32`, value `3`.
 
 ### Re-exports
 
 Everything public is re-exported from the crate root.
 
-* `pub use html::{escape_key, html_serialize, HtmlSession};`
+* `pub use html::{escape_key, html_serialize, HtmlSession, OpenClient};`
 * `pub use json::{json_to_value, value_to_json, DecodeError};`
 * `pub use rows::{node_to_row_json, row_json_to_node, serialize_page};`
 
@@ -131,7 +132,8 @@ Holds the island id counter for one response, so ids stay unique across chunks t
 * `pub fn finish(&mut self, out: &mut String)`: writes the content placed at each named place into its outlet in `out`, the first outlet of that name when there are several. Content whose outlet `out` does not hold goes to `take_placed`, its runs opened with `data-sf-to="{name}"` for the browser to move into the place.
 * `pub fn enter_segment(&mut self, key: &str) -> String`: names the segment whose markup is written next, which marks the placed content written inside it. It returns the one it replaces.
 * `pub fn take_placed(&mut self) -> String`: the placed content written since the last take, for the caller to write after the document, where the parser puts it at the end of the body.
-* `pub fn client_wrapper(&mut self, module: &ModuleId, props: &Props) -> (String, String)`: the island's open tag with a fresh id and its close tag with the props script, for a caller that writes the island's children itself, the way the segment writer does around a child segment inside a layout.
+* `pub fn open_client(&mut self, module: &ModuleId, props: &Props, rendered: bool, out: &mut String) -> OpenClient`: writes the island's open tag with a fresh id, with `data-sf-ssr` when `rendered`, for a caller that writes the island's children itself, the way the segment writer does around a child segment inside a layout. A rendered island is the island its placed content names until `close_client`.
+* `pub fn close_client(&mut self, open: OpenClient, props: &Props, out: &mut String)`: writes the island's close tag and its props script.
 * Also implements `Default`; `new` and `Default::default` are the same thing.
 
 Constraints:
@@ -139,6 +141,10 @@ Constraints:
 * Ids are allocated in depth-first tree order, starting at `0` for a fresh session. They take the form `sf-i{n}`.
 * One session per response. Serializing two chunks of the same response through two sessions emits `sf-i0` twice.
 * The counter is `u32` and only increases; a session is never rewound.
+
+### OpenClient
+
+An island `open_client` opened, which `close_client` takes. It holds the island's id and the island placed content named before it. It has no public fields. It is `#[must_use]`, since an island opened and never closed leaves the session naming it.
 
 ### html_serialize
 
@@ -172,7 +178,7 @@ Placed content is written as runs: `<template data-sf-l="{segment key}" data-sf-
 
 Constraints on a `Node::Client`:
 
-* The body is the `ssr` tree when there is one, otherwise the children. When `ssr` is `Some`, the children are not emitted at all.
+* The body is the children. When `rendered` is true the open tag carries `data-sf-ssr` and content placed inside the children names the island.
 * The props script is always emitted, including for an empty props map, where the body is `{}`.
 * The props JSON is `value_to_json` over `Value::Map(props)` with every `<` replaced by the JSON escape `\u003c`, so no string can terminate the script element.
 * `module` is written into the attribute in its `Display` form, `path` then `#` then `export`, without attribute escaping.
@@ -198,7 +204,7 @@ Constraints:
 
 * The row must be a JSON array whose first element is a string naming a kind in [Node Row Kinds](#node-row-kinds).
 * In a `c` row, `m` must parse as `path#export` with both halves non-empty. `p` must be present and must decode to a `Value::Map`.
-* In a `c` row, `ch` is treated as empty when it is absent or not an array. `s` is treated as absent when it is missing or `null`.
+* In a `c` row, `ch` is treated as empty when it is absent or not an array. `r` is treated as `false` when it is missing or not a boolean.
 * In a `p` row, the slot id must be a JSON unsigned integer; it is narrowed to `u32` with an `as` cast.
 * A decoded `t` row produces an owned `Cow`, never a borrowed one.
 
@@ -210,7 +216,7 @@ The wire encoding of one complete page: a version line, then the tree line. Infa
 
 Constraints:
 
-* Emits exactly two lines, `V {"fmt":2,"enc":"json"}` and `N {tree row}`, each ending in `\n`.
+* Emits exactly two lines, `V {"fmt":3,"enc":"json"}` and `N {tree row}`, each ending in `\n`.
 * Emits no `G` line and no `S` line. A page with unresolved slots needs the streaming writer in `snapfire_fsr_runtime`.
 
 ### Node Row Kinds
@@ -220,7 +226,7 @@ Constraints:
 | `t` | `Node::Text` | `["t", text]` |
 | `r` | `Node::Raw` | `["r", html]` |
 | `q` | `Node::Seq` | `["q", [child rows]]` |
-| `c` | `Node::Client` | `["c", {"m": module id, "p": props, "ch": [child rows], "s": ssr row or null}]` |
+| `c` | `Node::Client` | `["c", {"m": module id, "p": props, "ch": [child rows], "r": rendered}]` |
 | `p` | `Node::Pending` | `["p", slot id, fallback row]` |
 | `l` | `Node::Placed` | `["l", target, [child rows]]`, the target `body` or `#` and a place name |
 | `o` | `Node::Outlet` | `["o", name]` |

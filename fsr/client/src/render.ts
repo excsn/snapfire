@@ -43,19 +43,8 @@ export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
       return node.html;
     case "seq":
       return node.children.map((c) => nodeToHtml(c, ids)).join("");
-    case "client": {
-      const id = `sf-c${ids.next++}`;
-      const outer = ids.island;
-      const key = node.props[REGION_KEY];
-      if (node.ssr) ids.island = typeof key === "string" ? key : id;
-      const inner = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c) => nodeToHtml(c, ids)).join("");
-      ids.island = outer;
-      const props = propsScript(node);
-      return (
-        `<sf-i id="${id}" data-sf-module="${node.module}"${node.ssr ? ` ${SSR_ATTR}` : ""}>${inner}</sf-i>` +
-        `<script type="application/json" data-sf-props="${id}">${props}</script>`
-      );
-    }
+    case "client":
+      return clientHtml(node, ids, (children) => children.map((c) => nodeToHtml(c, ids)).join(""));
     case "pending":
       return `<div data-sf-slot="${node.slot}">${nodeToHtml(node.fallback, ids)}</div>`;
     case "placed": {
@@ -102,6 +91,17 @@ export function renderSegment(node: SfNode, seg: Segment, ids: IdAlloc): string 
 }
 
 /** `node` with each positioned child segment wrapped at its path, descending through seq items and an island's children alike. */
+/** An island's marker around what `inner` writes of its children, then its props script. A rendered island is the island its placed content names while its children are written. */
+function clientHtml(node: Extract<SfNode, { kind: "client" }>, ids: IdAlloc, inner: (children: SfNode[]) => string): string {
+  const id = `sf-c${ids.next++}`;
+  const outer = ids.island;
+  const key = node.props[REGION_KEY];
+  if (node.rendered) ids.island = typeof key === "string" ? key : id;
+  const html = inner(node.children);
+  ids.island = outer;
+  return `<sf-i id="${id}" data-sf-module="${node.module}"${node.rendered ? ` ${SSR_ATTR}` : ""}>${html}</sf-i><script type="application/json" data-sf-props="${id}">${propsScript(node)}</script>`;
+}
+
 function renderPositioned(node: SfNode, positioned: { path: number[]; seg: Segment }[], ids: IdAlloc): string {
   if (positioned.length === 0) return nodeToHtml(node, ids);
   const items = (children: SfNode[]): string =>
@@ -113,10 +113,7 @@ function renderPositioned(node: SfNode, positioned: { path: number[]; seg: Segme
       })
       .join("");
   if (node.kind === "seq") return items(node.children);
-  if (node.kind === "client" && !node.ssr) {
-    const id = `sf-c${ids.next++}`;
-    return `<sf-i id="${id}" data-sf-module="${node.module}">${items(node.children)}</sf-i><script type="application/json" data-sf-props="${id}">${propsScript(node)}</script>`;
-  }
+  if (node.kind === "client") return clientHtml(node, ids, items);
   return nodeToHtml(node, ids);
 }
 
@@ -142,7 +139,7 @@ export const CHILDREN_ATTR = "data-sf-children";
 /** The markup of an island's children region: the `<sf-s data-sf-children>` in its own markup that is not inside an island nested in it. Null for a node that is not an island or holds no such region. */
 export function childrenOf(node: SfNode, ids: IdAlloc): string | null {
   if (node.kind !== "client") return null;
-  const html = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c) => nodeToHtml(c, ids)).join("");
+  const html = node.children.map((c) => nodeToHtml(c, ids)).join("");
   if (!html.includes(CHILDREN_ATTR)) return null;
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -156,7 +153,7 @@ export const MARKUP_ATTR = "data-sf-m";
 /** The markup of each markup prop region in an island's own markup, by region number: the `<sf-s data-sf-m>` its render placed, else the `<template data-sf-m>` the server held it in, neither inside an island nested in it. Null for a node that is not an island or holds none. */
 export function markupOf(node: SfNode, ids: IdAlloc): { [n: string]: string } | null {
   if (node.kind !== "client") return null;
-  const html = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c) => nodeToHtml(c, ids)).join("");
+  const html = node.children.map((c) => nodeToHtml(c, ids)).join("");
   if (!html.includes(MARKUP_ATTR)) return null;
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -190,8 +187,7 @@ export function regionSources(node: SfNode, ids: IdAlloc): Map<string, RegionSou
     }
   };
   if (node.kind === "client") {
-    if (node.ssr) walk(node.ssr);
-    else node.children.forEach(walk);
+    node.children.forEach(walk);
     return out;
   }
   walk(node);

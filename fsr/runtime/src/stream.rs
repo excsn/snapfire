@@ -286,16 +286,10 @@ fn write_positioned(session: &mut HtmlSession, node: &Node, positioned: &[(&[u32
   };
   match node {
     Node::Seq(items) => write_items(session, items, out),
-    Node::Client {
-      module,
-      props,
-      children,
-      ssr: None,
-    } => {
-      let (open, close) = session.client_wrapper(module, props);
-      out.push_str(&open);
+    Node::Client { module, props, children, rendered } => {
+      let open = session.open_client(module, props, *rendered, out);
       write_items(session, children, out);
-      out.push_str(&close);
+      session.close_client(open, props, out);
     }
     _ => session.write_into(node, out),
   }
@@ -421,7 +415,7 @@ fn node_at<'a>(node: &'a Node, path: &[u32]) -> Option<&'a Node> {
   let Some((&first, rest)) = path.split_first() else { return Some(node) };
   let items = match node {
     Node::Seq(items) => items,
-    Node::Client { children, ssr: None, .. } => children,
+    Node::Client { children, .. } => children,
     _ => return None,
   };
   node_at(items.get(first as usize)?, rest)
@@ -459,12 +453,7 @@ fn fill(node: &mut Node, fills: &HashMap<u32, Node>) {
       }
     }
     Node::Seq(items) => items.iter_mut().for_each(|item| fill(item, fills)),
-    Node::Client { children, ssr, .. } => {
-      children.iter_mut().for_each(|child| fill(child, fills));
-      if let Some(ssr) = ssr {
-        fill(ssr, fills);
-      }
-    }
+    Node::Client { children, .. } => children.iter_mut().for_each(|child| fill(child, fills)),
     Node::Placed { nodes, .. } => nodes.iter_mut().for_each(|node| fill(node, fills)),
     Node::Text(_) | Node::Raw(_) | Node::Slot(_) | Node::Outlet(_) => {}
   }

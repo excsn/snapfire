@@ -368,7 +368,7 @@ let mut evaluators = Evaluators::new();
 evaluators.register(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())));
 ```
 
-A module no rule matches goes to `NullEvaluator`, which emits `Node::Client { module, props, children: [], ssr: None }`: the browser mounts it and the props ride along. Registering nothing at all is therefore a working configuration and it is the one where the server runs no JavaScript.
+A module no rule matches goes to `NullEvaluator`, which emits `Node::Client { module, props, children: [], rendered: false }`: the browser mounts it and the props ride along. Registering nothing at all is therefore a working configuration and it is the one where the server runs no JavaScript.
 
 The props an evaluator sees are the node's loaded data with three request keys written over the top, in this order:
 

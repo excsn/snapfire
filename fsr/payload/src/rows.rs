@@ -16,13 +16,13 @@ pub fn node_to_row_json(node: &Node) -> Json {
       let children: Vec<Json> = items.iter().map(node_to_row_json).collect();
       json!(["q", children])
     }
-    Node::Client { module, props, children, ssr } => {
+    Node::Client { module, props, children, rendered } => {
       let ch: Vec<Json> = children.iter().map(node_to_row_json).collect();
       json!(["c", {
         "m": module.to_string(),
         "p": value_to_json(&Value::Map(props.clone())),
         "ch": ch,
-        "s": ssr.as_ref().map(|n| node_to_row_json(n)),
+        "r": rendered,
       }])
     }
     Node::Pending { slot, fallback } => json!(["p", slot.0, node_to_row_json(fallback)]),
@@ -64,11 +64,8 @@ pub fn row_json_to_node(json: &Json) -> Result<Node, DecodeError> {
           children.push(row_json_to_node(item)?);
         }
       }
-      let ssr = match body.get("s") {
-        None | Some(Json::Null) => None,
-        Some(v) => Some(Box::new(row_json_to_node(v)?)),
-      };
-      Ok(Node::Client { module, props, children, ssr })
+      let rendered = body.get("r").and_then(Json::as_bool).unwrap_or(false);
+      Ok(Node::Client { module, props, children, rendered })
     }
     "p" => {
       let slot = row.get(1).and_then(Json::as_u64).ok_or_else(|| err("`p` row needs a slot id"))?;

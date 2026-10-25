@@ -39,7 +39,7 @@ How to encode SnapFire FSR values and payload trees, what every tag on the wire 
 * **Row**: the wire encoding of one node, a JSON array whose first element is a one-letter kind.
 * **Wire response**: newline-terminated rows, one per line, each line a one-letter row tag then a space then JSON.
 * **HtmlSession**: the counter that hands out island ids, held across every chunk of one response so no two islands collide.
-* **FORMAT_VERSION**: the integer announced in the `V` row, currently `2`.
+* **FORMAT_VERSION**: the integer announced in the `V` row, currently `3`.
 * **Fingerprint**: `snapfire_fsr_core`'s canonical hash, which is how the round trip tests compare a value with its decoded self.
 
 ## Quick Start
@@ -78,7 +78,7 @@ let page = Node::Seq(vec![
     module: ModuleId::new("components/ServerChart.tsx", "default"),
     props,
     children: Vec::new(),
-    ssr: None,
+    rendered: false,
   },
   Node::raw("</main>"),
 ]);
@@ -316,7 +316,7 @@ let node = Node::Seq(vec![Node::text("a < b & c > d")]);
 assert_eq!(html_serialize(&node), "a &lt; b &amp; c &gt; d");
 ```
 
-A `Node::Client` becomes an `<sf-i>` element carrying its id and module, then a sibling script holding the props. Inside the element go the server-rendered `ssr` tree when there is one, otherwise the children.
+A `Node::Client` becomes an `<sf-i>` element carrying its id and module, then a sibling script holding the props. Inside the element go the children. A node the server rendered, `rendered: true`, carries `data-sf-ssr` so the browser hydrates it rather than mounting it.
 
 ```rust
 use snapfire_fsr_core::{ModuleId, Node, ValueMap};
@@ -325,11 +325,11 @@ use snapfire_fsr_payload::html_serialize;
 let node = Node::Client {
   module: ModuleId::new("components/X.tsx", "default"),
   props: ValueMap::new(),
-  children: Vec::new(),
-  ssr: Some(Box::new(Node::raw("<svg></svg>"))),
+  children: vec![Node::raw("<svg></svg>")],
+  rendered: true,
 };
 assert!(html_serialize(&node).starts_with(
-  "<sf-i id=\"sf-i0\" data-sf-module=\"components/X.tsx#default\"><svg></svg></sf-i>"
+  "<sf-i id=\"sf-i0\" data-sf-module=\"components/X.tsx#default\" data-sf-ssr><svg></svg></sf-i>"
 ));
 ```
 
@@ -345,7 +345,7 @@ let node = Node::Client {
   module: ModuleId::new("components/X.tsx", "default"),
   props,
   children: Vec::new(),
-  ssr: None,
+  rendered: false,
 };
 
 let html = html_serialize(&node);
@@ -376,7 +376,7 @@ let island = |name: &str| Node::Client {
   module: ModuleId::new(format!("components/{name}.tsx"), "default"),
   props: ValueMap::new(),
   children: Vec::new(),
-  ssr: None,
+  rendered: false,
 };
 
 let html = html_serialize(&Node::Seq(vec![island("A"), island("B")]));
@@ -403,10 +403,10 @@ let later = session.serialize(&resolved_slot_tree);
 | `t` | `Node::Text` | `["t", "the text"]` |
 | `r` | `Node::Raw` | `["r", "<main>"]` |
 | `q` | `Node::Seq` | `["q", [ ...child rows ]]` |
-| `c` | `Node::Client` | `["c", {"m": "path#export", "p": {...props}, "ch": [ ...child rows ], "s": null}]` |
+| `c` | `Node::Client` | `["c", {"m": "path#export", "p": {...props}, "ch": [ ...child rows ], "r": false}]` |
 | `p` | `Node::Pending` | `["p", 1, ...fallback row]` |
 
-A `c` row carries the module id in its `Display` form, path then `#` then export. Its `p` field is the props map through `value_to_json`, so every tag above can appear inside it. Its `ch` field is the children; its `s` field is the server-rendered tree or `null`.
+A `c` row carries the module id in its `Display` form, path then `#` then export. Its `p` field is the props map through `value_to_json`, so every tag above can appear inside it. Its `ch` field is the children; its `r` field says whether the server rendered them.
 
 ```rust
 use snapfire_fsr_core::{ModuleId, Node, ValueMap};
@@ -416,7 +416,7 @@ let node = Node::Client {
   module: ModuleId::new("components/ServerChart.tsx", "default"),
   props: ValueMap::new(),
   children: vec![Node::text("chart caption")],
-  ssr: None,
+  rendered: false,
 };
 
 assert_eq!(
@@ -450,8 +450,8 @@ let page = Node::Seq(vec![
   Node::Client {
     module: ModuleId::new("components/ServerChart.tsx", "default"),
     props,
-    children: vec![Node::text("chart caption")],
-    ssr: Some(Box::new(Node::raw("<svg></svg>"))),
+    children: vec![Node::raw("<svg></svg>")],
+    rendered: true,
   },
   Node::Pending { slot: SlotId(1), fallback: Box::new(Node::raw("<div class=skl></div>")) },
   Node::raw("</main>"),
@@ -463,7 +463,7 @@ let decoded = row_json_to_node(&reparsed).unwrap();
 assert_eq!(page.fingerprint(), decoded.fingerprint());
 ```
 
-Decoding a `c` row is the strict part: `m` must parse as `path#export`, `p` must be present and must decode to a map, `ch` is treated as empty when absent and `s` is treated as absent when it is missing or `null`.
+Decoding a `c` row is the strict part: `m` must parse as `path#export`, `p` must be present and must decode to a map, `ch` is treated as empty when absent and `r` is treated as `false` when it is missing.
 
 ## Streaming Slot Resolutions
 

@@ -50,11 +50,11 @@ fn head_slot_fills_from_the_runtime_and_unknown_modules_fall_to_null() {
   };
   assert_eq!(parts[0], Node::raw("<before>"));
   assert_eq!(parts[1], Node::raw("<title>t</title>"));
-  let Node::Client { module, props, ssr, .. } = &parts[2] else {
+  let Node::Client { module, props, rendered, .. } = &parts[2] else {
     panic!("the .tsx child fell through to the null evaluator")
   };
   assert_eq!(module.path, "components/App.tsx");
-  assert!(ssr.is_none());
+  assert!(!rendered);
   assert!(
     matches!(props["params"], Value::Map(_)),
     "null evaluator receives the merged props"

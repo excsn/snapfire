@@ -41,7 +41,7 @@ This guide covers building values in the FSR value model, assembling a payload `
 * **Ref** - `Value::Ref`, a closed pair of kind and id. `RefKind::Action` names a server action, `RefKind::Module` names a client module.
 * **`Node`** - The payload tree, what a response renders to. Its variants are `Text`, `Raw`, `Seq`, `Client`, `Pending`, `Slot`, `Placed` and `Outlet`.
 * **`Html`** - A newtype over `String` holding trusted markup. It is serialized without escaping, so nothing untrusted may be put inside it.
-* **Island** - A `Node::Client`, a hydratable component named by `ModuleId` and carrying its props. `ssr` holds the evaluator's output when one ran.
+* **Island** - A `Node::Client`, a hydratable component named by `ModuleId` and carrying its props and its markup. `rendered` says whether an evaluator rendered that markup.
 * **Slot** - A hole in the payload. `Node::Pending` carries a `SlotId` and an inline fallback; a later stream row fills it.
 * **`PlanNode`** - The render plan, a tree naming a module, an optional data source and named child slots, decided before any data is loaded.
 * **Deferral** - `PlanNode::deferred`, declared in the plan rather than discovered mid-render, which is what makes streaming plannable.
@@ -66,7 +66,7 @@ fn chart_island(series: Vec<f64>) -> Node {
     module: ModuleId::new("components/ServerChart.tsx", "default"),
     props,
     children: Vec::new(),
-    ssr: None,
+    rendered: false,
   }
 }
 
@@ -289,7 +289,7 @@ let both = Node::Seq(vec![markup, text]);
 
 ### Passing Props into an Island
 
-`Node::Client` names the module, carries the props, carries server content as `children` and holds the evaluator's rendered output in `ssr`. Under the null evaluator `ssr` is `None` and the browser renders the component itself.
+`Node::Client` names the module, carries the props and carries its markup as `children`. When an evaluator rendered that markup, `rendered` is true and the browser hydrates it. Under the null evaluator `rendered` is false and the browser renders the component itself.
 
 ```rust
 use snapfire_fsr_core::{ModuleId, Node, TypedArray, Value, ValueMap};
@@ -301,7 +301,7 @@ let island = Node::Client {
   module: ModuleId::new("components/ServerChart.tsx", "default"),
   props,
   children: vec![Node::raw("<p>No data yet</p>")],
-  ssr: None,
+  rendered: false,
 };
 ```
 

@@ -306,7 +306,7 @@ One node of the payload tree, discriminated by `kind`.
 * `{ kind: "text"; text: string }`
 * `{ kind: "raw"; html: string }`
 * `{ kind: "seq"; children: SfNode[] }`
-* `{ kind: "client"; module: string; props: { [key: string]: SfValue }; encoded?: unknown; children: SfNode[]; ssr: SfNode | null }`, where `encoded` is the props as the payload carried them, before decoding
+* `{ kind: "client"; module: string; props: { [key: string]: SfValue }; encoded?: unknown; children: SfNode[]; rendered: boolean }`, where `encoded` is the props as the payload carried them, before decoding, `children` is the island's markup and `rendered` says whether the server rendered it
 * `{ kind: "pending"; slot: number; fallback: SfNode }`
 * `{ kind: "placed"; target: string; children: SfNode[] }`: content written at `target`, `body` for the end of the body, rather than in place
 
@@ -397,7 +397,7 @@ Turning decoded nodes back into the markup the boot runtime and the navigator ex
 
 * `nodeToHtml(node: SfNode, ids: { next: number }): string`
 
-Serialises a node tree. Text has `&`, `<` and `>` escaped; `raw` is emitted verbatim; a `client` node becomes an `<sf-i>` marker plus a sibling `<script type="application/json" data-sf-props="…">`, rendering `ssr` when present and its `children` otherwise; a `pending` node becomes `<div data-sf-slot="N">` around its fallback; a `placed` node becomes `<template data-sf-placed="KEY" data-sf-island="NAME">` around its children, naming the segment and the island being rendered, which the navigator moves to the end of the body when it writes the markup.
+Serialises a node tree. Text has `&`, `<` and `>` escaped; `raw` is emitted verbatim; a `client` node becomes an `<sf-i>` marker, with `data-sf-ssr` when `rendered`, around its `children` plus a sibling `<script type="application/json" data-sf-props="…">`; a `pending` node becomes `<div data-sf-slot="N">` around its fallback; a `placed` node becomes `<template data-sf-placed="KEY" data-sf-island="NAME">` around its children, naming the segment and the island being rendered, which the navigator moves to the end of the body when it writes the markup.
 
 The allocator is mutated in place, one increment per island. Ids are `sf-c0`, `sf-c1` and upward, a prefix that cannot collide with the server's `sf-i` sequence, so one allocator must be shared by every call contributing to the same document. Props JSON has every `<` escaped to the JSON escape `\u003c`, so the payload can never terminate the script tag.
 

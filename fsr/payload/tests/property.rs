@@ -89,8 +89,8 @@ fn node() -> BoxedStrategy<Node> {
     .prop_recursive(3, 20, 3, |inner| {
       prop_oneof![
         prop::collection::vec(inner.clone(), 0..3).prop_map(Node::Seq),
-        (prop::collection::vec((text(), value()), 0..3), prop::collection::vec(inner.clone(), 0..2), prop::option::of(inner.clone()))
-          .prop_map(|(props, children, ssr)| {
+        (prop::collection::vec((text(), value()), 0..3), prop::collection::vec(inner.clone(), 0..2), any::<bool>())
+          .prop_map(|(props, children, rendered)| {
             let mut map = ValueMap::default();
             for (k, v) in props {
               map.insert(k, v);
@@ -99,7 +99,7 @@ fn node() -> BoxedStrategy<Node> {
               module: ModuleId::new("m.tsx", "default"),
               props: map,
               children,
-              ssr: ssr.map(Box::new),
+              rendered,
             }
           }),
         (any::<u32>(), inner.clone()).prop_map(|(slot, fallback)| Node::Pending {

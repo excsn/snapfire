@@ -5066,6 +5066,58 @@ fn a_lowered_island_step_refuses_a_slot_rather_than_answering_it_empty() {
   assert!(json["message"].as_str().unwrap_or("").contains("renders the slot `content`"), "{json}");
 }
 
+fn evaluated(evaluator: &snapfire_fsr_ir::IrEvaluator, module: &str, props: ValueMap) -> String {
+  use futures::StreamExt;
+  use snapfire_fsr_runtime::{Chunk, Evaluator};
+  let module: snapfire_fsr_core::ModuleId = module.parse().unwrap();
+  let chunks: Vec<_> = futures::executor::block_on(evaluator.evaluate(&module, &props).collect());
+  let nodes: Vec<snapfire_fsr_core::Node> = chunks
+    .into_iter()
+    .map(|chunk| match chunk {
+      Ok(Chunk::Node(node)) => node,
+      other => panic!("{other:?}"),
+    })
+    .collect();
+  snapfire_fsr_payload::html_serialize(&snapfire_fsr_core::Node::Seq(nodes))
+}
+
+fn framed(children: Vec<snapfire_fsr_ir::Tmpl>) -> snapfire_fsr_ir::Component {
+  snapfire_fsr_ir::Component {
+    body: Vec::new(),
+    render: snapfire_fsr_ir::Tmpl::Element { tag: "section".to_owned(), attrs: Vec::new(), children },
+    state: Vec::new(),
+    stores: Vec::new(),
+    handlers: Vec::new(),
+    owner: snapfire_fsr_ir::Owner::React,
+    shadow: None, scope: None,
+  }
+}
+
+#[test]
+fn a_root_the_server_rendered_around_a_slot_is_marked_rendered() {
+  use snapfire_fsr_ir::{IrEvaluator, Tmpl};
+  let layout = framed(vec![Tmpl::Element { tag: "button".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Text("menu".to_owned())] }, Tmpl::Slot("content".to_owned())]);
+  let evaluator = IrEvaluator::new([("routes/layout.tsx#default".to_owned(), layout)]);
+  let mut props = ValueMap::default();
+  props.insert("$slots".to_owned(), Value::seq(vec![Value::str("content")]));
+  let html = evaluated(&evaluator, "routes/layout.tsx#default", props);
+  assert!(html.contains("data-sf-module=\"routes/layout.tsx#default\" data-sf-ssr>"), "{html}");
+  assert!(html.contains("<button>menu</button>"), "{html}");
+}
+
+#[test]
+fn a_root_whose_render_the_server_could_not_finish_is_left_to_the_browser() {
+  use snapfire_fsr_ir::{IrEvaluator, Tmpl};
+  let layout = framed(vec![Tmpl::Component { module: "src/Unlowered.tsx#Unlowered".to_owned(), props: Vec::new(), children: Vec::new(), id: 1, keyed: false }, Tmpl::Slot("content".to_owned())]);
+  let evaluator = IrEvaluator::new([("routes/layout.tsx#default".to_owned(), layout)]);
+  let mut props = ValueMap::default();
+  props.insert("$slots".to_owned(), Value::seq(vec![Value::str("content")]));
+  let html = evaluated(&evaluator, "routes/layout.tsx#default", props);
+  assert!(html.contains("data-sf-module=\"routes/layout.tsx#default\">"), "{html}");
+  assert!(!html.contains("data-sf-ssr"), "{html}");
+  assert!(html.contains("<sf-s>"), "the slot region is still offered: {html}");
+}
+
 /// A handler lowered with a branch: the key it sets under the branch keeps
 /// the state where the branch did not run and the action inside it is
 /// dispatched only where it did.

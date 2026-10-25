@@ -163,7 +163,7 @@ One node of the payload tree.
 * `Text(std::borrow::Cow<'static, str>)` - escaped by the HTML encoding, not here.
 * `Raw(Html)` - emitted verbatim.
 * `Seq(Vec<Node>)`
-* `Client { module: ModuleId, props: Props, children: Vec<Node>, ssr: Option<Box<Node>> }` - `props` holds values only; content passed into the component goes in `children`. `ssr` is the evaluator's rendered output, `None` under the null evaluator.
+* `Client { module: ModuleId, props: Props, children: Vec<Node>, rendered: bool }` - `props` holds values only. `children` is the island's markup: what the evaluator rendered when `rendered` is true, else the regions it offers the browser, such as the content passed into the component. `rendered` is false under the null evaluator.
 * `Pending { slot: SlotId, fallback: Box<Node> }` - the fallback is carried inline, so the first response is complete without the resolution row.
 * `Slot(SlotName)` - where a child segment goes inside an island's own markup, a layout's `children`. The assembler replaces it with the child's node; a serializer never sees one and writes nothing for it if it does.
 * `Placed { target: Place, nodes: Vec<Node> }` - content written at `target` rather than where the node sits, such as a modal at the end of the body. Where it sits names the segment that owns it, so a navigation that replaces the segment removes it.
@@ -270,7 +270,7 @@ Canonical rules, each of which a caller can violate silently by assuming otherwi
 * **`UInt` normalizes on the way into the hash.** A `UInt` whose value fits `i128` produces the byte string of its `Int` form, so a value that skipped `Value::uint` still matches one that did not.
 * **Lengths are prefixed.** Every string, byte string, sequence, map and typed array writes its length as an 8-byte little-endian `u64` first, so no re-cutting of the same bytes across a boundary collides.
 * **Every variant carries a distinct type tag.** `Str` and `Bytes` of the same bytes never collide; nor do a `TypedArray` and a `Seq` of the same numbers; nor an `Int` and an `F64` of the same magnitude; nor the two `RefKind`s under one id.
-* **Optional fields write a presence byte**, so an absent `Variant` payload differs from a `Null` one; an absent `ssr`, `data_source`, `fallback`, `error` or `cache_key` differs from a present one.
+* **Optional fields write a presence byte**, so an absent `Variant` payload differs from a `Null` one; an absent `data_source`, `fallback`, `error` or `cache_key` differs from a present one.
 * **`Value::Map` and `ValueMap` do not agree.** `Value::Map(m).fingerprint()` writes the `Map` type tag before the entries; `m.fingerprint()` writes the entries alone. Choose one form per key and stay with it.
 * **`PlanNode` and `ValueMap` write no leading type tag**, unlike `Value` and `Node`, whose byte strings always open with one.
 * **`NodeId` is inside a plan's digest** and `SlotId` is inside a `Pending` node's digest, so renumbering changes a fingerprint even when nothing else did.

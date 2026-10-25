@@ -19,8 +19,10 @@ pub enum Node {
   Client {
     module: ModuleId,
     props: Props,
+    /// The island's markup: what the server rendered when `rendered`, else the regions it offers the browser.
     children: Vec<Node>,
-    ssr: Option<Box<Node>>,
+    /// Whether the server rendered the island's markup, which the browser then hydrates rather than mounts.
+    rendered: bool,
   },
   Pending {
     slot: SlotId,

@@ -1031,7 +1031,7 @@ impl Session {
           module,
           props,
           children,
-          ssr,
+          rendered,
         } => {
           let mut out = Vec::with_capacity(children.len());
           for (i, item) in children.into_iter().enumerate() {
@@ -1048,7 +1048,7 @@ impl Session {
               module,
               props,
               children: out,
-              ssr,
+              rendered,
             },
             used_head,
           ))

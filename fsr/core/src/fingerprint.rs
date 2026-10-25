@@ -184,7 +184,7 @@ impl Fingerprint for Node {
           item.write_canonical(h);
         }
       }
-      Node::Client { module, props, children, ssr } => {
+      Node::Client { module, props, children, rendered } => {
         h.update(&[3]);
         write_str(h, &module.path);
         write_str(h, &module.export);
@@ -193,13 +193,7 @@ impl Fingerprint for Node {
         for child in children {
           child.write_canonical(h);
         }
-        match ssr {
-          None => h.update(&[0]),
-          Some(n) => {
-            h.update(&[1]);
-            n.write_canonical(h);
-          }
-        }
+        h.update(&[u8::from(*rendered)]);
       }
       Node::Pending { slot, fallback } => {
         h.update(&[4]);

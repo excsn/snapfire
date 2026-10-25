@@ -10,7 +10,7 @@ fn walked_page() -> Node {
       module: ModuleId::new("components/ServerChart.tsx", "default"),
       props,
       children: Vec::new(),
-      ssr: None,
+      rendered: false,
     },
     Node::raw("</main>"),
   ])
@@ -21,8 +21,8 @@ const SERIES_B64: &str = "AAAAAAAA8D8AAAAAAAAEQAAAAAAAAAhA";
 #[test]
 fn wire_rows_are_stable() {
   let expected = format!(
-    "V {{\"fmt\":2,\"enc\":\"json\"}}\n\
-     N [\"q\",[[\"r\",\"<main><h1>Servers</h1>\"],[\"c\",{{\"m\":\"components/ServerChart.tsx#default\",\"p\":{{\"series\":{{\"$\":\"ta\",\"k\":\"f64\",\"v\":\"{SERIES_B64}\"}}}},\"ch\":[],\"s\":null}}],[\"r\",\"</main>\"]]]\n"
+    "V {{\"fmt\":3,\"enc\":\"json\"}}\n\
+     N [\"q\",[[\"r\",\"<main><h1>Servers</h1>\"],[\"c\",{{\"m\":\"components/ServerChart.tsx#default\",\"p\":{{\"series\":{{\"$\":\"ta\",\"k\":\"f64\",\"v\":\"{SERIES_B64}\"}}}},\"ch\":[],\"r\":false}}],[\"r\",\"</main>\"]]]\n"
   );
   assert_eq!(serialize_page(&walked_page()), expected);
 }
@@ -52,7 +52,7 @@ fn string_props_cannot_break_out_of_the_script_tag() {
     module: ModuleId::new("components/X.tsx", "default"),
     props,
     children: Vec::new(),
-    ssr: None,
+    rendered: false,
   };
   let html = html_serialize(&node);
   let after_open = html.split_once("data-sf-props=\"sf-i0\">").unwrap().1;
@@ -61,12 +61,12 @@ fn string_props_cannot_break_out_of_the_script_tag() {
 }
 
 #[test]
-fn ssr_content_renders_inside_the_island_marker() {
+fn rendered_content_renders_inside_the_island_marker() {
   let node = Node::Client {
     module: ModuleId::new("components/X.tsx", "default"),
     props: ValueMap::default(),
-    children: Vec::new(),
-    ssr: Some(Box::new(Node::raw("<svg></svg>"))),
+    children: vec![Node::raw("<svg></svg>")],
+    rendered: true,
   };
   assert!(html_serialize(&node).starts_with(
     "<sf-i id=\"sf-i0\" data-sf-module=\"components/X.tsx#default\" data-sf-ssr><svg></svg></sf-i>"
@@ -85,7 +85,7 @@ fn island_ids_allocate_in_tree_order() {
     module: ModuleId::new(format!("components/{name}.tsx"), "default"),
     props: ValueMap::default(),
     children: Vec::new(),
-    ssr: None,
+    rendered: false,
   };
   let html = html_serialize(&Node::Seq(vec![island("A"), island("B")]));
   let a = html.find("sf-i0").unwrap();
@@ -96,7 +96,7 @@ fn island_ids_allocate_in_tree_order() {
 
 #[test]
 fn placed_content_follows_the_tree_where_the_parser_puts_it_at_the_end_of_the_body() {
-  let island = Node::Client { module: ModuleId::new("components/M.tsx", "default"), props: ValueMap::default(), children: Vec::new(), ssr: Some(Box::new(Node::raw("<b>m</b>"))) };
+  let island = Node::Client { module: ModuleId::new("components/M.tsx", "default"), props: ValueMap::default(), children: vec![Node::raw("<b>m</b>")], rendered: true };
   let node = Node::Seq(vec![
     Node::raw("<main>"),
     Node::Placed { target: Place::Body, nodes: vec![Node::raw("<dialog>"), island, Node::raw("</dialog>")] },
@@ -117,7 +117,7 @@ fn an_islands_placed_content_is_one_run_naming_the_island_by_its_region_key_or_e
     if let Some(key) = key {
       props.insert("$k".to_owned(), Value::str(key));
     }
-    Node::Client { module: ModuleId::new("components/V.vue", "default"), props, children: Vec::new(), ssr: Some(Box::new(Node::Seq(nodes))) }
+    Node::Client { module: ModuleId::new("components/V.vue", "default"), props, children: vec![Node::Seq(nodes)], rendered: true }
   };
   let node = Node::Seq(vec![island(None, vec![Node::raw("<button>a</button>"), placed("one"), Node::raw("<hr>"), placed("two")]), island(Some("routes/page.tsx#default/2"), vec![placed("three")])]);
   let html = html_serialize(&node);
@@ -157,7 +157,7 @@ fn content_whose_place_the_tree_lacks_is_written_after_the_document_naming_its_p
 
 #[test]
 fn each_islands_runs_at_a_named_place_keep_their_island_and_their_order() {
-  let island = |nodes: Vec<Node>| Node::Client { module: ModuleId::new("components/V.vue", "default"), props: ValueMap::default(), children: Vec::new(), ssr: Some(Box::new(Node::Seq(nodes))) };
+  let island = |nodes: Vec<Node>| Node::Client { module: ModuleId::new("components/V.vue", "default"), props: ValueMap::default(), children: vec![Node::Seq(nodes)], rendered: true };
   let node = Node::Seq(vec![island(vec![named("a")]), outlet(), island(vec![named("b"), named("c")])]);
   let html = html_serialize(&node);
   let inside = html.split_once("<div id=\"modals\">").unwrap().1.split_once("</div>").unwrap().0;

@@ -11,7 +11,7 @@ fn chart_island(series: Vec<f64>) -> Node {
     module: ModuleId::new("components/ServerChart.tsx", "default"),
     props,
     children: Vec::new(),
-    ssr: None,
+    rendered: false,
   }
 }
 
@@ -73,10 +73,10 @@ fn island_props_survive_as_structure() {
   let page = walked_page();
   let Node::Seq(top) = &page else { panic!("walked page is a Seq") };
   let Node::Seq(content) = &top[1] else { panic!("content is a Seq") };
-  let Node::Client { module, props, ssr, .. } = &content[1] else { panic!("island is a Client node") };
+  let Node::Client { module, props, rendered, .. } = &content[1] else { panic!("island is a Client node") };
   assert_eq!(module.to_string(), "components/ServerChart.tsx#default");
   assert!(matches!(props["series"], Value::TypedArray(TypedArray::F64(_))));
-  assert!(ssr.is_none(), "null evaluator leaves ssr empty");
+  assert!(!rendered, "the null evaluator renders nothing");
 }
 
 #[test]
