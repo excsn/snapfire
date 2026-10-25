@@ -2385,7 +2385,7 @@ import type { Config } from "./host";
 const written = typeof document === "undefined" ? null : document.getElementById("sf-config");
 
 /** `[public]` from the deployment's configuration, the same on every request. */
-export const config = (written?.textContent ? decodeValue(JSON.parse(written.textContent)) : {}) as Config;
+export const config = (written?.textContent ? decodeValue(JSON.parse(written.textContent)) : {}) as unknown as Config;
 "#;
 
 fn config_module(config: &[(String, infer::Ts)]) -> String {
