@@ -56,7 +56,8 @@ fn facade(std_ts: &str, side: Side, module: &str, names: &[&str], beside: bool) 
   let std_js = if beside { "./std.js" } else { "../std.js" };
   let mut out = String::from(HEADER);
   let object = if module == "i18n" { "t as translate" } else { module };
-  if names.iter().any(|name| doc(std_ts, module, name).is_some()) {
+  let in_object = module == "i18n" || std_ts.contains(&format!("export const {module} = {{"));
+  if in_object && names.iter().any(|name| doc(std_ts, module, name).is_some()) {
     out.push_str(&format!("import {{ {object} }} from \"{std_js}\";\n"));
   }
   let types = types_of(module);
@@ -68,15 +69,16 @@ fn facade(std_ts: &str, side: Side, module: &str, names: &[&str], beside: bool) 
   }
   for name in names {
     let Some(doc) = doc(std_ts, module, name) else { continue };
+    if !in_object {
+      out.push_str(&format!("\n/** {doc} {} */\nexport {{ {name} }} from \"{std_js}\";\n", runs(side, module, name)));
+      continue;
+    }
     let source = if module == "i18n" { "translate".to_owned() } else { format!("{module}.{name}") };
     let ty = if module == "i18n" { "typeof translate".to_owned() } else { format!("typeof {module}.{name}") };
     match RESERVED.contains(name) {
       true => out.push_str(&format!("\n/** {doc} {} */\nconst {name}_: {ty} = {source};\nexport {{ {name}_ as {name} }};\n", runs(side, module, name))),
       false => out.push_str(&format!("\n/** {doc} {} */\nexport const {name}: {ty} = {source};\n", runs(side, module, name))),
     }
-  }
-  if module == "intl" {
-    out.push_str(&format!("\n/** {} */\nexport {{ localeTag }} from \"{std_js}\";\n", doc(std_ts, "localeTag", "localeTag").expect("std.ts declares localeTag")));
   }
   out
 }

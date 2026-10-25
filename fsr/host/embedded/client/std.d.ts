@@ -1,48 +1,5 @@
 /** The document's locale as BCP 47, `fr-FR` for `fr_FR`; `en` before any document says. The server converts the same way. */
 export declare function localeTag(): string;
-export interface NumberOptions {
-	minimumFractionDigits?: number;
-	maximumFractionDigits?: number;
-	/** A locale written in the code, formatted the same everywhere; the document's otherwise. */
-	locale?: string;
-}
-export interface CurrencyOptions extends NumberOptions {
-	/** `code` writes the ISO code, the default; `symbol` and `narrowSymbol` the symbol CLDR gives the locale. */
-	display?: "code" | "symbol" | "narrowSymbol";
-}
-export type DateStyle = "short" | "medium" | "long" | "full";
-export type TextWidth = "long" | "short" | "narrow";
-/** A date at a `style` or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
-export interface DateOptions {
-	style?: DateStyle;
-	weekday?: TextWidth;
-	year?: "numeric";
-	month?: TextWidth;
-	day?: "numeric";
-	locale?: string;
-}
-/** How `intl.list` joins: `type` `conjunction` by default, `disjunction` or `unit`, at a `style` width, `long` by default. */
-export interface ListOptions {
-	type?: "conjunction" | "disjunction" | "unit";
-	style?: TextWidth;
-	locale?: string;
-}
-export declare const intl: {
-	/** `n` grouped for the locale, rounded half away from zero to at most three fraction digits unless `options` say otherwise, trailing zeros dropped past the minimum. */
-	number(n: number | bigint, options?: NumberOptions): string;
-	/** `n` as an amount of the ISO currency `code`, the code spelled out unless `options.display` says the symbol, the currency's own fraction digits unless the options give them. */
-	currency(n: number | bigint, code: string, options?: CurrencyOptions): string;
-	/** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style` (`medium` by default) or at the parts the options name. */
-	date(when: number | string, style?: DateStyle | DateOptions): string;
-	/** The cardinal plural category of `n`: `zero`, `one`, `two`, `few`, `many` or `other`. */
-	plural(n: number | bigint): string;
-	/** `items` joined as the locale joins a list, `a, b and c` in British English. */
-	list(items: string[], options?: ListOptions): string;
-	/** -1, 0 or 1 as `a` sorts before, with or after `b` by the locale's collation, as `a.localeCompare(b, locale)` answers. */
-	compare(a: string, b: string, options?: {
-		locale?: string;
-	}): number;
-};
 export declare const text: {
 	/** Decomposed, marks dropped, lowercased, every run outside `a-z0-9` one hyphen and no hyphen at either end. */
 	slug(s: string): string;
@@ -167,8 +124,6 @@ export declare class Scope<T> {
 	set(value: T): void;
 }
 export declare const time: {
-	/** Milliseconds since the time origin, as `performance.now()`; on the server, since the process started. */
-	monotonic(): number;
 	/** `when` in UTC with `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced and every other character kept. */
 	format(when: number, pattern: string): string;
 	/** The instant `amount` units after `when`. */
@@ -177,8 +132,6 @@ export declare const time: {
 	diff(later: number, earlier: number, unit: string): number;
 	/** `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`, as milliseconds since the epoch; a date alone or a bare time is UTC. `null` for anything else. */
 	parse(s: string): number | null;
-	/** The clock now, milliseconds since the epoch. Server only on a render path. */
-	now(): number;
 };
 /** A structured line at each level, `fields` whatever goes with the message; on the server it is a `tracing` event under `fsr::app`, here a console line. `fatal` is `error` in the console. */
 export declare const log: {
@@ -202,8 +155,6 @@ export declare const crypto: {
 	verify(s: string, hash: string): boolean;
 	/** `bytes` random bytes as `hex` (the default) or `base64`. Server only on a render path. */
 	random(bytes: number, encoding?: "hex" | "base64"): string;
-	/** A version 4 UUID. Server only on a render path. */
-	uuid(): string;
 	/** The hash of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. */
 	digest(algorithm: string, encoding: string, ...parts: string[]): string;
 };

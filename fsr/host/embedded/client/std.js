@@ -9,67 +9,11 @@ function bridged(name, args) {
     const json = JSON.stringify(args, (_, v)=>typeof v === "bigint" ? Number(v) : v === undefined ? null : v);
     return JSON.parse(sf.ext(name, json, currentLocale()));
 }
-export const intl = {
-    number (n, options) {
-        const { locale, ...rest } = options ?? {};
-        return bridged("intl.number", [
-            n,
-            options ?? null
-        ]) ?? new Intl.NumberFormat(locale ?? localeTag(), rest).format(n);
-    },
-    currency (n, code, options) {
-        const { locale, display, ...rest } = options ?? {};
-        return bridged("intl.currency", [
-            n,
-            code,
-            options ?? null
-        ]) ?? new Intl.NumberFormat(locale ?? localeTag(), {
-            style: "currency",
-            currency: code,
-            currencyDisplay: display ?? "code",
-            ...rest
-        }).format(n);
-    },
-    date (when, style = "medium") {
-        const ms = typeof when === "string" ? time.parse(when) : when;
-        if (ms === null) throw new Error(`intl.date: \`${when}\` is not an ISO 8601 date`);
-        const served = bridged("intl.date", [
-            ms,
-            style
-        ]);
-        if (served !== undefined) return served;
-        if (typeof style === "string") return new Intl.DateTimeFormat(localeTag(), {
-            dateStyle: style,
-            timeZone: "UTC"
-        }).format(new Date(ms));
-        const { locale, style: dateStyle, ...parts } = style;
-        const options = {
-            timeZone: "UTC",
-            ...parts
-        };
-        if (dateStyle !== undefined && parts.weekday === undefined && parts.year === undefined && parts.month === undefined && parts.day === undefined) options.dateStyle = dateStyle;
-        return new Intl.DateTimeFormat(locale ?? localeTag(), options).format(new Date(ms));
-    },
-    plural (n) {
-        return bridged("intl.plural", [
-            n
-        ]) ?? new Intl.PluralRules(localeTag()).select(Number(n));
-    },
-    list (items, options) {
-        const { locale, ...rest } = options ?? {};
-        return bridged("intl.list", [
-            items,
-            options ?? null
-        ]) ?? new Intl.ListFormat(locale ?? localeTag(), rest).format(items);
-    },
-    compare (a, b, options) {
-        return bridged("intl.compare", [
-            a,
-            b,
-            options ?? null
-        ]) ?? Math.sign(a.localeCompare(b, options?.locale ?? localeTag()));
-    }
-};
+function pluralOf(n) {
+    return bridged("intl.plural", [
+        n
+    ]) ?? new Intl.PluralRules(localeTag()).select(Number(n));
+}
 export const text = {
     slug (s) {
         return s.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -266,9 +210,6 @@ function unitMs(what, unit) {
 }
 const pad = (n, width)=>String(n).padStart(width, "0");
 export const time = {
-    monotonic () {
-        return performance.now();
-    },
     format (when, pattern) {
         const d = new Date(when);
         const tokens = [
@@ -343,9 +284,6 @@ export const time = {
             }
         }
         return ms;
-    },
-    now () {
-        return Date.now();
     }
 };
 function toHex(bytes) {
@@ -528,9 +466,6 @@ export const crypto = {
         globalThis.crypto.getRandomValues(buf);
         return encoding === "base64" ? btoa(String.fromCharCode(...buf)) : toHex(buf);
     },
-    uuid () {
-        return globalThis.crypto.randomUUID();
-    },
     digest (algorithm, encoding, ...parts) {
         if (algorithm.toLowerCase().replace("-", "") !== "sha256") throw new Error(`crypto.digest: \`${algorithm}\` is not provided; \`sha256\` is`);
         const bytes = sha256(parts.join(""));
@@ -548,7 +483,7 @@ export function t(key, args) {
     const table = catalog(currentLocale());
     const count = args?.count;
     const forms = typeof count === "number" || typeof count === "bigint" ? [
-        `${key}.${intl.plural(count)}`,
+        `${key}.${pluralOf(count)}`,
         `${key}.other`,
         key
     ] : [

@@ -1,4 +1,4 @@
-/** The standard library's browser half: `intl`, `text`, `time`, `crypto` and `id`, the same names the server answers in Rust. A `render` member agrees with the server byte for byte under the same locale, which is the document's, read from `currentLocale()`; a `body` member runs where it is called and has no such promise. `native` declares an application's own pair. */
+/** The standard library's browser half: `localeTag`, `text`, `time`, `crypto` and `id`, the same names the server answers in Rust. A `render` member agrees with the server byte for byte under the same locale, which is the document's, read from `currentLocale()`; a `body` member runs where it is called and has no such promise. `native` declares an application's own pair. */
 
 import { catalog, currentLocale } from "./locale.js";
 
@@ -20,76 +20,10 @@ function bridged<T>(name: string, args: unknown[]): T | undefined {
   return JSON.parse(sf.ext(name, json, currentLocale())) as T;
 }
 
-export interface NumberOptions {
-  minimumFractionDigits?: number;
-  maximumFractionDigits?: number;
-  /** A locale written in the code, formatted the same everywhere; the document's otherwise. */
-  locale?: string;
+/** The plural category of `n` under the document's locale, which picks the form `t` reads. */
+function pluralOf(n: number | bigint): string {
+  return bridged<string>("intl.plural", [n]) ?? new Intl.PluralRules(localeTag()).select(Number(n));
 }
-
-export interface CurrencyOptions extends NumberOptions {
-  /** `code` writes the ISO code, the default; `symbol` and `narrowSymbol` the symbol CLDR gives the locale. */
-  display?: "code" | "symbol" | "narrowSymbol";
-}
-
-export type DateStyle = "short" | "medium" | "long" | "full";
-
-export type TextWidth = "long" | "short" | "narrow";
-
-/** A date at a `style` or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
-export interface DateOptions {
-  style?: DateStyle;
-  weekday?: TextWidth;
-  year?: "numeric";
-  month?: TextWidth;
-  day?: "numeric";
-  locale?: string;
-}
-
-/** How `intl.list` joins: `type` `conjunction` by default, `disjunction` or `unit`, at a `style` width, `long` by default. */
-export interface ListOptions {
-  type?: "conjunction" | "disjunction" | "unit";
-  style?: TextWidth;
-  locale?: string;
-}
-
-export const intl = {
-  /** `n` grouped for the locale, rounded half away from zero to at most three fraction digits unless `options` say otherwise, trailing zeros dropped past the minimum. */
-  number(n: number | bigint, options?: NumberOptions): string {
-    const { locale, ...rest } = options ?? {};
-    return bridged<string>("intl.number", [n, options ?? null]) ?? new Intl.NumberFormat(locale ?? localeTag(), rest).format(n);
-  },
-  /** `n` as an amount of the ISO currency `code`, the code spelled out unless `options.display` says the symbol, the currency's own fraction digits unless the options give them. */
-  currency(n: number | bigint, code: string, options?: CurrencyOptions): string {
-    const { locale, display, ...rest } = options ?? {};
-    return bridged<string>("intl.currency", [n, code, options ?? null]) ?? new Intl.NumberFormat(locale ?? localeTag(), { style: "currency", currency: code, currencyDisplay: display ?? "code", ...rest }).format(n);
-  },
-  /** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style` (`medium` by default) or at the parts the options name. */
-  date(when: number | string, style: DateStyle | DateOptions = "medium"): string {
-    const ms = typeof when === "string" ? time.parse(when) : when;
-    if (ms === null) throw new Error(`intl.date: \`${when}\` is not an ISO 8601 date`);
-    const served = bridged<string>("intl.date", [ms, style]);
-    if (served !== undefined) return served;
-    if (typeof style === "string") return new Intl.DateTimeFormat(localeTag(), { dateStyle: style, timeZone: "UTC" }).format(new Date(ms));
-    const { locale, style: dateStyle, ...parts } = style;
-    const options: Intl.DateTimeFormatOptions = { timeZone: "UTC", ...parts };
-    if (dateStyle !== undefined && parts.weekday === undefined && parts.year === undefined && parts.month === undefined && parts.day === undefined) options.dateStyle = dateStyle;
-    return new Intl.DateTimeFormat(locale ?? localeTag(), options).format(new Date(ms));
-  },
-  /** The cardinal plural category of `n`: `zero`, `one`, `two`, `few`, `many` or `other`. */
-  plural(n: number | bigint): string {
-    return bridged<string>("intl.plural", [n]) ?? new Intl.PluralRules(localeTag()).select(Number(n));
-  },
-  /** `items` joined as the locale joins a list, `a, b and c` in British English. */
-  list(items: string[], options?: ListOptions): string {
-    const { locale, ...rest } = options ?? {};
-    return bridged<string>("intl.list", [items, options ?? null]) ?? new Intl.ListFormat(locale ?? localeTag(), rest).format(items);
-  },
-  /** -1, 0 or 1 as `a` sorts before, with or after `b` by the locale's collation, as `a.localeCompare(b, locale)` answers. */
-  compare(a: string, b: string, options?: { locale?: string }): number {
-    return bridged<number>("intl.compare", [a, b, options ?? null]) ?? Math.sign(a.localeCompare(b, options?.locale ?? localeTag()));
-  },
-};
 
 export const text = {
   /** Decomposed, marks dropped, lowercased, every run outside `a-z0-9` one hyphen and no hyphen at either end. */
@@ -341,10 +275,6 @@ function unitMs(what: string, unit: string): number {
 const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
 export const time = {
-  /** Milliseconds since the time origin, as `performance.now()`; on the server, since the process started. */
-  monotonic(): number {
-    return performance.now();
-  },
   /** `when` in UTC with `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced and every other character kept. */
   format(when: number, pattern: string): string {
     const d = new Date(when);
@@ -402,10 +332,6 @@ export const time = {
       }
     }
     return ms;
-  },
-  /** The clock now, milliseconds since the epoch. Server only on a render path. */
-  now(): number {
-    return Date.now();
   },
 };
 
@@ -520,10 +446,6 @@ export const crypto = {
     globalThis.crypto.getRandomValues(buf);
     return encoding === "base64" ? btoa(String.fromCharCode(...buf)) : toHex(buf);
   },
-  /** A version 4 UUID. Server only on a render path. */
-  uuid(): string {
-    return globalThis.crypto.randomUUID();
-  },
   /** The hash of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. */
   digest(algorithm: string, encoding: string, ...parts: string[]): string {
     if (algorithm.toLowerCase().replace("-", "") !== "sha256") throw new Error(`crypto.digest: \`${algorithm}\` is not provided; \`sha256\` is`);
@@ -540,7 +462,7 @@ export function t(key: string, args?: { [name: string]: unknown }): string {
   if (bridged_ !== undefined) return bridged_;
   const table = catalog(currentLocale());
   const count = args?.count;
-  const forms = typeof count === "number" || typeof count === "bigint" ? [`${key}.${intl.plural(count)}`, `${key}.other`, key] : [key];
+  const forms = typeof count === "number" || typeof count === "bigint" ? [`${key}.${pluralOf(count)}`, `${key}.other`, key] : [key];
   const found = table ? forms.map((k) => table[k]).find((v) => v !== undefined) : undefined;
   return interpolate(found ?? key, args);
 }
