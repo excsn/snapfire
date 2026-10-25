@@ -47,6 +47,9 @@ enum Command {
   Test(Test),
   /// Serves an application that is already built.
   Serve(Serve),
+  #[cfg(feature = "terminal")]
+  /// Runs a terminal program once in this terminal, with no watcher; the program's own arguments follow `--`.
+  Run(Run),
   #[cfg(feature = "web")]
   /// Writes the documents every prerenderable route answers with.
   Prerender(Prerender),
@@ -149,6 +152,16 @@ struct New {
   /// Scaffolds a terminal program: `[app] runs = "terminal"` and a root page drawn with FSR's Ink.
   #[arg(long)]
   terminal: bool,
+}
+
+#[cfg(feature = "terminal")]
+#[derive(Args)]
+struct Run {
+  /// The application directory, whose configuration says `runs = "terminal"` under `[app]`.
+  app_dir: PathBuf,
+  /// The program's command line, after `--`: `--name value` and positional arguments reach its loader as `params`.
+  #[arg(last = true, value_name = "ARG")]
+  args: Vec<String>,
 }
 
 #[derive(Args)]
@@ -668,6 +681,11 @@ fn main() -> ExitCode {
   match Cli::parse().command {
     Command::New(args) => run_new(args),
     Command::Migrate(args) => run_migrate(args),
+    #[cfg(feature = "terminal")]
+    Command::Run(args) => match snapfire_fsr_cli::terminal::run_once(&args.app_dir, &args.args) {
+      Ok(()) => ExitCode::SUCCESS,
+      Err(e) => failed(e),
+    },
     Command::Dev(args) => match dev::run(&args.build.app_dir, args.options()) {
       Ok(()) => ExitCode::SUCCESS,
       Err(e) => failed(e),

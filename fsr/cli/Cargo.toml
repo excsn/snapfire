@@ -124,6 +124,10 @@ name = "terminal_examples"
 required-features = ["terminal"]
 
 [[test]]
+name = "terminal_run"
+required-features = ["terminal"]
+
+[[test]]
 name = "terminal_build"
 required-features = ["terminal"]
 

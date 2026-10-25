@@ -111,7 +111,7 @@ fsr new mytool --terminal
 fsr dev mytool/app
 ```
 
-`fsr new --terminal` writes `runs = "terminal"` under `[app]` in `config/app.toml`, which is what makes an app a terminal app.
+`fsr new --terminal` writes `runs = "terminal"` under `[app]` in `config/app.toml`, which is what makes an app a terminal app. `fsr dev` redraws it on every edit; `fsr run mytool/app` runs it once, as a user would.
 
 Terminal mode runs the app's root page with every component it places and redraws it with its state kept when the page is edited. [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) lists what it runs and what it does not yet; the [counter example](examples/counter_terminal_ts/README.md) is the page above.
 

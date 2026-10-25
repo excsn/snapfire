@@ -963,27 +963,56 @@ fn until_edited(edits: &std::sync::mpsc::Receiver<()>) -> std::io::Result<bool> 
   }
 }
 
+/// `fsr dev` on a terminal program: the session redrawn with its state kept on every edit under `app`, a refused page shown until an edit fixes it.
 pub fn run(app: &Path, args: &[String]) -> Result<(), BuildError> {
+  run_session(app, args, true)
+}
+
+/// `fsr run`: the terminal program under `app` run once with no watcher; a refused page ends the run with the reason.
+pub fn run_once(app: &Path, args: &[String]) -> Result<(), BuildError> {
+  if !crate::is_terminal_app(app) {
+    return Err(BuildError::Dev(format!("{}: `fsr run` runs a terminal program, and this application runs on the web; serve it with `fsr serve`, or say `runs = \"terminal\"` under `[app]` in config/app.toml", app.display())));
+  }
+  run_session(app, args, false)
+}
+
+fn run_session(app: &Path, args: &[String], watch: bool) -> Result<(), BuildError> {
   let fail = |e: std::io::Error| BuildError::Dev(format!("terminal: {e}"));
   let (tx, rx) = std::sync::mpsc::channel();
-  let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-    if let Ok(event) = event {
-      let built = event.paths.iter().all(|path| path.components().any(|part| matches!(part.as_os_str().to_str(), Some("generated" | "dist" | ".fsr"))));
-      if !built {
-        let _ = tx.send(());
-      }
+  let _watcher = match watch {
+    true => {
+      let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if let Ok(event) = event {
+          let built = event.paths.iter().all(|path| path.components().any(|part| matches!(part.as_os_str().to_str(), Some("generated" | "dist" | ".fsr"))));
+          if !built {
+            let _ = tx.send(());
+          }
+        }
+      })
+      .map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
+      watcher.watch(app, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
+      Some(watcher)
     }
-  })
-  .map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
-  watcher.watch(app, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
+    false => None,
+  };
 
-  let mut screen = Some(Screen::enter().map_err(fail)?);
   let mut shown = Frame::new(0, 0);
-  let opened = open_watching(app, args, |why| {
-    draw(&Err(why.to_owned()), &mut shown, true, None)?;
-    until_edited(&rx)
-  });
-  let Some(mut session) = opened.map_err(fail)? else { return Ok(()) };
+  let (mut screen, mut session) = match watch {
+    true => {
+      let screen = Some(Screen::enter().map_err(fail)?);
+      let opened = open_watching(app, args, |why| {
+        draw(&Err(why.to_owned()), &mut shown, true, None)?;
+        until_edited(&rx)
+      });
+      let Some(session) = opened.map_err(fail)? else { return Ok(()) };
+      (screen, session)
+    }
+    false => {
+      let mut session = Session::open_with(app, params(args)).map_err(BuildError::Dev)?;
+      session.view().map_err(BuildError::Dev)?;
+      (Some(Screen::enter().map_err(fail)?), session)
+    }
+  };
   let (columns, rows) = terminal_size();
   session.resize(columns, rows);
   let mut drawn = session.view();
