@@ -1,21 +1,30 @@
 //! CommonJS, which `fsr migrate` does not read: the application's files it
-//! would migrate, followed from the entries `package.json` names and the
-//! source directories, each one that is CommonJS with where that shows.
+//! would migrate, followed from where the source keeps them, each one that is
+//! CommonJS with where that shows.
 
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
 use swc_core::ecma::visit::{Visit, VisitWith};
 
 use crate::syntax::{is_script, parse};
-use crate::{Note, Tree};
+use crate::{Note, Source, Tree};
 
-/// The directories an application's sources live in.
-const SOURCE_DIRS: [&str; 2] = ["source/", "src/"];
+/// The directories an Ink application's sources live in, beside the entries `package.json` names.
+const INK_DIRS: &[&str] = &["source/", "src/"];
+/// The directories a Next.js application's routes live in; a config file or a server entry beside them is not migrated.
+const NEXT_DIRS: &[&str] = &["app/", "pages/", "src/app/", "src/pages/"];
+const SVELTEKIT_DIRS: &[&str] = &["src/routes/", "src/lib/"];
+const NUXT_DIRS: &[&str] = &["pages/", "components/", "layouts/", "composables/", "utils/", "plugins/", "middleware/", "app/"];
 
-/// One refusal per CommonJS file the application holds: a script that imports and exports nothing and calls `require` or assigns `module.exports` or `exports.x`, at the first of them.
-pub(crate) fn refusals(tree: &Tree) -> Vec<Note> {
-  let mut queue: Vec<String> = entries(tree);
-  queue.extend(tree.paths().filter(|p| SOURCE_DIRS.iter().any(|dir| p.starts_with(dir)) && is_script(p)).map(str::to_owned));
+/// One refusal per CommonJS file the migration of `source` would read: a script that imports and exports nothing and calls `require` or assigns `module.exports` or `exports.x`, at the first of them. The files are followed by their relative imports from where `source` keeps its code.
+pub(crate) fn refusals(tree: &Tree, source: Source) -> Vec<Note> {
+  let (mut queue, dirs) = match source {
+    Source::Ink => (entries(tree), INK_DIRS),
+    Source::NextApp | Source::NextPages => (Vec::new(), NEXT_DIRS),
+    Source::SvelteKit => (Vec::new(), SVELTEKIT_DIRS),
+    Source::Nuxt => (Vec::new(), NUXT_DIRS),
+  };
+  queue.extend(tree.paths().filter(|p| dirs.iter().any(|dir| p.starts_with(dir)) && is_script(p)).map(str::to_owned));
   let mut seen: Vec<String> = Vec::new();
   let mut out = Vec::new();
   while let Some(path) = queue.pop() {

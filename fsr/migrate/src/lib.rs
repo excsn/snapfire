@@ -244,8 +244,8 @@ fn env_pass() -> Vec<Box<dyn Pass>> {
 /// `input` rewritten as an FSR project tree: the application under `app/`.
 pub fn migrate(input: &Tree) -> (Tree, Report) {
   let mut report = Report { source: detect(input), ..Report::default() };
-  if report.source.is_some() {
-    report.refusals = commonjs::refusals(input);
+  if let Some(source) = report.source {
+    report.refusals = commonjs::refusals(input, source);
   }
   let mut tree = input.clone();
   match report.source {

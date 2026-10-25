@@ -109,6 +109,7 @@ fn every_next_example_migrates_and_builds_to_the_outcome_it_is_held_to() {
       }
     }
     let outcome = match report.source {
+      Some(Source::NextApp | Source::NextPages) if !report.refusals.is_empty() => format!("unmigrated: {}", report.refusals.iter().map(ToString::to_string).collect::<Vec<_>>().join(" | ")),
       Some(Source::NextApp | Source::NextPages) => {
         let app = app_of(root, &name.replace('/', "-"), &migrated, &report.config, &scratch);
         let outcome = outcome(&app);
