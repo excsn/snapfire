@@ -47,7 +47,7 @@ A component the build cannot lower refuses the page. On the web such a component
 Ink's hooks are not built into FSR. `useFocus`, `useFocusManager`, `useCursor`, `useBoxMetrics`, `useWindowSize`, `useStdout`, `useStderr`, `useApp` and `Static` are written in TypeScript over a few primitives from `@snapfire/fsr/terminal/core` and lowered like an application's own hooks. `useApp` is the whole pattern:
 
 ```tsx
-import { action } from "@snapfire/fsr-client";
+import { action } from "@snapfire/fsr/client";
 import { suspendTerminal } from "@snapfire/fsr/terminal/core";
 
 export function useApp() {
@@ -77,10 +77,11 @@ An effect only a browser could run, writing `document.title` for one, is left ou
 
 ## Files, paths and the machine
 
-A terminal tool reads its own configuration before it draws, so a page may read the machine it runs on through three members of `@snapfire/fsr-client/std`. `file` reads and writes files: `read`, `write`, `exists`, `list`, `makeDir` and `stat`, which answers `{ isFile, isDirectory, size, mtimeMs }`. `path` joins and splits POSIX paths: `join`, `resolve`, `normalize`, `dirname`, `basename`, `extname`, `relative` and `isAbsolute`. `system` reads the machine: `env(name)`, `home()`, `platform()`, `tempDir()`, `lineEnd()`, `cwd()` and `memory()`, the resident set in bytes. Each answers at once, so an `await` of one continues with its value. Ink's `useStdout().stdout` is the terminal's size, its `on("resize", f)` running `f` when the size changes, with `off` in the effect's cleanup taking it off; `useApp().exit(code)` ends the page with that exit code.
+A terminal tool reads its own configuration before it draws, so a page may read the machine it runs on through `file` and `path` from `@snapfire/fsr/host` and `system` from `@snapfire/fsr/terminal`. `file` reads and writes files: `read`, `write`, `exists`, `list`, `makeDir` and `stat`, which answers `{ isFile, isDirectory, size, mtimeMs }`. `path` joins and splits POSIX paths: `join`, `resolve`, `normalize`, `dirname`, `basename`, `extname`, `relative` and `isAbsolute`. `system` reads the machine: `env(name)`, `home()`, `platform()`, `tempDir()`, `lineEnd()`, `cwd()` and `memory()`, the resident set in bytes. Each answers at once, so an `await` of one continues with its value. Ink's `useStdout().stdout` is the terminal's size, its `on("resize", f)` running `f` when the size changes, with `off` in the effect's cleanup taking it off; `useApp().exit(code)` ends the page with that exit code.
 
 ```tsx
-import { file, path, system } from "@snapfire/fsr-client/std";
+import { file, path } from "@snapfire/fsr/host";
+import { system } from "@snapfire/fsr/terminal";
 
 const configPath = path.join(system.home(), ".config", "cards", "config.json");
 const config = file.exists(configPath) ? JSON.parse(file.read(configPath)) : { deck: "default" };
@@ -88,7 +89,7 @@ const config = file.exists(configPath) ? JSON.parse(file.read(configPath)) : { d
 
 `config` is evaluated once, when the session opens; it is not read again on each render. A missing file throws an error whose `code` is `ENOENT`, so a `try` around the read with a default in its `catch` works. A member that fails as it is awaited inside a `try` runs the `catch`, as a rejected promise does. The same members on a web page are refused, since a browser has no files: the build says which reach the page lacks. `fsr migrate` rewrites an Ink application's imports of Node's `fs`, `path` and `os` and its reads of `process` onto these members; a page that still imports one of Node's modules or reads `process` is refused.
 
-`crypto` from `@snapfire/fsr-client/std` gives `uuid()`, `random(n, encoding?)` for `n` random bytes as `hex` or `base64` and `digest("sha256", encoding, ...parts)`. `performance.now()` counts milliseconds from the process start, so two reads give a duration. A `Scope` from the same module held in a module `const` scopes a value to a call: `scope.run(value, fn)` holds it while `fn` runs across its awaits; `scope.get()` reads it, `undefined` outside any `run`. Each crypto member is a member of the `crypto` extension, so an application's own Rust under `ext/` may register another implementation under the same name. `log.info(message, fields)` from `@snapfire/fsr-client/std`, with `trace`, `debug`, `warn`, `error` and `fatal` beside it, writes a structured line through the host's `tracing` output under the target `fsr::app`. `text.frontMatter(source, { delimiters })` from the same module reads a YAML block at the top of a text into `{ data, content }` and `text.withFrontMatter(content, data, { delimiters })` writes one.
+`crypto` from `@snapfire/fsr/host` gives `uuid()`, `random(n, encoding?)` for `n` random bytes as `hex` or `base64` and `digest("sha256", encoding, ...parts)`. `performance.now()` counts milliseconds from the process start, so two reads give a duration. A `Scope` from `@snapfire/fsr/terminal` held in a module `const` scopes a value to a call: `scope.run(value, fn)` holds it while `fn` runs across its awaits; `scope.get()` reads it, `undefined` outside any `run`. Each crypto member is a member of the `crypto` extension, so an application's own Rust under `ext/` may register another implementation under the same name. `log.info(message, fields)` from `@snapfire/fsr/host`, with `trace`, `debug`, `warn`, `error` and `fatal` beside it, writes a structured line through the host's `tracing` output under the target `fsr::app`. `text.frontMatter(source, { delimiters })` from the same module reads a YAML block at the top of a text into `{ data, content }` and `text.withFrontMatter(content, data, { delimiters })` writes one.
 
 A function that writes fields of an object it is passed changes the caller's object; a callback of an array method that changes its item is refused, as is an async function that writes a field of its parameter. `fsr migrate` rewrites a callback that only writes fields of its parameter to return the changed object, `c => ({ ...c, n: 1 })`; the function that calls it is rewritten to take what it returns.
 
