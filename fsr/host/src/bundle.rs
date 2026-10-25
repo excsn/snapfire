@@ -23,6 +23,17 @@ pub(crate) fn served_under(bundle: Option<&config::Bundle>, dev: bool) -> Option
   bundle.filter(|_| !dev)
 }
 
+/// The bare specifiers the application's bundle and every mounted site's carry, from each `.snapfire-build.json`. `None` when the application's bundle has no facts, so nothing is known to be left out.
+pub(crate) fn bundle_externals(config: &Config, mounts: &[Mount]) -> Option<Vec<String>> {
+  let mut imported = config.bundle.as_ref()?.externals.clone();
+  for mount in mounts {
+    if let Some(bundle) = &mount.artifact.config.bundle {
+      imported.extend(bundle.externals.iter().cloned());
+    }
+  }
+  Some(imported)
+}
+
 /// The bundle's route against each hashed name the host answers under it, with the output it names.
 pub(crate) fn hashed_names_of(bundle: &config::Bundle) -> (String, HashMap<String, String>) {
   (bundle.route.clone(), bundle.hashed().iter().map(|(output, hashed)| (hashed.clone(), output.clone())).collect())

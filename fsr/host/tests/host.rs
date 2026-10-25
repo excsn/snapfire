@@ -285,24 +285,32 @@ async fn the_client_serves_the_dialects_template_entry() {
 }
 
 #[tokio::test]
-async fn only_a_host_serving_a_desktop_window_maps_and_serves_the_desktop_module() {
-  let fetch = |host: Arc<Host>| async move {
+async fn the_import_map_names_the_client_modules_the_bundle_imports() {
+  let page = |externals: Option<&'static str>| async move {
+    let dir = app_dir();
+    if let Some(externals) = externals {
+      std::fs::create_dir_all(dir.join("dist")).unwrap();
+      std::fs::write(dir.join("dist/.snapfire-build.json"), format!(r#"{{"version":2,"publicPath":"/static/js/app/","entries":[],"externals":{externals},"outputs":[]}}"#)).unwrap();
+    }
+    let host = Arc::new(Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap());
     let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
     let response = host.handle(Request::get("/static/js/fsr/desktop.js").body(Bytes::new()).unwrap()).await;
     let status = response.status();
     let body = response.into_body().collect().await.unwrap().to_bytes();
     (html, status, String::from_utf8_lossy(&body).into_owned())
   };
-  let (web, _) = host();
-  let (html, status, _) = fetch(web).await;
-  assert!(!html.contains("fsr/desktop") && !html.contains("client/desktop"), "{html}");
-  assert_eq!(status, StatusCode::NOT_FOUND);
-  let desktop = Host::from(app_dir().join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).desktop(true).build().unwrap();
-  let (html, status, body) = fetch(Arc::new(desktop)).await;
-  assert!(html.contains("\"@snapfire/fsr/desktop\":\"/static/js/fsr/desktop"), "{html}");
-  assert!(!html.contains("client/desktop"), "{html}");
+  let desktop = "\"@snapfire/fsr/desktop\":\"/static/js/fsr/desktop";
+  let intl = "\"@snapfire/fsr/client/intl\"";
+  let (html, status, body) = page(Some(r#"["@snapfire/fsr/client","@snapfire/fsr/desktop","react"]"#)).await;
+  assert!(html.contains(desktop) && html.contains("\"@snapfire/fsr/client\":"), "{html}");
+  assert!(!html.contains(intl), "a module the bundle does not import is not named: {html}");
   assert_eq!(status, StatusCode::OK);
   assert!(body.contains("openFile"), "{body}");
+  let (html, status, _) = page(Some(r#"["@snapfire/fsr/client"]"#)).await;
+  assert!(!html.contains("fsr/desktop") && !html.contains(intl), "{html}");
+  assert_eq!(status, StatusCode::OK, "the file is served; only the map leaves it out");
+  let (html, _, _) = page(None).await;
+  assert!(html.contains(desktop) && html.contains(intl), "without the bundle's facts every client module is named: {html}");
 }
 
 #[tokio::test]

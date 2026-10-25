@@ -393,6 +393,14 @@ pub fn write_to(dir: &Path, minified: bool) -> std::io::Result<Vec<PathBuf>> {
     std::fs::write(&path, body)?;
     written.push(path);
   }
+  let desktop_names: &[&str] = if minified { &[DESKTOP_FILE, "desktop.min.js"] } else { &[DESKTOP_FILE] };
+  #[cfg(feature = "client_source_maps")]
+  let desktop_names: Vec<&str> = desktop_names.iter().copied().chain(DESKTOP_MAPS.iter().map(|(name, _)| *name)).collect();
+  for name in desktop_names.iter().copied() {
+    let path = dir.join(name);
+    std::fs::write(&path, desktop(name, minified).unwrap_or_default())?;
+    written.push(path);
+  }
   Ok(written)
 }
 
@@ -421,7 +429,7 @@ pub fn imports(name: &str, minified: bool) -> Vec<&'static str> {
   found
 }
 
-/// The import map entries for every module [`ROUTE`] answers: `@snapfire/fsr/client` for `index.js`, `@snapfire/fsr/client/<name>` for `<name>.js` and `@snapfire/fsr` for `native.js`.
+/// The import map entries for every module [`ROUTE`] answers: `@snapfire/fsr/client` for `index.js`, `@snapfire/fsr/client/<name>` for `<name>.js`, `@snapfire/fsr` for `native.js` and [`DESKTOP_SPECIFIER`] for [`DESKTOP_FILE`].
 pub fn import_entries() -> Vec<(String, String)> {
   let mut entries = vec![("@snapfire/fsr/client".to_owned(), format!("{ROUTE}/index.js")), ("@snapfire/fsr".to_owned(), format!("{ROUTE}/native.js"))];
   for (name, _) in FILES {
@@ -429,10 +437,11 @@ pub fn import_entries() -> Vec<(String, String)> {
       entries.push((format!("@snapfire/fsr/client/{stem}"), format!("{ROUTE}/{name}")));
     }
   }
+  entries.push(desktop_entry());
   entries
 }
 
-/// What a page in an `fsr --desktop` window imports to reach the window's process. Kept out of [`FILES`], so a web page never loads it and its import map never names it.
+/// What a page in an `fsr --desktop` window imports to reach the window's process. Kept out of [`FILES`], whose modules are named under `@snapfire/fsr/client`; outside a window its calls reject.
 pub const DESKTOP_SPECIFIER: &str = "@snapfire/fsr/desktop";
 
 /// The file [`DESKTOP_SPECIFIER`] is answered with under [`ROUTE`].
@@ -471,22 +480,21 @@ pub fn desktop_entry() -> (String, String) {
   (DESKTOP_SPECIFIER.to_owned(), format!("{ROUTE}/{DESKTOP_FILE}"))
 }
 
-/// `text`, an import map, with [`desktop_entry`] under `imports` unless it has an entry of its own.
-pub fn with_desktop_entry(text: &str) -> String {
-  let Ok(serde_json::Value::Object(mut map)) = serde_json::from_str::<serde_json::Value>(text) else { return text.to_owned() };
-  let imports = map.entry("imports").or_insert_with(|| serde_json::Value::Object(Default::default()));
-  let Some(imports) = imports.as_object_mut() else { return text.to_owned() };
-  let (specifier, url) = desktop_entry();
-  imports.entry(specifier).or_insert(serde_json::Value::String(url));
-  serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_else(|_| text.to_owned())
-}
-
 /// `text`, an import map, with [`import_entries`] under `imports` wherever it has no entry of its own. Text that is not a JSON object is returned as it is.
 pub fn with_import_entries(text: &str) -> String {
+  with_entries(text, |_| true)
+}
+
+/// [`with_import_entries`] for the entries whose specifier is in `imported`, the bare specifiers a bundle carries.
+pub fn with_imported_entries(text: &str, imported: &[String]) -> String {
+  with_entries(text, |specifier| imported.iter().any(|named| named == specifier))
+}
+
+fn with_entries(text: &str, wanted: impl Fn(&str) -> bool) -> String {
   let Ok(serde_json::Value::Object(mut map)) = serde_json::from_str::<serde_json::Value>(text) else { return text.to_owned() };
   let imports = map.entry("imports").or_insert_with(|| serde_json::Value::Object(Default::default()));
   let Some(imports) = imports.as_object_mut() else { return text.to_owned() };
-  for (specifier, url) in import_entries() {
+  for (specifier, url) in import_entries().into_iter().filter(|(specifier, _)| wanted(specifier)) {
     imports.entry(specifier).or_insert(serde_json::Value::String(url));
   }
   serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_else(|_| text.to_owned())
@@ -541,6 +549,18 @@ mod tests {
         assert!(!std::fs::read_to_string(&path).unwrap().contains("sourceMappingURL"), "{} names a map", path.display());
       }
     }
+  }
+
+  #[test]
+  fn a_tree_written_for_a_web_server_carries_the_desktop_module() {
+    let dir = std::env::temp_dir().join(format!("fsr-client-desktop-{}", std::process::id()));
+    for minified in [false, true] {
+      let written = write_to(&dir, minified).unwrap();
+      assert!(written.contains(&dir.join(DESKTOP_FILE)), "minified {minified}: {written:?}");
+      assert!(std::fs::read_to_string(dir.join(DESKTOP_FILE)).unwrap().contains("openFile"));
+      assert_eq!(minified, written.contains(&dir.join("desktop.min.js")));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
   }
 
   #[test]

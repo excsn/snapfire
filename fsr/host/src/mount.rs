@@ -581,8 +581,7 @@ impl Host {
   }
 
   /// The candidate's tables, assembled and checked the way a boot checks them.
-  fn candidate(&self, mut builder: HostBuilder) -> Result<Tables, HostError> {
-    builder.desktop |= self.tables().desktop;
+  fn candidate(&self, builder: HostBuilder) -> Result<Tables, HostError> {
     let (tables, config) = builder.assemble()?;
     let shape = session_shape(&config);
     if shape != self.session_shape {

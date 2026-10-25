@@ -1346,7 +1346,7 @@ cookies = "disk"
 
 `fsr serve app --desktop` prints the routes that stream and refuses `--listen` under the scheme. `fsr doctor` reports a scheme window over a route that streams as a `desktop` finding.
 
-The window installs a bridge before the page's scripts run, which `@snapfire/fsr/desktop` calls: `openFile()` opens the system file dialog on the window's thread and `openExternal(url)` hands an `http`, `https` or `mailto` link to the system. Only a desktop run serves that module and names it in the page's import map: `fsr serve --desktop` builds its host with `HostBuilder::desktop` and `fsr dev --desktop` starts its server, `fsr serve` or a Cargo project's own binary, with `FSR_DESKTOP` set. The client's guide has the calls.
+The window installs a bridge before the page's scripts run, which `@snapfire/fsr/desktop` calls: `openFile()` opens the system file dialog on the window's thread and `openExternal(url)` hands an `http`, `https` or `mailto` link to the system. Every host serves that module and names it in the page's import map when the application's bundle imports it, so the same page also runs in a browser, where both calls reject. The client's guide has the calls.
 
 ## Running a Terminal App
 

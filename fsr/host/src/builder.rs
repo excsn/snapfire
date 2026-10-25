@@ -39,7 +39,6 @@ pub struct HostBuilder {
   pub(crate) mounts: Vec<Mount>,
   /// Overrides `server.http2` for a host built in Rust.
   pub(crate) http2: Option<bool>,
-  pub(crate) desktop: bool,
   /// Whether a route, source, action, handler, evaluator, extension, native
   /// module or `#[service]` was registered on the builder, which a rebuild
   /// from the artifact alone would drop.
@@ -166,12 +165,6 @@ impl HostBuilder {
   /// `server.http2` also sets. The listener carries no TLS, so this is h2c.
   pub fn http2(mut self, on: bool) -> Self {
     self.http2 = Some(on);
-    self
-  }
-
-  /// Serves a desktop window: [`client::DESKTOP_FILE`] is answered under [`client::ROUTE`] and the import map names [`client::DESKTOP_SPECIFIER`]. [`Host::from`] sets it when [`crate::DESKTOP_ENV`] is set.
-  pub fn desktop(mut self, on: bool) -> Self {
-    self.desktop = on;
     self
   }
 
@@ -636,8 +629,11 @@ impl HostBuilder {
       Some(rel) => {
         let path = config.resolve(rel);
         let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
-        let text = if serve_client { client::with_import_entries(&text) } else { text };
-        let text = if serve_client && self.desktop { client::with_desktop_entry(&text) } else { text };
+        let text = match (serve_client, bundle_externals(&config, &self.mounts)) {
+          (false, _) => text,
+          (true, Some(imported)) => client::with_imported_entries(&text, &imported),
+          (true, None) => client::with_import_entries(&text),
+        };
         Some(bundle_urls(&client_urls(&text, serve_client && client_minified), served_bundle(&config)))
       }
       None => None,
@@ -1222,7 +1218,6 @@ impl HostBuilder {
         hashed_names,
         pwa,
         client: serve_client,
-        desktop: self.desktop,
         client_minified,
         csp,
         csp_report_only,

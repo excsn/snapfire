@@ -89,7 +89,7 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lo
   let mut import_map: HashMap<String, String> = imports_of(&vendor::read_import_map(&app, &layout)?).into_iter().filter_map(|(k, v)| v.as_str().map(|s| (k, s.to_owned()))).collect();
   import_map.insert(TESTING_SPECIFIER.to_owned(), TESTING_URL.to_owned());
   import_map.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| JSX_URL.to_owned());
-  for (specifier, url) in snapfire_fsr_host::client::import_entries().into_iter().chain([snapfire_fsr_host::client::desktop_entry()]) {
+  for (specifier, url) in snapfire_fsr_host::client::import_entries() {
     import_map.entry(specifier).or_insert(url);
   }
   let dist = test_dir.join("dist");
@@ -613,7 +613,7 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path, roots: &[String], 
   let mut map = vendor::read_import_map(app, layout)?;
   let mut imports = imports_of(&map);
   imports.insert(TESTING_SPECIFIER.to_owned(), serde_json::Value::String(TESTING_URL.to_owned()));
-  for (specifier, url) in snapfire_fsr_host::client::import_entries().into_iter().chain([snapfire_fsr_host::client::desktop_entry()]) {
+  for (specifier, url) in snapfire_fsr_host::client::import_entries() {
     imports.entry(specifier).or_insert_with(|| serde_json::Value::String(url));
   }
   imports.entry(JSX_SPECIFIER.to_owned()).or_insert_with(|| serde_json::Value::String(JSX_URL.to_owned()));
