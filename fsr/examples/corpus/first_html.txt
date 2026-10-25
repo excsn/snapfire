@@ -97,7 +97,7 @@ learn-javascript-in-jsx-with-curly-braces-12	same
 learn-javascript-in-jsx-with-curly-braces-13	same
 learn-javascript-in-jsx-with-curly-braces-2	same
 learn-javascript-in-jsx-with-curly-braces-3	same
-learn-javascript-in-jsx-with-curly-braces-4	react fails: Error: Intl is not defined
+learn-javascript-in-jsx-with-curly-braces-4	same
 learn-javascript-in-jsx-with-curly-braces-5	same
 learn-javascript-in-jsx-with-curly-braces-6	same
 learn-javascript-in-jsx-with-curly-braces-7	ir fails: String wants a scalar, got object
@@ -132,7 +132,7 @@ learn-managing-state-4	same
 learn-managing-state-5	same
 learn-managing-state-6	same
 learn-managing-state-7	same
-learn-managing-state-8	differs
+learn-managing-state-8	equivalent
 learn-managing-state-9	equivalent
 learn-manipulating-the-dom-with-refs-1	same
 learn-manipulating-the-dom-with-refs-10	same
@@ -155,8 +155,8 @@ learn-passing-data-deeply-with-context-2	same
 learn-passing-data-deeply-with-context-3	same
 learn-passing-data-deeply-with-context-4	same
 learn-passing-data-deeply-with-context-5	equivalent
-learn-passing-data-deeply-with-context-6	differs
-learn-passing-data-deeply-with-context-7	differs
+learn-passing-data-deeply-with-context-6	equivalent
+learn-passing-data-deeply-with-context-7	equivalent
 learn-passing-data-deeply-with-context-8	differs
 learn-passing-data-deeply-with-context-9	differs
 learn-passing-props-to-a-component-1	same
@@ -285,13 +285,13 @@ learn-reusing-logic-with-custom-hooks-4	same
 learn-reusing-logic-with-custom-hooks-5	same
 learn-reusing-logic-with-custom-hooks-9	same
 learn-rsc-sandbox-test-1	same
-learn-rsc-sandbox-test-10	react fails: Error: Minified React error #426; visit https://react.dev/errors/426 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+learn-rsc-sandbox-test-10	refused
 learn-rsc-sandbox-test-2	same
-learn-rsc-sandbox-test-3	differs
-learn-rsc-sandbox-test-4	differs
+learn-rsc-sandbox-test-3	refused
+learn-rsc-sandbox-test-4	refused
 learn-rsc-sandbox-test-5	same
 learn-rsc-sandbox-test-6	differs
-learn-rsc-sandbox-test-7	react fails: Error: Minified React error #426; visit https://react.dev/errors/426 for the full message or use the non-minified dev environment for full errors and additional helpful warnings.
+learn-rsc-sandbox-test-7	refused
 learn-rsc-sandbox-test-8	differs
 learn-rsc-sandbox-test-9	differs
 learn-scaling-up-with-reducer-and-context-1	same
@@ -423,7 +423,7 @@ reference-react-captureownerstack-1	same
 reference-react-captureownerstack-2	same
 reference-react-captureownerstack-3	react fails: import: Error: Could not find export 'captureOwnerStack' in module '<temp>/fsr-co'
 reference-react-children-1	same
-reference-react-children-10	ir fails: indexing wants an object or an array, got string
+reference-react-children-10	same
 reference-react-children-11	same
 reference-react-children-2	same
 reference-react-children-3	same
@@ -457,7 +457,7 @@ reference-react-dom-client-createroot-1	same
 reference-react-dom-client-createroot-3	same
 reference-react-dom-client-createroot-4	same
 reference-react-dom-client-hydrateroot-1	same
-reference-react-dom-client-hydrateroot-2	differs
+reference-react-dom-client-hydrateroot-2	react fails: Error: Intl.DateTimeFormat without a dateStyle, a timeStyle or a part is not read under fsr test, as the server does not read it
 reference-react-dom-client-hydrateroot-4	same
 reference-react-dom-client-hydrateroot-5	same
 reference-react-dom-components-common-1	same
@@ -549,12 +549,12 @@ reference-react-use-4	differs
 reference-react-use-5	differs
 reference-react-use-6	differs
 reference-react-use-7	same
-reference-react-useactionstate-1	react fails: import: Error: Intl is not defined
-reference-react-useactionstate-2	react fails: import: Error: Intl is not defined
-reference-react-useactionstate-3	react fails: import: Error: Intl is not defined
-reference-react-useactionstate-4	react fails: import: Error: Intl is not defined
-reference-react-useactionstate-5	react fails: import: Error: Intl is not defined
-reference-react-useactionstate-6	react fails: import: Error: Intl is not defined
+reference-react-useactionstate-1	same
+reference-react-useactionstate-2	same
+reference-react-useactionstate-3	same
+reference-react-useactionstate-4	same
+reference-react-useactionstate-5	same
+reference-react-useactionstate-6	differs
 reference-react-usecallback-3	same
 reference-react-usecontext-1	same
 reference-react-usecontext-2	same
@@ -564,7 +564,7 @@ reference-react-usecontext-5	same
 reference-react-usecontext-6	equivalent
 reference-react-usecontext-7	same
 reference-react-usecontext-8	same
-reference-react-usecontext-9	differs
+reference-react-usecontext-9	equivalent
 reference-react-usedebugvalue-1	same
 reference-react-usedeferredvalue-1	differs
 reference-react-usedeferredvalue-2	differs

@@ -30,7 +30,7 @@ cms-graphcms	refused: src/lib/graphcms.js:2:21: a call to `fetch`, which the bui
 cms-keystonejs-embedded	no application
 cms-kontent-ai	refused: src/lib/api.ts:9:20: `new` of something other than `Date`, `Map`, `Set`, `URL`, `URLSearchParams` or a class the build reads	pages 2	notes 24
 cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of something other than `Date`, `Map`, `Set`, `URL`, `URLSearchParams` or a class the build reads	pages 1	notes 7
-cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 23
+cms-payload	unmigrated: cssVariables.js:1: `module.exports =`, which is CommonJS; fsr migrate reads ES modules, `import` and `export`	pages 0	notes 0
 cms-plasmic	refused: src/plasmic-init.ts:21:32: a call to `initPlasmicLoader`, which the build cannot follow	pages 1	notes 9
 cms-prepr	refused: src/lib/api.js:2:26: a call to `fetch`, which the build cannot follow	pages 2	notes 24
 cms-prismic	refused: src/lib/prismic.ts:32:18: `prismic` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 21
@@ -70,7 +70,7 @@ with-absolute-imports	lowered	pages 1	notes 0
 with-algolia-react-instantsearch	client: src/components/Search.tsx:30:22 a call to `algoliasearch`, which the build cannot follow	pages 1	notes 0
 with-ant-design	client: routes/AntdRegistry.tsx:9:45 a call to `createCache`, which the build cannot follow | routes/page.island0.tsx:18:5 `SmileFilled` comes from `@ant-design/icons`, which the build cannot follow	pages 1	notes 1
 with-apivideo	client: routes/uploader/page.island0.tsx:21:18 `useRouter`, a hook the build cannot follow | routes/videos/[videoId]/page.island0.tsx:13:18 `useRouter`, a hook the build cannot follow	pages 4	notes 8
-with-apollo	client: src/components/ApolloClientProvider.tsx:42:5 `ApolloNextAppProvider` comes from `@apollo/experimental-nextjs-app-support/ssr`, which the build cannot follow | src/components/FiveRocketsClient.tsx:28:20 `useSuspenseQuery`, a hook the build cannot follow | src/components/LatestMissionName.tsx:19:8 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 2
+with-apollo	refused: src/components/LatestMissionName.tsx:19:8: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 2
 with-apollo-and-redux	refused: src/lib/redux.js:5:5: `store`, a module-level `let` a function writes; a body reads module state through the store	pages 3	notes 6
 with-axiom	refused: routes/page.loader.ts:5:3: `log` comes from `next-axiom`, which the build cannot follow	pages 1	notes 3
 with-azure-cosmos	refused: src/lib/cosmosdb.ts:32:5: `client`, a module-level `let` a function writes; a body reads module state through the store	pages 1	notes 9
@@ -128,7 +128,7 @@ with-jest-babel	refused: routes/index.module.css: 1:1: Expression expected	pages
 with-joi	lowered	pages 0	notes 3
 with-jotai	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
 with-kea	client: routes/layout.island0.tsx:7:22 `store` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:7:22 `store` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 2
-with-knex	lowered	pages 1	notes 3
+with-knex	unmigrated: knexfile.js:1: `require`, which is CommonJS; fsr migrate reads ES modules, `import` and `export`	pages 0	notes 0
 with-linaria	lowered	pages 1	notes 0
 with-lingui	client: routes/layout.js:13:22 `useRouter`, a hook the build cannot follow | routes/page.island0.tsx:6:5 `Trans` comes from `@lingui/macro`, which the build cannot follow | routes/two/page.island0.tsx:6:5 `Trans` comes from `@lingui/macro`, which the build cannot follow	pages 2	notes 2
 with-magic	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot follow	pages 3	notes 10
@@ -175,7 +175,7 @@ with-react-intl	refused: src/helper/loadIntlMessages.ts:13:12: `super` or `impor
 with-react-md-typescript	client: routes/page.island0.tsx:6:5 `Text` comes from `react-md`, which the build cannot follow | routes/route-1/page.island0.tsx:6:5 `Text` comes from `react-md`, which the build cannot follow | src/components/Layout/Layout.tsx:47:24 `useRouter`, a hook the build cannot follow	pages 2	notes 4
 with-react-multi-carousel	client: routes/page.island0.tsx:22:5 `Carousel` comes from `react-multi-carousel`, which the build cannot follow	pages 1	notes 5
 with-react-native-web	refused: routes/page.js:3:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 2	notes 2
-with-react-toolbox	client: routes/page.island0.tsx:7:27 `theme` comes from `../src/theme`, which the build cannot follow	pages 1	notes 0
+with-react-toolbox	unmigrated: theme.js:1: `module.exports =`, which is CommonJS; fsr migrate reads ES modules, `import` and `export`	pages 0	notes 0
 with-reactstrap	client: routes/page.island0.tsx:14:5 `CardTitle` comes from `reactstrap`, which the build cannot follow	pages 1	notes 1
 with-realm-web	client: routes/page.island0.tsx:20:20 `useSWR`, a hook the build cannot follow	pages 1	notes 2
 with-rebass	client: routes/page.island0.tsx:7:9 `children` as a prop; pass them between the tags	pages 1	notes 0
@@ -209,7 +209,7 @@ with-temporal	lowered	pages 2	notes 2
 with-three-js	client: routes/_components/Box.js:11:3 `useFrame`, a hook the build cannot follow | routes/birds/page.island0.tsx:11:17 `Math.random` | routes/boxes/page.island0.tsx:7:5 `OrbitControls` comes from `@react-three/drei`, which the build cannot follow	pages 3	notes 0
 with-turbopack	client: routes/page.island0.tsx:4:3 a call for its effect, which a straight-line body cannot hold	pages 1	notes 0
 with-turbopack-loaders	client: routes/page.island0.tsx:6:5 `Vercel` is not a component this file declares or imports	pages 1	notes 2
-with-turso	client: routes/form.tsx:21:3 an expression statement other than a write to a local | routes/todo-list.tsx:19:8 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 6
+with-turso	refused: routes/todo-list.tsx:19:8: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 6
 with-typescript	lowered	pages 4	notes 3
 with-typescript-graphql	refused: src/lib/apollo.ts:11:5: `apolloClient`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 3
 with-typescript-types	lowered	pages 1	notes 0
