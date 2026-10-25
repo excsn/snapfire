@@ -1324,24 +1324,19 @@ On `htmx:before:history:restore` on `document`, while `enableNavigation` has wir
 
 ### intl
 
-* `intl.number(n: number | bigint, options?: NumberOptions): string`; `interface NumberOptions { minimumFractionDigits?: number; maximumFractionDigits?: number; locale?: string }`. `Intl.NumberFormat(options.locale ?? localeTag(), options)`.
-* `intl.currency(n: number | bigint, code: string, options?: CurrencyOptions): string`; `interface CurrencyOptions extends NumberOptions { display?: "code" | "symbol" | "narrowSymbol" }`: `style: "currency"` with `currencyDisplay` from `display`, `code` by default, `USD 1,234.50`, `$1,234.50` for `symbol`.
-* `intl.date(when: number | string, style?: DateStyle | DateOptions): string`; `type DateStyle = "short" | "medium" | "long" | "full"`, `medium` by default; `interface DateOptions { style?: DateStyle; weekday?: TextWidth; year?: "numeric"; month?: TextWidth; day?: "numeric"; locale?: string }` with `type TextWidth = "long" | "short" | "narrow"`. A `dateStyle` with `timeZone: "UTC"` or the parts given with it. A string goes through `time.parse` and throws when it is not the ISO subset.
-* `intl.plural(n: number | bigint): string`: `Intl.PluralRules(localeTag()).select`.
-* `intl.list(items: string[], options?: ListOptions): string`: `Intl.ListFormat(options.locale ?? localeTag(), { type, style }).format(items)`. `ListOptions` is `{ type?: "conjunction" | "disjunction" | "unit"; style?: TextWidth; locale?: string }`.
-* `intl.compare(a: string, b: string, options?: { locale?: string }): number`: -1, 0 or 1, `a.localeCompare(b, options.locale ?? localeTag())`. A component's `localeCompare` lowers to it.
+* `intl.localeTag(): string`: `localeTag()`. The platform's `Intl` formatters, `toLocaleString`, `toLocaleDateString` and `localeCompare` take its place for formatting: the build lowers each call it reads and the server answers it as the browser does.
 
 ### text
 
 * `text.slug(s: string): string`: NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end.
 * `text.truncate(s: string, max: number, ellipsis?: string): string`: the first `max` code points and `ellipsis`, `…` by default, when `s` is longer.
-* `text.frontMatter<T>(source: string, options?: FrontMatterOptions): { data: T; content: string }`: the YAML block between two delimiter lines at the top of `source` as `data` and the rest as `content`, as gray-matter reads them. Terminal pages only; in a browser it throws.
-* `text.withFrontMatter(content: string, data: object, options?: FrontMatterOptions): string`: `data` as YAML between the delimiter lines, then `content`, as gray-matter's `stringify` writes them. Terminal pages only; in a browser it throws.
+* `text.frontMatter<T>(source: string, options?: FrontMatterOptions): { data: T; content: string }`: the YAML block between two delimiter lines at the top of `source` as `data` and the rest as `content`, as gray-matter reads them. Host bodies only; in a browser it throws.
+* `text.withFrontMatter(content: string, data: object, options?: FrontMatterOptions): string`: `data` as YAML between the delimiter lines, then `content`, as gray-matter's `stringify` writes them. Host bodies only; in a browser it throws.
 * `interface FrontMatterOptions { delimiters?: string | [string, string] }`: one string for both lines or `[open, close]`, `---` by default.
 
 ### file
 
-The files of the machine a terminal page runs on. Each member throws in a browser. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file.
+The files a host body reads and writes: a web host's under its `[files] roots`, a terminal program's from its working directory. Each member throws in a browser. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file.
 
 * `file.read(path: string): string`: the file as text, bytes that are not UTF-8 as U+FFFD.
 * `file.write(path: string, data: unknown): void`: `data` as the file's text, a value that is not text as JSON.
@@ -1352,7 +1347,7 @@ The files of the machine a terminal page runs on. Each member throws in a browse
 
 ### path
 
-POSIX paths as text. Terminal pages only; in a browser each member throws.
+POSIX paths as text. `join`, `normalize`, `dirname`, `basename`, `extname` and `isAbsolute` run in the browser too; `resolve` and `relative` read the working directory and throw in a browser.
 
 * `path.join(...parts: string[]): string`: the parts joined by `/` and normalized; `.` for none.
 * `path.resolve(...parts: string[]): string`: the parts right to left until one is absolute, the working directory before them otherwise.
@@ -1383,14 +1378,12 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 * `time.format(when: number, pattern: string): string`: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced, every other character kept.
 * `time.add(when: number, amount: number, unit: string): number` and `time.diff(later: number, earlier: number, unit: string): number` with `unit` one of `ms`, `s`, `m`, `h`, `d`; another unit throws.
 * `time.parse(s: string): number | null`: `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`; `null` for anything else.
-* `time.now(): number`: `Date.now()`. Server only on a render path.
 
 ### crypto
 
 * `crypto.hash(s: string): string`: SHA-256 of the UTF-8 bytes as lowercase hex, computed synchronously.
 * `crypto.verify(s: string, hash: string): boolean`: constant time over the hash's length, case insensitive.
 * `crypto.random(bytes: number, encoding?: "hex" | "base64"): string`: at most 1024 bytes from `getRandomValues`, as `hex` by default or as `base64`. Server only on a render path.
-* `crypto.uuid(): string`: a version 4 UUID. Server only on a render path.
 * `crypto.digest(algorithm: string, encoding: string, ...parts: string[]): string`: the `sha256` of the parts' UTF-8 bytes in order as `hex` or `base64`; another algorithm or encoding throws.
 
 ### Scope
@@ -1403,7 +1396,7 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 
 ### t
 
-* `t(key: string, args?: { [name: string]: unknown }): string`: the message under `key` in `catalog(currentLocale())`; with `args.count` a number or bigint, `key.<intl.plural(count)>` then `key.other` then `key`; `{name}` replaced by `String(args[name])` for a scalar argument and left as written otherwise; the key itself when the table lacks every form or no table is held. Lowered by the build to the server's `i18n.t` and hoisted when its inputs are props only.
+* `t(key: string, args?: { [name: string]: unknown }): string`: the message under `key` in `catalog(currentLocale())`; with `args.count` a number or bigint, `key.<plural category of count>` then `key.other` then `key`; `{name}` replaced by `String(args[name])` for a scalar argument and left as written otherwise; the key itself when the table lacks every form or no table is held. Lowered by the build to the server's `i18n.t` and hoisted when its inputs are props only.
 
 ### native
 

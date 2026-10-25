@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use snapfire_fsr_ir::ast::Expr;
+use snapfire_fsr_ir::Reach;
 use swc_core::common::SyntaxContext;
 use swc_core::ecma::ast as js;
 
@@ -693,4 +694,55 @@ fn bind(pat: &js::Pat, source: &str, out: &mut Vec<ImportBinding>) {
     }
     _ => {}
   }
+}
+
+/// Platform spellings the build reads beside each member's own form, with the reach each lowers at.
+const PLATFORM_ALSO: [(&str, Reach); 8] = [
+  ("n.toLocaleString(locale, options)", Reach::Render),
+  ("when.toLocaleDateString(locale, options)", Reach::Render),
+  ("a.localeCompare(b, locale, options)", Reach::Render),
+  ("new Date()", Reach::Body),
+  ("new URL(href, base)", Reach::Render),
+  ("new URLSearchParams(query)", Reach::Render),
+  ("structuredClone(value)", Reach::Render),
+  ("new Intl.Segmenter(locale, { granularity: \"grapheme\" }).segment(text)", Reach::Terminal),
+];
+
+fn runs_in(reach: Reach, platform: bool) -> &'static str {
+  match reach {
+    Reach::Render => "a server render, the browser and every host body",
+    Reach::Body if platform => "every host body; in a component the browser fills it in",
+    Reach::Body => "every host body",
+    Reach::Terminal | Reach::Process | Reach::Later => "a terminal program",
+  }
+}
+
+/// The reference the guides carry: each platform form the build reads, then each standard member with the paths it is under, and where each runs.
+pub fn reference() -> String {
+  let mut out = String::from("| Write | Import | Runs in |\n| --- | --- | --- |\n");
+  for member in snapfire_fsr_ir::STANDARD.iter().filter(|m| m.platform.is_some()) {
+    out.push_str(&format!("| `{}` | none | {} |\n", member.platform.unwrap_or_default(), runs_in(member.reach, true)));
+  }
+  for (form, reach) in PLATFORM_ALSO {
+    out.push_str(&format!("| `{form}` | none | {} |\n", runs_in(reach, true)));
+  }
+  let sides = [Side::Client, Side::Host, Side::Terminal];
+  let mut seen: Vec<(&str, &str)> = Vec::new();
+  for side in sides {
+    for (module, names) in side_modules(side) {
+      for name in names {
+        if seen.contains(&(module, name)) {
+          continue;
+        }
+        seen.push((module, name));
+        let paths: Vec<String> = sides.into_iter().filter(|s| side_has(*s, module, name).is_some()).map(|s| format!("`{}`", module_path(s, module))).collect();
+        let reach = snapfire_fsr_ir::standard_reach(module, name).unwrap_or(Reach::Process);
+        out.push_str(&format!("| `{module}.{name}` | {} | {} |\n", paths.join(", "), runs_in(reach, false)));
+      }
+    }
+  }
+  for member in snapfire_fsr_ir::STANDARD.iter().filter(|m| m.module == "terminal") {
+    out.push_str(&format!("| `{}` | `{TERMINAL_ROOT}` | {} |\n", member.name, runs_in(member.reach, false)));
+  }
+  out
 }

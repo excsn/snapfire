@@ -9,6 +9,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr use](#fsr-use)
   * [fsr add](#fsr-add)
   * [fsr types](#fsr-types)
+  * [fsr migrate](#fsr-migrate)
   * [fsr build](#fsr-build)
   * [fsr check](#fsr-check)
   * [fsr test](#fsr-test)
@@ -188,6 +189,12 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * `fsr types <app dir> [--refresh]`
 * `types::fetch`; a package whose entry is on disk (the one its manifest row records, else `index.d.ts`) is kept unless `--refresh` or a range asked of it refuses the version it holds. Prints `ran <command>` for each delegated xwpm command, `types <package> <from> <version>` per fetch, `kept <package>`, `missing <package> <why>`, `unmet <package> <version>; <by> asks <range>` per range no published version met and `wrote <path>` for `<types>/foreign.d.ts` when a source is foreign and for `tsconfig.json`, which it writes from what it fetched. Exit 0 with missing packages, 1 on a `BuildError`.
+
+### fsr migrate
+
+* `fsr migrate <app> <project dir> [--no-fetch] [--map <file>]`: an application written for Node, an Ink program among them, as a new FSR project under `<project dir>`; `migrate::run`.
+* `fsr migrate <project> [--dry-run]`: an FSR project on the earlier layout rewritten in place, `migrate::relayout(project, dry_run) -> Result<Vec<Relaid>, BuildError>`. Every file under `<project>/app` that names `@snapfire/fsr-client`, `@snapfire/fsr-authoring` or `Ctx` from `@snapfire/fsr` takes `@snapfire/fsr/client`, `/host`, `/terminal`, `/template` and `/components`, a file the browser runs taking the client side and a body the host side. The import map's entries are renamed. Prints `wrote <path>` (`would <path>` with `--dry-run`), then each changed line as `- old` and `+ new`, then `next fsr check <app>`; `nothing` when no file names an old specifier. `Relaid { path, lines }` holds a file's changed lines as `(old, new)` pairs, one side empty.
+* `fsr migrate --schema` prints the JSON Schema of `migrate.toml`.
 
 ## 2. The Build
 

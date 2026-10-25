@@ -27,11 +27,92 @@ A page calls helpers: `money(cents)`, `categoryLabel(key)`, `percentOff(price, l
 
 Imports resolve by relative path or by the aliases [chapter 302](302-imports-and-aliases.md) describes, `@src/ui/Header` or `@generated/client`. A namespace import works as a tag: `<Ui.Card>` reaches `Card` in the file `import * as Ui` names. A rest in a destructuring is the object without the named keys, so `{ className, ...rest }` spread onto an element or a component passes everything else through. A bare specifier the render reaches, a chart library say, is residue, since the build cannot read it.
 
-One bare specifier is not residue: `@snapfire/fsr/client`, the standard library's side a component imports. Its counterpart `@snapfire/fsr/host` is what a loader imports: the same members plus the ones only a host runs, which no component may import. `intl.number(n)` groups a number for the document's locale, `intl.currency(n, "USD")`, `intl.date(when, "long")`, `intl.plural(n)`, `intl.list(items)` and `intl.compare(a, b)` do what their names say, `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC and `crypto.hash` is SHA-256. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. The same import works in a loader and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
+The platform's own globals are not residue either. `new Intl.NumberFormat(localeTag()).format(n)` groups a number for the document's locale. `Intl.DateTimeFormat`, `Intl.PluralRules`, `Intl.ListFormat`, `Intl.Collator`, `Intl.RelativeTimeFormat`, `toLocaleString` and `localeCompare` do what their names say. The build reads each call and answers it on the server with Rust checked against what Chrome writes, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. A call the build cannot read, an option it does not know, leaves the component to render in the browser, where the platform runs it.
+
+One bare specifier is not residue: `@snapfire/fsr/client`, the standard library's side a component imports, for what the platform has no form for. Its counterpart `@snapfire/fsr/host` is what a loader imports: the same members plus the ones only a host runs, which no component may import. `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC, `crypto.hash` is SHA-256 and `intl.localeTag()` is the locale both sides format under. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale. The same import works in a loader and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
+
+<!-- fsr:reference -->
+| Write | Import | Runs in |
+| --- | --- | --- |
+| `new Intl.NumberFormat(locale, options).format(n)` | none | a server render, the browser and every host body |
+| `new Intl.NumberFormat(locale, { style: "currency", currency }).format(n)` | none | a server render, the browser and every host body |
+| `new Intl.DateTimeFormat(locale, { dateStyle, timeZone: "UTC" }).format(when)` | none | a server render, the browser and every host body |
+| `new Intl.PluralRules(locale, options).select(n)` | none | a server render, the browser and every host body |
+| `new Intl.ListFormat(locale, options).format(items)` | none | a server render, the browser and every host body |
+| `new Intl.Collator(locale, options).compare(a, b)` | none | a server render, the browser and every host body |
+| `new Intl.RelativeTimeFormat(locale, options).format(value, unit)` | none | a server render, the browser and every host body |
+| `Date.now()` | none | every host body; in a component the browser fills it in |
+| `performance.now()` | none | every host body; in a component the browser fills it in |
+| `crypto.randomUUID()` | none | every host body; in a component the browser fills it in |
+| `btoa(text)` | none | a server render, the browser and every host body |
+| `atob(text)` | none | a server render, the browser and every host body |
+| `new TextEncoder().encode(text)` | none | a server render, the browser and every host body |
+| `new TextDecoder().decode(bytes)` | none | a server render, the browser and every host body |
+| `new Date(ms).toLocaleTimeString(locale)` | none | every host body; in a component the browser fills it in |
+| `n.toLocaleString(locale, options)` | none | a server render, the browser and every host body |
+| `when.toLocaleDateString(locale, options)` | none | a server render, the browser and every host body |
+| `a.localeCompare(b, locale, options)` | none | a server render, the browser and every host body |
+| `new Date()` | none | every host body; in a component the browser fills it in |
+| `new URL(href, base)` | none | a server render, the browser and every host body |
+| `new URLSearchParams(query)` | none | a server render, the browser and every host body |
+| `structuredClone(value)` | none | a server render, the browser and every host body |
+| `new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(text)` | none | a terminal program |
+| `intl.localeTag` | `@snapfire/fsr/client/intl`, `@snapfire/fsr/host/intl` | a server render, the browser and every host body |
+| `text.slug` | `@snapfire/fsr/client/text`, `@snapfire/fsr/host/text` | a server render, the browser and every host body |
+| `text.truncate` | `@snapfire/fsr/client/text`, `@snapfire/fsr/host/text` | a server render, the browser and every host body |
+| `time.format` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `time.add` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `time.diff` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `time.parse` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `crypto.hash` | `@snapfire/fsr/client/crypto`, `@snapfire/fsr/host/crypto` | a server render, the browser and every host body |
+| `crypto.verify` | `@snapfire/fsr/client/crypto`, `@snapfire/fsr/host/crypto` | a server render, the browser and every host body |
+| `crypto.digest` | `@snapfire/fsr/client/crypto`, `@snapfire/fsr/host/crypto` | a server render, the browser and every host body |
+| `i18n.t` | `@snapfire/fsr/client/i18n`, `@snapfire/fsr/host/i18n` | a server render, the browser and every host body |
+| `path.join` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.normalize` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.dirname` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.basename` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.extname` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.isAbsolute` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `log.trace` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.debug` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.info` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.warn` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.error` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.fatal` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `text.frontMatter` | `@snapfire/fsr/host/text` | every host body |
+| `text.withFrontMatter` | `@snapfire/fsr/host/text` | every host body |
+| `time.localOffset` | `@snapfire/fsr/host/time` | every host body |
+| `crypto.random` | `@snapfire/fsr/host/crypto` | every host body |
+| `id.new` | `@snapfire/fsr/host/id` | every host body |
+| `path.resolve` | `@snapfire/fsr/host/path` | every host body |
+| `path.relative` | `@snapfire/fsr/host/path` | every host body |
+| `file.read` | `@snapfire/fsr/host/file` | every host body |
+| `file.write` | `@snapfire/fsr/host/file` | every host body |
+| `file.exists` | `@snapfire/fsr/host/file` | every host body |
+| `file.list` | `@snapfire/fsr/host/file` | every host body |
+| `file.makeDir` | `@snapfire/fsr/host/file` | every host body |
+| `file.stat` | `@snapfire/fsr/host/file` | every host body |
+| `system.env` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.home` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.platform` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.tempDir` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.lineEnd` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.cwd` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.memory` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.spawn` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `clipboard.write` | `@snapfire/fsr/terminal/clipboard` | a terminal program |
+| `clipboard.read` | `@snapfire/fsr/terminal/clipboard` | a terminal program |
+| `ms` | `@snapfire/fsr/terminal` | a terminal program |
+| `stripAnsi` | `@snapfire/fsr/terminal` | a terminal program |
+| `stringWidth` | `@snapfire/fsr/terminal` | a terminal program |
+| `wrapAnsi` | `@snapfire/fsr/terminal` | a terminal program |
+| `bigText` | `@snapfire/fsr/terminal` | a terminal program |
+<!-- /fsr:reference -->
 
 `t("help.title")` is the same idea for text: the message under that key in the locale's catalog, `locales/fr_FR.toml` beside the app, with `t("agents.watching", { count })` picking the plural form and filling `{count}`. The server reads the file, the browser reads the same table the document carried, so the console's help page is three `t` calls instead of two copies of the page.
 
-Three members are the server's alone: `time.now`, `crypto.random` and `id.new` cannot run twice and agree, so a component's render path may not call them and the build says so, naming the line. A loader, an action, middleware and an event handler may. `ext/` is where the application's own extensions live, reached as `@ext/labels`: every export there must lower and a `native("fleet.queueLabel", f)` declaration there pairs a browser function with a Rust one the host registers under that name, which is how the console's agent rows print `3 queued` from Rust and from React alike.
+Some values are the server's alone: `Date.now()`, `crypto.randomUUID()`, `crypto.random` and `id.new` cannot run twice and agree. On a component's render path `Date.now()` and `crypto.randomUUID()` are left for the browser to fill in. `crypto.random` and `id.new` are refused with the line named. A loader, an action, middleware and an event handler may call any of them. `ext/` is where the application's own extensions live, reached as `@ext/labels`: every export there must lower and a `native("fleet.queueLabel", f)` declaration there pairs a browser function with a Rust one the host registers under that name, which is how the console's agent rows print `3 queued` from Rust and from React alike.
 
 ## What the browser keeps
 

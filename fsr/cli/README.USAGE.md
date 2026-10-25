@@ -26,6 +26,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Typing Pages and Calling Actions](#typing-pages-and-calling-actions)
 * [Vendoring a Package](#vendoring-a-package)
 * [Adopting a Direction](#adopting-a-direction)
+* [Moving an App onto the Client and Host Imports](#moving-an-app-onto-the-client-and-host-imports)
 * [Fetching Declarations](#fetching-declarations)
 - [Checking a Deployment](#checking-a-deployment)
 - [Writing the Deploy Tree](#writing-the-deploy-tree)
@@ -798,6 +799,23 @@ fsr new shop --with react --with htmx
 
 `--no-fetch` on either command writes the map lines and the examples and names `fsr add`, `fsr types` and `fsr build` as the steps that reach the network.
 
+## Moving an App onto the Client and Host Imports
+
+An app written before the standard library was split by side names `@snapfire/fsr-client`, `@snapfire/fsr-authoring` or `Ctx` from `@snapfire/fsr`. `fsr migrate` with the project alone rewrites it in place; `--dry-run` prints what it would change and writes nothing:
+
+```sh
+fsr migrate examples/ops_console_react_ts --dry-run
+```
+
+```
+would  app/routes/page.loader.ts
+  - import type { Ctx } from "@snapfire/fsr";
+  + import type { Ctx } from "@snapfire/fsr/host";
+next      fsr check examples/ops_console_react_ts/app
+```
+
+A file the browser runs takes `@snapfire/fsr/client` and a loader, an action, a route handler or middleware takes `@snapfire/fsr/host`. A member the platform has a form for, `intl.number` or `time.now`, is not rewritten; the build refuses it with the platform code to write.
+
 ## Fetching Declarations
 
 `fsr types` reads the import map and for every package it names fills `types/<package>/` from the npm registry: the package's own declarations when it publishes them, through `types`, `typings` or the `types` condition of `exports`, else `@types/<package>` from DefinitelyTyped. Then the packages those declarations import, `vue` re-exporting `@vue/runtime-dom` for one, each at the highest version every package asking for it accepts: `vue` 3.5.42 pins `@vue/runtime-dom` at 3.5.42, so that is the version taken even after 3.5.43 is out. A package `fsr add` vendored is fetched at the same major, with declarations the package publishes itself taken at the vendored version exactly, so moving a vendored Vue moves its declarations at the next build. A vendored package that carries its declarations beside its entry, `index.d.ts` next to `index.min.js`, takes them from the vendor tree instead and nothing is fetched; the manifest records it `from` `vendor`. A range no published version meets is reported as `unmet` with the package that asked. The build report's `types` row for it says the same. The fsr packages, `@snapfire/fsr/client` and `@snapfire/fsr/authoring`, come from the binary itself. What was taken is recorded in `types/.fsr-types.json`; a package already present is kept until `--refresh`. It then writes what the typechecker needs beside them: `types/foreign.d.ts` when a source under `src/` is a `.vue` file, a component in a language the build does not read, plus `tsconfig.json` with every package mapped to the entry it recorded, so an application hosted from Rust that never runs `fsr build` typechecks from this one command.
@@ -1421,7 +1439,7 @@ useEffect(() => {
 
 `stdout` and `stderr` give `data`; the process gives `exit` and `close` with the code and signal. It gives `error` when it cannot start. `sub.stdin.write(text)` writes its standard input and `sub.stdin.end()` closes it. The options read are `cwd`, `env`, `shell` and `stdio: "inherit"`. `fsr migrate` rewrites Node's `spawn` to it.
 
-A page may read the machine it runs on through `file` and `path` from `@snapfire/fsr/host` and `system` and `clipboard` from `@snapfire/fsr/terminal`. `file` has `read`, `write`, `exists`, `list`, `makeDir` and `stat`, which answers `{ isFile, isDirectory, size, mtimeMs }`; `path` has `join`, `resolve`, `normalize`, `dirname`, `basename`, `extname`, `relative` and `isAbsolute`; `system` has `env(name)`, `home()`, `platform()`, `tempDir()`, `lineEnd()`, `cwd()` and `memory()`, the resident set in bytes; `clipboard` has `write(text)` and `read()`, through the platform's copy and paste commands. `fsr migrate` rewrites `clipboardy` calls to them. Each runs natively. Ink's `useApp().exit(code)` in a handler ends the session and `fsr dev --terminal` exits with the code. `useStdout().stdout.columns` and `rows` are the terminal's size. `stdout.on("resize", f)` runs `f` when the size changes, `f` a function the effect declares or a `const` arrow in it; `stdout.off("resize", f)` in the effect's cleanup takes it off. A page that imports one of Node's modules or reads `process` is refused; `fsr migrate` rewrites Node's `fs`, `path` and `os` and `process` onto these members. `console.log(message, ...rest)` writes each item of `rest`. `log.info(message, fields)` from `@snapfire/fsr/host`, with `trace`, `debug`, `warn`, `error` and `fatal` beside it, writes a structured `tracing` line under `fsr::app`. `text.frontMatter(source, { delimiters })` reads the YAML block at the top of a text into `{ data, content }` and `text.withFrontMatter(content, data, { delimiters })` writes one; `fsr migrate` rewrites `gray-matter` calls to them and a `pino` or `winston` logger to `log`, the message first and a `child`'s fields merged into each call. `crypto.uuid()`, `crypto.random(n, encoding?)` and `crypto.digest("sha256", encoding, ...parts)` from `@snapfire/fsr/host` run natively, as members of the `crypto` extension an application's own Rust may register over; `fsr migrate` rewrites Node's `randomUUID`, `randomBytes(n).toString(encoding)` and `createHash` chain to them. `performance.now()` is the milliseconds since the process started. A `Scope` from `@snapfire/fsr/terminal` in a module `const` scopes a value to a call: `scope.run(value, fn)` holds it while `fn` runs across its awaits, `scope.get()` reads it and `scope.set(value)` holds it from then on; `fsr migrate` rewrites Node's `AsyncLocalStorage` to it. A module-level constant that reads the machine, `const config = JSON.parse(file.read(configPath))`, is evaluated once when the session opens. A file that is missing throws an error whose `code` is `ENOENT` for a `catch` to read, an awaited `file.read` or `file.stat` inside a `try` too; `error instanceof Error` is true for it, as for any thrown `Error`. A function that writes fields of an object it is passed changes the caller's object; a callback of an array method that changes its item is refused, as is an async function that writes a field of its parameter. `fsr migrate` rewrites a callback that only writes fields of its parameter to return the changed object and the function calling it to take what it returns.
+A page may read the machine it runs on through `file` and `path` from `@snapfire/fsr/host` and `system` and `clipboard` from `@snapfire/fsr/terminal`. `file` has `read`, `write`, `exists`, `list`, `makeDir` and `stat`, which answers `{ isFile, isDirectory, size, mtimeMs }`; `path` has `join`, `resolve`, `normalize`, `dirname`, `basename`, `extname`, `relative` and `isAbsolute`; `system` has `env(name)`, `home()`, `platform()`, `tempDir()`, `lineEnd()`, `cwd()` and `memory()`, the resident set in bytes; `clipboard` has `write(text)` and `read()`, through the platform's copy and paste commands. `fsr migrate` rewrites `clipboardy` calls to them. Each runs natively. Ink's `useApp().exit(code)` in a handler ends the session and `fsr dev --terminal` exits with the code. `useStdout().stdout.columns` and `rows` are the terminal's size. `stdout.on("resize", f)` runs `f` when the size changes, `f` a function the effect declares or a `const` arrow in it; `stdout.off("resize", f)` in the effect's cleanup takes it off. A page that imports one of Node's modules or reads `process` is refused; `fsr migrate` rewrites Node's `fs`, `path` and `os` and `process` onto these members. `console.log(message, ...rest)` writes each item of `rest`. `log.info(message, fields)` from `@snapfire/fsr/host`, with `trace`, `debug`, `warn`, `error` and `fatal` beside it, writes a structured `tracing` line under `fsr::app`. `text.frontMatter(source, { delimiters })` reads the YAML block at the top of a text into `{ data, content }` and `text.withFrontMatter(content, data, { delimiters })` writes one; `fsr migrate` rewrites `gray-matter` calls to them and a `pino` or `winston` logger to `log`, the message first and a `child`'s fields merged into each call. `crypto.randomUUID()` and, from `@snapfire/fsr/host`, `crypto.random(n, encoding?)` and `crypto.digest("sha256", encoding, ...parts)` run natively, as members of the `crypto` extension an application's own Rust may register over; `fsr migrate` rewrites Node's `randomUUID` to the platform's `crypto.randomUUID()` and its `randomBytes(n).toString(encoding)` and `createHash` chain to the members. `performance.now()` is the milliseconds since the process started. A `Scope` from `@snapfire/fsr/terminal` in a module `const` scopes a value to a call: `scope.run(value, fn)` holds it while `fn` runs across its awaits, `scope.get()` reads it and `scope.set(value)` holds it from then on; `fsr migrate` rewrites Node's `AsyncLocalStorage` to it. A module-level constant that reads the machine, `const config = JSON.parse(file.read(configPath))`, is evaluated once when the session opens. A file that is missing throws an error whose `code` is `ENOENT` for a `catch` to read, an awaited `file.read` or `file.stat` inside a `try` too; `error instanceof Error` is true for it, as for any thrown `Error`. A function that writes fields of an object it is passed changes the caller's object; a callback of an array method that changes its item is refused, as is an async function that writes a field of its parameter. `fsr migrate` rewrites a callback that only writes fields of its parameter to return the changed object and the function calling it to take what it returns.
 
 A promise runs as JavaScript runs it. `new Promise((resolve, reject) => …)` makes one whose `resolve` and `reject` settle it, `setTimeout(resolve, ms)` among them. `Promise.resolve(value)` and `Promise.reject(error)` make one already settled. An `await`, in an async function called where it is written, runs the rest of the function once the promise settles. A loop whose body awaits, `for (const name of names) { const text = await file.read(name); … }`, runs its passes in turn, a `continue` at the top of the body skipping to the next and a `return` there answering the function; `break` inside it is refused. A module-level `let` keeps what a function writes from one step to the next, as does a module-level `Map` or `Set` a function changes in place. A callback handed to `setTimeout` runs when it is due with the values it read. A component that throws a pending promise under `Suspense` shows the fallback until it settles:
 
@@ -1815,29 +1833,127 @@ islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
 
 ## Calling the Standard Library
 
-The standard library comes from one of two roots and the path says where the code runs. `@snapfire/fsr/client` has what a server render and the browser both run, so a page, a component or an island imports from it. `@snapfire/fsr/host` has those members and the ones a host alone runs, so a loader, an action, a route handler, middleware or a terminal page imports from it. Each module also has a path of its own, `@snapfire/fsr/client/intl` or `@snapfire/fsr/host/file`. A member both roots have answers the same on the server and in the browser under the document's locale:
+Code formats, compares and counts with the platform's own globals `Intl`, `Date` and `crypto`. It imports nothing for them. The build reads each call it knows and answers it on the server with Rust that is checked against what Chrome writes for the same call, so the server's text and the browser's agree. A call the build cannot read leaves its component to render in the browser, where the platform runs it. A loader or an action has no browser to hand it to, so there the call is refused with the option named.
 
 ```tsx
-import { intl, text, time } from "@snapfire/fsr/client";
+import { localeTag } from "@snapfire/fsr/client/intl";
 
-export function Stars({ rating, reviews }: { rating: number; reviews: bigint | number }) {
-  return <span className="stars-reviews">({intl.number(Number(reviews))})</span>;
+export function Stars({ reviews }: { reviews: bigint | number }) {
+  return <span className="stars-reviews">({new Intl.NumberFormat(localeTag()).format(Number(reviews))})</span>;
 }
 ```
 
+`localeTag()` is the request's locale on the server and the document's in the browser, which are the same one. A formatter made with no locale formats under the request's locale on the server and under the browser's own in the browser, which can differ.
+
+`Intl.NumberFormat` reads `style` (`decimal`, `percent` or `currency` with `currency` and `currencyDisplay`), the fraction digits, `minimumIntegerDigits`, `useGrouping` and `signDisplay`. `Intl.DateTimeFormat` reads `dateStyle`, `timeStyle` `short` or `medium` and the `weekday`, `year`, `month` and `day` parts, in UTC: a `timeStyle` needs `timeZone: "UTC"` written, since without it the browser formats in the viewer's zone. `Intl.PluralRules` reads `type`, `Intl.Collator` reads `sensitivity` and `numeric`, `Intl.RelativeTimeFormat` reads `numeric` and `style` and `Intl.ListFormat` reads `type` and `style`. An option outside those names itself in the refusal:
+
+```
+routes/a/page.loader.ts:2:20: the `Intl.NumberFormat` option `notation`; `style`, `minimumFractionDigits`, `maximumFractionDigits`, `minimumIntegerDigits`, `useGrouping` and `signDisplay` are read
+```
+
+What the platform has no form for comes from one of two roots and the path says where the code runs. `@snapfire/fsr/client` has what a server render and the browser both run, so a page, a component or an island imports from it. `@snapfire/fsr/host` has those members and the ones a host alone runs, so a loader, an action, a route handler, middleware or a terminal page imports from it. Each module also has a path of its own, `@snapfire/fsr/client/text` or `@snapfire/fsr/host/file`:
+
 ```ts
-import { crypto, id, intl, time } from "@snapfire/fsr/host";
+import { crypto, id } from "@snapfire/fsr/host";
 
 export async function load({ params, services }: Ctx<"/order/{id}">) {
   const order = await services.shopping.getOrder({ id: BigInt(params.id) });
-  return { order, placed: intl.date(order.placed_at, "long"), receipt: crypto.hash(`${order.id}:${order.total_cents}`), token: id.new(), at: time.now() };
+  const placed = new Intl.DateTimeFormat("en-GB", { dateStyle: "long", timeZone: "UTC" }).format(new Date(order.placed_at));
+  return { order, placed, receipt: crypto.hash(`${order.id}:${order.total_cents}`), token: id.new(), at: Date.now() };
 }
 ```
 
-`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `intl.list(items)`, `intl.compare(a, b)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` are under both roots. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random`, `crypto.uuid`, `id.new` and `file` are under `@snapfire/fsr/host` only. A component that asks `@snapfire/fsr/client` for one is refused with where it is. A component that imports `@snapfire/fsr/host` is refused too, since the browser would run it:
+The table is written from the build's own list, so it holds what the build reads:
+
+<!-- fsr:reference -->
+| Write | Import | Runs in |
+| --- | --- | --- |
+| `new Intl.NumberFormat(locale, options).format(n)` | none | a server render, the browser and every host body |
+| `new Intl.NumberFormat(locale, { style: "currency", currency }).format(n)` | none | a server render, the browser and every host body |
+| `new Intl.DateTimeFormat(locale, { dateStyle, timeZone: "UTC" }).format(when)` | none | a server render, the browser and every host body |
+| `new Intl.PluralRules(locale, options).select(n)` | none | a server render, the browser and every host body |
+| `new Intl.ListFormat(locale, options).format(items)` | none | a server render, the browser and every host body |
+| `new Intl.Collator(locale, options).compare(a, b)` | none | a server render, the browser and every host body |
+| `new Intl.RelativeTimeFormat(locale, options).format(value, unit)` | none | a server render, the browser and every host body |
+| `Date.now()` | none | every host body; in a component the browser fills it in |
+| `performance.now()` | none | every host body; in a component the browser fills it in |
+| `crypto.randomUUID()` | none | every host body; in a component the browser fills it in |
+| `btoa(text)` | none | a server render, the browser and every host body |
+| `atob(text)` | none | a server render, the browser and every host body |
+| `new TextEncoder().encode(text)` | none | a server render, the browser and every host body |
+| `new TextDecoder().decode(bytes)` | none | a server render, the browser and every host body |
+| `new Date(ms).toLocaleTimeString(locale)` | none | every host body; in a component the browser fills it in |
+| `n.toLocaleString(locale, options)` | none | a server render, the browser and every host body |
+| `when.toLocaleDateString(locale, options)` | none | a server render, the browser and every host body |
+| `a.localeCompare(b, locale, options)` | none | a server render, the browser and every host body |
+| `new Date()` | none | every host body; in a component the browser fills it in |
+| `new URL(href, base)` | none | a server render, the browser and every host body |
+| `new URLSearchParams(query)` | none | a server render, the browser and every host body |
+| `structuredClone(value)` | none | a server render, the browser and every host body |
+| `new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(text)` | none | a terminal program |
+| `intl.localeTag` | `@snapfire/fsr/client/intl`, `@snapfire/fsr/host/intl` | a server render, the browser and every host body |
+| `text.slug` | `@snapfire/fsr/client/text`, `@snapfire/fsr/host/text` | a server render, the browser and every host body |
+| `text.truncate` | `@snapfire/fsr/client/text`, `@snapfire/fsr/host/text` | a server render, the browser and every host body |
+| `time.format` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `time.add` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `time.diff` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `time.parse` | `@snapfire/fsr/client/time`, `@snapfire/fsr/host/time` | a server render, the browser and every host body |
+| `crypto.hash` | `@snapfire/fsr/client/crypto`, `@snapfire/fsr/host/crypto` | a server render, the browser and every host body |
+| `crypto.verify` | `@snapfire/fsr/client/crypto`, `@snapfire/fsr/host/crypto` | a server render, the browser and every host body |
+| `crypto.digest` | `@snapfire/fsr/client/crypto`, `@snapfire/fsr/host/crypto` | a server render, the browser and every host body |
+| `i18n.t` | `@snapfire/fsr/client/i18n`, `@snapfire/fsr/host/i18n` | a server render, the browser and every host body |
+| `path.join` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.normalize` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.dirname` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.basename` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.extname` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `path.isAbsolute` | `@snapfire/fsr/client/path`, `@snapfire/fsr/host/path` | a server render, the browser and every host body |
+| `log.trace` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.debug` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.info` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.warn` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.error` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `log.fatal` | `@snapfire/fsr/client/log`, `@snapfire/fsr/host/log` | a server render, the browser and every host body |
+| `text.frontMatter` | `@snapfire/fsr/host/text` | every host body |
+| `text.withFrontMatter` | `@snapfire/fsr/host/text` | every host body |
+| `time.localOffset` | `@snapfire/fsr/host/time` | every host body |
+| `crypto.random` | `@snapfire/fsr/host/crypto` | every host body |
+| `id.new` | `@snapfire/fsr/host/id` | every host body |
+| `path.resolve` | `@snapfire/fsr/host/path` | every host body |
+| `path.relative` | `@snapfire/fsr/host/path` | every host body |
+| `file.read` | `@snapfire/fsr/host/file` | every host body |
+| `file.write` | `@snapfire/fsr/host/file` | every host body |
+| `file.exists` | `@snapfire/fsr/host/file` | every host body |
+| `file.list` | `@snapfire/fsr/host/file` | every host body |
+| `file.makeDir` | `@snapfire/fsr/host/file` | every host body |
+| `file.stat` | `@snapfire/fsr/host/file` | every host body |
+| `system.env` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.home` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.platform` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.tempDir` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.lineEnd` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.cwd` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.memory` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `system.spawn` | `@snapfire/fsr/terminal/system` | a terminal program |
+| `clipboard.write` | `@snapfire/fsr/terminal/clipboard` | a terminal program |
+| `clipboard.read` | `@snapfire/fsr/terminal/clipboard` | a terminal program |
+| `ms` | `@snapfire/fsr/terminal` | a terminal program |
+| `stripAnsi` | `@snapfire/fsr/terminal` | a terminal program |
+| `stringWidth` | `@snapfire/fsr/terminal` | a terminal program |
+| `wrapAnsi` | `@snapfire/fsr/terminal` | a terminal program |
+| `bigText` | `@snapfire/fsr/terminal` | a terminal program |
+<!-- /fsr:reference -->
+
+A component that asks `@snapfire/fsr/client` for a host member is refused with where it is. A component that imports `@snapfire/fsr/host` is refused too, since the browser would run it:
 
 ```
 routes/page.tsx:3:14: `id.new` from `@snapfire/fsr/host` in code the browser also runs: it runs only in a host. Read it in the route's loader `page.loader.ts` and pass it to the page as a prop
+```
+
+A member the platform has a form for is not imported; asking for one names the form:
+
+```
+routes/a/page.loader.ts:3:19: `intl.number` is not imported: write `new Intl.NumberFormat(locale, options).format(n)`, which needs no import
 ```
 
 `t(key, args?)` is the message under `key` for the document's locale, read from `locales/<tag>.toml` beside the app, with `{name}` placeholders filled from `args` and `key.one` or `key.other` chosen by `args.count`:
@@ -1850,9 +1966,7 @@ export default function Help({ watching }: { watching: number }) {
 }
 ```
 
-The build lowers each call to the plan and Rust answers it from ICU4X or from the catalog for `t`; the bundle's copy calls `Intl` or reads the table the document carried. A call whose inputs are props only is hoisted like a helper call, so the browser reads the server's value and calls nothing.
-
-The platform's own globals work the same way with no import. `new Intl.NumberFormat(locale, options).format(n)`, `toLocaleString`, `Intl.DateTimeFormat`, `Intl.ListFormat` and `localeCompare` lower to the same Rust. A call the build cannot read leaves its component to render in the browser, where the platform runs it. A browser handler reads the clock and makes ids with `Date.now()` and `crypto.randomUUID()`, which the browser has.
+The build lowers each call to the plan and Rust answers it from ICU4X or from the catalog for `t`; the bundle's copy calls `Intl` or reads the table the document carried. A call whose inputs are props only is hoisted like a helper call, so the browser reads the server's value and calls nothing. Under `fsr test` the engine's `Intl`, `toLocaleString`, `toLocaleDateString` and `localeCompare` answer through the same Rust, so a spec sees the server's text.
 
 `file` resolves a relative path against the application and reaches only the directories `[files] roots` names in `config/app.toml`; a path outside them is refused with the key named. A terminal program has no roots and resolves against its working directory:
 
@@ -1867,10 +1981,10 @@ roots = ["content", "data"]
 
 ```ts
 // ext/labels.ts
-import { intl } from "@snapfire/fsr/client";
+import { localeTag } from "@snapfire/fsr/client/intl";
 
 export function count(n: number, noun: string): string {
-  return `${intl.number(n)} ${noun}${intl.plural(n) === "one" ? "" : "s"}`;
+  return `${new Intl.NumberFormat(localeTag()).format(n)} ${noun}${new Intl.PluralRules(localeTag()).select(n) === "one" ? "" : "s"}`;
 }
 ```
 

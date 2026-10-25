@@ -1250,23 +1250,28 @@ console.log(currentLocale());
 
 ## Formatting With the Standard Library
 
-`@snapfire/fsr/client` carries the browser half of the standard library the server's interpreter runs: `intl`, `text`, `time`, `crypto`, `i18n`, `log` and `path`, each also at `@snapfire/fsr/client/<module>`. The names and the answers are the server's under the document's locale, which every member reads from `currentLocale()` so the value React hydrates against is the one Rust rendered. The members only a host runs, `time.now`, `crypto.random`, `id.new` and `file` among them, are under `@snapfire/fsr/host`, which no browser code imports.
+A component formats with the platform's own `Intl`, `toLocaleString` and `localeCompare`. It imports nothing for them. The server answers each call it reads with Rust checked against Chrome's output, so the text React hydrates against is the text the browser computes. `localeTag()` from `@snapfire/fsr/client/intl` is the document's locale as BCP 47, read from `currentLocale()`. On the server it is the request's, so a formatter made with it agrees on both sides.
+
+`@snapfire/fsr/client` carries the browser half of what the platform has no form for: `intl.localeTag`, `text`, `time`, `crypto`, `i18n`, `log` and `path`, each also at `@snapfire/fsr/client/<module>`. The members only a host runs, `crypto.random`, `id.new` and `file` among them, are under `@snapfire/fsr/host`, which no browser code imports.
 
 ```tsx
-import { intl, text, time } from "@snapfire/fsr/client";
+import { localeTag } from "@snapfire/fsr/client/intl";
+import { text, time } from "@snapfire/fsr/client";
 
 export function Receipt({ cents, placed, title }: { cents: number; placed: string; title: string }) {
+  const money = new Intl.NumberFormat(localeTag(), { style: "currency", currency: "USD" }).format(cents / 100);
+  const day = new Intl.DateTimeFormat(localeTag(), { dateStyle: "long", timeZone: "UTC" }).format(new Date(placed));
   return (
     <p id={text.slug(title)}>
-      {intl.currency(cents / 100, "USD")} on {intl.date(placed, "long")}, {intl.plural(3)} of {time.format(time.parse(placed) ?? 0, "YYYY-MM-DD")}
+      {money} on {day}, {time.format(time.parse(placed) ?? 0, "YYYY-MM-DD")}
     </p>
   );
 }
 ```
 
-`intl.number` takes `{ minimumFractionDigits, maximumFractionDigits, locale }`; `intl.date` takes `short`, `medium`, `long` or `full` and formats in UTC or takes `{ weekday, year, month, day, locale }` as `Intl.DateTimeFormat` takes them with a text month or weekday; `intl.currency` spells the ISO code, `USD 1,234.50`, unless its options say `display: "symbol"` or `"narrowSymbol"`, which write the symbol CLDR gives the locale on both halves. A `locale` written in the code formats the same for every viewer; without one the document's locale formats. `time` holds instants as milliseconds since the epoch, `time.parse` reads one ISO 8601 subset and `time.now()` is `Date.now()`. `crypto.hash` is a synchronous SHA-256, `crypto.verify` compares against one and `crypto.random(n)` draws bytes as hex; `id.new()` is `crypto.randomUUID()`. Under `fsr test` the engine has no `Intl`, so `intl` asks the runner, which answers with the Rust half.
+`time` holds instants as milliseconds since the epoch and `time.parse` reads one ISO 8601 subset. `crypto.hash` is a synchronous SHA-256 and `crypto.verify` compares against one. Under `fsr test` the engine's `Intl` and every member here answer through the runner with the Rust half.
 
-`t(key, args?)` reads the message under `key` from the table the document embedded for its locale, `catalog(currentLocale())`, which the server built from `locales/<tag>.toml` merged over the default locale's; `args.count` picks `key.one` or `key.other` through `intl.plural` and `{name}` placeholders are filled from `args`. A navigation into another locale receives that locale's table in the payload, so `t` follows `currentLocale()` without a reload.
+`t(key, args?)` reads the message under `key` from the table the document embedded for its locale, `catalog(currentLocale())`, which the server built from `locales/<tag>.toml` merged over the default locale's; `args.count` picks `key.one` or `key.other` by the locale's plural rules and `{name}` placeholders are filled from `args`. A navigation into another locale receives that locale's table in the payload, so `t` follows `currentLocale()` without a reload.
 
 ```tsx
 import { t } from "@snapfire/fsr/client";
@@ -1276,7 +1281,7 @@ export function Watching({ count }: { count: number }) {
 }
 ```
 
-The build lowers every call to the plan, so the server computes the same member; `time.now`, `crypto.random` and `id.new` are refused on a component's render path and belong in a handler or a body.
+The build lowers every call to the plan, so the server computes the same value. `Date.now()` and `crypto.randomUUID()` on a component's render path are left for the browser to fill in; `crypto.random` and `id.new` are refused there and belong in a handler or a body.
 
 ## Declaring a Native Pair
 

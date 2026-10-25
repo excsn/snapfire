@@ -314,21 +314,22 @@ Re-exported from `snapfire_fsr_core::ext`.
 
 ### The Standard Library
 
-Every member takes its arguments positionally and answers a `Value`; `std::register` fills an `Extensions` with them. Numbers arrive as `F64`, `Int` or `UInt`; every date is UTC and every instant milliseconds since the epoch, as the browser half's `Date.UTC`.
+Every member takes its arguments positionally and answers a `Value`; `std::register` fills an `Extensions` with them. A member whose `Member.platform` names a platform form is what the lowerer writes for that form and no application imports it. Numbers arrive as `F64`, `Int` or `UInt`; every date is UTC and every instant milliseconds since the epoch, as the browser half's `Date.UTC`.
 
 | Member | Reach | Arguments | Answer |
 | --- | --- | --- | --- |
-| `intl.number` | render | `n`, `{ minimumFractionDigits?, maximumFractionDigits?, locale? }?` | grouped for the locale, half away from zero to at most three fraction digits by default, trailing zeros dropped past the minimum; `NaN`, `∞` and `-∞` as JavaScript prints them |
+| `intl.number` | render | `n`, `{ style?, minimumFractionDigits?, maximumFractionDigits?, minimumIntegerDigits?, useGrouping?, signDisplay?, locale? }?` | what `Intl.NumberFormat` writes: grouped for the locale, half away from zero to at most three fraction digits by default (none for `style: "percent"`, which multiplies by 100 and writes the locale's percent pattern), trailing zeros dropped past the minimum; `useGrouping` `true`, `false`, `auto`, `always` or `min2`; `signDisplay` `auto`, `always`, `exceptZero`, `negative` or `never`; `NaN`, `∞` and `-∞` as JavaScript prints them |
 | `intl.currency` | render | `n`, `code`, `{ display?, minimumFractionDigits?, maximumFractionDigits?, locale? }?` | the amount with the ISO code and the currency's own fraction digits, `USD 1,234.50`, `1.234,50 EUR`; `display` `symbol` or `narrowSymbol` writes the symbol CLDR gives the locale, `$1,234.50`, `1.234,50 €`; with fraction digits given the amount is rounded as `intl.number` rounds and takes the symbol's place from a zero formatted the currency's way; a code that is not three letters is `Internal` |
-| `intl.date` | render | `when` (milliseconds or an ISO 8601 string), `style?` (`short`, `medium` by default, `long`, `full`) or `{ style?, weekday?, year?, month?, day?, locale? }` | the calendar date in UTC at that `dateStyle` or at the parts: a text `month` or `weekday` (`long`, `short`, `narrow`) sets the width and `year` and `day` are `numeric`; a numeric month is `Internal`, since no ICU4X field set writes the browser's digits |
-
-Every `locale` is a BCP 47 tag written in the code, formatted the same everywhere; without one the ambient locale, the request's, formats.
-| `intl.plural` | render | `n` | the cardinal category, `zero`, `one`, `two`, `few`, `many` or `other` |
+| `intl.date` | render | `when` (milliseconds or an ISO 8601 string), `style?` (`short`, `medium` by default, `long`, `full`) or `{ style?, timeStyle?, weekday?, year?, month?, day?, locale? }` | the calendar date in UTC at that `dateStyle` or at the parts: a text `month` or `weekday` (`long`, `short`, `narrow`) sets the width and `year` and `day` are `numeric`; a numeric month is `Internal`, since no ICU4X field set writes the browser's digits. `timeStyle` `short` or `medium` writes the time of day in UTC, after the date when `style` is given, with an ordinary space before the day period as Chrome writes it |
+| `intl.plural` | render | `n`, `{ type?, locale? }?` | the category `Intl.PluralRules` selects, `zero`, `one`, `two`, `few`, `many` or `other`, cardinal unless `type` is `ordinal` |
+| `intl.relative` | render | `value`, `unit`, `{ numeric?, style?, locale? }?` | the phrase `Intl.RelativeTimeFormat` writes: `unit` `second` to `year`, singular or plural; `numeric` `always` or `auto`; `style` `long`, `short` or `narrow` |
+| `intl.localeTag` | render | | the ambient locale as BCP 47, `fr-FR` for `fr_FR`, `en` when none is set |
 | `intl.list` | render | `items, { type?, style?, locale? }` | the strings joined as `Intl.ListFormat` joins them: `type` `conjunction` (the default), `disjunction` or `unit`, `style` `long` (the default), `short` or `narrow` |
+| `intl.compare` | render | `a`, `b`, `{ sensitivity?, numeric?, usage?, locale? }?` | -1, 0 or 1 as `new Intl.Collator(locale, options).compare(a, b)` answers: `sensitivity` `base`, `accent`, `case` or `variant` (the default), `numeric` ordering runs of digits by value |
 | `text.slug` | render | `s` | NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end |
 | `text.truncate` | render | `s`, `max`, `ellipsis?` (`…`) | the first `max` code points and the ellipsis when longer, else `s` |
-| `text.frontMatter` | terminal | `source`, `{ delimiters? }?` | `{ data, content }` as gray-matter 4 reads them: the YAML between a first line holding the opening delimiter and a line holding the closing one, `content` the text after it less one line break; `delimiters` is one string or `[open, close]`, `---` by default; text that does not open with the delimiter is all `content` and `data` is `{}`; YAML that does not parse is `Internal` |
-| `text.withFrontMatter` | terminal | `content`, `data`, `{ delimiters? }?` | `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` of a `{ content }` file writes it; empty `data` writes `content` alone |
+| `text.frontMatter` | body | `source`, `{ delimiters? }?` | `{ data, content }` as gray-matter 4 reads them: the YAML between a first line holding the opening delimiter and a line holding the closing one, `content` the text after it less one line break; `delimiters` is one string or `[open, close]`, `---` by default; text that does not open with the delimiter is all `content` and `data` is `{}`; YAML that does not parse is `Internal` |
+| `text.withFrontMatter` | body | `content`, `data`, `{ delimiters? }?` | `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` of a `{ content }` file writes it; empty `data` writes `content` alone |
 | `time.format` | render | `when`, `pattern` | `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced in UTC, every other character kept |
 | `time.add` | render | `when`, `amount`, `unit` (`ms`, `s`, `m`, `h`, `d`) | `when` plus `amount` units, `F64` |
 | `time.diff` | render | `later`, `earlier`, `unit` | the difference in units, fractional, `F64` |
@@ -340,26 +341,30 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `crypto.random` | body | `bytes` (at most 1024), `encoding?` | that many random bytes as `hex` by default or as `base64`; another encoding fails |
 | `crypto.uuid` | body | | a version 4 UUID |
 | `crypto.digest` | render | `algorithm`, `encoding`, `parts…` | the `sha256` of the parts' bytes in order as `hex` or `base64`; another algorithm or encoding fails |
+| `encoding.btoa` | render | `text` | the base64 of the text's code units as `btoa` writes it; a character past U+00FF fails |
+| `encoding.atob` | render | `text` | the WHATWG forgiving base64 decode, each byte one character, as `atob` reads it; text that is not base64 fails |
+| `encoding.encode` | render | `text` | the UTF-8 bytes as an array of numbers, `new TextEncoder().encode(text)` |
+| `encoding.decode` | render | `bytes` | the UTF-8 text of an array of byte values, malformed sequences as U+FFFD and a leading byte order mark dropped, `new TextDecoder().decode(bytes)` |
 | `id.new` | body | | a UUID version 7 |
-| `intl.localTime` | terminal | `when`, `locale?` | `toLocaleTimeString(locale)` in this machine's time zone at ICU's medium length; without a locale the one `LC_ALL`, `LC_TIME` or `LANG` names, else `en-US`; `Invalid Date` for an invalid instant |
-| `time.localOffset` | terminal | `when` | `getTimezoneOffset()` for that instant in this machine's time zone, minutes behind UTC; NaN for an invalid instant |
+| `intl.localTime` | body | `when`, `locale?` | `toLocaleTimeString(locale)` in this machine's time zone at ICU's medium length; without a locale the one `LC_ALL`, `LC_TIME` or `LANG` names, else `en-US`; `Invalid Date` for an invalid instant |
+| `time.localOffset` | body | `when` | `getTimezoneOffset()` for that instant in this machine's time zone, minutes behind UTC; NaN for an invalid instant |
 | `terminal.ms` | terminal | `x`, `{ long? }?` | as the `ms` package: milliseconds as `1m` or `1 minute`, a string such as `2 days` as milliseconds, null for one it cannot read |
 | `terminal.stripAnsi` | terminal | `s` | `s` without the escape codes `ansi-regex` matches |
 | `terminal.stringWidth` | terminal | `s` | the terminal columns `s` takes once its escape codes are gone, a grapheme cluster at most two |
-| `path.join` | terminal | `...parts` | the parts joined with `/` and normalized, POSIX; `.` for none |
-| `path.resolve` | terminal | `...parts` | the parts right to left until one is absolute, the working directory before them otherwise, normalized, no trailing `/` |
-| `path.normalize` | terminal | `path` | `.` and empty segments dropped, `..` resolved, a leading and a trailing `/` kept |
-| `path.dirname` | terminal | `path` | the directory part; `.` when there is none, `/` at the root |
-| `path.basename` | terminal | `path`, `ext?` | the last segment, without `ext` when it ends with it |
-| `path.extname` | terminal | `path` | from the last `.` of the last segment; empty for a dotfile or no dot |
-| `path.relative` | terminal | `from`, `to` | the path from `from` to `to`, both resolved |
-| `path.isAbsolute` | terminal | `path` | whether it starts with `/` |
-| `file.read` | process | `path` | the file as text, bytes that are not UTF-8 as U+FFFD; a missing file throws `{ name: "Error", message, code: "ENOENT", path }`, `code` the POSIX error name |
-| `file.write` | process | `path`, `data` | writes `data` as text, a value that is not text as JSON; null |
-| `file.exists` | process | `path` | whether anything is at `path` |
-| `file.list` | process | `path` | the entries' names, sorted |
-| `file.makeDir` | process | `path`, `{ recursive? }?` | makes the directory, its parents too with `recursive`; null |
-| `file.stat` | process | `path` | `{ isFile, isDirectory, size, mtimeMs }`; a missing path throws as `file.read` does |
+| `path.join` | render | `...parts` | the parts joined with `/` and normalized, POSIX; `.` for none |
+| `path.resolve` | body | `...parts` | the parts right to left until one is absolute, the working directory before them otherwise, normalized, no trailing `/` |
+| `path.normalize` | render | `path` | `.` and empty segments dropped, `..` resolved, a leading and a trailing `/` kept |
+| `path.dirname` | render | `path` | the directory part; `.` when there is none, `/` at the root |
+| `path.basename` | render | `path`, `ext?` | the last segment, without `ext` when it ends with it |
+| `path.extname` | render | `path` | from the last `.` of the last segment; empty for a dotfile or no dot |
+| `path.relative` | body | `from`, `to` | the path from `from` to `to`, both resolved |
+| `path.isAbsolute` | render | `path` | whether it starts with `/` |
+| `file.read` | body | `path` | the file as text, bytes that are not UTF-8 as U+FFFD; a missing file throws `{ name: "Error", message, code: "ENOENT", path }`, `code` the POSIX error name |
+| `file.write` | body | `path`, `data` | writes `data` as text, a value that is not text as JSON; null |
+| `file.exists` | body | `path` | whether anything is at `path` |
+| `file.list` | body | `path` | the entries' names, sorted |
+| `file.makeDir` | body | `path`, `{ recursive? }?` | makes the directory, its parents too with `recursive`; null |
+| `file.stat` | body | `path` | `{ isFile, isDirectory, size, mtimeMs }`; a missing path throws as `file.read` does |
 | `system.env` | process | `name` | the environment variable `name`, null when it is not set |
 | `system.home` | process | | `HOME`; `USERPROFILE` when that is not set |
 | `system.platform` | process | | the operating system as Rust names it: `macos`, `linux`, `windows` and the rest |
@@ -373,6 +378,8 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `terminal.wrapAnsi` | terminal | `s`, `columns`, `{ hard?, trim?, wordWrap? }?` | the rows `wrap-ansi` 9 breaks `s` into; escape codes stay where they stand |
 | `terminal.bigText` | terminal | `font`, `text`, `{ align?, colors?, background?, letterSpacing?, lineHeight?, space?, maxLength?, width? }?` | `text` drawn in `font`, a font file of cfonts' format, laid out as cfonts 3.3 lays it out: rows joined by newlines, each `<cN>` tag the Nth of `colors` as escape codes, a row broken at `\|`, past `width` (80) or after `maxLength` letters; two empty lines above and below unless `space` is false; a character the font lacks is left out |
 | `i18n.t` | render | `key`, `{ count?, …}?` | the message under `key` in the ambient locale's catalog; with `count` a number, `key.<cardinal category>` then `key.other` then `key`; `{name}` filled from a scalar argument, left as written otherwise; the key itself when nothing matches or no catalogs are set. What `t` from the client's std module lowers to |
+
+Every `locale` is a BCP 47 tag written in the code, formatted the same everywhere; without one the ambient locale, the request's, formats. A `file` path resolves against `Ambient.files`, a web host's application directory confined to its `[files] roots`. Without one it resolves against the working directory.
 
 The locale is `Ambient::bcp47`; a tag ICU4X cannot parse falls back to `en`. `fsr/ir/tests/conformance.rs` runs every `render` member against the client's `dist/std.js` through node over nine locales and fails on any difference the file does not list as a known CLDR divergence; it skips itself when node or the build is absent.
 
