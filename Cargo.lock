@@ -4178,7 +4178,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_compiler"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -4217,7 +4217,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_compiler_wire"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4293,7 +4293,7 @@ dependencies = [
 
 [[package]]
 name = "snapfire_vue"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "rquickjs",
  "serde",

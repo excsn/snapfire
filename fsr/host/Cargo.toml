@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_host"
-version = "0.21.3"
+version = "0.22.0"
 description = "The stock host for SnapFire FSR: an app.toml, a plan file and a contract become a tower service over http types, served by hyper or mounted anywhere."
 keywords = ["snapfire", "fsr", "http-server", "ssr", "tower"]
 categories = ["web-programming::http-server"]
@@ -59,7 +59,7 @@ snapfire_fsr_ogimage.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
 snapfire_fsr_session.workspace = true
-snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.3.0" }
+snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.4.0" }
 snapfire_sitemap = { path = "../../sitemap", version = "0.2.0" }
 bytes = "1"
 c5store = { version = "^0", features = ["toml"] }

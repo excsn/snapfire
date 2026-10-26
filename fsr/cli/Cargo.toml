@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_cli"
-version = "0.21.0"
+version = "0.22.0"
 description = "fsr: discovers an application's routes, lowers its loaders and actions and emits the plan file."
 keywords = ["snapfire", "fsr", "build-tool", "typescript", "cli"]
 categories = ["web-programming", "development-tools::build-utils", "command-line-utilities"]
@@ -69,7 +69,7 @@ snapfire_fsr_payload.workspace = true
 snapfire_fsr_plan.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
-snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.3.0" }
+snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.4.0" }
 snapfire_tailwind = { path = "../../tailwind", version = "0.3.0" }
 tar = "0.4.46"
 sha2 = "0.10"
