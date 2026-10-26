@@ -652,3 +652,74 @@ fn a_memoized_subtree_rendered_while_a_key_it_reads_was_pending_is_not_served_on
   assert!(render(true).contains("<aside pending=\"true\">"));
   assert_eq!(evals.load(Ordering::Relaxed), 2, "the entry taken while `k` was pending serves the next request where it is");
 }
+
+/// Renders the prop it is named for, `-` when the props carry none.
+struct EchoEval(Arc<AtomicU32>, &'static str);
+
+impl Evaluator for EchoEval {
+  fn evaluate(&self, _module: &ModuleId, props: &snapfire_fsr_core::Data) -> snapfire_fsr_runtime::evaluator::NodeChunks {
+    self.0.fetch_add(1, Ordering::Relaxed);
+    let said = match props.get(self.1) {
+      Some(Value::Str(s)) => s.to_string(),
+      Some(other) => format!("{other:?}"),
+      None => "-".to_owned(),
+    };
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(said)))]))
+  }
+}
+
+fn echoing(evals: &Arc<AtomicU32>, prop: &'static str, reads: snapfire_fsr_runtime::SubtreeReads) -> (Arc<Runtime>, PlanNode) {
+  use snapfire_fsr_runtime::{subtree_shape, Reads};
+  let plan = cached_leaf(None);
+  let mut table = Reads::new();
+  table.insert(subtree_shape(&plan), reads);
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(EchoEval(Arc::clone(evals), prop)));
+  (Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(table).build(), plan)
+}
+
+#[test]
+fn a_single_use_token_keeps_the_subtree_out_of_the_memo() {
+  use snapfire_fsr_runtime::{Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let (rt, plan) = echoing(&evals, "csrf_token", SubtreeReads::default().class(Static::Dynamic).csrf(true));
+  let minted = Arc::new(AtomicU32::new(0));
+  let render = || {
+    let mut ctx = RequestCtx::default();
+    let minted = Arc::clone(&minted);
+    ctx.csrf = CsrfHandle::new(None, move || format!("t{}", minted.fetch_add(1, Ordering::Relaxed)));
+    block_on(assemble(&rt, &plan, &ctx, &Node::raw(""))).unwrap().tree
+  };
+  let first = render();
+  let second = render();
+  assert_eq!(evals.load(Ordering::Relaxed), 2, "a token good for one form is never shared");
+  assert_ne!(first, second, "each render carries its own token: {first:?}");
+}
+
+#[test]
+fn a_subtree_reading_the_nonce_is_never_served_another_responses() {
+  use snapfire_fsr_runtime::{Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let (rt, plan) = echoing(&evals, "csp_nonce", SubtreeReads::default().class(Static::Dynamic).nonce(true));
+  let render = |nonce: &str| {
+    let mut ctx = RequestCtx::default();
+    ctx.csp_nonce = Some(nonce.to_owned());
+    block_on(assemble(&rt, &plan, &ctx, &Node::raw(""))).unwrap().tree
+  };
+  assert_eq!(render("n1"), Node::raw("n1"));
+  assert_eq!(render("n2"), Node::raw("n2"), "the second response renders its own nonce");
+  assert_eq!(evals.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn a_dynamic_subtree_reading_no_nonce_is_still_memoized_under_a_policy() {
+  use snapfire_fsr_runtime::{Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let (rt, plan) = echoing(&evals, "params", SubtreeReads::default().class(Static::Dynamic));
+  for nonce in ["n1", "n2"] {
+    let mut ctx = RequestCtx::default();
+    ctx.csp_nonce = Some(nonce.to_owned());
+    block_on(assemble(&rt, &plan, &ctx, &Node::raw(""))).unwrap();
+  }
+  assert_eq!(evals.load(Ordering::Relaxed), 1, "a nonce it never renders keeps it out of nothing");
+}
