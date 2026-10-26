@@ -40,7 +40,7 @@ impl Tool {
 
 /// The earliest `snapfirec` this fsr builds with. Raised with the compiler's release when fsr
 /// starts relying on what that release emits.
-pub const COMPILER_FLOOR: &str = "0.17.0";
+pub const COMPILER_FLOOR: &str = "0.18.0";
 
 pub const COMPILER: Tool =
   Tool { binary: "snapfirec", package: "snapfire_compiler", needed_for: "compiling the browser bundle", required: true, registry: None, floor: Some(COMPILER_FLOOR) };
