@@ -1531,13 +1531,13 @@ fn classify(body: &snapfire_fsr_ir::Body, meta: Option<&snapfire_fsr_ir::Body>, 
 }
 
 /// `Static::Dynamic` when a page or layout on the plan reads its
-/// `csrf_token` prop, `Anonymous` when one reads its `identity` prop and
+/// `csrf_token`, `csp_nonce` or `action_failure` prop, `Anonymous` when one reads its `identity` prop and
 /// none the token, `Fixed` when none reads either.
 fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(String, Component)]) -> Static {
   let module = plan.module.to_string();
   let mut class = Static::Fixed;
   for (_, component) in components.iter().filter(|(name, _)| *name == module) {
-    if component.reads_prop("csrf_token") || component.reads_prop("csp_nonce") {
+    if component.reads_prop("csrf_token") || component.reads_prop("csp_nonce") || component.reads_prop("action_failure") {
       class = Static::Dynamic;
     } else if component.reads_prop("identity") {
       class = class.max(Static::Anonymous);
@@ -1565,18 +1565,21 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
   let mut path = false;
   let mut csrf = false;
   let mut nonce = false;
+  let mut failure = false;
   match components.iter().find(|(name, _)| *name == module) {
     None => {
       class = Static::Dynamic;
       csrf = true;
       nonce = true;
+      failure = true;
     }
     Some((_, component)) => {
       nonce = component.reads_prop("csp_nonce");
+      failure = component.reads_prop("action_failure");
       if component.reads_prop("csrf_token") {
         class = Static::Dynamic;
         csrf = true;
-      } else if nonce {
+      } else if nonce || failure {
         class = Static::Dynamic;
       } else if component.reads_prop("identity") {
         class = class.max(Static::Anonymous);
@@ -1594,10 +1597,11 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
     path = path || below.path;
     csrf = csrf || below.csrf;
     nonce = nonce || below.nonce;
+    failure = failure || below.failure;
   }
   keys.sort();
   keys.dedup();
-  let out = SubtreeReads::default().class(class).store_keys(keys).path(path).csrf(csrf).nonce(nonce);
+  let out = SubtreeReads::default().class(class).store_keys(keys).path(path).csrf(csrf).nonce(nonce).failure(failure);
   reads.insert(subtree_shape(node), out.clone());
   out
 }

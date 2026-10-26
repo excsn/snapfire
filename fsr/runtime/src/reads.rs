@@ -33,6 +33,10 @@ pub struct SubtreeReads {
   /// carries the nonce of the response it is in. Every response has its own,
   /// so while a policy issues one the memo holds no such render.
   pub nonce: bool,
+  /// A component in the subtree reads its `action_failure` prop, which the
+  /// request after a failed post carries once, so the render made for that
+  /// request is never memoized.
+  pub failure: bool,
 }
 
 impl SubtreeReads {
@@ -58,6 +62,11 @@ impl SubtreeReads {
 
   pub fn nonce(mut self, nonce: bool) -> Self {
     self.nonce = nonce;
+    self
+  }
+
+  pub fn failure(mut self, failure: bool) -> Self {
+    self.failure = failure;
     self
   }
 }

@@ -723,3 +723,18 @@ fn a_dynamic_subtree_reading_no_nonce_is_still_memoized_under_a_policy() {
   }
   assert_eq!(evals.load(Ordering::Relaxed), 1, "a nonce it never renders keeps it out of nothing");
 }
+
+#[test]
+fn a_subtree_reading_the_action_failure_shows_it_on_the_one_request_that_carries_it() {
+  use snapfire_fsr_runtime::{Static, SubtreeReads};
+  let evals = Arc::new(AtomicU32::new(0));
+  let (rt, plan) = echoing(&evals, "action_failure", SubtreeReads::default().class(Static::Dynamic).failure(true));
+  let render = |failure: Option<&str>| {
+    let mut ctx = RequestCtx::default();
+    ctx.failure = failure.map(Value::str);
+    block_on(assemble(&rt, &plan, &ctx, &Node::raw(""))).unwrap().tree
+  };
+  assert_eq!(render(None), Node::raw("-"));
+  assert_eq!(render(Some("taken")), Node::raw("taken"), "the request after a failed post shows the failure");
+  assert_eq!(render(None), Node::raw("-"), "and the next does not show it again");
+}

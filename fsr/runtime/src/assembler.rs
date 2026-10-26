@@ -848,12 +848,19 @@ impl Session {
     meta
   }
 
+  /// Whether this request carries a value made for it alone that the subtree
+  /// renders: the policy's nonce or the failure of the post that sent the
+  /// visitor here. No other request may be served that render.
+  fn carries_one_off(&self, reads: Option<&SubtreeReads>) -> bool {
+    (self.ctx.csp_nonce.is_some() && reads.is_none_or(|r| r.nonce)) || (self.ctx.failure.is_some() && reads.is_none_or(|r| r.failure))
+  }
+
   /// The memo key of a subtree: its plan key, the parameters, what it reads
   /// of the request, the locale, the path when a component in it renders one,
   /// its shape, its own sources' data and the store it reads. A `Fixed` subtree's key names no visitor, so one entry
   /// serves everyone; an `Anonymous` one names the subject; a `Dynamic` one
   /// names the subject, the token and the whole store. A subtree that renders
-  /// the response's nonce has no key while a policy issues one.
+  /// a value made for this request alone has no key on that request.
   fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, seeded: &Seeded, shape: u64, reads: Option<&SubtreeReads>) -> Option<String> {
     let store = &seeded.merged;
     let plan_key = node.cache_key.as_ref()?;
@@ -862,7 +869,7 @@ impl Session {
     }
     let data = &loaded.data;
     let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
-    if self.ctx.csp_nonce.is_some() && class == Static::Dynamic && reads.is_none_or(|r| r.nonce) {
+    if class == Static::Dynamic && self.carries_one_off(reads) {
       return None;
     }
     let mut pairs: Vec<String> = self.ctx_of(node.id.0).params.iter().map(|(k, v)| format!("{k}={v}")).collect();
