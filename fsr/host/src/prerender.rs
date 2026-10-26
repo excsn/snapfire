@@ -382,6 +382,21 @@ impl Host {
           written.push((format!("{}/{name}", client::ROUTE), file));
         }
       }
+      let desktop = [client::DESKTOP_FILE.to_owned()].into_iter().chain(t.client_minified.then(|| client::DESKTOP_FILE.replace(".js", ".min.js")));
+      for name in desktop {
+        let Some(body) = client::desktop(&name, t.client_minified) else { continue };
+        let file = dir.join(&name);
+        write_whole(&file, body.as_bytes())?;
+        written.push((format!("{}/{name}", client::ROUTE), file));
+      }
+      // Outside development the import map names each module by its hashed name.
+      for (_, hashed) in client::hashed_modules(t.client_minified) {
+        let Some(name) = hashed.strip_prefix(&format!("{}/", client::ROUTE)) else { continue };
+        let Some(body) = client::get(name, t.client_minified) else { continue };
+        let file = dir.join(name);
+        write_whole(&file, body.as_bytes())?;
+        written.push((hashed.clone(), file));
+      }
       #[cfg(feature = "client_source_maps")]
       for (name, body) in client::MAPS {
         let file = dir.join(name);

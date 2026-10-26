@@ -90,8 +90,8 @@ fn client_etag(body: &'static str) -> HeaderValue {
 }
 
 /// One module of the embedded client. `no_cache` for a development host, whose
-/// client changes when the binary it is built beside does; `cache` otherwise,
-/// the same lifetime a `[[static]]` root answers with. A request whose
+/// client changes when the binary it is built beside does; `cache` otherwise:
+/// immutable for a hashed name, a revalidation for any other. A request whose
 /// `If-None-Match` names the module's `ETag` is answered 304 with no body.
 pub(crate) fn js_response(body: &'static str, no_cache: bool, cache: Option<&HeaderValue>, if_none_match: Option<&HeaderValue>) -> Response<Body> {
   let tag = client_etag(body);
@@ -442,18 +442,23 @@ impl Host {
 
     if t.client {
       if let Some(name) = path.strip_prefix(client::ROUTE).and_then(|rest| rest.strip_prefix('/')) {
+        // The client changes with the binary, so outside development a lifetime goes only to a hashed name, which no other build answers; every other name revalidates.
+        let cache = t.static_cache.as_ref().map(|_| match client::is_hashed(name, t.client_minified) {
+          true => HeaderValue::from_static("public, max-age=31536000, immutable"),
+          false => HeaderValue::from_static("no-cache"),
+        });
         if let Some(body) = client::get(name, t.client_minified) {
-          return js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
+          return js_response(body, self.changed.is_some(), cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
         }
         if let Some(body) = client::desktop(name, t.client_minified) {
-          let mut response = js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
+          let mut response = js_response(body, self.changed.is_some(), cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
           if name.ends_with(".map") {
             response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
           }
           return response;
         }
         if let Some(body) = client::map(name) {
-          let mut response = js_response(body, self.changed.is_some(), t.static_cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
+          let mut response = js_response(body, self.changed.is_some(), cache.as_ref(), req.headers().get(header::IF_NONE_MATCH));
           response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
           return response;
         }

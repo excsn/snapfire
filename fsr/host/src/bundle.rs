@@ -98,6 +98,15 @@ pub(crate) fn minify_bundle_urls(value: &mut serde_json::Value, bundle: &config:
   }
 }
 
+/// The import map as a host serving its own client names it: [`client_urls`], then outside development each client URL as its hashed one.
+pub(crate) fn served_client_urls(text: &str, serves_client: bool, minified: bool, dev: bool) -> String {
+  let text = client_urls(text, serves_client && minified);
+  match serves_client && !dev {
+    true => client::with_hashed_urls(&text, minified),
+    false => text,
+  }
+}
+
 pub(crate) fn client_urls(text: &str, minified: bool) -> String {
   if !minified {
     return text.to_owned();
@@ -129,7 +138,7 @@ pub(crate) fn minify_client_urls(value: &mut serde_json::Value, prefix: &str, ch
       let Some(stem) = url.strip_prefix(prefix).and_then(|rest| rest.strip_suffix(".js")) else {
         return;
       };
-      if !stem.ends_with(".min") {
+      if !stem.ends_with(".min") && !is_hashed_name(url) {
         *url = format!("{prefix}{stem}.min.js");
         *changed = true;
       }
@@ -189,7 +198,8 @@ pub(crate) fn preload_set(config: &Config, import_map: Option<&str>, twins: Opti
         continue;
       }
       walked.push(name.clone());
-      push(&mut urls, format!("{prefix}{name}"));
+      let url = format!("{prefix}{name}");
+      push(&mut urls, map.get(&url).cloned().unwrap_or(url));
       for import in client::imports(&name, minified) {
         match import.strip_prefix("./") {
           Some(sibling) => modules.push(sibling.to_owned()),
@@ -336,7 +346,16 @@ pub(crate) fn inline_hash(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-  use super::is_hashed_name;
+  /// A shell's import map is served once and again after each mounted site's is merged into it, so a hashed client URL passes through the same rewrite twice.
+  #[test]
+  fn the_served_client_urls_of_a_served_import_map_are_the_same_urls() {
+    let text = r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/index.js"}}"#;
+    let once = served_client_urls(text, true, true, false);
+    assert!(once.contains("/static/js/fsr/index.min."), "{once}");
+    assert_eq!(served_client_urls(&once, true, true, false), once);
+  }
+
+  use super::{is_hashed_name, served_client_urls};
 
   #[test]
   fn a_hash_of_decimal_digits_is_still_a_hash() {

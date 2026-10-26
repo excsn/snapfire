@@ -634,7 +634,7 @@ impl HostBuilder {
           (true, Some(imported)) => client::with_imported_entries(&text, &imported),
           (true, None) => client::with_import_entries(&text),
         };
-        Some(bundle_urls(&client_urls(&text, serve_client && client_minified), served_bundle(&config)))
+        Some(bundle_urls(&served_client_urls(&text, serve_client, client_minified, config.dev()), served_bundle(&config)))
       }
       None => None,
     };
@@ -752,7 +752,7 @@ impl HostBuilder {
         let theirs = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
         let merged = merge_import_maps(import_map.as_deref(), &theirs);
         let merged = bundle_urls(&merged, served_under(mount.artifact.config.bundle.as_ref(), config.dev()));
-        import_map = Some(client_urls(&merged, serve_client && client_minified));
+        import_map = Some(served_client_urls(&merged, serve_client, client_minified, config.dev()));
       }
       site_reports.push(SiteReport {
         name: mount.name.clone(),

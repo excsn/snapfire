@@ -144,7 +144,8 @@ fn worker(config: &Config, section: &PwaSection, import_map: Option<&str>, style
   }
   walked.sort();
   for name in &walked {
-    add(format!("{prefix}{name}"), &mut warm);
+    let url = format!("{prefix}{name}");
+    add(map.get(&url).cloned().unwrap_or(url), &mut warm);
   }
   for href in styles {
     add(href.clone(), &mut warm);

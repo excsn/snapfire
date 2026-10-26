@@ -1716,6 +1716,27 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
 /// A minified client is loaded by `.min.js` names: a production document's
 /// import map and each module's imports of its siblings. A directory a static
 /// host serves held only the plain names, so every page 404ed on `index.min.js`.
+/// A production document names each client module by its hashed name, so a directory a static
+/// host serves needs every URL its import map gives.
+#[tokio::test]
+async fn prerender_writes_every_client_url_the_documents_import_map_names() {
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-hashed-{}-{}", std::process::id(), rand_suffix()));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(production(localised_dir()).join("app.toml")).unwrap().services_over(transport).prerendered(&out).build().unwrap();
+  host.prerender(&out).await.unwrap();
+  let html = std::fs::read_to_string(out.join("index.html")).unwrap();
+  let mut rest = html.as_str();
+  let mut checked = 0;
+  while let Some(at) = rest.find("\"/static/js/fsr/") {
+    rest = &rest[at + 1..];
+    let url = &rest[..rest.find('"').unwrap()];
+    assert!(out.join(url.trim_start_matches('/')).is_file(), "the document names {url}, which was not written");
+    checked += 1;
+  }
+  assert!(checked > 0, "the document names no client module: {html}");
+  std::fs::remove_dir_all(&out).ok();
+}
+
 #[tokio::test]
 async fn prerender_writes_the_names_a_minified_client_is_loaded_by() {
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-min-{}-{}", std::process::id(), rand_suffix()));
@@ -6105,12 +6126,13 @@ async fn served(host: &Host, path: &str) -> String {
 }
 
 #[tokio::test]
-async fn a_static_root_and_the_embedded_client_carry_the_configured_lifetime() {
+async fn a_static_root_carries_the_configured_lifetime_and_the_embedded_client_revalidates_under_its_plain_names() {
   let host = tuned_host(&tuned_app(false, "static_max_age = 120", ""));
   assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("public, max-age=120"));
   assert_eq!(
     header_of(&host, "/static/js/fsr/index.js", "cache-control").await.as_deref(),
-    Some("public, max-age=120")
+    Some("no-cache"),
+    "every build answers a plain client name, so a lifetime there would pair the old client with new markup"
   );
 }
 
@@ -6228,14 +6250,10 @@ async fn module_preload_links_the_entry_graph_and_the_import_map() {
     html.contains(r#"<link rel="modulepreload" href="/static/js/app/generated/islands.js">"#),
     "the entry's static import is not preloaded: {html}"
   );
-  assert!(
-    html.contains(r#"href="/static/js/fsr/index.min.js">"#),
-    "the import map's target is not preloaded: {html}"
-  );
-  assert!(
-    html.contains(r#"href="/static/js/fsr/values.min.js">"#),
-    "a host outside development serves the minified graph: {html}"
-  );
+  let index = mapped(&html, "@snapfire/fsr/client");
+  assert!(html.contains(&format!(r#"href="{index}">"#)), "the import map's target is not preloaded: {html}");
+  let values = mapped(&html, "/static/js/fsr/values.min.js");
+  assert!(html.contains(&format!(r#"href="{values}">"#)), "a host outside development serves the minified graph: {html}");
   assert!(
     !html.contains(r#"modulepreload" href="/static/js/app/src/main.js"#),
     "the entry preloads itself: {html}"
@@ -6341,8 +6359,50 @@ async fn the_client_preload_names_plain_modules_when_a_static_root_serves_them()
 async fn the_import_map_names_the_build_the_host_serves() {
   let host = tuned_host(&preload_app(false, ""));
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
-  assert!(html.contains(r#""@snapfire/fsr/client":"/static/js/fsr/index.min.js""#), "{html}");
+  assert!(is_hashed(mapped(&html, "@snapfire/fsr/client"), "/static/js/fsr/index.min."), "{html}");
   assert!(!html.contains(r#""/static/js/fsr/index.js""#), "{html}");
+}
+
+/// The URL `specifier` maps to in the document's import map.
+fn mapped<'a>(html: &'a str, specifier: &str) -> &'a str {
+  let key = format!("\"{specifier}\":\"");
+  let at = html.find(&key).unwrap_or_else(|| panic!("no {specifier} in the import map: {html}")) + key.len();
+  &html[at..at + html[at..].find('"').unwrap()]
+}
+
+fn is_hashed(url: &str, stem: &str) -> bool {
+  url.strip_prefix(stem).and_then(|rest| rest.strip_suffix(".js")).is_some_and(|hash| hash.len() == 8 && hash.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// A browser keeps a module under its URL for as long as the cache allows it to, so a client whose URLs survived an upgrade would run the old client against the new markup.
+#[tokio::test]
+async fn a_host_outside_development_names_the_client_by_its_content() {
+  let host = tuned_host(&preload_app(false, ""));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  let index = mapped(&html, "@snapfire/fsr/client");
+  assert!(is_hashed(index, "/static/js/fsr/index.min."), "{index}");
+  let values = mapped(&html, "/static/js/fsr/values.min.js");
+  assert!(is_hashed(values, "/static/js/fsr/values.min."), "a module a sibling imports by its plain name is mapped to its hashed one: {values}");
+  assert_eq!(served(&host, index).await, served(&host, "/static/js/fsr/index.min.js").await);
+  assert!(html.contains(&format!(r#"<link rel="modulepreload" href="{index}">"#)), "the preload names what the page imports: {html}");
+  assert!(html.contains(&format!(r#"<link rel="modulepreload" href="{values}">"#)), "{html}");
+  assert!(!html.contains(r#"href="/static/js/fsr/values.min.js""#), "a plain name preloaded is a second fetch: {html}");
+}
+
+#[tokio::test]
+async fn the_client_s_hashed_names_are_immutable_and_its_plain_names_revalidate_whatever_the_lifetime() {
+  let dir = preload_app(false, "");
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replace("dev = false\n", "dev = false\nstatic_max_age = 120\n")).unwrap();
+  let host = tuned_host(&dir);
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  let index = mapped(&html, "@snapfire/fsr/client").to_owned();
+  assert_eq!(header_of(&host, &index, "cache-control").await.as_deref(), Some("public, max-age=31536000, immutable"));
+  assert_eq!(header_of(&host, "/static/js/fsr/index.min.js", "cache-control").await.as_deref(), Some("no-cache"), "an unhashed name revalidates, as an application's own does");
+  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("public, max-age=120"), "a file with no hashed twin keeps the lifetime");
+  let stale = index.replace(&index[index.len() - 11..index.len() - 3], "00000000");
+  let response = host.handle(Request::get(stale.as_str()).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND, "a hash this build does not have names nothing: {stale}");
 }
 
 #[tokio::test]
@@ -6382,7 +6442,7 @@ async fn every_client_url_in_a_document_has_one_spelling() {
       rest = &rest[end..];
     }
     assert!(named.len() > 2, "dev {dev}: the document names no client modules: {html}");
-    let minified = named.iter().filter(|url| url.ends_with(".min.js")).count();
+    let minified = named.iter().filter(|url| url.contains(".min.")).count();
     assert!(
       minified == 0 || minified == named.len(),
       "dev {dev}: {minified} of {} client urls are minified: {named:?}",
@@ -7670,7 +7730,8 @@ async fn a_pwa_section_serves_a_manifest_and_a_worker_that_precaches_the_build()
   assert!(!worker.contains("\"/static/js/app/src/main.min.js\""), "{worker}");
   assert!(worker.contains("\"/offline\""), "{worker}");
   assert!(worker.contains("\"/manifest.webmanifest\""), "a page shown offline still finds its manifest: {worker}");
-  assert!(worker.contains("\"/static/js/fsr/index.min.js\""), "the client is warmed: {worker}");
+  let warmed = worker.find("\"/static/js/fsr/index.min.").map(|at| &worker[at + 1..at + 1 + worker[at + 1..].find('"').unwrap()]).unwrap_or_default();
+  assert!(is_hashed(warmed, "/static/js/fsr/index.min."), "the client is warmed under the name the page asks for: {worker}");
   assert!(worker.contains("searchParams.delete(\"__payload\")"), "a payload kept keeps its page's document too, so a reload offline finds it: {worker}");
   assert!(worker.contains("self.clients.matchAll({ type: \"window\" })"), "the pages opened before the worker took control are kept on activation: {worker}");
 }

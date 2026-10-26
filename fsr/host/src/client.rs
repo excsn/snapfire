@@ -337,6 +337,9 @@ pub fn get(name: &str, minified: bool) -> Option<&'static str> {
   if name.contains('/') || name.contains('\\') {
     return None;
   }
+  if let Some(body) = unhashed(name, minified) {
+    return Some(body);
+  }
   if let Some(stem) = name.strip_suffix(".min.js") {
     let plain = format!("{stem}.js");
     return MINIFIED.iter().find(|(file, _)| *file == plain).map(|(_, body)| unmapped(body));
@@ -345,6 +348,68 @@ pub fn get(name: &str, minified: bool) -> Option<&'static str> {
     return Some(unmapped(body));
   }
   FILES.iter().find(|(file, _)| *file == name).map(|(_, body)| unmapped(body))
+}
+
+/// `name` under the first eight hex digits of the SHA-256 of `body`, `index.min.3f2a91c0.js` for `index.min.js`, the way a bundle names its modules.
+fn hashed_name(name: &str, body: &str) -> String {
+  use sha2::Digest;
+  let hash: String = sha2::Sha256::digest(body.as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
+  format!("{}.{hash}.js", name.strip_suffix(".js").unwrap_or(name))
+}
+
+/// The module a hashed name stands for, when its hash is the one this build gives that module.
+fn unhashed(name: &str, minified: bool) -> Option<&'static str> {
+  let (plain, hash) = name.strip_suffix(".js")?.rsplit_once('.')?;
+  if hash.len() != 8 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+    return None;
+  }
+  let plain = format!("{plain}.js");
+  let body = get(&plain, minified)?;
+  (hashed_name(&plain, body) == name).then_some(body)
+}
+
+/// Whether `name` is a module's hashed name in this build.
+pub fn is_hashed(name: &str, minified: bool) -> bool {
+  unhashed(name, minified).is_some()
+}
+
+/// Each module [`ROUTE`] answers in this build, by the names its modules import each other under (`.min.js` in a minified build), its URL against its hashed URL. A host outside development names the hashed URLs in the import map, so a browser keeps a module for good and an upgrade changes every URL; a module importing a sibling by its plain name resolves to the plain URL, which the map's row turns into the hashed one.
+pub fn hashed_modules(minified: bool) -> Vec<(String, String)> {
+  let names: Vec<String> = FILES
+    .iter()
+    .filter_map(|(name, _)| name.strip_suffix(".js"))
+    .map(|stem| if minified { format!("{stem}.min.js") } else { format!("{stem}.js") })
+    .collect();
+  names
+    .into_iter()
+    .filter_map(|name| get(&name, minified).map(|body| (format!("{ROUTE}/{name}"), format!("{ROUTE}/{}", hashed_name(&name, body)))))
+    .collect()
+}
+
+/// `text`, an import map, with every URL under [`ROUTE`] naming its module's hashed URL and a row from each module's own URL to its hashed one. Text that is not a JSON object is returned as it is.
+pub fn with_hashed_urls(text: &str, minified: bool) -> String {
+  let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text) else { return text.to_owned() };
+  let rows: std::collections::BTreeMap<String, String> = hashed_modules(minified).into_iter().collect();
+  fn rename(value: &mut serde_json::Value, rows: &std::collections::BTreeMap<String, String>) {
+    match value {
+      serde_json::Value::Object(map) => map.values_mut().for_each(|held| rename(held, rows)),
+      serde_json::Value::Array(items) => items.iter_mut().for_each(|held| rename(held, rows)),
+      serde_json::Value::String(url) => {
+        if let Some(hashed) = rows.get(url.as_str()) {
+          *url = hashed.clone();
+        }
+      }
+      _ => {}
+    }
+  }
+  rename(&mut value, &rows);
+  let Some(map) = value.as_object_mut() else { return text.to_owned() };
+  let imports = map.entry("imports").or_insert_with(|| serde_json::Value::Object(Default::default()));
+  let Some(imports) = imports.as_object_mut() else { return text.to_owned() };
+  for (plain, hashed) in rows {
+    imports.entry(plain).or_insert(serde_json::Value::String(hashed));
+  }
+  serde_json::to_string(&value).unwrap_or_else(|_| text.to_owned())
 }
 
 /// `body` without the trailing `sourceMappingURL` comment the build wrote

@@ -234,6 +234,24 @@ fn no_route_reaches_outside_the_tree() {
   });
 }
 
+/// A host outside development names each client module by its content in the import map, so a
+/// tree answering the prefix from disk needs those names too.
+#[test]
+fn the_tree_carries_each_client_module_under_its_hashed_name() {
+  use snapfire_fsr_host::client;
+
+  let at = project("client-hashed", "");
+  let (config, laid) = laid(&at);
+  let minified = config.document.client.minified(false);
+  let rows: Vec<String> = laid.rows().unwrap().into_iter().map(|row| row.path.clone()).collect();
+  let hashed = client::hashed_modules(minified);
+  assert!(!hashed.is_empty());
+  for (_, url) in hashed {
+    let path = format!("serve{url}");
+    assert!(rows.contains(&path), "{path} is not in the tree");
+  }
+}
+
 /// A deploy tree answers the client prefix before a request reaches the host,
 /// so any spelling the host would have answered out of its binary and the tree
 /// does not carry is a 404 on a live page. The minified graph names its

@@ -424,6 +424,12 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
         placer.place(format!("{SERVE}/{under}/{name}"), Source::Text(body.to_owned()), false, &base)?;
       }
     }
+    // The import map a host outside development writes names each module by its hashed name.
+    for (_, hashed) in client::hashed_modules(minified) {
+      let Some(name) = hashed.rsplit('/').next() else { continue };
+      let body = client::get(name, minified).unwrap_or_default();
+      placer.place(format!("{SERVE}/{under}/{name}"), Source::Text(body.to_owned()), false, &base)?;
+    }
   }
 
   // A tree already carries a layer and regenerating it would be a second
