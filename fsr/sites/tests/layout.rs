@@ -252,6 +252,42 @@ fn the_tree_carries_each_client_module_under_its_hashed_name() {
   }
 }
 
+/// A web server answers `serve/` before a request reaches the host, and a host
+/// outside development names every module and stylesheet of the bundle by its
+/// content. A hashed name the tree does not carry is a 404 on a live page.
+#[test]
+fn the_tree_carries_each_bundle_output_under_the_hashed_name_the_host_writes() {
+  let at = project("bundle-hashed", "");
+  write(
+    &at.join("app/dist/.snapfire-build.json"),
+    r#"{"publicPath":"/static/js/app/","entries":["src/main.js"],"minified":".min","outputs":["src/main.js","src/main.min.js","src/store.js","src/store.min.js","styles/base.css","styles/base.min.css"]}"#,
+  );
+  write(&at.join("app/dist/src/main.js"), "import \"./store.js\";\n");
+  write(&at.join("app/dist/src/main.min.js"), "import\"./store.min.js\";");
+  write(&at.join("app/dist/src/store.js"), "export const store = 1;\n");
+  write(&at.join("app/dist/src/store.min.js"), "export const store=1;");
+  write(&at.join("app/dist/styles/base.css"), "body { margin: 0; }\n");
+  write(&at.join("app/dist/styles/base.min.css"), "body{margin:0}");
+  let (config, laid) = laid(&at);
+  let bundle = config.bundle.as_ref().expect("the facts name a bundle");
+  let placed: std::collections::BTreeMap<String, Vec<u8>> =
+    laid.rows().unwrap().into_iter().map(|row| (row.path.clone(), row.bytes().unwrap())).collect();
+
+  let mut urls = vec![bundle.served_url("/static/js/app/src/main.js"), bundle.served_url("/static/js/app/styles/base.css")];
+  urls.extend(bundle.hashed_modules().into_iter().map(|(_, hashed)| hashed));
+  assert_eq!(bundle.hashed().len(), 6, "{:?}", bundle.hashed());
+  for (output, hashed) in bundle.hashed() {
+    urls.push(format!("{}/{hashed}", bundle.route));
+    let path = format!("serve{}/{hashed}", bundle.route);
+    let body = placed.get(&path).unwrap_or_else(|| panic!("{path} is not in the tree"));
+    assert_eq!(body, &std::fs::read(bundle.dir.join(output)).unwrap(), "{path} is not {output}");
+  }
+  for url in urls {
+    assert!(url.split('/').next_back().unwrap().split('.').count() >= 3, "{url} carries no hash");
+    assert!(placed.contains_key(&format!("serve{url}")), "serve{url} is not in the tree");
+  }
+}
+
 /// A deploy tree answers the client prefix before a request reaches the host,
 /// so any spelling the host would have answered out of its binary and the tree
 /// does not carry is a 404 on a live page. The minified graph names its

@@ -397,6 +397,17 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     placer.place(format!("{APP}/{rel}"), Source::Path(file), true, &base)?;
   }
 
+  // A host outside development names each bundle output by its content hash
+  // and answers that name itself; a web server answering `serve/` needs the
+  // file under that name too.
+  if let Some(bundle) = &config.bundle {
+    let route = bundle.route.trim_matches('/');
+    for (output, hashed) in bundle.hashed() {
+      let to = if route.is_empty() { format!("{SERVE}/{hashed}") } else { format!("{SERVE}/{route}/{hashed}") };
+      placer.place(to, Source::Path(bundle.dir.join(output)), false, &base)?;
+    }
+  }
+
   // The host answers this prefix out of its own binary, so the tree carries it
   // only for a web server that answers `serve/` before a request reaches the
   // host. A static root on the same prefix is an application serving its own
