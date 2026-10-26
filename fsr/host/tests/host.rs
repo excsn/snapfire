@@ -5928,11 +5928,11 @@ const NONCE_PLAN: &str = r#"{
   ]
 }"#;
 
-/// An application's own inline script carries the response's nonce: a fresh one per live response, named in that response's policy, which the development refresh script carries too.
+/// An application's own inline script carries the response's nonce: a fresh one per live response, named in that response's policy, which the development refresh script carries too. With a render cache too, since a memoized render would carry the nonce of the response it was made for.
 #[tokio::test]
 async fn each_live_response_carries_a_fresh_nonce_its_policy_names() {
-  for dev in [false, true] {
-    let dir = csp_app("[document.csp]\nscript-src = [\"'self'\"]", dev);
+  for (dev, cache) in [(false, ""), (true, ""), (false, "\n[cache]\nttl = \"1m\"\n"), (true, "\n[cache]\nttl = \"1m\"\n")] {
+    let dir = csp_app(&format!("[document.csp]\nscript-src = [\"'self'\"]\n{cache}"), dev);
     write_plan(&dir, NONCE_PLAN);
     let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap();
     let mut seen = Vec::new();
@@ -5942,11 +5942,11 @@ async fn each_live_response_carries_a_fresh_nonce_its_policy_names() {
       let html = body_of(response).await;
       let at = html.find("<script nonce=\"").map(|i| i + "<script nonce=\"".len()).unwrap_or_else(|| panic!("the page's script carries a nonce: {html}"));
       let nonce = html[at..at + html[at..].find('"').unwrap()].to_owned();
-      assert!(policy.contains(&format!("'nonce-{nonce}'")), "dev {dev}: {policy}");
+      assert!(policy.contains(&format!("'nonce-{nonce}'")), "dev {dev}, cache {}: {policy}", !cache.is_empty());
       assert_eq!(html.matches(&format!("nonce=\"{nonce}\"")).count(), if dev { 2 } else { 1 }, "the refresh script carries the same nonce under dev: {html}");
       seen.push(nonce);
     }
-    assert_ne!(seen[0], seen[1], "dev {dev}: each response its own");
+    assert_ne!(seen[0], seen[1], "dev {dev}, cache {}: each response its own", !cache.is_empty());
   }
 }
 
