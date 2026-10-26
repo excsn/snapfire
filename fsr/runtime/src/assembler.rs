@@ -852,7 +852,8 @@ impl Session {
   /// of the request, the locale, the path when a component in it renders one,
   /// its shape, its own sources' data and the store it reads. A `Fixed` subtree's key names no visitor, so one entry
   /// serves everyone; an `Anonymous` one names the subject; a `Dynamic` one
-  /// names the subject, the token and the whole store.
+  /// names the subject, the token and the whole store. A subtree that renders
+  /// the response's nonce has no key while a policy issues one.
   fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, seeded: &Seeded, shape: u64, reads: Option<&SubtreeReads>) -> Option<String> {
     let store = &seeded.merged;
     let plan_key = node.cache_key.as_ref()?;
@@ -861,6 +862,9 @@ impl Session {
     }
     let data = &loaded.data;
     let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
+    if self.ctx.csp_nonce.is_some() && class == Static::Dynamic && reads.is_none_or(|r| r.nonce) {
+      return None;
+    }
     let mut pairs: Vec<String> = self.ctx_of(node.id.0).params.iter().map(|(k, v)| format!("{k}={v}")).collect();
     pairs.sort_unstable();
     let subject = match class {

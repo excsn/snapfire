@@ -29,6 +29,10 @@ pub struct SubtreeReads {
   /// carries the token: the memo keys it by the token and a scheme whose
   /// token differs per render keeps it out of the memo.
   pub csrf: bool,
+  /// A component in the subtree reads its `csp_nonce` prop, so the render
+  /// carries the nonce of the response it is in. Every response has its own,
+  /// so while a policy issues one the memo holds no such render.
+  pub nonce: bool,
 }
 
 impl SubtreeReads {
@@ -49,6 +53,11 @@ impl SubtreeReads {
 
   pub fn csrf(mut self, csrf: bool) -> Self {
     self.csrf = csrf;
+    self
+  }
+
+  pub fn nonce(mut self, nonce: bool) -> Self {
+    self.nonce = nonce;
     self
   }
 }
