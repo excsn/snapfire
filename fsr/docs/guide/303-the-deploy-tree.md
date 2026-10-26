@@ -116,12 +116,19 @@ cp fibre_logging.production.yaml dist/fibre_logging.yaml
 
 ## Pointing a web server at it
 
+> [!WARNING]
+> **Whatever answers `serve/` must send `.svelte` and `.vue` files as JavaScript.** A compiled component keeps its source extension in the tree, hashed or not. It holds JavaScript. The host answers these files with `text/javascript`. A web server types a file by its extension and knows neither, so nginx answers `application/octet-stream` and the browser refuses the module. `generated/islands.js` imports every component, so one refused module stops every island on the page, React ones included. Development and `fsr serve` never show it, since the host answers there. Map both extensions to `text/javascript` in the server in front: the nested `location` in each nginx block below does it. Apache takes `AddType text/javascript .svelte .vue`. A CDN or bucket needs the content type set when the files are uploaded.
+
 nginx serves `serve/` off disk and proxies everything else to the process:
 
 ```nginx
 location ~ ^/static {
   root /excsn/apps/snapfire/www/current/serve/;
   try_files $uri $uri/ =404;
+
+  location ~ \.(svelte|vue)$ {
+    default_type text/javascript;
+  }
 }
 
 location / {
@@ -136,6 +143,11 @@ An application with an `app/public/` directory has its files at the top of `serv
 location / {
   root /excsn/apps/snapfire/www/current/serve/;
   try_files $uri @fsr;
+
+  location ~ \.(svelte|vue)$ {
+    default_type text/javascript;
+    try_files $uri @fsr;
+  }
 }
 
 location @fsr {

@@ -924,6 +924,15 @@ place beside it: the binary, the logging configuration
 
 The tree has one directory a web server is pointed at, `serve/`, with everything else outside it. Where a file lands is decided by what it is rather than by where it sat in the project: configuration under `config/`, everything the host reads at boot under `app/` and each static root under `serve/` at the route it answers. A `[[static]]` root pointing at a shared build outside the project, `dir = "../../client/dist"`, is a normal thing to write in a monorepo and a meaningless path on a server, so the tree keeps the route and drops the provenance.
 
+> [!WARNING]
+> **The web server in front must send `.svelte` and `.vue` files as `text/javascript`.** A compiled component keeps its source extension under `serve/` and holds JavaScript. The host types it itself, but nginx and most servers do not know either extension and answer `application/octet-stream`, which the browser refuses as a module. One refused component stops every island on the page. In nginx, inside the location that answers `serve/`:
+>
+> ```nginx
+> location ~ \.(svelte|vue)$ {
+>   default_type text/javascript;
+> }
+> ```
+
 `serve/static/js/fsr` has no `[[static]]` behind it. The host carries `@snapfire/fsr/client` in its binary and answers that prefix from there, so the tree writes the modules only for a web server that answers `serve/` before a request reaches the host. An application that configures a root on the same route is serving a client of its own and the tree writes nothing there.
 
 Both lists come from what the host itself reads, so neither is a copy list to keep in step. That covers files no setting names: `app/clients/` because each service document is imported at boot; `app/locales/` because the host reads that directory by name and an application whose catalogs did not ship serves message keys; each `.tera` template at its path under `app/` because the host loads every one at boot, partials included.
