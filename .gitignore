@@ -219,6 +219,3 @@ typings/
 
 # next.js build output
 .next
-
-# webcheck lists, local to this machine
-.webcheck/
