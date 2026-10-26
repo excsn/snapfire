@@ -1,12 +1,12 @@
 import { loadMarkedScript } from "./script.js";
-import { addStyles, discard, loadEntry, mountedIsland, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
+import { addStyles, discard, loadEntry, mountedIsland, owned, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
 import { filledPlaces, placedPieces, recordFilled, type Piece } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { previousRegion, readyRecords, recordMorphed, recordWritten } from "./rendered.js";
 import { morphElement, morphNodes, type MorphHooks } from "./server.js";
-import { contribute, retain, transaction, type Contribution } from "./store.js";
+import { contribute, restore, retain, take, transaction, type Contribution } from "./store.js";
 
 let current: Segment | null = null;
 const ids: IdAlloc = { next: 0 };
@@ -234,16 +234,14 @@ function namedSlotOf(region: Region, name: string): Element | null {
     }
     return null;
   }
-  for (const slot of Array.from(island.el.querySelectorAll(`sf-s[data-sf-name="${name}"]`))) {
-    if (slot.parentElement?.closest("sf-i") === island.el) return slot;
-  }
-  return null;
+  return owned(island.el, `sf-s[data-sf-name="${name}"]`)[0] ?? null;
 }
 
-/** A region a navigation took out of the document with activity on: its nodes, delimiters included, the segment they render and the session generation it left under. */
+/** A region a navigation took out of the document with activity on: its nodes with their delimiters, the segment they render, the store contributions of its segments and their regions and the session generation it left under. */
 interface Held {
   nodes: Node[];
   seg: Segment;
+  seeds: Contribution[];
   state: string;
 }
 
@@ -295,7 +293,7 @@ function clearHeld(): void {
   held.clear();
 }
 
-/** Takes a region's nodes out of the document and holds them under `key`, its islands released, dropping the oldest held region past the limit. */
+/** Takes a region's nodes out of the document and holds them under `key` with its segments' store contributions, its islands released, dropping the oldest held region past the limit. */
 function holdRegion(key: string, region: Region, seg: Segment): void {
   const nodes = regionNodes(region);
   for (const node of nodes) if (node instanceof Element) release(node);
@@ -303,7 +301,7 @@ function holdRegion(key: string, region: Region, seg: Segment): void {
   const before = held.get(key);
   if (before) dropHeld(before);
   held.delete(key);
-  held.set(key, { nodes, seg, state: sessionState() });
+  held.set(key, { nodes, seg, seeds: take(segmentKeys(seg)), state: sessionState() });
   while (held.size > heldLimit) {
     const [oldest, entry] = held.entries().next().value as [string, Held];
     dropHeld(entry);
@@ -341,6 +339,7 @@ function holdAndReplace(old: Segment, region: Region, node: SfNode, seg: Segment
     return true;
   }
   for (const n of back.nodes) parent.insertBefore(n, anchor);
+  restore(back.seeds);
   for (const n of back.nodes) if (n instanceof Element) revealing.push(resume(n));
   if (renderedSame(back.seg, seg) && settleIslands(seg.k, node, seg)) return true;
   return morphStatic(seg.k, node, seg, false, "kept");

@@ -55,10 +55,11 @@ pub fn contributions_to_json(contributions: &[Contribution]) -> Json {
   )
 }
 
-/// The seed script a document and a fragment carry, inert for the parser.
-fn seed_script(contributions: &[Contribution]) -> String {
+/// The seed script a document and a fragment carry, inert for the parser. A fragment's is marked `data-sf-fragment`, so the browser holds it under the region it is swapped into.
+fn seed_script(contributions: &[Contribution], fragment: bool) -> String {
   format!(
-    "<script type=\"application/json\" data-sf-store>{}</script>",
+    "<script type=\"application/json\" data-sf-store{}>{}</script>",
+    if fragment { " data-sf-fragment" } else { "" },
     contributions_to_json(contributions).to_string().replace('<', "\\u003c")
   )
 }
@@ -320,7 +321,7 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     segments_to_json(&assembly.segments).to_string().replace('<', "\\u003c")
   ));
   if !assembly.contributions.is_empty() {
-    first.push_str(&seed_script(&assembly.contributions));
+    first.push_str(&seed_script(&assembly.contributions, false));
   }
   first.push_str(CAPTURE_SCRIPT);
   if !assembly.pending.is_empty() {
@@ -405,7 +406,7 @@ pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<Str
   let mut out = session.serialize(&target);
   out.push_str(&session.take_placed());
   if !contributions.is_empty() {
-    out.push_str(&seed_script(&contributions));
+    out.push_str(&seed_script(&contributions, true));
   }
   Some(out)
 }

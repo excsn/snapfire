@@ -1,5 +1,6 @@
 import { subscribeMessages } from "./locale.js";
 import { decodeValue } from "./values.js";
+import { segmentAround, segmentShown } from "./rendered.js";
 export function key(id) {
     return id;
 }
@@ -238,6 +239,9 @@ export function contribute(list) {
                 } : {},
                 ...c.w ? {
                     w: c.w.slice()
+                } : {},
+                ...c.o !== undefined ? {
+                    o: c.o
                 } : {}
             });
         }
@@ -251,16 +255,30 @@ function keysOf(c) {
 export function retain(segments) {
     const keep = new Set(segments);
     keep.add(PLAIN);
+    hold((c)=>!keep.has(c.k) && !(c.o !== undefined && keep.has(c.o)));
+}
+export function take(segments) {
+    const taking = new Set(segments);
+    return hold((c)=>taking.has(c.k) || c.o !== undefined && taking.has(c.o));
+}
+function hold(leaves) {
+    const out = [];
     transaction(()=>{
         const touched = new Set();
         for (const [segment, c] of Array.from(contributions)){
-            if (keep.has(segment)) continue;
+            if (segment === PLAIN || !leaves(c)) continue;
             for (const k of keysOf(c))touched.add(k);
             contributions.delete(segment);
+            out.push(c);
         }
         if (touched.size > 0) remerge(touched);
     });
     release();
+    return out;
+}
+export function restore(list) {
+    const back = list.filter((c)=>!contributions.has(c.k));
+    if (back.length > 0) contribute(back);
 }
 export function seed(values) {
     const held = contributions.get(PLAIN);
@@ -292,6 +310,19 @@ export function decodeContributions(encoded) {
         };
     });
 }
+function placed(list, script) {
+    const owner = segmentAround(script);
+    if (owner === null) return list;
+    return list.map((c)=>{
+        if (segmentShown(c.k)) return c;
+        const q = c.k.indexOf("?");
+        return {
+            ...c,
+            k: `${owner}>${q === -1 ? c.k : c.k.slice(0, q)}`,
+            o: owner
+        };
+    });
+}
 export function adopt(root) {
     if (typeof document !== "undefined") {
         if (root === undefined) {
@@ -309,7 +340,8 @@ export function adopt(root) {
         }
         for (const script of Array.from((root ?? document).querySelectorAll("script[data-sf-store]:not([data-sf-adopted])"))){
             if (script.textContent) {
-                contribute(decodeContributions(JSON.parse(script.textContent)));
+                const list = decodeContributions(JSON.parse(script.textContent));
+                contribute(script.hasAttribute("data-sf-fragment") ? placed(list, script) : list);
             }
             script.setAttribute("data-sf-adopted", "");
         }

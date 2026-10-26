@@ -33,7 +33,7 @@ export default function VenuePage({ venue, talks }: VenueProps) {
             </video>
           </div>
           <div className="view-panel">
-            <div className="venue-notices" hx-get="/venue/notices?__fragment" hx-trigger="intersect once" hx-select=".venue-notices" hx-swap="outerHTML">
+            <div className="venue-notices" hx-get="/venue/notices?__fragment" hx-trigger="intersect once" hx-swap="outerHTML">
               Loading the notices
             </div>
           </div>

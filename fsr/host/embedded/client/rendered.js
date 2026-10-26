@@ -9,6 +9,30 @@ function isOpen(node) {
 function isClose(node) {
     return node.nodeType === Node.COMMENT_NODE && node.data === CLOSE;
 }
+function keyOf(open) {
+    return open.data.slice(OPEN.length).replace(/%2D/g, "-").replace(/%25/g, "%");
+}
+export function segmentAround(node) {
+    for(let at = node; at; at = at.parentNode){
+        let depth = 0;
+        for(let n = at.previousSibling; n; n = n.previousSibling){
+            if (isClose(n)) depth += 1;
+            else if (isOpen(n)) {
+                if (depth === 0) return keyOf(n);
+                depth -= 1;
+            }
+        }
+    }
+    return null;
+}
+export function segmentShown(key) {
+    if (typeof document === "undefined") return false;
+    const walker = document.createTreeWalker(document, NodeFilter.SHOW_COMMENT);
+    for(let n = walker.nextNode(); n; n = walker.nextNode()){
+        if (isOpen(n) && keyOf(n) === key) return true;
+    }
+    return false;
+}
 function contentOf(start) {
     const out = [];
     let depth = 0;

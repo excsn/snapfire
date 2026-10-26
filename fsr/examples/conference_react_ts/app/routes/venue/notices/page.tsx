@@ -1,9 +1,10 @@
-export default function NoticesPage() {
+export default function NoticesPage({ notices }: { notices: string[] }) {
   return (
     <section className="page">
       <ul className="venue-notices">
-        <li>The cloakroom closes at six.</li>
-        <li>Hall B's lift is out of order; the stairs are by the café.</li>
+        {notices.map((notice) => (
+          <li key={notice}>{notice}</li>
+        ))}
       </ul>
     </section>
   );

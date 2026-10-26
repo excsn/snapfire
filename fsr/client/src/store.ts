@@ -1,5 +1,6 @@
 import { subscribeMessages } from "./locale.js";
 import { decodeValue, SfValue } from "./values.js";
+import { segmentAround, segmentShown } from "./rendered.js";
 
 /** A store key: the string it is, carrying the type of what it holds. */
 export type StoreKey<T> = string & { readonly __store?: T };
@@ -20,6 +21,8 @@ export interface Contribution {
   d?: { [key: string]: unknown };
   /** On a promise, the keys a deferred segment will seed once it resolves; its `v` is empty and its seed replaces it. */
   w?: string[];
+  /** The segment whose region holds the markup that carried this contribution, for a fragment's seed of a segment the document does not show: it stays while that segment does. */
+  o?: string;
 }
 
 /** The contribution `seed()` writes: a plain map of values, outermost of all, patched by each call. */
@@ -296,7 +299,7 @@ export function contribute(list: Contribution[]): void {
       const before = old ?? Array.from(contributions.values()).find((held) => held.k !== c.k && samePath(held.p, c.p));
       const values = c.w && before ? before.v : c.v;
       const defaults = c.w && before ? before.d : c.d;
-      contributions.set(c.k, { k: c.k, p: c.p.slice(), v: { ...values }, ...(defaults && Object.keys(defaults).length > 0 ? { d: { ...defaults } } : {}), ...(c.w ? { w: c.w.slice() } : {}) });
+      contributions.set(c.k, { k: c.k, p: c.p.slice(), v: { ...values }, ...(defaults && Object.keys(defaults).length > 0 ? { d: { ...defaults } } : {}), ...(c.w ? { w: c.w.slice() } : {}), ...(c.o !== undefined ? { o: c.o } : {}) });
     }
     remerge(touched);
   });
@@ -308,20 +311,39 @@ function keysOf(c: Contribution): string[] {
   return Object.keys(c.v).concat(Object.keys(c.d ?? {}));
 }
 
-/** Drops the contribution of every segment not in `segments`, which the navigator calls once a payload's tree is in: a segment leaves and its keys go with it, so a page that seeds nothing does not inherit what the page before it seeded. The plain contribution `seed()` writes stays. */
+/** Drops the contribution of every segment not in `segments`, which the navigator calls once a payload's tree is in: a segment leaves and its keys go with it, so a page that seeds nothing does not inherit what the page before it seeded. A contribution a segment's region holds stays while that segment does. The plain contribution `seed()` writes stays. */
 export function retain(segments: Iterable<string>): void {
   const keep = new Set(segments);
   keep.add(PLAIN);
+  hold((c) => !keep.has(c.k) && !(c.o !== undefined && keep.has(c.o)));
+}
+
+/** Takes the contributions of the segments in `segments` and of what their regions hold out of the store in one transaction and returns them: what a page carries while it is held, for `restore` to put back. */
+export function take(segments: Iterable<string>): Contribution[] {
+  const taking = new Set(segments);
+  return hold((c) => taking.has(c.k) || (c.o !== undefined && taking.has(c.o)));
+}
+
+function hold(leaves: (c: Contribution) => boolean): Contribution[] {
+  const out: Contribution[] = [];
   transaction(() => {
     const touched = new Set<string>();
     for (const [segment, c] of Array.from(contributions)) {
-      if (keep.has(segment)) continue;
+      if (segment === PLAIN || !leaves(c)) continue;
       for (const k of keysOf(c)) touched.add(k);
       contributions.delete(segment);
+      out.push(c);
     }
     if (touched.size > 0) remerge(touched);
   });
   release();
+  return out;
+}
+
+/** Puts back what `take` returned, each contribution unless the store already holds a newer one for its segment, which the payload that brought the page back seeded. */
+export function restore(list: Contribution[]): void {
+  const back = list.filter((c) => !contributions.has(c.k));
+  if (back.length > 0) contribute(back);
 }
 
 /** Writes a whole map in one transaction, outside any segment: the plain contribution, patched by each call. The server is authoritative: a seeded key replaces whatever the browser held. */
@@ -350,6 +372,17 @@ export function decodeContributions(encoded: unknown): Contribution[] {
   });
 }
 
+/** A fragment's seed as the store holds it once `script` brought it in. A contribution for a segment the document shows is that segment's. One for a segment it does not show belongs to the segment region the script landed in: it is held under that region's key and the route without its query, so the next fragment of the route swapped in there replaces it. It stays while that segment does. Two placements of one route in one region share the key. */
+function placed(list: Contribution[], script: Element): Contribution[] {
+  const owner = segmentAround(script);
+  if (owner === null) return list;
+  return list.map((c) => {
+    if (segmentShown(c.k)) return c;
+    const q = c.k.indexOf("?");
+    return { ...c, k: `${owner}>${q === -1 ? c.k : c.k.slice(0, q)}`, o: owner };
+  });
+}
+
 /** Every seed script under `root`, the document by default, that nothing has read yet, each marked once it is; then any a streamed resolution left behind before this module loaded. From then on a resolution seeds the store as it arrives. Called on load and again by `boot`, since a document written after this module ran carries a seed nobody has read. Called again after a fragment is swapped in, since a fragment carries the route's seed too. */
 export function adopt(root?: ParentNode): void {
   if (typeof document !== "undefined") {
@@ -368,7 +401,8 @@ export function adopt(root?: ParentNode): void {
     }
     for (const script of Array.from((root ?? document).querySelectorAll("script[data-sf-store]:not([data-sf-adopted])"))) {
       if (script.textContent) {
-        contribute(decodeContributions(JSON.parse(script.textContent)));
+        const list = decodeContributions(JSON.parse(script.textContent));
+        contribute(script.hasAttribute("data-sf-fragment") ? placed(list, script) : list);
       }
       script.setAttribute("data-sf-adopted", "");
     }

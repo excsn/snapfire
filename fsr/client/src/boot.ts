@@ -184,12 +184,29 @@ export function nestsIn(outer: IslandEntry | undefined, inner: IslandEntry | und
   return outer !== undefined && inner !== undefined && outer.mount === inner.mount && nesting.has(outer.mount);
 }
 
-/** The region holding `el`'s children: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after its markup when its render did not place them. Never one inside an island nested in `el`. */
-export function childrenRegion(el: Element): Element | null {
-  for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))) {
-    if (region.parentElement?.closest("sf-i") === el) return region;
+/** Whether `at` starts markup an island around it does not render: another island's marker, a segment region or a named slot region, the last two filled by the navigator. An island region, a children region and a markup prop region are the island's own. */
+function startsOther(at: Element): boolean {
+  if (at.tagName === "SF-I") return true;
+  return at.tagName === "SF-S" && !at.hasAttribute("data-sf-island") && !at.hasAttribute(CHILDREN_ATTR) && !at.hasAttribute(MARKUP_ATTR);
+}
+
+/** Whether `node` is in the markup the island at `root` renders: nothing between them starts markup of another island or of a segment. */
+export function owns(root: Element, node: Node): boolean {
+  for (let at = node.parentElement; at; at = at.parentElement) {
+    if (at === root) return true;
+    if (startsOther(at)) return false;
   }
-  return null;
+  return false;
+}
+
+/** The elements matching `selector` in the markup the island at `root` renders, in document order. */
+export function owned(root: Element, selector: string): Element[] {
+  return Array.from(root.querySelectorAll(selector)).filter((found) => owns(root, found));
+}
+
+/** The region holding `el`'s children: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after its markup when its render did not place them. */
+export function childrenRegion(el: Element): Element | null {
+  return owned(el, `sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`)[0] ?? null;
 }
 
 /** Moves what the server wrote inside `from` into `to`, the element a framework made in its place, so a listener or anything else bound to those nodes before the mount stays bound. Nothing moves when `to` is `from`, as it is while hydrating. Nothing moves either when `from` holds nothing any more. A template gives its content. */
@@ -314,9 +331,7 @@ function inParentTree(el: Element, entry: IslandEntry | undefined): boolean | nu
   if (!above || !entry || !nesting.has(entry.mount)) return false;
   if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
   if (above.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
-  for (let at = el.parentElement; at && at !== above; at = at.parentElement) {
-    if (at.tagName === "SF-S" && !at.hasAttribute("data-sf-island") && !at.hasAttribute(CHILDREN_ATTR) && !at.hasAttribute(MARKUP_ATTR)) return false;
-  }
+  if (!owns(above, el)) return false;
   const outer = islands.get(above.getAttribute("data-sf-module") ?? "");
   if (!outer) return null;
   if (!nestsIn(outer, entry)) return false;

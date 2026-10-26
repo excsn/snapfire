@@ -1,5 +1,8 @@
 import { navigate } from "@snapfire/fsr/client";
+import { get } from "@snapfire/fsr/client/store";
 import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
+
+import { noticeCount } from "@src/store";
 
 const talks = [
   { id: "1", title: "A plan is not a program", track: "Runtime", room: "Hall B", starts: "09:30", ends: "10:10", speaker: "Ada Okonjo", level: "intro", abstract: "" },
@@ -219,4 +222,32 @@ test("a server island the navigation renders afresh shows the store value a brow
   await settle();
   expect(document.querySelector(".checklist-count")?.textContent, "the React checklist reads the store").toEqual("1 of 3 packed");
   expect(document.querySelector(".desk-packed")?.textContent, "and so does the server island").toEqual("The desk sees 1 packed");
+});
+
+test("a step back keeps the seed the notices fragment carried while its markup is put back", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  const list = document.querySelector("ul.venue-notices");
+  expect(list?.querySelectorAll("li").length, "htmx fetched the notices").toEqual(2);
+  expect(get(noticeCount), "and the store took the seed they carried").toEqual(2);
+  expect(document.querySelector(".desk-notices")?.textContent).toEqual("2 notices posted");
+  await fireEvent.click(screen.getByText("Schedule"));
+  await settle();
+  history.back();
+  await settle();
+  expect(document.querySelector("ul.venue-notices"), "the same notices came back").toBe(list);
+  expect(get(noticeCount), "with the seed they carried").toEqual(2);
+  expect(document.querySelector(".desk-notices")?.textContent, "which the help desk still reads").toEqual("2 notices posted");
+});
+
+test("a venue rendered afresh fetches the notices again and the store takes their seed", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  await navigate("/", true, { activity: false });
+  await settle();
+  await navigate("/venue", true, { activity: false });
+  await settle();
+  expect(document.querySelectorAll("ul.venue-notices li").length).toEqual(2);
+  expect(get(noticeCount)).toEqual(2);
+  expect(document.querySelector(".desk-notices")?.textContent).toEqual("2 notices posted");
 });

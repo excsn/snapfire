@@ -814,9 +814,9 @@ A route seeds it from its loaders, one contribution per segment. The store is th
 
 ### Contribution
 
-* `interface Contribution { k: string; p: string[]; v: { [key: string]: unknown }; d?: { [key: string]: unknown }; w?: string[] }`
+* `interface Contribution { k: string; p: string[]; v: { [key: string]: unknown }; d?: { [key: string]: unknown }; w?: string[]; o?: string }`
 
-What one segment seeded: `k` its segment key, `p` the slot names from the root down to it and `v` the values, decoded. `d` is what the segment's `defaults` export seeded: laid under every segment's `v` in the merge and under a write an island holds, so a key only `d` names keeps the island's write when the segment seeds again.
+What one segment seeded: `k` its segment key, `p` the slot names from the root down to it and `v` the values, decoded. `d` is what the segment's `defaults` export seeded: laid under every segment's `v` in the merge and under a write an island holds, so a key only `d` names keeps the island's write when the segment seeds again. `o` is set on a fragment's seed for a segment the document does not show: the segment whose region the fragment landed in, which it stays with.
 
 ### StoreKey
 
@@ -897,7 +897,14 @@ Sets the slot names the merge ranks parallel slots by at one depth: a name in th
 
 * `retain(segments: Iterable<string>): void`
 
-Drops the contribution of every segment not named, notifying the keys that moved. The navigator calls it with the keys of the tree it has just applied, kept segments included, so a page that seeds nothing does not inherit what the page before it seeded and an intercept's seed goes when it closes. The contribution `seed` writes stays.
+Drops the contribution of every segment not named, notifying the keys that moved. The navigator calls it with the keys of the tree it has just applied, kept segments included, so a page that seeds nothing does not inherit what the page before it seeded and an intercept's seed goes when it closes. A contribution a fragment brought in for a segment the document does not show is held under the segment whose region it landed in, its `o`. It stays while that segment is named. The contribution `seed` writes stays.
+
+### take and restore
+
+* `take(segments: Iterable<string>): Contribution[]`
+* `restore(list: Contribution[]): void`
+
+`take` removes the contributions of the segments named and of those their regions hold in one transaction and returns them. `restore` contributes them again, each unless the store already holds a contribution for its segment. The navigator takes a page's seeds when activity holds the page and restores them when it puts the page back, after the payload that brought it back has seeded, so the server's fresh values win and a fragment's seed comes back with its markup.
 
 ### seed
 
@@ -909,7 +916,7 @@ Writes a whole map in one transaction as a contribution outside any segment, out
 
 * `adopt(root?: ParentNode): void`
 
-Reads every `script[data-sf-store]` under `root`, the document by default, that does not yet carry `data-sf-adopted`, marks each once read, then every list a streamed resolution left on `window.__sfSeed` before this module loaded and installs `window.__sfSeedApply` so later resolutions contribute as they arrive. `decodeContributions(encoded: unknown): Contribution[]` is the decoding it applies, exported for a reader of the same encoding. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read; called by an application after it swaps a fragment in, since a fragment ends with the same script. Idempotent.
+Reads every `script[data-sf-store]` under `root`, the document by default, that does not yet carry `data-sf-adopted`, marks each once read, then every list a streamed resolution left on `window.__sfSeed` before this module loaded and installs `window.__sfSeedApply` so later resolutions contribute as they arrive. `decodeContributions(encoded: unknown): Contribution[]` is the decoding it applies, exported for a reader of the same encoding. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read; called by an application after it swaps a fragment in, since a fragment ends with the same script. A fragment's script carries `data-sf-fragment`. A contribution in it for a segment the document shows is that segment's; one for a segment it does not show belongs to the segment region the script sits in. It is held under that region's key and the fragment's route without its query, `owner>route`, so the next fragment of the route swapped in there replaces it. Two placements of one route in one region share that key and the later one's seed wins. Idempotent.
 
 ### reset
 

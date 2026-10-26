@@ -19,6 +19,8 @@ export interface Contribution {
 	};
 	/** On a promise, the keys a deferred segment will seed once it resolves; its `v` is empty and its seed replaces it. */
 	w?: string[];
+	/** The segment whose region holds the markup that carried this contribution, for a fragment's seed of a segment the document does not show: it stays while that segment does. */
+	o?: string;
 }
 /** Whether a deferred segment has yet to seed `k`: a promise awaits it and outranks every contribution holding it, so the value the store holds now is about to be replaced. A derived key is pending exactly while a source it reads is. The server decides the same way which islands to hold. */
 export declare function isPending(k: string): boolean;
@@ -51,8 +53,12 @@ export declare function optimistic<
 >(k: StoreKey<T>, guess: T, remote: () => Promise<R>): Promise<R>;
 /** Takes what the segments of a response seeded, each contribution replacing the one its segment held before, in one transaction. The server is authoritative for a value: a key a contribution's `v` names loses whatever an island wrote to it. A key only its `d` names keeps the island's write. */
 export declare function contribute(list: Contribution[]): void;
-/** Drops the contribution of every segment not in `segments`, which the navigator calls once a payload's tree is in: a segment leaves and its keys go with it, so a page that seeds nothing does not inherit what the page before it seeded. The plain contribution `seed()` writes stays. */
+/** Drops the contribution of every segment not in `segments`, which the navigator calls once a payload's tree is in: a segment leaves and its keys go with it, so a page that seeds nothing does not inherit what the page before it seeded. A contribution a segment's region holds stays while that segment does. The plain contribution `seed()` writes stays. */
 export declare function retain(segments: Iterable<string>): void;
+/** Takes the contributions of the segments in `segments` and of what their regions hold out of the store in one transaction and returns them: what a page carries while it is held, for `restore` to put back. */
+export declare function take(segments: Iterable<string>): Contribution[];
+/** Puts back what `take` returned, each contribution unless the store already holds a newer one for its segment, which the payload that brought the page back seeded. */
+export declare function restore(list: Contribution[]): void;
 /** Writes a whole map in one transaction, outside any segment: the plain contribution, patched by each call. The server is authoritative: a seeded key replaces whatever the browser held. */
 export declare function seed(values: {
 	[key: string]: SfValue;

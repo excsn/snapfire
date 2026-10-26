@@ -358,6 +358,13 @@ a:hover {
   margin-block: 1.5rem;
 }
 
+.ask-desk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .opening {
   margin-left: 0.5em;
   font-size: 0.8em;

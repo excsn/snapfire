@@ -1,3 +1,7 @@
+/** The key of the innermost segment region holding `node`, null outside every region. */
+export declare function segmentAround(node: Node): string | null;
+/** Whether the document shows a region for the segment `key`. */
+export declare function segmentShown(key: string): boolean;
 /** The nodes `html` parses to, in an inert template. */
 export declare function parsed(html: string): Node[];
 /** `nodes` written back as markup. */

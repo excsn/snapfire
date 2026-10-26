@@ -1,12 +1,12 @@
 import { loadMarkedScript } from "./script.js";
-import { addStyles, discard, loadEntry, mountedIsland, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
+import { addStyles, discard, loadEntry, mountedIsland, owned, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
 import { filledPlaces, placedPieces, recordFilled } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
 import { previousRegion, readyRecords, recordMorphed, recordWritten } from "./rendered.js";
 import { morphElement, morphNodes } from "./server.js";
-import { contribute, retain, transaction } from "./store.js";
+import { contribute, restore, retain, take, transaction } from "./store.js";
 let current = null;
 const ids = {
     next: 0
@@ -208,10 +208,7 @@ function namedSlotOf(region, name) {
         }
         return null;
     }
-    for (const slot of Array.from(island.el.querySelectorAll(`sf-s[data-sf-name="${name}"]`))){
-        if (slot.parentElement?.closest("sf-i") === island.el) return slot;
-    }
-    return null;
+    return owned(island.el, `sf-s[data-sf-name="${name}"]`)[0] ?? null;
 }
 const held = new Map();
 let heldLimit = 10;
@@ -261,6 +258,7 @@ function holdRegion(key, region, seg) {
     held.set(key, {
         nodes,
         seg,
+        seeds: take(segmentKeys(seg)),
         state: sessionState()
     });
     while(held.size > heldLimit){
@@ -296,6 +294,7 @@ function holdAndReplace(old, region, node, seg) {
         return true;
     }
     for (const n of back.nodes)parent.insertBefore(n, anchor);
+    restore(back.seeds);
     for (const n of back.nodes)if (n instanceof Element) revealing.push(resume(n));
     if (renderedSame(back.seg, seg) && settleIslands(seg.k, node, seg)) return true;
     return morphStatic(seg.k, node, seg, false, "kept");

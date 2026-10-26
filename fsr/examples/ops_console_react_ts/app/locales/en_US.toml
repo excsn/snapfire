@@ -119,6 +119,10 @@ one_body = "This page was rendered by the server and swapped in by the navigator
 two_title = "Route two"
 two_body = "Same layout, other page. Whatever the count was on route one, it still is."
 tally = "htmx tally {count}"
+page_clicked = "this page {count}"
+reminder = "Both routes share this layout and this note."
+reminder_gone = "Note put away."
+dismiss = "dismiss"
 tally_hint = "htmx swaps this from a fragment the host renders. The button is bound to the node the server wrote, so it works only if the layout above keeps that node when it starts."
 
 [document]

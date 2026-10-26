@@ -81,11 +81,22 @@ export function rendersNested(mount, takes) {
 export function nestsIn(outer, inner) {
     return outer !== undefined && inner !== undefined && outer.mount === inner.mount && nesting.has(outer.mount);
 }
-export function childrenRegion(el) {
-    for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))){
-        if (region.parentElement?.closest("sf-i") === el) return region;
+function startsOther(at) {
+    if (at.tagName === "SF-I") return true;
+    return at.tagName === "SF-S" && !at.hasAttribute("data-sf-island") && !at.hasAttribute(CHILDREN_ATTR) && !at.hasAttribute(MARKUP_ATTR);
+}
+export function owns(root, node) {
+    for(let at = node.parentElement; at; at = at.parentElement){
+        if (at === root) return true;
+        if (startsOther(at)) return false;
     }
-    return null;
+    return false;
+}
+export function owned(root, selector) {
+    return Array.from(root.querySelectorAll(selector)).filter((found)=>owns(root, found));
+}
+export function childrenRegion(el) {
+    return owned(el, `sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`)[0] ?? null;
 }
 export function adoptNodes(to, from) {
     if (from === null || to === from) return;
@@ -210,9 +221,7 @@ function inParentTree(el, entry) {
     if (!above || !entry || !nesting.has(entry.mount)) return false;
     if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
     if (above.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
-    for(let at = el.parentElement; at && at !== above; at = at.parentElement){
-        if (at.tagName === "SF-S" && !at.hasAttribute("data-sf-island") && !at.hasAttribute(CHILDREN_ATTR) && !at.hasAttribute(MARKUP_ATTR)) return false;
-    }
+    if (!owns(above, el)) return false;
     const outer = islands.get(above.getAttribute("data-sf-module") ?? "");
     if (!outer) return null;
     if (!nestsIn(outer, entry)) return false;

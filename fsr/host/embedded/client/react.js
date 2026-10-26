@@ -1,7 +1,7 @@
 import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import { adoptNodes, childrenRegion, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired } from "./boot.js";
+import { adoptNodes, childrenRegion, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, owned, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -14,13 +14,10 @@ import { get, isPending, set, subscribe, whenSettled } from "./store.js";
 const RenderedStoreContext = createContext(null);
 const RENDERED_STORE_PROP = "$sv";
 function slotOf(el) {
-    for (const slot of Array.from(el.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-name])"))){
-        if (slot.parentElement?.closest("sf-i") === el) return slot;
-    }
-    return null;
+    return owned(el, "sf-s:not([data-sf-island]):not([data-sf-name])")[0] ?? null;
 }
 function namedSlotsOf(el) {
-    return Array.from(el.querySelectorAll("sf-s[data-sf-name]")).filter((slot)=>slot.parentElement?.closest("sf-i") === el);
+    return owned(el, "sf-s[data-sf-name]");
 }
 function adopted(slot, name) {
     return createElement(Adopted, {
@@ -404,14 +401,26 @@ function NestedIsland({ piece }) {
         ready: ()=>timingFired(piece.when, find).then(()=>loadModule(entry)),
         body: render
     }), script);
-    const inner = piece.when === "load" && loadedModule(entry) !== undefined ? body() : createElement(Suspense, {
+    const inner = nestedBehindBoundary(piece) ? createElement(Suspense, {
         fallback: null
-    }, body());
+    }, body()) : body();
     return createElement(Fragment, null, createElement("sf-i", {
         ...markerAttrs(piece.marker),
         ref: node,
         suppressHydrationWarning: true
     }, inner), script);
+}
+function nestedBehindBoundary(piece) {
+    return piece.ssr && !(piece.when === "load" && loadedModule(piece.entry) !== undefined);
+}
+function placementTiming(marker, when) {
+    return when ?? registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.when ?? "load";
+}
+function placedBehindBoundary(region) {
+    const marker = region.firstElementChild;
+    if (marker?.tagName !== "SF-I" || !serverRendered(marker) || region.hasAttribute("data-sf-mode")) return false;
+    if (registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.mount !== reactMounter) return false;
+    return placementTiming(marker, region.getAttribute("data-sf-when")) !== "load";
 }
 function bracketNested(el, children) {
     const bracket = (marker)=>{
@@ -423,18 +432,13 @@ function bracketNested(el, children) {
         for (const piece of pieces){
             if (piece.kind === "element") walk(piece.children);
             if (piece.kind !== "island" || piece.entry?.mount !== reactMounter) continue;
-            if (piece.ssr && !(piece.when === "load" && loadedModule(piece.entry) !== undefined)) bracket(piece.marker);
+            if (nestedBehindBoundary(piece)) bracket(piece.marker);
             if (piece.children) walk(piece.children);
         }
     };
     if (children) walk(children);
-    for (const region of Array.from(el.querySelectorAll("sf-s[data-sf-island]"))){
-        const marker = region.firstElementChild;
-        if (marker?.tagName !== "SF-I" || !serverRendered(marker)) continue;
-        const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
-        if (entry?.mount !== reactMounter) continue;
-        const when = region.getAttribute("data-sf-when") ?? entry.when ?? "load";
-        if (when !== "load") bracket(marker);
+    for (const region of regionsOf(el).slots){
+        if (placedBehindBoundary(region)) bracket(region.firstElementChild);
     }
 }
 const childrenBoxes = new WeakMap();
@@ -462,7 +466,7 @@ const MARKUP_PROP = "$sfm";
 const markupBoxes = new WeakMap();
 const markupElements = new WeakMap();
 function ownOf(el, selector) {
-    return Array.from(el.querySelectorAll(selector)).find((found)=>found.parentElement?.closest("sf-i") === el) ?? null;
+    return owned(el, selector)[0] ?? null;
 }
 function markupFor(el, n) {
     let elements = markupElements.get(el);
@@ -535,7 +539,7 @@ const regions = new WeakMap();
 function regionsOf(el) {
     const held = regions.get(el);
     if (held) return held;
-    const slots = Array.from(el.querySelectorAll("sf-s[data-sf-island]")).filter((slot)=>slot.parentElement?.closest("sf-i") === el);
+    const slots = owned(el, "sf-s[data-sf-island]");
     const byKey = new Map();
     for (const slot of slots){
         const key = slot.getAttribute("data-sf-region");
@@ -659,8 +663,7 @@ function PlacedIsland({ marker, when, source, child }) {
     useEffect(()=>{
         if (node.current) markRendered(node.current);
     });
-    const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
-    const timing = when ?? entry?.when ?? "load";
+    const timing = placementTiming(marker, when);
     const find = ()=>node.current ?? marker;
     const waiting = useTiming(serverRendered(marker) ? timing : "load", find);
     const props = source?.props ?? written.props;

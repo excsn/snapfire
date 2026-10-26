@@ -123,6 +123,10 @@ one_body = "Cette page a été rendue par le serveur et insérée par la navigat
 two_title = "Route deux"
 two_body = "Même layout, autre page. Le compteur garde la valeur qu'il avait sur la route un."
 tally = "compteur htmx {count}"
+page_clicked = "cette page {count}"
+reminder = "Les deux routes partagent ce layout et cette note."
+reminder_gone = "Note rangée."
+dismiss = "fermer"
 tally_hint = "htmx remplace ce bloc par un fragment que l'hôte rend. Le bouton est lié au nœud écrit par le serveur : il ne marche que si le layout au-dessus garde ce nœud en démarrant."
 
 [document]

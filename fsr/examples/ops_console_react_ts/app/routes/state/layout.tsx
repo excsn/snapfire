@@ -2,9 +2,12 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { Link } from "@snapfire/fsr/components";
 import { t } from "@snapfire/fsr/client";
+import { Island } from "@snapfire/fsr/client/react";
+
+import { TipList } from "@src/ui/Tips";
 
 /** Local React state in a layout that two routes share. A navigation between them swaps the page region and keeps this island's DOM, so the count survives. */
-export default function StateLayout({ children }: { children: ReactNode }) {
+export default function StateLayout({ children, aside }: { children: ReactNode; aside: ReactNode }) {
   const [count, setCount] = useState(0);
   return (
     <section className="page state">
@@ -20,6 +23,10 @@ export default function StateLayout({ children }: { children: ReactNode }) {
         </nav>
       </div>
       <div className="state-page">{children}</div>
+      {aside}
+      <Island when="idle">
+        <TipList />
+      </Island>
     </section>
   );
 }

@@ -2,7 +2,7 @@ import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { adoptNodes, childrenRegion, discard, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
+import { adoptNodes, childrenRegion, discard, hydrationMismatch, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, owned, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -20,17 +20,14 @@ const RenderedStoreContext = createContext<{ [key: string]: unknown } | null>(nu
 
 const RENDERED_STORE_PROP = "$sv";
 
-/** The `<sf-s>` a layout renders its child segment into or an island's children render in, `data-sf-children`: the first one under `el` that is not inside a nested island, is not an island's own region and is not a named slot. */
+/** The `<sf-s>` a layout renders its child segment into or an island's children render in, `data-sf-children`: the first one in `el`'s own markup that is not an island's own region and is not a named slot. */
 function slotOf(el: Element): Element | null {
-  for (const slot of Array.from(el.querySelectorAll("sf-s:not([data-sf-island]):not([data-sf-name])"))) {
-    if (slot.parentElement?.closest("sf-i") === el) return slot;
-  }
-  return null;
+  return owned(el, "sf-s:not([data-sf-island]):not([data-sf-name])")[0] ?? null;
 }
 
-/** The named slot regions a layout's markup holds directly: `<sf-s data-sf-name>` under `el` and not under a nested island. */
+/** The named slot regions a layout's own markup holds. */
 function namedSlotsOf(el: Element): Element[] {
-  return Array.from(el.querySelectorAll("sf-s[data-sf-name]")).filter((slot) => slot.parentElement?.closest("sf-i") === el);
+  return owned(el, "sf-s[data-sf-name]");
 }
 
 /** An adopted region: `<sf-s>` holding the server's nodes, created once and rendered unchanged, so React takes the region at hydration, takes its nodes when it mounts and never reconciles it. Navigation rewrites what is inside. */
@@ -326,11 +323,29 @@ function NestedIsland({ piece }: { piece: IslandPiece }): ReactElement {
   const body = () => createElement(Timed, { waiting }, render());
   const script = propsScript(piece);
   if (!piece.ssr) return createElement(Fragment, null, createElement(ClientOnly, { marker: piece.marker, at: node, ready: () => timingFired(piece.when, find).then(() => loadModule(entry)), body: render }), script);
-  const inner = piece.when === "load" && loadedModule(entry) !== undefined ? body() : createElement(Suspense, { fallback: null }, body());
+  const inner = nestedBehindBoundary(piece) ? createElement(Suspense, { fallback: null }, body()) : body();
   return createElement(Fragment, null, createElement("sf-i", { ...markerAttrs(piece.marker), ref: node, suppressHydrationWarning: true }, inner), script);
 }
 
-/** Brackets the markup of each React island under `el` that renders in its tree behind a boundary of its own in the comments React reads as a completed Suspense boundary, so hydration finds the boundary and leaves the markup as it is until the boundary resolves. */
+/** Whether a server-rendered React island among the pieces renders behind a boundary of its own: one timed later than load or one whose module has yet to load. */
+function nestedBehindBoundary(piece: IslandPiece): boolean {
+  return piece.ssr && !(piece.when === "load" && loadedModule(piece.entry as IslandEntry) !== undefined);
+}
+
+/** When a React island an island's own markup placed mounts: the placement's timing, else the registry's, else load. */
+function placementTiming(marker: Element, when: MountTiming | null | undefined): MountTiming {
+  return when ?? registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.when ?? "load";
+}
+
+/** Whether `region`, a region an island's own markup holds, is one its tree renders in place behind a boundary of its own: a server-rendered React island timed later than load. */
+function placedBehindBoundary(region: Element): boolean {
+  const marker = region.firstElementChild;
+  if (marker?.tagName !== "SF-I" || !serverRendered(marker) || region.hasAttribute("data-sf-mode")) return false;
+  if (registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.mount !== reactMounter) return false;
+  return placementTiming(marker, region.getAttribute("data-sf-when") as MountTiming | null) !== "load";
+}
+
+/** Brackets the markup of each React island `el`'s tree renders behind a boundary of its own in the comments React reads as a completed Suspense boundary, so hydration finds the boundary and leaves the markup as it is until the boundary resolves. Those are the islands among its pieces and in the island regions its `Island` placements claim, read from the same list. */
 function bracketNested(el: Element, children: Piece[] | null): void {
   const bracket = (marker: Element) => {
     if (!marker.firstChild || marker.firstChild.nodeType === 8) return;
@@ -341,18 +356,13 @@ function bracketNested(el: Element, children: Piece[] | null): void {
     for (const piece of pieces) {
       if (piece.kind === "element") walk(piece.children);
       if (piece.kind !== "island" || piece.entry?.mount !== reactMounter) continue;
-      if (piece.ssr && !(piece.when === "load" && loadedModule(piece.entry) !== undefined)) bracket(piece.marker);
+      if (nestedBehindBoundary(piece)) bracket(piece.marker);
       if (piece.children) walk(piece.children);
     }
   };
   if (children) walk(children);
-  for (const region of Array.from(el.querySelectorAll("sf-s[data-sf-island]"))) {
-    const marker = region.firstElementChild;
-    if (marker?.tagName !== "SF-I" || !serverRendered(marker)) continue;
-    const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
-    if (entry?.mount !== reactMounter) continue;
-    const when = (region.getAttribute("data-sf-when") as MountTiming | null) ?? entry.when ?? "load";
-    if (when !== "load") bracket(marker);
+  for (const region of regionsOf(el).slots) {
+    if (placedBehindBoundary(region)) bracket(region.firstElementChild as Element);
   }
 }
 
@@ -388,9 +398,9 @@ const markupBoxes = new WeakMap<Element, Map<number, RegionBox>>();
 /** The element each markup prop of a root is, created once per region so a re-render never replaces what React set. */
 const markupElements = new WeakMap<Element, Map<number, ReactElement>>();
 
-/** The `selector` under `el` that is not inside an island nested in it. */
+/** The first `selector` in `el`'s own markup. */
 function ownOf(el: Element, selector: string): Element | null {
-  return Array.from(el.querySelectorAll(selector)).find((found) => found.parentElement?.closest("sf-i") === el) ?? null;
+  return owned(el, selector)[0] ?? null;
 }
 
 function markupFor(el: Element, n: number): ReactElement {
@@ -481,7 +491,7 @@ const regions = new WeakMap<Element, Regions>();
 function regionsOf(el: Element): Regions {
   const held = regions.get(el);
   if (held) return held;
-  const slots = Array.from(el.querySelectorAll("sf-s[data-sf-island]")).filter((slot) => slot.parentElement?.closest("sf-i") === el);
+  const slots = owned(el, "sf-s[data-sf-island]");
   const byKey = new Map<string, Element>();
   for (const slot of slots) {
     const key = slot.getAttribute("data-sf-region");
@@ -601,8 +611,7 @@ function PlacedIsland({ marker, when, source, child }: { marker: Element; when: 
   useEffect(() => {
     if (node.current) markRendered(node.current);
   });
-  const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
-  const timing = when ?? entry?.when ?? "load";
+  const timing = placementTiming(marker, when);
   const find = () => node.current ?? marker;
   const waiting = useTiming(serverRendered(marker) ? timing : "load", find);
   const props = (source?.props ?? written.props) as object;

@@ -236,6 +236,10 @@ bindHtmx(htmx);
 
 `fsr use app htmx` writes the map line, vendors htmx and prints those three lines for `main.ts`; `fsr new --with htmx` writes them into the scaffold's own. htmx is passed in rather than imported by the client, so the binding takes whatever version the import map names. Both directions are needed and `bindHtmx` wires up both. After htmx swaps, `adopt` reads the seeds nothing has read yet, which is how the masthead count moves for a page the layout was never re-rendered for; `scan` would mount any island the fragment placed. After the navigator applies a payload it dispatches `sf:navigate` plus `sf:fill` for each deferred segment it fills, so htmx processes the markup the navigator wrote. Leave that second direction out and a reserve form reached by clicking a tool name is markup htmx never saw: the browser posts it natively and the document reloads. That is the only way this setup fails and the reload makes it easy to see.
 
+A fragment's seed for a segment the page shows, such as the layout's, updates that segment's values. Its seed for its own route belongs to the page region it was swapped into: it stays while that page is shown, goes with the page on a navigation and comes back with it when activity puts the page back. The next fragment of the same route swapped into that region replaces it whatever its query. Two placements of one route in one page region share that seed and the later swap's values win.
+
+`hx-select` keeps only the elements it selects from the response, so the seed script at the end of a fragment is dropped with everything else and the store never sees it. Leave `hx-select` off a fragment whose seed matters and have the fragment render only what the target needs.
+
 ## Tera pages
 
 The tool library's pages are TSX with no state, which the build lowers to a tree the host walks. A page can skip the lowering altogether and be a template the host renders from the file. Put `page.tera` where `page.tsx` would go and the route is the same route:

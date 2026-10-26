@@ -6,7 +6,7 @@ use futures_util::{StreamExt, stream};
 use snapfire_fsr_core::{Data, DataSourceId, ModuleId, Node, NodeId, Params, PlanNode, SlotName, Value, ValueMap};
 use snapfire_fsr_runtime::{
   Chunk, DataSources, Evaluator, Evaluators, Head, LoadError, NodeChunks, RequestCtx, Runtime, Seeds, assemble,
-  html_stream, wire_stream,
+  fragment_html, html_stream, wire_stream,
 };
 
 struct Shell;
@@ -181,6 +181,14 @@ fn a_seeding_segment_reaches_the_wire_and_the_document() {
 
   let html: String = block_on(html_stream(assembled(None, false)).collect::<Vec<_>>()).concat();
   assert!(html.contains(&format!("<script type=\"application/json\" data-sf-store>{SHELL_SEED}</script>")), "{html}");
+}
+
+#[test]
+fn a_fragment_marks_its_seed_as_a_fragment_s() {
+  let html = block_on(fragment_html(assembled(None, false), None)).expect("the page as a fragment");
+  assert!(html.contains(&format!("<script type=\"application/json\" data-sf-store data-sf-fragment>{SHELL_SEED}</script>")), "{html}");
+  let document: String = block_on(html_stream(assembled(None, false)).collect::<Vec<_>>()).concat();
+  assert!(!document.contains("data-sf-fragment"), "a document's seed is the document's: {document}");
 }
 
 /// The shell's contribution as the streams write it: the segment's key, its slot path from the root and what it seeded.

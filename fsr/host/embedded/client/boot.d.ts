@@ -75,7 +75,11 @@ export declare function markerProps(marker: Element): {
 export declare function rendersNested(mount: Mounter, takes?: (el: Element) => boolean): void;
 /** Whether the adapter of the island `outer` renders the island `inner` in its own tree. */
 export declare function nestsIn(outer: IslandEntry | undefined, inner: IslandEntry | undefined): boolean;
-/** The region holding `el`'s children: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after its markup when its render did not place them. Never one inside an island nested in `el`. */
+/** Whether `node` is in the markup the island at `root` renders: nothing between them starts markup of another island or of a segment. */
+export declare function owns(root: Element, node: Node): boolean;
+/** The elements matching `selector` in the markup the island at `root` renders, in document order. */
+export declare function owned(root: Element, selector: string): Element[];
+/** The region holding `el`'s children: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after its markup when its render did not place them. */
 export declare function childrenRegion(el: Element): Element | null;
 /** Moves what the server wrote inside `from` into `to`, the element a framework made in its place, so a listener or anything else bound to those nodes before the mount stays bound. Nothing moves when `to` is `from`, as it is while hydrating. Nothing moves either when `from` holds nothing any more. A template gives its content. */
 export declare function adoptNodes(to: Element, from: ParentNode | null): void;
