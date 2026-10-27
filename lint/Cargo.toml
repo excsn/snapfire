@@ -37,13 +37,17 @@ oxc_semantic = { version = "0.155", features = ["cfg", "linter"] }
 oxc_span = "0.155"
 oxc_str = { version = "0.155", features = ["serialize"] }
 oxc_syntax = "0.155"
+parking_lot = "0.12"
 phf = { version = "0.14", features = ["macros"] }
 rustc-hash = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smallvec = "1.15"
+snapfire_compiler_wire = { path = "../compiler/wire", version = "0.4.0" }
 thiserror = "2"
 toml = "0.8"
 
 [dev-dependencies]
+snapfire_svelte = { path = "../compiler/svelte" }
+snapfire_vue = { path = "../compiler/vue" }
 tempfile = "3"

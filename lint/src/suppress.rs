@@ -157,6 +157,13 @@ impl<'s> Lines<'s> {
     self.starts.partition_point(|start| *start <= offset)
   }
 
+  /// The byte offset of a 1-based line and column, the column counted in characters.
+  pub fn offset(&self, line: usize, column: usize) -> usize {
+    let Some(start) = self.starts.get(line.saturating_sub(1)).copied() else { return self.source.len() };
+    let rest = &self.source[start..];
+    start + rest.char_indices().nth(column.saturating_sub(1)).map_or(rest.len(), |(i, _)| i)
+  }
+
   /// The column in characters.
   pub fn column(&self, offset: usize) -> usize {
     let start = self.starts[self.line(offset) - 1];

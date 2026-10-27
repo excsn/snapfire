@@ -9,8 +9,17 @@ use std::{
 mod config;
 mod js;
 mod suppress;
+mod templates;
 
 pub use config::Config;
+pub use templates::Plugins;
+
+/// Asks a framework's compiler about one component: `ext` is `vue` or `svelte`. `fsr lint` answers
+/// through the `snapfirec-vue` and `snapfirec-svelte` plugins; anything that holds the compilers can.
+pub trait Compilers: Send + Sync {
+  fn describe(&self, ext: &str, unit: snapfire_compiler_wire::Unit) -> Result<snapfire_compiler_wire::Outcome, String>;
+  fn compile(&self, ext: &str, unit: snapfire_compiler_wire::Unit) -> Result<snapfire_compiler_wire::Outcome, String>;
+}
 
 use config::Setting;
 
@@ -22,6 +31,9 @@ pub const PARSE: &str = "lint/parse";
 
 /// A suppression comment that silences nothing.
 pub const UNUSED_DISABLE: &str = "lint/unused-disable";
+
+/// A framework's compiler that could not be asked about a component, so its template went unlinted.
+pub const COMPILER: &str = "lint/compiler";
 
 /// How loud a rule is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -163,7 +175,8 @@ pub struct RuleInfo {
   pub docs: &'static str,
 }
 
-const CORE: [RuleInfo; 2] = [
+const CORE: [RuleInfo; 3] = [
+  RuleInfo { id: COMPILER, default: Level::Warn, category: "lint", fixable: false, docs: "A `.vue` or `.svelte` file whose framework compiler could not be asked, so its template is not linted. Its scripts still are.\n" },
   RuleInfo { id: PARSE, default: Level::Error, category: "lint", fixable: false, docs: "A file that does not parse. No rule runs on it.\n" },
   RuleInfo { id: UNUSED_DISABLE, default: Level::Warn, category: "lint", fixable: false, docs: "A suppression comment that silences nothing, such as one left after the code it covered was fixed.\n" },
 ];
@@ -176,6 +189,8 @@ const OFF_BY_DEFAULT: [&str; 1] = ["react/react-in-jsx-scope"];
 pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
   all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
+  all.extend(templates::VUE_RULES);
+  all.push(templates::SVELTE_FAMILY);
   all.sort_by_key(|r| r.id);
   all
 }
@@ -187,6 +202,12 @@ pub struct Linter {
   settings: js::OxlintSettings,
   /// Each rule built with each set of options the configuration gives it, keyed by rule id and options.
   built: HashMap<(&'static str, String), Box<dyn js::Run>>,
+  compilers: Option<Box<dyn Compilers>>,
+}
+
+/// Whether `id` names one of Svelte's warnings, which are known by prefix rather than listed.
+fn svelte_warning(id: &str) -> bool {
+  id.starts_with("svelte/") && id != templates::SVELTE_FAMILY.id
 }
 
 impl Linter {
@@ -197,7 +218,7 @@ impl Linter {
     }
     for layer in config.layers() {
       for (id, setting) in &layer.rules {
-        if CORE.iter().any(|r| r.id == id) {
+        if CORE.iter().chain(&templates::VUE_RULES).any(|r| r.id == id) || svelte_warning(id) {
           continue;
         }
         let Some(entry) = js::RULES.iter().find(|e| e.id == id) else {
@@ -210,19 +231,22 @@ impl Linter {
       }
     }
     let settings = js::settings(config.settings()).map_err(|e| ConfigError::Parse { path: PathBuf::from(CONFIG_FILE), message: format!("`settings`: {e}") })?;
-    Ok(Linter { ignored: config.ignored(), settings, config, built })
+    Ok(Linter { ignored: config.ignored(), settings, config, built, compilers: None })
   }
 
   /// Each rule's setting for a file at `relative`, a path from the project root.
-  fn settings(&self, relative: &Path) -> HashMap<&'static str, Setting> {
-    let mut settings: HashMap<&'static str, Setting> = rules().into_iter().map(|r| (r.id, Setting { level: r.default, options: None })).collect();
+  fn settings(&self, relative: &Path) -> HashMap<String, Setting> {
+    let mut settings: HashMap<String, Setting> = rules().into_iter().map(|r| (r.id.to_owned(), Setting { level: r.default, options: None })).collect();
     let relative = relative.strip_prefix(".").unwrap_or(relative);
     for layer in self.config.layers() {
       if layer.files.as_ref().is_some_and(|globs| !globs.is_match(relative)) {
         continue;
       }
       for (id, setting) in &layer.rules {
-        if let Some(current) = settings.iter_mut().find(|(known, _)| *known == id).map(|(_, s)| s) {
+        if svelte_warning(id) && !settings.contains_key(id) {
+          settings.insert(id.clone(), Setting { level: templates::SVELTE_FAMILY.default, options: None });
+        }
+        if let Some(current) = settings.get_mut(id) {
           current.level = setting.level;
           if setting.options.is_some() {
             current.options = setting.options.clone();
@@ -231,6 +255,12 @@ impl Linter {
       }
     }
     settings
+  }
+
+  /// Lint the templates of `.vue` and `.svelte` files through `compilers`.
+  pub fn with_compilers(mut self, compilers: Box<dyn Compilers>) -> Self {
+    self.compilers = Some(compilers);
+    self
   }
 
   /// One file's source, as if read from `path`.
@@ -256,20 +286,27 @@ impl Linter {
       .collect();
     let outcome = js::lint(path, text, &active, &self.settings);
     let lines = suppress::Lines::new(text);
-    let directives = suppress::directives(outcome.comments.iter().map(|c| (c.text.as_str(), c.start, c.end)), &lines);
+    let mut comments: Vec<(String, usize, usize)> = outcome.comments.into_iter().map(|c| (c.text, c.start, c.end)).collect();
+    let mut reported: Vec<(String, usize, String, Option<String>)> = outcome.reported.into_iter().map(|r| (r.rule.to_owned(), r.start, r.message, r.help)).collect();
+    if let (Some(ext), Some(compilers)) = (templates::reads(path), &self.compilers) {
+      comments.extend(templates::comments(text));
+      for found in templates::lint(ext, path, text, compilers.as_ref()) {
+        reported.push((found.rule, lines.offset(found.line, found.column), found.message, found.help));
+      }
+    }
+    let directives = suppress::directives(comments.iter().map(|(text, start, end)| (text.as_str(), *start, *end)), &lines);
     let mut report = Report { files: 1, ..Report::default() };
     let finding = |rule: &str, level: Level, start: usize, message: String, help: Option<String>| Finding { rule: rule.to_owned(), level, path: path.to_owned(), line: lines.line(start), column: lines.column(start), message, help };
-    let mut reported = outcome.reported;
-    reported.sort_by_key(|r| (r.start, r.end));
-    for r in reported {
-      let level = settings.get(r.rule).map_or(Level::Error, |s| s.level);
+    reported.sort_by_key(|r| r.1);
+    for (rule, start, message, help) in reported {
+      let level = settings.get(&rule).map(|s| s.level).unwrap_or(if svelte_warning(&rule) { templates::SVELTE_FAMILY.default } else { Level::Error });
       if level == Level::Off {
         continue;
       }
-      let found = finding(r.rule, level, r.start, r.message, r.help);
-      let silenced = match r.rule == PARSE {
+      let found = finding(&rule, level, start, message, help);
+      let silenced = match rule == PARSE {
         true => None,
-        false => suppress::silencing(&directives, r.rule, r.start, found.line),
+        false => suppress::silencing(&directives, &rule, start, found.line),
       };
       match silenced {
         Some(directive) => report.suppressed.push(Suppressed { finding: found, reason: directive.reason.clone() }),
@@ -278,7 +315,7 @@ impl Linter {
     }
     let unused = settings[UNUSED_DISABLE].level;
     if unused != Level::Off {
-      let known = |id: &String| settings.contains_key(id.as_str());
+      let known = |id: &String| settings.contains_key(id) || svelte_warning(id);
       for d in directives.iter().filter(|d| d.silences() && !d.used() && d.rules().is_some_and(|rules| rules.iter().all(known))) {
         report.findings.push(finding(UNUSED_DISABLE, unused, d.start, format!("`{}` silences nothing", d.written), Some("remove the comment".to_owned())));
       }
