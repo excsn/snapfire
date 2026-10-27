@@ -57,3 +57,15 @@ fn htmx_attributes_are_known_properties() {
   assert_eq!(found, [("react/no-unknown-property", PathBuf::from("routes/typo.tsx"))], "{}", report.render());
   let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_component_s_template_is_linted_through_its_plugin() {
+  let root = project();
+  let app = root.join("app");
+  std::fs::create_dir_all(app.join("src/ui")).unwrap();
+  std::fs::write(app.join("src/ui/List.vue"), "<template>\n  <ul><li v-for=\"x in xs\">{{ x }}</li></ul>\n</template>\n<script setup>\nconst xs = [1];\n</script>\n").unwrap();
+  let report = snapfire_fsr_cli::lint::run(&app).unwrap();
+  let rules: Vec<_> = report.findings.iter().map(|f| f.rule.as_str()).collect();
+  assert!(rules == ["vue/require-v-for-key"] || rules == [snapfire_lint::COMPILER], "the template is linted, or the missing plugin is named: {}", report.render());
+  let _ = std::fs::remove_dir_all(&root);
+}

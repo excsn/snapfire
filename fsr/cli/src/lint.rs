@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use snapfire_lint::{Config, ConfigError, Linter, Report};
+use snapfire_lint::{Config, ConfigError, Linter, Plugins, Report};
 
 use crate::xwpm::Layout;
 
@@ -60,8 +60,8 @@ fn base() -> Config {
 }
 
 /// Lints every script under `app` with FSR's base levels and then those of each `fsr.lint.toml` from the
-/// repository down to the project. The vendored packages and the fetched declarations are not the application's and are
-/// skipped.
+/// repository down to the project. The templates of `.vue` and `.svelte` files go through `snapfirec-vue` and
+/// `snapfirec-svelte`. The vendored packages and the fetched declarations are not the application's and are skipped.
 pub fn run(app: &Path) -> Result<Report, ConfigError> {
   let mut config = Config::discover(&crate::serve::project_root(app))?.over(base());
   if let Ok(layout) = Layout::of(app) {
@@ -69,5 +69,5 @@ pub fn run(app: &Path) -> Result<Report, ConfigError> {
       config.ignore(&format!("{}/**", dir.trim_end_matches('/')))?;
     }
   }
-  Ok(Linter::new(config)?.lint_dir(app))
+  Ok(Linter::new(config)?.with_compilers(Box::new(Plugins::default())).lint_dir(app))
 }
