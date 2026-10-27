@@ -24,11 +24,12 @@ pub(crate) struct Layer {
 pub struct Config {
   inherit: bool,
   layers: Vec<Layer>,
+  ignores: Vec<Glob>,
 }
 
 impl Default for Config {
   fn default() -> Self {
-    Config { inherit: true, layers: Vec::new() }
+    Config { inherit: true, layers: Vec::new(), ignores: Vec::new() }
   }
 }
 
@@ -37,11 +38,18 @@ impl Config {
     let fail = |message: String| ConfigError::Parse { path: path.to_owned(), message };
     let table: toml::Table = text.parse().map_err(|e: toml::de::Error| fail(e.message().to_owned()))?;
     let mut config = Config::default();
-    if let Some(other) = table.keys().find(|k| !matches!(k.as_str(), "inherit" | "rules" | "overrides")) {
+    if let Some(other) = table.keys().find(|k| !matches!(k.as_str(), "inherit" | "ignores" | "rules" | "overrides")) {
       return Err(fail(format!("no setting is called `{other}`")));
     }
     if let Some(value) = table.get("inherit") {
       config.inherit = value.as_bool().ok_or_else(|| fail("`inherit` is true or false".to_owned()))?;
+    }
+    if let Some(value) = table.get("ignores") {
+      let globs = value.as_array().ok_or_else(|| fail("`ignores` is a list of globs".to_owned()))?;
+      for glob in globs {
+        let glob = glob.as_str().ok_or_else(|| fail("a glob in `ignores` is a string".to_owned()))?;
+        config.ignores.push(Glob::new(glob).map_err(|e| fail(format!("`{glob}`: {e}")))?);
+      }
     }
     if let Some(value) = table.get("rules") {
       config.layers.push(Layer { path: path.to_owned(), files: None, rules: rules(value, path)? });
@@ -80,16 +88,52 @@ impl Config {
     }
   }
 
+  /// Every `fsr.lint.toml` from `dir` up to the directory holding `.git`, each over the one above it.
+  /// Outside a repository only `dir`'s own file is read.
+  pub fn discover(dir: &Path) -> Result<Config, ConfigError> {
+    let dir = dir.canonicalize().unwrap_or_else(|_| dir.to_owned());
+    let mut dirs: Vec<&Path> = Vec::new();
+    for ancestor in dir.ancestors() {
+      dirs.push(ancestor);
+      if ancestor.join(".git").exists() {
+        break;
+      }
+    }
+    if !dirs.last().is_some_and(|top| top.join(".git").exists()) {
+      dirs.truncate(1);
+    }
+    let mut config = Config::default();
+    for dir in dirs.into_iter().rev() {
+      config = Config::load(dir)?.over(config);
+    }
+    Ok(config)
+  }
+
+  /// Skip files matching `glob` when walking a directory, relative to the walk's root.
+  pub fn ignore(&mut self, glob: &str) -> Result<(), ConfigError> {
+    let glob = Glob::new(glob).map_err(|e| ConfigError::Parse { path: PathBuf::from(glob), message: e.to_string() })?;
+    self.ignores.push(glob);
+    Ok(())
+  }
+
   /// This configuration over `parent`'s, unless it says `inherit = false`.
   pub fn over(self, parent: Config) -> Config {
     match self.inherit {
       false => self,
-      true => Config { inherit: parent.inherit, layers: parent.layers.into_iter().chain(self.layers).collect() },
+      true => Config { inherit: parent.inherit, layers: parent.layers.into_iter().chain(self.layers).collect(), ignores: parent.ignores.into_iter().chain(self.ignores).collect() },
     }
   }
 
   pub(crate) fn layers(&self) -> &[Layer] {
     &self.layers
+  }
+
+  pub(crate) fn ignored(&self) -> GlobSet {
+    let mut set = GlobSetBuilder::new();
+    for glob in &self.ignores {
+      set.add(glob.clone());
+    }
+    set.build().unwrap_or_else(|_| GlobSet::empty())
   }
 }
 

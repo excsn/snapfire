@@ -98,3 +98,47 @@ fn a_project_without_the_file_has_the_defaults() {
   std::fs::write(dir.path().join(snapfire_lint::CONFIG_FILE), "[rules]\n\"eslint/no-debugger\" = \"off\"\n").unwrap();
   assert!(levels(Config::load(dir.path()).unwrap(), "a.ts", "debugger;\n").is_empty());
 }
+
+#[test]
+fn ignores_skip_files_a_walk_would_lint() {
+  let dir = tempfile::tempdir().unwrap();
+  let root = dir.path();
+  std::fs::create_dir_all(root.join("vendor/react")).unwrap();
+  std::fs::create_dir_all(root.join("routes")).unwrap();
+  std::fs::write(root.join("vendor/react/index.js"), "debugger;\n").unwrap();
+  std::fs::write(root.join("routes/page.ts"), "debugger;\n").unwrap();
+  std::fs::write(root.join("routes/old.ts"), "debugger;\n").unwrap();
+  let mut config = parse("ignores = [\"routes/old.ts\"]\n");
+  config.ignore("vendor/**").unwrap();
+  let report = Linter::new(config).unwrap().lint_dir(root);
+  assert_eq!(report.files, 1);
+  let paths: Vec<_> = report.findings.iter().map(|f| f.path.clone()).collect();
+  assert_eq!(paths, [root.join("routes/page.ts")]);
+}
+
+#[test]
+fn discover_layers_every_file_from_the_repository_down() {
+  let dir = tempfile::tempdir().unwrap();
+  let repo = dir.path();
+  std::fs::create_dir_all(repo.join(".git")).unwrap();
+  std::fs::create_dir_all(repo.join("sites/notes")).unwrap();
+  std::fs::write(repo.join("fsr.lint.toml"), "[rules]\n\"eslint/no-debugger\" = \"warn\"\n\"eslint/no-empty\" = \"off\"\n").unwrap();
+  std::fs::write(repo.join("sites/notes/fsr.lint.toml"), "[rules]\n\"eslint/no-empty\" = \"error\"\n").unwrap();
+  let config = Config::discover(&repo.join("sites/notes")).unwrap();
+  let found = levels(config, "a.ts", "debugger;\nif (x) {}\n");
+  assert_eq!(found, [("eslint/no-debugger".to_owned(), Level::Warn), ("eslint/no-empty".to_owned(), Level::Error)]);
+}
+
+#[test]
+fn discover_stops_at_a_file_that_does_not_inherit_and_at_the_repository() {
+  let dir = tempfile::tempdir().unwrap();
+  let outside = dir.path();
+  std::fs::write(outside.join("fsr.lint.toml"), "[rules]\n\"eslint/no-debugger\" = \"off\"\n").unwrap();
+  let repo = outside.join("repo");
+  std::fs::create_dir_all(repo.join(".git")).unwrap();
+  std::fs::create_dir_all(repo.join("app")).unwrap();
+  assert_eq!(levels(Config::discover(&repo.join("app")).unwrap(), "a.ts", "debugger;\n"), [("eslint/no-debugger".to_owned(), Level::Error)], "a file above the repository is not read");
+  std::fs::write(repo.join("fsr.lint.toml"), "[rules]\n\"eslint/no-debugger\" = \"off\"\n").unwrap();
+  std::fs::write(repo.join("app/fsr.lint.toml"), "inherit = false\n").unwrap();
+  assert_eq!(levels(Config::discover(&repo.join("app")).unwrap(), "a.ts", "debugger;\n"), [("eslint/no-debugger".to_owned(), Level::Error)], "inherit = false starts from the defaults");
+}

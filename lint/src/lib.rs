@@ -179,6 +179,7 @@ pub fn rules() -> Vec<RuleInfo> {
 /// The rules a configuration turns on, ready to run.
 pub struct Linter {
   config: Config,
+  ignored: globset::GlobSet,
   /// Each rule built with each set of options the configuration gives it, keyed by rule id and options.
   built: HashMap<(&'static str, String), Box<dyn js::Run>>,
 }
@@ -203,7 +204,7 @@ impl Linter {
         }
       }
     }
-    Ok(Linter { config, built })
+    Ok(Linter { ignored: config.ignored(), config, built })
   }
 
   /// Each rule's setting for a file at `relative`, a path from the project root.
@@ -282,7 +283,14 @@ impl Linter {
   /// Every file under `root` a front end reads, skipping what `.gitignore` ignores.
   pub fn lint_dir(&self, root: &Path) -> Report {
     let mut report = Report::default();
-    let mut paths: Vec<PathBuf> = ignore::WalkBuilder::new(root).require_git(false).build().filter_map(Result::ok).filter(|e| e.file_type().is_some_and(|t| t.is_file())).map(ignore::DirEntry::into_path).filter(|p| js::reads(p)).collect();
+    let mut paths: Vec<PathBuf> = ignore::WalkBuilder::new(root)
+      .require_git(false)
+      .build()
+      .filter_map(Result::ok)
+      .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
+      .map(ignore::DirEntry::into_path)
+      .filter(|p| js::reads(p) && !self.ignored.is_match(p.strip_prefix(root).unwrap_or(p)))
+      .collect();
     paths.sort();
     for path in paths {
       let Ok(text) = std::fs::read_to_string(&path) else { continue };
