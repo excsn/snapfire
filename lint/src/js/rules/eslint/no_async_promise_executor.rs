@@ -1,0 +1,133 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_async_promise_executor.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{Argument, Expression},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn no_async_promise_executor_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Promise executor functions should not be `async`.")
+        .with_help("Remove the `async` keyword from the Promise executor function.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoAsyncPromiseExecutor;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow using an async function as a Promise executor.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// The `new Promise` constructor accepts an executor function as an argument,
+    /// which has `resolve` and `reject` parameters that can be used to control the state of the
+    /// created Promise. For example:
+    /// ```javascript
+    /// const result = new Promise(function executor(resolve, reject) {
+    ///   readFile('foo.txt', function(err, result) {
+    ///     if (err) {
+    ///       reject(err);
+    ///     } else {
+    ///       resolve(result);
+    ///     }
+    ///   });
+    /// });
+    /// ```
+    /// The executor function can also be an `async function`. However, this is usually a mistake, for a few reasons:
+    /// - If an async executor function throws an error, the error will be lost and won’t cause
+    ///   the newly-constructed `Promise` to reject.This could make it difficult to debug and handle some errors.
+    /// - If a `Promise` executor function is using `await`, this is usually a sign that it is not
+    ///   actually necessary to use the new `Promise` constructor, or the scope of the new
+    ///   `Promise` constructor can be reduced.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// const foo = new Promise(async (resolve, reject) => {
+    ///   readFile('foo.txt', function(err, result) {
+    ///     if (err) {
+    ///       reject(err);
+    ///     } else {
+    ///       resolve(result);
+    ///     }
+    ///   });
+    /// });
+    ///
+    /// const result = new Promise(async (resolve, reject) => {
+    ///   resolve(await foo);
+    /// });
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// const foo = new Promise((resolve, reject) => {
+    ///   readFile('foo.txt', function(err, result) {
+    ///     if (err) {
+    ///       reject(err);
+    ///     } else {
+    ///       resolve(result);
+    ///     }
+    ///   });
+    /// });
+    ///
+    /// const result = Promise.resolve(foo);
+    /// ```
+    NoAsyncPromiseExecutor,
+    "eslint",
+    "no-async-promise-executor",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoAsyncPromiseExecutor {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::NewExpression(new_expression) = node.kind() else {
+            return;
+        };
+        if !new_expression.callee.is_specific_id("Promise") {
+            return;
+        }
+        let Some(expression) = new_expression.arguments.first().and_then(Argument::as_expression)
+        else {
+            return;
+        };
+        let mut span = match expression.get_inner_expression() {
+            Expression::ArrowFunctionExpression(arrow) if arrow.r#async => arrow.span,
+            Expression::FunctionExpression(func) if func.r#async => func.span,
+            _ => return,
+        };
+
+        span.end = span.start + 5;
+
+        ctx.diagnostic(no_async_promise_executor_diagnostic(span));
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "new Promise((resolve, reject) => {})",
+        "new Promise((resolve, reject) => {}, async function unrelated() {})",
+        "new Foo(async (resolve, reject) => {})",
+    ];
+
+    let fail = vec![
+        "new Promise(async function foo(resolve, reject) {})",
+        "new Promise(async (resolve, reject) => {})",
+        "new Promise(((((async () => {})))))",
+    ];
+
+    Tester::new(NoAsyncPromiseExecutor::NAME, NoAsyncPromiseExecutor::PLUGIN, pass, fail)
+        .test();
+}

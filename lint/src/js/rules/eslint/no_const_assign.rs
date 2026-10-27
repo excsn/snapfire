@@ -1,0 +1,150 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_const_assign.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use oxc_ecmascript::BoundNames;
+use crate::js::declare_rule;
+use oxc_semantic::{AstNode, SymbolId};
+use oxc_span::Span;
+
+use crate::js::{ast_util::variable_declaration_kind, context::LintContext, rule::Rule};
+
+fn no_const_assign_diagnostic(name: &str, decl_span: Span, assign_span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn(format!("Unexpected re-assignment of `const` variable {name}."))
+        .with_help("Use `let` instead of `const` if you need to reassign this variable.")
+        .with_labels([
+            decl_span.label(format!("{name} is declared here as `const`.")),
+            assign_span.label(format!("{name} is re-assigned here.")),
+        ])
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoConstAssign;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow reassigning `const` variables.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// We cannot modify variables that are declared using the `const` keyword,
+    /// as it will raise a runtime error.
+    ///
+    /// Note that this rule is not necessary for TypeScript
+    /// code, as TypeScript will already catch this as an error.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```js
+    /// const a = 0;
+    /// a = 1;
+    ///
+    /// const b = 0;
+    /// b += 1;
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```js
+    /// const a = 0;
+    /// console.log(a);
+    ///
+    /// var b = 0;
+    /// b += 1;
+    /// ```
+    NoConstAssign,
+    "eslint",
+    "no-const-assign",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoConstAssign {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::VariableDeclarator(decl) = node.kind() else { return };
+        let Some(kind) = variable_declaration_kind(decl, ctx.nodes()) else {
+            return;
+        };
+        if kind.is_const() || kind.is_using() {
+            decl.id.bound_names(&mut |ident| check_symbol_id(ident.symbol_id(), ctx));
+        }
+    }
+}
+
+fn check_symbol_id(symbol_id: SymbolId, ctx: &LintContext<'_>) {
+    let symbol_table = ctx.scoping();
+    if symbol_table.symbol_flags(symbol_id).is_const_variable() {
+        for reference in symbol_table.get_resolved_references(symbol_id) {
+            if reference.is_write() {
+                ctx.diagnostic(no_const_assign_diagnostic(
+                    symbol_table.symbol_name(symbol_id),
+                    symbol_table.symbol_span(symbol_id),
+                    ctx.semantic().reference_span(reference),
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "const x = 0; { let x; x = 1; }",
+        "const x = 0; function a(x) { x = 1; }",
+        "const x = 0; foo(x);",
+        "for (const x in [1,2,3]) { foo(x); }",
+        "for (const x of [1,2,3]) { foo(x); }",
+        "const x = {key: 0}; x.key = 1;",
+        "var x = 0; x = 1;",
+        "let x = 0; x = 1;",
+        "function x() {} x = 1;",
+        "function foo(x) { x = 1; }",
+        "class X {} X = 1;",
+        "try {} catch (x) { x = 1; }",
+        "const a = 1; { let a = 2; { a += 1; } }",
+        "const foo = 1;let bar;bar[foo ?? foo] = 42;",
+        "const FOO = 1; ({ files = FOO } = arg1); ",
+        // using + await using
+        "using x = foo();",
+        "await using x = foo();",
+        "using x = foo(); bar(x);",
+        "await using x = foo(); bar(x);",
+        "type t = (a, ...b) => void",
+    ];
+
+    let fail = vec![
+        "const x = 0; x = 1;",
+        "const {a: x} = {a: 0}; x = 1;",
+        "const x = 0; ({x} = {x: 1});",
+        "const x = 0; ({a: x = 1} = {});",
+        "const x = 0; x += 1;",
+        "const x = 0; ++x;",
+        "for (const i = 0; i < 10; ++i) { foo(i); }",
+        "const x = 0; x = 1; x = 2;",
+        "const x = 0; function foo() { x = x + 1; }",
+        "const x = 0; function foo(a) { x = a; }",
+        "const x = 0; while (true) { x = x + 1; }",
+        "const x = 0; function foo(a) { function bar(b) { x = b; } bar(123); }",
+        // Error even if the declaration comes after the assignment, which aligns with eslint
+        "x = 123; const x = 1;",
+        // Binding patterns
+        "const [a, b, ...[c, ...d]] = [1, 2, 3, 4, 5]; d = 123",
+        "const d = 123; [a, b, ...[c, ...d]] = [1, 2, 3, 4, 5]",
+        "const b = 0; ({a, ...b} = {a: 1, c: 2, d: 3})",
+        // using + await using
+        "using x = foo(); x = 1;",
+        "await using x = foo(); x = 1;",
+        "using x = foo(); x ??= bar();",
+        "await using x = foo(); x ||= bar();",
+        "using x = foo(); [x, y] = bar();",
+        "await using x = foo(); [x = baz, y] = bar();",
+        "using x = foo(); ({a: x} = bar());",
+        "await using x = foo(); ({a: x = baz} = bar());",
+    ];
+
+    Tester::new(NoConstAssign::NAME, NoConstAssign::PLUGIN, pass, fail).test();
+}

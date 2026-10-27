@@ -1,0 +1,175 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_unsafe_finally.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{BreakStatement, ContinueStatement},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn no_unsafe_finally_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unsafe `finally` block.")
+        .with_help(
+            "Control flow inside `try` or `catch` blocks will be overwritten by this statement.",
+        )
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoUnsafeFinally;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow control flow statements in `finally` blocks.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// JavaScript suspends the control flow statements of `try` and `catch`
+    /// blocks until the execution of a `finally` block finishes.
+    ///
+    /// So, when `return`, `throw`, `break`, or `continue` is used in `finally`,
+    /// control flow statements inside `try` and `catch` are overwritten.
+    /// This is possibly unexpected behavior for the developer.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// // We expect this function to return 1;
+    /// (() => {
+    ///     try {
+    ///         return 1; // 1 is returned but suspended until finally block ends
+    ///     } catch(err) {
+    ///         return 2;
+    ///     } finally {
+    ///         return 3; // 3 is returned before 1, which we did not expect
+    ///     }
+    /// })();
+    ///
+    /// // > 3
+    /// ```
+    NoUnsafeFinally,
+    "eslint",
+    "no-unsafe-finally",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoUnsafeFinally {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let sentinel_node_type = match node.kind() {
+            AstKind::BreakStatement(stmt) if stmt.label.is_none() => SentinelNodeType::Break,
+            AstKind::ContinueStatement(_) => SentinelNodeType::Continue,
+            AstKind::ReturnStatement(_)
+            | AstKind::ThrowStatement(_)
+            | AstKind::BreakStatement(_) => SentinelNodeType::ReturnThrow,
+            _ => return,
+        };
+
+        let label_name = match node.kind() {
+            AstKind::BreakStatement(BreakStatement { label, .. })
+            | AstKind::ContinueStatement(ContinueStatement { label, .. }) => {
+                label.as_ref().map(|label| &label.name)
+            }
+            _ => None,
+        };
+
+        let nodes = ctx.nodes();
+        let mut label_inside = false;
+        for node_id in nodes.ancestor_ids(node.id()) {
+            let ast_kind = nodes.kind(node_id);
+
+            if sentinel_node_type.test(ast_kind) {
+                break;
+            }
+
+            let parent_kind = nodes.parent_kind(node_id);
+
+            if let AstKind::LabeledStatement(labeled_stmt) = parent_kind
+                && label_name == Some(&labeled_stmt.label.name)
+            {
+                label_inside = true;
+            }
+
+            // Finally Block
+            let parent_parent_kind = nodes.parent_kind(node_id);
+            if let AstKind::TryStatement(try_stmt) = parent_parent_kind
+                && let Some(try_block_stmt) = &try_stmt.finalizer
+                && let AstKind::BlockStatement(block_stmt) = ast_kind
+                && try_block_stmt.span == block_stmt.span
+            {
+                if label_name.is_some() && label_inside {
+                    break;
+                }
+                ctx.diagnostic(no_unsafe_finally_diagnostic(node.kind().span()));
+                return;
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SentinelNodeType {
+    Break,
+    Continue,
+    ReturnThrow,
+}
+
+impl SentinelNodeType {
+    fn test(self, kind: AstKind) -> bool {
+        matches!(kind, AstKind::Program(_) | AstKind::FunctionBody(_) | AstKind::Class(_))
+            || match self {
+                Self::Break => {
+                    kind.is_iteration_statement() || matches!(kind, AstKind::SwitchStatement(_))
+                }
+                Self::Continue => kind.is_iteration_statement(),
+                Self::ReturnThrow => false,
+            }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "var foo = function() {\n try { \n return 1; \n } catch(err) { \n return 2; \n } finally { \n console.log('hola!') \n } \n }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { console.log('hola!') } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { function a(x) { return x } } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { var a = function(x) { if(!x) { throw new Error() } } } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { var a = function(x) { while(true) { if(x) { break } else { continue } } } } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { var a = function(x) { label: while(true) { if(x) { break label; } else { continue } } } } }",
+        "var foo = function() { try {} finally { while (true) break; } }",
+        "var foo = function() { try {} finally { while (true) continue; } }",
+        "var foo = function() { try {} finally { switch (true) { case true: break; } } }",
+        "var foo = function() { try {} finally { do { break; } while (true) } }",
+        "var foo = function() { try { return 1; } catch(err) { return 2; } finally { var bar = () => { throw new Error(); }; } };",
+        "var foo = function() { try { return 1; } catch(err) { return 2 } finally { (x) => x } }",
+        "var foo = function() { try { return 1; } finally { class bar { constructor() {} static ehm() { return 'Hola!'; } } } };",
+    ];
+
+    let fail = vec![
+        "var foo = function() { \n try { \n return 1; \n } catch(err) { \n return 2; \n } finally { \n return 3; \n } \n }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { if(true) { return 3 } else { return 2 } } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { return 3 } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { return function(x) { return y } } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { return { x: function(c) { return c } } } }",
+        "var foo = function() { try { return 1 } catch(err) { return 2 } finally { throw new Error() } }",
+        "var foo = function() { try { foo(); } finally { try { bar(); } finally { return; } } };",
+        "var foo = function() { label: try { return 0; } finally { break label; } return 1; }",
+        "var foo = function() { \n a: try { \n return 1; \n } catch(err) { \n return 2; \n } finally { \n break a; \n } \n }",
+        "var foo = function() { while (true) try {} finally { break; } }",
+        "var foo = function() { while (true) try {} finally { continue; } }",
+        "var foo = function() { switch (true) { case true: try {} finally { break; } } }",
+        "var foo = function() { a: while (true) try {} finally { switch (true) { case true: break a; } } }",
+        "var foo = function() { a: while (true) try {} finally { switch (true) { case true: continue; } } }",
+        "var foo = function() { a: switch (true) { case true: try {} finally { switch (true) { case true: break a; } } } }",
+    ];
+
+    Tester::new(NoUnsafeFinally::NAME, NoUnsafeFinally::PLUGIN, pass, fail).test();
+}

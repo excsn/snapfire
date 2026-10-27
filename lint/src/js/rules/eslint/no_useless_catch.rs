@@ -1,0 +1,230 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_useless_catch.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{BindingPattern, Expression, Statement},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn no_useless_catch_diagnostic(catch: Span, rethrow: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unnecessary try/catch wrapper")
+        .with_help("Remove the try/catch wrapper, since it does not provide any additional error handling or functionality.")
+        .with_labels([catch.label("is caught here"), rethrow.label("and re-thrown here")])
+}
+
+fn no_useless_catch_finalizer_diagnostic(catch: Span, rethrow: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unnecessary catch clause")
+        .with_help("Remove the catch clause, since it does not provide any additional error handling or functionality beyond what the finalizer already provides.")
+        .with_labels([catch.label("is caught here"), rethrow.label("and re-thrown here")])
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoUselessCatch;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow unnecessary catch clauses.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// A catch clause that only rethrows the original error is redundant,
+    /// and has no effect on the runtime behavior of the program.
+    /// These redundant clauses can be a source of confusion and code bloat,
+    /// so it’s better to disallow these unnecessary catch clauses.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// try {
+    ///   doSomethingThatMightThrow();
+    /// } catch (e) {
+    ///   throw e;
+    /// }
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// doSomethingThatMightThrow();
+    /// ```
+    NoUselessCatch,
+    "eslint",
+    "no-useless-catch",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoUselessCatch {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::TryStatement(try_stmt) = node.kind() else {
+            return;
+        };
+        let Some(catch_clause) = &try_stmt.handler else {
+            return;
+        };
+        let Some(BindingPattern::BindingIdentifier(binding_ident)) =
+            catch_clause.param.as_ref().map(|param| &param.pattern)
+        else {
+            return;
+        };
+        let Some(Statement::ThrowStatement(throw_stmt)) = catch_clause.body.body.first() else {
+            return;
+        };
+        let Expression::Identifier(throw_ident) = &throw_stmt.argument else {
+            return;
+        };
+        if binding_ident.name == throw_ident.name {
+            if try_stmt.finalizer.is_some() {
+                ctx.diagnostic(no_useless_catch_finalizer_diagnostic(
+                    binding_ident.span,
+                    throw_stmt.span,
+                ));
+            } else {
+                ctx.diagnostic(no_useless_catch_diagnostic(binding_ident.span, throw_stmt.span));
+            }
+        }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "
+      try {
+        foo();
+      } catch (err) {
+        console.error(err);
+      }
+    ",
+        "
+      try {
+        foo();
+      } catch (err) {
+        console.error(err);
+      } finally {
+        bar();
+      }
+    ",
+        "
+      try {
+        foo();
+      } catch (err) {
+        doSomethingBeforeRethrow();
+        throw err;
+      }
+    ",
+        "
+      try {
+        foo();
+      } catch (err) {
+        throw err.msg;
+      }
+    ",
+        "
+      try {
+        foo();
+      } catch (err) {
+        throw new Error('whoops!');
+      }
+    ",
+        "
+      try {
+        foo();
+      } catch (err) {
+        throw bar;
+      }
+    ",
+        "
+      try {
+        foo();
+      } catch (err) { }
+    ",
+        "
+        try {
+          foo();
+        } catch ({ err }) {
+          throw err;
+        }
+      ",
+        "
+        try {
+          foo();
+        } catch ([ err ]) {
+          throw err;
+        }
+      ",
+        "
+        async () => {
+          try {
+            await doSomething();
+          } catch (e) {
+            doSomethingAfterCatch();
+            throw e;
+          }
+        }
+      ",
+        "
+        try {
+          throw new Error('foo');
+        } catch {
+          throw new Error('foo');
+        }
+      ",
+    ];
+
+    let fail = vec![
+        "
+        try {
+          foo();
+        } catch (err) {
+          throw err;
+        }
+      ",
+        "
+        try {
+          foo();
+        } catch (err) {
+          throw err;
+        } finally {
+          foo();
+        }
+      ",
+        "
+        try {
+          foo();
+        } catch (err) {
+          /* some comment */
+          throw err;
+        }
+      ",
+        "
+        try {
+          foo();
+        } catch (err) {
+          /* some comment */
+          throw err;
+        } finally {
+          foo();
+        }
+      ",
+        "
+        async () => {
+          try {
+            await doSomething();
+          } catch (e) {
+            throw e;
+          }
+        }
+      ",
+    ];
+
+    Tester::new(NoUselessCatch::NAME, NoUselessCatch::PLUGIN, pass, fail).test();
+}

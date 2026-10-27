@@ -1,0 +1,125 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_func_assign.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_semantic::AstNode;
+use oxc_span::Span;
+
+use crate::js::{context::LintContext, rule::Rule};
+
+fn no_func_assign_diagnostic(name: &str, span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn(format!("'{name}' is a function."))
+        .with_help("Do not re-assign a function declared as a FunctionDeclaration.")
+        .with_label(span.label(format!("{name} is re-assigned here")))
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoFuncAssign;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow reassigning `function` declarations.
+    ///
+    /// This rule can be disabled for TypeScript code, as the TypeScript compiler
+    /// enforces this check.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Overwriting/reassigning a function written as a FunctionDeclaration is often indicative of
+    /// a mistake or issue.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// function foo() {}
+    /// foo = bar;
+    /// ```
+    ///
+    /// ```javascript
+    /// function foo() {
+    ///   foo = bar;
+    /// }
+    /// ```
+    ///
+    /// ```javascript
+    /// let a = function hello() {
+    ///   hello = 123;
+    /// };
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// let foo = function () {}
+    /// foo = bar;
+    /// ```
+    ///
+    /// ```javascript
+    /// function baz(baz) { // `baz` is shadowed.
+    ///   baz = bar;
+    /// }
+    /// ```
+    ///
+    /// ```
+    /// function qux() {
+    ///   const qux = bar;  // `qux` is shadowed.
+    /// }
+    /// ```
+    NoFuncAssign,
+    "eslint",
+    "no-func-assign",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoFuncAssign {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::Function(func) = node.kind() else { return };
+
+        let (func_name, symbol_id) = match &func.id {
+            Some(id) => (id.name.as_str(), id.symbol_id()),
+            None => return,
+        };
+        let symbol_table = ctx.scoping();
+        for reference in symbol_table.get_resolved_references(symbol_id) {
+            if reference.is_write() {
+                ctx.diagnostic(no_func_assign_diagnostic(
+                    func_name,
+                    ctx.semantic().reference_span(reference),
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "function foo() { var foo = bar; }",
+        "function foo(foo) { foo = bar; }",
+        "function foo() { var foo; foo = bar; }",
+        "var foo = () => {}; foo = bar;", // { "ecmaVersion": 6 },
+        "var foo = function() {}; foo = bar;",
+        "var foo = function() { foo = bar; };",
+        "import bar from 'bar'; function foo() { var foo = bar; }", // { "ecmaVersion": 6, "sourceType": "module" }
+    ];
+
+    let fail = vec![
+        "function foo() {}; foo = bar;",
+        "function foo() { foo = bar; }",
+        "foo = bar; function foo() { };",
+        "[foo] = bar; function foo() { };", // { "ecmaVersion": 6 },
+        "({x: foo = 0} = bar); function foo() { };", // { "ecmaVersion": 6 },
+        "function foo() { [foo] = bar; }",  // { "ecmaVersion": 6 },
+        "(function() { ({x: foo = 0} = bar); function foo() { }; })();", // { "ecmaVersion": 6 },
+        "var a = function foo() { foo = 123; };",
+        "let a = function hello() { hello = 123;};",
+    ];
+
+    Tester::new(NoFuncAssign::NAME, NoFuncAssign::PLUGIN, pass, fail).test();
+}

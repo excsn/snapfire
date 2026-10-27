@@ -1,0 +1,220 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_case_declarations.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{Statement, SwitchCase, VariableDeclarationKind},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn no_case_declarations_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unexpected lexical declaration in case block.")
+        .with_help("Wrap the case body in braces `{}` to create an explicit block scope for the lexical declaration.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoCaseDeclarations;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow lexical declarations in case clauses.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// The reason is that the lexical declaration is visible
+    /// in the entire switch block but it only gets initialized when it is assigned,
+    /// which will only happen if the case where it is defined is reached.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// switch (foo) {
+    ///   case 1:
+    ///       let x = 1;
+    ///       break;
+    ///   case 2:
+    ///       const y = 2;
+    ///       break;
+    ///   case 3:
+    ///       function f() {}
+    ///       break;
+    ///   default:
+    ///       class C {}
+    /// }
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// switch (foo) {
+    ///   case 1: {
+    ///       let x = 1;
+    ///       break;
+    ///   }
+    ///   case 2: {
+    ///       const y = 2;
+    ///       break;
+    ///   }
+    ///   case 3: {
+    ///       function f() {}
+    ///       break;
+    ///   }
+    ///   default: {
+    ///       class C {}
+    ///   }
+    /// }
+    /// ```
+    NoCaseDeclarations,
+    "eslint",
+    "no-case-declarations",
+    Pedantic,
+    recommended = true,
+    fix = RuleFixMeta::Fixable(FixKind::Suggestion),
+);
+
+impl Rule for NoCaseDeclarations {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        if let AstKind::SwitchCase(switch_case) = node.kind() {
+            let consequent = &switch_case.consequent;
+
+            for stmt in consequent {
+                match stmt {
+                    Statement::FunctionDeclaration(d) => {
+                        let span = Span::sized(d.span.start, 8);
+                        report_with_add_braces_suggestion(ctx, span, switch_case);
+                    }
+                    Statement::ClassDeclaration(d) => {
+                        let span = Span::sized(d.span.start, 5);
+                        report_with_add_braces_suggestion(ctx, span, switch_case);
+                    }
+                    Statement::VariableDeclaration(var) => {
+                        let start = var.span.start;
+                        let len = match var.kind {
+                            VariableDeclarationKind::Const | VariableDeclarationKind::Using => 5,
+                            VariableDeclarationKind::Let => 3,
+                            #[expect(clippy::cast_possible_truncation)]
+                            VariableDeclarationKind::AwaitUsing => {
+                                ctx.source_range(Span::new(start, var.declarations[0].span.start))
+                                    .trim_end()
+                                    .len() as u32
+                            }
+                            VariableDeclarationKind::Var => continue,
+                        };
+                        let span = Span::sized(start, len);
+                        report_with_add_braces_suggestion(ctx, span, switch_case);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+fn report_with_add_braces_suggestion(
+    ctx: &LintContext,
+    declaration_span: Span,
+    switch_case: &SwitchCase,
+) {
+    ctx.diagnostic_with_suggestion(no_case_declarations_diagnostic(declaration_span), |fixer| {
+        let Some(first_stmt) = switch_case.consequent.first() else {
+            return fixer.noop();
+        };
+        let Some(last_stmt) = switch_case.consequent.last() else {
+            return fixer.noop();
+        };
+
+        let fixer = fixer.for_multifix();
+        let mut fix = fixer.new_fix_with_capacity(2);
+        fix.push(fixer.insert_text_before(first_stmt, "{ "));
+        fix.push(fixer.insert_text_after(last_stmt, " }"));
+        fix.with_message("Add {} brackets around the case block.")
+    });
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        ("switch (a) { case 1: { let x = 1; break; } default: { let x = 2; break; } }"),
+        ("switch (a) { case 1: { const x = 1; break; } default: { const x = 2; break; } }"),
+        ("switch (a) { case 1: { function f() {} break; } default: { function f() {} break; } }"),
+        ("switch (a) { case 1: { class C {} break; } default: { class C {} break; } }"),
+    ];
+
+    let fail = vec![
+        ("switch (a) { case 1: let x = 1; break; }"),
+        ("switch (a) { default: let x = 2; break; }"),
+        ("switch (a) { case 1: const x = 1; break; }"),
+        ("switch (a) { default: const x = 2; break; }"),
+        ("switch (a) { case 1: function f() {} break; }"),
+        ("switch (a) { default: function f() {} break; }"),
+        ("switch (a) { case 1: class C {} break; }"),
+        ("switch (a) { default: class C {} break; }"),
+        // ("switch (a) { default: using x = {}; break; }"),
+        // ("switch (a) { default: await using x = {}; break; }"),
+    ];
+
+    let fix = vec![
+        (
+            "switch (a) { case 1: let x = 1; break; }",
+            "switch (a) { case 1: { let x = 1; break; } }",
+        ),
+        (
+            "switch (a) { default: let x = 2; break; }",
+            "switch (a) { default: { let x = 2; break; } }",
+        ),
+        (
+            "switch (a) { case 1: const x = 1; break; }",
+            "switch (a) { case 1: { const x = 1; break; } }",
+        ),
+        (
+            "switch (a) { default: const x = 2; break; }",
+            "switch (a) { default: { const x = 2; break; } }",
+        ),
+        (
+            "switch (a) { case 1: function f() {} break; }",
+            "switch (a) { case 1: { function f() {} break; } }",
+        ),
+        (
+            "switch (a) { default: function f() {} break; }",
+            "switch (a) { default: { function f() {} break; } }",
+        ),
+        (
+            "switch (a) { case 1: class C {} break; }",
+            "switch (a) { case 1: { class C {} break; } }",
+        ),
+        (
+            "switch (a) { default: class C {} break; }",
+            "switch (a) { default: { class C {} break; } }",
+        ),
+        ("switch (a) { case 1: case 2: let x; }", "switch (a) { case 1: case 2: { let x; } }"),
+        (
+            r#"switch ("foo") {
+                    case "bar":
+                        function baz() { }
+                        break;
+                    default:
+                        baz();
+                }
+        "#,
+            r#"switch ("foo") {
+                    case "bar":
+                        { function baz() { }
+                        break; }
+                    default:
+                        baz();
+                }
+        "#,
+        ),
+    ];
+
+    Tester::new(NoCaseDeclarations::NAME, NoCaseDeclarations::PLUGIN, pass, fail)
+        .expect_fix(fix)
+        .test();
+}

@@ -1,0 +1,412 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_unused_vars/allowed.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+//! This module checks if an unused variable is allowed. Note that this does not
+//! consider variables ignored by name pattern, but by where they are declared.
+use oxc_ast::{AstKind, ast::*};
+use oxc_ecmascript::BoundNames;
+use oxc_semantic::{NodeId, Semantic};
+
+use super::{NoUnusedVars, Symbol, options::ArgsOption};
+use crate::js::{
+    LintContext, ModuleRecord,
+    ast_util::variable_declaration_kind,
+    rules::eslint::no_unused_vars::binding_pattern::{BindingContext, HasAnyUsedBinding},
+};
+
+impl Symbol<'_, '_> {
+    /// Check if the declaration of this [`Symbol`] is use.
+    ///
+    /// If it's an expression, then it's always passed in as an argument
+    /// or assigned to a variable, so it's always used.
+    ///
+    /// ```js
+    /// // True:
+    /// const a = class Name{}
+    /// export default (function Name() {})
+    /// console.log(function Name() {})
+    ///
+    /// // False
+    /// function foo() {}
+    /// {
+    ///    class Foo {}
+    /// }
+    /// ```
+    #[inline]
+    pub(crate) fn is_function_or_class_declaration_used(&self) -> bool {
+        match self.declaration().kind() {
+            AstKind::Class(class) => class.is_expression(),
+            AstKind::Function(func) => func.is_expression(),
+            _ => false,
+        }
+    }
+
+    fn is_declared_in_for_of_loop(&self) -> bool {
+        for parent in self.iter_parents() {
+            match parent.kind() {
+                AstKind::ParenthesizedExpression(_)
+                | AstKind::VariableDeclaration(_)
+                | AstKind::BindingIdentifier(_)
+                | AstKind::IdentifierReference(_)
+                | AstKind::ComputedMemberExpression(_)
+                | AstKind::StaticMemberExpression(_)
+                | AstKind::PrivateFieldExpression(_)
+                | AstKind::AssignmentTargetPropertyIdentifier(_)
+                | AstKind::ArrayAssignmentTarget(_)
+                | AstKind::ObjectAssignmentTarget(_) => {}
+                AstKind::ForInStatement(ForInStatement { body, .. })
+                | AstKind::ForOfStatement(ForOfStatement { body, .. }) => match body {
+                    Statement::ReturnStatement(_) => return true,
+                    Statement::BlockStatement(b) => {
+                        return b
+                            .body
+                            .first()
+                            .is_some_and(|s| matches!(s, Statement::ReturnStatement(_)));
+                    }
+                    _ => return false,
+                },
+                _ => return false,
+            }
+        }
+
+        false
+    }
+
+    pub fn is_in_declared_module(&self) -> bool {
+        let scopes = self.scoping();
+        let nodes = self.nodes();
+        scopes
+            .scope_ancestors(self.scope_id())
+            .map(|scope_id| scopes.get_node_id(scope_id))
+            .map(|node_id| nodes.get_node(node_id))
+            .any(|node| match node.kind() {
+                AstKind::TSExternalModuleDeclaration(module) => {
+                    is_ambient_external_module_without_explicit_exports(module)
+                }
+                AstKind::TSNamespaceDeclaration(namespace) => {
+                    is_ambient_namespace_without_explicit_exports(namespace)
+                }
+                // No need to check `declare` field, as `global` is only valid in ambient context
+                AstKind::TSGlobalDeclaration(_) => true,
+                _ => false,
+            })
+    }
+}
+
+#[inline]
+fn is_ambient_external_module_without_explicit_exports(
+    module: &TSExternalModuleDeclaration,
+) -> bool {
+    // Must be declared (ambient context)
+    if !module.declare {
+        return false;
+    }
+
+    module.body.as_ref().is_none_or(|block| !has_explicit_exports(block))
+}
+
+#[inline]
+fn is_ambient_namespace_without_explicit_exports(namespace: &TSNamespaceDeclaration) -> bool {
+    if !namespace.declare {
+        return false;
+    }
+
+    match &namespace.body {
+        TSNamespaceDeclarationBody::TSNamespaceDeclaration(_) => true,
+        TSNamespaceDeclarationBody::TSModuleBlock(block) => !has_explicit_exports(block),
+    }
+}
+
+fn has_explicit_exports(block: &TSModuleBlock) -> bool {
+    block.body.iter().any(|stmt| {
+        matches!(
+            stmt,
+            Statement::ExportAllDeclaration(_)
+                | Statement::ExportDefaultDeclaration(_)
+                | Statement::ExportNamedDeclaration(_)
+                | Statement::ExportFromDeclaration(_)
+                | Statement::TSExportAssignment(_)
+        )
+    })
+}
+
+pub(super) enum FunctionParameterKind<'a> {
+    Normal(&'a FormalParameter<'a>),
+    Rest(&'a FormalParameterRest<'a>),
+}
+
+impl FunctionParameterKind<'_> {
+    pub fn node_id(&self) -> NodeId {
+        match self {
+            FunctionParameterKind::Normal(param) => param.node_id(),
+            FunctionParameterKind::Rest(param) => param.node_id(),
+        }
+    }
+}
+
+impl NoUnusedVars {
+    #[expect(clippy::unused_self)]
+    pub(super) fn is_allowed_ts_namespace<'a>(
+        &self,
+        symbol: &Symbol<'_, 'a>,
+        namespace: &TSNamespaceDeclaration<'a>,
+    ) -> bool {
+        if namespace.declare || symbol.is_in_declared_module() {
+            return true;
+        }
+        // Segments of a dotted namespace declaration (`namespace A.B.C {}`) are
+        // parsed as nested `TSNamespaceDeclaration`s. Don't flag any segment as unused.
+        matches!(&namespace.body, TSNamespaceDeclarationBody::TSNamespaceDeclaration(_))
+            || matches!(
+                symbol.nodes().parent_kind(symbol.declaration().id()),
+                AstKind::TSNamespaceDeclaration(_)
+            )
+    }
+
+    /// Returns `true` if this unused variable declaration should be allowed
+    /// (i.e. not reported)
+    pub(super) fn is_allowed_variable_declaration<'a>(
+        &self,
+        symbol: &Symbol<'_, 'a>,
+        decl: &VariableDeclarator<'a>,
+        ctx: &LintContext<'a>,
+    ) -> bool {
+        let Some(kind) = variable_declaration_kind(decl, ctx.nodes()) else {
+            return false;
+        };
+        if kind.is_var() && self.vars.is_local() && symbol.is_root() {
+            return true;
+        }
+
+        // allow unused iterators, since they're required for valid syntax
+        if symbol.is_declared_in_for_of_loop() {
+            return true;
+        }
+
+        if self.ignore_using_declarations && kind.is_using() {
+            return true;
+        }
+
+        false
+    }
+
+    #[expect(clippy::unused_self)]
+    pub(super) fn is_allowed_type_parameter(
+        &self,
+        symbol: &Symbol<'_, '_>,
+        declaration_id: NodeId,
+    ) -> bool {
+        let nodes = symbol.nodes();
+        let scoping = symbol.scoping();
+
+        if matches!(nodes.parent_kind(declaration_id), AstKind::TSMappedType(_)) {
+            return true;
+        }
+
+        let is_interface_type_parameter = match nodes.parent_kind(declaration_id) {
+            AstKind::TSInterfaceDeclaration(_) => true,
+            AstKind::TSTypeParameterDeclaration(_) => {
+                matches!(
+                    nodes.parent_kind(nodes.parent_id(declaration_id)),
+                    AstKind::TSInterfaceDeclaration(_)
+                )
+            }
+            _ => false,
+        };
+        if !is_interface_type_parameter {
+            return false;
+        }
+
+        // type parameters used within type declarations in ambient ts module
+        // blocks are required for declaration merging to work, since signatures
+        // must match.
+        let Some(parent_scope_id) = scoping.scope_parent_id(symbol.scope_id()) else {
+            return false;
+        };
+        let scope_flags = scoping.scope_flags(parent_scope_id);
+        if scope_flags.is_ts_module_block() {
+            // get declaration node for the parent scope
+            let parent_node_id = scoping.get_node_id(parent_scope_id);
+            match nodes.get_node(parent_node_id).kind() {
+                AstKind::TSExternalModuleDeclaration(module) => return module.declare,
+                AstKind::TSNamespaceDeclaration(namespace) => return namespace.declare,
+                _ => {}
+            }
+        }
+
+        false
+    }
+
+    /// Returns `true` if this unused parameter should be allowed (i.e. not
+    /// reported)
+    pub(super) fn is_allowed_argument<'a>(
+        &self,
+        semantic: &Semantic<'a>,
+        module_record: &ModuleRecord,
+        symbol: &Symbol<'_, 'a>,
+        argument: &FunctionParameterKind<'a>,
+    ) -> bool {
+        // early short-circuit when no argument checking should be performed
+        if self.args.is_none() {
+            return true;
+        }
+
+        let Some(params) = symbol.nodes().parent_kind(argument.node_id()).as_formal_parameters()
+        else {
+            debug_assert!(false, "FormalParameter should always have a parent FormalParameters");
+            return false;
+        };
+
+        if let FunctionParameterKind::Normal(param) = argument
+            && Self::is_allowed_param_because_of_method(semantic, param)
+        {
+            return true;
+        }
+
+        if matches!(argument, FunctionParameterKind::Rest(_))
+            && Self::is_allowed_binding_rest_element(symbol)
+        {
+            return true;
+        }
+
+        // Parameters are always checked. Must be done after above checks,
+        // because in those cases a parameter is required. However, even if
+        // `args` is `all`, it may be ignored using `ignoreRestSiblings` or `destructuredArrayIgnorePattern`.
+        if self.args.is_all() {
+            return false;
+        }
+
+        debug_assert_eq!(self.args, ArgsOption::AfterUsed);
+
+        let FunctionParameterKind::Normal(param) = argument else {
+            // Rest parameters are always last, so `after-used` checks them.
+            return false;
+        };
+
+        // from eslint rule documentation:
+        // after-used - unused positional arguments that occur before the last
+        // used argument will not be checked, but all named arguments and all
+        // positional arguments after the last used argument will be checked.
+
+        // unused non-positional arguments are never allowed
+        if param.pattern.is_destructuring_pattern() {
+            return false;
+        }
+
+        // find the index of the parameter in the parameters list. We want to
+        // check all parameters after this one for usages.
+        let position =
+            params.items.iter().enumerate().find(|(_, p)| p.span == param.span).map(|(i, _)| i);
+        debug_assert!(
+            position.is_some(),
+            "could not find FormalParameter in a FormalParameters node that is its parent."
+        );
+        let Some(position) = position else {
+            return false;
+        };
+
+        // If this is the last parameter in `items` and there is no rest
+        // parameter, there are no following parameters to check, so this
+        // parameter is not allowed (it will be reported).
+        if position == params.items.len() - 1 && params.rest.is_none() {
+            return false;
+        }
+
+        let ctx = BindingContext { options: self, semantic, module_record };
+        params
+            .items
+            .iter()
+            .skip(position + 1)
+            // has_modifier() to handle:
+            // constructor(unused: number, public property: string) {}
+            // no need to check if param is in a constructor, because if it's
+            // not that's a parse error.
+            .any(|p| p.has_modifier() || p.pattern.has_any_used_binding(ctx))
+            // A rest parameter, if present, is always the last parameter.
+            // If it has a used binding, parameters before it are allowed under
+            // `after-used` (they occur before the last used argument).
+            || params.rest.as_ref().is_some_and(|rest| {
+                let mut used = false;
+                rest.rest.argument.bound_names(&mut |ident| {
+                    // Ignored destructured bindings alone do not make a rest parameter used.
+                    used = used || ctx.has_usages(ident.symbol_id(), module_record);
+                });
+                used
+            })
+    }
+
+    /// The following allowed conditions are handled:
+    /// 1. setter parameters - removing them causes a syntax error.
+    /// 2. TS constructor property definitions - they declare class members.
+    fn is_allowed_param_because_of_method<'a>(
+        semantic: &Semantic<'a>,
+        param: &FormalParameter<'a>,
+    ) -> bool {
+        let mut parents_iter = semantic.nodes().ancestor_kinds(param.node_id());
+
+        // skip `FormalParameter`s parent, which is always a `FormalParameters` node
+        parents_iter.next();
+
+        // in function declarations, the parent immediately before the
+        // FormalParameters is a TSDeclareBlock
+        let Some(parent) = parents_iter.next() else {
+            return false;
+        };
+        if matches!(parent, AstKind::Function(f) if f.r#type == FunctionType::TSDeclareFunction) {
+            return true;
+        }
+
+        // for non-overloads, the next parent will be the function
+        let Some(maybe_method_or_fn) = parents_iter.next() else {
+            return false;
+        };
+
+        match maybe_method_or_fn {
+            // arguments inside setters are allowed. Without them, the program
+            // has invalid syntax
+            AstKind::MethodDefinition(MethodDefinition {
+                kind: MethodDefinitionKind::Set, ..
+            })
+            | AstKind::ObjectProperty(ObjectProperty { kind: PropertyKind::Set, .. }) => true,
+
+            // Allow unused parameters in function overloads
+            AstKind::Function(f)
+                if f.body.is_none() || f.r#type == FunctionType::TSDeclareFunction =>
+            {
+                true
+            }
+            // Allow unused parameters in method overloads and overrides
+            AstKind::MethodDefinition(method)
+                if method.value.r#type == FunctionType::TSEmptyBodyFunctionExpression
+                    || method.r#override =>
+            {
+                true
+            }
+            // constructor property definitions are allowed because they declare
+            // class members
+            // e.g. `class Foo { constructor(public a) {} }`
+            AstKind::MethodDefinition(method) if method.kind.is_constructor() => {
+                param.has_modifier()
+            }
+            // parameters in abstract methods will never be directly used b/c
+            // abstract methods have no bodies. However, since this establishes
+            // an API contract and gets used by subclasses, it is allowed.
+            AstKind::MethodDefinition(method) if method.r#type.is_abstract() => true,
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if this binding rest element should be allowed (i.e. not
+    /// reported). Currently, this handles the case where a rest element is part
+    /// of a TS function declaration.
+    pub(super) fn is_allowed_binding_rest_element(symbol: &Symbol) -> bool {
+        for parent in symbol.iter_parents() {
+            // If this is a binding rest element that is part of a TS function parameter,
+            // for example: `function foo(...messages: string[]) {}`, then we will allow it.
+            if let AstKind::Function(f) = parent.kind() {
+                return f.is_typescript_syntax();
+            }
+        }
+
+        false
+    }
+}

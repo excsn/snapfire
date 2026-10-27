@@ -8,6 +8,7 @@ members = [
   "web",
   "web/examples/basic_site",
   "typecheck",
+  "lint",
   "compiler/wire",
   "compiler/vue",
   "compiler/svelte"

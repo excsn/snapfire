@@ -1,0 +1,317 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_nonoctal_decimal_escape.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use lazy_regex::{Captures, Lazy, Regex, lazy_regex};
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    fixer::{RuleFix, RuleFixer},
+    rule::Rule,
+};
+
+fn no_nonoctal_decimal_escape_diagnostic(escape_sequence: &str, span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn(format!("Don't use '{escape_sequence}' escape sequence."))
+        .with_help("Use the actual character or a valid escape sequence instead.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoNonoctalDecimalEscape;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow `\8` and `\9` escape sequences in string literals.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// ECMAScript specification treats `\8` and `\9` in string literals as a legacy feature
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// let x = "\8"
+    /// let y = "\9"
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// let x = "8"
+    /// let y = "\\9"
+    /// ```
+    NoNonoctalDecimalEscape,
+    "eslint",
+    "no-nonoctal-decimal-escape",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::Fixable(FixKind::Suggestion),
+);
+
+impl Rule for NoNonoctalDecimalEscape {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        if let AstKind::StringLiteral(literal) = node.kind() {
+            check_string(ctx, literal.span);
+        }
+    }
+}
+
+/// Converts a character to a unicode escape sequence in `\uXXXX` form.
+fn char_to_unicode_escape_sequence(character: char) -> String {
+    format!(r"\u{:04x}", character as u32)
+}
+
+trait StickyRegex {
+    fn sticky_captures<'h>(&self, haystack: &'h str, start: usize)
+    -> (Option<Captures<'h>>, usize);
+}
+
+impl StickyRegex for Regex {
+    fn sticky_captures<'h>(
+        &self,
+        haystack: &'h str,
+        start: usize,
+    ) -> (Option<Captures<'h>>, usize) {
+        let c_opt = self.captures_at(haystack, start);
+        if let Some(captures) = c_opt {
+            let capture = captures.get(0).unwrap();
+            if capture.start() == start {
+                return (Some(captures), capture.end());
+            }
+        }
+        (None, 0)
+    }
+}
+
+// Fast path scan for non-octal decimal escape sequences (`\8` or `\9`).
+fn quick_test(s: &str) -> bool {
+    let bytes = s.as_bytes();
+
+    for [a, b] in bytes.array_windows() {
+        if *a == b'\\' && (*b == b'8' || *b == b'9') {
+            return true;
+        }
+    }
+
+    false
+}
+
+static NONOCTAL_REGEX: Lazy<Regex> =
+    lazy_regex!(r"(?:[^\\]|(?P<previousEscape>\\.))*?(?P<decimalEscape>\\[89])");
+
+#[expect(clippy::cast_possible_truncation)]
+fn check_string(ctx: &LintContext<'_>, literal_span: Span) {
+    let literal_start = literal_span.start;
+    let string = literal_span.source_text(ctx.source_text());
+
+    // Minimum to contain \8 or \9 is 4 chars: e.g., "\8" (quote, backslash, digit, quote)
+    if string.len() < 4 {
+        return;
+    }
+
+    if !quick_test(string) {
+        return;
+    }
+
+    let mut start: usize = 0;
+    while let (Some(captures), new_start) = NONOCTAL_REGEX.sticky_captures(string, start) {
+        let previous_escape = captures.name("previousEscape");
+        let decimal_escape = captures.name("decimalEscape").unwrap();
+        let decimal_escape_span = Span::new(
+            literal_start + decimal_escape.start() as u32,
+            literal_start + decimal_escape.end() as u32,
+        );
+        let decimal_escape_str = decimal_escape.as_str();
+        let digit = decimal_escape_str.chars().nth(1).unwrap();
+
+        let fixer = RuleFixer::new(FixKind::Suggestion, ctx);
+        let mut suggestions: Vec<RuleFix> = Vec::with_capacity(3);
+
+        if let Some(prev_match) =
+            previous_escape.filter(|m| m.as_str() == "\\0" && m.end() == decimal_escape.start())
+        {
+            /*
+             * Now we have a NULL escape "\0" immediately followed by a decimal escape, e.g.: "\0\8".
+             * Fixing this to "\08" would turn "\0" into a legacy octal escape. To avoid producing
+             * an octal escape while fixing a decimal escape, we provide different suggestions.
+             */
+
+            // "\0\8" -> "\u00008"
+            let combined_span =
+                Span::new(literal_start + prev_match.start() as u32, decimal_escape_span.end);
+            let replacement_combined =
+                format!("{}{}", char_to_unicode_escape_sequence('\0'), digit);
+            let message = format!(
+                "Replace '{}{decimal_escape_str}' with '{replacement_combined}'. This maintains the current functionality.",
+                prev_match.as_str(),
+            );
+            suggestions
+                .push(fixer.replace(combined_span, replacement_combined).with_message(message));
+
+            // "\8" -> "\u0038"
+            let replacement_digit = char_to_unicode_escape_sequence(digit);
+            let message = format!(
+                "Replace '{decimal_escape_str}' with '{replacement_digit}'. This maintains the current functionality."
+            );
+            suggestions
+                .push(fixer.replace(decimal_escape_span, replacement_digit).with_message(message));
+        } else {
+            // "\8" -> "8"
+            suggestions.push(
+                fixer
+                    .replace(decimal_escape_span, digit.to_string())
+                    .with_message(format!(
+                        "Replace '{decimal_escape_str}' with '{digit}'. This maintains the current functionality."
+                    )),
+            );
+        }
+
+        // "\8" -> "\\8" (escape the backslash)
+        let escaped_replacement = format!(r"\{decimal_escape_str}");
+        let message = format!(
+            "Replace '{decimal_escape_str}' with '{escaped_replacement}' to include the actual backslash character."
+        );
+        suggestions
+            .push(fixer.replace(decimal_escape_span, escaped_replacement).with_message(message));
+
+        ctx.diagnostic_with_suggestions(
+            no_nonoctal_decimal_escape_diagnostic(decimal_escape_str, decimal_escape_span),
+            suggestions,
+        );
+
+        start = new_start;
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::{ExpectFixTestCase, Tester};
+
+    let pass = vec![
+        r"8",
+        r"var \u8888",
+        r"/\8/",
+        r"''",
+        r"'foo'",
+        r"'8'",
+        r"'9'",
+        r"'foo8'",
+        r"'foo9bar'",
+        r"'\ '",
+        r"'\\'",
+        r"'\a'",
+        r"'\n'",
+        r"'\0'",
+        r"'\1'",
+        r"'\7'",
+        r"'\01'",
+        r"'\08'",
+        r"'\19'",
+        r"'\t9'",
+        r"'\👍8'",
+        r"'\\8'",
+        r"'\\9'",
+        r"'\\8\\9'",
+        r"'\\ \\8'",
+        r"'\\\\9'",
+        r"'\\9bar'",
+        r"'a\\8'",
+        r"'foo\\8'",
+        r"'foo\\8bar'",
+        r"'9\\9'",
+        r"'n\n8'",
+        r"'n\nn\n8'",
+        r"'\1.8'",
+        r"'\1\28'",
+        r"'\x99'",
+        r"'\\\x38'",
+        r"\u99999",
+        r"'\\\n8'",
+        r"'\\\n\\\\9'",
+    ];
+
+    let fail = vec![
+        r"'\8'",
+        r"'\9'",
+        r#""\8""#,
+        r"'f\9'",
+        r"'xo\9'",
+        r"'foo\9'",
+        r"'foo\8bar'",
+        r"'👍\8'",
+        r"'\\\8'",
+        r"'\\\\\9'",
+        r"'foo\\\8'",
+        r"'\ \8'",
+        r"'\1\9'",
+        r"'foo\1\9'",
+        r"'\n\n\8\n'",
+        r"'\n.\n\8\n'",
+        r"'\n.\nn\8\n'",
+        r"'\👍\8'",
+        r"'\\8\9'",
+        r"'\8\\9'",
+        r"'\8 \\9'",
+        r"'\8\8'",
+        r"'\9\8'",
+        r"'foo\8bar\9baz'",
+        r"'\8\1\9'",
+        r"'\9\n9\\9\9'",
+        r"'\8\\\9'",
+        r"var foo = '\8'; bar('\9')",
+        r"var foo = '8'\n  bar = '\\9'",
+        r"'\\n\8'",
+        r"'\\n\9'",
+        r"'\\\\n\8'",
+        r"'foo\\nbar\9baz'",
+        r"'\0\8'",
+        r"'foo\0\9bar'",
+        r"'\1\0\8'",
+        r"'\0\8\9'",
+        r"'\8\0\9'",
+        r"'0\8'",
+        r"'\\0\8'",
+        r"'\0 \8'",
+        r"'\01\8'",
+        r"'\0\1\8'",
+        r"'\0\\n\8'",
+    ];
+
+    let fix: Vec<ExpectFixTestCase> = vec![
+        (r"'\8'", (r"'8'", r"'\\8'")).into(),
+        (r"'\9'", (r"'9'", r"'\\9'")).into(),
+        (r#""\8""#, (r#""8""#, r#""\\8""#)).into(),
+        (r"'f\9'", (r"'f9'", r"'f\\9'")).into(),
+        (r"'foo\9'", (r"'foo9'", r"'foo\\9'")).into(),
+        (r"'foo\8bar'", (r"'foo8bar'", r"'foo\\8bar'")).into(),
+        (r"'👍\8'", (r"'👍8'", r"'👍\\8'")).into(),
+        (r"'\\\8'", (r"'\\8'", r"'\\\\8'")).into(),
+        (r"'\\\\\9'", (r"'\\\\9'", r"'\\\\\\9'")).into(),
+        (r"'foo\\\8'", (r"'foo\\8'", r"'foo\\\\8'")).into(),
+        (r"'\ \8'", (r"'\ 8'", r"'\ \\8'")).into(),
+        (r"'\1\9'", (r"'\19'", r"'\1\\9'")).into(),
+        (r"'foo\1\9'", (r"'foo\19'", r"'foo\1\\9'")).into(),
+        (r"'\👍\8'", (r"'\👍8'", r"'\👍\\8'")).into(),
+        (r"'\\8\9'", (r"'\\89'", r"'\\8\\9'")).into(),
+        (r"'\8\\9'", (r"'8\\9'", r"'\\8\\9'")).into(),
+        (r"'\8 \\9'", (r"'8 \\9'", r"'\\8 \\9'")).into(),
+        // Not adjacent NULL escape, but looks like it is
+        (r"'0\8'", (r"'08'", r"'0\\8'")).into(),
+        (r"'\\0\8'", (r"'\\08'", r"'\\0\\8'")).into(),
+        (r"'\0 \8'", (r"'\0 8'", r"'\0 \\8'")).into(),
+        (r"'\01\8'", (r"'\018'", r"'\01\\8'")).into(),
+        (r"'\0\1\8'", (r"'\0\18'", r"'\0\1\\8'")).into(),
+        // Adjacent NULL escape
+        (r"'\0\8'", (r"'\u00008'", r"'\0\u0038'", r"'\0\\8'")).into(),
+        (r"'foo\0\9bar'", (r"'foo\u00009bar'", r"'foo\0\u0039bar'", r"'foo\0\\9bar'")).into(),
+        (r"'\1\0\8'", (r"'\1\u00008'", r"'\1\0\u0038'", r"'\1\0\\8'")).into(),
+    ];
+
+    Tester::new(NoNonoctalDecimalEscape::NAME, NoNonoctalDecimalEscape::PLUGIN, pass, fail)
+        .expect_fix(fix)
+        .test();
+}

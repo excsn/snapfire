@@ -1,0 +1,509 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_unused_vars/mod.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+mod allowed;
+mod binding_pattern;
+mod diagnostic;
+mod fixers;
+mod ignored;
+mod options;
+mod symbol;
+#[cfg(test)]
+mod tests;
+mod usage;
+
+use std::ops::Deref;
+
+use allowed::FunctionParameterKind;
+use ignored::IgnoreReason;
+use options::{IgnorePattern, NoUnusedVarsFixMode, NoUnusedVarsOptions};
+use oxc_ast::{AstKind, AstType, ast::CatchParameter};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_semantic::{AstNode, ScopeFlags, SymbolFlags};
+use oxc_span::{GetSpan, Span};
+use symbol::Symbol;
+
+use crate::js::{
+    context::{ContextHost, LintContext},
+    rule::Rule,
+    rules::eslint::no_unused_vars::options::VarsOption,
+};
+
+#[derive(Debug)]
+#[expect(unused)] // only for schemars generation, not actually used in code
+pub enum NoUnusedVarsConfig {
+    Vars(VarsOption),
+    Options(NoUnusedVarsOptions),
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoUnusedVars(Box<NoUnusedVarsOptions>);
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallows variable declarations, imports, or type declarations that are
+    /// not used in code.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Variables that are declared and not used anywhere in the code are most
+    /// likely an error due to incomplete refactoring. Such variables take up
+    /// space in the code and can lead to confusion by readers.
+    ///
+    /// ```ts
+    /// // `b` is unused; this indicates a bug.
+    /// function add(a: number, b: number) {
+    ///     return a;
+    /// }
+    /// console.log(add(1, 2));
+    /// ```
+    ///
+    /// A variable `foo` is considered to be used if any of the following are
+    /// true:
+    ///
+    /// * It is called (`foo()`) or constructed (`new foo()`)
+    /// * It is read (`var bar = foo`)
+    /// * It is passed into a function or constructor as an argument (`doSomething(foo)`)
+    /// * It is read inside of a function that is passed to another function
+    ///   (`doSomething(function() { foo(); })`)
+    /// * It is exported (`export const foo = 42`)
+    /// * It is used as an operand to TypeScript's `typeof` operator (`const bar:
+    ///   typeof foo = 4`)
+    ///
+    /// A variable is _not_ considered to be used if it is only ever declared
+    /// (`var foo = 5`) or assigned to (`foo = 7`).
+    ///
+    /// #### Types
+    /// This rule has full support for TypeScript types, interfaces, enums, and
+    /// namespaces.
+    ///
+    /// A type or interface `Foo` is considered to be used if it is used in any
+    /// of the following ways:
+    /// - It is used in the definition of another type or interface.
+    /// - It is used as a type annotation or as part of a function signature.
+    /// - It is used in a cast or `satisfies` expression.
+    ///
+    /// A type or interface is _not_ considered to be used if it is only ever
+    /// used in its own definition, e.g. `type Foo = Array<Foo>`.
+    ///
+    /// Enums and namespaces are treated the same as variables, classes,
+    /// functions, etc.
+    ///
+    /// #### Ignored Files
+    /// This rule ignores `.d.ts`, `.astro`, `.svelte` and `.vue` files entirely. Variables,
+    /// classes, interfaces, and types declared in `.d.ts` files are generally
+    /// used by other files, which are not checked by Oxlint. Since Oxlint does
+    /// not support parsing template syntax, this rule cannot tell if a variable
+    /// is used or unused in a Vue / Svelte / Astro file.
+    ///
+    /// #### Exported
+    ///
+    /// The original ESLint rule recognizes `/* exported variableName */`
+    /// comments as a way to indicate that a variable is used in another script
+    /// and should not be considered unused. Since ES modules are now a TC39
+    /// standard, Oxlint does not support this feature.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    ///
+    /// ```javascript
+    /// /* no-unused-vars: "error" */
+    /// /* if you have `some_unused_var` defined as a global in .oxlintrc.json */
+    ///
+    /// // It checks variables you have defined as global
+    /// some_unused_var = 42;
+    ///
+    /// var x;
+    ///
+    /// // Write-only variables are not considered as used.
+    /// var y = 10;
+    /// y = 5;
+    ///
+    /// // A read for a modification of itself is not considered as used.
+    /// var z = 0;
+    /// z = z + 1;
+    ///
+    /// // By default, unused arguments cause warnings.
+    /// (function(foo) {
+    ///     return 5;
+    /// })();
+    ///
+    /// // Unused recursive functions also cause warnings.
+    /// function fact(n) {
+    ///     if (n < 2) return 1;
+    ///     return n * fact(n - 1);
+    /// }
+    ///
+    /// // When a function definition destructures an array, unused entries from
+    /// // the array also cause warnings.
+    /// function getY([x, y]) {
+    ///     return y;
+    /// }
+    /// ```
+    ///
+    /// ```ts
+    /// type A = Array<A>;
+    ///
+    /// enum Color {
+    ///     Red,
+    ///     Green,
+    ///     Blue
+    /// }
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```js
+    /// /* no-unused-vars: "error" */
+    ///
+    /// var x = 10;
+    /// alert(x);
+    ///
+    /// // foo is considered used here
+    /// myFunc(function foo() {
+    ///     // ...
+    /// }.bind(this));
+    ///
+    /// (function(foo) {
+    ///     return foo;
+    /// })();
+    ///
+    /// var myFunc;
+    /// myFunc = setTimeout(function() {
+    ///     // myFunc is considered used
+    ///     myFunc();
+    /// }, 50);
+    ///
+    /// // Only the second argument from the destructured array is used.
+    /// function getY([, y]) {
+    ///     return y;
+    /// }
+    /// ```
+    ///
+    /// ```ts
+    /// export const x = 1;
+    /// const y = 1;
+    /// export { y };
+    ///
+    /// type A = Record<string, unknown>;
+    /// type B<T> = T extends Record<infer K, any> ? K : never;
+    /// const x = 'foo' as B<A>;
+    /// console.log(x);
+    /// ```
+    ///
+    /// Examples of **incorrect** code for `/* exported variableName */` operation:
+    /// ```js
+    /// /* exported global_var */
+    ///
+    /// // Not respected, use ES modules instead.
+    /// var global_var = 42;
+    /// ```
+    NoUnusedVars,
+    "eslint",
+    "no-unused-vars",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::Conditional(FixKind::Dangerous.union(FixKind::Fix).union(FixKind::Suggestion)),
+);
+
+impl Deref for NoUnusedVars {
+    type Target = NoUnusedVarsOptions;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Rule for NoUnusedVars {
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        NoUnusedVarsOptions::try_from(value)
+            .map(|options| Self(Box::new(options)))
+            .map_err(|error| <serde_json::Error as serde::de::Error>::custom(error.to_string()))
+    }
+
+    fn run_once(&self, ctx: &LintContext) {
+        let precomputed_exported_names = Symbol::collect_exported_local_names(ctx.module_record());
+
+        for symbol in ctx.scoping().symbol_ids() {
+            let symbol = Symbol::new(ctx, ctx.module_record(), symbol);
+            if Self::should_skip_symbol(&symbol) {
+                continue;
+            }
+
+            self.run_on_symbol_internal(&symbol, ctx, &precomputed_exported_names);
+        }
+    }
+
+    fn should_run(&self, ctx: &ContextHost) -> bool {
+        // ignore .d.ts and vue/svelte/astro files.
+        // 1. declarations have side effects (they get merged together)
+        // 2. vue/svelte/astro scripts declare variables that get used in the template, which
+        //    we can't detect
+        !ctx.source_type().is_typescript_definition()
+            && !ctx
+                .file_extension()
+                .is_some_and(|ext| ext == "vue" || ext == "svelte" || ext == "astro")
+    }
+}
+
+impl NoUnusedVars {
+    fn run_on_symbol_internal<'a>(
+        &self,
+        symbol: &Symbol<'_, 'a>,
+        ctx: &LintContext<'a>,
+        exported_names: &rustc_hash::FxHashSet<&str>,
+    ) {
+        let is_ignored = self.is_ignored(symbol);
+
+        if is_ignored.is_some() && !self.report_used_ignore_pattern {
+            return;
+        }
+
+        let is_used = symbol.is_exported(exported_names) || symbol.has_usages(self);
+
+        match (is_used, *is_ignored) {
+            // used, ignored because variable name matches one of several
+            // ignore patterns. Report if used.
+            (true, Some(IgnoreReason::NamePattern)) => {
+                if self.report_used_ignore_pattern {
+                    ctx.diagnostic(diagnostic::used_ignored(symbol, &self.vars_ignore_pattern));
+                }
+                return;
+            }
+            // used, ignored because of other ignore reason (e.g. rest siblings)
+            (_, Some(_)) | (true, None) => return,
+            // needs acceptance check and/or reporting
+            (false, None) => {}
+        }
+
+        let declaration = symbol.declaration();
+        match declaration.kind() {
+            // NOTE: match_module_declaration(AstKind) does not work here
+            AstKind::ImportDeclaration(_)
+            | AstKind::ImportSpecifier(_)
+            | AstKind::ImportExpression(_)
+            | AstKind::ImportDefaultSpecifier(_)
+            | AstKind::ImportNamespaceSpecifier(_) => {
+                let diagnostic = diagnostic::imported(symbol);
+                let declaration =
+                    symbol.iter_self_and_parents().map(AstNode::kind).find_map(|kind| match kind {
+                        AstKind::ImportDeclaration(import) => Some(import),
+                        _ => None,
+                    });
+
+                if let Some(declaration) = declaration {
+                    Self::report_with_fix_mode(self.fix.imports, ctx, diagnostic, |fixer| {
+                        self.remove_unused_import_declaration(fixer, ctx, symbol, declaration)
+                    });
+                } else {
+                    ctx.diagnostic(diagnostic);
+                }
+            }
+            AstKind::VariableDeclarator(decl) => {
+                if self.is_allowed_variable_declaration(symbol, decl, ctx) {
+                    return;
+                }
+                let report = match symbol.references().rev().find(|r| r.is_write()) {
+                    Some(last_write) => {
+                        let span = ctx.nodes().get_node(last_write.node_id()).kind().span();
+                        diagnostic::assign(symbol, span, &self.vars_ignore_pattern)
+                    }
+                    _ => diagnostic::declared(
+                        symbol,
+                        &self.vars_ignore_pattern,
+                        symbol.has_reference_used_as_type_query(),
+                    ),
+                };
+
+                Self::report_with_fix_mode(self.fix.variables, ctx, report, |fixer| {
+                    // NOTE: suggestions produced by this fixer are all flagged
+                    // as dangerous
+                    self.rename_or_remove_var_declaration(fixer, symbol, decl, declaration.id())
+                });
+            }
+            AstKind::FormalParameter(param) => {
+                if self.is_allowed_argument(
+                    ctx.semantic(),
+                    ctx.module_record(),
+                    symbol,
+                    &FunctionParameterKind::Normal(param),
+                ) {
+                    return;
+                }
+                Self::report_with_fix_mode(
+                    self.fix.variables,
+                    ctx,
+                    diagnostic::param(
+                        symbol,
+                        &self.args_ignore_pattern,
+                        symbol.is_used_in_return_type_predicate()
+                            || symbol.has_reference_used_as_type_query(),
+                    ),
+                    |fixer| self.rename_unused_function_parameter(fixer, symbol, param),
+                );
+            }
+            AstKind::FormalParameterRest(param) => {
+                if self.is_allowed_argument(
+                    ctx.semantic(),
+                    ctx.module_record(),
+                    symbol,
+                    &FunctionParameterKind::Rest(param),
+                ) {
+                    return;
+                }
+                ctx.diagnostic(diagnostic::param(
+                    symbol,
+                    &self.args_ignore_pattern,
+                    symbol.is_used_in_return_type_predicate()
+                        || symbol.has_reference_used_as_type_query(),
+                ));
+            }
+            AstKind::BindingRestElement(_) => {
+                if NoUnusedVars::is_allowed_binding_rest_element(symbol) {
+                    return;
+                }
+                ctx.diagnostic(diagnostic::declared(symbol, &self.vars_ignore_pattern, false));
+            }
+            AstKind::TSNamespaceDeclaration(namespace) => {
+                if self.is_allowed_ts_namespace(symbol, namespace) {
+                    return;
+                }
+                ctx.diagnostic(diagnostic::declared(symbol, &IgnorePattern::<&str>::None, false));
+            }
+            AstKind::TSInterfaceDeclaration(_) | AstKind::TSTypeAliasDeclaration(_) => {
+                if symbol.is_in_declared_module() {
+                    return;
+                }
+                ctx.diagnostic(diagnostic::declared(symbol, &IgnorePattern::<&str>::None, false));
+            }
+            AstKind::TSTypeParameter(_) => {
+                if self.is_allowed_type_parameter(symbol, declaration.id()) {
+                    return;
+                }
+                ctx.diagnostic(diagnostic::declared(symbol, &self.vars_ignore_pattern, false));
+            }
+            // Mapped type keys are always used within the type definition
+            AstKind::TSMappedType(_) => {}
+            AstKind::CatchParameter(catch) => {
+                // NOTE: these are safe suggestions as deleting unused catch
+                // bindings wont have any side effects.
+                Self::report_with_fix_mode(
+                    self.fix.variables,
+                    ctx,
+                    diagnostic::declared(symbol, &self.caught_errors_ignore_pattern, false),
+                    |fixer| remove_unused_catch_parameter(fixer, ctx, catch),
+                );
+            }
+            _ => ctx.diagnostic(diagnostic::declared(symbol, &IgnorePattern::<&str>::None, false)),
+        }
+    }
+
+    fn report_with_fix_mode<'a, F>(
+        mode: NoUnusedVarsFixMode,
+        ctx: &LintContext<'a>,
+        diagnostic: OxcDiagnostic,
+        fix: F,
+    ) where
+        F: FnOnce(crate::js::fixer::RuleFixer<'_, 'a>) -> crate::js::fixer::RuleFix,
+    {
+        let kind = match mode {
+            NoUnusedVarsFixMode::Off => {
+                ctx.diagnostic(diagnostic);
+                return;
+            }
+            NoUnusedVarsFixMode::Suggestion => FixKind::Suggestion,
+            NoUnusedVarsFixMode::Fix => FixKind::DangerousFix,
+            NoUnusedVarsFixMode::SafeFix => FixKind::SafeFix,
+        };
+
+        ctx.diagnostic_with_fix_of_kind(diagnostic, kind, fix);
+    }
+
+    fn should_skip_symbol(symbol: &Symbol<'_, '_>) -> bool {
+        const AMBIENT_NAMESPACE_FLAGS: SymbolFlags =
+            SymbolFlags::NamespaceModule.union(SymbolFlags::Ambient);
+        let flags = symbol.flags();
+
+        // 1. ignore enum members. Only enums get checked
+        if flags.intersects(SymbolFlags::EnumMember)
+            // ambient namespaces
+            || flags == AMBIENT_NAMESPACE_FLAGS
+            || (symbol.is_in_ts() && symbol.is_in_declare_global())
+        {
+            return true;
+        }
+
+        let node_id = symbol.declaration().id();
+        if flags.intersects(SymbolFlags::FunctionScopedVariable)
+            && let AstKind::FormalParameters(formal_parameters) =
+                symbol.nodes().parent_node(node_id).kind()
+            && formal_parameters.kind.is_signature()
+        {
+            return true;
+        }
+
+        // In some cases (e.g. "jsx": "react" in tsconfig.json), React imports
+        // get used in generated code. We don't have a way to detect
+        // "jsxPragmas" or whether TSX files are using "jsx": "react-jsx", so we
+        // just allow all cases.
+        if symbol.flags().contains(SymbolFlags::Import)
+            && symbol.is_in_jsx()
+            && symbol.is_possibly_jsx_factory()
+        {
+            return true;
+        }
+
+        false
+    }
+}
+
+fn remove_unused_catch_parameter<'a>(
+    fixer: crate::js::fixer::RuleFixer<'_, 'a>,
+    ctx: &LintContext<'a>,
+    catch: &CatchParameter<'a>,
+) -> crate::js::fixer::RuleFix {
+    let Span { start, end, .. } = catch.span();
+    let AstKind::CatchClause(catch_clause) = ctx.nodes().parent_node(catch.node_id()).kind() else {
+        return fixer.noop();
+    };
+
+    let (Some(paren_start_offset), Some(paren_end_offset)) = (
+        ctx.find_prev_token_within(catch_clause.span.start, start, "("),
+        ctx.find_next_token_within(end, catch_clause.span.end, ")"),
+    ) else {
+        return fixer.noop();
+    };
+
+    let paren_start = catch_clause.span.start + paren_start_offset;
+    let paren_end = end + paren_end_offset;
+    let delete_span = Span::new(paren_start, paren_end + 1);
+    fixer.delete_range(delete_span)
+}
+
+impl Symbol<'_, '_> {
+    #[inline]
+    fn is_possibly_jsx_factory(&self) -> bool {
+        let name = self.name();
+        name == "React" || name == "h"
+    }
+
+    fn is_in_declare_global(&self) -> bool {
+        if !self.nodes().contains(AstType::TSGlobalDeclaration) {
+            return false;
+        }
+
+        self.scoping()
+            .scope_ancestors(self.scope_id())
+            .filter(|&scope_id| {
+                let flags = self.scoping().scope_flags(scope_id);
+                flags.contains(ScopeFlags::TsModuleBlock)
+            })
+            .any(|ambient_module_scope_id| {
+                matches!(
+                    self.nodes().kind(self.scoping().get_node_id(ambient_module_scope_id)),
+                    AstKind::TSGlobalDeclaration(_)
+                )
+            })
+    }
+}

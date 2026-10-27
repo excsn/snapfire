@@ -1,0 +1,222 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/eslint/no_unused_vars/fixers/fix_symbol.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{AstKind, ast::*};
+use oxc_span::{GetSpan, Span};
+use oxc_str::CompactStr;
+
+use super::Symbol;
+use crate::js::fixer::{Fix, RuleFix, RuleFixer};
+
+impl<'s, 'a> Symbol<'s, 'a> {
+    /// Delete a single declarator from a [`VariableDeclaration`] list with more
+    /// than one declarator.
+    pub(super) fn delete_from_list<T>(
+        &self,
+        fixer: RuleFixer<'_, 'a>,
+        list: &[T],
+        own: &T,
+    ) -> RuleFix
+    where
+        T: GetSpan,
+        Symbol<'s, 'a>: PartialEq<T>,
+    {
+        let Some(own_position) = list.iter().position(|el| self == el) else {
+            // Happens when the symbol is in a destructuring pattern.
+            return fixer.noop();
+        };
+        let mut delete_range = own.span();
+        let mut has_left = false;
+        let mut has_right = false;
+
+        // `let x = 1, y = 2, z = 3;` -> `let x = 1, y = 2, z = 3;`
+        //             ^^^^^                         ^^^^^^^
+        if let Some(right_neighbor) = list.get(own_position + 1) {
+            delete_range.end = right_neighbor.span().start;
+            has_right = true;
+        }
+
+        // `let x = 1, y = 2, z = 3;` -> `let x = 1, y = 2, z = 3;`
+        //             ^^^^^                       ^^^^^^^
+        if own_position > 0
+            && let Some(left_neighbor) = list.get(own_position - 1)
+        {
+            delete_range.start = left_neighbor.span().end;
+            has_left = true;
+        }
+
+        // both left and right neighbors are present, so we need to
+        // re-insert a comma
+        // `let x = 1, y = 2, z = 3;`
+        //           ^^^^^^^^^
+        if has_left && has_right {
+            return fixer.replace(delete_range, ", ");
+        }
+
+        fixer.delete(&delete_range)
+    }
+
+    pub(super) fn rename(&self, new_name: &CompactStr) -> RuleFix {
+        let Some(fixes) = self.rename_fixes(new_name) else { return Fix::empty().into() };
+        Self::finish_rename_fix(RuleFix::from(fixes), self.name(), new_name)
+    }
+
+    pub(super) fn rename_with_fixer(
+        &self,
+        fixer: RuleFixer<'_, 'a>,
+        new_name: &CompactStr,
+    ) -> RuleFix {
+        let Some(fixes) = self.rename_fixes(new_name) else { return fixer.noop() };
+        let mut fix = fixer.for_multifix().new_fix_with_capacity(fixes.len());
+        for replacement in fixes {
+            fix.push(replacement);
+        }
+
+        Self::finish_rename_fix(fix, self.name(), new_name)
+    }
+
+    fn rename_fixes(&self, new_name: &CompactStr) -> Option<Vec<Fix>> {
+        let mut fixes: Vec<Fix> = vec![];
+        let decl_span = self.span();
+        fixes.push(Fix::new(new_name.clone(), decl_span));
+
+        for reference in self.references() {
+            match self.nodes().get_node(reference.node_id()).kind() {
+                AstKind::IdentifierReference(id) => {
+                    fixes.push(Fix::new(new_name.clone(), id.span()));
+                }
+                AstKind::TSTypeReference(ty) => {
+                    fixes.push(Fix::new(new_name.clone(), ty.type_name.span()));
+                }
+                // we found a reference to an unknown node and we don't know how
+                // to replace it, so we abort the whole process
+                _ => return None,
+            }
+        }
+
+        Some(fixes)
+    }
+
+    fn finish_rename_fix(fix: RuleFix, name: &str, new_name: &CompactStr) -> RuleFix {
+        fix.with_message(format!("Rename '{name}' to '{new_name}'"))
+    }
+
+    /// - `true` if `pattern` is a destructuring pattern and only contains one symbol
+    /// - `false` if `pattern` is a destructuring pattern and contains more than one symbol
+    /// - `not applicable` if `pattern` is not a destructuring pattern
+    pub(super) fn get_binding_info(&self, pattern: &BindingPattern<'a>) -> BindingInfo {
+        match pattern {
+            BindingPattern::ArrayPattern(arr) => match arr.elements.len() {
+                0 => {
+                    debug_assert!(arr.rest.is_some());
+
+                    BindingInfo::multi_or_single(arr.rest.as_ref().map(|r| (r.span, true)), true)
+                }
+                1 => {
+                    let own_span =
+                        arr.elements.iter().filter_map(|el| el.as_ref()).find(|el| self == *el);
+                    if let Some(rest) = arr.rest.as_ref() {
+                        if rest.span.contains_inclusive(self.span()) {
+                            // spreads are after all elements, otherwise it
+                            // would be a spread element
+                            return BindingInfo::MultiDestructure(rest.span, false, true);
+                        }
+
+                        BindingInfo::multi_or_missing(own_span.map(|el| (el.span(), false)), false)
+                    } else {
+                        BindingInfo::single_or_missing(own_span.is_some())
+                    }
+                }
+                _ => {
+                    let last_position = arr.elements.len() - 1;
+                    BindingInfo::multi_or_missing(
+                        arr.elements
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(idx, el)| el.as_ref().map(|el| (idx, el)))
+                            .find_map(|(idx, el)| {
+                                if self == el {
+                                    Some((el.span(), arr.rest.is_none() && idx == last_position))
+                                } else {
+                                    None
+                                }
+                            }),
+                        false,
+                    )
+                }
+            },
+            BindingPattern::ObjectPattern(obj) => match obj.properties.len() {
+                0 => {
+                    debug_assert!(obj.rest.is_some());
+                    BindingInfo::multi_or_single(obj.rest.as_ref().map(|r| (r.span, true)), true)
+                }
+                1 => {
+                    let last_property = obj.properties.len() - 1;
+                    let own_span = obj.properties.iter().enumerate().find_map(|(idx, el)| {
+                        if self == &el.value { Some((el.span, idx == last_property)) } else { None }
+                    });
+                    if let Some(rest) = obj.rest.as_ref() {
+                        if rest.span.contains_inclusive(self.span()) {
+                            // assume rest spreading in objects are at the end
+                            return BindingInfo::MultiDestructure(rest.span, true, true);
+                        }
+                        BindingInfo::multi_or_missing(own_span, true)
+                    } else {
+                        BindingInfo::single_or_missing(own_span.is_some())
+                    }
+                }
+                _ => {
+                    let last_property = obj.properties.len() - 1;
+                    let own_span = obj.properties.iter().enumerate().find_map(|(idx, el)| {
+                        (self == &el.value).then_some((el.span, idx == last_property))
+                    });
+                    BindingInfo::multi_or_missing(own_span, true)
+                }
+            },
+            BindingPattern::AssignmentPattern(assignment) => {
+                self.get_binding_info(&assignment.left)
+            }
+            // not in a destructure
+            BindingPattern::BindingIdentifier(_) => BindingInfo::NotDestructure,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum BindingInfo {
+    NotDestructure,
+    SingleDestructure,
+    /// Notes:
+    /// 1. Symbol declaration span will cover the entire pattern, so we need
+    ///    to extract the symbol's _exact_ span
+    /// 2. Unused symbols created in array destructures need to have a comma if
+    ///    they are not in the last position. The second boolean arg indicates
+    ///    if the pattern is an object destructure (true) or an array
+    ///    destructure (false). When the symbol is in the last position, it
+    ///    doesn't need a comma, which is what the third boolean arg indicates.
+    ///    It is not used for objects.
+    MultiDestructure(Span, /* object? */ bool, /* last? */ bool),
+    /// Usually indicates a problem in the AST, though it's possible for it to
+    /// be a problem in the fixer
+    NotFound,
+}
+
+impl BindingInfo {
+    #[inline]
+    const fn single_or_missing(found: bool) -> Self {
+        if found { BindingInfo::SingleDestructure } else { BindingInfo::NotFound }
+    }
+
+    fn multi_or_missing(found: Option<(Span, bool)>, is_object: bool) -> Self {
+        match found {
+            Some((span, is_last)) => BindingInfo::MultiDestructure(span.span(), is_object, is_last),
+            None => BindingInfo::NotFound,
+        }
+    }
+
+    fn multi_or_single(found: Option<(Span, bool)>, is_object: bool) -> Self {
+        match found {
+            Some((span, is_last)) => BindingInfo::MultiDestructure(span.span(), is_object, is_last),
+            None => BindingInfo::SingleDestructure,
+        }
+    }
+}
