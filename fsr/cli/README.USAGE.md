@@ -761,6 +761,8 @@ fsr use app svelte@5.57.2
 fsr add app svelte@5.60.0
 ```
 
+The packages Svelte imports, `clsx` and `esm-env`, are vendored with it. The manifest records them with `"dependency_of": ["svelte"]`. `fsr lint` warns when the application imports one itself (`import/no-extraneous-dependencies`), since a later Svelte may drop it. `fsr add app clsx@2.1.1` declares it as the application's own.
+
 A vendored Svelte whose major the client adapter does not mount stops the build, naming the majors it does.
 
 A runes module may share its component's name, `recent.svelte.ts` beside `Recent.svelte`. TypeScript resolves an import of `Recent.svelte` by adding `.ts` before it reads any declaration. macOS and Windows match that name whatever its case, so the typechecker would read the module in place of the component. The build finds every component with a module of its name beside it, `.ts`, `.tsx`, `.d.ts`, `.js` or `.jsx` added and case ignored, the same for a `.vue` file. It declares the component in `generated/shadowed/<path>.d.ts` (a typed `.vue` component keeps its own declaration) and maps each alias of the component to that declaration, so `@src/ui/Recent.svelte` typechecks as the component. A relative import of such a component has no setting that steers it, so the build refuses one and names the alias:

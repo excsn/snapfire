@@ -82,3 +82,41 @@ fn fix_writes_the_safe_fixes_and_reports_what_is_left() {
   assert_eq!(rules, ["eslint/no-empty"], "{}", report.render());
   let _ = std::fs::remove_dir_all(&root);
 }
+
+fn extraneous(report: &snapfire_lint::Report) -> Vec<String> {
+  report.findings.iter().filter(|f| f.rule == "import/no-extraneous-dependencies").map(|f| f.message.clone()).collect()
+}
+
+#[test]
+fn an_import_of_a_package_vendored_only_for_another_is_found() {
+  let root = project();
+  let app = root.join("app");
+  std::fs::create_dir_all(app.join("vendor")).unwrap();
+  let manifest = r#"{ "packages": {
+    "svelte": { "version": "5.57.2", "published": true },
+    "clsx": { "version": "2.1.1", "published": true, "dependency_of": ["svelte"] },
+    "sweetalert2": { "version": "11.6.15" }
+  } }"#;
+  std::fs::write(app.join("vendor/.fsr-vendor.json"), manifest).unwrap();
+  std::fs::write(app.join("routes/classes.ts"), "import clsx from \"clsx\";\nimport Swal from \"sweetalert2\";\nimport { writable } from \"svelte/store\";\nexport const all = [clsx, Swal, writable];\n").unwrap();
+  let report = snapfire_fsr_cli::lint::run(&app).unwrap();
+  let found = extraneous(&report);
+  assert_eq!(found.len(), 1, "{}", report.render());
+  assert!(found[0].contains("`clsx`") && found[0].contains("`svelte`"), "{}", found[0]);
+  assert!(snapfire_fsr_cli::lint::rules().iter().any(|r| r.id == "import/no-extraneous-dependencies"));
+  let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn an_xwpm_application_declares_its_modules_in_the_wmf() {
+  let root = project();
+  let app = root.join("app");
+  std::fs::write(app.join("xwpm.wmf"), "vendor    = vendor\nimportmap = importmap.json\n\n[modules]\nnormansoven/editor = cove:0.1.0\n").unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{ "imports": { "normansoven/editor": "/static/js/vendor/normansoven/editor/index.js", "markdown-it": "/static/js/vendor/markdown-it/index.mjs", "@snapfire/fsr/client": "/static/js/fsr/client.js" } }"#).unwrap();
+  std::fs::write(app.join("routes/editor.ts"), "import { Editor } from \"normansoven/editor\";\nimport MarkdownIt from \"markdown-it\";\nexport const both = [Editor, MarkdownIt];\n").unwrap();
+  let report = snapfire_fsr_cli::lint::run(&app).unwrap();
+  let found = extraneous(&report);
+  assert_eq!(found.len(), 1, "{}", report.render());
+  assert!(found[0].contains("`markdown-it`"), "{}", found[0]);
+  let _ = std::fs::remove_dir_all(&root);
+}

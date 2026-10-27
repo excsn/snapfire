@@ -4,23 +4,30 @@ FSR's lint rules and base levels for `snapfire_lint`.
 
 ## Contents
 
-* [1. Functions](#1-functions)
+* [1. Functions and Types](#1-functions-and-types)
   * [checks](#checks)
   * [base](#base)
+  * [ExtraneousDependencies](#extraneousdependencies)
 * [2. Rules](#2-rules)
   * [fsr/no-browser-globals-in-render](#fsrno-browser-globals-in-render)
   * [fsr/no-file-read-in-render](#fsrno-file-read-in-render)
   * [fsr/output-name-clash](#fsroutput-name-clash)
+  * [import/no-extraneous-dependencies](#importno-extraneous-dependencies)
 
-## 1. Functions
+## 1. Functions and Types
 
 ### checks
 
-* `pub fn checks() -> Vec<Box<dyn snapfire_lint::Check>>`: the three rules of section 2, for `Linter::new_with`.
+* `pub fn checks() -> Vec<Box<dyn snapfire_lint::Check>>`: the three `fsr/` rules of section 2, for `Linter::new_with`.
 
 ### base
 
 * `pub fn base() -> snapfire_lint::Config`: `react/no-unknown-property` at `error` with `ignore` listing htmx 2's and htmx 4's attributes. Put a project's configuration over it with `Config::over`.
+
+### ExtraneousDependencies
+
+* `pub struct ExtraneousDependencies`, a `snapfire_lint::Check`: the rule `import/no-extraneous-dependencies`.
+* `ExtraneousDependencies::new(vendored_for: BTreeMap<String, Vec<String>>) -> ExtraneousDependencies`: each package or module vendored only as a dependency, with the packages that import it, empty when they are not known. With an empty map it finds nothing.
 
 ## 2. Rules
 
@@ -43,3 +50,10 @@ FSR's lint rules and base levels for `snapfire_lint`.
 * Files: every script except `.d.ts`, `.d.mts` and `.d.cts`; `.vue` and `.svelte` components are skipped.
 * Output name: the file name lowercased with `.tsx`, `.jsx`, `.ts`, `.js`, `.mts`, `.mjs`, `.cts` or `.cjs` replaced by `.js`.
 * Finds: another file in the same directory with the same output name. Reported once, on the file whose lowercased name sorts after the other's, at offset 0. The directory is listed from disk, so `lint_source` on a path that does not exist finds nothing.
+
+### import/no-extraneous-dependencies
+
+* Default `warn`, category `suspicious`.
+* Files: every script.
+* Finds: the source of an `import` declaration, an `export ... from`, an `export * from` or an `import()` with a string literal, when it equals a name in the map or sits under it followed by `/`. The message names the packages that import it.
+* Skips: `import type`, an import whose specifiers are all `type`, `export type ... from` and `export type * from`.

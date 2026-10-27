@@ -128,6 +128,8 @@ fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddR
   let mut packages: BTreeMap<String, Package> = BTreeMap::new();
   let mut entries: BTreeMap<String, (String, String)> = BTreeMap::new();
   let mut wanted: Vec<(String, Option<String>, Option<String>)> = specs.iter().map(|s| (s.specifier(), Some(s.version.clone()), None)).collect();
+  let asked: Vec<&str> = specs.iter().map(|s| s.package.as_str()).collect();
+  let mut dependency_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
   while let Some((specifier, version, wanted_by)) = wanted.pop() {
     if entries.contains_key(&specifier) {
@@ -161,6 +163,13 @@ fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddR
     crawl(&name, package, &rel, &mut bare)?;
     entries.insert(specifier, (name.clone(), rel));
     for import in bare {
+      let imported = vendor::package_of(&import);
+      if imported != name {
+        let by = dependency_of.entry(imported).or_default();
+        if !by.contains(&name) {
+          by.push(name.clone());
+        }
+      }
       if !entries.contains_key(&import) {
         wanted.push((import, None, Some(name.clone())));
       }
@@ -186,6 +195,17 @@ fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddR
       std::fs::write(&file, text).map_err(|e| BuildError::Io(file.clone(), e))?;
     }
     let record = manifest.packages.entry(name.clone()).or_default();
+    let the_apps = !record.version.is_empty() && record.dependency_of.is_empty();
+    if asked.contains(&name.as_str()) {
+      record.dependency_of.clear();
+    } else if !the_apps {
+      for by in dependency_of.get(name).into_iter().flatten() {
+        if !record.dependency_of.contains(by) {
+          record.dependency_of.push(by.clone());
+        }
+      }
+      record.dependency_of.sort();
+    }
     record.version = package.doc.version.clone();
     record.entries.clear();
     record.published = true;
@@ -608,6 +628,21 @@ mod tests {
     let manifest = crate::vendor::VendorManifest::read(&app, &layout).unwrap();
     assert_eq!(manifest.packages["dep"].version, "1.2.0", "the highest 1.x, not the latest 2.0.0");
     assert_eq!(manifest.packages["pkg"].version, "1.0.0");
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_dependency_records_the_package_it_was_vendored_for_until_the_app_asks_for_it() {
+    let app = app("dependency-of");
+    let layout = Layout::of(&app).unwrap();
+    let read = || crate::vendor::VendorManifest::read(&app, &layout).unwrap();
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
+    assert_eq!(read().packages["dep"].dependency_of, ["pkg"]);
+    assert!(read().packages["pkg"].dependency_of.is_empty());
+    add_published_from(&app, &[Spec::parse("dep@1.2.0").unwrap()], &registry(false)).unwrap();
+    assert!(read().packages["dep"].dependency_of.is_empty(), "asked for by the app");
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
+    assert!(read().packages["dep"].dependency_of.is_empty(), "still the app's after pkg is vendored again");
     std::fs::remove_dir_all(&app).unwrap();
   }
 

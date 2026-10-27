@@ -1,10 +1,11 @@
 //! FSR's own lint rules and the levels FSR sets under a project's, for `snapfire_lint`.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use snapfire_lint::oxc_ast::{
   AstKind,
-  ast::{Expression, ImportDeclarationSpecifier, Statement},
+  ast::{Expression, ImportDeclarationSpecifier, Statement, StringLiteral},
 };
 use snapfire_lint::oxc_semantic::{AstNode, Semantic, SymbolId};
 use snapfire_lint::oxc_span::GetSpan;
@@ -297,6 +298,74 @@ impl Check for OutputClash {
       && name.to_lowercase() > first.to_lowercase()
     {
       found(0, format!("`{name}` and `{first}` both compile to `{output}`"));
+    }
+  }
+}
+
+/// `import/no-extraneous-dependencies` over FSR's vendor tree: an import of a package the application has
+/// vendored only because another package imports it.
+pub struct ExtraneousDependencies {
+  vendored_for: BTreeMap<String, Vec<String>>,
+}
+
+impl ExtraneousDependencies {
+  /// `vendored_for` maps each package or module vendored only as a dependency to the packages that import
+  /// it, empty when they are not known. A specifier is judged against the name it equals or sits under.
+  pub fn new(vendored_for: BTreeMap<String, Vec<String>>) -> Self {
+    Self { vendored_for }
+  }
+
+  fn judge(&self, source: &StringLiteral<'_>, found: &mut dyn FnMut(usize, String)) {
+    let Some(specifier) = source.value.as_str() else { return };
+    let at = source.span.start;
+    let Some((package, by)) = self.vendored_for.iter().find(|(name, _)| specifier.strip_prefix(name.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))) else { return };
+    let why = match by.as_slice() {
+      [] => "another package's dependency".to_owned(),
+      by => format!("a dependency of {}", by.iter().map(|b| format!("`{b}`")).collect::<Vec<_>>().join(", ")),
+    };
+    found(at as usize, format!("`{package}` is vendored only as {why}; declare it to import it"));
+  }
+}
+
+impl Check for ExtraneousDependencies {
+  fn info(&self) -> RuleInfo {
+    RuleInfo::new(
+      "import/no-extraneous-dependencies",
+      Level::Warn,
+      "suspicious",
+      "### What it does\n\nDisallows importing a package the application did not declare: one in the vendor tree only because another package imports it. `fsr add` records why it vendored each package; an application vendored by xwpm declares its modules in `xwpm.wmf`'s `[modules]`. A type-only import is not judged.\n\n### Why is this bad?\n\nThe import works only while the package that brought it in still needs it. When that package drops it or moves to a version the import does not expect, the page fails to load. Declare it with `fsr add` or in `[modules]`.\n",
+    )
+  }
+
+  fn check(&self, file: &File<'_>, found: &mut dyn FnMut(usize, String)) {
+    if self.vendored_for.is_empty() {
+      return;
+    }
+    for node in file.semantic.nodes().iter() {
+      match node.kind() {
+        AstKind::ImportDeclaration(import) => {
+          let all_types = import.specifiers.as_ref().is_some_and(|specifiers| !specifiers.is_empty() && specifiers.iter().all(|s| matches!(s, ImportDeclarationSpecifier::ImportSpecifier(named) if named.import_kind.is_type())));
+          if !import.import_kind.is_type() && !all_types {
+            self.judge(&import.source, found);
+          }
+        }
+        AstKind::ExportFromDeclaration(export) => {
+          if !export.export_kind.is_type() {
+            self.judge(&export.source, found);
+          }
+        }
+        AstKind::ExportAllDeclaration(export) => {
+          if !export.export_kind.is_type() {
+            self.judge(&export.source, found);
+          }
+        }
+        AstKind::ImportExpression(import) => {
+          if let Expression::StringLiteral(source) = &import.source {
+            self.judge(source, found);
+          }
+        }
+        _ => {}
+      }
     }
   }
 }

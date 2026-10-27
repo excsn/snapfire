@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use snapfire_lint::{Linter, Report};
+use snapfire_lint::{Level, Linter, Report};
 
 fn lint(path: &str, source: &str) -> Report {
   let linter = Linter::new_with(snapfire_fsr_lint::base(), snapfire_fsr_lint::checks()).unwrap();
@@ -80,4 +80,35 @@ fn the_rules_are_listed() {
   let linter = Linter::new_with(snapfire_fsr_lint::base(), snapfire_fsr_lint::checks()).unwrap();
   let ids: Vec<_> = linter.rules().into_iter().map(|r| r.id).filter(|id| id.starts_with("fsr/")).collect();
   assert_eq!(ids, ["fsr/no-browser-globals-in-render", "fsr/no-file-read-in-render", "fsr/output-name-clash"]);
+}
+
+fn extraneous(path: &str, source: &str) -> Vec<(usize, String, Level)> {
+  let vendored_for = std::collections::BTreeMap::from([("clsx".to_owned(), vec!["svelte".to_owned()]), ("markdown-it".to_owned(), Vec::new())]);
+  let mut checks = snapfire_fsr_lint::checks();
+  checks.push(Box::new(snapfire_fsr_lint::ExtraneousDependencies::new(vendored_for)));
+  let linter = Linter::new_with(snapfire_fsr_lint::base(), checks).unwrap();
+  linter.lint_source(Path::new(path), source).findings.into_iter().filter(|f| f.rule == "import/no-extraneous-dependencies").map(|f| (f.line, f.message, f.level)).collect()
+}
+
+#[test]
+fn an_import_of_a_package_vendored_only_as_a_dependency_is_found() {
+  let source = "import clsx from \"clsx\";\nimport { lite } from \"clsx/lite\";\nexport { clsx as cx } from \"clsx\";\nexport * from \"markdown-it\";\nconst later = () => import(\"clsx\");\nexport default function Page() {\n  return <p class={clsx(lite, later)} />;\n}\n";
+  let found = extraneous("routes/page.tsx", source);
+  let lines: Vec<usize> = found.iter().map(|(line, _, _)| *line).collect();
+  assert_eq!(lines, [1, 2, 3, 4, 5]);
+  assert!(found[0].1.contains("`clsx`") && found[0].1.contains("`svelte`"), "{}", found[0].1);
+  assert!(found[3].1.contains("`markdown-it`"), "{}", found[3].1);
+  assert!(found.iter().all(|(_, _, level)| *level == Level::Warn));
+}
+
+#[test]
+fn a_declared_package_a_type_import_and_a_module_of_the_app_are_not() {
+  let source = "import { writable } from \"svelte/store\";\nimport type { ClassValue } from \"clsx\";\nimport { type ClassArray } from \"clsx\";\nexport type { ClassDictionary } from \"clsx\";\nimport { file } from \"@snapfire/fsr/host\";\nimport { util } from \"./clsx\";\nexport const all = [writable, file, util] as unknown as ClassValue | ClassArray;\n";
+  assert!(extraneous("src/lib.ts", source).is_empty());
+}
+
+#[test]
+fn a_comment_silences_it_in_its_eslint_name() {
+  let source = "// eslint-disable-next-line import/no-extraneous-dependencies -- clsx comes with svelte\nimport clsx from \"clsx\";\nexport const c = clsx;\n";
+  assert!(extraneous("src/lib.ts", source).is_empty());
 }

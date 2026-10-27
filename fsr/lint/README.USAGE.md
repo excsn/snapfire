@@ -9,6 +9,7 @@ How FSR's rules run, what each finds and the levels FSR sets.
 * [Finding Browser Globals Where the Server Runs](#finding-browser-globals-where-the-server-runs)
 * [Finding File Reads in Render](#finding-file-reads-in-render)
 * [Finding Two Sources With One Output](#finding-two-sources-with-one-output)
+* [Finding Imports of Undeclared Packages](#finding-imports-of-undeclared-packages)
 * [The Base Levels](#the-base-levels)
 
 ## Core Concepts
@@ -17,6 +18,7 @@ How FSR's rules run, what each finds and the levels FSR sets.
 * **Base** is the configuration FSR puts under a project's own `fsr.lint.toml`, as a framework's shared ESLint config does.
 * **Render** is a component's own body and its module's top level. It takes in the callbacks `useMemo`, `useState` and `useReducer` run while the component renders. A handler or an effect is not render.
 * **Server module** is a file only the server runs, by FSR's names: `*.loader.*`, `actions.*`, `route.*` and `middleware.*`.
+* **Vendored only as a dependency** is a package in the vendor tree because another package imports it, which `fsr add` records in `.fsr-vendor.json` as `dependency_of`. In an application vendored by xwpm it is an import map entry no module in `xwpm.wmf`'s `[modules]` covers.
 
 ## Quick Start
 
@@ -71,6 +73,25 @@ Read it in the page's loader instead, which runs once per request. A `file` that
 ## Finding Two Sources With One Output
 
 `fsr/output-name-clash`, `error`, finds two sources in one directory that snapfirec writes to the same output name, compared without case: `format.ts` beside `Format.js`; `Card.svelte.ts` beside `Card.svelte.js`. The one that sorts later is reported. A `.vue` or `.svelte` component keeps its own name, so `Pantry.vue` beside `pantry.ts` is no clash; a `.d.ts` file is not compiled alone.
+
+## Finding Imports of Undeclared Packages
+
+`import/no-extraneous-dependencies`, `warn`, finds an import of a package the application has vendored only because another package imports it. It needs to know which packages those are, so it is not among `checks()`; `fsr lint` builds it from the application's vendor manifest.
+
+```rust
+use std::collections::BTreeMap;
+
+let vendored_for = BTreeMap::from([("clsx".to_owned(), vec!["svelte".to_owned()])]);
+let mut checks = snapfire_fsr_lint::checks();
+checks.push(Box::new(snapfire_fsr_lint::ExtraneousDependencies::new(vendored_for)));
+```
+
+```ts
+import clsx from "clsx";
+// warning  import/no-extraneous-dependencies  `clsx` is vendored only as a dependency of `svelte`; declare it to import it
+```
+
+`fsr add app clsx@2.1.1` declares it. A subpath such as `clsx/lite` is judged by its package. A type-only import, `import type` or `export type ... from`, is not judged, as ESLint's rule does by default. It keeps ESLint's name, so an `eslint-disable` comment naming it carries over.
 
 ## The Base Levels
 

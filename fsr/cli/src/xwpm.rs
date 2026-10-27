@@ -24,11 +24,13 @@ pub struct Layout {
   pub types: String,
   /// True when `xwpm.wmf` is present.
   pub xwpm: bool,
+  /// The keys of `xwpm.wmf`'s `[modules]`: the modules the application declares.
+  pub modules: Vec<String>,
 }
 
 impl Default for Layout {
   fn default() -> Self {
-    Self { vendor: "vendor".to_owned(), base: "/static/js/vendor".to_owned(), importmap: "importmap.json".to_owned(), types: "types".to_owned(), xwpm: false }
+    Self { vendor: "vendor".to_owned(), base: "/static/js/vendor".to_owned(), importmap: "importmap.json".to_owned(), types: "types".to_owned(), xwpm: false, modules: Vec::new() }
   }
 }
 
@@ -55,20 +57,30 @@ impl Layout {
     Ok(layout)
   }
 
-  /// The root records of an `xwpm.wmf`; sections are skipped.
+  /// The root records of an `xwpm.wmf` and the keys of its `[modules]`; other sections are skipped.
   pub fn from_wmf(text: &str) -> Result<Self, String> {
     let mut layout = Self { xwpm: true, ..Self::default() };
+    let mut section: Option<&str> = None;
     for (i, raw) in text.lines().enumerate() {
       let line = raw.trim();
       if line.is_empty() || line.starts_with('#') {
         continue;
       }
-      if line.starts_with('[') {
-        break;
+      if let Some(name) = line.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+        section = Some(name);
+        continue;
       }
       let Some((key, value)) = line.split_once('=') else {
         return Err(format!("line {}: not `key = value`: {line}", i + 1));
       };
+      match section {
+        None => {}
+        Some("modules") => {
+          layout.modules.push(key.trim().to_owned());
+          continue;
+        }
+        Some(_) => continue,
+      }
       let value = value.trim().to_owned();
       match key.trim() {
         "vendor" => layout.vendor = value,
@@ -125,8 +137,17 @@ mod tests {
     assert_eq!(layout.importmap, "public/js/importmap.json");
     assert_eq!(layout.types, "types");
     assert!(layout.xwpm);
+    assert_eq!(layout.modules, ["normansoven/editor"]);
     assert!(Layout::from_wmf("vendor\n").is_err());
     assert_eq!(Layout::default().types, "types");
+  }
+
+  #[test]
+  fn the_modules_are_the_keys_of_the_modules_section_alone() {
+    let wmf = "vendor = public/js/vendor\n\n[modules]\n# the editor\nnormansoven/editor     = cove:0.1.0\nnormansoven/sortedlist = path:../sortedlist\n\n[externals]\nhtmx.org = npm:2.0.10 dist/htmx.min.js\n\n[patch]\nmdurl = 2.1.0\n";
+    assert_eq!(Layout::from_wmf(wmf).unwrap().modules, ["normansoven/editor", "normansoven/sortedlist"]);
+    assert!(Layout::from_wmf("[modules]\nnot a record\n").is_err());
+    assert!(Layout::default().modules.is_empty());
   }
 
   #[test]

@@ -34,13 +34,14 @@ The vendored packages and the fetched declarations are not the application's and
 
 ## What FSR adds
 
-Three rules know what only FSR knows:
+Four rules know what only FSR knows:
 
 | Rule | Finds |
 | --- | --- |
 | `fsr/no-browser-globals-in-render` | `window`, `document` or `localStorage` read while a component renders; in a loader, `actions.ts` or `route.ts` read anywhere. Every page renders on the server first, where they do not exist. |
 | `fsr/no-file-read-in-render` | `file.read` from `@snapfire/fsr/host` called while a component renders, so it repeats on every render. Read it in the loader. |
 | `fsr/output-name-clash` | two sources snapfirec writes to one name, such as `format.ts` beside `Format.js` |
+| `import/no-extraneous-dependencies` | an import of a package vendored only because another package imports it, such as `clsx` brought in by `svelte`. `fsr add` declares it. In an xwpm application, a module the import map holds that `[modules]` does not name. It is a warning. It keeps ESLint's name so ESLint's comments for it still work |
 
 FSR also tells `react/no-unknown-property` about htmx's attributes, so `hx-get` and `hx-swap` on a JSX element are not findings.
 

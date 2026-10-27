@@ -67,6 +67,10 @@ pub struct VendoredPackage {
   /// Vendored as published, its module tree kept, so `fsr add` takes a new version the same way.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub published: bool,
+  /// The packages this one was vendored for because they import it. Empty when the application asked for it,
+  /// and in a manifest written before the field existed.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub dependency_of: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
