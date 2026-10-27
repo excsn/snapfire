@@ -1071,7 +1071,7 @@ The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`
 
 ## Linting
 
-`fsr lint` runs ESLint's 61 recommended rules over the application's scripts, `snapfire_lint` underneath. No build command runs it.
+`fsr lint` runs `snapfire_lint` over the application with `snapfire_fsr_lint`'s rules added: ESLint's, eslint-plugin-react's, jsx-a11y's and typescript-eslint's recommended rules over the scripts, the Vue and Svelte templates through `snapfirec-vue` and `snapfirec-svelte`, the Markdown and MDX pages, the Tera templates and FSR's own three rules. No build command runs it.
 
 ```sh
 fsr lint app
@@ -1080,14 +1080,16 @@ fsr lint app
 # lint     1 error, 0 warnings in 14 files
 ```
 
-An error is exit 1, a configuration it cannot read exit 2. `--deny-warnings` fails on a warning, `--json` prints the report as JSON and `--rules` lists the rules instead of linting.
+An error is exit 1, a configuration it cannot read exit 2. `--deny-warnings` fails on a warning. `--fix` writes the safe fixes and then reports what is left. `--json` prints the report as JSON, `--sarif` as SARIF 2.1.0. `--rules` lists the rules, FSR's among them, instead of linting.
 
 ```sh
+fsr lint app --fix
+fsr lint app --sarif > lint.sarif
 fsr lint app --json | jq '.findings[].rule'
 fsr lint --rules app
 ```
 
-Levels come from each `fsr.lint.toml` between the repository root and the project root, nearest last. The vendor tree and `types/` that `Layout::of` names are skipped, beside `.gitignore`. Globs in the file are relative to the application directory.
+Levels come from FSR's base, which teaches `react/no-unknown-property` htmx's attributes, then each `fsr.lint.toml` between the repository root and the project root, nearest last. The vendor tree and `types/` that `Layout::of` names are skipped, beside `.gitignore`. Globs in the file are relative to the application directory.
 
 ```toml
 [rules]
@@ -1098,11 +1100,12 @@ files = ["routes/**/*.test.ts"]
 rules = { "eslint/no-debugger" = "off" }
 ```
 
-From Rust, `lint::run(app)` returns the `snapfire_lint::Report`:
+From Rust, `lint::run(app)` returns the `snapfire_lint::Report` and `lint::fix(app)` writes the fixes and returns the report of what is left with how many were applied:
 
 ```rust
 let report = snapfire_fsr_cli::lint::run(Path::new("app"))?;
 assert!(!report.failed(false), "{}", report.render());
+let (left, applied) = snapfire_fsr_cli::lint::fix(Path::new("app"))?;
 ```
 
 ## Running the Specs

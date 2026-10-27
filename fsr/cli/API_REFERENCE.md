@@ -123,7 +123,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr lint
 
-* `fsr lint <app dir> [--json] [--deny-warnings] [--rules]`: `lint::run(app) -> Result<snapfire_lint::Report, snapfire_lint::ConfigError>`. The configuration is `Config::discover(serve::project_root(app))`, with the `Layout::of(app)` vendor and types directories added as ignores, linted with `Linter::lint_dir(app)`. Exit 0 when `Report::failed(deny_warnings)` is false, 1 when it is true, 2 on a `ConfigError`. `--json` prints `Report::to_json`, else `Report::render`. `--rules` prints each of `snapfire_lint::rules()` as `default category id` and exits 0 without linting.
+* `fsr lint <app dir> [--json | --sarif] [--deny-warnings] [--fix] [--rules]`: `lint::run(app) -> Result<snapfire_lint::Report, snapfire_lint::ConfigError>`. The configuration is `Config::discover(serve::project_root(app))` over `snapfire_fsr_lint::base()`, with the `Layout::of(app)` vendor and types directories added as ignores. The linter is `Linter::new_with(config, snapfire_fsr_lint::checks())` with `Plugins` as its compilers, run with `Linter::lint_dir(app)`. `--fix` runs `lint::fix(app) -> Result<(Report, usize), ConfigError>`: each file `Linter::fix_dir` changes is written, the count goes to stderr as `fixed    N findings` and the report is a fresh `lint_dir`. Exit 0 when `Report::failed(deny_warnings)` is false, 1 when it is true, 2 on a `ConfigError`. `--json` prints `Report::to_json`, `--sarif` `Report::to_sarif`, else `Report::render`. `--rules` prints each of `lint::rules()`, `snapfire_lint`'s and FSR's, as `default category id` and exits 0 without linting.
 
 ### fsr census
 

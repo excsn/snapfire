@@ -116,7 +116,8 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 
 ### Diagnostic
 
-* `pub struct Diagnostic { pub severity: Severity, pub message: String, pub file: Option<String>, pub line: Option<u32>, pub column: Option<u32> }`
+* `pub struct Diagnostic { pub severity: Severity, pub message: String, pub file: Option<String>, pub line: Option<u32>, pub column: Option<u32>, pub code: Option<String> }`
+* `code` is the framework's own name for what it found, such as Svelte's `a11y_missing_attribute`, when it gives one. It is left out of the JSON when `None`.
 * `Diagnostic::error(message: impl Into<String>) -> Diagnostic`, `Diagnostic::warning(message: impl Into<String>) -> Diagnostic`: a diagnostic with no place.
 * `at(self, file: impl Into<String>, line: Option<u32>, column: Option<u32>) -> Diagnostic`: the same with a place. `line` and `column` are one-based.
 * `file`, `line` and `column` are absent from the JSON when `None`.

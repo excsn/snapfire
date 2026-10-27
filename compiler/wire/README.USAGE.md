@@ -105,6 +105,13 @@ let tip = Diagnostic::warning("v-for on a component without a key").at("src/Card
 
 An `Outcome::Failed` carries at least one diagnostic; an `Outcome::Ok` may carry warnings in `Compiled::diagnostics`, which the host prints without stopping.
 
+A framework that names its warnings puts the name in `code`. `fsr lint` reports a Svelte warning with `code` set to `a11y_missing_attribute` as `svelte/a11y-missing-attribute`.
+
+```rust
+let mut warning = Diagnostic::warning("`<img>` element should have an alt attribute").at("src/Card.svelte", Some(4), Some(3));
+warning.code = Some("a11y_missing_attribute".to_owned());
+```
+
 ## Asking for a Sibling File
 
 A plugin never opens a file. When a block names one, `<style src="./card.css">`, the plugin answers with what it needs, by the specifier as written:
