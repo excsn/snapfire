@@ -1,0 +1,255 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/typescript/no_this_alias.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{AssignmentTarget, BindingPattern, Expression, match_simple_assignment_target},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+use oxc_str::CompactStr;
+use rustc_hash::FxHashSet;
+use serde::{Deserialize, Serialize};
+
+use crate::js::{
+    AstNode,
+    context::{ContextHost, LintContext},
+    rule::{DefaultRuleConfig, Rule},
+};
+
+fn no_this_alias_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unexpected aliasing of 'this' to local variable.")
+        .with_help("Assigning a variable to this instead of properly using arrow lambdas may be a symptom of pre-ES2015 practices or not managing scope well.")
+        .with_label(span)
+}
+
+fn no_this_destructure_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unexpected aliasing of members of 'this' to local variables.")
+        .with_help(
+            "Disabling destructuring of this is not a default, consider allowing destructuring",
+        )
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct NoThisAlias(Box<NoThisAliasConfig>);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct NoThisAliasConfig {
+    /// Whether to allow destructuring of `this` to local variables.
+    allow_destructuring: bool,
+    /// An array of variable names that are allowed to alias `this`.
+    #[serde(alias = "allowNames")]
+    // Note: allowedNames is the config option used in the original ESLint rule, we typo'd it as allowNames.
+    allowed_names: FxHashSet<CompactStr>,
+}
+
+impl Default for NoThisAliasConfig {
+    fn default() -> Self {
+        Self { allow_destructuring: true, allowed_names: FxHashSet::default() }
+    }
+}
+
+impl std::ops::Deref for NoThisAlias {
+    type Target = NoThisAliasConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl NoThisAlias {
+    fn is_allowed(&self, name: &str) -> bool {
+        self.allowed_names.contains(name)
+    }
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow aliasing of `this`.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Assigning a variable to `this` instead of properly using
+    /// arrow lambdas may be a symptom of pre-ES2015 practices or not managing scope well.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    ///
+    /// ```js
+    /// const self = this;
+    ///
+    /// setTimeout(function () {
+    ///   self.doWork();
+    /// });
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    ///
+    /// ```js
+    /// setTimeout(() => {
+    ///   this.doWork();
+    /// });
+    /// ```
+    NoThisAlias,
+    "typescript",
+    "no-this-alias",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoThisAlias {
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        DefaultRuleConfig::<Self>::from_value(value).map(DefaultRuleConfig::into_inner)
+    }
+
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        match node.kind() {
+            AstKind::VariableDeclarator(decl) => {
+                let Some(init) = &decl.init else { return };
+
+                if !rhs_is_this_reference(init) {
+                    return;
+                }
+
+                if self.allow_destructuring
+                    && !matches!(decl.id, BindingPattern::BindingIdentifier(_))
+                {
+                    return;
+                }
+
+                if let BindingPattern::BindingIdentifier(identifier) = &decl.id {
+                    if !self.is_allowed(&identifier.name) {
+                        ctx.diagnostic(no_this_alias_diagnostic(identifier.span));
+                    }
+
+                    return;
+                }
+                ctx.diagnostic(no_this_destructure_diagnostic(decl.id.span()));
+            }
+            AstKind::AssignmentExpression(assignment) => {
+                if !rhs_is_this_reference(&assignment.right) {
+                    return;
+                }
+                match &assignment.left {
+                    left @ (AssignmentTarget::ArrayAssignmentTarget(_)
+                    | AssignmentTarget::ObjectAssignmentTarget(_)) => {
+                        if self.allow_destructuring {
+                            return;
+                        }
+                        ctx.diagnostic(no_this_destructure_diagnostic(left.span()));
+                    }
+                    AssignmentTarget::AssignmentTargetIdentifier(id) => {
+                        if !self.is_allowed(&id.name) {
+                            ctx.diagnostic(no_this_alias_diagnostic(id.span));
+                        }
+                    }
+                    left @ match_simple_assignment_target!(AssignmentTarget) => {
+                        let pat = left.to_simple_assignment_target();
+                        let Some(expr) = pat.get_expression() else {
+                            return;
+                        };
+                        let Some(id) = expr.get_identifier_reference() else {
+                            return;
+                        };
+                        if !self.is_allowed(&id.name) {
+                            ctx.diagnostic(no_this_alias_diagnostic(id.span));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn should_run(&self, ctx: &ContextHost) -> bool {
+        ctx.source_type().is_typescript()
+    }
+}
+
+#[inline]
+fn rhs_is_this_reference(rhs_expression: &Expression) -> bool {
+    matches!(rhs_expression, Expression::ThisExpression(_))
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        // allow destructuring
+        (
+            "const { props, state } = this;",
+            Some(serde_json::json!([{ "allowDestructuring": true }])),
+        ),
+        ("const { length } = this;", Some(serde_json::json!([{ "allowDestructuring": true }]))),
+        (
+            "const { length, toString } = this;",
+            Some(serde_json::json!([{ "allowDestructuring": true }])),
+        ),
+        ("const [foo] = this;", Some(serde_json::json!([{ "allowDestructuring": true }]))),
+        ("const [foo, bar] = this;", Some(serde_json::json!([{ "allowDestructuring": true }]))),
+        // allow list
+        ("const self = this;", Some(serde_json::json!([{ "allowedNames": vec!["self"] }]))),
+        // alternative key for backwards compatibility
+        ("const self = this;", Some(serde_json::json!([{ "allowNames": vec!["self"] }]))),
+    ];
+
+    let fail = vec![
+        ("const self = this;", None),
+        (
+            "const { props, state } = this;",
+            Some(serde_json::json!([{ "allowDestructuring": false }])),
+        ),
+        (
+            "const [ props, state ] = this;",
+            Some(serde_json::json!([{ "allowDestructuring": false }])),
+        ),
+        ("let foo; \nconst other =3;\n\n\n\nfoo = this", None),
+        ("let foo; (foo as any) = this", None),
+        (
+            "function testFunction() {
+            let inFunction = this;
+          }",
+            None,
+        ),
+        (
+            "const testLambda = () => {
+            const inLambda = this;
+          };",
+            None,
+        ),
+        // this slightly modified because conflicting ID's wont compile
+        (
+            "class TestClass {
+            constructor() {
+              const inConstructor = this;
+              const asThis: this = this;
+
+              const asString = 'this';
+              const asArray = [this];
+              const asArrayString = ['this'];
+            }
+
+            public act(scope: this = this) {
+              const inMemberFunction = this;
+              const { act1 } = this;
+              const { act2, constructor } = this;
+              const [foo1] = this;
+              const [foo, bar] = this;
+            }
+          }",
+            Some(serde_json::json!([{ "allowDestructuring": false }])),
+        ),
+        // allow something else but not self
+        ("const self = this;", Some(serde_json::json!([{ "allowedNames": vec!["bar"] }]))),
+        // alternative key for backwards compatibility
+        ("const self = this;", Some(serde_json::json!([{ "allowNames": vec!["bar"] }]))),
+    ];
+
+    Tester::new(NoThisAlias::NAME, NoThisAlias::PLUGIN, pass, fail).test();
+}

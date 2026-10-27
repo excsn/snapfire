@@ -1,0 +1,1166 @@
+// Ported from oxlint (crates/oxc_linter/src/utils/react.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use std::borrow::Cow;
+
+use rustc_hash::FxHashSet;
+
+use oxc_ast::{
+    AstKind,
+    ast::{
+        ArrowFunctionBody, ArrowFunctionExpression, CallExpression, Expression, Function, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, JSXElement,
+        JSXElementName, JSXExpression, JSXMemberExpression, JSXMemberExpressionObject,
+        JSXOpeningElement, Statement, StaticMemberExpression,
+    },
+    match_expression,
+};
+use oxc_cfg::{
+    EdgeType, InstructionKind, ReturnInstructionKind,
+    graph::{Direction, visit::EdgeRef},
+};
+use oxc_ecmascript::{ToBoolean, WithoutGlobalReferenceInformation};
+use oxc_semantic::{AstNode, SymbolId};
+use oxc_syntax::node::NodeId;
+use oxc_syntax::operator::UnaryOperator;
+
+use crate::js::globals::HTML_TAG;
+use crate::js::{LintContext, OxlintSettings};
+
+pub fn is_create_element_call(call_expr: &CallExpression) -> bool {
+    match &call_expr.callee {
+        Expression::StaticMemberExpression(member_expr) => {
+            if member_expr
+                .object
+                .get_identifier_reference()
+                .is_some_and(|object_caller| object_caller.name == "document")
+            {
+                return false;
+            }
+
+            member_expr.property.name == "createElement"
+        }
+        Expression::ComputedMemberExpression(member_expr) => {
+            if member_expr
+                .object
+                .get_identifier_reference()
+                .is_some_and(|object_caller| object_caller.name == "document")
+            {
+                return false;
+            }
+
+            member_expr.static_property_name().is_some_and(|name| name == "createElement")
+        }
+        Expression::Identifier(ident) => ident.name == "createElement",
+        _ => false,
+    }
+}
+
+pub fn has_jsx_prop<'a, 'b>(
+    node: &'b JSXOpeningElement<'a>,
+    target_prop: &'b str,
+) -> Option<&'b JSXAttributeItem<'a>> {
+    node.attributes
+        .iter()
+        .find(|attr| attr.as_attribute().is_some_and(|attr| attr.is_identifier(target_prop)))
+}
+
+pub fn has_jsx_prop_ignore_case<'a, 'b>(
+    node: &'b JSXOpeningElement<'a>,
+    target_prop: &'b str,
+) -> Option<&'b JSXAttributeItem<'a>> {
+    node.attributes.iter().find(|attr| {
+        attr.as_attribute().is_some_and(|attr| attr.is_identifier_ignore_case(target_prop))
+    })
+}
+
+pub fn get_prop_value<'a, 'b>(item: &'b JSXAttributeItem<'a>) -> Option<&'b JSXAttributeValue<'a>> {
+    item.as_attribute().and_then(|item| item.value.as_ref())
+}
+
+pub fn get_jsx_attribute_name<'a>(attr: &JSXAttributeName<'a>) -> Cow<'a, str> {
+    match attr {
+        JSXAttributeName::NamespacedName(name) => {
+            Cow::Owned(format!("{}:{}", name.namespace.name, name.name.name))
+        }
+        JSXAttributeName::Identifier(ident) => Cow::Borrowed(ident.name.as_str()),
+    }
+}
+
+pub fn get_string_literal_prop_value<'a>(item: &'a JSXAttributeItem<'_>) -> Option<&'a str> {
+    get_prop_value(item)
+        .and_then(JSXAttributeValue::as_string_literal)
+        .and_then(|s| s.value.as_str())
+}
+
+// TODO: Move the a11y methods to their own util for jsx-a11y?
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/v6.9.0/src/util/isHiddenFromScreenReader.js
+pub fn is_hidden_from_screen_reader<'a>(
+    ctx: &LintContext<'a>,
+    node: &JSXOpeningElement<'a>,
+) -> bool {
+    let name = get_element_type(ctx, node);
+    if name.eq_ignore_ascii_case("input")
+        && let Some(item) = has_jsx_prop_ignore_case(node, "type")
+    {
+        let hidden = get_string_literal_prop_value(item);
+
+        if hidden.is_some_and(|val| val.eq_ignore_ascii_case("hidden")) {
+            return true;
+        }
+    }
+
+    has_jsx_prop_ignore_case(node, "aria-hidden").is_some_and(|v| match get_prop_value(v) {
+        None => true,
+        Some(JSXAttributeValue::StringLiteral(s)) if s.value == "true" => true,
+        Some(JSXAttributeValue::ExpressionContainer(container)) => {
+            if let Some(expr) = container.expression.as_expression() {
+                expr.to_boolean(&WithoutGlobalReferenceInformation {}).unwrap_or(false)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    })
+}
+
+pub fn is_disabled_element(jsx_el: &JSXOpeningElement) -> bool {
+    if has_jsx_prop(jsx_el, "disabled").is_some() {
+        return true;
+    }
+
+    let Some(aria_disabled) = has_jsx_prop(jsx_el, "aria-disabled") else {
+        return false;
+    };
+    let JSXAttributeItem::Attribute(attr) = aria_disabled else {
+        return false;
+    };
+    match &attr.value {
+        Some(JSXAttributeValue::StringLiteral(lit)) => lit.value == "true",
+        Some(JSXAttributeValue::ExpressionContainer(container)) => {
+            matches!(&container.expression, JSXExpression::BooleanLiteral(b) if b.value)
+        }
+        _ => false,
+    }
+}
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/v6.9.0/src/util/hasAccessibleChild.js
+pub fn object_has_accessible_child<'a>(ctx: &LintContext<'a>, node: &JSXElement<'a>) -> bool {
+    node.children.iter().any(|child| match child {
+        JSXChild::Text(text) => !text.value.is_empty(),
+        JSXChild::Element(el) => !is_hidden_from_screen_reader(ctx, &el.opening_element),
+        JSXChild::ExpressionContainer(container) => {
+            !matches!(&container.expression, JSXExpression::NullLiteral(_))
+                && !container.expression.is_undefined()
+        }
+        _ => false,
+    }) || has_jsx_prop_ignore_case(&node.opening_element, "dangerouslySetInnerHTML").is_some()
+        || has_jsx_prop_ignore_case(&node.opening_element, "children").is_some()
+}
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/8f75961d965e47afb88854d324bd32fafde7acfe/src/util/isPresentationRole.js
+pub fn is_presentation_role(jsx_opening_el: &JSXOpeningElement) -> bool {
+    let Some(role) = has_jsx_prop(jsx_opening_el, "role") else {
+        return false;
+    };
+
+    matches!(get_string_literal_prop_value(role), Some("presentation" | "none"))
+}
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/8f75961d965e47afb88854d324bd32fafde7acfe/src/util/isAbstractRole.js
+pub fn is_abstract_role<'a>(ctx: &LintContext<'a>, jsx_opening_el: &JSXOpeningElement<'a>) -> bool {
+    // Do not test custom JSX components, we do not know what
+    // low-level DOM element this maps to.
+    let element_type = get_element_type(ctx, jsx_opening_el);
+    if !HTML_TAG.contains(element_type.as_ref()) {
+        return false;
+    }
+
+    let Some(role) = has_jsx_prop(jsx_opening_el, "role") else {
+        return false;
+    };
+
+    matches!(
+        get_string_literal_prop_value(role),
+        Some(
+            "command"
+                | "composite"
+                | "input"
+                | "landmark"
+                | "range"
+                | "roletype"
+                | "section"
+                | "sectionhead"
+                | "select"
+                | "structure"
+                | "widget"
+                | "window"
+        )
+    )
+}
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/4c7e7815c12a797587bb8e3cdced7f3003848964/src/util/isInteractiveElement.js
+//
+// See also https://html.spec.whatwg.org/multipage/dom.html#interactive-content
+pub fn is_interactive_element(element_type: &str, jsx_opening_el: &JSXOpeningElement) -> bool {
+    // Interactive contents are...
+    // - a, area (when they have `href`)
+    // - audio, video
+    // - button, canvas, datalist, embed, menuitem,
+    //   option, select, summary, textarea, td, th, tr
+    // - input (unless `type` is hidden)
+    // - img (when `usemap` is present)
+    match element_type {
+        "audio" | "button" | "canvas" | "datalist" | "embed" | "menuitem" | "option" | "select"
+        | "summary" | "td" | "th" | "tr" | "textarea" | "video" => true,
+        "input" => {
+            if let Some(input_type) = has_jsx_prop(jsx_opening_el, "type")
+                && get_string_literal_prop_value(input_type)
+                    .is_some_and(|val| val.eq_ignore_ascii_case("hidden"))
+            {
+                return false;
+            }
+            true
+        }
+        "a" | "area" => has_jsx_prop(jsx_opening_el, "href").is_some(),
+        "img" => has_jsx_prop(jsx_opening_el, "usemap").is_some(),
+        _ => false,
+    }
+}
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/8f75961d965e47afb88854d324bd32fafde7acfe/src/util/isNonInteractiveElement.js
+pub fn is_non_interactive_element(element_type: &str, jsx_opening_el: &JSXOpeningElement) -> bool {
+    // Do not test custom JSX components, we do not know what
+    // low-level DOM element this maps to.
+    if !HTML_TAG.contains(element_type.as_ref()) {
+        return false;
+    }
+
+    match element_type {
+        // <header> elements do not technically have semantics, unless the
+        // element is a direct descendant of <body>, and this plugin cannot
+        // reliably test that.
+        // @see https://www.w3.org/TR/wai-aria-practices/examples/landmarks/banner.html
+        "header" => false,
+        // Only treat <section> as non-interactive when it has an accessible name.
+        "section" => {
+            has_jsx_prop_ignore_case(jsx_opening_el, "aria-label").is_some()
+                || has_jsx_prop_ignore_case(jsx_opening_el, "aria-labelledby").is_some()
+        }
+        _ => NON_INTERACTIVE_ELEMENT_TYPES.contains(&element_type),
+    }
+}
+
+// Based on https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/8f75961d965e47afb88854d324bd32fafde7acfe/src/util/isNonInteractiveElement.js
+const NON_INTERACTIVE_ELEMENT_TYPES: [&str; 59] = [
+    "abbr",
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "br",
+    "caption",
+    "code",
+    "dd",
+    "del",
+    "details",
+    "dfn",
+    "dialog",
+    "dir",
+    "dl",
+    "dt",
+    "em",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "hr",
+    "html",
+    "iframe",
+    "img",
+    "ins",
+    "label",
+    "legend",
+    "li",
+    "main",
+    "mark",
+    "marquee",
+    "menu",
+    "meter",
+    "nav",
+    "ol",
+    "optgroup",
+    "output",
+    "p",
+    "pre",
+    "progress",
+    "ruby",
+    "section",
+    "strong",
+    "sub",
+    "sup",
+    "table",
+    "tbody",
+    "tfoot",
+    "thead",
+    "time",
+    "ul",
+];
+
+const INTERACTIVE_ROLES: [&str; 31] = [
+    "button",
+    "checkbox",
+    "columnheader",
+    "combobox",
+    "grid",
+    "gridcell",
+    "link",
+    "listbox",
+    "menu",
+    "menubar",
+    "menuitem",
+    "menuitemcheckbox",
+    "menuitemradio",
+    "option",
+    "radio",
+    "radiogroup",
+    "row",
+    "rowheader",
+    "scrollbar",
+    "searchbox",
+    "separator",
+    "slider",
+    "spinbutton",
+    "switch",
+    "tab",
+    "tablist",
+    "textbox",
+    // Per the original rule:
+    // > 'toolbar' does not descend from widget, but it does support
+    // > aria-activedescendant, thus in practice we treat it as a widget.
+    "toolbar",
+    "tree",
+    "treegrid",
+    "treeitem",
+];
+
+const NON_INTERACTIVE_ROLES: [&str; 43] = [
+    "alert",
+    "alertdialog",
+    "application",
+    "article",
+    "banner",
+    "blockquote",
+    "caption",
+    "cell",
+    "complementary",
+    "contentinfo",
+    "definition",
+    "deletion",
+    "dialog",
+    "directory",
+    "document",
+    "feed",
+    "figure",
+    "form",
+    "group",
+    "heading",
+    "img",
+    "insertion",
+    "list",
+    "listitem",
+    "log",
+    "main",
+    "marquee",
+    "math",
+    "navigation",
+    "note",
+    "paragraph",
+    // per the original impl:
+    // >  The `progressbar` is descended from `widget`, but in practice, its
+    // > value is always `readonly`, so we treat it as a non-interactive role.
+    "progressbar",
+    "region",
+    "row",
+    "rowgroup",
+    "search",
+    "status",
+    "table",
+    "tabpanel",
+    "term",
+    "time",
+    "timer",
+    "tooltip",
+];
+
+/// Mapping of HTML elements to their implicit ARIA roles.
+///
+/// Based on:
+/// - <https://www.w3.org/TR/html-aria/#docconformance>
+///
+/// Note: Some elements have conditional roles depending on attributes or context
+/// (e.g., `input` depends on `type`, `select` depends on `multiple`).
+/// Such elements may appear multiple times with different roles.
+const ELEMENT_ROLE_MAP: &[(&str, &str)] = &[
+    ("a", "link"),
+    ("address", "group"),
+    ("area", "link"),
+    ("article", "article"),
+    ("aside", "complementary"),
+    ("blockquote", "blockquote"),
+    ("button", "button"),
+    ("caption", "caption"),
+    ("code", "code"),
+    ("datalist", "listbox"),
+    ("del", "deletion"),
+    ("details", "group"),
+    ("dfn", "term"),
+    ("dialog", "dialog"),
+    ("em", "emphasis"),
+    ("fieldset", "group"),
+    ("figure", "figure"),
+    ("footer", "contentinfo"),
+    ("form", "form"),
+    ("h1", "heading"),
+    ("h2", "heading"),
+    ("h3", "heading"),
+    ("h4", "heading"),
+    ("h5", "heading"),
+    ("h6", "heading"),
+    ("header", "banner"),
+    ("hgroup", "group"),
+    ("hr", "separator"),
+    ("img", "img"),
+    ("img", "image"),
+    // input has conditional roles depending on the type attribute:
+    // type=checkbox → checkbox, type=radio → radio, type=range → slider, etc.
+    ("input", "checkbox"),
+    ("input", "combobox"),
+    ("input", "radio"),
+    ("input", "searchbox"),
+    ("input", "slider"),
+    ("input", "spinbutton"),
+    ("input", "textbox"),
+    ("ins", "insertion"),
+    ("li", "listitem"),
+    ("main", "main"),
+    ("math", "math"),
+    ("menu", "list"),
+    ("meter", "meter"),
+    ("nav", "navigation"),
+    ("ol", "list"),
+    ("optgroup", "group"),
+    ("option", "option"),
+    ("output", "status"),
+    ("p", "paragraph"),
+    ("progress", "progressbar"),
+    ("s", "deletion"),
+    ("search", "search"),
+    ("section", "region"),
+    // select has conditional roles:
+    // no multiple/size>1 → combobox, with multiple/size>1 → listbox
+    ("select", "combobox"),
+    ("select", "listbox"),
+    ("strong", "strong"),
+    ("sub", "subscript"),
+    ("sup", "superscript"),
+    ("svg", "graphics-document"),
+    ("table", "table"),
+    ("tbody", "rowgroup"),
+    ("td", "cell"),
+    ("td", "gridcell"),
+    ("textarea", "textbox"),
+    ("tfoot", "rowgroup"),
+    ("th", "columnheader"),
+    ("th", "rowheader"),
+    ("th", "gridcell"),
+    ("thead", "rowgroup"),
+    ("time", "time"),
+    ("tr", "row"),
+    ("ul", "list"),
+];
+
+/// Returns all implicit ARIA roles for a given HTML element,
+/// looked up from [`ELEMENT_ROLE_MAP`].
+///
+/// Elements like `input` or `select` can have multiple implicit roles
+/// depending on attributes (e.g., `input type=checkbox` → `checkbox`,
+/// `input type=range` → `slider`). This function returns all of them.
+///
+/// Returns an empty slice for elements without an implicit role.
+pub fn get_element_implicit_roles(tag: &str) -> Vec<&'static str> {
+    let mut roles: Vec<&str> = Vec::new();
+    for &(element, r) in ELEMENT_ROLE_MAP {
+        if element == tag && !roles.contains(&r) {
+            roles.push(r);
+        }
+    }
+    roles
+}
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/8f75961d965e47afb88854d324bd32fafde7acfe/src/util/isInteractiveRole.js
+pub fn is_interactive_role(role: &str) -> bool {
+    INTERACTIVE_ROLES.contains(&role)
+}
+
+// ref: https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/8f75961d965e47afb88854d324bd32fafde7acfe/src/util/isInteractiveRole.js
+pub fn is_non_interactive_role(role: &str) -> bool {
+    NON_INTERACTIVE_ROLES.contains(&role)
+}
+
+pub const MOUSE_EVENT_HANDLERS: &[&str] = &[
+    "onClick",
+    "onContextMenu",
+    "onDblClick",
+    "onDoubleClick",
+    "onDrag",
+    "onDragEnd",
+    "onDragEnter",
+    "onDragExit",
+    "onDragLeave",
+    "onDragOver",
+    "onDragStart",
+    "onDrop",
+    "onMouseDown",
+    "onMouseEnter",
+    "onMouseLeave",
+    "onMouseMove",
+    "onMouseOut",
+    "onMouseOver",
+    "onMouseUp",
+];
+pub const KEYBOARD_EVENT_HANDLERS: &[&str] = &["onKeyDown", "onKeyPress", "onKeyUp"];
+
+const PRAGMA: &str = "React";
+const CREATE_CLASS: &str = "createReactClass";
+
+pub fn is_es5_component(node: &AstNode) -> bool {
+    let AstKind::CallExpression(call_expr) = node.kind() else {
+        return false;
+    };
+
+    if let Some(member_expr) = call_expr.callee.as_member_expression()
+        && let Expression::Identifier(ident) = member_expr.object()
+    {
+        return ident.name == PRAGMA
+            && member_expr.static_property_name().is_some_and(|name| name == CREATE_CLASS);
+    }
+
+    if let Some(ident_reference) = call_expr.callee.get_identifier_reference() {
+        return ident_reference.name == CREATE_CLASS;
+    }
+
+    false
+}
+
+const COMPONENT: &str = "Component";
+const PURE_COMPONENT: &str = "PureComponent";
+
+pub fn is_es6_component(node: &AstNode) -> bool {
+    let AstKind::Class(class_expr) = node.kind() else {
+        return false;
+    };
+    if let Some(super_class) = class_expr.heritage_expression() {
+        if let Some(member_expr) = super_class.as_member_expression()
+            && let Expression::Identifier(ident) = member_expr.object()
+        {
+            return ident.name == PRAGMA
+                && member_expr
+                    .static_property_name()
+                    .is_some_and(|name| name == COMPONENT || name == PURE_COMPONENT);
+        }
+
+        if let Some(ident_reference) = super_class.get_identifier_reference() {
+            return ident_reference.name == COMPONENT || ident_reference.name == PURE_COMPONENT;
+        }
+    }
+
+    false
+}
+
+pub fn get_parent_component<'a, 'b>(
+    node: &'b AstNode<'a>,
+    ctx: &'b LintContext<'a>,
+) -> Option<&'b AstNode<'a>> {
+    ctx.nodes().ancestors(node.id()).find(|node| is_es5_component(node) || is_es6_component(node))
+}
+
+fn get_jsx_mem_expr_name<'a>(jsx_mem_expr: &JSXMemberExpression) -> Cow<'a, str> {
+    let prefix = match &jsx_mem_expr.object {
+        JSXMemberExpressionObject::IdentifierReference(id) => Cow::Borrowed(id.name.as_str()),
+        JSXMemberExpressionObject::MemberExpression(mem_expr) => get_jsx_mem_expr_name(mem_expr),
+        JSXMemberExpressionObject::ThisExpression(_) => Cow::Borrowed("this"),
+    };
+
+    Cow::Owned(format!("{}.{}", prefix, jsx_mem_expr.property.name))
+}
+
+/// Returns the full name of a JSX element as a string.
+///
+/// - Simple identifiers (`<Foo>`) return `"Foo"`.
+/// - Member expressions (`<AntdLayout.Content>`) return `"AntdLayout.Content"`.
+/// - `this` expressions (`<this.Modal>`) return `"this.Modal"`.
+/// - Namespaced names (`<fbt:param>`) return `"fbt:param"`.
+pub fn get_jsx_element_name<'a>(name: &JSXElementName<'a>) -> Cow<'a, str> {
+    match &name {
+        JSXElementName::Identifier(id) => Cow::Borrowed(id.as_ref().name.as_str()),
+        JSXElementName::IdentifierReference(id) => Cow::Borrowed(id.as_ref().name.as_str()),
+        JSXElementName::NamespacedName(namespaced) => {
+            Cow::Owned(format!("{}:{}", namespaced.namespace.name, namespaced.name.name))
+        }
+        JSXElementName::MemberExpression(jsx_mem_expr) => get_jsx_mem_expr_name(jsx_mem_expr),
+        JSXElementName::ThisExpression(_) => Cow::Borrowed("this"),
+    }
+}
+
+/// Resolve element type(name) using jsx-a11y settings
+/// ref:
+/// <https://github.com/jsx-eslint/eslint-plugin-jsx-a11y/blob/v6.9.0/src/util/getElementType.js>
+pub fn get_element_type<'c, 'a>(
+    context: &'c LintContext<'a>,
+    element: &JSXOpeningElement<'a>,
+) -> Cow<'c, str> {
+    let name = get_jsx_element_name(&element.name);
+
+    let OxlintSettings { jsx_a11y, .. } = context.settings();
+
+    let polymorphic_prop = jsx_a11y
+        .polymorphic_prop_name
+        .as_ref()
+        .and_then(|polymorphic_prop_name_value| {
+            has_jsx_prop_ignore_case(element, polymorphic_prop_name_value)
+        })
+        .and_then(get_prop_value)
+        .and_then(JSXAttributeValue::as_string_literal)
+        .and_then(|s| s.value.as_str());
+
+    let raw_type = polymorphic_prop.map_or(name, Cow::Borrowed);
+    match jsx_a11y.components.get(raw_type.as_ref()) {
+        Some(component) => Cow::Borrowed(component),
+        None => raw_type,
+    }
+}
+
+pub fn parse_jsx_value(value: &JSXAttributeValue) -> Result<f64, ()> {
+    match value {
+        JSXAttributeValue::StringLiteral(str) => str.value.as_str().ok_or(())?.parse().or(Err(())),
+        JSXAttributeValue::ExpressionContainer(container) => {
+            parse_jsx_expression(&container.expression)
+        }
+        _ => Err(()),
+    }
+}
+
+fn parse_jsx_expression(expression: &JSXExpression) -> Result<f64, ()> {
+    let Some(expression) = expression.as_expression() else {
+        return Err(());
+    };
+
+    parse_expression(expression)
+}
+
+fn parse_expression(expression: &Expression) -> Result<f64, ()> {
+    match expression {
+        Expression::StringLiteral(str) => str.value.as_str().ok_or(())?.parse().or(Err(())),
+        Expression::TemplateLiteral(tmpl) => {
+            tmpl.quasis.first().unwrap().value.raw.parse().or(Err(()))
+        }
+        Expression::NumericLiteral(num) => Ok(num.value),
+        Expression::UnaryExpression(expr) => {
+            let Expression::NumericLiteral(num) = &expr.argument else {
+                return Err(());
+            };
+
+            match expr.operator {
+                UnaryOperator::UnaryPlus => Ok(num.value),
+                UnaryOperator::UnaryNegation => Ok(-num.value),
+                _ => Err(()),
+            }
+        }
+        Expression::ConditionalExpression(expr) => {
+            if expr.test.to_boolean(&WithoutGlobalReferenceInformation {}).unwrap_or(true) {
+                parse_expression(&expr.consequent)
+            } else {
+                parse_expression(&expr.alternate)
+            }
+        }
+        _ => Err(()),
+    }
+}
+
+/// Checks whether the `name` follows the official conventions of React Hooks.
+///
+/// Identifies `use(...)` as a valid hook.
+///
+/// Hook names must start with use followed by a capital letter or digit,
+/// like useState (built-in), useOnlineStatus (custom), or use2FAMutation.
+/// Matches ESLint's `/^use[A-Z0-9]/`.
+pub fn is_react_hook_name(name: &str) -> bool {
+    name.starts_with("use")
+        && name.chars().nth(3).is_none_or(|c| c.is_uppercase() || c.is_ascii_digit())
+}
+
+/// Checks whether the `name` follows the official conventions of React Hooks.
+///
+/// Identifies `use(...)` as a valid hook.
+pub fn is_react_hook(expr: &Expression) -> bool {
+    match expr {
+        Expression::StaticMemberExpression(static_expr) => {
+            let is_valid_property = is_react_hook_name(&static_expr.property.name);
+            let is_valid_namespace = match &static_expr.object {
+                Expression::Identifier(ident) => is_react_component_name(&ident.name),
+                _ => false,
+            };
+            is_valid_namespace && is_valid_property
+        }
+        Expression::Identifier(ident) => is_react_hook_name(ident.name.as_str()),
+        _ => false,
+    }
+}
+
+/// Checks if the node is a React component name. React component names must
+/// always start with an uppercase letter.
+pub fn is_react_component_name(name: &str) -> bool {
+    name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// Checks if the node is a React component name or React hook,
+/// `is_react_component_name`, `is_react_hook_name`
+pub fn is_react_component_or_hook_name(name: &str) -> bool {
+    is_react_component_name(name) || is_react_hook_name(name)
+}
+
+pub fn is_react_function_call(call: &CallExpression, expected_call: &str) -> bool {
+    let Some(subject) = call.callee_name() else { return false };
+
+    if subject != expected_call {
+        return false;
+    }
+
+    if let Some(member) = call.callee.as_member_expression() {
+        matches!(
+            member.object().get_identifier_reference(),
+            Some(ident) if ident.name.as_str() == PRAGMA
+        )
+    } else {
+        true
+    }
+}
+
+// check current node is this.state.xx
+pub fn is_state_member_expression(expression: &StaticMemberExpression<'_>) -> bool {
+    if let Expression::ThisExpression(_) = &expression.object {
+        return expression.property.name == "state";
+    }
+
+    false
+}
+
+/// Checks if a function call is a Higher-Order Component (HOC)
+pub fn is_hoc_call(callee_name: &str, ctx: &LintContext) -> bool {
+    // Check built-in HOCs with exact matching (matches ESLint behavior)
+    // Matches: memo, forwardRef, React.memo, React.forwardRef
+    if matches!(callee_name, "memo" | "forwardRef" | "React.memo" | "React.forwardRef") {
+        return true;
+    }
+
+    // Check component wrapper functions from settings
+    ctx.settings().react.is_component_wrapper_function(callee_name)
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FunctionReturns {
+    jsx: bool,
+    null: bool,
+}
+
+impl FunctionReturns {
+    pub fn has_jsx(self) -> bool {
+        self.jsx
+    }
+
+    fn add_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        ctx: &LintContext<'_>,
+        visited: &mut FxHashSet<SymbolId>,
+    ) {
+        match expression.get_inner_expression() {
+            Expression::JSXElement(_) | Expression::JSXFragment(_) => self.jsx = true,
+            Expression::CallExpression(call) if is_create_element_call(call) => self.jsx = true,
+            Expression::NullLiteral(_) => self.null = true,
+            Expression::ConditionalExpression(expression) => {
+                self.add_expression(&expression.consequent, ctx, visited);
+                self.add_expression(&expression.alternate, ctx, visited);
+            }
+            Expression::LogicalExpression(expression) => {
+                self.add_expression(&expression.left, ctx, visited);
+                self.add_expression(&expression.right, ctx, visited);
+            }
+            Expression::SequenceExpression(expression) => {
+                if let Some(last) = expression.expressions.last() {
+                    self.add_expression(last, ctx, visited);
+                }
+            }
+            Expression::Identifier(identifier) => {
+                let Some(symbol_id) =
+                    ctx.scoping().get_reference(identifier.reference_id()).symbol_id()
+                else {
+                    return;
+                };
+                if !visited.insert(symbol_id) {
+                    return;
+                }
+                let declaration = ctx.nodes().get_node(ctx.scoping().symbol_declaration(symbol_id));
+                if let AstKind::VariableDeclarator(declaration) = declaration.kind()
+                    && let Some(initializer) = &declaration.init
+                {
+                    self.add_expression(initializer, ctx, visited);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn function_returns(function: &Function<'_>, ctx: &LintContext<'_>) -> FunctionReturns {
+    cfg_returns(function.node_id(), ctx)
+}
+
+pub fn arrow_function_returns(
+    arrow: &ArrowFunctionExpression<'_>,
+    ctx: &LintContext<'_>,
+) -> FunctionReturns {
+    if let Some(expression) = arrow.get_expression() {
+        let mut returns = FunctionReturns::default();
+        returns.add_expression(expression, ctx, &mut FxHashSet::default());
+        returns
+    } else {
+        cfg_returns(arrow.node_id(), ctx)
+    }
+}
+
+pub fn expression_returns(expression: &Expression<'_>, ctx: &LintContext<'_>) -> FunctionReturns {
+    match expression {
+        Expression::FunctionExpression(function) => function_returns(function, ctx),
+        Expression::ArrowFunctionExpression(arrow) => arrow_function_returns(arrow, ctx),
+        _ => FunctionReturns::default(),
+    }
+}
+
+fn cfg_returns(node_id: NodeId, ctx: &LintContext<'_>) -> FunctionReturns {
+    let cfg = ctx.cfg();
+    let mut returns = FunctionReturns::default();
+    let mut visited_symbols = FxHashSet::default();
+    let mut stack = vec![ctx.nodes().cfg_id(node_id)];
+    let mut seen = FxHashSet::default();
+
+    while let Some(block_id) = stack.pop() {
+        if !seen.insert(block_id) || cfg.basic_block(block_id).is_unreachable() {
+            continue;
+        }
+
+        for instruction in cfg.basic_block(block_id).instructions() {
+            if instruction.kind
+                == InstructionKind::Return(ReturnInstructionKind::NotImplicitUndefined)
+                && let Some(return_node_id) = instruction.node_id
+                && let AstKind::ReturnStatement(statement) =
+                    ctx.nodes().get_node(return_node_id).kind()
+                && let Some(argument) = &statement.argument
+            {
+                returns.add_expression(argument, ctx, &mut visited_symbols);
+            }
+        }
+
+        stack.extend(
+            cfg.graph()
+                .edges_directed(block_id, Direction::Outgoing)
+                .filter(|edge| {
+                    !matches!(edge.weight(), EdgeType::NewFunction | EdgeType::Unreachable)
+                })
+                .map(|edge| edge.target()),
+        );
+    }
+
+    returns
+}
+
+/// Finds the innermost function with JSX in a chain of HOC calls
+#[derive(Debug)]
+pub enum InnermostFunction<'a> {
+    Function(&'a Function<'a>),
+    ArrowFunction(&'a ArrowFunctionExpression<'a>),
+}
+
+pub fn find_innermost_function_with_jsx<'a>(
+    expr: &'a Expression<'a>,
+    ctx: &LintContext<'_>,
+) -> Option<InnermostFunction<'a>> {
+    match expr {
+        Expression::CallExpression(call) => {
+            // Check if this is a HOC call
+            if let Some(callee_name) = call.callee_name()
+                && is_hoc_call(callee_name, ctx)
+            {
+                // This is a HOC, recursively check the first argument
+                if let Some(first_arg) = call.arguments.first()
+                    && let Some(inner_expr) = first_arg.as_expression()
+                {
+                    return find_innermost_function_with_jsx(inner_expr, ctx);
+                }
+            }
+            None
+        }
+        Expression::FunctionExpression(func) => {
+            if function_returns(func, ctx).has_jsx() {
+                Some(InnermostFunction::Function(func))
+            } else {
+                None
+            }
+        }
+        Expression::ArrowFunctionExpression(arrow_func) => {
+            if arrow_function_returns(arrow_func, ctx).has_jsx() {
+                Some(InnermostFunction::ArrowFunction(arrow_func))
+            } else {
+                match &arrow_func.body {
+                    ArrowFunctionBody::FunctionBody(body) => {
+                        for stmt in &body.statements {
+                            if let Statement::ReturnStatement(ret_stmt) = stmt
+                                && let Some(expr) = &ret_stmt.argument
+                            {
+                                return find_innermost_function_with_jsx(expr, ctx);
+                            }
+                        }
+                    }
+                    expression @ match_expression!(ArrowFunctionBody) => {
+                        let expression = expression.to_expression();
+                        return find_innermost_function_with_jsx(expression, ctx);
+                    }
+                }
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use oxc_allocator::Allocator;
+    use oxc_ast::{ast::IdentifierName, builder::AstBuilder};
+    use oxc_span::Span;
+
+    #[test]
+    fn test_is_react_component_name() {
+        // Good names:
+        assert!(is_react_component_name("MyComponent"));
+        assert!(is_react_component_name("X"));
+        assert!(is_react_component_name("Component_Name")); // Allowed but horrible
+        // This should be allowed:
+        // ```jsx
+        // function Form() {}
+        // Form.Input = function Input() { ... };
+        // <Form.Input />
+        // ```
+        assert!(is_react_component_name("Component.Name"));
+        // Bad names:
+        assert!(!is_react_component_name("myComponent"));
+        assert!(!is_react_component_name("useSomething"));
+        assert!(!is_react_component_name("x"));
+        assert!(!is_react_component_name("componentname"));
+        assert!(!is_react_component_name("use"));
+    }
+
+    #[test]
+    fn test_is_react_hook() {
+        let alloc = Allocator::default();
+        let ast = AstBuilder::new(&alloc);
+
+        // Identifier: useState
+        let use_state = Expression::new_identifier(Span::default(), "useState", &ast);
+        assert!(is_react_hook(&use_state));
+
+        // Identifier: use
+        let just_use = Expression::new_identifier(Span::default(), "use", &ast);
+        assert!(is_react_hook(&just_use));
+
+        // Identifier: userError, should not be considered a hook despite starting with "use"
+        let user_error = Expression::new_identifier(Span::default(), "userError", &ast);
+        assert!(!is_react_hook(&user_error));
+
+        // Identifier that's not a hook
+        let not_hook = Expression::new_identifier(Span::default(), "notAHook", &ast);
+        assert!(!is_react_hook(&not_hook));
+
+        // Static member: React.useEffect -> valid
+        let react_obj = Expression::new_identifier(Span::default(), "React", &ast);
+        let prop = IdentifierName::new(Span::default(), "useEffect", &ast);
+        let react_use_effect =
+            Expression::new_static_member_expression(Span::default(), react_obj, prop, false, &ast);
+        assert!(is_react_hook(&react_use_effect));
+
+        // Static member: react.useEffect -> invalid because namespace isn't PascalCase
+        let react_lower = Expression::new_identifier(Span::default(), "react", &ast);
+        let prop2 = IdentifierName::new(Span::default(), "useEffect", &ast);
+        let react_lower_use_effect = Expression::new_static_member_expression(
+            Span::default(),
+            react_lower,
+            prop2,
+            false,
+            &ast,
+        );
+        assert!(!is_react_hook(&react_lower_use_effect));
+    }
+
+    #[test]
+    fn test_is_react_hook_name() {
+        // Good names:
+        assert!(is_react_hook_name("useState"));
+        assert!(is_react_hook_name("useFooBar"));
+        assert!(is_react_hook_name("useEffect"));
+        assert!(is_react_hook_name("use"));
+        assert!(is_react_hook_name("use2FAMutation"));
+        assert!(is_react_hook_name("use3DEngine"));
+        // Bad names:
+        assert!(!is_react_hook_name("userError"));
+        assert!(!is_react_hook_name("notAHook"));
+        assert!(!is_react_hook_name("UseState"));
+        assert!(!is_react_hook_name("Use"));
+        assert!(!is_react_hook_name("user"));
+        assert!(!is_react_hook_name("use_state"));
+    }
+
+    #[test]
+    fn test_is_es5_component() {
+        use oxc_parser::Parser;
+        use oxc_semantic::SemanticBuilder;
+        use oxc_span::SourceType;
+
+        // Returns true if any of the nodes in the code snippets are an es5 component.
+        let cases: Vec<(&str, bool)> = vec![
+            ("createReactClass({})", true),
+            ("React.createReactClass({})", true),
+            ("createReactClass({ render() {} })", true),
+            ("/* createReactClass({ render() {} }) */", false),
+            ("// createReactClass({ render() {} })", false),
+            ("somethingElse({})", false),
+            ("React.somethingElse({})", false),
+            ("let x = 1;", false),
+        ];
+
+        for (source, expected) in cases {
+            let allocator = Allocator::default();
+            let source_type = SourceType::jsx();
+            let parser_ret = Parser::new(&allocator, source, source_type).parse();
+            assert!(parser_ret.diagnostics.is_empty(), "Parse error in: {source}");
+            let semantic =
+                SemanticBuilder::new_linter().build(allocator.alloc(parser_ret.program)).semantic;
+
+            let found = semantic.nodes().iter().any(|node| is_es5_component(node));
+            assert_eq!(found, expected, "Failed for: {source}");
+        }
+    }
+
+    #[test]
+    fn test_get_jsx_element_name() {
+        use oxc_parser::Parser;
+        use oxc_semantic::SemanticBuilder;
+        use oxc_span::SourceType;
+
+        let cases: Vec<(&str, &str)> = vec![
+            ("const App = () => <div />", "div"),
+            ("const App = () => <Foo />", "Foo"),
+            ("const App = () => <AntdLayout.Content />", "AntdLayout.Content"),
+            (
+                "class App extends React.Component { render() { return <this.Modal />; } }",
+                "this.Modal",
+            ),
+            ("const App = () => <fbt:param />", "fbt:param"),
+            ("const App = () => <App.Foo.Bar.Baz />", "App.Foo.Bar.Baz"),
+        ];
+
+        for (source, expected) in cases {
+            let allocator = Allocator::default();
+            let parser_ret = Parser::new(&allocator, source, SourceType::tsx()).parse();
+            assert!(parser_ret.diagnostics.is_empty(), "Parse error in: {source}");
+
+            let semantic =
+                SemanticBuilder::new_linter().build(allocator.alloc(parser_ret.program)).semantic;
+            let found = semantic.nodes().iter().find_map(|node| {
+                if let super::AstKind::JSXOpeningElement(opening) = node.kind() {
+                    Some(get_jsx_element_name(&opening.name).into_owned())
+                } else {
+                    None
+                }
+            });
+
+            assert_eq!(found.as_deref(), Some(expected), "Failed for: {source}");
+        }
+    }
+
+    #[test]
+    fn test_is_es6_component() {
+        use oxc_parser::Parser;
+        use oxc_semantic::SemanticBuilder;
+        use oxc_span::SourceType;
+
+        // Returns true if any of the nodes in the code snippets are an es6 component.
+        let cases: Vec<(&str, bool)> = vec![
+            ("class Foo extends React.Component {}", true),
+            ("class Foo extends React.PureComponent {}", true),
+            ("class Foo extends Component {}", true),
+            ("class Foo extends PureComponent {}", true),
+            ("class Foo extends Bar {}", false),
+            ("/* class Foo extends PureComponent {} */", false),
+            ("// class Foo extends PureComponent {}", false),
+            ("class Foo {}", false),
+            ("function Foo() {}", false),
+            ("const Foo = () => {}", false),
+            ("const Component = () => {}", false),
+            ("let Component = () => {}", false),
+            // Not an es6 component, this is a function component.
+            (
+                "
+                export function Foo({ to, children }: { to: string; children: React.ReactNode }) {
+                  return (
+                    <Link className={linkClass} to={to}>
+                      {children}
+                    </Link>
+                  )
+                }",
+                false,
+            ),
+            (
+                r#"
+                export const Bar = ({ ...props }: React.ComponentProps<'button'>) => {
+                  return (
+                    <button type="button" className={linkClass} {...props}>
+                      <Foo />
+                    </button>
+                  )
+                }"#,
+                false,
+            ),
+        ];
+
+        for (source, expected) in cases {
+            let allocator = Allocator::default();
+            let source_type = SourceType::tsx();
+            let parser_ret = Parser::new(&allocator, source, source_type).parse();
+            assert!(parser_ret.diagnostics.is_empty(), "Parse error in: {source}");
+            let semantic =
+                SemanticBuilder::new_linter().build(allocator.alloc(parser_ret.program)).semantic;
+
+            let found = semantic.nodes().iter().any(|node| is_es6_component(node));
+            assert_eq!(found, expected, "Failed for: {source}");
+        }
+    }
+}

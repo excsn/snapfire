@@ -25,11 +25,13 @@ pub struct Config {
   inherit: bool,
   layers: Vec<Layer>,
   ignores: Vec<Glob>,
+  /// ESLint's `settings`, which plugin rules read: `react`, `jsx-a11y`.
+  settings: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Default for Config {
   fn default() -> Self {
-    Config { inherit: true, layers: Vec::new(), ignores: Vec::new() }
+    Config { inherit: true, layers: Vec::new(), ignores: Vec::new(), settings: serde_json::Map::new() }
   }
 }
 
@@ -38,7 +40,7 @@ impl Config {
     let fail = |message: String| ConfigError::Parse { path: path.to_owned(), message };
     let table: toml::Table = text.parse().map_err(|e: toml::de::Error| fail(e.message().to_owned()))?;
     let mut config = Config::default();
-    if let Some(other) = table.keys().find(|k| !matches!(k.as_str(), "inherit" | "ignores" | "rules" | "overrides")) {
+    if let Some(other) = table.keys().find(|k| !matches!(k.as_str(), "inherit" | "ignores" | "rules" | "overrides" | "settings")) {
       return Err(fail(format!("no setting is called `{other}`")));
     }
     if let Some(value) = table.get("inherit") {
@@ -49,6 +51,12 @@ impl Config {
       for glob in globs {
         let glob = glob.as_str().ok_or_else(|| fail("a glob in `ignores` is a string".to_owned()))?;
         config.ignores.push(Glob::new(glob).map_err(|e| fail(format!("`{glob}`: {e}")))?);
+      }
+    }
+    if let Some(value) = table.get("settings") {
+      match serde_json::to_value(value).map_err(|e| fail(format!("`settings`: {e}")))? {
+        serde_json::Value::Object(settings) => config.settings = settings,
+        _ => return Err(fail("`settings` is a table".to_owned())),
       }
     }
     if let Some(value) = table.get("rules") {
@@ -120,12 +128,21 @@ impl Config {
   pub fn over(self, parent: Config) -> Config {
     match self.inherit {
       false => self,
-      true => Config { inherit: parent.inherit, layers: parent.layers.into_iter().chain(self.layers).collect(), ignores: parent.ignores.into_iter().chain(self.ignores).collect() },
+      true => Config {
+        inherit: parent.inherit,
+        layers: parent.layers.into_iter().chain(self.layers).collect(),
+        ignores: parent.ignores.into_iter().chain(self.ignores).collect(),
+        settings: merged(parent.settings, self.settings),
+      },
     }
   }
 
   pub(crate) fn layers(&self) -> &[Layer] {
     &self.layers
+  }
+
+  pub(crate) fn settings(&self) -> &serde_json::Map<String, serde_json::Value> {
+    &self.settings
   }
 
   pub(crate) fn ignored(&self) -> GlobSet {
@@ -135,6 +152,19 @@ impl Config {
     }
     set.build().unwrap_or_else(|_| GlobSet::empty())
   }
+}
+
+/// `over`'s settings over `under`'s, table by table.
+fn merged(under: serde_json::Map<String, serde_json::Value>, over: serde_json::Map<String, serde_json::Value>) -> serde_json::Map<String, serde_json::Value> {
+  let mut out = under;
+  for (key, value) in over {
+    let value = match (out.remove(&key), value) {
+      (Some(serde_json::Value::Object(under)), serde_json::Value::Object(over)) => serde_json::Value::Object(merged(under, over)),
+      (_, value) => value,
+    };
+    out.insert(key, value);
+  }
+  out
 }
 
 /// The typescript-eslint rules that extend an ESLint rule of the same name, which is the rule run here.
@@ -160,13 +190,17 @@ const TYPESCRIPT_EXTENDS: [&str; 18] = [
 ];
 
 /// A rule id as the linter knows it. An ESLint name without a plugin is the `eslint/` rule, and a
-/// `@typescript-eslint/` name is the `typescript/` rule, or the `eslint/` rule it extends.
+/// `@typescript-eslint/` name is the `typescript/` rule, or the `eslint/` rule it extends. A `react-hooks/` name
+/// is the `react/` rule, where oxlint keeps the hooks rules.
 pub(crate) fn full_id(id: &str) -> String {
   if let Some(name) = id.strip_prefix("@typescript-eslint/") {
     return match TYPESCRIPT_EXTENDS.contains(&name) {
       true => format!("eslint/{name}"),
       false => format!("typescript/{name}"),
     };
+  }
+  if let Some(name) = id.strip_prefix("react-hooks/") {
+    return format!("react/{name}");
   }
   match id.contains('/') {
     true => id.to_owned(),

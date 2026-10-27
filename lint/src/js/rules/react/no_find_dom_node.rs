@@ -1,0 +1,247 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/react/no_find_dom_node.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn no_find_dom_node_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unexpected call to `findDOMNode`.")
+        .with_help("Replace `findDOMNode` with one of the alternatives documented at https://react.dev/reference/react-dom/findDOMNode#alternatives.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoFindDomNode;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// This rule disallows the use of `findDOMNode`, which was deprecated in 2018 and removed in React 19.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// `findDOMNode` is an escape hatch used to access the underlying DOM node.
+    /// In most cases, use of this escape hatch is discouraged because it pierces the component abstraction.
+    /// It has been deprecated for years, and was
+    /// [removed from React entirely in React 19](https://react.dev/blog/2024/04/25/react-19-upgrade-guide#removed-reactdom-finddomnode).
+    ///
+    /// It should not be used.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```jsx
+    /// class MyComponent extends Component {
+    ///   componentDidMount() {
+    ///     findDOMNode(this).scrollIntoView();
+    ///   }
+    ///   render() {
+    ///     return <div />;
+    ///   }
+    /// }
+    /// ```
+    NoFindDomNode,
+    "react",
+    "no-find-dom-node",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoFindDomNode {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else {
+            return;
+        };
+
+        if let Some(ident) = call_expr.callee.get_identifier_reference() {
+            if ident.name == "findDOMNode" {
+                ctx.diagnostic(no_find_dom_node_diagnostic(ident.span));
+            }
+            return;
+        }
+
+        let Some(member_expr) = call_expr.callee.get_member_expr() else {
+            return;
+        };
+        let member = member_expr.object();
+        if !member.is_specific_id("React")
+            && !member.is_specific_id("ReactDOM")
+            && !member.is_specific_id("ReactDom")
+        {
+            return;
+        }
+        let Some((span, name)) = member_expr.static_property_info() else {
+            return;
+        };
+        if name != "findDOMNode" {
+            return;
+        }
+        ctx.diagnostic(no_find_dom_node_diagnostic(span));
+    }
+}
+
+#[test]
+fn test() {
+    use std::path::PathBuf;
+
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        ("var Hello = function() {};", None, None, None),
+        (
+            r"
+            var Hello = createReactClass({
+              render: function() {
+                return <div>Hello</div>;
+              }
+            });
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            var Hello = createReactClass({
+              componentDidMount: function() {
+                someNonMemberFunction(arg);
+                this.someFunc = React.findDOMNode;
+              },
+              render: function() {
+                return <div>Hello</div>;
+              }
+            });
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            var Hello = createReactClass({
+              componentDidMount: function() {
+                React.someFunc(this);
+              },
+              render: function() {
+                return <div>Hello</div>;
+              }
+            });
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            var Hello = createReactClass({
+              componentDidMount: function() {
+                SomeModule.findDOMNode(this).scrollIntoView();
+              },
+              render: function() {
+                return <div>Hello</div>;
+              }
+            });
+            ",
+            None,
+            None,
+            None,
+        ),
+    ];
+
+    let fail = vec![
+        (
+            r"
+            var Hello = createReactClass({
+              componentDidMount: function() {
+                React.findDOMNode(this).scrollIntoView();
+              },
+              render: function() {
+                return <div>Hello</div>;
+              }
+            });
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            var Hello = createReactClass({
+              componentDidMount: function() {
+                ReactDOM.findDOMNode(this).scrollIntoView();
+              },
+              render: function() {
+                return <div>Hello</div>;
+              }
+            });
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            var Hello = createReactClass({
+              componentDidMount: function() {
+                ReactDom.findDOMNode(this).scrollIntoView();
+              },
+              render: function() {
+                return <div>Hello</div>;
+              }
+            });
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            class Hello extends Component {
+              componentDidMount() {
+                findDOMNode(this).scrollIntoView();
+              }
+              render() {
+                return <div>Hello</div>;
+              }
+            }
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            class Hello extends Component {
+              componentDidMount() {
+                this.node = findDOMNode(this);
+              }
+              render() {
+                return <div>Hello</div>;
+              }
+            }
+            ",
+            None,
+            None,
+            None,
+        ),
+        (
+            r"
+            import ReactDOM from 'react-dom';
+            class Demo extends React.Component {
+              foo() {
+                ReactDOM.findDOMNode(this);
+              }
+            }
+            ",
+            None,
+            None,
+            Some(PathBuf::from("demo.ts")),
+        ),
+    ];
+
+    Tester::new(NoFindDomNode::NAME, NoFindDomNode::PLUGIN, pass, fail).test();
+}

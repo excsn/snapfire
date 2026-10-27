@@ -1,0 +1,192 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/typescript/no_misused_new.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{
+        ClassElement, IdentifierReference, PropertyKey, TSSignature, TSType, TSTypeAnnotation,
+        TSTypeName,
+    },
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn no_misused_new_interface_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Interfaces cannot be constructed, only classes.")
+        .with_help("Consider removing this method from your interface.")
+        .with_label(span)
+}
+
+fn no_misused_new_class_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Class cannot have method named `new`.")
+        .with_help("This method name is confusing, consider renaming the method to `constructor`")
+        .with_label(span)
+}
+
+fn get_return_type_identifier<'a, 'b>(
+    return_type: Option<&'b TSTypeAnnotation<'a>>,
+) -> Option<&'b IdentifierReference<'a>> {
+    if let Some(return_type) = return_type
+        && let TSType::TSTypeReference(type_ref) = &return_type.type_annotation
+        && let TSTypeName::IdentifierReference(id) = &type_ref.type_name
+    {
+        Some(id)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoMisusedNew;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Enforces valid definitions of `new` and `constructor`. This rule prevents classes from defining
+    /// a method named `new`, interfaces from defining a method named `constructor`, and interfaces
+    /// from defining a construct signature that returns the interface itself.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// JavaScript classes may define a constructor method that runs
+    /// when a class instance is newly created.
+    ///
+    /// TypeScript allows interfaces that describe a static class object to
+    /// define a `new()` signature (though this is rarely used in real world code). That construct
+    /// signature should return the constructed instance type, not the interface for the constructor
+    /// object itself.
+    /// Developers new to JavaScript classes and/or TypeScript interfaces may
+    /// sometimes confuse when to use constructor or new.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```typescript
+    /// declare class C {
+    ///   new(): C;
+    /// }
+    /// ```
+    ///
+    /// ```typescript
+    /// interface I {
+    ///   new (): I;
+    /// }
+    /// ```
+    ///
+    /// ```typescript
+    /// interface I {
+    ///   constructor(): void;
+    /// }
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```typescript
+    /// declare class C {
+    ///   constructor();
+    /// }
+    /// ```
+    ///
+    /// ```typescript
+    /// class C {}
+    ///
+    /// interface I {
+    ///   new (): C;
+    /// }
+    /// ```
+    NoMisusedNew,
+    "typescript",
+    "no-misused-new",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoMisusedNew {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        match node.kind() {
+            AstKind::TSInterfaceDeclaration(interface_decl) => {
+                let decl_name = &interface_decl.id.name;
+
+                for signature in &interface_decl.body.body {
+                    let TSSignature::TSConstructSignatureDeclaration(sig) = signature else {
+                        continue;
+                    };
+                    if let Some(id) = get_return_type_identifier(sig.return_type.as_deref())
+                        && id.name == decl_name
+                    {
+                        ctx.diagnostic(no_misused_new_interface_diagnostic(Span::sized(
+                            sig.span.start,
+                            3,
+                        )));
+                    }
+                }
+            }
+            AstKind::TSMethodSignature(method_sig) => {
+                if let PropertyKey::StaticIdentifier(id) = &method_sig.key
+                    && id.name == "constructor"
+                {
+                    ctx.diagnostic(no_misused_new_interface_diagnostic(method_sig.key.span()));
+                }
+            }
+            AstKind::Class(cls) => {
+                let Some(cls_id) = &cls.id else {
+                    return;
+                };
+                let cls_name = &cls_id.name;
+
+                for element in &cls.body.body {
+                    let ClassElement::MethodDefinition(method) = element else {
+                        continue;
+                    };
+                    if method.key.is_specific_id("new")
+                        && method.value.body.is_none()
+                        && let Some(current_id) =
+                            get_return_type_identifier(method.value.return_type.as_deref())
+                        && current_id.name == cls_name
+                    {
+                        ctx.diagnostic(no_misused_new_class_diagnostic(method.key.span()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn should_run(&self, ctx: &crate::js::context::ContextHost) -> bool {
+        ctx.source_type().is_typescript()
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "declare abstract class C { foo(); get new();bar();}",
+        "class C { constructor();}",
+        "const foo = class { constructor();};",
+        "const foo = class { new(): X;};",
+        "class C { new() {} }",
+        "class C { constructor() {} }",
+        "const foo = class { new() {} };",
+        "const foo = class { constructor() {} };",
+        "interface I { new (): {}; }",
+        "type T = { new (): T };",
+        "export default class { constructor(); }",
+        "interface foo { new <T>(): bar<T>; }",
+        "interface foo { new <T>(): 'x'; }",
+    ];
+
+    let fail = vec![
+        "interface I { new (): I; constructor(): void;}",
+        "interface G { new <T>(): G<T>;}",
+        "type T = { constructor(): void;};",
+        "class C { new(): C;}",
+        "declare abstract class C { new(): C;}",
+        "interface I { constructor(): '';}",
+    ];
+
+    Tester::new(NoMisusedNew::NAME, NoMisusedNew::PLUGIN, pass, fail).test();
+}

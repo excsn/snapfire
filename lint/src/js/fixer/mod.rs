@@ -1,5 +1,6 @@
 // Derived from oxc_linter at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
 
+use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_span::{GetSpan, Span};
 #[cfg(test)]
@@ -181,6 +182,14 @@ impl<'c, 'a: 'c> RuleFixer<'c, 'a> {
     #[inline]
     pub fn find_next_token_within(&self, start: u32, end: u32, token: &str) -> Option<u32> {
         self.ctx.find_next_token_within(start, end, token)
+    }
+
+    #[must_use]
+    pub fn codegen(self) -> Codegen<'a> {
+        Codegen::new()
+            .with_source_text(self.source_text())
+            .with_source_type(*self.ctx.source_type())
+            .with_options(CodegenOptions { single_quote: true, ..CodegenOptions::default() })
     }
 
     pub fn noop(&self) -> RuleFix {

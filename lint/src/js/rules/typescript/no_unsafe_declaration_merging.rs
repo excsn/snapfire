@@ -1,0 +1,168 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/typescript/no_unsafe_declaration_merging.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{AstKind, ast::BindingIdentifier};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_semantic::SymbolId;
+use oxc_span::Span;
+
+use crate::js::{
+    AstNode,
+    context::{ContextHost, LintContext},
+    rule::Rule,
+};
+
+fn no_unsafe_declaration_merging_diagnostic(span: Span, span1: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unsafe declaration merging between classes and interfaces.")
+        .with_help("The TypeScript compiler doesn't check whether properties are initialized, which can lead to TypeScript not detecting code that will cause runtime errors.")
+        .with_labels(if span < span1 { [span, span1]} else { [span1, span] })
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoUnsafeDeclarationMerging;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow unsafe declaration merging.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Declaration merging between classes and interfaces is unsafe.
+    /// The TypeScript compiler doesn't check whether properties are initialized, which can lead to TypeScript not detecting code that will cause runtime errors.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```ts
+    /// interface Foo {}
+    /// class Foo {}
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```ts
+    /// interface Foo {}
+    /// class Bar {}
+    /// ```
+    NoUnsafeDeclarationMerging,
+    "typescript",
+    "no-unsafe-declaration-merging",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoUnsafeDeclarationMerging {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        match node.kind() {
+            AstKind::Class(decl) => {
+                if let Some(ident) = decl.id.as_ref()
+                    && let Some(symbol_id) = ctx.scoping().get_binding(node.scope_id(), ident.name)
+                    && let AstKind::TSInterfaceDeclaration(scope_interface) =
+                        get_symbol_kind(symbol_id, ctx)
+                {
+                    check_and_diagnostic(ident, &scope_interface.id, ctx);
+                }
+            }
+            AstKind::TSInterfaceDeclaration(decl) => {
+                if let Some(symbol_id) = ctx.scoping().get_binding(node.scope_id(), decl.id.name)
+                    && let AstKind::Class(scope_class) = get_symbol_kind(symbol_id, ctx)
+                    && let Some(scope_class_ident) = scope_class.id.as_ref()
+                {
+                    check_and_diagnostic(&decl.id, scope_class_ident, ctx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn should_run(&self, ctx: &ContextHost) -> bool {
+        ctx.source_type().is_typescript()
+    }
+}
+
+fn check_and_diagnostic(
+    ident: &BindingIdentifier,
+    scope_ident: &BindingIdentifier,
+    ctx: &LintContext<'_>,
+) {
+    if scope_ident.name.as_str() == ident.name.as_str() {
+        ctx.diagnostic(no_unsafe_declaration_merging_diagnostic(ident.span, scope_ident.span));
+    }
+}
+
+fn get_symbol_kind<'a>(symbol_id: SymbolId, ctx: &LintContext<'a>) -> AstKind<'a> {
+    ctx.nodes().get_node(ctx.scoping().symbol_declaration(symbol_id)).kind()
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "
+            interface Foo {}
+            class Bar implements Foo {}
+                ",
+        "
+                     namespace Foo {}
+                     namespace Foo {}
+                         ",
+        "
+                     enum Foo {}
+                     namespace Foo {}
+                         ",
+        "
+                     namespace Fooo {}
+                     function Foo() {}
+                         ",
+        "
+                     const Foo = class {};
+                         ",
+        "
+                     interface Foo {
+                       props: string;
+                     }
+
+                     function bar() {
+                       return class Foo {};
+                     }
+                         ",
+        "
+                     interface Foo {
+                       props: string;
+                     }
+
+                     (function bar() {
+                       class Foo {}
+                     })();
+                         ",
+        "
+                     declare global {
+                       interface Foo {}
+                     }
+
+                     class Foo {}
+                         ",
+    ];
+
+    let fail = vec![
+        "
+            interface Foo {}
+            class Foo {}
+                  ",
+        "
+                     class Foo {}
+                     interface Foo {}
+                           ",
+        "
+                     declare global {
+                       interface Foo {}
+                       class Foo {}
+                     }
+                           ",
+    ];
+
+    Tester::new(NoUnsafeDeclarationMerging::NAME, NoUnsafeDeclarationMerging::PLUGIN, pass, fail)
+        .test();
+}

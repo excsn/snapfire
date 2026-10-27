@@ -1,0 +1,317 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/typescript/triple_slash_reference.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::ast::{Statement, TSModuleReference};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
+
+use crate::js::{
+    context::{ContextHost, LintContext},
+    rule::{DefaultRuleConfig, Rule},
+    utils::AlwaysNever,
+};
+
+fn triple_slash_reference_diagnostic(ref_kind: &str, span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn(format!("Do not use a triple slash reference for {ref_kind}, use `import` style instead."))
+        .with_help("Use of triple-slash reference type directives is generally discouraged in favor of ECMAScript Module imports.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct TripleSlashReference(Box<TripleSlashReferenceConfig>);
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct TripleSlashReferenceConfig {
+    /// What to enforce for `/// <reference lib="..." />` references.
+    lib: AlwaysNever,
+    /// What to enforce for `/// <reference path="..." />` references.
+    path: PathOption,
+    /// What to enforce for `/// <reference types="..." />` references.
+    types: TypesOption,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum PathOption {
+    /// Allow triple-slash `path` references.
+    Always,
+    #[default]
+    /// Disallow triple-slash `path` references.
+    Never,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum TypesOption {
+    /// Allow triple-slash `types` references.
+    Always,
+    /// Disallow triple-slash `types` references.
+    Never,
+    #[default]
+    /// Prefer ES module import declarations over triple-slash `types` references.
+    /// This option only reports when there is an existing `import` declaration for the same module.
+    ///
+    /// For example, this would be reported as a lint violation with `prefer-import`:
+    /// ```ts
+    /// /// <reference types="foo" />
+    /// import { bar } from 'foo';
+    /// ```
+    PreferImport,
+}
+
+impl std::ops::Deref for TripleSlashReference {
+    type Target = TripleSlashReferenceConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow certain triple slash directives in favor of ES module import declarations.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Use of triple-slash reference type directives is generally discouraged in favor of ECMAScript Module imports.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```ts
+    /// /// <reference lib="code" />
+    /// globalThis.value;
+    /// ```
+    TripleSlashReference,
+    "typescript",
+    "triple-slash-reference",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for TripleSlashReference {
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        DefaultRuleConfig::<Self>::from_value(value).map(DefaultRuleConfig::into_inner)
+    }
+
+    fn run_once(&self, ctx: &LintContext) {
+        let program = ctx.nodes().program();
+
+        // We don't need to iterate over all comments since Triple-slash directives are only valid at the top of their containing file.
+        // We are trying to get the first statement start potioin, falling back to the program end if statement does not exist
+        let comments_range_end = program.body.first().map_or(program.span.end, |v| v.span().start);
+        let mut refs_for_import = FxHashMap::default();
+
+        for comment in ctx.comments_range(0..comments_range_end) {
+            let raw = ctx.source_range(comment.content_span());
+            if let Some((group1, group2)) = get_attr_key_and_value(raw) {
+                if (group1 == "types" && self.types == TypesOption::Never)
+                    || (group1 == "path" && self.path == PathOption::Never)
+                    || (group1 == "lib" && self.lib == AlwaysNever::Never)
+                {
+                    ctx.diagnostic(triple_slash_reference_diagnostic(group2, comment.span));
+                }
+
+                if group1 == "types" && self.types == TypesOption::PreferImport {
+                    refs_for_import.insert(group2, comment.span);
+                }
+            }
+        }
+
+        if !refs_for_import.is_empty() {
+            for stmt in &program.body {
+                match stmt {
+                    Statement::TSImportEqualsDeclaration(decl) => match &decl.module_reference {
+                        TSModuleReference::ExternalModuleReference(mod_ref) => {
+                            if let Some(value) = mod_ref.expression.value.as_str()
+                                && let Some(v) = refs_for_import.get(value)
+                            {
+                                ctx.diagnostic(triple_slash_reference_diagnostic(value, *v));
+                            }
+                        }
+                        TSModuleReference::IdentifierReference(_)
+                        | TSModuleReference::QualifiedName(_) => {}
+                    },
+                    Statement::ImportDeclaration(decl) => {
+                        if let Some(value) = decl.source.value.as_str()
+                            && let Some(v) = refs_for_import.get(value)
+                        {
+                            ctx.diagnostic(triple_slash_reference_diagnostic(value, *v));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn should_run(&self, ctx: &ContextHost) -> bool {
+        ctx.source_type().is_typescript()
+    }
+}
+
+fn get_attr_key_and_value(raw: &str) -> Option<(&str, &str)> {
+    if !raw.starts_with('/') {
+        return None;
+    }
+
+    let reference_start = "<reference ";
+    let reference_end = "/>";
+
+    if let Some(start_idx) = raw.find(reference_start)
+        && let Some(end_idx) = raw[start_idx..].find(reference_end)
+    {
+        let reference_str = &raw[start_idx + reference_start.len()..start_idx + end_idx];
+
+        let (key, value) = reference_str
+            .split_whitespace()
+            .find(|part| {
+                part.starts_with("types=") || part.starts_with("path=") || part.starts_with("lib=")
+            })?
+            .split_once('=')?;
+
+        // Preserve rejection of attributes containing additional equals signs.
+        if value.contains('=') {
+            return None;
+        }
+        return Some((key.trim().trim_matches('"'), value.trim_matches('"').trim_end_matches('/')));
+    }
+    None
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        (
+            r#"
+                    // <reference path="foo" />
+                    // <reference types="bar" />
+                    // <reference lib="baz" />
+                    import * as foo from 'foo';
+                    import * as bar from 'bar';
+                    import * as baz from 'baz';
+                  "#,
+            Some(serde_json::json!([{ "lib": "never", "path": "never", "types": "never" }])),
+        ),
+        (
+            r#"
+                    // <reference path="foo" />
+                    // <reference types="bar" />
+                    // <reference lib="baz" />
+                    import foo = require('foo');
+                    import bar = require('bar');
+                    import baz = require('baz');
+                  "#,
+            Some(serde_json::json!([{ "lib": "never", "path": "never", "types": "never" }])),
+        ),
+        (
+            r#"
+                    /// <reference path="foo" />
+                    /// <reference types="bar" />
+                    /// <reference lib="baz" />
+                    import * as foo from 'foo';
+                    import * as bar from 'bar';
+                    import * as baz from 'baz';
+                  "#,
+            Some(serde_json::json!([{ "lib": "always", "path": "always", "types": "always" }])),
+        ),
+        (
+            r#"
+                    /// <reference path="foo" />
+                    /// <reference types="bar" />
+                    /// <reference lib="baz" />
+                    import foo = require('foo');
+                    import bar = require('bar');
+                    import baz = require('baz');
+                  "#,
+            Some(serde_json::json!([{ "lib": "always", "path": "always", "types": "always" }])),
+        ),
+        (
+            r#"
+                    /// <reference path="foo" />
+                    /// <reference types="bar" />
+                    /// <reference lib="baz" />
+                    import foo = foo;
+                    import bar = bar;
+                    import baz = baz;
+                  "#,
+            Some(serde_json::json!([{ "lib": "always", "path": "always", "types": "always" }])),
+        ),
+        (
+            r#"
+                    /// <reference path="foo" />
+                    /// <reference types="bar" />
+                    /// <reference lib="baz" />
+                    import foo = foo.foo;
+                    import bar = bar.bar.bar.bar;
+                    import baz = baz.baz;
+                  "#,
+            Some(serde_json::json!([{ "lib": "always", "path": "always", "types": "always" }])),
+        ),
+        ("import * as foo from 'foo';", Some(serde_json::json!([{ "path": "never" }]))),
+        ("import foo = require('foo');", Some(serde_json::json!([{ "path": "never" }]))),
+        ("import * as foo from 'foo';", Some(serde_json::json!([{ "types": "never" }]))),
+        ("import foo = require('foo');", Some(serde_json::json!([{ "types": "never" }]))),
+        ("import * as foo from 'foo';", Some(serde_json::json!([{ "lib": "never" }]))),
+        ("import foo = require('foo');", Some(serde_json::json!([{ "lib": "never" }]))),
+        ("import * as foo from 'foo';", Some(serde_json::json!([{ "types": "prefer-import" }]))),
+        ("import foo = require('foo');", Some(serde_json::json!([{ "types": "prefer-import" }]))),
+        (
+            r#"
+                    /// <reference types="foo" />
+                    import * as bar from 'bar';
+                  "#,
+            Some(serde_json::json!([{ "types": "prefer-import" }])),
+        ),
+        (
+            r#"
+                    /*
+                    /// <reference types="foo" />
+                    */
+                    import * as foo from 'foo';
+                  "#,
+            Some(serde_json::json!([{ "lib": "never", "path": "never", "types": "never" }])),
+        ),
+    ];
+
+    let fail = vec![
+        (
+            r#"
+            /// <reference types="foo" />
+            import * as foo from 'foo';
+                  "#,
+            Some(serde_json::json!([{ "types": "prefer-import" }])),
+        ),
+        (
+            r#"
+            /// <reference types="foo" />
+            import foo = require('foo');
+                  "#,
+            Some(serde_json::json!([{ "types": "prefer-import" }])),
+        ),
+        (r#"/// <reference path="foo" />"#, Some(serde_json::json!([{ "path": "never" }]))),
+        (r#"/// <reference types="foo" />"#, Some(serde_json::json!([{ "types": "never" }]))),
+        (r#"/// <reference lib="foo" />"#, Some(serde_json::json!([{ "lib": "never" }]))),
+    ];
+
+    Tester::new(TripleSlashReference::NAME, TripleSlashReference::PLUGIN, pass, fail)
+        .test();
+}
+
+#[test]
+fn test_first_reference_attribute() {
+    assert_eq!(
+        get_attr_key_and_value(r#"/ <reference types="first" path="second" />"#),
+        Some(("types", "first")),
+    );
+    assert_eq!(get_attr_key_and_value(r#"/ <reference types="a=b" path="valid" />"#), None);
+    assert_eq!(get_attr_key_and_value(r#"/ <reference unrelated="value" />"#), None);
+    assert_eq!(get_attr_key_and_value(r#"/ <reference path="pkg"/>"#), Some(("path", "pkg")),);
+}

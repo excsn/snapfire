@@ -3,13 +3,17 @@
 usage:
   python3 -I lint/scripts/port_oxlint.py port OXC_CHECKOUT PLUGIN RULE...
   python3 -I lint/scripts/port_oxlint.py port OXC_CHECKOUT PLUGIN --recommended
+  python3 -I lint/scripts/port_oxlint.py copy OXC_CHECKOUT SOURCE DEST
   python3 -I lint/scripts/port_oxlint.py registry
 
 OXC_CHECKOUT is a checkout of github.com/oxc-project/oxc at the `crates_vX.Y.Z` tag whose oxc crates
 lint/Cargo.toml depends on. RULE is a path under crates/oxc_linter/src/rules/PLUGIN/: `no_debugger.rs`, or
 `no_unused_vars/mod.rs` for a rule with its own directory. `--recommended` ports every rule of PLUGIN that
 oxlint's recommended set turns on. `port` writes into lint/src/js/rules/PLUGIN/ and ends by regenerating the
-registry. `registry` rewrites lint/src/js/rules/mod.rs from the rule files present.
+registry. A rule oxlint runs through tsgolint has no Rust body and is skipped. `copy` brings one framework
+file, SOURCE under crates/oxc_linter/src/, to DEST under lint/src/js/ with the same rewrites. `registry`
+rewrites lint/src/js/rules/mod.rs from the rule files present. A plugin's directory is oxlint's name for it,
+`jsx_a11y`; its rule ids use ESLint's, `jsx-a11y/alt-text`.
 
 A ported file starts with the MIT notice and the path it came from. The script rewrites `crate::` to
 `crate::js::`, `declare_oxc_lint!` to `declare_rule!`, removes `schemars` and switches tests from
@@ -103,13 +107,13 @@ def port_declare(text, plugin):
             raise SystemExit(f"unknown declare_oxc_lint! argument `{part}`")
     if declared_plugin.replace("_", "-") != plugin.replace("_", "-"):
         raise SystemExit(f"{name} is in plugin {declared_plugin}")
-    new = "declare_rule!(\n" + "\n".join(docs) + f"\n    {name},\n    \"{plugin}\",\n    \"{kebab(name)}\",\n    {category.capitalize()},\n    recommended = {'true' if recommended else 'false'},\n    fix = {fix_expr(fix)},\n);"
+    new = "declare_rule!(\n" + "\n".join(docs) + f"\n    {name},\n    \"{plugin.replace('_', '-')}\",\n    \"{kebab(name)}\",\n    {category.capitalize()},\n    recommended = {'true' if recommended else 'false'},\n    fix = {fix_expr(fix)},\n);"
     return text[: m.start()] + new + text[m.end() :], name
 
 
 def strip_schemars(text):
     text = text.replace("use schemars::JsonSchema;\n", "")
-    text = re.sub(r"\n[ \t]*#\[schemars\((?:[^()]|\([^()]*\))*\)\]", "", text)
+    text = re.sub(r"\n[ \t]*#\[(schemars|validate)\((?:[^()]|\([^()]*\))*\)\]", "", text)
     text = re.sub(r",\s*JsonSchema\b", "", text)
     text = re.sub(r"\bJsonSchema,\s*", "", text)
     return text
@@ -143,10 +147,12 @@ def strip_orphan_serde(text):
     return "".join(out)
 
 
-def port_file(src, dest, rel, plugin, declare, tag):
+def port_file(src, dest, rel, plugin, declare, tag, origin=None):
     text = open(src).read()
     text = re.sub(r"\bcrate::(?!js::)", "crate::js::", text)
     text = re.sub(r"\bconfig::GlobalValue\b", "globals::GlobalValue", text)
+    text = re.sub(r"\bconfig::(settings::\w+::)?ReactVersion\b", "settings::ReactVersion", text)
+    text = text.replace("crate::js::rules::ContextHost", "crate::js::context::ContextHost")
     name = None
     if declare:
         text = text.replace("use oxc_macros::declare_oxc_lint;\n", "use crate::js::declare_rule;\n")
@@ -155,7 +161,7 @@ def port_file(src, dest, rel, plugin, declare, tag):
     text = strip_orphan_serde(text)
     text = text.replace(".test_and_snapshot()", ".test()")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    open(dest, "w").write(NOTICE.format(path=f"crates/oxc_linter/src/rules/{rel}", tag=tag) + text)
+    open(dest, "w").write(NOTICE.format(path=origin or f"crates/oxc_linter/src/rules/{rel}", tag=tag) + text)
     return name
 
 
@@ -177,7 +183,7 @@ def recommended(plugin_dir):
         if not rel.endswith(".rs") or not os.path.exists(os.path.join(plugin_dir, rel)):
             continue
         m = re.search(r"declare_oxc_lint!\((.*?)\n\);", open(os.path.join(plugin_dir, rel)).read(), re.S)
-        if m and re.search(r"^\s*recommended,", m.group(1), re.M):
+        if m and re.search(r"^\s*recommended,", m.group(1), re.M) and "(tsgolint)" not in m.group(1):
             out.append(rel)
     return out
 
@@ -203,6 +209,13 @@ def port(checkout, plugin, rules):
 
 
 DECLARED = re.compile(r'declare_rule!\(\n(?:\s*///.*\n)*\s*(\w+),\s*\n\s*"([\w-]+)",\s*\n\s*"([\w-]+)"')
+
+
+def copy(checkout, source, dest):
+    tag = oxc_tag(checkout)
+    js = os.path.join(RULES, "..")
+    port_file(os.path.join(checkout, "crates", "oxc_linter", "src", source), os.path.join(js, dest), source, "", False, tag, f"crates/oxc_linter/src/{source}")
+    print(f"copied {source} to {dest}")
 
 
 def registry():
@@ -237,6 +250,8 @@ pub(crate) static RULES: &[Entry] = &[
 def main():
     if sys.argv[1:2] == ["registry"]:
         registry()
+    elif sys.argv[1:2] == ["copy"] and len(sys.argv) == 5:
+        copy(sys.argv[2], sys.argv[3], sys.argv[4])
     elif sys.argv[1:2] == ["port"] and len(sys.argv) > 4:
         port(sys.argv[2], sys.argv[3], sys.argv[4:])
     else:

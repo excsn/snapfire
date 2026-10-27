@@ -1,0 +1,227 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/jsx_a11y/aria_role.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{JSXAttributeItem, JSXAttributeValue, JSXExpression},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+use serde::Deserialize;
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    globals::{HTML_TAG, VALID_ARIA_ROLES},
+    rule::{DefaultRuleConfig, Rule},
+    utils::{get_element_type, get_prop_value, has_jsx_prop},
+};
+
+fn aria_role_diagnostic(span: Span, help_suffix: &str) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Elements with ARIA roles must use a valid, non-abstract ARIA role.")
+        .with_help(format!(
+            "Set a valid, non-abstract ARIA role for element with ARIA{help_suffix}"
+        ))
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct AriaRole(Box<AriaRoleConfig>);
+
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct AriaRoleConfig {
+    /// Determines if developer-created components are checked.
+    #[serde(rename = "ignoreNonDOM")]
+    ignore_non_dom: bool,
+    /// Custom roles that should be allowed in addition to the ARIA spec.
+    allowed_invalid_roles: Vec<String>,
+}
+
+impl std::ops::Deref for AriaRole {
+    type Target = AriaRoleConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Elements with ARIA roles must use a valid, non-abstract ARIA role. A
+    /// reference to role definitions can be found at
+    /// [WAI-ARIA](https://www.w3.org/TR/wai-aria/#role_definitions) site.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// The intent of this Success Criterion is to ensure that Assistive
+    /// Technologies (AT) can gather information about, activate (or set) and
+    /// keep up to date on the status of user interface controls in the
+    /// content(such as screen readers, screen magnifiers, and speech
+    /// recognition software, used by people with disabilities).
+    ///
+    /// When standard controls from accessible technologies are used, this
+    /// process is straightforward. If the user interface elements are used
+    /// according to specification the conditions of this provision will be met.
+    ///
+    /// If custom controls are created, however, or interface elements are
+    /// programmed (in code or script) to have a different role and/or function
+    /// than usual, then additional measures need to be taken to ensure that the
+    /// controls provide important information to assistive technologies and
+    /// allow themselves to be controlled by assistive technologies.  A
+    /// particularly important state of a user interface control is whether or
+    /// not it has focus. The focus state of a control can be programmatically
+    /// determined, and notifications about change of focus are sent to user
+    /// agents and assistive technology.  Other examples of user interface
+    /// control state are whether or not a checkbox or radio button has been
+    /// selected, or whether or not a collapsible tree or list node is expanded
+    /// or collapsed.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    ///
+    /// ```jsx
+    /// <div role="datepicker"></div> <!-- Bad: "datepicker" is not an ARIA role -->
+    /// <div role="range"></div>      <!-- Bad: "range" is an _abstract_ ARIA role -->
+    /// <div role=""></div>           <!-- Bad: An empty ARIA role is not allowed -->
+    /// <Foo role={role}></Foo>       <!-- Bad: ignoreNonDOM is set to false or not set -->
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```jsx
+    /// <div role="button"></div>     <!-- Good: "button" is a valid ARIA role -->
+    /// <div role={role}></div>       <!-- Good: role is a variable & cannot be determined until runtime. -->
+    /// <div></div>                   <!-- Good: No ARIA role -->
+    /// <Foo role={role}></Foo>       <!-- Good: ignoreNonDOM is set to true -->
+    /// ```
+    AriaRole,
+    "jsx-a11y",
+    "aria-role",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for AriaRole {
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        DefaultRuleConfig::<Self>::from_value(value).map(DefaultRuleConfig::into_inner)
+    }
+
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        if let AstKind::JSXElement(jsx_el) = node.kind()
+            && let Some(aria_role) = has_jsx_prop(&jsx_el.opening_element, "role")
+        {
+            let element_type = get_element_type(ctx, &jsx_el.opening_element);
+
+            if self.ignore_non_dom && !HTML_TAG.contains(element_type.as_ref()) {
+                return;
+            }
+
+            let JSXAttributeItem::Attribute(attr) = aria_role else {
+                return;
+            };
+
+            match get_prop_value(aria_role) {
+                Some(JSXAttributeValue::ExpressionContainer(container)) => {
+                    let jsexp = &container.expression;
+                    if matches!(jsexp, JSXExpression::NullLiteral(_)) || jsexp.is_undefined() {
+                        ctx.diagnostic(aria_role_diagnostic(attr.span, ""));
+                    }
+                }
+                Some(JSXAttributeValue::StringLiteral(str)) => {
+                    let Some(value) = str.value.as_str() else {
+                        ctx.diagnostic(aria_role_diagnostic(str.span, ctx.source_range(str.span)));
+                        return;
+                    };
+                    if value.trim().is_empty() {
+                        ctx.diagnostic(aria_role_diagnostic(str.span, ""));
+                    } else if let Some(error_prop) = value.split_whitespace().find(|word| {
+                        !VALID_ARIA_ROLES.contains(word)
+                            && !self.allowed_invalid_roles.iter().any(|s| s == word)
+                    }) {
+                        ctx.diagnostic(aria_role_diagnostic(
+                            str.span,
+                            &format!(", `{error_prop}` is an invalid aria role"),
+                        ));
+                    }
+                }
+                _ => {
+                    ctx.diagnostic(aria_role_diagnostic(attr.span, ""));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    fn ignore_non_dom_schema() -> serde_json::Value {
+        serde_json::json!([{
+            "ignoreNonDOM": true
+        }])
+    }
+
+    fn allowed_invalid_roles() -> serde_json::Value {
+        serde_json::json!([{
+            "allowedInvalidRoles": ["invalid-role", "other-invalid-role"],
+        }])
+    }
+
+    fn settings() -> serde_json::Value {
+        serde_json::json!({
+            "settings": { "jsx-a11y": {
+                "polymorphicPropName": "asChild",
+                "components": {
+                    "Div": "div",
+                }
+            } }
+        })
+    }
+
+    let pass = vec![
+        ("<div />", None, None),
+        ("<div></div>", None, None),
+        ("<div role={role} />", None, None),
+        ("<div role={role || 'button'} />", None, None),
+        ("<div role={role || 'foobar'} />", None, None),
+        ("<div role='tabpanel row' />", None, None),
+        ("<div role='switch' />", None, None),
+        ("<div role='doc-abstract' />", None, None),
+        ("<div role='doc-appendix doc-bibliography' />", None, None),
+        ("<Bar baz />", None, None),
+        ("<img role='invalid-role' />", Some(allowed_invalid_roles()), None),
+        ("<img role='invalid-role tabpanel' />", Some(allowed_invalid_roles()), None),
+        ("<img role='invalid-role other-invalid-role' />", Some(allowed_invalid_roles()), None),
+        ("<Foo role='bar' />", Some(ignore_non_dom_schema()), None),
+        ("<fakeDOM role='bar' />", Some(ignore_non_dom_schema()), None),
+        ("<img role='presentation' />", Some(ignore_non_dom_schema()), None),
+        ("<Div role='button' />", None, Some(settings())),
+        ("<Box asChild='div' role='button' />", None, Some(settings())),
+        ("<svg role='graphics-document document' />", None, None),
+    ];
+
+    let fail = vec![
+        ("<div role='foobar' />", None, None),
+        ("<div role='datepicker'></div>", None, None),
+        ("<div role='range'></div>", None, None),
+        ("<div role='Button'></div>", None, None),
+        ("<div role=''></div>", None, None),
+        ("<div role='tabpanel row foobar'></div>", None, None),
+        ("<div role='tabpanel row range'></div>", None, None),
+        ("<div role='doc-endnotes range'></div>", None, None),
+        ("<div role />", None, None),
+        ("<div role='unknown-invalid-role' />", Some(allowed_invalid_roles()), None),
+        ("<div role={null}></div>", None, None),
+        ("<Foo role='datepicker' />", None, None),
+        ("<Foo role='Button' />", None, None),
+        ("<Div role='Button' />", None, Some(settings())),
+        ("<Div role='Button' />", Some(ignore_non_dom_schema()), Some(settings())),
+        ("<Box asChild='div' role='Button' />", None, None),
+    ];
+
+    Tester::new(AriaRole::NAME, AriaRole::PLUGIN, pass, fail).test();
+}

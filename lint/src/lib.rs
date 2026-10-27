@@ -168,10 +168,14 @@ const CORE: [RuleInfo; 2] = [
   RuleInfo { id: UNUSED_DISABLE, default: Level::Warn, category: "lint", fixable: false, docs: "A suppression comment that silences nothing, such as one left after the code it covered was fixed.\n" },
 ];
 
+/// Recommended rules that stay off unless a configuration turns them on: the automatic JSX runtime every
+/// FSR build uses compiles JSX without `React` in scope, as eslint-plugin-react's `jsx-runtime` config says.
+const OFF_BY_DEFAULT: [&str; 1] = ["react/react-in-jsx-scope"];
+
 /// Every rule this crate has, sorted by id.
 pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
-  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
+  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
   all.sort_by_key(|r| r.id);
   all
 }
@@ -180,6 +184,7 @@ pub fn rules() -> Vec<RuleInfo> {
 pub struct Linter {
   config: Config,
   ignored: globset::GlobSet,
+  settings: js::OxlintSettings,
   /// Each rule built with each set of options the configuration gives it, keyed by rule id and options.
   built: HashMap<(&'static str, String), Box<dyn js::Run>>,
 }
@@ -204,7 +209,8 @@ impl Linter {
         }
       }
     }
-    Ok(Linter { ignored: config.ignored(), config, built })
+    let settings = js::settings(config.settings()).map_err(|e| ConfigError::Parse { path: PathBuf::from(CONFIG_FILE), message: format!("`settings`: {e}") })?;
+    Ok(Linter { ignored: config.ignored(), settings, config, built })
   }
 
   /// Each rule's setting for a file at `relative`, a path from the project root.
@@ -248,7 +254,7 @@ impl Linter {
         self.built.get(&(entry.id, key)).map(|rule| (entry.id, rule.as_ref()))
       })
       .collect();
-    let outcome = js::lint(path, text, &active);
+    let outcome = js::lint(path, text, &active, &self.settings);
     let lines = suppress::Lines::new(text);
     let directives = suppress::directives(outcome.comments.iter().map(|c| (c.text.as_str(), c.start, c.end)), &lines);
     let mut report = Report { files: 1, ..Report::default() };

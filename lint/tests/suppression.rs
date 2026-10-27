@@ -82,7 +82,7 @@ fn a_comment_in_a_string_is_not_a_directive() {
 
 #[test]
 fn a_comment_for_rules_this_linter_lacks_is_not_judged_unused() {
-  for comment in ["// eslint-disable-next-line react-hooks/exhaustive-deps", "// eslint-disable-next-line import/no-extraneous-dependencies, no-use-before-define", "// eslint-disable-next-line", "/* eslint-disable */"] {
+  for comment in ["// eslint-disable-next-line @next/next/no-img-element", "// eslint-disable-next-line import/no-extraneous-dependencies, no-use-before-define", "// eslint-disable-next-line", "/* eslint-disable */"] {
     let report = lint(&format!("{comment}\nexport const x = 1;\n"));
     assert!(report.findings.is_empty(), "{comment}: {:?}", report.findings);
   }

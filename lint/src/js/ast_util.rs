@@ -1,4 +1,4 @@
-// Derived from oxc_linter at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+// Ported from oxlint (crates/oxc_linter/src/ast_util.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
 
 
 
@@ -7,7 +7,8 @@ use oxc_ast::{
     ast::*,
 };
 use oxc_ecmascript::{ToBoolean, WithoutGlobalReferenceInformation};
-use oxc_semantic::{AstNode, AstNodes, Semantic};
+use oxc_semantic::{AstNode, AstNodes, NodeId, ReferenceId, Semantic, SymbolId};
+use oxc_span::GetSpan;
 use oxc_syntax::operator::{AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator};
 
 
@@ -193,6 +194,25 @@ impl<'a> IsConstant<'a, '_> for SpreadElement<'a> {
     }
 }
 
+/// Return the innermost `Function` or `ArrowFunctionExpression` Node
+/// enclosing the specified node
+pub fn get_enclosing_function<'a, 'b>(
+    node: &'b AstNode<'a>,
+    semantic: &'b Semantic<'a>,
+) -> Option<&'b AstNode<'a>> {
+    let mut current_node = node;
+    loop {
+        if matches!(current_node.kind(), AstKind::Program(_)) {
+            return None;
+        }
+        if matches!(current_node.kind(), AstKind::Function(_) | AstKind::ArrowFunctionExpression(_))
+        {
+            return Some(current_node);
+        }
+        current_node = semantic.nodes().parent_node(current_node.id());
+    }
+}
+
 /// Jump to the outer most of chained parentheses if any
 pub fn outermost_paren<'a, 'b>(
     node: &'b AstNode<'a>,
@@ -221,5 +241,85 @@ pub fn outermost_paren_parent<'a, 'b>(
         .nodes()
         .ancestors(node.id())
         .find(|parent| !matches!(parent.kind(), AstKind::ParenthesizedExpression(_)))
+}
+
+/// Iterate over parents of `node`, skipping nodes that are also ignored by
+/// [`Expression::get_inner_expression`].
+pub fn iter_outer_expressions<'a, 's>(
+    nodes: &'s AstNodes<'a>,
+    node_id: NodeId,
+) -> impl Iterator<Item = AstKind<'a>> + 's {
+    nodes.ancestor_kinds(node_id).filter(|parent| {
+        !matches!(
+            parent,
+            AstKind::ParenthesizedExpression(_)
+                | AstKind::TSAsExpression(_)
+                | AstKind::TSSatisfiesExpression(_)
+                | AstKind::TSInstantiationExpression(_)
+                | AstKind::TSNonNullExpression(_)
+                | AstKind::TSTypeAssertion(_)
+        )
+    })
+}
+
+pub fn get_declaration_of_variable<'a, 'b>(
+    ident: &IdentifierReference<'a>,
+    semantic: &'b Semantic<'a>,
+) -> Option<&'b AstNode<'a>> {
+    let symbol_id = get_symbol_id_of_variable(ident, semantic)?;
+    let symbol_table = semantic.scoping();
+    Some(semantic.nodes().get_node(symbol_table.symbol_declaration(symbol_id)))
+}
+
+pub fn get_declaration_from_reference_id<'a, 'b>(
+    reference_id: ReferenceId,
+    semantic: &'b Semantic<'a>,
+) -> Option<&'b AstNode<'a>> {
+    let symbol_table = semantic.scoping();
+    let symbol_id = symbol_table.get_reference(reference_id).symbol_id()?;
+    Some(semantic.nodes().get_node(symbol_table.symbol_declaration(symbol_id)))
+}
+
+pub fn get_symbol_id_of_variable(
+    ident: &IdentifierReference,
+    semantic: &Semantic<'_>,
+) -> Option<SymbolId> {
+    semantic.scoping().get_reference(ident.reference_id()).symbol_id()
+}
+
+/// Get the innermost static member expression in an assignment target.
+///
+/// For example, both `this.state.a.b.c` and `this.state.a[key].c` return `this.state`.
+pub fn get_outer_member_expression<'a, 'b>(
+    assignment: &'b SimpleAssignmentTarget<'a>,
+) -> Option<&'b StaticMemberExpression<'a>> {
+    let mut member = assignment.as_member_expression()?;
+
+    while let Some(object) = member.object().as_member_expression() {
+        member = object;
+    }
+
+    match member {
+        MemberExpression::StaticMemberExpression(expression) => Some(expression),
+        _ => None,
+    }
+}
+
+/// Check if a node's span is contained within any argument span in a call expression
+#[inline]
+pub fn is_node_within_call_argument<'a>(
+    node: &AstNode<'a>,
+    call: &CallExpression<'a>,
+    target_arg_index: usize,
+) -> bool {
+    // Early exit for out-of-bounds index
+    if target_arg_index >= call.arguments.len() {
+        return false;
+    }
+
+    let target_arg = &call.arguments[target_arg_index]; // Direct indexing, no Option unwrap
+    let node_span = node.span();
+    let arg_span = target_arg.span();
+    node_span.start >= arg_span.start && node_span.end <= arg_span.end
 }
 

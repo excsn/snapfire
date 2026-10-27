@@ -148,3 +148,36 @@ fn a_typescript_eslint_name_in_the_file_sets_the_rule_it_extends() {
   let config = parse("[rules]\n\"@typescript-eslint/no-unused-vars\" = \"warn\"\n");
   assert_eq!(levels(config, "a.ts", "const unused = 1;\n"), [("eslint/no-unused-vars".to_owned(), Level::Warn)]);
 }
+
+#[test]
+fn rules_the_automatic_jsx_runtime_makes_obsolete_are_off_by_default() {
+  let rules = snapfire_lint::rules();
+  let scope = rules.iter().find(|r| r.id == "react/react-in-jsx-scope").expect("ported");
+  assert_eq!(scope.default, Level::Off, "JSX compiles without React in scope");
+  assert!(levels(Config::default(), "a.tsx", "export const e = <div />;\n").is_empty());
+  let config = parse("[rules]\n\"react/react-in-jsx-scope\" = \"error\"\n");
+  assert_eq!(levels(config, "a.tsx", "export const e = <div />;\n"), [("react/react-in-jsx-scope".to_owned(), Level::Error)]);
+}
+
+#[test]
+fn a_react_hooks_name_means_the_react_rule() {
+  let config = parse("[rules]\n\"react-hooks/rules-of-hooks\" = \"warn\"\n");
+  let source = "export function Page({ on }) {\n  if (on) {\n    useState(0);\n  }\n  return null;\n}\n";
+  assert_eq!(levels(config, "a.tsx", source), [("react/rules-of-hooks".to_owned(), Level::Warn)]);
+}
+
+#[test]
+fn settings_reach_the_rules_that_read_them() {
+  let source = "import Image from \"./image\";\nexport const e = <Image src=\"/a.png\" />;\n";
+  assert!(levels(Config::default(), "a.tsx", source).is_empty(), "an unknown component is not an img");
+  let config = parse("[settings.\"jsx-a11y\".components]\nImage = \"img\"\n");
+  assert_eq!(levels(config, "a.tsx", source), [("jsx-a11y/alt-text".to_owned(), Level::Error)]);
+}
+
+#[test]
+fn a_nearer_file_merges_its_settings_over_the_one_above() {
+  let shell = parse("[settings.\"jsx-a11y\".components]\nImage = \"img\"\n");
+  let site = parse("[settings.react]\nversion = \"18.2.0\"\n");
+  let source = "import Image from \"./image\";\nexport const e = <Image src=\"/a.png\" />;\n";
+  assert_eq!(levels(site.over(shell), "a.tsx", source), [("jsx-a11y/alt-text".to_owned(), Level::Error)]);
+}

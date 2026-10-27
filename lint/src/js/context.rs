@@ -2,6 +2,7 @@
 
 use std::{cell::RefCell, ffi::OsStr, ops::Deref, path::Path, rc::Rc};
 
+use oxc_allocator::Allocator;
 use javascript_globals::{GLOBALS, GLOBALS_BUILTIN, GLOBALS_ES2026};
 use oxc_ast::ast::IdentifierReference;
 use oxc_cfg::ControlFlowGraph;
@@ -11,8 +12,10 @@ use oxc_span::Span;
 
 use super::{
   fixer::{Fix, FixKind, Message, PossibleFixes, RuleFix, RuleFixer},
+  Setup,
   globals::{GlobalValue, OxlintGlobals},
   module_record::ModuleRecord,
+  settings::OxlintSettings,
 };
 
 /// The environments a real run's files see: an FSR page runs in a browser.
@@ -21,11 +24,13 @@ pub const ENV: [&str; 2] = ["browser", "es2026"];
 /// What every rule reads about one file.
 pub struct ContextHost<'a> {
   semantic: Semantic<'a>,
+  allocator: &'a Allocator,
   module_record: ModuleRecord,
   file_path: Box<Path>,
   globals: OxlintGlobals,
   /// The environments whose globals the file sees beside the builtins, as ESLint's `env` names them.
   env: Vec<String>,
+  settings: OxlintSettings,
   fix: FixKind,
   messages: RefCell<Vec<(&'static str, Message)>>,
 }
@@ -33,9 +38,9 @@ pub struct ContextHost<'a> {
 impl<'a> ContextHost<'a> {
   /// # Panics
   /// If `semantic` was built without a control flow graph.
-  pub fn new(semantic: Semantic<'a>, module_record: ModuleRecord, file_path: &Path, fix: FixKind, globals: OxlintGlobals, env: Vec<String>) -> Self {
+  pub fn new(semantic: Semantic<'a>, allocator: &'a Allocator, module_record: ModuleRecord, file_path: &Path, fix: FixKind, setup: Setup) -> Self {
     assert!(semantic.cfg().is_some(), "the linter reads `Semantic::cfg`; build it with `SemanticBuilder::with_cfg`");
-    Self { semantic, module_record, file_path: file_path.into(), globals, env, fix, messages: RefCell::default() }
+    Self { semantic, allocator, module_record, file_path: file_path.into(), globals: setup.globals, env: setup.env, settings: setup.settings, fix, messages: RefCell::default() }
   }
 
   /// A context reporting under `rule`, the rule's full id.
@@ -90,6 +95,12 @@ impl<'a> LintContext<'a> {
     &self.host.module_record
   }
 
+  /// The arena the file's AST lives in.
+  #[inline]
+  pub fn allocator(&self) -> &'a Allocator {
+    self.host.allocator
+  }
+
   #[inline]
   pub fn cfg(&self) -> &ControlFlowGraph {
     self.host.semantic.cfg().expect("built with a control flow graph")
@@ -112,6 +123,11 @@ impl<'a> LintContext<'a> {
   pub fn find_prev_token_within(&self, start: u32, end: u32, token: &str) -> Option<u32> {
     let source = self.source_range(Span::new(start, end));
     source.rmatch_indices(token).find(|(a, _)| !self.is_inside_comment(start + *a as u32)).map(|(a, _)| a as u32)
+  }
+
+  #[inline]
+  pub fn settings(&self) -> &OxlintSettings {
+    &self.host.settings
   }
 
   #[inline]
@@ -170,6 +186,15 @@ impl<'a> LintContext<'a> {
     F: FnOnce(RuleFixer<'_, 'a>) -> C,
   {
     self.diagnostic_with_fix_of_kind(diagnostic, FixKind::Suggestion, fix);
+  }
+
+  #[inline]
+  pub fn diagnostic_with_dangerous_suggestion<C, F>(&self, diagnostic: OxcDiagnostic, fix: F)
+  where
+    C: Into<RuleFix>,
+    F: FnOnce(RuleFixer<'_, 'a>) -> C,
+  {
+    self.diagnostic_with_fix_of_kind(diagnostic, FixKind::DangerousSuggestion, fix);
   }
 
   #[inline]

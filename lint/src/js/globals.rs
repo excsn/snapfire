@@ -5,6 +5,8 @@ use std::{borrow, fmt, hash, ops::Deref};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize, de::Visitor};
 
+pub use super::aria::*;
+
 /// Add or remove global variables.
 ///
 /// For each global variable, set the corresponding value equal to `"writable"`

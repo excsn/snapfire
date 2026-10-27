@@ -1,0 +1,650 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/typescript/no_empty_object_type.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use std::borrow::Cow;
+
+use lazy_regex::Regex;
+use oxc_ast::{
+    AstKind,
+    ast::{TSInterfaceDeclaration, TSTypeLiteral},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_semantic::NodeId;
+use oxc_span::Span;
+use serde::{Deserialize, Serialize};
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    fixer::RuleFixer,
+    rule::{DefaultRuleConfig, Rule},
+    utils::deserialize_regex_option,
+};
+
+fn no_empty_object_type_diagnostic<S: Into<Cow<'static, str>>>(
+    span: Span,
+    message: S,
+) -> OxcDiagnostic {
+    OxcDiagnostic::warn(message)
+        .with_help("To avoid confusion around the {} type allowing any non-nullish value, this rule bans usage of the {} type.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoEmptyObjectType(Box<NoEmptyObjectTypeConfig>);
+
+#[expect(clippy::struct_field_names)]
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct NoEmptyObjectTypeConfig {
+    /// Whether to allow empty interfaces.
+    allow_interfaces: AllowInterfaces,
+    /// Whether to allow empty object type literals.
+    allow_object_types: AllowObjectTypes,
+    /// A stringified regular expression to allow interfaces and object type aliases with the configured name.
+    ///
+    /// This can be useful if your existing code style includes a pattern of declaring empty types with `{}` instead of `object`.
+    ///
+    /// Example of **incorrect** code for this rule with `{ allowWithName: 'Props$' }`:
+    /// ```ts
+    /// interface InterfaceValue {}
+    /// type TypeValue = {};
+    /// ```
+    ///
+    /// Example of **correct** code for this rule with `{ allowWithName: 'Props$' }`:
+    /// ```ts
+    /// interface InterfaceProps {}
+    /// type TypeProps = {};
+    /// ```
+    #[serde(default, deserialize_with = "deserialize_regex_option")]
+    allow_with_name: Option<Regex>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum AllowInterfaces {
+    /// Never allow interfaces with no fields.
+    #[default]
+    Never,
+    /// Always allow interfaces with no fields.
+    Always,
+    /// Allow empty interfaces that `extend` from a single base interface.
+    ///
+    /// Examples of **correct** code for this rule with `{ allowInterfaces: 'with-single-extends' }`:
+    /// ```ts
+    /// interface Base {
+    ///   value: boolean;
+    /// }
+    /// interface Derived extends Base {}
+    /// ```
+    WithSingleExtends,
+}
+
+impl From<&str> for AllowInterfaces {
+    fn from(raw: &str) -> Self {
+        match raw {
+            "always" => Self::Always,
+            "with-single-extends" => Self::WithSingleExtends,
+            _ => Self::Never,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum AllowObjectTypes {
+    /// Never allow object type literals with no fields.
+    #[default]
+    Never,
+    /// Always allow object type literals with no fields.
+    Always,
+}
+
+impl From<&str> for AllowObjectTypes {
+    fn from(raw: &str) -> Self {
+        match raw {
+            "always" => Self::Always,
+            _ => Self::Never,
+        }
+    }
+}
+
+impl std::ops::Deref for NoEmptyObjectType {
+    type Target = NoEmptyObjectTypeConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// To avoid confusion around the `{}` type allowing any non-nullish value, this rule bans usage of the `{}` type. That includes interfaces and object type aliases with no fields.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// The `{}`, or "empty object" type in TypeScript is a common source of confusion for developers unfamiliar with TypeScript's structural typing. `{}` represents any non-nullish value, including literals like 0 and "".
+    /// Often, developers writing `{}` actually mean either:
+    /// - object: representing any object value
+    /// - unknown: representing any value at all, including `null` and `undefined`
+    /// In other words, the "empty object" type {}` really means "any value that is defined". That includes arrays, class instances, functions, and primitives such as string and symbol.
+    ///
+    /// Note that this rule does not report on:
+    /// - `{}` as a type constituent in an intersection type (e.g. types like TypeScript's built-in `type NonNullable<T> = T & {}`), as this can be useful in type system operations.
+    /// - Interfaces that extend from multiple other interfaces.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```ts
+    /// let anyObject: {};
+    /// let anyValue: {};
+    /// interface AnyObjectA {}
+    /// interface AnyValueA {}
+    /// type AnyObjectB = {};
+    /// type AnyValueB = {};
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```ts
+    /// let anyObject: object;
+    /// let anyValue: unknown;
+    /// type AnyObjectA = object;
+    /// type AnyValueA = unknown;
+    /// type AnyObjectB = object;
+    /// type AnyValueB = unknown;
+    /// let objectWith: { property: boolean };
+    /// interface InterfaceWith {
+    ///   property: boolean;
+    /// }
+    /// type TypeWith = { property: boolean };
+    /// ```
+    NoEmptyObjectType,
+    "typescript",
+    "no-empty-object-type",
+    Restriction,
+    recommended = true,
+    fix = RuleFixMeta::Conditional(FixKind::Suggestion),
+);
+
+impl Rule for NoEmptyObjectType {
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        DefaultRuleConfig::<NoEmptyObjectTypeConfig>::from_value(value)
+            .map(DefaultRuleConfig::into_inner)
+            .map(|config| Self(Box::new(config)))
+    }
+
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        match node.kind() {
+            AstKind::TSInterfaceDeclaration(interface) if interface.body.body.is_empty() => {
+                check_interface_declaration(
+                    ctx,
+                    interface,
+                    node.id(),
+                    self.allow_interfaces,
+                    self.allow_with_name.as_ref(),
+                );
+            }
+            AstKind::TSTypeLiteral(typeliteral) if typeliteral.members.is_empty() => {
+                check_type_literal(
+                    ctx,
+                    typeliteral,
+                    node.id(),
+                    self.allow_object_types,
+                    self.allow_with_name.as_ref(),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn should_run(&self, ctx: &crate::js::context::ContextHost) -> bool {
+        ctx.source_type().is_typescript()
+    }
+}
+
+fn check_interface_declaration(
+    ctx: &LintContext,
+    interface: &TSInterfaceDeclaration,
+    node_id: NodeId,
+    allow_interfaces: AllowInterfaces,
+    allow_with_name: Option<&Regex>,
+) {
+    if allow_interfaces == AllowInterfaces::Always {
+        return;
+    }
+    if let Some(pattern) = allow_with_name
+        && pattern.is_match(interface.id.name.as_str())
+    {
+        return;
+    }
+    if interface.extends.is_empty()
+        || (allow_interfaces == AllowInterfaces::Never && interface.extends.len() == 1)
+    {
+        let diagnostic = no_empty_object_type_diagnostic(
+            interface.body.span,
+            "Do not use an empty interface declaration.",
+        );
+
+        if matches!(ctx.nodes().parent_kind(node_id), AstKind::ExportDefaultDeclaration(_)) {
+            ctx.diagnostic(diagnostic);
+            return;
+        }
+
+        let has_declaration_merge = interface.id.symbol_id.get().is_some_and(|symbol_id| {
+            ctx.scoping().symbol_declarations(symbol_id).any(|declaration| {
+                match ctx.nodes().kind(declaration) {
+                    AstKind::Class(_) => true,
+                    AstKind::TSInterfaceDeclaration(_) => declaration != node_id,
+                    _ => false,
+                }
+            })
+        });
+        if has_declaration_merge {
+            ctx.diagnostic(diagnostic);
+            return;
+        }
+
+        let id = ctx.source_range(interface.id.span);
+        let type_parameters =
+            interface.type_parameters.as_ref().map_or("", |params| ctx.source_range(params.span));
+
+        if let Some(extended) = interface.extends.first() {
+            ctx.diagnostic_with_suggestion(diagnostic, |fixer| {
+                fixer
+                    .replace(
+                        interface.span,
+                        format!("type {id}{type_parameters} = {}", ctx.source_range(extended.span)),
+                    )
+                    .with_message("Replace empty interface with a type alias.")
+            });
+        } else {
+            let fixer = RuleFixer::new(FixKind::Suggestion, ctx);
+            ctx.diagnostic_with_suggestions(
+                diagnostic,
+                [
+                    fixer
+                        .replace(interface.span, format!("type {id}{type_parameters} = object"))
+                        .with_message("Replace empty interface with `object`."),
+                    fixer
+                        .replace(interface.span, format!("type {id}{type_parameters} = unknown"))
+                        .with_message("Replace empty interface with `unknown`."),
+                ],
+            );
+        }
+    }
+}
+
+fn check_type_literal(
+    ctx: &LintContext,
+    type_literal: &TSTypeLiteral,
+    node_id: NodeId,
+    allow_object_types: AllowObjectTypes,
+    allow_with_name: Option<&Regex>,
+) {
+    if matches!(allow_object_types, AllowObjectTypes::Always) {
+        return;
+    }
+    match ctx.nodes().parent_kind(node_id) {
+        AstKind::TSIntersectionType(_) => return,
+        AstKind::TSTypeAliasDeclaration(alias) => {
+            if let Some(pattern) = allow_with_name
+                && pattern.is_match(alias.id.name.as_str())
+            {
+                return;
+            }
+        }
+        _ => (),
+    }
+    let diagnostic = no_empty_object_type_diagnostic(
+        type_literal.span,
+        "Do not use the empty object type literal.",
+    );
+    let fixer = RuleFixer::new(FixKind::Suggestion, ctx);
+    ctx.diagnostic_with_suggestions(
+        diagnostic,
+        [
+            fixer.replace(type_literal.span, "object").with_message("Replace `{}` with `object`."),
+            fixer
+                .replace(type_literal.span, "unknown")
+                .with_message("Replace `{}` with `unknown`."),
+        ],
+    );
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::{ExpectFixTestCase, Tester};
+
+    let pass = vec![
+        (
+            "
+            interface Base {
+              name: string;
+            }
+                ",
+            None,
+        ),
+        (
+            "
+            interface Base {
+              name: string;
+            }
+
+            interface Derived {
+              age: number;
+            }
+
+            // valid because extending multiple interfaces can be used instead of a union type
+            interface Both extends Base, Derived {}
+                ",
+            None,
+        ),
+        ("interface Base {}", Some(serde_json::json!([{ "allowInterfaces": "always" }]))),
+        (
+            "
+            interface Base {
+              name: string;
+            }
+
+            interface Derived extends Base {}
+                  ",
+            Some(serde_json::json!([{ "allowInterfaces": "with-single-extends" }])),
+        ),
+        (
+            "
+            interface Base {
+              props: string;
+            }
+
+            interface Derived extends Base {}
+
+            class Derived {}
+                  ",
+            Some(serde_json::json!([{ "allowInterfaces": "with-single-extends" }])),
+        ),
+        ("let value: object;", None),
+        ("let value: Object;", None),
+        ("let value: { inner: true };", None),
+        ("type MyNonNullable<T> = T & {};", None),
+        ("type Base = {};", Some(serde_json::json!([{ "allowObjectTypes": "always" }]))),
+        ("type Base = {};", Some(serde_json::json!([{ "allowWithName": "Base" }]))),
+        ("type BaseProps = {};", Some(serde_json::json!([{ "allowWithName": "BaseProps" }]))),
+        ("type BaseProps = {};", Some(serde_json::json!([{ "allowWithName": "Props$" }]))),
+        ("interface Base {}", Some(serde_json::json!([{ "allowWithName": "Base" }]))),
+        ("interface BaseProps {}", Some(serde_json::json!([{ "allowWithName": "BaseProps" }]))),
+        ("interface BaseProps {}", Some(serde_json::json!([{ "allowWithName": "Props$" }]))),
+    ];
+
+    let fail = vec![
+        ("interface Base {}", None),
+        ("interface Base {}", Some(serde_json::json!([{ "allowInterfaces": "never" }]))),
+        (
+            "
+            interface Base {
+              props: string;
+            }
+
+            interface Derived extends Base {}
+
+            class Other {}
+                  ",
+            None,
+        ),
+        (
+            "
+            interface Base {
+              props: string;
+            }
+
+            interface Derived extends Base {}
+
+            class Derived {}
+                  ",
+            None,
+        ),
+        (
+            "
+            interface Base {
+              props: string;
+            }
+
+            interface Derived extends Base {}
+
+            const derived = class Derived {};
+                  ",
+            None,
+        ),
+        (
+            "
+            interface Base {
+              name: string;
+            }
+
+            interface Derived extends Base {}
+                  ",
+            None,
+        ),
+        ("interface Base extends Array<number> {}", None),
+        ("interface Base extends Array<number | {}> {}", None),
+        (
+            "
+            interface Derived {
+              property: string;
+            }
+            interface Base extends Array<Derived> {}
+                  ",
+            None,
+        ),
+        (
+            "
+            type R = Record<string, unknown>;
+            interface Base extends R {}
+                  ",
+            None,
+        ),
+        ("interface Base<T> extends Derived<T> {}", None),
+        (
+            "
+            declare namespace BaseAndDerived {
+              type Base = typeof base;
+              export interface Derived extends Base {}
+            }
+                  ",
+            None,
+        ),
+        ("type Base = {};", None),
+        ("type Base = {};", Some(serde_json::json!([{ "allowObjectTypes": "never" }]))),
+        ("let value: {};", None),
+        ("let value: {};", Some(serde_json::json!([{ "allowObjectTypes": "never" }]))),
+        (
+            "
+            let value: {
+              /* ... */
+            };
+                  ",
+            None,
+        ),
+        ("type MyUnion<T> = T | {};", None),
+        ("type Base = {} | null;", Some(serde_json::json!([{ "allowWithName": "Base" }]))),
+        ("type Base = {};", Some(serde_json::json!([{ "allowWithName": "Mismatch" }]))),
+        ("interface Base {}", Some(serde_json::json!([{ "allowWithName": "Props" }]))),
+    ];
+
+    let fix: Vec<ExpectFixTestCase> = vec![
+        ("interface Base {}", ("type Base = object", "type Base = unknown")).into(),
+        (
+            "interface Base {}",
+            ("type Base = object", "type Base = unknown"),
+            Some(serde_json::json!([{ "allowInterfaces": "never" }])),
+        )
+            .into(),
+        (
+            "
+            interface Base {
+                props: string;
+            }
+
+            interface Derived extends Base {}
+
+            class Other {}
+            ",
+            "
+            interface Base {
+                props: string;
+            }
+
+            type Derived = Base
+
+            class Other {}
+            ",
+        )
+            .into(),
+        (
+            "
+            interface Base {
+                props: string;
+            }
+
+            interface Derived extends Base {}
+
+            const derived = class Derived {};
+            ",
+            "
+            interface Base {
+                props: string;
+            }
+
+            type Derived = Base
+
+            const derived = class Derived {};
+            ",
+        )
+            .into(),
+        (
+            "
+            interface Base {
+                name: string;
+            }
+
+            interface Derived extends Base {}
+            ",
+            "
+            interface Base {
+                name: string;
+            }
+
+            type Derived = Base
+            ",
+        )
+            .into(),
+        ("interface Base extends Array<number> {}", "type Base = Array<number>").into(),
+        (
+            "interface Base extends Array<number | {}> {}",
+            "type Base = Array<number | {}>",
+            Some(serde_json::json!([{ "allowObjectTypes": "always" }])),
+        )
+            .into(),
+        (
+            "interface Base extends Array<number | {}> {}",
+            (
+                "interface Base extends Array<number | object> {}",
+                "interface Base extends Array<number | unknown> {}",
+            ),
+            Some(serde_json::json!([{ "allowInterfaces": "always" }])),
+        )
+            .into(),
+        (
+            "
+            interface Derived {
+                property: string;
+            }
+            interface Base extends Array<Derived> {}
+            ",
+            "
+            interface Derived {
+                property: string;
+            }
+            type Base = Array<Derived>
+            ",
+        )
+            .into(),
+        (
+            "
+            type R = Record<string, unknown>;
+            interface Base extends R {}
+            ",
+            "
+            type R = Record<string, unknown>;
+            type Base = R
+            ",
+        )
+            .into(),
+        ("interface Base<T> extends Derived<T> {}", "type Base<T> = Derived<T>").into(),
+        (
+            "
+            declare namespace BaseAndDerived {
+                type Base = typeof base;
+                export interface Derived extends Base {}
+            }
+            ",
+            "
+            declare namespace BaseAndDerived {
+                type Base = typeof base;
+                export type Derived = Base
+            }
+            ",
+        )
+            .into(),
+        ("type Base = {};", ("type Base = object;", "type Base = unknown;")).into(),
+        (
+            "type Base = {};",
+            ("type Base = object;", "type Base = unknown;"),
+            Some(serde_json::json!([{ "allowObjectTypes": "never" }])),
+        )
+            .into(),
+        ("let value: {};", ("let value: object;", "let value: unknown;")).into(),
+        (
+            "let value: {};",
+            ("let value: object;", "let value: unknown;"),
+            Some(serde_json::json!([{ "allowObjectTypes": "never" }])),
+        )
+            .into(),
+        ("let value: {/* ... */};", ("let value: object;", "let value: unknown;")).into(),
+        (
+            "type MyUnion<T> = T | {};",
+            ("type MyUnion<T> = T | object;", "type MyUnion<T> = T | unknown;"),
+        )
+            .into(),
+        (
+            "type Base = {} | null;",
+            ("type Base = object | null;", "type Base = unknown | null;"),
+            Some(serde_json::json!([{ "allowWithName": "Base" }])),
+        )
+            .into(),
+        (
+            "type Base = {};",
+            ("type Base = object;", "type Base = unknown;"),
+            Some(serde_json::json!([{ "allowWithName": "Mismatch" }])),
+        )
+            .into(),
+        (
+            "interface Base {}",
+            ("type Base = object", "type Base = unknown"),
+            Some(serde_json::json!([{ "allowWithName": ".*Props$" }])),
+        )
+            .into(),
+        // Suggestion is not applied because it would produce invalid typescript syntax
+        ("export default interface Foo {}", "export default interface Foo {}").into(),
+        (
+            "interface Foo {} interface Foo { value: string }",
+            "interface Foo {} interface Foo { value: string }",
+        )
+            .into(),
+    ];
+
+    Tester::new(NoEmptyObjectType::NAME, NoEmptyObjectType::PLUGIN, pass, fail)
+        .expect_fix(fix)
+        .test();
+}

@@ -1,0 +1,128 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/jsx_a11y/aria_props.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use cow_utils::CowUtils;
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    globals::is_valid_aria_property,
+    rule::Rule,
+    utils::{get_jsx_attribute_name, starts_with_ignore_case},
+};
+
+fn aria_props_diagnostic(span: Span, prop_name: &str, suggestion: Option<&str>) -> OxcDiagnostic {
+    let mut err = OxcDiagnostic::warn(format!("'{prop_name}' is not a valid ARIA attribute."));
+
+    if let Some(suggestion) = suggestion {
+        err = err.with_help(format!("Did you mean '{suggestion}'?"));
+    } else {
+        err = err.with_help("You can find a list of valid ARIA attributes at https://www.w3.org/TR/wai-aria-1.1/#state_prop_def");
+    }
+
+    err.with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct AriaProps;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Enforces that elements do not use invalid ARIA attributes.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Using invalid ARIA attributes can mislead screen readers and other assistive technologies.
+    /// It may cause the accessibility features of the website to fail, making it difficult
+    /// for users with disabilities to use the site effectively.
+    ///
+    /// This rule includes fixes for some common typos.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```jsx
+    /// <input aria-labeledby="address_label" />
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```jsx
+    /// <input aria-labelledby="address_label" />
+    /// ```
+    AriaProps,
+    "jsx-a11y",
+    "aria-props",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::Conditional(FixKind::Fix),
+);
+
+impl Rule for AriaProps {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::JSXAttribute(attr) = node.kind() else {
+            return;
+        };
+        let name = get_jsx_attribute_name(&attr.name);
+        // Only `aria-*` attributes can be diagnosed here. Check the prefix without
+        // allocating so the common non-ARIA attribute (including camelCase names like
+        // `className`/`onClick`, which would otherwise allocate a lowercased copy)
+        // short-circuits before the lowercasing.
+        if !starts_with_ignore_case(name.as_bytes(), "aria-") {
+            return;
+        }
+        let name = name.cow_to_ascii_lowercase();
+        if !is_valid_aria_property(&name) {
+            let suggestion = get_common_aria_prop_typo(&name);
+            let diagnostic = aria_props_diagnostic(attr.span, &name, suggestion);
+
+            if let Some(suggestion) = suggestion {
+                ctx.diagnostic_with_fix(diagnostic, |fixer| {
+                    fixer.replace(attr.name.span(), suggestion)
+                });
+            } else {
+                ctx.diagnostic(diagnostic);
+            }
+        }
+    }
+}
+
+fn get_common_aria_prop_typo(prop_name: &str) -> Option<&'static str> {
+    match prop_name {
+        "aria-labeledby" => Some("aria-labelledby"),
+        "aria-role" => Some("role"),
+        "aria-sorted" => Some("aria-sort"),
+        "aria-lable" => Some("aria-label"),
+        "aria-value" => Some("aria-valuenow"),
+        _ => None,
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        r"<div />",
+        r"<div></div>",
+        r#"<div aria="wee"></div>"#,
+        r#"<div abcARIAdef="true"></div>"#,
+        r#"<div fooaria-foobar="true"></div>"#,
+        r#"<div fooaria-hidden="true"></div>"#,
+        r"<Bar baz />",
+        r#"<input type="text" aria-errormessage="foobar" />"#,
+    ];
+
+    let fail = vec![
+        r#"<div aria-="foobar" />"#,
+        r#"<div aria-labeledby="foobar" />"#,
+        r#"<div aria-skldjfaria-klajsd="foobar" />"#,
+    ];
+    let fix =
+        vec![(r#"<div aria-labeledby="foobar" />"#, r#"<div aria-labelledby="foobar" />"#, None)];
+
+    Tester::new(AriaProps::NAME, AriaProps::PLUGIN, pass, fail).expect_fix(fix).test();
+}

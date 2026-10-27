@@ -1,0 +1,2666 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/react/rules_of_hooks.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use std::borrow::Cow;
+
+use lazy_regex::Regex;
+use rustc_hash::{FxBuildHasher, FxHashSet};
+
+use oxc_ast::{
+    AstKind, StaticPropertyName,
+    ast::{ArrowFunctionExpression, CallExpression, Function, NewExpression},
+};
+use oxc_ast_visit::{VisitJs, walk_js};
+use oxc_cfg::{ControlFlowGraph, EdgeType, ErrorEdgeKind, InstructionKind, graph::visit::EdgeRef};
+use crate::js::declare_rule;
+use oxc_semantic::{AstNodes, NodeId, SymbolId};
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::operator::{AssignmentOperator, LogicalOperator};
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    rule::Rule,
+    utils::{is_react_component_or_hook_name, is_react_function_call, is_react_hook},
+};
+
+mod diagnostics {
+    use oxc_diagnostics::OxcDiagnostic;
+    use oxc_span::Span;
+    const SCOPE: &str = "react-hooks";
+
+    pub(super) struct ConditionalContext {
+        pub span: Span,
+        pub label: &'static str,
+    }
+
+    pub(super) fn function_error(
+        react_hook_span: Span,
+        outer_function_span: Span,
+        hook_name: &str,
+        func_name: &str,
+    ) -> OxcDiagnostic {
+        OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} is called in function {func_name:?} that is neither \
+            a React function component nor a custom React Hook function. \
+            React component names must start with an uppercase letter. \
+            React Hook names must start with the word \"use\".",
+        ))
+        .with_labels(vec![
+            react_hook_span.primary_label("Hook is called here"),
+            outer_function_span.label("Outer function"),
+        ])
+        .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn conditional_hook(
+        span: Span,
+        hook_name: &str,
+        conditional_context: Option<ConditionalContext>,
+    ) -> OxcDiagnostic {
+        let diagnostic = OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} is called conditionally. React Hooks must be \
+            called in the exact same order in every component render."
+        ))
+        .with_help(
+            "Move the Hook call before the condition, or call it unconditionally and branch inside the Hook/effect instead.",
+        )
+        .with_error_code_scope(SCOPE);
+
+        if let Some(context) = conditional_context {
+            diagnostic.with_labels([
+                span.primary_label("This Hook call is not reachable on every render path."),
+                context.span.label(context.label),
+            ])
+        } else {
+            diagnostic
+                .with_label(span.label("This Hook call is not reachable on every render path."))
+        }
+    }
+
+    pub(super) fn loop_hook(
+        hook_span: Span,
+        loop_keyword_span: Option<Span>,
+        hook_name: &str,
+    ) -> OxcDiagnostic {
+        let mut labels = vec![hook_span.primary_label("Hook is called here")];
+        if let Some(loop_keyword_span) = loop_keyword_span {
+            labels.push(loop_keyword_span.label("This loop may execute the Hook more than once."));
+        }
+
+        OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} may be executed more than once. Possibly \
+            because it is called in a loop. React Hooks must be called in the \
+            exact same order in every component render."
+        ))
+        .with_labels(labels)
+        .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn top_level_hook(span: Span, hook_name: &str) -> OxcDiagnostic {
+        OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} cannot be called at the top level. React Hooks \
+            must be called in a React function component or a custom React \
+            Hook function."
+        ))
+        .with_label(span.label("This Hook call is outside a component or custom Hook."))
+        .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn async_component(
+        hook_span: Span,
+        async_keyword_span: Option<Span>,
+        hook_name: &str,
+    ) -> OxcDiagnostic {
+        let mut labels = vec![hook_span.primary_label("Hook is called here")];
+        if let Some(async_keyword_span) = async_keyword_span {
+            labels.push(async_keyword_span.label("This function is async."));
+        }
+
+        OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} cannot be called in an async function. "
+        ))
+        .with_labels(labels)
+        .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn try_catch_use(span: Span, hook_name: &str) -> OxcDiagnostic {
+        OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} cannot be called in a try/catch block."
+        ))
+        .with_label(span.label("This Hook call is inside a try/catch block."))
+        .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn class_component(
+        hook_span: Span,
+        class_component_span: Option<Span>,
+        hook_name: &str,
+    ) -> OxcDiagnostic {
+        debug_assert!(
+            class_component_span.is_some(),
+            "Hooks in class components should have a containing class span"
+        );
+
+        let mut labels = vec![hook_span.primary_label("Hook is called here")];
+        if let Some(class_component_span) = class_component_span {
+            labels.push(class_component_span.label("Class component is defined here."));
+        }
+
+        OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} cannot be called in a class component. React Hooks \
+            must be called in a React function component or a custom React \
+            Hook function."
+        ))
+        .with_labels(labels)
+        .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn generic_error(span: Span, hook_name: &str) -> OxcDiagnostic {
+        OxcDiagnostic::warn(format!(
+            "React Hook {hook_name:?} cannot be called inside a callback. React Hooks \
+            must be called in a React function component or a custom React \
+            Hook function."
+        ))
+        .with_label(span.label("This Hook call is inside a nested callback."))
+        .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn use_effect_event_reference(
+        span: Span,
+        name: &str,
+        called: bool,
+    ) -> OxcDiagnostic {
+        let mut message = format!(
+            r#"`{name}` is a function created with React Hook "useEffectEvent", and can only be called from Effects and Effect Events in the same component."#
+        );
+
+        if !called {
+            message.push_str(" It cannot be assigned to a variable or passed down.");
+        }
+
+        OxcDiagnostic::warn(message)
+            .with_label(span.label("Effect Event escapes its component or custom Hook."))
+            .with_error_code_scope(SCOPE)
+    }
+
+    pub(super) fn use_effect_event_inline_escape(span: Span) -> OxcDiagnostic {
+        OxcDiagnostic::warn(
+            r#"React Hook "useEffectEvent" can only be called at the top level of your component. It cannot be passed down."#,
+        )
+        .with_label(span.label("Effect Event is passed directly instead of being assigned locally."))
+        .with_error_code_scope(SCOPE)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct RulesOfHooks;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Enforces the Rules of Hooks, ensuring that React Hooks are only called
+    /// in valid contexts and in the correct order.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// React Hooks must follow specific rules to ensure they work correctly:
+    /// 1. Only call Hooks at the top level (never inside loops, conditions,
+    ///    or nested functions)
+    /// 2. Only call Hooks from React function components or custom Hooks
+    /// 3. Hooks must be called in the same order every time a component renders
+    ///
+    /// Breaking these rules can lead to bugs where state gets corrupted or
+    /// component behavior becomes unpredictable.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// // Don't call Hooks inside loops, conditions, or nested functions
+    /// function BadComponent() {
+    ///   if (condition) {
+    ///     const [state, setState] = useState(); // ❌ Hook in condition
+    ///   }
+    ///
+    ///   for (let i = 0; i < 10; i++) {
+    ///     useEffect(() => {}); // ❌ Hook in loop
+    ///   }
+    /// }
+    ///
+    /// // Don't call Hooks from regular JavaScript functions
+    /// function regularFunction() {
+    ///   const [state, setState] = useState(); // ❌ Hook in regular function
+    /// }
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// // ✅ Call Hooks at the top level of a React component
+    /// function GoodComponent() {
+    ///   const [state, setState] = useState();
+    ///
+    ///   useEffect(() => {
+    ///     // Effect logic here
+    ///   });
+    ///
+    ///   return <div>{state}</div>;
+    /// }
+    ///
+    /// // ✅ Call Hooks from custom Hooks
+    /// function useCustomHook() {
+    ///   const [state, setState] = useState();
+    ///   return state;
+    /// }
+    /// ```
+    ///
+    RulesOfHooks,
+    "react",
+    "rules-of-hooks",
+    Pedantic,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for RulesOfHooks {
+    fn should_run(&self, ctx: &crate::js::context::ContextHost) -> bool {
+        // disable this rule in vue/nuxt and svelte(kit) files
+        // react hook can be build in only `.ts` files,
+        // but `useX` functions are popular and can be false positive in other frameworks
+        !ctx.file_extension().is_some_and(|ext| ext == "vue" || ext == "svelte")
+    }
+
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call) = node.kind() else { return };
+
+        if !is_react_hook(&call.callee) {
+            return;
+        }
+
+        let cfg = ctx.cfg();
+
+        let span = call.span;
+        let hook_name =
+            call.callee_name().expect("We identify hooks using their names so it should be named.");
+
+        let nodes = ctx.nodes();
+
+        let is_use = is_react_function_call(call, "use");
+
+        let Some(parent_func) = parent_func(nodes, node) else {
+            return ctx.diagnostic(diagnostics::top_level_hook(span, hook_name));
+        };
+
+        if is_react_function_call(call, "useEffectEvent") {
+            check_use_effect_event_usage(node, call, ctx);
+        }
+
+        // Check if our parent function is part of a class.
+        if matches!(
+            nodes.parent_kind(parent_func.id()),
+            AstKind::MethodDefinition(_) | AstKind::StaticBlock(_) | AstKind::PropertyDefinition(_)
+        ) {
+            return ctx.diagnostic(diagnostics::class_component(
+                span,
+                class_component_span(ctx, parent_func.id()),
+                hook_name,
+            ));
+        }
+
+        match parent_func.kind() {
+            // We are in a named function that isn't a hook or component, which is illegal
+            AstKind::Function(Function { id: Some(id), .. })
+                if !is_react_component_or_hook_name(&id.name) =>
+            {
+                return ctx.diagnostic(diagnostics::function_error(
+                    call.callee.span(),
+                    id.span,
+                    hook_name,
+                    id.name.as_str(),
+                ));
+            }
+            // Hooks are allowed inside of unnamed functions used as arguments. As long as they are
+            // not used as a callback inside of components or hooks.
+            // This includes JSX render props like <Foo>{() => { ... }}</Foo>
+            AstKind::Function(Function { id: None, .. }) | AstKind::ArrowFunctionExpression(_)
+                if is_non_react_func_arg(nodes, parent_func.id()) =>
+            {
+                // This rule doesn't apply to `use(...)`.
+                if !is_use && is_somewhere_inside_component_or_hook(nodes, parent_func.id()) {
+                    ctx.diagnostic(diagnostics::generic_error(span, hook_name));
+                }
+                return;
+            }
+            AstKind::Function(Function { span, id: None, .. })
+            | AstKind::ArrowFunctionExpression(ArrowFunctionExpression {
+                span,
+                r#async: false,
+                ..
+            }) => {
+                let ident = get_declaration_identifier(nodes, parent_func.id());
+
+                // Hooks cannot be used in a function declaration outside of a react component or hook.
+                // For example these are invalid:
+                // const notAComponent = () => {
+                //    return () => {
+                //         useState();
+                //    }
+                // }
+                // --------------
+                // export default () => {
+                //     if (isVal) {
+                //         useState(0);
+                //     }
+                // }
+                // --------------
+                // export default function() {
+                //     if (isVal) {
+                //         useState(0);
+                //     }
+                // }
+                if ident.is_some_and(|name| !is_react_component_or_hook_name(&name)) {
+                    return ctx.diagnostic(diagnostics::function_error(
+                        call.callee.span(),
+                        *span,
+                        hook_name,
+                        "Anonymous",
+                    ));
+                }
+            }
+            // Hooks can't be called from async function.
+            AstKind::Function(Function {
+                id: Some(_), span: async_span, r#async: true, ..
+            })
+            | AstKind::ArrowFunctionExpression(ArrowFunctionExpression {
+                span: async_span,
+                r#async: true,
+                ..
+            }) => {
+                if is_directly_inside_component_or_hook(nodes, parent_func.id()) {
+                    return ctx.diagnostic(diagnostics::async_component(
+                        span,
+                        async_keyword_span(ctx, *async_span),
+                        hook_name,
+                    ));
+                }
+
+                if get_declaration_identifier(nodes, parent_func.id())
+                    .is_some_and(|name| !is_react_component_or_hook_name(&name))
+                {
+                    return ctx.diagnostic(diagnostics::function_error(
+                        call.callee.span(),
+                        *async_span,
+                        hook_name,
+                        "Anonymous",
+                    ));
+                }
+            }
+            _ => {}
+        }
+
+        // `use(...)` can be called conditionally, And,
+        // `use(...)` can be called within a loop.
+        // So we don't need the following checks.
+        if is_use {
+            if is_inside_try_catch(nodes, node.id(), parent_func.id()) {
+                ctx.diagnostic(diagnostics::try_catch_use(span, hook_name));
+            }
+            return;
+        }
+
+        let node_cfg_id = ctx.nodes().cfg_id(node.id());
+        let func_cfg_id = ctx.nodes().cfg_id(parent_func.id());
+
+        // there is no branch between us and our parent function
+        if node_cfg_id == func_cfg_id {
+            return;
+        }
+
+        if is_inside_try_catch(nodes, node.id(), parent_func.id()) {
+            if cfg.is_cyclic(node_cfg_id) {
+                return ctx.diagnostic(diagnostics::loop_hook(
+                    span,
+                    loop_keyword_span(ctx, ctx.nodes(), node.id(), parent_func.id()),
+                    hook_name,
+                ));
+            }
+
+            return ctx.diagnostic(diagnostics::conditional_hook(
+                span,
+                hook_name,
+                conditional_context(ctx, node.id(), span, parent_func.id()),
+            ));
+        }
+
+        if !cfg.is_reachable(func_cfg_id, node_cfg_id) {
+            return;
+        }
+
+        // Is this node cyclic?
+        if cfg.is_cyclic(node_cfg_id) {
+            return ctx.diagnostic(diagnostics::loop_hook(
+                span,
+                loop_keyword_span(ctx, ctx.nodes(), node.id(), parent_func.id()),
+                hook_name,
+            ));
+        }
+
+        if has_conditional_path_accept_throw(ctx.nodes(), cfg, parent_func, node) {
+            #[expect(clippy::needless_return)]
+            return ctx.diagnostic(diagnostics::conditional_hook(
+                span,
+                hook_name,
+                conditional_context(ctx, node.id(), span, parent_func.id()),
+            ));
+        }
+    }
+}
+
+fn class_component_span(ctx: &LintContext<'_>, node_id: NodeId) -> Option<Span> {
+    ctx.nodes().ancestors(node_id).find_map(|node| match node.kind() {
+        AstKind::Class(class) => {
+            if let Some(id) = &class.id {
+                Some(id.span)
+            } else {
+                let search_start = class
+                    .decorators
+                    .last()
+                    .map_or(class.span.start, |decorator| decorator.span.end);
+                let offset =
+                    ctx.find_next_token_within(search_start, class.body.span.start, "class")?;
+                let start = search_start + offset;
+                Some(Span::sized(
+                    start,
+                    u32::try_from("class".len()).expect("keyword length should fit in u32"),
+                ))
+            }
+        }
+        _ => None,
+    })
+}
+
+#[expect(clippy::cast_possible_truncation)]
+fn async_keyword_span(ctx: &LintContext<'_>, span: Span) -> Option<Span> {
+    let start = span.start + ctx.find_next_token_within(span.start, span.end, "async")?;
+    Some(Span::sized(start, "async".len() as u32))
+}
+
+#[expect(clippy::cast_possible_truncation)]
+fn loop_keyword_span(
+    ctx: &LintContext<'_>,
+    nodes: &AstNodes<'_>,
+    hook_node_id: NodeId,
+    function_node_id: NodeId,
+) -> Option<Span> {
+    for ancestor in nodes.ancestors(hook_node_id) {
+        if ancestor.id() == function_node_id {
+            break;
+        }
+
+        let (span, keyword) = match ancestor.kind() {
+            AstKind::DoWhileStatement(stmt) => (stmt.span, "do"),
+            AstKind::WhileStatement(stmt) => (stmt.span, "while"),
+            AstKind::ForStatement(stmt) => (stmt.span, "for"),
+            AstKind::ForInStatement(stmt) => (stmt.span, "for"),
+            AstKind::ForOfStatement(stmt) => (stmt.span, "for"),
+            _ => continue,
+        };
+
+        let start = span.start + ctx.find_next_token_within(span.start, span.end, keyword)?;
+        return Some(Span::sized(start, keyword.len() as u32));
+    }
+
+    None
+}
+
+/// Find the nearest conditional construct that can skip this Hook call.
+///
+/// Hooks inside condition/test expressions are evaluated before that branch is
+/// chosen, so keep walking until we find an ancestor that makes the Hook itself
+/// unreachable on some render path.
+#[expect(clippy::cast_possible_truncation)]
+fn conditional_context(
+    ctx: &LintContext<'_>,
+    hook_node_id: NodeId,
+    hook_span: Span,
+    function_node_id: NodeId,
+) -> Option<diagnostics::ConditionalContext> {
+    let nodes = ctx.nodes();
+    for ancestor in nodes.ancestors(hook_node_id) {
+        if ancestor.id() == function_node_id {
+            break;
+        }
+
+        let context = match ancestor.kind() {
+            AstKind::IfStatement(stmt) => {
+                let test_span = stmt.test.span();
+                if test_span.contains_inclusive(hook_span) {
+                    continue;
+                }
+
+                let label = if stmt
+                    .alternate
+                    .as_ref()
+                    .is_some_and(|alternate| alternate.span().contains_inclusive(hook_span))
+                {
+                    "When this condition is true, this Hook is skipped."
+                } else {
+                    "When this condition is false, this Hook is skipped."
+                };
+
+                diagnostics::ConditionalContext { span: test_span, label }
+            }
+            AstKind::ConditionalExpression(expr) => {
+                let test_span = expr.test.span();
+                if test_span.contains_inclusive(hook_span) {
+                    continue;
+                }
+
+                diagnostics::ConditionalContext {
+                    span: test_span,
+                    label: "Only one side of this conditional expression calls the Hook.",
+                }
+            }
+            AstKind::LogicalExpression(expr) => {
+                if expr.left.span().contains_inclusive(hook_span) {
+                    continue;
+                }
+
+                diagnostics::ConditionalContext {
+                    span: expr.left.span(),
+                    label: match expr.operator {
+                        LogicalOperator::And => {
+                            "This short-circuits when falsy, skipping the Hook call."
+                        }
+                        LogicalOperator::Or => {
+                            "This short-circuits when truthy, skipping the Hook call."
+                        }
+                        LogicalOperator::Coalesce => {
+                            "This short-circuits when not nullish, skipping the Hook call."
+                        }
+                    },
+                }
+            }
+            AstKind::SwitchCase(case) => {
+                let case_span = if let Some(test) = &case.test {
+                    test.span()
+                } else {
+                    let header_end =
+                        case.consequent.first().map_or(case.span.end, |stmt| stmt.span().start);
+                    let default_start = case.span.start
+                        + ctx.find_next_token_within(case.span.start, header_end, "default")?;
+                    Span::sized(default_start, "default".len() as u32)
+                };
+
+                if case_span.contains_inclusive(hook_span) {
+                    continue;
+                }
+
+                diagnostics::ConditionalContext {
+                    span: case_span,
+                    label: "Only this switch case calls the Hook.",
+                }
+            }
+            _ => continue,
+        };
+
+        return Some(context);
+    }
+
+    None
+}
+
+fn has_conditional_path_accept_throw(
+    nodes: &AstNodes<'_>,
+    cfg: &ControlFlowGraph,
+    from: &AstNode<'_>,
+    to: &AstNode<'_>,
+) -> bool {
+    let from_graph_id = nodes.cfg_id(from.id());
+    let to_graph_id = nodes.cfg_id(to.id());
+    let graph = cfg.graph();
+    let block_count = graph.node_count();
+    let mut stack = Vec::with_capacity(block_count);
+    stack.push((from_graph_id, false));
+    let mut visited =
+        FxHashSet::with_capacity_and_hasher(block_count.saturating_mul(2), FxBuildHasher);
+
+    while let Some((block_id, passed_hook)) = stack.pop() {
+        if !visited.insert((block_id, passed_hook)) {
+            continue;
+        }
+
+        let entered_after_hook = passed_hook;
+        let passed_hook = passed_hook || block_id == to_graph_id;
+        let block = cfg.basic_block(block_id);
+
+        if !passed_hook
+            && block.instructions().iter().any(|instruction| {
+                matches!(
+                    instruction.kind,
+                    InstructionKind::ImplicitReturn | InstructionKind::Return(_)
+                )
+            })
+        {
+            return true;
+        }
+
+        if block
+            .instructions()
+            .iter()
+            .any(|instruction| matches!(instruction.kind, InstructionKind::Unreachable))
+        {
+            continue;
+        }
+
+        // Oxc's CFG is statement-granular, so a possible throw before the Hook can share the
+        // same basic block as the Hook. Keep that explicit error edge on the pre-Hook path.
+        let has_pre_hook_throw = block_id == to_graph_id
+            && block.instructions().iter().any(|instruction| {
+                statement_has_throw_before_hook(nodes, instruction.node_id, to.span())
+            });
+
+        for edge in graph.edges(block_id) {
+            let edge_passed_hook = if block_id == to_graph_id
+                && !entered_after_hook
+                && has_pre_hook_throw
+                && matches!(edge.weight(), EdgeType::Error(ErrorEdgeKind::Explicit))
+            {
+                false
+            } else {
+                passed_hook
+            };
+
+            match edge.weight() {
+                EdgeType::NewFunction
+                | EdgeType::Error(ErrorEdgeKind::Implicit)
+                | EdgeType::Unreachable => {}
+                EdgeType::Error(ErrorEdgeKind::Explicit)
+                | EdgeType::Join
+                | EdgeType::Finalize
+                | EdgeType::Jump
+                | EdgeType::Backedge
+                | EdgeType::Normal => stack.push((edge.target(), edge_passed_hook)),
+            }
+        }
+    }
+
+    false
+}
+
+fn statement_has_throw_before_hook(
+    nodes: &AstNodes<'_>,
+    statement_node_id: Option<NodeId>,
+    hook_span: Span,
+) -> bool {
+    statement_node_id.is_some_and(|node_id| {
+        let mut visitor = MayThrowBeforeHook { hook_span, found: false };
+        visitor.visit_ast_kind(nodes.get_node(node_id).kind());
+        visitor.found
+    })
+}
+
+struct MayThrowBeforeHook {
+    hook_span: Span,
+    found: bool,
+}
+
+impl<'a> MayThrowBeforeHook {
+    fn visit_ast_kind(&mut self, kind: AstKind<'a>) {
+        match kind {
+            AstKind::VariableDeclaration(node) => self.visit_variable_declaration(node),
+            AstKind::ExpressionStatement(node) => self.visit_expression_statement(node),
+            AstKind::IfStatement(node) => self.visit_if_statement(node),
+            AstKind::DoWhileStatement(node) => self.visit_do_while_statement(node),
+            AstKind::WhileStatement(node) => self.visit_while_statement(node),
+            AstKind::ForStatement(node) => self.visit_for_statement(node),
+            AstKind::ForInStatement(node) => self.visit_for_in_statement(node),
+            AstKind::ForOfStatement(node) => self.visit_for_of_statement(node),
+            AstKind::ReturnStatement(node) => self.visit_return_statement(node),
+            AstKind::WithStatement(node) => self.visit_with_statement(node),
+            AstKind::SwitchStatement(node) => self.visit_switch_statement(node),
+            AstKind::LabeledStatement(node) => self.visit_labeled_statement(node),
+            AstKind::ThrowStatement(node) => self.visit_throw_statement(node),
+            AstKind::TryStatement(node) => self.visit_try_statement(node),
+            _ => self.enter_node(kind),
+        }
+    }
+}
+
+impl<'a> VisitJs<'a> for MayThrowBeforeHook {
+    fn enter_node(&mut self, kind: AstKind<'a>) {
+        if self.found {
+            return;
+        }
+
+        let span = kind.span();
+        if span.end > self.hook_span.start {
+            return;
+        }
+
+        self.found = matches!(
+            kind,
+            AstKind::AwaitExpression(_)
+                | AstKind::CallExpression(_)
+                | AstKind::ComputedMemberExpression(_)
+                | AstKind::ImportExpression(_)
+                | AstKind::NewExpression(_)
+                | AstKind::PrivateFieldExpression(_)
+                | AstKind::StaticMemberExpression(_)
+                | AstKind::TaggedTemplateExpression(_)
+                | AstKind::ThrowStatement(_)
+        );
+    }
+
+    fn visit_function(&mut self, _func: &Function<'a>, _flags: oxc_syntax::scope::ScopeFlags) {}
+
+    fn visit_arrow_function_expression(&mut self, _expr: &ArrowFunctionExpression<'a>) {}
+
+    fn visit_call_expression(&mut self, expr: &CallExpression<'a>) {
+        self.enter_node(AstKind::CallExpression(expr));
+        if !self.found {
+            walk_js::walk_call_expression(self, expr);
+        }
+    }
+
+    fn visit_new_expression(&mut self, expr: &NewExpression<'a>) {
+        self.enter_node(AstKind::NewExpression(expr));
+        if !self.found {
+            walk_js::walk_new_expression(self, expr);
+        }
+    }
+}
+
+fn parent_func<'a>(nodes: &'a AstNodes<'a>, node: &AstNode) -> Option<&'a AstNode<'a>> {
+    nodes.ancestors(node.id()).find(|node| node.kind().is_function_like())
+}
+
+fn is_inside_try_catch(
+    nodes: &AstNodes<'_>,
+    hook_node_id: NodeId,
+    function_node_id: NodeId,
+) -> bool {
+    nodes
+        .ancestors(hook_node_id)
+        .take_while(|node| node.id() != function_node_id)
+        .any(|node| matches!(node.kind(), AstKind::TryStatement(_) | AstKind::CatchClause(_)))
+}
+
+fn check_use_effect_event_usage(
+    node: &AstNode<'_>,
+    call: &CallExpression<'_>,
+    ctx: &LintContext<'_>,
+) {
+    match ctx.nodes().parent_kind(node.id()) {
+        AstKind::VariableDeclarator(decl) => {
+            if !is_somewhere_inside_component_or_hook(ctx.nodes(), node.id()) {
+                return;
+            }
+            if let Some(ident) = decl.id.get_binding_identifier() {
+                let additional_effect_hooks = additional_effect_hooks(ctx);
+                report_invalid_use_effect_event_references(
+                    ident.symbol_id(),
+                    additional_effect_hooks.as_ref(),
+                    ctx,
+                );
+            }
+        }
+        // As with other Hooks, a top-level expression statement is permitted.
+        AstKind::ExpressionStatement(_) => {}
+        _ => ctx.diagnostic(diagnostics::use_effect_event_inline_escape(call.span)),
+    }
+}
+
+fn additional_effect_hooks(ctx: &LintContext<'_>) -> Option<Regex> {
+    let pattern =
+        ctx.settings().json.as_ref()?.get("react-hooks")?.get("additionalEffectHooks")?.as_str()?;
+    Regex::new(pattern).ok()
+}
+
+fn report_invalid_use_effect_event_references(
+    symbol_id: SymbolId,
+    additional_effect_hooks: Option<&Regex>,
+    ctx: &LintContext<'_>,
+) {
+    for reference in ctx.semantic().symbol_references(symbol_id) {
+        if is_inside_effect_or_effect_event_call(
+            ctx.nodes(),
+            reference.node_id(),
+            additional_effect_hooks,
+        ) {
+            continue;
+        }
+
+        let span = ctx.semantic().reference_span(reference);
+        ctx.diagnostic(diagnostics::use_effect_event_reference(
+            span,
+            ctx.semantic().reference_name(reference),
+            is_reference_call_callee(ctx.nodes(), reference.node_id(), span),
+        ));
+    }
+}
+
+fn is_inside_effect_or_effect_event_call(
+    nodes: &AstNodes<'_>,
+    node_id: NodeId,
+    additional_effect_hooks: Option<&Regex>,
+) -> bool {
+    nodes.ancestors(node_id).any(|ancestor| match ancestor.kind() {
+        AstKind::CallExpression(call) => {
+            is_effect_or_effect_event_call(call, additional_effect_hooks)
+        }
+        _ => false,
+    })
+}
+
+fn is_effect_or_effect_event_call(
+    call: &CallExpression<'_>,
+    additional_effect_hooks: Option<&Regex>,
+) -> bool {
+    is_react_function_call(call, "useEffect")
+        || is_react_function_call(call, "useLayoutEffect")
+        || is_react_function_call(call, "useInsertionEffect")
+        || is_react_function_call(call, "useEffectEvent")
+        || additional_effect_hooks.is_some_and(|regex| {
+            call.callee_name()
+                .is_some_and(|name| is_react_function_call(call, name) && regex.is_match(name))
+        })
+}
+
+fn is_reference_call_callee(nodes: &AstNodes<'_>, node_id: NodeId, span: Span) -> bool {
+    nodes.ancestors(node_id).any(|ancestor| match ancestor.kind() {
+        AstKind::CallExpression(call) => call.callee.span() == span,
+        _ => false,
+    })
+}
+
+/// Checks if the `node_id` is a callback argument (including constructor and JSX render props),
+/// And that function isn't a `React.memo` or `React.forwardRef`.
+/// Returns `true` if this node is a function argument/render prop and that isn't a React special function.
+/// Otherwise it would return `false`.
+fn is_non_react_func_arg(nodes: &AstNodes, node_id: NodeId) -> bool {
+    let parent = nodes.parent_node(node_id);
+
+    match parent.kind() {
+        // Callback passed as argument to a function call
+        AstKind::CallExpression(call) => {
+            !(is_react_function_call(call, "forwardRef") || is_react_function_call(call, "memo"))
+        }
+        // Callback passed as an argument to a constructor or JSX render prop.
+        AstKind::NewExpression(_) | AstKind::JSXExpressionContainer(_) => true,
+        _ => false,
+    }
+}
+
+fn is_somewhere_inside_component_or_hook(nodes: &AstNodes, node_id: NodeId) -> bool {
+    nodes
+        .ancestors(node_id)
+        .filter(|node| node.kind().is_function_like())
+        .map(|node| {
+            (
+                node.id(),
+                match node.kind() {
+                    AstKind::Function(func) => func.name().map(Cow::from),
+                    AstKind::ArrowFunctionExpression(_) => {
+                        get_declaration_identifier(nodes, node.id())
+                    }
+                    _ => unreachable!(),
+                },
+            )
+        })
+        .any(|(id, ident)| {
+            ident.is_some_and(|name| is_react_component_or_hook_name(&name))
+                || is_memo_or_forward_ref_callback(nodes, id)
+        })
+}
+
+fn is_directly_inside_component_or_hook(nodes: &AstNodes, node_id: NodeId) -> bool {
+    let node = nodes.get_node(node_id);
+    let directly_named = match node.kind() {
+        AstKind::Function(func) => {
+            func.name().is_some_and(|name| is_react_component_or_hook_name(name.as_str()))
+        }
+        AstKind::ArrowFunctionExpression(_) => get_declaration_identifier(nodes, node_id)
+            .is_some_and(|name| is_react_component_or_hook_name(&name)),
+        _ => unreachable!(),
+    };
+
+    directly_named || is_memo_or_forward_ref_callback(nodes, node_id)
+}
+
+fn get_declaration_identifier<'a>(
+    nodes: &'a AstNodes<'a>,
+    node_id: NodeId,
+) -> Option<Cow<'a, str>> {
+    let node = nodes.get_node(node_id);
+
+    match node.kind() {
+        AstKind::Function(Function { id: Some(id), .. }) => {
+            // function useHook() {}
+            // const whatever = function useHook() {};
+            //
+            // Function declaration or function expression names win over any
+            // assignment statements or other renames.
+            Some(Cow::Borrowed(id.name.as_str()))
+        }
+        AstKind::Function(_) | AstKind::ArrowFunctionExpression(_) => {
+            match nodes.parent_kind(node_id) {
+                AstKind::VariableDeclarator(decl) => {
+                    decl.id.get_identifier_name().map(|id| Cow::Borrowed(id.as_str()))
+                }
+                // useHook = () => {};
+                AstKind::AssignmentExpression(expr)
+                    if matches!(expr.operator, AssignmentOperator::Assign) =>
+                {
+                    expr.left.get_identifier_name().map(std::convert::Into::into)
+                }
+                // const {useHook = () => {}} = {};
+                // ({useHook = () => {}} = {});
+                AstKind::AssignmentPattern(patt) => {
+                    patt.left.get_identifier_name().map(|id| Cow::Borrowed(id.as_str()))
+                }
+                // { useHook: () => {} }
+                // { useHook() {} }
+                AstKind::ObjectProperty(prop) => {
+                    prop.key.name().and_then(StaticPropertyName::into_cow_str)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// # Panics
+/// `node_id` should always point to a valid `Function`.
+fn is_memo_or_forward_ref_callback(nodes: &AstNodes, node_id: NodeId) -> bool {
+    nodes.ancestors(node_id).any(|node| {
+        if let AstKind::CallExpression(call) = node.kind() {
+            call.callee_name().is_some_and(|name| matches!(name, "forwardRef" | "memo"))
+        } else {
+            false
+        }
+    })
+}
+
+#[test]
+fn test() {
+    ///  Copyright (c) Meta Platforms, Inc. and affiliates.
+    /// Most of these tests are sourced from the original react `eslint-plugin-react-hooks` package.
+    /// https://github.com/facebook/react/blob/5b903cdaa94c78e8fabb985d8daca5bd7d266323/packages/eslint-plugin-react-hooks/__tests__/ESLintRulesOfHooks-test.js
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        // Valid because components can use hooks.
+        "
+            function ComponentWithHook() {
+              useHook();
+            }
+        ",
+
+
+        // Valid because hooks can be used in condition expressions beginning with a ternary condition
+        "
+            function ComponentWithConditionalHook() {
+               if (useHook() ? good() : bad()) {
+                    check();
+               }
+            }
+        ",
+
+        // Valid because hooks can be used in condition expressions
+        "
+            function Component() {
+              if (!useHasPermission()) {
+                return null;
+              }
+              return <Content />;
+            }
+        ",
+        // Valid because hooks can be used in ternary condition expressions
+        "
+            function Component() {
+              return useHasPermission() ? <Content /> : null;
+            }
+        ",
+        // Valid because hooks can be used in logical expressions (left side)
+        "
+            function Component() {
+              return useHasPermission() && <Content />;
+            }
+        ",
+        // Valid because hooks can be used with negation in condition expressions
+        "
+            function Component() {
+              if (!useHasPermission()) {
+                return null;
+              }
+              return <Content />;
+            }
+        ",
+        // Valid because hooks can be used in complex condition expressions
+        "
+            function Component() {
+              if (useHasPermission() && isAdmin()) {
+                return <AdminContent />;
+              }
+              return <Content />;
+            }
+        ",
+        // Valid because hooks can be used in nested condition expressions
+        "
+            function Component() {
+              return (useHasPermission() && isAdmin()) ? <AdminContent /> : <Content />;
+            }
+        ",
+        // Valid because components can use hooks.
+        "
+            function createComponentWithHook() {
+              return function ComponentWithHook() {
+                useHook();
+              };
+            }
+        ",
+        // Valid because hooks can use hooks.
+        "
+            function useHookWithHook() {
+              useHook();
+            }
+        ",
+        // Valid because 'use' followed by a digit is a valid hook name (/^use[A-Z0-9]/).
+        "
+            function use2FAMutation() {
+              return useState(null);
+            }
+        ",
+        "
+            function Component() {
+              use2FAMutation();
+            }
+        ",
+        "
+            function use3DEngine() {
+              useEffect(() => {}, []);
+            }
+        ",
+        // Valid because hooks can use hooks.
+        "
+            function createHook() {
+              return function useHookWithHook() {
+                useHook();
+              }
+            }
+        ",
+        // Valid because components can call functions.
+        "
+            function ComponentWithNormalFunction() {
+              doSomething();
+            }
+        ",
+        // Valid because functions can call functions.
+        "
+            function normalFunctionWithNormalFunction() {
+              doSomething();
+            }
+        ",
+        // Valid because functions can call functions.
+        "
+            function normalFunctionWithConditionalFunction() {
+              if (cond) {
+                doSomething();
+              }
+            }
+        ",
+        // Valid because functions can call functions.
+        "
+            function functionThatStartsWithUseButIsntAHook() {
+              if (cond) {
+                userFetch();
+              }
+            }
+        ",
+        // Valid although unconditional return doesn't make sense and would fail other rules.
+        // We could make it invalid but it doesn't matter.
+        "
+            function useUnreachable() {
+              return;
+              useHook();
+            }
+        ",
+        // Valid because hooks can call hooks.
+        "
+            function useHook() { useState(); }
+            const whatever = function useHook() { useState(); };
+            const useHook1 = () => { useState(); };
+            let useHook2 = () => useState();
+            useHook2 = () => { useState(); };
+            ({useHook: () => { useState(); }});
+            ({useHook() { useState(); }});
+            const {useHook3 = () => { useState(); }} = {};
+            ({useHook = () => { useState(); }} = {});
+            Namespace.useHook = () => { useState(); };
+        ",
+        // Valid because hooks can call hooks.
+        "
+            function useHook() {
+              useHook1();
+              useHook2();
+            }
+        ",
+        // Valid because hooks can call hooks.
+        "
+            function createHook() {
+              return function useHook() {
+                useHook1();
+                useHook2();
+              };
+            }
+        ",
+        // Valid because hooks can call hooks.
+        "
+            function useHook() {
+              useState() && a;
+            }
+        ",
+        // Valid because hooks can call hooks.
+        "
+            function useHook() {
+              return useHook1() + useHook2();
+            }
+        ",
+        // Valid because hooks can call hooks.
+        "
+            function useHook() {
+              return useHook1(useHook2());
+            }
+        ",
+        // Valid because hooks can be used in anonymous arrow-function arguments
+        // to forwardRef.
+        "
+            const FancyButton = React.forwardRef((props, ref) => {
+              useHook();
+              return <button {...props} ref={ref} />
+            });
+        ",
+        // Valid because hooks can be used in anonymous function arguments to
+        // forwardRef.
+        "
+            const FancyButton = React.forwardRef(function (props, ref) {
+              useHook();
+              return <button {...props} ref={ref} />
+            });
+        ",
+        // Valid because hooks can be used in anonymous function arguments to
+        // forwardRef.
+        "
+            const FancyButton = forwardRef(function (props, ref) {
+              useHook();
+              return <button {...props} ref={ref} />
+            });
+        ",
+        // Valid because hooks can be used in anonymous function arguments to
+        // React.memo.
+        "
+            const MemoizedFunction = React.memo(props => {
+              useHook();
+              return <button {...props} />
+            });
+        ",
+        // Valid because hooks can be used in anonymous function arguments to
+        // memo.
+        "
+            const MemoizedFunction = memo(function (props) {
+              useHook();
+              return <button {...props} />
+            });
+        ",
+        // Valid because classes can call functions.
+        // We don't consider these to be hooks.
+        "
+            class C {
+              m() {
+                this.useHook();
+                super.useHook();
+              }
+            }
+        ",
+        // Valid -- this is a regression test.
+        "
+            jest.useFakeTimers();
+            beforeEach(() => {
+              jest.useRealTimers();
+            })
+        ",
+        // Valid because they're not matching use[A-Z].
+        "
+            fooState();
+            _use();
+            _useState();
+            use_hook();
+            // also valid because it's not matching the PascalCase namespace
+            jest.useFakeTimer()
+        ",
+        // Regression test for some internal code.
+        // This shows how the "callback rule" is more relaxed,
+        // and doesn't kick in unless we're confident we're in
+        // a component or a hook.
+        "
+            function makeListener(instance) {
+              each(pixelsWithInferredEvents, pixel => {
+                if (useExtendedSelector(pixel.id) && extendedButton) {
+                  foo();
+                }
+              });
+            }
+        ",
+        // This is valid because "use"-prefixed functions called in
+        // unnamed function arguments are not assumed to be hooks.
+        "
+            React.unknownFunction((foo, bar) => {
+              if (foo) {
+                useNotAHook(bar)
+              }
+            });
+        ",
+        // This is valid because "use"-prefixed functions called in
+        // unnamed function arguments are not assumed to be hooks.
+        "
+            unknownFunction(function(foo, bar) {
+              if (foo) {
+                useNotAHook(bar)
+              }
+            });
+        ",
+        // Regression test for incorrectly flagged valid code.
+        "
+            function RegressionTest() {
+              const foo = cond ? a : b;
+              useState();
+            }
+        ",
+        // Valid because exceptions abort rendering
+        "
+            function RegressionTest() {
+              if (page == null) {
+                throw new Error('oh no!');
+              }
+              useState();
+            }
+        ",
+        // Valid because the loop doesn't change the order of hooks calls.
+        "
+            function RegressionTest(test) {
+              while (test) {
+                test = update(test);
+              }
+              React.useLayoutEffect(() => {});
+            }
+        ",
+        // Valid because the loop doesn't change the order of hooks calls.
+        "
+            function RegressionTest() {
+              const res = [];
+              const additionalCond = true;
+              for (let i = 0; i !== 10 && additionalCond; ++i ) {
+                res.push(i);
+              }
+              React.useLayoutEffect(() => {});
+            }
+        ",
+        // Is valid but hard to compute by brute-forcing
+        "
+            function MyComponent() {
+              // 40 conditions
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+              if (c) {} else {}
+
+              // 10 hooks
+              useHook();
+              useHook();
+              useHook();
+              useHook();
+              useHook();
+              useHook();
+              useHook();
+              useHook();
+              useHook();
+              useHook();
+            }
+        ",
+        // Valid because the neither the conditions before or after the hook affect the hook call
+        // Failed prior to implementing BigInt because pathsFromStartToEnd and allPathsFromStartToEnd were too big and had rounding errors
+        "
+            const useSomeHook = () => {};
+
+            const SomeName = () => {
+              const filler = FILLER ?? FILLER ?? FILLER;
+              const filler2 = FILLER ?? FILLER ?? FILLER;
+              const filler3 = FILLER ?? FILLER ?? FILLER;
+              const filler4 = FILLER ?? FILLER ?? FILLER;
+              const filler5 = FILLER ?? FILLER ?? FILLER;
+              const filler6 = FILLER ?? FILLER ?? FILLER;
+              const filler7 = FILLER ?? FILLER ?? FILLER;
+              const filler8 = FILLER ?? FILLER ?? FILLER;
+
+              useSomeHook();
+
+              if (anyConditionCanEvenBeFalse) {
+                return null;
+              }
+
+              return (
+                <React.Fragment>
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                  {FILLER ? FILLER : FILLER}
+                </React.Fragment>
+              );
+            };
+            ",
+        // Valid because the neither the condition nor the loop affect the hook call.
+        "
+            function App(props) {
+              const someObject = {propA: true};
+              for (const propName in someObject) {
+                if (propName === true) {
+                } else {
+                }
+              }
+              const [myState, setMyState] = useState(null);
+            }
+        ",
+        "
+            function App() {
+              const text = use(Promise.resolve('A'));
+              return <Text text={text} />
+            }
+        ",
+        "
+            import * as React from 'react';
+            function App() {
+              if (shouldShowText) {
+                const text = use(query);
+                const data = React.use(thing);
+                const data2 = react.use(thing2);
+                return <Text text={text} />
+              }
+              return <Text text={shouldFetchBackupText ? use(backupQuery) : \"Nothing to see here\"} />
+            }
+        ",
+        "
+            function App() {
+              let data = [];
+              for (const query of queries) {
+                const text = use(item);
+                data.push(text);
+              }
+              return <Child data={data} />
+            }
+        ",
+        "
+            function App() {
+              const data = someCallback((x) => use(x));
+              return <Child data={data} />
+            }
+        ",
+        "
+            function useLabeledBlock() {
+                label: {
+                    useHook();
+                    if (a) break label;
+                }
+            }
+        ",
+        "
+            export const FalsePositive = ({ editor, anchorElem, isLink, linkNodeUrl, close }: Props) => {
+              // This custom hook invocation seems to trigger false positives below
+              const [state, setState] = useCustomHook<State>({
+                inputLinkUrl: linkNodeUrl ?? '',
+                editable: !isLink,
+                lastLinkUrl: '',
+                lastSelection: null
+              });
+
+              const [someThing, setSomeThing] = useState(true);
+
+              const onEdit = useCallback(() => setSomeThing(false), [inputLinkUrl, setSomeThing]);
+
+              const updateLinkEditor = useCallback(() => {
+                const rootElement = editor.getRootElement();
+
+                if (nativeSelection.anchorNode === rootElement) {
+                  let inner = rootElement;
+                  while (inner.firstElementChild !== null) {
+                    inner = inner.firstElementChild as HTMLElement;
+                  }
+                }
+              }, [anchorElem, editor, setSomeThing]);
+
+              return <div>test</div>;
+            };
+        ",
+        "
+            function useLabeledBlock() {
+                let x = () => {
+                    if (some) {
+                        noop();
+                    }
+                };
+                useHook();
+            }
+        ",
+        "
+
+            export const Component = () => {
+                return {
+                    Target: () => {
+                        useEffect(() => {
+                            return () => {
+                                something.value = true;
+                            };
+                        }, []);
+                        return <div></div>;
+                    },
+                    useTargetModule: (m) => {
+                        useModule(m);
+                    },
+                };
+            };
+        ",
+        "
+            test.beforeEach(async () => {
+                timer = Sinon.useFakeTimers({
+                    toFake: ['setInterval'],
+                });
+            });
+    ",
+    "export default function App() {
+       const [state, setState] = useState(0);
+
+       useEffect(() => {
+         console.log('Effect called');
+       }, []);
+
+       return <div>{state}</div>;
+    }
+    // https://github.com/toeverything/AFFiNE/blob/0ec1995addbb09fb5d4af765d84cc914b2905150/packages/frontend/core/src/hooks/use-query.ts#L46
+    ",
+    "const createUseQuery =
+    (immutable: boolean): useQueryFn =>
+    (options, config) => {
+        const configWithSuspense: SWRConfiguration = useMemo(
+            () => ({
+                suspense: true,
+                ...config,
+            }),
+            [config],
+        );
+
+        const useSWRFn = immutable ? useSWRImutable : useSWR;
+        return useSWRFn(options ? () => ['cloud', options.query.id, options.variables] : null, options ? () => fetcher(options) : null, configWithSuspense);
+    };",
+    // https://github.com/oxc-project/oxc/issues/6651
+    r"const MyComponent = makeComponent(() => { useHook(); });",
+    r"const MyComponent2 = makeComponent(function () { useHook(); });",
+    r"const MyComponent4 = makeComponent(function InnerComponent() { useHook(); });",
+    r"const Foo = hoc((props) => { if (props.cond) { const [_a, _b] = useState(false); } });",
+    "
+        async (_, use) => {
+          await use();
+        };
+    ",
+    "
+        function Foo() {
+          try {
+            f();
+          } catch {}
+          useState();
+        }
+    ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              useEffect(() => {
+                onClick();
+              });
+              React.useEffect(() => {
+                onClick();
+              });
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              const onClick2 = useEffectEvent(() => {
+                debounce(onClick);
+                debounce(() => onClick());
+                debounce(() => { onClick() });
+                deboucne(() => debounce(onClick));
+              });
+              useEffect(() => {
+                let id = setInterval(() => onClick(), 100);
+                return () => clearInterval(onClick);
+              }, []);
+              React.useEffect(() => {
+                let id = setInterval(() => onClick(), 100);
+                return () => clearInterval(onClick);
+              }, []);
+              return null;
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              useEffect(() => {
+                onClick();
+              });
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onEvent = useEffectEvent((text) => {
+                console.log(text);
+              });
+              useEffect(() => {
+                onEvent('Hello world');
+              });
+              React.useEffect(() => {
+                onEvent('Hello world');
+              });
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              useLayoutEffect(() => {
+                onClick();
+              });
+              React.useLayoutEffect(() => {
+                onClick();
+              });
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              useInsertionEffect(() => {
+                onClick();
+              });
+              React.useInsertionEffect(() => {
+                onClick();
+              });
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              const onClick2 = useEffectEvent(() => {
+                debounce(onClick);
+                debounce(() => onClick());
+                debounce(() => { onClick() });
+                deboucne(() => debounce(onClick));
+              });
+              useLayoutEffect(() => {
+                let id = setInterval(() => onClick(), 100);
+                return () => clearInterval(onClick);
+              }, []);
+              React.useLayoutEffect(() => {
+                let id = setInterval(() => onClick(), 100);
+                return () => clearInterval(onClick);
+              }, []);
+              useInsertionEffect(() => {
+                let id = setInterval(() => onClick(), 100);
+                return () => clearInterval(onClick);
+              }, []);
+              React.useInsertionEffect(() => {
+                let id = setInterval(() => onClick(), 100);
+                return () => clearInterval(onClick);
+              }, []);
+              return null;
+            }
+        ",
+        // This matches eslint-plugin-react-hooks: callbacks in non-components are not reported.
+        r"
+            function notAComponent() {
+                return new Promise.then(() => {
+                    useState();
+                });
+            }
+        ",
+    ];
+
+    let pass_additional_effect_hooks = vec![(
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              useMyEffect(() => {
+                onClick();
+              });
+              useServerEffect(() => {
+                onClick();
+              });
+            }
+        ",
+        None,
+        Some(serde_json::json!({
+            "settings": {
+                "react-hooks": {
+                    "additionalEffectHooks": "(useMyEffect|useServerEffect)"
+                }
+            }
+        })),
+    )];
+
+    let fail = vec![
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useConditionalHook')],
+        "
+        function ComponentWithConditionalHook() {
+               if (cond) {
+                 useConditionalHook();
+               }
+             }
+        ",
+        // Invalid because hooks are used in the right side of logical expressions
+        "
+            function useHook() {
+                a && useHook1();
+                b && useHook2();
+            }
+        ",
+        // Invalid because hooks are used conditionally after a condition
+        "
+            function Component() {
+                if (condition) {
+                    // This is invalid because the hook is called conditionally
+                    useHook();
+                }
+            }
+        ",
+        // Invalid because hooks are used in the right side of ternary expressions
+        "
+            function Component() {
+                condition ? useHook() : null;
+            }
+        ",
+        "
+        function Component() {
+          if (Math.random()) {
+            return null;
+          } else if (!useHasPermission()) {
+            return <Foo />
+          }
+          return <Content />;
+        }
+        ",
+        "
+        function Component() {
+          switch (foo) {
+            case 1:
+              useCaseHook();
+              break;
+            default:
+              break;
+          }
+        }
+        ",
+        "
+        function Component() {
+          switch (foo) {
+            case 1:
+              break;
+            default:
+              useDefaultHook();
+          }
+        }
+        ",
+        // Invalid because hooks can only be called inside of a component.
+        // errors: [
+        //     topLevelError('Hook.useState'),
+        //     topLevelError('Hook.use42'),
+        //     topLevelError('Hook.useHook'),
+        // ],
+        "
+            Hook.useState();
+            Hook._useState();
+            Hook.use42();
+            Hook.useHook();
+            Hook.use_hook();
+        ",
+        // errors: [classError('This.useHook'), classError('Super.useHook')],
+        "
+            class C {
+                 m() {
+                     This.useHook();
+                     Super.useHook();
+                 }
+            }
+        ",
+        // This is a false positive (it's valid) that unfortunately
+        // we cannot avoid. Prefer to rename it to not start with "use"
+        // errors: [classError('FooStore.useFeatureFlag')],
+        "
+            class Foo extends Component {
+                render() {
+                    if (cond) {
+                        FooStore.useFeatureFlag();
+                    }
+                }
+            }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('Namespace.useConditionalHook')],
+        "
+            function ComponentWithConditionalHook() {
+                if (cond) {
+                    Namespace.useConditionalHook();
+                }
+            }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useConditionalHook')],
+        "
+                function createComponent() {
+                    return function ComponentWithConditionalHook() {
+                        if (cond) {
+                            useConditionalHook();
+                        }
+                    }
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useConditionalHook')],
+        "
+                function useHookWithConditionalHook() {
+                    if (cond) {
+                        useConditionalHook();
+                    }
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useConditionalHook')],
+        "
+                function createHook() {
+                    return function useHookWithConditionalHook() {
+                        if (cond) {
+                            useConditionalHook();
+                        }
+                    }
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useTernaryHook')],
+        "
+                function ComponentWithTernaryHook() {
+                    cond ? useTernaryHook() : null;
+                }
+        ",
+        // Invalid because it's a common misunderstanding.
+        // We *could* make it valid but the runtime error could be confusing.
+        // errors: [genericError('useHookInsideCallback')],
+        "
+                function ComponentWithHookInsideCallback() {
+                    useEffect(() => {
+                        useHookInsideCallback();
+                    });
+                }
+        ",
+        // Invalid because it's a common misunderstanding.
+        // We *could* make it valid but the runtime error could be confusing.
+        // errors: [genericError('useHookInsideCallback')],
+        "
+                function createComponent() {
+                    return function ComponentWithHookInsideCallback() {
+                        useEffect(() => {
+                            useHookInsideCallback();
+                        });
+                    }
+                }
+        ",
+        // Invalid because it's a common misunderstanding.
+        // We *could* make it valid but the runtime error could be confusing.
+        // errors: [genericError('useHookInsideCallback')],
+        "
+                const ComponentWithHookInsideCallback = React.forwardRef((props, ref) => {
+                    useEffect(() => {
+                        useHookInsideCallback();
+                    });
+                    return <button {...props} ref={ref} />
+                });
+        ",
+        // Invalid because it's a common misunderstanding.
+        // We *could* make it valid but the runtime error could be confusing.
+        // errors: [genericError('useHookInsideCallback')],
+        "
+                const ComponentWithHookInsideCallback = React.memo(props => {
+                    useEffect(() => {
+                        useHookInsideCallback();
+                    });
+                    return <button {...props} />
+                });
+        ",
+        // Invalid because it's a common misunderstanding.
+        // We *could* make it valid but the runtime error could be confusing.
+        // errors: [functionError('useState', 'handleClick')],
+        "
+                function ComponentWithHookInsideCallback() {
+                    function handleClick() {
+                        useState();
+                    }
+                }
+        ",
+        // Invalid because it's a common misunderstanding.
+        // We *could* make it valid but the runtime error could be confusing.
+        // errors: [functionError('useState', 'handleClick')],
+        "
+                function createComponent() {
+                    return function ComponentWithHookInsideCallback() {
+                        function handleClick() {
+                            useState();
+                        }
+                    }
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [loopError('useHookInsideLoop')],
+        "
+                function ComponentWithHookInsideLoop() {
+                    while (cond) {
+                        useHookInsideLoop();
+                    }
+                }
+        ",
+        "
+            function ComponentWithHookInsideLoop() {
+              do {
+                useHookInsideLoop();
+              } while (cond);
+            }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        "
+            function ComponentWithHookInsideLoop() {
+              do {
+                foo();
+              } while (useHookInsideLoop());
+            }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [functionError('useState', 'renderItem')],
+        "
+                function renderItem() {
+                    useState();
+                }
+
+                function List(props) {
+                    return props.items.map(renderItem);
+                }
+        ",
+        // Currently invalid because it violates the convention and removes the "taint"
+        // from a hook. We *could* make it valid to avoid some false positives but let's
+        // ensure that we don't break the "renderItem" and "normalFunctionWithConditionalHook"
+        // cases which must remain invalid.
+        // errors: [functionError('useHookInsideNormalFunction', 'normalFunctionWithHook'), ],
+        "
+                function normalFunctionWithHook() {
+                    useHookInsideNormalFunction();
+                }
+        ",
+        // These are neither functions nor hooks.
+        // errors: [
+        //     functionError('useHookInsideNormalFunction', '_normalFunctionWithHook'),
+        //     functionError('useHookInsideNormalFunction', '_useNotAHook'),
+        // ],
+        "
+                function _normalFunctionWithHook() {
+                    useHookInsideNormalFunction();
+                }
+                function _useNotAHook() {
+                    useHookInsideNormalFunction();
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [
+        //   functionError(
+        //     'useHookInsideNormalFunction',
+        //     'normalFunctionWithConditionalHook'
+        //   ),
+        // ],
+        "
+                function normalFunctionWithConditionalHook() {
+                    if (cond) {
+                        useHookInsideNormalFunction();
+                    }
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [
+        //     loopError('useHook1'),
+        //     loopError('useHook2'),
+        //     loopError('useHook3'),
+        //     loopError('useHook4'),
+        // ]
+        "
+                function useHookInLoops() {
+                    while (a) {
+                        useHook1();
+                        if (b) return;
+                        useHook2();
+                    }
+                    while (c) {
+                        useHook3();
+                        if (d) return;
+                        useHook4();
+                    }
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [loopError('useHook1'), loopError('useHook2', true)],
+        "
+            function useHookInLoops() {
+                while (a) {
+                    useHook1();
+                    if (b) continue;
+                    useHook2();
+                }
+            }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        r"
+       function useHookInLoops() {
+         do {
+           useHook1();
+           if (a) return;
+           useHook2();
+         } while (b);
+
+         do {
+           useHook3();
+           if (c) return;
+           useHook4();
+         } while (d)
+       }
+       ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        r"
+        function useHookInLoops() {
+          do {
+            useHook1();
+            if (a) continue;
+            useHook2();
+          } while (b);
+        }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useHook')],
+        "
+                function useLabeledBlock() {
+                    label: {
+                        if (a) break label;
+                        useHook();
+                    }
+                }
+        ",
+        // Currently invalid.
+        // These are variations capturing the current heuristic--
+        // we only allow hooks in PascalCase or useFoo functions.
+        // We *could* make some of these valid. But before doing it,
+        // consider specific cases documented above that contain reasoning.
+        // errors: [
+        //     functionError('useState', 'a'),
+        //     functionError('useState', 'b'),
+        //     functionError('useState', 'c'),
+        //     functionError('useState', 'd'),
+        //     functionError('useState', 'e'),
+        //     functionError('useState', 'f'),
+        //     functionError('useState', 'g'),
+        //     functionError('useState', 'j'),
+        //     functionError('useState', 'k'),
+        // ]
+        "
+            function a() { useState(); }
+            const whatever = function b() { useState(); };
+            const c = () => { useState(); };
+            let d = () => useState();
+            e = () => { useState(); };
+            ({f: () => { useState(); }});
+            ({g() { useState(); }});
+            const {j = () => { useState(); }} = {};
+            ({k = () => { useState(); }} = {});
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useState', true)],
+        "
+                function useHook() {
+                    if (a) return;
+                    useState();
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useState', true)],
+        "
+                function useHook() {
+                    if (a) return;
+                    if (b) {
+                        console.log('true');
+                    } else {
+                        console.log('false');
+                    }
+                    useState();
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useState', true)],
+        "
+                function useHook() {
+                    if (b) {
+                        console.log('true');
+                    } else {
+                        console.log('false');
+                    }
+                    if (a) return;
+                    useState();
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useHook1'), conditionalError('useHook2')],
+        "
+                function useHook() {
+                    a && useHook1();
+                    b && useHook2();
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [
+        //     // NOTE: This is an error since `f()` could possibly throw.
+        //     conditionalError('useState'),
+        // ],
+        "
+                function useHook() {
+                    try {
+                        f();
+                        useState();
+                    } catch {}
+                }
+        ",
+        // https://github.com/oxc-project/oxc/issues/25631
+        "
+                function TestChild() {
+                    let captured = null;
+                    try {
+                        captured = useTooltipContext();
+                        return null;
+                    } catch (error) {
+                        return null;
+                    }
+                }
+        ",
+        "
+                function ComponentWithHookInsideLoop() {
+                    try {
+                        while (cond) {
+                            useState();
+                        }
+                    } catch {}
+                }
+        ",
+        "
+                function Foo() {
+                    try {
+                        const value = 1;
+                        useState(value);
+                    } catch {}
+                }
+        ",
+        "
+                function useHook() {
+                    try {
+                        const value = f();
+                        useState(value);
+                    } catch {}
+                }
+        ",
+        "
+                function useHook() {
+                    try {
+                        f(), useState();
+                    } catch {}
+                }
+        ",
+        "
+                function useHook() {
+                    try {
+                        throw err;
+                        useState();
+                    } catch {}
+                }
+        ",
+        "
+                function App({p1, p2}) {
+                    try {
+                        use(p1);
+                    } catch (error) {
+                        console.error(error);
+                    }
+                    use(p2);
+                    return <div>App</div>;
+                }
+        ",
+        "
+                function App({p1, p2}) {
+                    try {
+                        doSomething();
+                    } catch {
+                        use(p1);
+                    }
+                    use(p2);
+                    return <div>App</div>;
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [
+        //     conditionalError('useState'),
+        //     conditionalError('useState'),
+        //     conditionalError('useState'),
+        // ],
+        "
+                function useHook({ bar }) {
+                    let foo1 = bar && useState();
+                    let foo2 = bar || useState();
+                    let foo3 = bar ?? useState();
+                }
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useCustomHook')],
+        "
+                const FancyButton = React.forwardRef((props, ref) => {
+                    if (props.fancy) {
+                        useCustomHook();
+                    }
+                    return <button ref={ref}>{props.children}</button>;
+                });
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useCustomHook')],
+        "
+                const FancyButton = forwardRef(function(props, ref) {
+                    if (props.fancy) {
+                        useCustomHook();
+                    }
+                    return <button ref={ref}>{props.children}</button>;
+                });
+        ",
+        // Invalid because it's dangerous and might not warn otherwise.
+        // This *must* be invalid.
+        // errors: [conditionalError('useCustomHook')],
+        "
+                const MemoizedButton = memo(function(props) {
+                    if (props.fancy) {
+                        useCustomHook();
+                    }
+                    return <button>{props.children}</button>;
+                });
+        ",
+        // This is invalid because "use"-prefixed functions used in named
+        // functions are assumed to be hooks.
+        // errors: [functionError('useProbablyAHook', 'notAComponent')],
+        "
+                React.unknownFunction(function notAComponent(foo, bar) {
+                    useProbablyAHook(bar)
+                });
+        ",
+        // Invalid because it's dangerous.
+        // Normally, this would crash, but not if you use inline requires.
+        // This *must* be invalid.
+        // It's expected to have some false positives, but arguably
+        // they are confusing anyway due to the use*() convention
+        // already being associated with Hooks.
+        // errors: [
+        //     topLevelError('useState'),
+        //     topLevelError('React.useCallback'),
+        //     topLevelError('useCustomHook'),
+        // ],
+        "
+            useState();
+            if (foo) {
+                const foo = React.useCallback(() => {});
+            }
+            useCustomHook();
+        ",
+        // Technically this is a false positive.
+        // We *could* make it valid (and it used to be).
+        //
+        // However, top-level Hook-like calls can be very dangerous
+        // in environments with inline requires because they can mask
+        // the runtime error by accident.
+        // So we prefer to disallow it despite the false positive.
+        // errors: [topLevelError('useBasename')],
+        "
+            const {createHistory, useBasename} = require('history-2.1.2');
+            const browserHistory = useBasename(createHistory)({
+                basename: '/',
+            });
+        ",
+        // errors: [classError('useFeatureFlag')],
+        "
+                class ClassComponentWithFeatureFlag extends React.Component {
+                    render() {
+                        if (foo) {
+                            useFeatureFlag();
+                        }
+                    }
+                }
+        ",
+        // errors: [classError('React.useState')],
+        "
+                class ClassComponentWithHook extends React.Component {
+                    render() {
+                        React.useState();
+                    }
+                }
+        ",
+        // errors: [classError('useState')],
+        "(class {useHook = () => { useState(); }});",
+        // errors: [classError('useState')],
+        "(class {useHook() { useState(); }});",
+        // errors: [classError('useState')],
+        "(class {h = () => { useState(); }});",
+        // errors: [classError('useState')],
+        "(class {i() { useState(); }});",
+        // errors: [asyncComponentHookError('useState')],
+        "
+                async function AsyncComponent() {
+                    useState();
+                }
+        ",
+        "
+                const AsyncComponent = async () => {
+                    useState();
+                }
+        ",
+        r"
+                async function Page() {
+                  useId();
+                  React.useId();
+                }
+        ",
+        // errors: [asyncComponentHookError('useState')],
+        "
+                async function useAsyncHook() {
+                    useState();
+                }
+        ",
+        r"
+                async function notAHook() {
+                  useId();
+                }
+        ",
+        // errors: [
+        //     topLevelError('Hook.use'),
+        //     topLevelError('Hook.useState'),
+        //     topLevelError('Hook.use42'),
+        //     topLevelError('Hook.useHook'),
+        // ],
+        "
+            Hook.use();
+            Hook._use();
+            Hook.useState();
+            Hook._useState();
+            Hook.use42();
+            Hook.useHook();
+            Hook.use_hook();
+        ",
+        // errors: [functionError('use', 'notAComponent')],
+        "
+                function notAComponent() {
+                    use(promise);
+                }
+        ",
+        // errors: [topLevelError('use')],
+        "
+            const text = use(promise);
+            function App() {
+                return <Text text={text} />
+            }
+        ",
+        // errors: [classError('use')],
+        "
+            class C {
+                m() {
+                    use(promise);
+                }
+            }
+        ",
+        // errors: [asyncComponentHookError('use')],
+        "
+            async function AsyncComponent() {
+                    use();
+            }
+        ",
+        // errors: [functionError('use', 'notAComponent')],
+        // React doesn't report on this https://github.com/facebook/react/blob/9daabc0bf97805be23f6131be4d84d063a3ff446/packages/eslint-plugin-react-hooks/__tests__/ESLintRulesOfHooks-test.js#L520-L530
+        // Even so, i think this is valid
+        // e.g:
+        // ```
+        // const useMyHook = notAComponent();
+        // function Foo () {
+        //    useMyHook();
+        // }
+        // ```
+        // "
+        //     export const notAComponent = () => {
+        //         return () => {
+        //             useState();
+        //       }
+        //     }
+        // ",
+        // errors: [functionError('use', 'notAComponent')],
+        "
+            const notAComponent = () => {
+                useState();
+            }
+        ",
+        // errors: [genericError('useState')],
+        "
+            export default () => {
+                if (isVal) {
+                    useState(0);
+                }
+            }
+        ",
+        // errors: [genericError('useState')],
+        "
+            export default function() {
+                if (isVal) {
+                    useState(0);
+                }
+            }
+        ",
+        // Invalid because hooks cannot be called inside constructor callbacks.
+        r"
+            function Component() {
+                return new Promise.then(() => {
+                    useState();
+                });
+            }
+        ",
+        // https://github.com/oxc-project/oxc/issues/6651
+        r"const MyComponent3 = makeComponent(function foo () { useHook(); });",
+        // https://github.com/oxc-project/oxc/issues/17961
+        // Invalid because hooks are called inside JSX children render props
+        r"
+            function Component() {
+                return <Foo>{() => { useState(); }}</Foo>;
+            }
+        ",
+        r"
+            function Component() {
+                return <Foo>{props => { useMemo(() => {}, []); }}</Foo>;
+            }
+        ",
+        // Invalid because hooks are called inside JSX attribute render props
+        r"
+            function Component() {
+                return <Foo render={() => { useState(); }} />;
+            }
+        ",
+        r"
+            function Component() {
+                return <Foo render={props => { useCallback(() => {}, []); }} />;
+            }
+        ",
+        r"const Foo3 = hoc(function NamedComp(props) { if (props.cond) { const [_a, _b] = useState(false); } });",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              useCustomHook(() => {
+                onClick();
+              });
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+                const onClick = useEffectEvent(() => {
+                    showNotification(theme);
+                });
+                return <Child onClick={onClick}></Child>;
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+                return <Child onClick={useEffectEvent(() => {
+                    showNotification(theme);
+                })} />;
+            }
+        ",
+        r"
+            function MyComponent({theme}) {
+                const onClick = useEffectEvent(() => {
+                    showNotification(theme)
+                });
+                return <Child onClick={onClick} />
+            }
+
+            function MyOtherComponent({theme}) {
+                const onClick = useEffectEvent(() => {
+                    showNotification(theme)
+                });
+                return <Child onClick={() => onClick()} />
+            }
+
+            function MyLastComponent({theme}) {
+                const onClick = useEffectEvent(() => {
+                    showNotification(theme)
+                });
+                useEffect(() => {
+                    onClick();
+                    onClick;
+                })
+                return <Child />
+            }
+        ",
+        r"
+            const MyComponent = ({ theme }) => {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              return <Child onClick={onClick}></Child>;
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              let foo = onClick;
+              return <Bar onClick={foo} />
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              useEffect(() => {
+                setTimeout(onClick, 100);
+              });
+              return <Child onClick={onClick} />
+            }
+        ",
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              const onClick2 = () => { onClick() };
+              const onClick3 = useCallback(() => onClick(), []);
+              const onClick4 = onClick;
+              return <>
+                <Child onClick={onClick}></Child>
+                <Child onClick={onClick2}></Child>
+                <Child onClick={onClick3}></Child>
+              </>;
+            }
+        ",
+        r"
+            function useCustomHook() {
+                const onEvent = useEffectEvent(() => {});
+                return { onEvent };
+            }
+        ",
+        r"function notAComponent() {
+  const onEvent = useEffectEvent(() => {});
+  return onEvent;
+}",
+    ];
+
+    let fail_additional_effect_hooks = vec![(
+        r"
+            function MyComponent({ theme }) {
+              const onClick = useEffectEvent(() => {
+                showNotification(theme);
+              });
+              useWrongHook(() => {
+                onClick();
+              });
+            }
+        ",
+        None,
+        Some(serde_json::json!({
+            "settings": {
+                "react-hooks": {
+                    "additionalEffectHooks": "useMyEffect"
+                }
+            }
+        })),
+    )];
+
+    Tester::new(
+        RulesOfHooks::NAME,
+        RulesOfHooks::PLUGIN,
+        pass.iter()
+            .map(|&code| (code, None, None))
+            .chain(pass_additional_effect_hooks)
+            .collect::<Vec<_>>(),
+        fail.iter()
+            .map(|&code| (code, None, None))
+            .chain(fail_additional_effect_hooks)
+            .collect::<Vec<_>>(),
+    )
+    .test();
+}

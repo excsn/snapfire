@@ -7,6 +7,7 @@ use oxc_parser::{ParseOptions, Parser};
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType;
 
+mod aria;
 mod ast_util;
 mod context;
 mod fixer;
@@ -15,6 +16,7 @@ mod loader;
 mod module_record;
 mod rule;
 mod rules;
+mod settings;
 #[cfg(test)]
 mod tester;
 mod utils;
@@ -24,6 +26,7 @@ pub(crate) use fixer::FixKind;
 pub(crate) use module_record::ModuleRecord;
 pub(crate) use oxc_semantic::AstNode;
 pub(crate) use rules::RULES;
+pub(crate) use settings::OxlintSettings;
 
 use rule::{Rule, RuleMeta};
 
@@ -96,6 +99,14 @@ fn build<T: Rule + Send + Sync + 'static>(options: Option<serde_json::Value>) ->
   }
 }
 
+/// What a file's rules see besides its source: ESLint's `globals`, `env` and `settings`.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Setup {
+  pub globals: globals::OxlintGlobals,
+  pub env: Vec<String>,
+  pub settings: OxlintSettings,
+}
+
 /// A comment as written, delimiters included, with its byte range.
 pub(crate) struct Comment {
   pub text: String,
@@ -131,19 +142,24 @@ fn source_type(path: &Path) -> SourceType {
   }
 }
 
-/// Run `rules` on one file. A parse error is reported under `lint/parse` and stops the rules.
-pub(crate) fn lint(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)]) -> Outcome {
-  lint_with(path, source, rules, FixKind::None, globals::OxlintGlobals::default(), context::ENV.iter().map(ToString::to_string).collect(), true).0
+/// ESLint's `settings` as the rules read them.
+pub(crate) fn settings(json: &serde_json::Map<String, serde_json::Value>) -> Result<OxlintSettings, serde_json::Error> {
+  serde_json::from_value(serde_json::Value::Object(json.clone()))
 }
 
-fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], fix: FixKind, globals: globals::OxlintGlobals, env: Vec<String>, check_syntax: bool) -> (Outcome, Vec<fixer::Message>) {
+/// Run `rules` on one file. A parse error is reported under `lint/parse` and stops the rules.
+pub(crate) fn lint(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], settings: &OxlintSettings) -> Outcome {
+  lint_with(path, source, rules, FixKind::None, Setup { globals: globals::OxlintGlobals::default(), env: context::ENV.iter().map(ToString::to_string).collect(), settings: settings.clone() }, true).0
+}
+
+fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<fixer::Message>) {
   let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
   let sections = loader::PartialLoader::parse(ext, source).unwrap_or_else(|| vec![loader::JavaScriptSource::new(source, source_type(path))]);
   let mut outcome = Outcome { reported: Vec::new(), comments: Vec::new() };
   let mut messages = Vec::new();
   for section in sections {
     let start = section.start as usize;
-    let (part, mut found) = lint_section(path, section.source_text, section.source_type, rules, fix, globals.clone(), env.clone(), check_syntax);
+    let (part, mut found) = lint_section(path, section.source_text, section.source_type, rules, fix, setup.clone(), check_syntax);
     outcome.reported.extend(part.reported.into_iter().map(|r| Reported { start: r.start + start, end: r.end + start, ..r }));
     outcome.comments.extend(part.comments.into_iter().map(|c| Comment { start: c.start + start, end: c.end + start, ..c }));
     if start != 0 {
@@ -156,8 +172,7 @@ fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], fix:
   (outcome, messages)
 }
 
-#[expect(clippy::too_many_arguments)]
-fn lint_section(path: &Path, source: &str, source_type: SourceType, rules: &[(&'static str, &dyn Run)], fix: FixKind, globals: globals::OxlintGlobals, env: Vec<String>, check_syntax: bool) -> (Outcome, Vec<fixer::Message>) {
+fn lint_section(path: &Path, source: &str, source_type: SourceType, rules: &[(&'static str, &dyn Run)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<fixer::Message>) {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, source_type).with_options(ParseOptions { parse_regular_expression: true, allow_return_outside_function: true, ..ParseOptions::default() }).parse();
   let comments = parsed.program.comments.iter().map(|c| Comment { text: c.span.source_text(source).to_owned(), start: c.span.start as usize, end: c.span.end as usize }).collect();
@@ -188,7 +203,7 @@ fn lint_section(path: &Path, source: &str, source_type: SourceType, rules: &[(&'
   let mut semantic = built.semantic;
   semantic.set_irregular_whitespaces(parsed.irregular_whitespaces);
   let module_record = ModuleRecord::new(path, &parsed.module_record, &semantic);
-  let host = std::rc::Rc::new(context::ContextHost::new(semantic, module_record, path, fix, globals, env));
+  let host = std::rc::Rc::new(context::ContextHost::new(semantic, &allocator, module_record, path, fix, setup));
   for (id, rule) in rules {
     if !rule.should_run(&host) {
       continue;

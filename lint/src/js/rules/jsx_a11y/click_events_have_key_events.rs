@@ -1,0 +1,152 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/jsx_a11y/click_events_have_key_events.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    globals::HTML_TAG,
+    rule::Rule,
+    utils::{
+        get_element_type, has_jsx_prop, is_hidden_from_screen_reader, is_interactive_element,
+        is_presentation_role,
+    },
+};
+
+fn click_events_have_key_events_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Enforce a clickable non-interactive element has at least one keyboard event listener.")
+        .with_help("Visible, non-interactive elements with click handlers must have one of `keyup`, `keydown`, or `keypress` listener.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ClickEventsHaveKeyEvents;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Enforce onClick is accompanied by at least one of the following: onKeyUp, onKeyDown, onKeyPress.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Coding for the keyboard is important for users with physical disabilities who cannot use a mouse, AT compatibility, and screen reader users.
+    /// This does not apply for interactive or hidden elements.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```jsx
+    /// <div onClick={() => void 0} />
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```jsx
+    /// <div onClick={() => void 0} onKeyDown={() => void 0} />
+    /// ```
+    ClickEventsHaveKeyEvents,
+    "jsx-a11y",
+    "click-events-have-key-events",
+    Correctness,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for ClickEventsHaveKeyEvents {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::JSXOpeningElement(jsx_opening_el) = node.kind() else {
+            return;
+        };
+
+        if has_jsx_prop(jsx_opening_el, "onClick").is_none() {
+            return;
+        }
+
+        // Check only native DOM elements or custom component via settings
+        let element_type = get_element_type(ctx, jsx_opening_el);
+
+        if !HTML_TAG.contains(element_type.as_ref()) {
+            return;
+        }
+
+        if is_hidden_from_screen_reader(ctx, jsx_opening_el) || is_presentation_role(jsx_opening_el)
+        {
+            return;
+        }
+
+        if is_interactive_element(&element_type, jsx_opening_el) {
+            return;
+        }
+
+        if ["onKeyUp", "onKeyDown", "onKeyPress"]
+            .iter()
+            .find_map(|prop| has_jsx_prop(jsx_opening_el, prop))
+            .is_some()
+        {
+            return;
+        }
+
+        ctx.diagnostic(click_events_have_key_events_diagnostic(jsx_opening_el.span));
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        (r"<div onClick={() => void 0} onKeyDown={foo}/>;", None, None),
+        (r"<div onClick={() => void 0} onKeyUp={foo} />;", None, None),
+        (r"<div onClick={() => void 0} onKeyPress={foo}/>;", None, None),
+        (r"<div onClick={() => void 0} onKeyDown={foo} onKeyUp={bar} />;", None, None),
+        (r"<div onClick={() => void 0} onKeyDown={foo} {...props} />;", None, None),
+        (r#"<div className="foo" />;"#, None, None),
+        (r"<div onClick={() => void 0} aria-hidden />;", None, None),
+        (r"<div onClick={() => void 0} aria-hidden={true} />;", None, None),
+        (r"<div onClick={() => void 0} aria-hidden={false} onKeyDown={foo} />;", None, None),
+        (r"<div onClick={() => void 0} onKeyDown={foo} aria-hidden={undefined} />;", None, None),
+        (r#"<input type="text" onClick={() => void 0} />"#, None, None),
+        (r"<input onClick={() => void 0} />", None, None),
+        (r#"<button onClick={() => void 0} className="foo" />"#, None, None),
+        (r#"<select onClick={() => void 0} className="foo" />"#, None, None),
+        (r#"<textarea onClick={() => void 0} className="foo" />"#, None, None),
+        (r#"<a onClick={() => void 0} href="http://x.y.z" />"#, None, None),
+        (r#"<a onClick={() => void 0} href="http://x.y.z" tabIndex="0" />"#, None, None),
+        (r#"<input onClick={() => void 0} type="hidden" />;"#, None, None),
+        (r#"<div onClick={() => void 0} role="presentation" />;"#, None, None),
+        (r#"<div onClick={() => void 0} role="none" />;"#, None, None),
+        (r"<TestComponent onClick={doFoo} />", None, None),
+        (r"<Button onClick={doFoo} />", None, None),
+        (r"<Footer onClick={doFoo} />", None, None),
+    ];
+
+    let fail = vec![
+        (r"<div onClick={() => void 0} />;", None, None),
+        (r"<div onClick={() => void 0} role={undefined} />;", None, None),
+        (r"<div onClick={() => void 0} {...props} />;", None, None),
+        (r"<section onClick={() => void 0} />;", None, None),
+        (r"<main onClick={() => void 0} />;", None, None),
+        (r"<article onClick={() => void 0} />;", None, None),
+        (r"<header onClick={() => void 0} />;", None, None),
+        (r"<footer onClick={() => void 0} />;", None, None),
+        (r"<div onClick={() => void 0} aria-hidden={false} />;", None, None),
+        (r"<a onClick={() => void 0} />", None, None),
+        (r#"<a tabIndex="0" onClick={() => void 0} />"#, None, None),
+        (
+            r"<Footer onClick={doFoo} />",
+            None,
+            Some(serde_json::json!({
+                "settings": { "jsx-a11y": {
+                    "components": {
+                        "Footer": "footer",
+                    }
+                } }
+            })),
+        ),
+    ];
+
+    Tester::new(ClickEventsHaveKeyEvents::NAME, ClickEventsHaveKeyEvents::PLUGIN, pass, fail)
+        .test();
+}
