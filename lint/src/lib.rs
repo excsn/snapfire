@@ -11,6 +11,7 @@ mod js;
 mod markdown;
 mod suppress;
 mod templates;
+mod tera;
 
 pub use config::Config;
 pub use oxc_ast;
@@ -216,6 +217,7 @@ pub fn rules() -> Vec<RuleInfo> {
   all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
   all.extend(templates::VUE_RULES);
   all.extend(markdown::RULES);
+  all.extend(tera::RULES);
   all.push(templates::SVELTE_FAMILY);
   all.sort_by_key(|r| r.id);
   all
@@ -223,7 +225,7 @@ pub fn rules() -> Vec<RuleInfo> {
 
 /// Whether some front end reads `path`.
 fn reads(path: &Path) -> bool {
-  js::reads(path) || markdown::reads(path).is_some()
+  js::reads(path) || markdown::reads(path).is_some() || tera::reads(path)
 }
 
 /// The rules a configuration turns on, ready to run.
@@ -256,7 +258,7 @@ impl Linter {
     }
     for layer in config.layers() {
       for (id, setting) in &layer.rules {
-        if CORE.iter().chain(&templates::VUE_RULES).chain(&markdown::RULES).any(|r| r.id == id) || checks.iter().any(|(info, _)| info.id == id) || svelte_warning(id) {
+        if CORE.iter().chain(&templates::VUE_RULES).chain(&markdown::RULES).chain(&tera::RULES).any(|r| r.id == id) || checks.iter().any(|(info, _)| info.id == id) || svelte_warning(id) {
           continue;
         }
         let Some(entry) = js::RULES.iter().find(|e| e.id == id) else {
@@ -327,6 +329,14 @@ impl Linter {
         Err((at, message)) => vec![(PARSE.to_owned(), at, message, None)],
       };
       return self.report(path, &lines, &settings, comments, reported);
+    }
+    if tera::reads(path) {
+      let lines = suppress::Lines::new(text);
+      let reported = match tera::lint(path, text) {
+        Ok(found) => found.into_iter().map(|f| (f.rule.to_owned(), f.start, f.message, None)).collect(),
+        Err((at, message)) => vec![(PARSE.to_owned(), at, message, None)],
+      };
+      return self.report(path, &lines, &settings, tera::comments(text), reported);
     }
     let active: Vec<(&'static str, &dyn js::Run)> = js::RULES
       .iter()
