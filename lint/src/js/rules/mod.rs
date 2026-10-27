@@ -12,6 +12,7 @@ pub mod eslint {
   pub mod no_class_assign;
   pub mod no_compare_neg_zero;
   pub mod no_cond_assign;
+  pub mod no_console;
   pub mod no_const_assign;
   pub mod no_constant_binary_expression;
   pub mod no_constant_condition;
@@ -47,6 +48,7 @@ pub mod eslint {
   pub mod no_shadow_restricted_names;
   pub mod no_sparse_arrays;
   pub mod no_this_before_super;
+  pub mod no_throw_literal;
   pub mod no_unassigned_vars;
   pub mod no_unexpected_multiline;
   pub mod no_unreachable;
@@ -57,6 +59,7 @@ pub mod eslint {
   pub mod no_unused_labels;
   pub mod no_unused_private_class_members;
   pub mod no_unused_vars;
+  pub mod no_use_before_define;
   pub mod no_useless_backreference;
   pub mod no_useless_catch;
   pub mod no_useless_escape;
@@ -65,6 +68,10 @@ pub mod eslint {
   pub mod require_yield;
   pub mod use_isnan;
   pub mod valid_typeof;
+}
+
+pub mod import {
+  pub mod no_anonymous_default_export;
 }
 
 pub mod jsx_a11y {
@@ -109,6 +116,7 @@ pub mod react {
   pub mod jsx_no_duplicate_props;
   pub mod jsx_no_target_blank;
   pub mod jsx_no_undef;
+  pub mod no_array_index_key;
   pub mod no_children_prop;
   pub mod no_danger_with_children;
   pub mod no_direct_mutation_state;
@@ -132,6 +140,7 @@ pub mod typescript {
   pub mod no_misused_new;
   pub mod no_namespace;
   pub mod no_non_null_asserted_optional_chain;
+  pub mod no_non_null_assertion;
   pub mod no_require_imports;
   pub mod no_this_alias;
   pub mod no_unnecessary_type_constraint;
@@ -153,6 +162,7 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<eslint::no_class_assign::NoClassAssign>(),
   entry::<eslint::no_compare_neg_zero::NoCompareNegZero>(),
   entry::<eslint::no_cond_assign::NoCondAssign>(),
+  entry::<eslint::no_console::NoConsole>(),
   entry::<eslint::no_const_assign::NoConstAssign>(),
   entry::<eslint::no_constant_binary_expression::NoConstantBinaryExpression>(),
   entry::<eslint::no_constant_condition::NoConstantCondition>(),
@@ -188,6 +198,7 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<eslint::no_shadow_restricted_names::NoShadowRestrictedNames>(),
   entry::<eslint::no_sparse_arrays::NoSparseArrays>(),
   entry::<eslint::no_this_before_super::NoThisBeforeSuper>(),
+  entry::<eslint::no_throw_literal::NoThrowLiteral>(),
   entry::<eslint::no_unassigned_vars::NoUnassignedVars>(),
   entry::<eslint::no_unexpected_multiline::NoUnexpectedMultiline>(),
   entry::<eslint::no_unreachable::NoUnreachable>(),
@@ -198,6 +209,7 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<eslint::no_unused_labels::NoUnusedLabels>(),
   entry::<eslint::no_unused_private_class_members::NoUnusedPrivateClassMembers>(),
   entry::<eslint::no_unused_vars::NoUnusedVars>(),
+  entry::<eslint::no_use_before_define::NoUseBeforeDefine>(),
   entry::<eslint::no_useless_backreference::NoUselessBackreference>(),
   entry::<eslint::no_useless_catch::NoUselessCatch>(),
   entry::<eslint::no_useless_escape::NoUselessEscape>(),
@@ -206,6 +218,7 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<eslint::require_yield::RequireYield>(),
   entry::<eslint::use_isnan::UseIsnan>(),
   entry::<eslint::valid_typeof::ValidTypeof>(),
+  entry::<import::no_anonymous_default_export::NoAnonymousDefaultExport>(),
   entry::<jsx_a11y::alt_text::AltText>(),
   entry::<jsx_a11y::anchor_has_content::AnchorHasContent>(),
   entry::<jsx_a11y::anchor_is_valid::AnchorIsValid>(),
@@ -244,6 +257,7 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<react::jsx_no_duplicate_props::JsxNoDuplicateProps>(),
   entry::<react::jsx_no_target_blank::JsxNoTargetBlank>(),
   entry::<react::jsx_no_undef::JsxNoUndef>(),
+  entry::<react::no_array_index_key::NoArrayIndexKey>(),
   entry::<react::no_children_prop::NoChildrenProp>(),
   entry::<react::no_danger_with_children::NoDangerWithChildren>(),
   entry::<react::no_direct_mutation_state::NoDirectMutationState>(),
@@ -264,6 +278,7 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<typescript::no_misused_new::NoMisusedNew>(),
   entry::<typescript::no_namespace::NoNamespace>(),
   entry::<typescript::no_non_null_asserted_optional_chain::NoNonNullAssertedOptionalChain>(),
+  entry::<typescript::no_non_null_assertion::NoNonNullAssertion>(),
   entry::<typescript::no_require_imports::NoRequireImports>(),
   entry::<typescript::no_this_alias::NoThisAlias>(),
   entry::<typescript::no_unnecessary_type_constraint::NoUnnecessaryTypeConstraint>(),

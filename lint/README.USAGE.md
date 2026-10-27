@@ -273,6 +273,8 @@ fsr lint --rules
 
 Each rule's `docs` is its documentation from the port: what it does, why and examples.
 
+A recommended rule defaults to `error`. The rest default to `off` and are turned on in `fsr.lint.toml`: `eslint/no-console`, `eslint/no-use-before-define`, `eslint/no-throw-literal`, `typescript/no-non-null-assertion`, `react/no-array-index-key` and `import/no-anonymous-default-export`.
+
 ## Linting Vue and Svelte Components
 
 The `<script>` blocks of a `.vue`, `.svelte` or `.astro` file are linted as their own sections in the dialect their `lang` names, with every JavaScript and TypeScript rule. Each finding points into the original file.

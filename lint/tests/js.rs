@@ -84,7 +84,7 @@ fn a_directory_is_walked_honouring_gitignore() {
 #[test]
 fn every_rule_has_a_namespaced_id_and_a_level() {
   let rules = snapfire_lint::rules();
-  assert_eq!(rules.iter().filter(|r| r.id.starts_with("eslint/")).count(), 61, "ESLint's recommended rules");
+  assert_eq!(rules.iter().filter(|r| r.id.starts_with("eslint/") && r.default == Level::Error).count(), 61, "ESLint's recommended rules");
   for rule in rules {
     assert!(rule.id.contains('/'), "{}", rule.id);
     assert!(!rule.docs.is_empty(), "{} has documentation", rule.id);

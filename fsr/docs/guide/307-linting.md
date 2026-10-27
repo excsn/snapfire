@@ -11,7 +11,7 @@ fsr lint app
 ```
 
 It lints everything under the application that it can read:
-- the `.ts`, `.tsx`, `.js` and `.jsx` files, with the recommended rules of ESLint, eslint-plugin-react with its hooks rules, jsx-a11y and typescript-eslint;
+- the `.ts`, `.tsx`, `.js` and `.jsx` files, with the recommended rules of ESLint, eslint-plugin-react with its hooks rules, jsx-a11y and typescript-eslint, plus six that are off until `fsr.lint.toml` turns them on (`fsr lint --rules` lists them);
 - the `<script>` blocks of `.vue` and `.svelte` components with the same rules;
 - their templates, through the framework's own compiler;
 - `.md` and `.mdx` pages;

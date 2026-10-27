@@ -16,6 +16,7 @@ fn an_eslintrc_translates_rules_overrides_ignores_and_settings() {
       "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
       "react-hooks/exhaustive-deps": 1,
       "no-console": "off",
+      "no-restricted-syntax": "error",
       "import/order": "error"
     },
     "overrides": [{ "files": ["tests/**"], "rules": { "no-debugger": "off" } }],
@@ -27,10 +28,11 @@ fn an_eslintrc_translates_rules_overrides_ignores_and_settings() {
   assert_eq!(levels(&translated.toml, "src/a.ts", "debugger;\n"), [("eslint/no-debugger".to_owned(), Level::Warn)], "{}", translated.toml);
   assert!(levels(&translated.toml, "tests/a.ts", "debugger;\n").is_empty(), "{}", translated.toml);
   assert!(levels(&translated.toml, "src/a.ts", "function f(_a) {}\nf();\n").is_empty(), "the options carry over: {}", translated.toml);
-  for named in ["no-console", "import/order", "next/core-web-vitals", "env"] {
+  for named in ["no-restricted-syntax", "import/order", "next/core-web-vitals", "env"] {
     assert!(translated.notes.iter().any(|n| n.contains(named)), "{named} is noted: {:?}", translated.notes);
   }
   assert!(!translated.notes.iter().any(|n| n.contains("eslint:recommended") && n.contains("no counterpart")), "{:?}", translated.notes);
+  assert!(translated.toml.contains("\"eslint/no-console\" = \"off\""), "{}", translated.toml);
   assert!(translated.toml.contains("ignores"), "{}", translated.toml);
 }
 

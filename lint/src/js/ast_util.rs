@@ -323,3 +323,89 @@ pub fn is_node_within_call_argument<'a>(
     node_span.start >= arg_span.start && node_span.end <= arg_span.end
 }
 
+pub fn is_method_call<'a>(
+    call_expr: &CallExpression<'a>,
+    objects: Option<&[&'a str]>,
+    methods: Option<&[&'a str]>,
+    min_arg_count: Option<usize>,
+    max_arg_count: Option<usize>,
+) -> bool {
+    if let Some(min_arg_count) = min_arg_count
+        && call_expr.arguments.len() < min_arg_count
+    {
+        return false;
+    }
+
+    if let Some(max_arg_count) = max_arg_count
+        && call_expr.arguments.len() > max_arg_count
+    {
+        return false;
+    }
+
+    let Some(member_expr) = call_expr.callee.get_member_expr() else {
+        return false;
+    };
+
+    if let Some(objects) = objects {
+        let Expression::Identifier(ident) = member_expr.object().get_inner_expression() else {
+            return false;
+        };
+        if !objects.contains(&ident.name.as_str()) {
+            return false;
+        }
+    }
+
+    if let Some(methods) = methods {
+        let Some(static_property_name) = member_expr.static_property_name() else {
+            return false;
+        };
+        if !methods.iter().any(|method| *method == static_property_name) {
+            return false;
+        }
+    }
+
+    true
+}
+
+pub fn could_be_error(expr: &Expression) -> bool {
+    match expr.get_inner_expression() {
+        Expression::NewExpression(_)
+        | Expression::AwaitExpression(_)
+        | Expression::CallExpression(_)
+        | Expression::ChainExpression(_)
+        | Expression::YieldExpression(_)
+        | Expression::PrivateFieldExpression(_)
+        | Expression::StaticMemberExpression(_)
+        | Expression::ComputedMemberExpression(_)
+        | Expression::TaggedTemplateExpression(_)
+        | Expression::Identifier(_) => true,
+        Expression::AssignmentExpression(expr) => {
+            if matches!(expr.operator, AssignmentOperator::Assign | AssignmentOperator::LogicalAnd)
+            {
+                return could_be_error(&expr.right);
+            }
+
+            if matches!(
+                expr.operator,
+                AssignmentOperator::LogicalOr | AssignmentOperator::LogicalNullish
+            ) {
+                return expr.left.get_expression().is_none_or(could_be_error)
+                    || could_be_error(&expr.right);
+            }
+
+            false
+        }
+        Expression::SequenceExpression(expr) => expr.expressions.last().is_some_and(could_be_error),
+        Expression::LogicalExpression(expr) => {
+            if matches!(expr.operator, LogicalOperator::And) {
+                return could_be_error(&expr.right);
+            }
+
+            could_be_error(&expr.left) || could_be_error(&expr.right)
+        }
+        Expression::ConditionalExpression(expr) => {
+            could_be_error(&expr.consequent) || could_be_error(&expr.alternate)
+        }
+        _ => false,
+    }
+}
