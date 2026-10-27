@@ -69,3 +69,16 @@ fn a_component_s_template_is_linted_through_its_plugin() {
   assert!(rules == ["vue/require-v-for-key"] || rules == [snapfire_lint::COMPILER], "the template is linted, or the missing plugin is named: {}", report.render());
   let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn fix_writes_the_safe_fixes_and_reports_what_is_left() {
+  let root = project();
+  let app = root.join("app");
+  std::fs::write(app.join("routes/pattern.ts"), "export const p = /a  b/;\nif (p) {}\n").unwrap();
+  let (report, applied) = snapfire_fsr_cli::lint::fix(&app).unwrap();
+  assert_eq!(applied, 1);
+  assert_eq!(std::fs::read_to_string(app.join("routes/pattern.ts")).unwrap(), "export const p = /a {2}b/;\nif (p) {}\n");
+  let rules: Vec<_> = report.findings.iter().map(|f| f.rule.as_str()).collect();
+  assert_eq!(rules, ["eslint/no-empty"], "{}", report.render());
+  let _ = std::fs::remove_dir_all(&root);
+}

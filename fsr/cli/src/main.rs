@@ -329,6 +329,12 @@ struct Lint {
   /// Prints the findings as JSON.
   #[arg(long)]
   json: bool,
+  /// Prints the findings as SARIF 2.1.0, for a CI system that annotates them.
+  #[arg(long, conflicts_with = "json")]
+  sarif: bool,
+  /// Applies every safe fix, writing the files it changes, then reports what is left.
+  #[arg(long)]
+  fix: bool,
   /// Fails on a warning as well as an error.
   #[arg(long)]
   deny_warnings: bool,
@@ -1003,11 +1009,19 @@ fn run_lint(args: Lint) -> ExitCode {
     }
     return ExitCode::SUCCESS;
   }
-  match snapfire_fsr_cli::lint::run(&args.app_dir) {
+  let outcome = match args.fix {
+    true => snapfire_fsr_cli::lint::fix(&args.app_dir).map(|(report, applied)| {
+      eprintln!("fixed    {applied} {}", if applied == 1 { "finding" } else { "findings" });
+      report
+    }),
+    false => snapfire_fsr_cli::lint::run(&args.app_dir),
+  };
+  match outcome {
     Ok(report) => {
-      match args.json {
-        true => println!("{}", report.to_json()),
-        false => println!("{}", report.render()),
+      match (args.json, args.sarif) {
+        (true, _) => println!("{}", report.to_json()),
+        (_, true) => println!("{}", report.to_sarif()),
+        _ => println!("{}", report.render()),
       }
       if report.failed(args.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
     }
