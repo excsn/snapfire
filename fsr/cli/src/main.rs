@@ -998,7 +998,7 @@ fn run_bundle(args: Bundle) -> ExitCode {
 
 fn run_lint(args: Lint) -> ExitCode {
   if args.rules {
-    for rule in snapfire_lint::rules() {
+    for rule in snapfire_fsr_cli::lint::rules() {
       println!("{:<6} {:<12} {}", rule.default.as_str(), rule.category, rule.id);
     }
     return ExitCode::SUCCESS;

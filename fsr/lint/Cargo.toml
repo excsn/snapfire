@@ -1,0 +1,20 @@
+[package]
+name = "snapfire_fsr_lint"
+version = "0.1.0"
+description = "FSR's own lint rules and base levels for snapfire_lint, which fsr lint runs."
+
+keywords = ["lint", "fsr", "snapfire", "eslint"]
+categories = ["development-tools"]
+readme = "README.md"
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[dependencies]
+snapfire_lint = { path = "../../lint", version = "0.1.0" }
+
+[dev-dependencies]
+tempfile = "3"
