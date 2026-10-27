@@ -8,6 +8,7 @@ use std::{
 
 mod config;
 mod js;
+mod markdown;
 mod suppress;
 mod templates;
 
@@ -190,9 +191,15 @@ pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
   all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
   all.extend(templates::VUE_RULES);
+  all.extend(markdown::RULES);
   all.push(templates::SVELTE_FAMILY);
   all.sort_by_key(|r| r.id);
   all
+}
+
+/// Whether some front end reads `path`.
+fn reads(path: &Path) -> bool {
+  js::reads(path) || markdown::reads(path).is_some()
 }
 
 /// The rules a configuration turns on, ready to run.
@@ -218,7 +225,7 @@ impl Linter {
     }
     for layer in config.layers() {
       for (id, setting) in &layer.rules {
-        if CORE.iter().chain(&templates::VUE_RULES).any(|r| r.id == id) || svelte_warning(id) {
+        if CORE.iter().chain(&templates::VUE_RULES).chain(&markdown::RULES).any(|r| r.id == id) || svelte_warning(id) {
           continue;
         }
         let Some(entry) = js::RULES.iter().find(|e| e.id == id) else {
@@ -269,10 +276,19 @@ impl Linter {
   }
 
   fn lint_file(&self, path: &Path, relative: &Path, text: &str) -> Report {
-    if !js::reads(path) {
+    if !reads(path) {
       return Report::default();
     }
     let settings = self.settings(relative);
+    if let Some(mdx) = markdown::reads(path) {
+      let lines = suppress::Lines::new(text);
+      let comments = markdown::comments(text, mdx);
+      let reported = match markdown::lint(text, mdx) {
+        Ok(found) => found.into_iter().map(|f| (f.rule.to_owned(), f.start, f.message, None)).collect(),
+        Err((at, message)) => vec![(PARSE.to_owned(), at, message, None)],
+      };
+      return self.report(path, &lines, &settings, comments, reported);
+    }
     let active: Vec<(&'static str, &dyn js::Run)> = js::RULES
       .iter()
       .filter_map(|entry| {
@@ -294,7 +310,12 @@ impl Linter {
         reported.push((found.rule, lines.offset(found.line, found.column), found.message, found.help));
       }
     }
-    let directives = suppress::directives(comments.iter().map(|(text, start, end)| (text.as_str(), *start, *end)), &lines);
+    self.report(path, &lines, &settings, comments, reported)
+  }
+
+  /// The report of one file from what its front end found, after its suppression comments.
+  fn report(&self, path: &Path, lines: &suppress::Lines, settings: &HashMap<String, Setting>, comments: Vec<(String, usize, usize)>, mut reported: Vec<(String, usize, String, Option<String>)>) -> Report {
+    let directives = suppress::directives(comments.iter().map(|(text, start, end)| (text.as_str(), *start, *end)), lines);
     let mut report = Report { files: 1, ..Report::default() };
     let finding = |rule: &str, level: Level, start: usize, message: String, help: Option<String>| Finding { rule: rule.to_owned(), level, path: path.to_owned(), line: lines.line(start), column: lines.column(start), message, help };
     reported.sort_by_key(|r| r.1);
@@ -333,7 +354,7 @@ impl Linter {
       .filter_map(Result::ok)
       .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
       .map(ignore::DirEntry::into_path)
-      .filter(|p| js::reads(p) && !self.ignored.is_match(p.strip_prefix(root).unwrap_or(p)))
+      .filter(|p| reads(p) && !self.ignored.is_match(p.strip_prefix(root).unwrap_or(p)))
       .collect();
     paths.sort();
     for path in paths {
