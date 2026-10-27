@@ -55,3 +55,21 @@ fn the_json_form_carries_every_field() {
   assert_eq!(json["warnings"], 0);
   assert_eq!(json["files"], 1);
 }
+
+#[test]
+fn the_sarif_form_is_one_run_with_the_rules_and_a_result_per_finding() {
+  let report = lint("[rules]\n\"eslint/no-debugger\" = \"warn\"\n", "export const a = 1;\ndebugger;\n");
+  let sarif = report.to_sarif();
+  assert_eq!(sarif["version"], "2.1.0");
+  let run = &sarif["runs"][0];
+  assert_eq!(run["tool"]["driver"]["name"], "fsr lint");
+  assert!(run["tool"]["driver"]["rules"].as_array().unwrap().iter().any(|r| r["id"] == "eslint/no-debugger"));
+  let result = &run["results"][0];
+  assert_eq!(result["ruleId"], "eslint/no-debugger");
+  assert_eq!(result["level"], "warning");
+  assert!(result["message"]["text"].is_string());
+  let region = &result["locations"][0]["physicalLocation"];
+  assert_eq!(region["artifactLocation"]["uri"], "a.ts");
+  assert_eq!(region["region"]["startLine"], 2);
+  assert_eq!(region["region"]["startColumn"], 1);
+}

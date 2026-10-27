@@ -412,6 +412,7 @@ impl Tester {
         let rules = [(entry.id, rule.as_ref())];
         let settings = eslint_config.as_ref().and_then(|c| c.get("settings")).map(|s| serde_json::from_value::<super::OxlintSettings>(s.clone()).expect("settings")).unwrap_or_default();
         let (outcome, messages) = super::lint_with(&path, source_text, &rules, &[], FixKind::from(fix_kind), super::Setup { globals, env, settings }, false);
+        let messages: Vec<_> = messages.into_iter().map(|(_, m)| m).collect();
         let lines = crate::suppress::Lines::new(source_text);
         let directives = crate::suppress::directives(outcome.comments.iter().map(|c| (c.text.as_str(), c.start, c.end)), &lines);
         let messages: Vec<_> = messages.into_iter().filter(|m| crate::suppress::silencing(&directives, entry.id, m.span.start as usize, lines.line(m.span.start as usize)).is_none()).collect();

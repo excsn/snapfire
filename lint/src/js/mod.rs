@@ -142,6 +142,25 @@ fn source_type(path: &Path) -> SourceType {
   }
 }
 
+/// The findings of `rules` with their safe fixes, each with its rule, and the file's comments.
+pub(crate) fn fixes(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], settings: &OxlintSettings) -> (Vec<Comment>, Vec<(&'static str, usize, fixer::Message)>) {
+  let setup = Setup { globals: globals::OxlintGlobals::default(), env: context::ENV.iter().map(ToString::to_string).collect(), settings: settings.clone() };
+  let (outcome, messages) = lint_with(path, source, rules, &[], FixKind::SafeFix, setup, true);
+  (outcome.comments, messages.into_iter().map(|(rule, m)| (rule, m.span.start as usize, m)).collect())
+}
+
+/// `source` with the fixes `messages` carry applied, and how many were.
+pub(crate) fn apply(path: &Path, source: &str, messages: Vec<fixer::Message>) -> (String, usize) {
+  let carrying = |m: &fixer::Message| !m.fixes.is_empty();
+  let wanted = messages.iter().filter(|m| carrying(m)).count();
+  let result = fixer::Fixer::new(source, messages, SourceType::from_path(path).ok()).fix();
+  if !result.fixed {
+    return (source.to_owned(), 0);
+  }
+  let left = result.messages.iter().filter(|m| carrying(m)).count();
+  (result.fixed_code.into_owned(), wanted - left)
+}
+
 /// ESLint's `settings` as the rules read them.
 pub(crate) fn settings(json: &serde_json::Map<String, serde_json::Value>) -> Result<OxlintSettings, serde_json::Error> {
   serde_json::from_value(serde_json::Value::Object(json.clone()))
@@ -152,7 +171,7 @@ pub(crate) fn lint(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)]
   lint_with(path, source, rules, checks, FixKind::None, Setup { globals: globals::OxlintGlobals::default(), env: context::ENV.iter().map(ToString::to_string).collect(), settings: settings.clone() }, true).0
 }
 
-fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], checks: &[(&'static str, &dyn crate::Check)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<fixer::Message>) {
+fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], checks: &[(&'static str, &dyn crate::Check)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<(&'static str, fixer::Message)>) {
   let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
   let sections = loader::PartialLoader::parse(ext, source).unwrap_or_else(|| vec![loader::JavaScriptSource::new(source, source_type(path))]);
   let mut outcome = Outcome { reported: Vec::new(), comments: Vec::new() };
@@ -163,7 +182,7 @@ fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], chec
     outcome.reported.extend(part.reported.into_iter().map(|r| Reported { start: r.start + start, end: r.end + start, ..r }));
     outcome.comments.extend(part.comments.into_iter().map(|c| Comment { start: c.start + start, end: c.end + start, ..c }));
     if start != 0 {
-      for message in &mut found {
+      for (_, message) in &mut found {
         message.move_offset(section.start);
       }
     }
@@ -173,7 +192,7 @@ fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], chec
 }
 
 #[expect(clippy::too_many_arguments)]
-fn lint_section(path: &Path, source: &str, source_type: SourceType, rules: &[(&'static str, &dyn Run)], checks: &[(&'static str, &dyn crate::Check)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<fixer::Message>) {
+fn lint_section(path: &Path, source: &str, source_type: SourceType, rules: &[(&'static str, &dyn Run)], checks: &[(&'static str, &dyn crate::Check)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<(&'static str, fixer::Message)>) {
   let allocator = Allocator::default();
   let parsed = Parser::new(&allocator, source, source_type).with_options(ParseOptions { parse_regular_expression: true, allow_return_outside_function: true, ..ParseOptions::default() }).parse();
   let comments = parsed.program.comments.iter().map(|c| Comment { text: c.span.source_text(source).to_owned(), start: c.span.start as usize, end: c.span.end as usize }).collect();
@@ -224,5 +243,5 @@ fn lint_section(path: &Path, source: &str, source_type: SourceType, rules: &[(&'
   for (id, check) in checks {
     check.check(&file, &mut |start, message| reported.push(Reported { rule: id, start, end: start, message, help: None }));
   }
-  (Outcome { reported, comments }, messages.into_iter().map(|(_, m)| m).collect())
+  (Outcome { reported, comments }, messages)
 }

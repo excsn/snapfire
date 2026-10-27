@@ -7,6 +7,7 @@ use std::{
 };
 
 mod config;
+pub mod eslint;
 mod js;
 mod markdown;
 mod suppress;
@@ -175,6 +176,33 @@ impl Report {
     })
   }
 
+  /// SARIF 2.1.0, for a CI system that annotates the changed lines.
+  pub fn to_sarif(&self) -> serde_json::Value {
+    let mut ids: Vec<&str> = self.findings.iter().map(|f| f.rule.as_str()).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let results: Vec<_> = self
+      .findings
+      .iter()
+      .map(|f| {
+        serde_json::json!({
+          "ruleId": f.rule,
+          "level": match f.level { Level::Error => "error", _ => "warning" },
+          "message": { "text": f.help.as_ref().map_or_else(|| f.message.clone(), |help| format!("{} {help}", f.message)) },
+          "locations": [{ "physicalLocation": { "artifactLocation": { "uri": f.path.display().to_string() }, "region": { "startLine": f.line, "startColumn": f.column } } }],
+        })
+      })
+      .collect();
+    serde_json::json!({
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [{
+        "tool": { "driver": { "name": "fsr lint", "informationUri": "https://github.com/excsn/snapfire", "rules": ids.iter().map(|id| serde_json::json!({ "id": id })).collect::<Vec<_>>() } },
+        "results": results,
+      }],
+    })
+  }
+
   fn absorb(&mut self, other: Report) {
     self.files += other.files;
     self.findings.extend(other.findings);
@@ -221,6 +249,15 @@ pub fn rules() -> Vec<RuleInfo> {
   all.push(templates::SVELTE_FAMILY);
   all.sort_by_key(|r| r.id);
   all
+}
+
+/// A file's text after its safe fixes.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct Fixed {
+  pub text: String,
+  /// How many fixes were applied.
+  pub applied: usize,
 }
 
 /// Whether some front end reads `path`.
@@ -311,6 +348,62 @@ impl Linter {
     self
   }
 
+  /// `text` with every safe fix applied, until none is left or ten passes have run.
+  pub fn fix_source(&self, path: &Path, text: &str) -> Fixed {
+    self.fix_file(path, path, text)
+  }
+
+  /// Every file under `root` that some fix changes, with its fixed text.
+  pub fn fix_dir(&self, root: &Path) -> Vec<(PathBuf, Fixed)> {
+    self
+      .files(root)
+      .into_iter()
+      .filter_map(|path| {
+        let text = std::fs::read_to_string(&path).ok()?;
+        let relative = path.strip_prefix(root).unwrap_or(&path).to_owned();
+        let fixed = self.fix_file(&path, &relative, &text);
+        (fixed.applied > 0).then_some((path, fixed))
+      })
+      .collect()
+  }
+
+  fn fix_file(&self, path: &Path, relative: &Path, text: &str) -> Fixed {
+    let mut fixed = Fixed { text: text.to_owned(), applied: 0 };
+    if !js::reads(path) {
+      return fixed;
+    }
+    let settings = self.settings(relative);
+    let active = self.active(&settings);
+    for _ in 0..10 {
+      let (comments, messages) = js::fixes(path, &fixed.text, &active, &self.settings);
+      let lines = suppress::Lines::new(&fixed.text);
+      let directives = suppress::directives(comments.iter().map(|c| (c.text.as_str(), c.start, c.end)), &lines);
+      let messages: Vec<_> = messages.into_iter().filter(|(rule, start, _)| suppress::silencing(&directives, rule, *start, lines.line(*start)).is_none()).map(|(_, _, m)| m).collect();
+      let (text, applied) = js::apply(path, &fixed.text, messages);
+      if applied == 0 {
+        break;
+      }
+      fixed.text = text;
+      fixed.applied += applied;
+    }
+    fixed
+  }
+
+  /// The JS rules a file's settings turn on, each built with its options.
+  fn active(&self, settings: &HashMap<String, Setting>) -> Vec<(&'static str, &dyn js::Run)> {
+    js::RULES
+      .iter()
+      .filter_map(|entry| {
+        let setting = &settings[entry.id];
+        if setting.level == Level::Off {
+          return None;
+        }
+        let key = setting.options.as_ref().map(ToString::to_string).unwrap_or_default();
+        self.built.get(&(entry.id, key)).map(|rule| (entry.id, rule.as_ref()))
+      })
+      .collect()
+  }
+
   /// One file's source, as if read from `path`.
   pub fn lint_source(&self, path: &Path, text: &str) -> Report {
     self.lint_file(path, path, text)
@@ -338,17 +431,7 @@ impl Linter {
       };
       return self.report(path, &lines, &settings, tera::comments(text), reported);
     }
-    let active: Vec<(&'static str, &dyn js::Run)> = js::RULES
-      .iter()
-      .filter_map(|entry| {
-        let setting = &settings[entry.id];
-        if setting.level == Level::Off {
-          return None;
-        }
-        let key = setting.options.as_ref().map(ToString::to_string).unwrap_or_default();
-        self.built.get(&(entry.id, key)).map(|rule| (entry.id, rule.as_ref()))
-      })
-      .collect();
+    let active = self.active(&settings);
     let checks: Vec<(&'static str, &dyn Check)> = self.checks.iter().filter(|(info, _)| settings.get(info.id).is_some_and(|s| s.level != Level::Off)).map(|(info, check)| (info.id, check.as_ref())).collect();
     let outcome = js::lint(path, text, &active, &checks, &self.settings);
     let lines = suppress::Lines::new(text);
@@ -398,6 +481,16 @@ impl Linter {
   /// Every file under `root` a front end reads, skipping what `.gitignore` ignores.
   pub fn lint_dir(&self, root: &Path) -> Report {
     let mut report = Report::default();
+    for path in self.files(root) {
+      let Ok(text) = std::fs::read_to_string(&path) else { continue };
+      let relative = path.strip_prefix(root).unwrap_or(&path).to_owned();
+      report.absorb(self.lint_file(&path, &relative, &text));
+    }
+    report
+  }
+
+  /// The files under `root` a front end reads, skipping what `.gitignore` and the ignores match, in path order.
+  pub fn files(&self, root: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = ignore::WalkBuilder::new(root)
       .require_git(false)
       .build()
@@ -407,11 +500,6 @@ impl Linter {
       .filter(|p| reads(p) && !self.ignored.is_match(p.strip_prefix(root).unwrap_or(p)))
       .collect();
     paths.sort();
-    for path in paths {
-      let Ok(text) = std::fs::read_to_string(&path) else { continue };
-      let relative = path.strip_prefix(root).unwrap_or(&path).to_owned();
-      report.absorb(self.lint_file(&path, &relative, &text));
-    }
-    report
+    paths
   }
 }

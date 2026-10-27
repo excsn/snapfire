@@ -3,7 +3,6 @@
 use oxc_codegen::{Codegen, CodegenOptions};
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_span::{GetSpan, Span};
-#[cfg(test)]
 use oxc_span::SourceType;
 use std::borrow::Cow;
 
@@ -228,7 +227,6 @@ fn format_replace_message(target_text: &str, replacement_text: &str) -> String {
 }
 
 #[derive(Debug)]
-#[cfg(test)]
 pub struct FixResult<'a> {
     pub fixed: bool,
     pub fixed_code: Cow<'a, str>,
@@ -299,7 +297,6 @@ impl GetSpan for Message {
 
 /// The fixer of the code.
 /// Note that our parser has handled the BOM, so we don't need to port the BOM test cases from `ESLint`.
-#[cfg(test)]
 pub struct Fixer<'a> {
     source_text: &'a str,
     messages: Vec<Message>,
@@ -312,7 +309,6 @@ pub struct Fixer<'a> {
     source_type: Option<SourceType>,
 }
 
-#[cfg(test)]
 impl<'a> Fixer<'a> {
     pub fn new(
         source_text: &'a str,
