@@ -45,3 +45,15 @@ fn the_projects_lint_file_sets_levels() {
   assert_eq!((report.errors(), report.warnings()), (0, 1), "{}", report.render());
   let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn htmx_attributes_are_known_properties() {
+  let root = project();
+  let app = root.join("app");
+  std::fs::write(app.join("routes/notices.tsx"), "export default function Notices() {\n  return <div hx-get=\"/notices?__fragment\" hx-trigger=\"intersect once\" hx-swap=\"outerHTML\" hx-target=\"closest .page\">notices</div>;\n}\n").unwrap();
+  std::fs::write(app.join("routes/typo.tsx"), "export default function Typo() {\n  return <div hx-gett=\"/\">typo</div>;\n}\n").unwrap();
+  let report = snapfire_fsr_cli::lint::run(&app).unwrap();
+  let found: Vec<_> = report.findings.iter().map(|f| (f.rule.as_str(), f.path.strip_prefix(&app).unwrap().to_owned())).collect();
+  assert_eq!(found, [("react/no-unknown-property", PathBuf::from("routes/typo.tsx"))], "{}", report.render());
+  let _ = std::fs::remove_dir_all(&root);
+}

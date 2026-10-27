@@ -1401,6 +1401,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "120339709b24832c07464b0838828361b735d793c409b8ca3147db0dae601542"
 
 [[package]]
+name = "fast-glob"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2a044ed96eb57253e806d08b74260638af189687e583f04947a5e11e75e0b0d1"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4406,6 +4415,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "cow-utils",
+ "fast-glob",
  "globset",
  "ignore",
  "itertools 0.15.0",
@@ -4426,6 +4436,7 @@ dependencies = [
  "oxc_span",
  "oxc_str",
  "oxc_syntax",
+ "phf 0.14.0",
  "rustc-hash",
  "serde",
  "serde_json",
