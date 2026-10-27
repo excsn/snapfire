@@ -28,6 +28,7 @@ function diagnostic(error, filename, severity) {
     file: filename,
     line: loc ? loc.line : undefined,
     column: loc ? loc.column : undefined,
+    code: error && error.code !== undefined ? String(error.code) : undefined,
   };
 }
 

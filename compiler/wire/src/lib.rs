@@ -261,6 +261,9 @@ pub struct Diagnostic {
   pub line: Option<u32>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub column: Option<u32>,
+  /// The framework's own name for what it found, `a11y_missing_attribute`, when it gives one.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub code: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -280,11 +283,11 @@ pub enum Severity {
 
 impl Diagnostic {
   pub fn error(message: impl Into<String>) -> Self {
-    Self { severity: Severity::Error, message: message.into(), file: None, line: None, column: None }
+    Self { severity: Severity::Error, message: message.into(), file: None, line: None, column: None, code: None }
   }
 
   pub fn warning(message: impl Into<String>) -> Self {
-    Self { severity: Severity::Warning, message: message.into(), file: None, line: None, column: None }
+    Self { severity: Severity::Warning, message: message.into(), file: None, line: None, column: None, code: None }
   }
 
   pub fn at(mut self, file: impl Into<String>, line: Option<u32>, column: Option<u32>) -> Self {

@@ -294,3 +294,11 @@ fn a_component_or_a_render_is_dynamic_unless_its_name_binds_as_svelte_calls_norm
   let legacy = template("<script>export let a = 1;</script><p>{a}</p>");
   assert_eq!(legacy["runes"], false);
 }
+
+#[test]
+fn a_warning_carries_svelte_s_code_and_where_it_is() {
+  let compiled = ok(compile("<p>hello</p>\n<img src=\"a.png\">\n"));
+  let warning = compiled.diagnostics.iter().find(|d| d.severity == Severity::Warning).expect("a warning");
+  assert_eq!(warning.code.as_deref(), Some("a11y_missing_attribute"), "{warning:?}");
+  assert_eq!((warning.line, warning.column), (Some(2), Some(1)), "{warning:?}");
+}

@@ -19,6 +19,7 @@
       file: filename,
       line: start ? start.line : undefined,
       column: start ? start.column + 1 : undefined,
+      code: error && typeof error.code === "string" ? error.code : undefined,
     };
   }
 
