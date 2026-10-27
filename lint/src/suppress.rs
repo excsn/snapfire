@@ -36,6 +36,11 @@ impl Directive {
     self.kind != Kind::Enable
   }
 
+  /// The rules the comment names, or `None` when it names every rule.
+  pub fn rules(&self) -> Option<&BTreeSet<String>> {
+    self.rules.as_ref()
+  }
+
   fn names(&self, rule: &str) -> bool {
     self.rules.as_ref().is_none_or(|rules| rules.contains(rule))
   }

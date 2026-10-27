@@ -90,3 +90,11 @@ fn every_rule_has_a_namespaced_id_and_a_level() {
     assert!(!rule.docs.is_empty(), "{} has documentation", rule.id);
   }
 }
+
+#[test]
+fn jsx_in_a_js_file_parses() {
+  for (path, source) in [("a.js", "export const e = <div className=\"x\" />;\ndebugger;\n"), ("a.mjs", "export const e = <div />;\ndebugger;\n"), ("a.cjs", "module.exports = <div />;\ndebugger;\n")] {
+    let rules: Vec<_> = lint(path, source).findings.into_iter().map(|f| f.rule).collect();
+    assert_eq!(rules, ["eslint/no-debugger"], "{path}");
+  }
+}

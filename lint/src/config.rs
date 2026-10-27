@@ -137,8 +137,37 @@ impl Config {
   }
 }
 
-/// A rule id as the linter knows it: an ESLint name without a plugin is the `eslint/` rule.
+/// The typescript-eslint rules that extend an ESLint rule of the same name, which is the rule run here.
+const TYPESCRIPT_EXTENDS: [&str; 18] = [
+  "class-methods-use-this",
+  "default-param-last",
+  "init-declarations",
+  "max-params",
+  "no-array-constructor",
+  "no-dupe-class-members",
+  "no-empty-function",
+  "no-invalid-this",
+  "no-loop-func",
+  "no-loss-of-precision",
+  "no-magic-numbers",
+  "no-redeclare",
+  "no-restricted-imports",
+  "no-shadow",
+  "no-unused-expressions",
+  "no-unused-vars",
+  "no-use-before-define",
+  "no-useless-constructor",
+];
+
+/// A rule id as the linter knows it. An ESLint name without a plugin is the `eslint/` rule, and a
+/// `@typescript-eslint/` name is the `typescript/` rule, or the `eslint/` rule it extends.
 pub(crate) fn full_id(id: &str) -> String {
+  if let Some(name) = id.strip_prefix("@typescript-eslint/") {
+    return match TYPESCRIPT_EXTENDS.contains(&name) {
+      true => format!("eslint/{name}"),
+      false => format!("typescript/{name}"),
+    };
+  }
   match id.contains('/') {
     true => id.to_owned(),
     false => format!("eslint/{id}"),

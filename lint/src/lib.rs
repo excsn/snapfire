@@ -272,7 +272,8 @@ impl Linter {
     }
     let unused = settings[UNUSED_DISABLE].level;
     if unused != Level::Off {
-      for d in directives.iter().filter(|d| d.silences() && !d.used()) {
+      let known = |id: &String| settings.contains_key(id.as_str());
+      for d in directives.iter().filter(|d| d.silences() && !d.used() && d.rules().is_some_and(|rules| rules.iter().all(known))) {
         report.findings.push(finding(UNUSED_DISABLE, unused, d.start, format!("`{}` silences nothing", d.written), Some("remove the comment".to_owned())));
       }
       report.findings.sort_by_key(|f| (f.line, f.column));

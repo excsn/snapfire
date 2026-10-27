@@ -142,3 +142,9 @@ fn discover_stops_at_a_file_that_does_not_inherit_and_at_the_repository() {
   std::fs::write(repo.join("app/fsr.lint.toml"), "inherit = false\n").unwrap();
   assert_eq!(levels(Config::discover(&repo.join("app")).unwrap(), "a.ts", "debugger;\n"), [("eslint/no-debugger".to_owned(), Level::Error)], "inherit = false starts from the defaults");
 }
+
+#[test]
+fn a_typescript_eslint_name_in_the_file_sets_the_rule_it_extends() {
+  let config = parse("[rules]\n\"@typescript-eslint/no-unused-vars\" = \"warn\"\n");
+  assert_eq!(levels(config, "a.ts", "const unused = 1;\n"), [("eslint/no-unused-vars".to_owned(), Level::Warn)]);
+}

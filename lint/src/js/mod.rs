@@ -122,8 +122,13 @@ pub(crate) fn reads(path: &Path) -> bool {
   path.extension().and_then(|e| e.to_str()).is_some_and(|ext| matches!(ext, "js" | "mjs" | "cjs" | "jsx" | "ts" | "mts" | "cts" | "tsx") || loader::LINT_PARTIAL_LOADER_EXTENSIONS.contains(&ext))
 }
 
+/// The file's source type, with JSX on for JavaScript as oxlint does, since a `.js` file often holds JSX.
 fn source_type(path: &Path) -> SourceType {
-  SourceType::from_path(path).unwrap_or_default()
+  let source_type = SourceType::from_path(path).unwrap_or_default();
+  match source_type.is_javascript() {
+    true => source_type.with_jsx(true),
+    false => source_type,
+  }
 }
 
 /// Run `rules` on one file. A parse error is reported under `lint/parse` and stops the rules.
