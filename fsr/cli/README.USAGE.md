@@ -35,6 +35,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Building](#building)
 * [Building Strictly](#building-strictly)
 * [Typechecking](#typechecking)
+* [Linting](#linting)
 * [Running the Specs](#running-the-specs)
 * [Serving Images and Fonts](#serving-images-and-fonts)
 * [Building a Site](#building-a-site)
@@ -1066,6 +1067,43 @@ fsr build app --no-typecheck
 ```
 
 The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`. When there is none, the build says so and carries on rather than failing, so an application that never asked for a typecheck still builds. It is `cargo install snapfire_typecheck` away and [its guide](../../typecheck/README.USAGE.md) covers the cache, the version ladder and what it does with the network.
+
+
+## Linting
+
+`fsr lint` runs ESLint's 61 recommended rules over the application's scripts, `snapfire_lint` underneath. No build command runs it.
+
+```sh
+fsr lint app
+# error    eslint/no-debugger                 app/routes/page.tsx:12:3  `debugger` statement is not allowed
+#                                             Remove the debugger statement
+# lint     1 error, 0 warnings in 14 files
+```
+
+An error is exit 1, a configuration it cannot read exit 2. `--deny-warnings` fails on a warning, `--json` prints the report as JSON and `--rules` lists the rules instead of linting.
+
+```sh
+fsr lint app --json | jq '.findings[].rule'
+fsr lint --rules app
+```
+
+Levels come from each `fsr.lint.toml` between the repository root and the project root, nearest last. The vendor tree and `types/` that `Layout::of` names are skipped, beside `.gitignore`. Globs in the file are relative to the application directory.
+
+```toml
+[rules]
+"eslint/no-empty" = ["error", { allowEmptyCatch = true }]
+
+[[overrides]]
+files = ["routes/**/*.test.ts"]
+rules = { "eslint/no-debugger" = "off" }
+```
+
+From Rust, `lint::run(app)` returns the `snapfire_lint::Report`:
+
+```rust
+let report = snapfire_fsr_cli::lint::run(Path::new("app"))?;
+assert!(!report.failed(false), "{}", report.render());
+```
 
 ## Running the Specs
 

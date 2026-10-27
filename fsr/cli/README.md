@@ -40,6 +40,7 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Emit the whole artifact: the plan, the generated types, the tsconfigs and the browser bundle | `fsr build <app>` |
 | See what a build would emit without writing | `fsr check <app>` |
 | Check a deployment for what the host will not refuse to start over | `fsr doctor <app>` |
+| Lint the source with ESLint's recommended rules, in development and CI | `fsr lint <app>` |
 | Count what the build refuses or leaves to the browser across applications | `fsr census <app>...` |
 | See what the server runs for one loader, action, handler or component | `fsr ir view <app> <id> [section]` |
 | Write the deploy tree, checked first | `fsr bundle <app> [--out <dir>]` |

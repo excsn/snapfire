@@ -14,6 +14,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr check](#fsr-check)
   * [fsr test](#fsr-test)
   * [fsr doctor](#fsr-doctor)
+  * [fsr lint](#fsr-lint)
   * [fsr census](#fsr-census)
   * [fsr ir view](#fsr-ir-view)
   * [fsr bundle](#fsr-bundle)
@@ -119,6 +120,10 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `Finding { check: &'static str, what: String, remedy: String }`. `check` is the short name a report can be grepped for.
 * The checks, each answering from what a build already computed: `canonical`, `[document] origin` unset while the deployment names hosts or prerenders; `ctx.host`, a body reading `ctx.host` against an empty `[server] hosts`; `ctx.config`, a body reading a `ctx.config` key `[public]` does not declare; `locales`, a supported locale with no catalog under `locales/`; `stale`, a plan missing or older than `routes/`, `src/`, `clients/` or `schemas/`; `vendor`, an import map naming a package with nothing under `vendor/`; `statics`, a `[[static]]` root with no directory; `shadow`, a static route swallowing a route pattern; `bearer`, a client carrying a token with no `[auth]` provider to write one; `cache.tags`, a tag dropped by a call and cached by none; `links`, a literal `href` matching no route, `[[route]]` declaration, static root prefix, file under the root at `/` or mounted site, skipped for a site; `render`, a `[server] render` line, which no host accepts since every page renders on the server; `tree`, a required file a deploy tree would carry that the project does not hold; a configuration `snapfire_fsr_sites::layout` refuses; `images`, an AVIF original the asset manifest names carrying EXIF or XMP while `[images] strip` is on; `desktop`, `[desktop] serve = "scheme"` with a route a loading boundary streams, by pattern, `doctor::streaming_routes(manifest: &Manifest) -> Vec<String>` listing them; `runtime`, with `runtime` on, a `Config::runtime_values` entry that is a placeholder or missing; `sections`, a top-level section in `Config::ignored` one edit from one of `host_sections()`; `sites`, a `name@version` mount pinning no hash, an artifact missing a part it ships or missing its plan, a site plan older than its routes and artifacts under the root no mount names.
 * Reports only. A condition the host refuses to start over stays a boot error rather than moving here. `fsr bundle` calls this before it writes, so a deploy that ends in a bundle needs no separate step.
+
+### fsr lint
+
+* `fsr lint <app dir> [--json] [--deny-warnings] [--rules]`: `lint::run(app) -> Result<snapfire_lint::Report, snapfire_lint::ConfigError>`. The configuration is `Config::discover(serve::project_root(app))`, with the `Layout::of(app)` vendor and types directories added as ignores, linted with `Linter::lint_dir(app)`. Exit 0 when `Report::failed(deny_warnings)` is false, 1 when it is true, 2 on a `ConfigError`. `--json` prints `Report::to_json`, else `Report::render`. `--rules` prints each of `snapfire_lint::rules()` as `default category id` and exits 0 without linting.
 
 ### fsr census
 

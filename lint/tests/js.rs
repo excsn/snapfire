@@ -98,3 +98,13 @@ fn jsx_in_a_js_file_parses() {
     assert_eq!(rules, ["eslint/no-debugger"], "{path}");
   }
 }
+
+#[test]
+fn a_script_block_is_linted_where_it_sits_in_its_file() {
+  let vue = "<template><p>{{ n }}</p></template>\n<script setup lang=\"ts\">\nlet n = 1;\ndebugger;\n</script>\n";
+  let svelte = "<script lang=\"ts\">\n  let n = $state(1);\n  debugger;\n</script>\n<p>{n}</p>\n";
+  for (path, source, line) in [("Counter.vue", vue, 4), ("Counter.svelte", svelte, 3)] {
+    let found: Vec<_> = lint(path, source).findings.into_iter().map(|f| (f.rule, f.line)).collect();
+    assert_eq!(found, [("eslint/no-debugger".to_owned(), line)], "{path}");
+  }
+}
