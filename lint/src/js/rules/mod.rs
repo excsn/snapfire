@@ -1,4 +1,5 @@
-//! The rules, by plugin. Each file is ported from oxlint and keeps its notice.
+//! The rules, by plugin. Each file is ported from oxlint and keeps its notice. Written by
+//! lint/scripts/port_oxlint.py registry.
 
 use super::{Entry, entry};
 
