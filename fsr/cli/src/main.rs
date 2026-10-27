@@ -60,6 +60,8 @@ enum Command {
   Build(Build),
   /// Reports what a deployment would find wrong before it ships.
   Doctor(Doctor),
+  /// Lints an application's source with ESLint's rules, levels from fsr.lint.toml. No build runs it.
+  Lint(Lint),
   /// Builds and typechecks an application. It writes only what the checker reads (`generated/`, `tsconfig.json` and the type shims) and none of the deploy tree.
   Check(Check),
   #[cfg(feature = "web")]
@@ -318,6 +320,21 @@ struct Bundle {
   /// Lists every directory the tree serves and every file the host reads.
   #[arg(long)]
   verbose: bool,
+}
+
+#[derive(Args)]
+struct Lint {
+  /// The application directory.
+  app_dir: PathBuf,
+  /// Prints the findings as JSON.
+  #[arg(long)]
+  json: bool,
+  /// Fails on a warning as well as an error.
+  #[arg(long)]
+  deny_warnings: bool,
+  /// Lists every rule with its default level instead of linting.
+  #[arg(long)]
+  rules: bool,
 }
 
 #[derive(Args)]
@@ -769,6 +786,7 @@ fn main() -> ExitCode {
         ExitCode::from(2)
       }
     },
+    Command::Lint(args) => run_lint(args),
     Command::Check(args) => run_check(args),
     #[cfg(feature = "web")]
     Command::Use(args) => run_use(args),
@@ -975,6 +993,28 @@ fn run_bundle(args: Bundle) -> ExitCode {
       ExitCode::SUCCESS
     }
     Err(e) => failed(e),
+  }
+}
+
+fn run_lint(args: Lint) -> ExitCode {
+  if args.rules {
+    for rule in snapfire_lint::rules() {
+      println!("{:<6} {:<12} {}", rule.default.as_str(), rule.category, rule.id);
+    }
+    return ExitCode::SUCCESS;
+  }
+  match snapfire_fsr_cli::lint::run(&args.app_dir) {
+    Ok(report) => {
+      match args.json {
+        true => println!("{}", report.to_json()),
+        false => println!("{}", report.render()),
+      }
+      if report.failed(args.deny_warnings) { ExitCode::from(1) } else { ExitCode::SUCCESS }
+    }
+    Err(e) => {
+      eprintln!("{e}");
+      ExitCode::from(2)
+    }
   }
 }
 

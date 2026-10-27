@@ -70,6 +70,7 @@ snapfire_fsr_plan.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
 snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.4.0" }
+snapfire_lint = { path = "../../lint", version = "0.1.0" }
 snapfire_tailwind = { path = "../../tailwind", version = "0.3.0" }
 tar = "0.4.46"
 sha2 = "0.10"

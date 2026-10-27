@@ -21,6 +21,7 @@ pub mod spec;
 #[cfg(feature = "terminal")]
 pub mod terminal;
 pub mod infer;
+pub mod lint;
 pub mod native;
 #[cfg(feature = "web")]
 pub mod test;
