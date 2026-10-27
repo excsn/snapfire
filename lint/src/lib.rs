@@ -13,6 +13,24 @@ mod suppress;
 mod templates;
 
 pub use config::Config;
+pub use oxc_ast;
+pub use oxc_semantic;
+pub use oxc_span;
+
+/// One script as a [`Check`] sees it: a whole file, or one `<script>` block of a component.
+#[non_exhaustive]
+pub struct File<'a> {
+  pub path: &'a Path,
+  pub source: &'a str,
+  pub semantic: &'a oxc_semantic::Semantic<'a>,
+}
+
+/// A rule from outside this crate. It reports a byte offset into `file.source` and a message; the
+/// configuration, its levels and suppression comments apply to it as to any rule.
+pub trait Check: Send + Sync {
+  fn info(&self) -> RuleInfo;
+  fn check(&self, file: &File<'_>, found: &mut dyn FnMut(usize, String));
+}
 pub use templates::Plugins;
 
 /// Asks a framework's compiler about one component: `ext` is `vue` or `svelte`. `fsr lint` answers
@@ -186,6 +204,12 @@ const CORE: [RuleInfo; 3] = [
 /// FSR build uses compiles JSX without `React` in scope, as eslint-plugin-react's `jsx-runtime` config says.
 const OFF_BY_DEFAULT: [&str; 1] = ["react/react-in-jsx-scope"];
 
+impl RuleInfo {
+  pub const fn new(id: &'static str, default: Level, category: &'static str, docs: &'static str) -> Self {
+    RuleInfo { id, default, category, fixable: false, docs }
+  }
+}
+
 /// Every rule this crate has, sorted by id.
 pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
@@ -210,6 +234,7 @@ pub struct Linter {
   /// Each rule built with each set of options the configuration gives it, keyed by rule id and options.
   built: HashMap<(&'static str, String), Box<dyn js::Run>>,
   compilers: Option<Box<dyn Compilers>>,
+  checks: Vec<(RuleInfo, Box<dyn Check>)>,
 }
 
 /// Whether `id` names one of Svelte's warnings, which are known by prefix rather than listed.
@@ -219,13 +244,19 @@ fn svelte_warning(id: &str) -> bool {
 
 impl Linter {
   pub fn new(config: Config) -> Result<Linter, ConfigError> {
+    Linter::new_with(config, Vec::new())
+  }
+
+  /// A linter that runs `checks` beside this crate's rules.
+  pub fn new_with(config: Config, checks: Vec<Box<dyn Check>>) -> Result<Linter, ConfigError> {
+    let checks: Vec<(RuleInfo, Box<dyn Check>)> = checks.into_iter().map(|c| (c.info(), c)).collect();
     let mut built = HashMap::new();
     for entry in js::RULES {
       built.insert((entry.id, String::new()), (entry.build)(None).expect("every rule builds with no options"));
     }
     for layer in config.layers() {
       for (id, setting) in &layer.rules {
-        if CORE.iter().chain(&templates::VUE_RULES).chain(&markdown::RULES).any(|r| r.id == id) || svelte_warning(id) {
+        if CORE.iter().chain(&templates::VUE_RULES).chain(&markdown::RULES).any(|r| r.id == id) || checks.iter().any(|(info, _)| info.id == id) || svelte_warning(id) {
           continue;
         }
         let Some(entry) = js::RULES.iter().find(|e| e.id == id) else {
@@ -238,12 +269,12 @@ impl Linter {
       }
     }
     let settings = js::settings(config.settings()).map_err(|e| ConfigError::Parse { path: PathBuf::from(CONFIG_FILE), message: format!("`settings`: {e}") })?;
-    Ok(Linter { ignored: config.ignored(), settings, config, built, compilers: None })
+    Ok(Linter { ignored: config.ignored(), settings, config, built, compilers: None, checks })
   }
 
   /// Each rule's setting for a file at `relative`, a path from the project root.
   fn settings(&self, relative: &Path) -> HashMap<String, Setting> {
-    let mut settings: HashMap<String, Setting> = rules().into_iter().map(|r| (r.id.to_owned(), Setting { level: r.default, options: None })).collect();
+    let mut settings: HashMap<String, Setting> = self.rules().into_iter().map(|r| (r.id.to_owned(), Setting { level: r.default, options: None })).collect();
     let relative = relative.strip_prefix(".").unwrap_or(relative);
     for layer in self.config.layers() {
       if layer.files.as_ref().is_some_and(|globs| !globs.is_match(relative)) {
@@ -262,6 +293,14 @@ impl Linter {
       }
     }
     settings
+  }
+
+  /// This crate's rules and the checks given to `new_with`, sorted by id.
+  pub fn rules(&self) -> Vec<RuleInfo> {
+    let mut all = rules();
+    all.extend(self.checks.iter().map(|(info, _)| info.clone()));
+    all.sort_by_key(|r| r.id);
+    all
   }
 
   /// Lint the templates of `.vue` and `.svelte` files through `compilers`.
@@ -300,7 +339,8 @@ impl Linter {
         self.built.get(&(entry.id, key)).map(|rule| (entry.id, rule.as_ref()))
       })
       .collect();
-    let outcome = js::lint(path, text, &active, &self.settings);
+    let checks: Vec<(&'static str, &dyn Check)> = self.checks.iter().filter(|(info, _)| settings.get(info.id).is_some_and(|s| s.level != Level::Off)).map(|(info, check)| (info.id, check.as_ref())).collect();
+    let outcome = js::lint(path, text, &active, &checks, &self.settings);
     let lines = suppress::Lines::new(text);
     let mut comments: Vec<(String, usize, usize)> = outcome.comments.into_iter().map(|c| (c.text, c.start, c.end)).collect();
     let mut reported: Vec<(String, usize, String, Option<String>)> = outcome.reported.into_iter().map(|r| (r.rule.to_owned(), r.start, r.message, r.help)).collect();
