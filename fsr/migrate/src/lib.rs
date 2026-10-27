@@ -9,6 +9,7 @@ mod callbacks;
 mod commonjs;
 mod config;
 mod env;
+mod eslint;
 mod edit;
 mod head;
 mod ink;
@@ -262,6 +263,8 @@ pub fn migrate(input: &Tree) -> (Tree, Report) {
       }
       let imported = imported_packages(&tree);
       report.packages.retain(|name, _| imported.iter().any(|spec| spec == name || spec.starts_with(&format!("{name}/"))));
+      report.passes.push("eslint");
+      eslint::translate(input, &mut tree, &mut report);
     }
   }
   (tree, report)
