@@ -1,0 +1,512 @@
+// Ported from oxlint (crates/oxc_linter/src/utils/unicorn.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use smallvec::SmallVec;
+
+use oxc_ast::{
+    AstKind,
+    ast::{
+        BindingPattern, CallExpression, Expression, FormalParameters, FunctionBody,
+        IdentifierReference, ImportDeclarationSpecifier, LogicalExpression, MemberExpression,
+        Statement, match_member_expression,
+    },
+};
+use oxc_semantic::AstNode;
+use oxc_span::{ContentEq, Span};
+use oxc_syntax::{
+    operator::LogicalOperator,
+    precedence::{GetPrecedence, Precedence},
+};
+
+use crate::js::LintContext;
+
+mod boolean;
+pub use boolean::*;
+
+mod optional_chain;
+pub use optional_chain::*;
+
+// Built-in Error constructors
+// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Error#Error_types
+pub const BUILT_IN_ERRORS: [&str; 10] = [
+    "Error",
+    "EvalError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "TypeError",
+    "URIError",
+    "InternalError",
+    "AggregateError",
+    "SuppressedError",
+];
+
+/// Returns `true` when `ident` resolves to any import binding from `module_name`.
+///
+/// This checks semantic resolution first (`reference_id` -> `symbol_id`) and then validates:
+/// - the symbol is an import binding,
+/// - the enclosing declaration source matches `module_name`.
+///
+/// Named, default, and namespace imports are all supported.
+pub fn is_import_from_module(
+    ident: &IdentifierReference,
+    module_name: &str,
+    ctx: &LintContext,
+) -> bool {
+    let reference = ctx.scoping().get_reference(ident.reference_id());
+    let Some(symbol_id) = reference.symbol_id() else {
+        return false;
+    };
+
+    if !ctx.scoping().symbol_flags(symbol_id).is_import() {
+        return false;
+    }
+
+    let declaration_id = ctx.scoping().symbol_declaration(symbol_id);
+    let AstKind::ImportDeclaration(import_decl) = ctx.nodes().parent_kind(declaration_id) else {
+        return false;
+    };
+
+    import_decl.source.value == module_name
+}
+
+/// Returns `true` when `ident` resolves to a named import with the given source module and
+/// imported symbol name.
+///
+/// This checks semantic resolution first (`reference_id` -> `symbol_id`) and then validates:
+/// - the symbol is an import binding,
+/// - the enclosing declaration source matches `module_name`,
+/// - one of the declaration's `ImportSpecifier`s maps to this symbol and `imported_name`.
+///
+/// Aliased named imports are supported (`import { Foo as Bar }` matches `Bar` for `"Foo"`).
+/// Namespace/default imports are intentionally ignored.
+pub fn is_import_symbol(
+    ident: &IdentifierReference,
+    module_name: &str,
+    imported_name: &str,
+    ctx: &LintContext,
+) -> bool {
+    if !is_import_from_module(ident, module_name, ctx) {
+        return false;
+    }
+
+    let reference = ctx.scoping().get_reference(ident.reference_id());
+    let Some(symbol_id) = reference.symbol_id() else {
+        return false;
+    };
+    let declaration_id = ctx.scoping().symbol_declaration(symbol_id);
+    let AstKind::ImportDeclaration(import_decl) = ctx.nodes().parent_kind(declaration_id) else {
+        return false;
+    };
+
+    import_decl.specifiers.iter().flatten().any(|specifier| match specifier {
+        ImportDeclarationSpecifier::ImportSpecifier(import_specifier) => {
+            import_specifier.local.symbol_id() == symbol_id
+                && import_specifier.imported.name() == imported_name
+        }
+        _ => false,
+    })
+}
+
+pub fn is_node_value_not_dom_node(expr: &Expression) -> bool {
+    matches!(
+        expr,
+        Expression::ArrayExpression(_)
+            | Expression::ArrowFunctionExpression(_)
+            | Expression::ClassExpression(_)
+            | Expression::FunctionExpression(_)
+            | Expression::ObjectExpression(_)
+            | Expression::TemplateLiteral(_)
+            | Expression::StringLiteral(_)
+    )
+}
+
+pub fn is_empty_stmt(stmt: &Statement) -> bool {
+    match stmt {
+        Statement::BlockStatement(block_stmt) => {
+            if block_stmt.body.is_empty() || block_stmt.body.iter().all(|node| is_empty_stmt(node))
+            {
+                return true;
+            }
+            false
+        }
+        Statement::EmptyStatement(_) => true,
+        _ => false,
+    }
+}
+
+// ref: https://github.com/sindresorhus/eslint-plugin-unicorn/blob/v56.0.0/rules/utils/array-or-object-prototype-property.js
+pub fn is_prototype_property(
+    member_expr: &MemberExpression,
+    property: &str,
+    object: Option<&str>,
+) -> bool {
+    if member_expr.static_property_name().is_none_or(|name| name != property)
+        || member_expr.optional()
+    {
+        return false;
+    }
+
+    // `Object.prototype.method` or `Array.prototype.method`
+    if let Some(member_expr_obj) = member_expr.object().as_member_expression()
+        && let Expression::Identifier(iden) = member_expr_obj.object()
+        && member_expr_obj.static_property_name().is_some_and(|name| name == "prototype")
+        && object.is_some_and(|val| val == iden.name)
+        && !member_expr.optional()
+        && !member_expr_obj.optional()
+    {
+        return true;
+    }
+
+    match object {
+        // `[].method`
+        Some("Array") => is_empty_array_expression(member_expr.object()),
+
+        // `{}.method`
+        Some("Object") => {
+            if let Expression::ObjectExpression(obj_expr) = member_expr.object() {
+                obj_expr.properties.is_empty()
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+pub fn is_empty_array_expression(expr: &Expression) -> bool {
+    if let Expression::ArrayExpression(array_expr) = expr {
+        array_expr.elements.is_empty()
+    } else {
+        false
+    }
+}
+
+pub fn is_empty_object_expression(expr: &Expression) -> bool {
+    if let Expression::ObjectExpression(object_expr) = expr {
+        object_expr.properties.is_empty()
+    } else {
+        false
+    }
+}
+
+pub fn is_logical_expression(node: &AstNode) -> bool {
+    matches!(
+        node.kind(),
+        AstKind::LogicalExpression(LogicalExpression {
+            operator: LogicalOperator::And | LogicalOperator::Or,
+            ..
+        })
+    )
+}
+
+// gets the name of the first parameter of a function
+pub fn get_first_parameter_name<'a>(arg: &'a FormalParameters) -> Option<&'a str> {
+    let first_func_param = arg.items.first()?;
+    let BindingPattern::BindingIdentifier(first_func_param) = &first_func_param.pattern else {
+        return None;
+    };
+    Some(first_func_param.name.as_str())
+}
+
+pub fn get_return_identifier_name<'a>(body: &'a FunctionBody<'_>) -> Option<&'a str> {
+    match body.statements.first()? {
+        Statement::BlockStatement(block_stmt) => {
+            let Statement::ReturnStatement(return_stmt) = block_stmt.body.first()? else {
+                return None;
+            };
+
+            let Some(Expression::Identifier(ident)) = return_stmt.argument.as_ref() else {
+                return None;
+            };
+
+            Some(ident.name.as_str())
+        }
+        Statement::ReturnStatement(return_stmt) => {
+            let return_expr = return_stmt.argument.as_ref()?;
+            match return_expr {
+                Expression::Identifier(ident) => Some(ident.name.as_str()),
+                _ => None,
+            }
+        }
+        Statement::ExpressionStatement(expr_stmt) => {
+            let Expression::Identifier(ident) = &expr_stmt.expression else {
+                return None;
+            };
+
+            Some(ident.name.as_str())
+        }
+        _ => None,
+    }
+}
+
+/// Compares two expressions to see if they are the same.
+pub fn is_same_expression(left: &Expression, right: &Expression, ctx: &LintContext) -> bool {
+    if let Expression::ChainExpression(left_chain_expr) = left
+        && let Some(right_member_expr) = right.as_member_expression()
+        && let Some(v) = left_chain_expr.expression.as_member_expression()
+    {
+        return is_same_member_expression(v, right_member_expr, ctx);
+    }
+
+    if let Some(left_chain_expr) = left.as_member_expression()
+        && let Expression::ChainExpression(right_member_expr) = right
+        && let Some(v) = right_member_expr.expression.as_member_expression()
+    {
+        return is_same_member_expression(left_chain_expr, v, ctx);
+    }
+
+    match (left, right) {
+        // super // this
+        (Expression::Super(_), Expression::Super(_))
+        | (Expression::ThisExpression(_), Expression::ThisExpression(_))
+        | (Expression::NullLiteral(_), Expression::NullLiteral(_)) => return true,
+
+        (Expression::Identifier(left_ident), Expression::Identifier(right_ident)) => {
+            return left_ident.name == right_ident.name;
+        }
+
+        (Expression::StringLiteral(left_str), Expression::StringLiteral(right_str)) => {
+            return left_str.value == right_str.value;
+        }
+        (Expression::StringLiteral(string_lit), Expression::TemplateLiteral(template_lit))
+        | (Expression::TemplateLiteral(template_lit), Expression::StringLiteral(string_lit)) => {
+            return template_lit.single_quasi().is_some_and(|val| val == string_lit.value);
+        }
+        (Expression::TemplateLiteral(left_str), Expression::TemplateLiteral(right_str)) => {
+            return left_str.quasis.content_eq(&right_str.quasis)
+                && left_str.expressions.len() == right_str.expressions.len()
+                && left_str
+                    .expressions
+                    .iter()
+                    .zip(right_str.expressions.iter())
+                    .all(|(left, right)| is_same_expression(left, right, ctx));
+        }
+        (Expression::NumericLiteral(left_num), Expression::NumericLiteral(right_num)) => {
+            return left_num.raw == right_num.raw;
+        }
+        (Expression::RegExpLiteral(left_regexp), Expression::RegExpLiteral(right_regexp)) => {
+            return left_regexp.regex.pattern.text == right_regexp.regex.pattern.text
+                && left_regexp.regex.flags == right_regexp.regex.flags;
+        }
+        (Expression::BooleanLiteral(left_bool), Expression::BooleanLiteral(right_bool)) => {
+            return left_bool.value == right_bool.value;
+        }
+
+        (
+            Expression::BinaryExpression(left_bin_expr),
+            Expression::BinaryExpression(right_bin_expr),
+        ) => {
+            return left_bin_expr.operator == right_bin_expr.operator
+                && is_same_expression(
+                    left_bin_expr.left.get_inner_expression(),
+                    right_bin_expr.left.get_inner_expression(),
+                    ctx,
+                )
+                && is_same_expression(
+                    left_bin_expr.right.get_inner_expression(),
+                    right_bin_expr.right.get_inner_expression(),
+                    ctx,
+                );
+        }
+
+        (
+            Expression::LogicalExpression(left_logical_expr),
+            Expression::LogicalExpression(right_logical_expr),
+        ) => {
+            return left_logical_expr.operator == right_logical_expr.operator
+                && is_same_expression(
+                    left_logical_expr.left.get_inner_expression(),
+                    right_logical_expr.left.get_inner_expression(),
+                    ctx,
+                )
+                && is_same_expression(
+                    left_logical_expr.right.get_inner_expression(),
+                    right_logical_expr.right.get_inner_expression(),
+                    ctx,
+                );
+        }
+
+        (
+            Expression::UnaryExpression(left_unary_expr),
+            Expression::UnaryExpression(right_unary_expr),
+        ) => {
+            return left_unary_expr.operator == right_unary_expr.operator
+                && is_same_expression(
+                    left_unary_expr.argument.get_inner_expression(),
+                    right_unary_expr.argument.get_inner_expression(),
+                    ctx,
+                );
+        }
+
+        (
+            Expression::ChainExpression(left_chain_expr),
+            Expression::ChainExpression(right_chain_expr),
+        ) => {
+            if let Some(left_member_expr) = left_chain_expr.expression.as_member_expression()
+                && let Some(right_member_expr) = right_chain_expr.expression.as_member_expression()
+            {
+                return is_same_member_expression(left_member_expr, right_member_expr, ctx);
+            }
+        }
+        _ => {}
+    }
+
+    if let (Some(left_member_expr), Some(right_member_expr)) =
+        (left.as_member_expression(), right.as_member_expression())
+    {
+        return is_same_member_expression(left_member_expr, right_member_expr, ctx);
+    }
+
+    false
+}
+
+pub fn is_same_member_expression(
+    left: &MemberExpression,
+    right: &MemberExpression,
+    ctx: &LintContext,
+) -> bool {
+    let left_static_property_name = left.static_property_name();
+    let right_static_property_name = right.static_property_name();
+
+    match (left_static_property_name, right_static_property_name) {
+        (Some(left_static_property_name), Some(right_static_property_name)) => {
+            if left_static_property_name != right_static_property_name {
+                return false;
+            }
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            return false;
+        }
+        (None, None) => match (left, right) {
+            (
+                MemberExpression::PrivateFieldExpression(left),
+                MemberExpression::PrivateFieldExpression(right),
+            ) => {
+                return left.field.name == right.field.name
+                    && is_same_expression(&left.object, &right.object, ctx);
+            }
+            (MemberExpression::PrivateFieldExpression(_), _)
+            | (_, MemberExpression::PrivateFieldExpression(_)) => return false,
+            _ => {}
+        },
+    }
+
+    if let (
+        MemberExpression::ComputedMemberExpression(left),
+        MemberExpression::ComputedMemberExpression(right),
+    ) = (left, right)
+    {
+        // TODO(camc314): refactor this to go through `is_same_reference` and introduce some sort of `context` to indicate how the two values should be compared.
+        match (&left.expression, &right.expression) {
+            // x['/regex/'] === x[/regex/]
+            // x[/regex/] === x['/regex/']
+            (Expression::StringLiteral(string_lit), Expression::RegExpLiteral(regex_lit))
+            | (Expression::RegExpLiteral(regex_lit), Expression::StringLiteral(string_lit)) => {
+                if string_lit.value != regex_lit.raw.as_ref().unwrap().as_str() {
+                    return false;
+                }
+            }
+            // ex) x[`/regex/`] === x[/regex/]
+            // ex) x[/regex/] === x[`/regex/`]
+            (Expression::TemplateLiteral(template_lit), Expression::RegExpLiteral(regex_lit))
+            | (Expression::RegExpLiteral(regex_lit), Expression::TemplateLiteral(template_lit)) => {
+                if !template_lit
+                    .single_quasi()
+                    .is_some_and(|val| val == regex_lit.raw.as_ref().unwrap().as_str())
+                {
+                    return false;
+                }
+            }
+            _ => {
+                if !is_same_expression(
+                    left.expression.get_inner_expression(),
+                    right.expression.get_inner_expression(),
+                    ctx,
+                ) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    is_same_expression(
+        left.object().get_inner_expression(),
+        right.object().get_inner_expression(),
+        ctx,
+    )
+}
+
+pub fn call_expr_member_expr_property_span(call_expr: &CallExpression) -> Span {
+    call_expr
+        .callee
+        .as_member_expression()
+        .and_then(MemberExpression::static_property_info)
+        .map_or(call_expr.span, |(span, _)| span)
+}
+
+pub fn does_expr_match_any_path<'a, P, S>(mut expr: &Expression, paths: P) -> bool
+where
+    P: IntoIterator<Item = S>,
+    S: IntoIterator<Item = &'a str>,
+{
+    // Member chains are short in practice; keep the segments on the stack.
+    let mut path: SmallVec<[&str; 4]> = SmallVec::new();
+
+    while let Some(member_expr) = expr.as_member_expression() {
+        let MemberExpression::StaticMemberExpression(static_mem_expr) = member_expr else {
+            return false;
+        };
+        path.push(static_mem_expr.property.name.as_str());
+
+        expr = member_expr.object().get_inner_expression();
+    }
+
+    let Expression::Identifier(ident) = expr else { return false };
+    path.push(ident.name.as_str());
+    let path = path.iter().rev().copied();
+
+    paths.into_iter().any(|expected_path| expected_path.into_iter().eq(path.clone()))
+}
+
+/// Returns the precedence of an expression if it has one.
+///
+/// Returns `None` for "atomic" expressions (literals, identifiers, etc.) that have
+/// the highest precedence and never need parentheses when used as operands.
+///
+/// This is useful for determining if parentheses are needed when transforming code.
+/// If `get_precedence(expr)` returns `None`, the expression never needs parentheses.
+/// If it returns `Some(p)`, compare `p` against the context's precedence to decide.
+pub fn get_precedence(expr: &Expression) -> Option<Precedence> {
+    match expr {
+        Expression::SequenceExpression(e) => Some(e.precedence()),
+        Expression::AssignmentExpression(e) => Some(e.precedence()),
+        Expression::YieldExpression(e) => Some(e.precedence()),
+        Expression::ConditionalExpression(e) => Some(e.precedence()),
+        Expression::LogicalExpression(e) => Some(e.precedence()),
+        Expression::BinaryExpression(e) => Some(e.precedence()),
+        Expression::UnaryExpression(e) => Some(e.precedence()),
+        Expression::UpdateExpression(e) => Some(e.precedence()),
+        Expression::AwaitExpression(e) => Some(e.precedence()),
+        Expression::NewExpression(e) => Some(e.precedence()),
+        Expression::CallExpression(e) => Some(e.precedence()),
+        match_member_expression!(Expression) => Some(expr.to_member_expression().precedence()),
+        Expression::TSAsExpression(_)
+        | Expression::TSSatisfiesExpression(_)
+        | Expression::TSTypeAssertion(_)
+        | Expression::ArrowFunctionExpression(_) => Some(Precedence::Lowest),
+        // Literals, identifiers, and other atomic expressions have highest precedence
+        _ => None,
+    }
+}
+
+pub fn is_string_raw_tagged_template_expression(node: &AstKind) -> bool {
+    if let AstKind::TaggedTemplateExpression(tagged_template_expression) = node
+        && let Expression::StaticMemberExpression(member_expr) = &tagged_template_expression.tag
+        && let Expression::Identifier(ident) = &member_expr.object
+        && member_expr.property.name == "raw"
+        && ident.name == "String"
+    {
+        return true;
+    }
+    false
+}

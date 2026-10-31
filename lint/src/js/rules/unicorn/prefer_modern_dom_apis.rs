@@ -1,0 +1,349 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/unicorn/prefer_modern_dom_apis.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{Argument, Expression},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+
+use crate::js::{AstNode, ast_util::is_method_call, context::LintContext, rule::Rule};
+
+fn prefer_modern_dom_apis_diagnostic(
+    good_method: &str,
+    bad_method: &str,
+    span: Span,
+) -> OxcDiagnostic {
+    OxcDiagnostic::warn(format!("Prefer using `{good_method}` over `{bad_method}`."))
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct PreferModernDomApis;
+
+fn get_replacement_for_disallowed_method(method: &str) -> Option<&'static str> {
+    match method {
+        "replaceChild" => Some("replaceWith"),
+        "insertBefore" => Some("before"),
+        _ => None,
+    }
+}
+
+fn get_replacement_for_position(position: &str) -> Option<&'static str> {
+    match position {
+        "beforebegin" => Some("before"),
+        "afterbegin" => Some("prepend"),
+        "beforeend" => Some("append"),
+        "afterend" => Some("after"),
+        _ => None,
+    }
+}
+
+fn is_value_not_usable(node: &AstNode, ctx: &LintContext) -> bool {
+    let parent_node = ctx.nodes().parent_node(node.id());
+    let grandparent_node = ctx.nodes().parent_node(parent_node.id());
+    matches!(
+        (parent_node.kind(), grandparent_node.kind()),
+        (AstKind::ExpressionStatement(_), _)
+            | (AstKind::ChainExpression(_), AstKind::ExpressionStatement(_))
+    )
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Enforces the use of:
+    /// - `childNode.replaceWith(newNode)` over `parentNode.replaceChild(newNode, oldNode)`
+    /// - `referenceNode.before(newNode)` over `parentNode.insertBefore(newNode, referenceNode)`
+    /// - `referenceNode.before('text')` over `referenceNode.insertAdjacentText('beforebegin', 'text')`
+    /// - `referenceNode.before(newNode)` over `referenceNode.insertAdjacentElement('beforebegin', newNode)`
+    ///
+    /// ### Why is this bad?
+    ///
+    /// There are some advantages of using the newer DOM APIs, like:
+    /// - Traversing to the parent node is not necessary.
+    /// - Appending multiple nodes at once.
+    /// - Both `DOMString` and DOM node objects can be manipulated.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// oldChildNode.replaceWith(newChildNode);
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// parentNode.replaceChild(newChildNode, oldChildNode);
+    /// ```
+    PreferModernDomApis,
+    "unicorn",
+    "prefer-modern-dom-apis",
+    Style,
+    recommended = true,
+    fix = RuleFixMeta::Fixable(FixKind::Suggestion),
+);
+
+impl Rule for PreferModernDomApis {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else {
+            return;
+        };
+
+        let Expression::StaticMemberExpression(member_expr) = &call_expr.callee else {
+            return;
+        };
+        let method = member_expr.property.name.as_str();
+
+        if is_method_call(
+            call_expr,
+            None,
+            Some(&["replaceChild", "insertBefore"]),
+            Some(2),
+            Some(2),
+        ) && matches!(member_expr.object, Expression::Identifier(_))
+            && !call_expr.optional
+            && let Some(preferred_method) = get_replacement_for_disallowed_method(method)
+        {
+            let diagnostic = prefer_modern_dom_apis_diagnostic(
+                preferred_method,
+                method,
+                member_expr.property.span,
+            );
+
+            // Reordering complex arguments can change evaluation semantics.
+            let has_safe_arguments = call_expr.arguments.iter().all(|argument| {
+                matches!(argument, Argument::Identifier(identifier) if identifier.name != "undefined")
+            });
+
+            if has_safe_arguments && is_value_not_usable(node, ctx) {
+                ctx.diagnostic_with_suggestion(diagnostic, |fixer| {
+                    let new_node = ctx.source_range(call_expr.arguments[0].span());
+                    let old_node = ctx.source_range(call_expr.arguments[1].span());
+
+                    let replacement = format!("{old_node}.{preferred_method}({new_node})");
+
+                    fixer.replace(call_expr.span, replacement)
+                });
+            } else {
+                ctx.diagnostic(diagnostic);
+            }
+
+            return;
+        }
+
+        if is_method_call(
+            call_expr,
+            None,
+            Some(&["insertAdjacentText", "insertAdjacentElement"]),
+            Some(2),
+            Some(2),
+        ) && let Argument::StringLiteral(lit) = &call_expr.arguments[0]
+            && let Some(preferred_method) =
+                lit.value.as_str().and_then(get_replacement_for_position)
+        {
+            let diagnostic = prefer_modern_dom_apis_diagnostic(
+                preferred_method,
+                method,
+                member_expr.property.span,
+            );
+
+            let can_fix = method == "insertAdjacentText" || is_value_not_usable(node, ctx);
+
+            if can_fix {
+                ctx.diagnostic_with_suggestion(diagnostic, |fixer| {
+                    let content = ctx.source_range(call_expr.arguments[1].span());
+                    let reference = ctx.source_range(member_expr.object.span());
+
+                    let replacement = format!("{reference}.{preferred_method}({content})");
+
+                    fixer.replace(call_expr.span, replacement)
+                });
+            } else {
+                ctx.diagnostic(diagnostic);
+            }
+        }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "oldChildNode.replaceWith(newChildNode);",
+        "referenceNode.before(newNode);",
+        r#"referenceNode.before("text");"#,
+        "referenceNode.prepend(newNode);",
+        r#"referenceNode.prepend("text");"#,
+        "referenceNode.append(newNode);",
+        r#"referenceNode.append("text");"#,
+        "referenceNode.after(newNode);",
+        r#"referenceNode.after("text");"#,
+        "oldChildNode.replaceWith(undefined, oldNode);",
+        "oldChildNode.replaceWith(newNode, undefined);",
+        "new parentNode.replaceChild(newNode, oldNode);",
+        "new parentNode.insertBefore(newNode, referenceNode);",
+        "new referenceNode.insertAdjacentText('beforebegin', 'text');",
+        "new referenceNode.insertAdjacentElement('beforebegin', newNode);",
+        "replaceChild(newNode, oldNode);",
+        "insertBefore(newNode, referenceNode);",
+        "insertAdjacentText('beforebegin', 'text');",
+        "insertAdjacentElement('beforebegin', newNode);",
+        "parentNode['replaceChild'](newNode, oldNode);",
+        "parentNode['insertBefore'](newNode, referenceNode);",
+        "referenceNode['insertAdjacentText']('beforebegin', 'text');",
+        "referenceNode['insertAdjacentElement']('beforebegin', newNode);",
+        "parentNode[replaceChild](newNode, oldNode);",
+        "parentNode[insertBefore](newNode, referenceNode);",
+        "referenceNode[insertAdjacentText]('beforebegin', 'text');",
+        "referenceNode[insertAdjacentElement]('beforebegin', newNode);",
+        "parent.foo(a, b);",
+        "parentNode.replaceChild(newNode);",
+        "parentNode.insertBefore(newNode);",
+        "referenceNode.insertAdjacentText('beforebegin');",
+        "referenceNode.insertAdjacentElement('beforebegin');",
+        "parentNode.replaceChild(newNode, oldNode, extra);",
+        "parentNode.insertBefore(newNode, referenceNode, extra);",
+        "referenceNode.insertAdjacentText('beforebegin', 'text', extra);",
+        "referenceNode.insertAdjacentElement('beforebegin', newNode, extra);",
+        "referenceNode.insertAdjacentText(...argumentsArray1, ...argumentsArray2);",
+        "referenceNode.insertAdjacentElement(...argumentsArray1, ...argumentsArray2);",
+        "referenceNode.insertAdjacentText('foo', 'text');",
+        "referenceNode.insertAdjacentElement('foo', newNode);",
+    ];
+
+    let fail = vec![
+        "parentNode.replaceChild(newChildNode, oldChildNode);",
+        "parentNode.replaceChild(
+                newChildNode,
+                oldChildNode
+            );",
+        "parentNode.replaceChild( // inline comments
+                newChildNode, // inline comments
+                oldChildNode // inline comments
+            );",
+        "const foo = parentNode.replaceChild(newChildNode, oldChildNode);",
+        "foo = parentNode.replaceChild(newChildNode, oldChildNode);",
+        "parentNode.insertBefore(newNode, referenceNode);",
+        "parentNode.insertBefore(alfa, beta).insertBefore(charlie, delta);",
+        "const foo = parentNode.insertBefore(alfa, beta);",
+        "foo = parentNode.insertBefore(alfa, beta);",
+        "new Dom(parentNode.insertBefore(alfa, beta))",
+        "`${parentNode.insertBefore(alfa, beta)}`",
+        // Non-identifier arguments are reported without a suggestion. Rewriting them before
+        // `.replaceWith` or `.before` could change precedence or evaluation order.
+        "parentNode.replaceChild(newNode, cond ? c : d);",
+        "parentNode.insertBefore(newNode, p || q);",
+        "parentNode.replaceChild(getNode(), oldNode);",
+        "parentNode.replaceChild(...argumentsArray1, ...argumentsArray2);",
+        "parentNode.insertBefore(...argumentsArray1, ...argumentsArray2);",
+        "parentNode.replaceChild(newNode, undefined);",
+        r#"referenceNode.insertAdjacentText("beforebegin", "text");"#,
+        r#"referenceNode.insertAdjacentText("afterbegin", "text");"#,
+        r#"referenceNode.insertAdjacentText("beforeend", "text");"#,
+        r#"referenceNode.insertAdjacentText("afterend", "text");"#,
+        r#"const foo = referenceNode.insertAdjacentText("beforebegin", "text");"#,
+        r#"foo = referenceNode.insertAdjacentText("beforebegin", "text");"#,
+        r#"referenceNode.insertAdjacentElement("beforebegin", newNode);"#,
+        r#"referenceNode.insertAdjacentElement("afterbegin", "text");"#,
+        r#"referenceNode.insertAdjacentElement("beforeend", "text");"#,
+        r#"referenceNode.insertAdjacentElement("afterend", newNode);"#,
+        r#"referenceNode.insertAdjacentElement(
+                "afterend",
+                newNode
+            );"#,
+        r#"referenceNode.insertAdjacentElement( // inline comments
+                "afterend", // inline comments
+                newNode  // inline comments
+            ); // inline comments"#,
+        r#"const foo = referenceNode.insertAdjacentElement("beforebegin", newNode);"#,
+        r#"foo = referenceNode.insertAdjacentElement("beforebegin", newNode);"#,
+        r#"const foo = [referenceNode.insertAdjacentElement("beforebegin", newNode)]"#,
+        r#"foo(bar = referenceNode.insertAdjacentElement("beforebegin", newNode))"#,
+        r#"const foo = () => { return referenceNode.insertAdjacentElement("beforebegin", newNode); }"#,
+        r#"if (referenceNode.insertAdjacentElement("beforebegin", newNode)) {}"#,
+        r#"const foo = { bar: referenceNode.insertAdjacentElement("beforebegin", newNode) }"#,
+    ];
+
+    let fix = vec![
+        (
+            "parentNode.replaceChild(newChildNode, oldChildNode);",
+            "oldChildNode.replaceWith(newChildNode);",
+        ),
+        ("parentNode.insertBefore(newNode, referenceNode);", "referenceNode.before(newNode);"),
+        (
+            r#"referenceNode.insertAdjacentText("beforebegin", "text");"#,
+            r#"referenceNode.before("text");"#,
+        ),
+        (
+            r#"referenceNode.insertAdjacentText("afterbegin", "text");"#,
+            r#"referenceNode.prepend("text");"#,
+        ),
+        (
+            r#"referenceNode.insertAdjacentText("beforeend", "text");"#,
+            r#"referenceNode.append("text");"#,
+        ),
+        (
+            r#"referenceNode.insertAdjacentText("afterend", "text");"#,
+            r#"referenceNode.after("text");"#,
+        ),
+        (
+            r#"const foo = referenceNode.insertAdjacentText("beforebegin", "text");"#,
+            r#"const foo = referenceNode.before("text");"#,
+        ),
+        (
+            r#"foo = referenceNode.insertAdjacentText("beforebegin", "text");"#,
+            r#"foo = referenceNode.before("text");"#,
+        ),
+        (
+            r#"referenceNode.insertAdjacentElement("beforebegin", newNode);"#,
+            "referenceNode.before(newNode);",
+        ),
+        (
+            r#"referenceNode.insertAdjacentElement("afterbegin", "text");"#,
+            r#"referenceNode.prepend("text");"#,
+        ),
+        (
+            r#"referenceNode.insertAdjacentElement("beforeend", "text");"#,
+            r#"referenceNode.append("text");"#,
+        ),
+        (
+            r#"referenceNode.insertAdjacentElement("afterend", newNode);"#,
+            "referenceNode.after(newNode);",
+        ),
+        (
+            "parentNode.replaceChild(
+                newChildNode,
+                oldChildNode
+            );",
+            "oldChildNode.replaceWith(newChildNode);",
+        ),
+        (
+            "parentNode. replaceChild( // inline comments
+                newChildNode, // inline comments
+                oldChildNode // inline comments
+            );",
+            "oldChildNode.replaceWith(newChildNode);",
+        ),
+        (
+            r#"referenceNode.insertAdjacentElement(
+                "afterend",
+                newNode
+            );"#,
+            "referenceNode.after(newNode);",
+        ),
+        (
+            r#"referenceNode.insertAdjacentElement( // inline comments
+                "afterend", // inline comments
+                newNode  // inline comments
+            ); // inline comments"#,
+            "referenceNode.after(newNode); // inline comments",
+        ),
+    ];
+
+    Tester::new(PreferModernDomApis::NAME, PreferModernDomApis::PLUGIN, pass, fail)
+        .expect_fix(fix)
+        .test();
+}

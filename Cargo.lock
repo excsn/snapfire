@@ -4423,10 +4423,12 @@ name = "snapfire_lint"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
+ "convert_case 0.10.0",
  "cow-utils",
  "fast-glob",
  "globset",
  "ignore",
+ "indexmap",
  "itertools 0.15.0",
  "javascript-globals",
  "lazy-regex",
@@ -4459,6 +4461,7 @@ dependencies = [
  "tera",
  "thiserror 2.0.21",
  "toml",
+ "url",
 ]
 
 [[package]]

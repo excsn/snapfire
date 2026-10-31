@@ -1,0 +1,319 @@
+// Ported from oxlint (crates/oxc_linter/src/utils/jsdoc.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use rustc_hash::FxHashSet;
+
+use oxc_ast::{
+    AstKind,
+    ast::{BindingPattern, Expression, FormalParameters, ObjectPropertyKind, PropertyKey},
+};
+use oxc_semantic::{JSDoc, JSDocTag, Semantic};
+use oxc_span::Span;
+
+use crate::js::{AstNode, settings::JSDocPluginSettings};
+
+pub const CUSTOM_SKIP_TAG_NAMES: [&str; 6] =
+    ["abstract", "class", "constructor", "interface", "type", "virtual"];
+
+pub fn should_ignore_as_custom_skip(jsdoc: &JSDoc) -> bool {
+    jsdoc.tags().iter().any(|tag| CUSTOM_SKIP_TAG_NAMES.contains(&tag.kind.parsed()))
+}
+
+pub fn is_missing_special_tag<'a, 'b>(
+    jsdoc_tags: impl IntoIterator<Item = &'b JSDocTag<'a>>,
+    resolved_tag_name: &str,
+) -> bool
+where
+    'a: 'b,
+{
+    jsdoc_tags.into_iter().all(|tag| tag.kind.parsed() != resolved_tag_name)
+}
+
+pub fn is_duplicated_special_tag<'a, 'b>(
+    jsdoc_tags: impl IntoIterator<Item = &'b JSDocTag<'a>>,
+    resolved_returns_tag_name: &str,
+) -> Option<Span>
+where
+    'a: 'b,
+{
+    let mut returns_found = false;
+    for tag in jsdoc_tags {
+        if tag.kind.parsed() == resolved_returns_tag_name {
+            if returns_found {
+                return Some(tag.kind.span);
+            }
+
+            returns_found = true;
+        }
+    }
+
+    None
+}
+
+/// JSDoc is often attached on the parent node of a function.
+///
+/// ```js
+/// /** VariableDeclaration > VariableDeclarator > FunctionExpression */
+/// const foo = function() {}
+///
+/// /** VariableDeclaration > VariableDeclarator > ArrowFunctionExpression */
+/// const bar = () => {},
+///       /** VariableDeclarator > ArrowFunctionExpression */
+///       baz = () => {};
+///
+/// /** MethodDefinition > FunctionExpression */
+/// class X { qux() {} }
+///
+/// /** PropertyDefinition > ArrowFunctionExpression */
+/// class Y { qux = () => {} }
+/// ```
+pub fn get_function_nearest_jsdoc_node<'a, 'b>(
+    node: &'b AstNode<'a>,
+    semantic: &'b Semantic<'a>,
+) -> Option<&'b AstNode<'a>> {
+    let mut current_node = node;
+    let source_function_id = node.id();
+    // Whether the node has attached JSDoc or not is determined by `JSDocBuilder`
+    while semantic.jsdoc().get_all_by_node(semantic.nodes(), current_node).is_none() {
+        // Tie-breaker, otherwise every loop will end at `Program` node!
+        // Maybe more checks should be added
+        match current_node.kind() {
+            // Do not leak an outer function's JSDoc into nested function expressions.
+            // Keep walking only for the source function node itself, because function
+            // JSDoc can be attached on wrapper nodes like `VariableDeclaration`.
+            AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)
+                if current_node.id() != source_function_id =>
+            {
+                return None;
+            }
+            // Do not apply object-level docs to functions nested in object literals.
+            // e.g. `const x = /** ... */ { method(arg) {} }`
+            AstKind::ObjectExpression(_) |
+            AstKind::Program(_) => return None,
+            AstKind::VariableDeclaration(_)
+            | AstKind::MethodDefinition(_)
+            | AstKind::PropertyDefinition(_)
+            // /** This JSDoc should NOT found for `ArrowFunctionExpression` callback */
+            // function outer() { inner(() => {}) }
+            | AstKind::CallExpression(_)
+            // /** This JSDoc should NOT found for `ArrowFunctionExpression` callback */
+            // new Promise(() => {})
+            | AstKind::NewExpression(_)
+            // /** This JSDoc should NOT found for inner `Function` */
+            // function outer() { return function inner() {} }
+            | AstKind::ReturnStatement(_)
+            => {
+                // /** This JSDoc should NOT found for `VariableDeclaration` */
+                // export const foo = () => {}
+                let parent_node = semantic.nodes().parent_node(current_node.id());
+                match parent_node.kind() {
+                    AstKind::ExportDefaultDeclaration(_) | AstKind::ExportDeclaration(_) => return Some(parent_node),
+                    _ => return None
+                }
+            },
+            _ => current_node = semantic.nodes().parent_node(current_node.id()),
+        }
+    }
+
+    Some(current_node)
+}
+
+pub fn should_ignore_as_internal(jsdoc: &JSDoc, settings: &JSDocPluginSettings) -> bool {
+    if settings.ignore_internal {
+        let resolved_internal_tag_name = settings.resolve_tag_name("internal");
+
+        for tag in jsdoc.tags() {
+            if tag.kind.parsed() == resolved_internal_tag_name {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+pub fn should_ignore_as_private(jsdoc: &JSDoc, settings: &JSDocPluginSettings) -> bool {
+    if settings.ignore_private {
+        let resolved_private_tag_name = settings.resolve_tag_name("private");
+        let resolved_access_tag_name = settings.resolve_tag_name("access");
+
+        for tag in jsdoc.tags() {
+            let tag_name = tag.kind.parsed();
+            if tag_name == resolved_private_tag_name
+                || tag_name == resolved_access_tag_name && tag.comment().parsed() == "private"
+            {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+pub fn should_ignore_as_avoid(
+    jsdoc: &JSDoc,
+    settings: &JSDocPluginSettings,
+    exempted_tag_names: &[String],
+) -> bool {
+    let mut ignore_tag_names =
+        exempted_tag_names.iter().map(String::as_str).collect::<FxHashSet<_>>();
+    if settings.ignore_replaces_docs {
+        ignore_tag_names.insert(settings.resolve_tag_name("ignore"));
+    }
+    if settings.override_replaces_docs {
+        ignore_tag_names.insert(settings.resolve_tag_name("override"));
+    }
+    if settings.augments_extends_replaces_docs {
+        ignore_tag_names.insert(settings.resolve_tag_name("augments"));
+        ignore_tag_names.insert(settings.resolve_tag_name("extends"));
+    }
+    if settings.implements_replaces_docs {
+        ignore_tag_names.insert(settings.resolve_tag_name("implements"));
+    }
+
+    jsdoc.tags().iter().any(|tag| ignore_tag_names.contains(tag.kind.parsed()))
+}
+
+#[derive(Debug, Clone)]
+pub struct Param {
+    pub span: Span,
+    pub name: String,
+    pub is_rest: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum ParamKind {
+    Single(Param),
+    Nested(Vec<Param>),
+}
+
+pub fn collect_params(
+    params: &FormalParameters,
+    use_default_object_properties: bool,
+) -> Vec<ParamKind> {
+    // NOTE: Property level `is_rest` is implemented.
+    //   - fn(a, { b1, ...b2 })
+    //                 ^^^^^
+    // But Object|Array level `is_rest` is not implemented
+    //   - fn(a, ...{ b })
+    //           ^^^^   ^
+    // Tests are not covering these cases...
+    fn get_param_name(
+        pattern: &BindingPattern,
+        is_rest: bool,
+        use_default_object_properties: bool,
+    ) -> ParamKind {
+        match &pattern {
+            BindingPattern::BindingIdentifier(ident) => {
+                ParamKind::Single(Param { span: ident.span, name: ident.name.to_string(), is_rest })
+            }
+            BindingPattern::ObjectPattern(obj_pat) => {
+                let mut collected = vec![];
+
+                for prop in &obj_pat.properties {
+                    let Some(name) = prop.key.name() else { continue };
+
+                    match get_param_name(&prop.value, false, use_default_object_properties) {
+                        ParamKind::Single(param) => {
+                            collected.push(Param { name: name.display().to_string(), ..param });
+                        }
+                        ParamKind::Nested(params) => {
+                            collected.push(Param {
+                                span: prop.span,
+                                name: name.display().to_string(),
+                                is_rest: false,
+                            });
+
+                            for param in params {
+                                collected.push(Param {
+                                    name: format!("{}.{}", name.display(), param.name),
+                                    ..param
+                                });
+                            }
+                        }
+                    }
+                }
+
+                if let Some(rest) = &obj_pat.rest {
+                    match get_param_name(&rest.argument, true, use_default_object_properties) {
+                        ParamKind::Single(param) => collected.push(param),
+                        ParamKind::Nested(params) => collected.extend(params),
+                    }
+                }
+
+                ParamKind::Nested(collected)
+            }
+            BindingPattern::ArrayPattern(arr_pat) => {
+                let mut collected = vec![];
+
+                for (idx, elm) in arr_pat.elements.iter().enumerate() {
+                    let name = format!("\"{idx}\"");
+
+                    if let Some(pat) = elm {
+                        match get_param_name(pat, false, use_default_object_properties) {
+                            ParamKind::Single(param) => collected.push(Param { name, ..param }),
+                            ParamKind::Nested(params) => collected.extend(params),
+                        }
+                    }
+                }
+
+                if let Some(rest) = &arr_pat.rest {
+                    match get_param_name(&rest.argument, true, use_default_object_properties) {
+                        ParamKind::Single(param) => collected.push(param),
+                        ParamKind::Nested(params) => collected.extend(params),
+                    }
+                }
+
+                ParamKind::Nested(collected)
+            }
+            BindingPattern::AssignmentPattern(assign_pat) => match &assign_pat.right {
+                Expression::Identifier(_) => {
+                    get_param_name(&assign_pat.left, false, use_default_object_properties)
+                }
+                Expression::ObjectExpression(obj) if use_default_object_properties => {
+                    let mut collected = match get_param_name(
+                        &assign_pat.left,
+                        false,
+                        use_default_object_properties,
+                    ) {
+                        ParamKind::Single(param) => vec![param],
+                        ParamKind::Nested(params) => params,
+                    };
+
+                    collected.extend(obj.properties.iter().filter_map(|prop| {
+                        let ObjectPropertyKind::ObjectProperty(obj_prop) = &prop else {
+                            return None;
+                        };
+
+                        let PropertyKey::StaticIdentifier(ident) = &obj_prop.key else {
+                            return None;
+                        };
+
+                        Some(Param {
+                            name: ident.name.to_string(),
+                            is_rest: false,
+                            span: ident.span,
+                        })
+                    }));
+
+                    ParamKind::Nested(collected)
+                }
+                _ => get_param_name(&assign_pat.left, false, use_default_object_properties),
+            },
+        }
+    }
+
+    let mut collected = params
+        .items
+        .iter()
+        .map(|param| get_param_name(&param.pattern, false, use_default_object_properties))
+        .collect::<Vec<_>>();
+
+    if let Some(rest) = &params.rest {
+        match get_param_name(&rest.rest.argument, true, use_default_object_properties) {
+            ParamKind::Single(param) => collected.push(ParamKind::Single(param)),
+            ParamKind::Nested(params) => collected.push(ParamKind::Nested(params)),
+        }
+    }
+
+    collected
+}

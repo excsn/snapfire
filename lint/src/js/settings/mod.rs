@@ -1,5 +1,6 @@
 // Ported from oxlint (crates/oxc_linter/src/config/settings/mod.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
 
+mod jsdoc;
 mod jsx_a11y;
 mod react;
 
@@ -7,10 +8,13 @@ use serde::{Deserialize, Serialize};
 
 use self::{jsx_a11y::JSXA11yPluginSettings, react::ReactPluginSettings};
 
+pub use self::jsdoc::JSDocPluginSettings;
+
 pub use self::react::ReactVersion;
 
 /// The settings of the plugins whose rules read them, as ESLint's `settings` writes them:
-/// `react` (version, link and form components) and `jsx-a11y` (component mapping, polymorphic prop).
+/// `react` (version, link and form components), `jsx-a11y` (component mapping, polymorphic prop) and `jsdoc`
+/// (tag names, the comments a rule ignores).
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct OxlintSettings {
     #[serde(skip)]
@@ -22,6 +26,9 @@ pub struct OxlintSettings {
 
     #[serde(default)]
     pub react: ReactPluginSettings,
+
+    #[serde(default)]
+    pub jsdoc: JSDocPluginSettings,
 }
 
 #[derive(Deserialize, Default)]
@@ -32,6 +39,9 @@ struct WellKnownOxlintSettings {
 
     #[serde(default)]
     pub react: ReactPluginSettings,
+
+    #[serde(default)]
+    pub jsdoc: JSDocPluginSettings,
 }
 
 pub type OxlintSettingsJson = serde_json::Map<String, serde_json::Value>;
@@ -44,7 +54,7 @@ impl<'de> Deserialize<'de> for OxlintSettings {
         let raw_value = serde_json::Value::deserialize(deserializer)?;
         let well_known_settings = WellKnownOxlintSettings::deserialize(&raw_value).map_err(serde::de::Error::custom)?;
         let arbitrary_settings = if let serde_json::Value::Object(json) = raw_value { Some(json) } else { None };
-        Ok(OxlintSettings { json: arbitrary_settings, jsx_a11y: well_known_settings.jsx_a11y, react: well_known_settings.react })
+        Ok(OxlintSettings { json: arbitrary_settings, jsx_a11y: well_known_settings.jsx_a11y, react: well_known_settings.react, jsdoc: well_known_settings.jsdoc })
     }
 }
 

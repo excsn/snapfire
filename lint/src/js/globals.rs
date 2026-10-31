@@ -186,3 +186,9 @@ mod test {
     }
 
 }
+
+pub const GLOBAL_OBJECT_NAMES: [&str; 4] = ["global", "globalThis", "self", "window"];
+
+
+
+

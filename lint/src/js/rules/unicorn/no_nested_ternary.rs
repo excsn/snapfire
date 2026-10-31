@@ -1,0 +1,175 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/unicorn/no_nested_ternary.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{AstKind, ast::Expression};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn unparenthesized_nested_ternary(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unexpected nested ternary expression without parentheses.")
+        .with_help("Add parentheses around the nested ternary expression.")
+        .with_label(span)
+}
+
+fn deeply_nested_ternary(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Unexpected deeply nested ternary expression.")
+        .with_help("Avoid nesting ternary expressions for more than one level.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoNestedTernary;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow deeply nested ternary expressions.
+    ///
+    /// Nested ternary expressions that are only one level deep and wrapped in parentheses are allowed by this rule.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Nesting ternary expressions can make code more difficult to understand.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// const foo = i > 5 ? i < 100 ? true : false : true;
+    /// const foo = i > 5 ? true : (i < 100 ? true : (i < 1000 ? true : false));
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// const foo = i > 5 ? (i < 100 ? true : false) : true;
+    /// const foo = i > 5 ? (i < 100 ? true : false) : (i < 100 ? true : false);
+    /// ```
+    NoNestedTernary,
+    "unicorn",
+    "no-nested-ternary",
+    Style,
+    recommended = false,
+    fix = RuleFixMeta::Conditional(FixKind::Fix),
+);
+
+impl Rule for NoNestedTernary {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::ConditionalExpression(cond_expr) = node.kind() else {
+            return;
+        };
+
+        if matches!(&cond_expr.test.get_inner_expression(), Expression::ConditionalExpression(_))
+            || matches!(
+                &cond_expr.consequent.get_inner_expression(),
+                Expression::ConditionalExpression(_)
+            )
+            || matches!(
+                &cond_expr.alternate.get_inner_expression(),
+                Expression::ConditionalExpression(_)
+            )
+        {
+            return;
+        }
+
+        let mut nested_level = 0;
+        let mut current_node = node;
+        loop {
+            let parent_node = ctx.nodes().parent_node(current_node.id());
+            match parent_node.kind() {
+                AstKind::ConditionalExpression(_) => {
+                    nested_level += 1;
+                }
+                AstKind::ParenthesizedExpression(_) => {}
+                _ => break,
+            }
+            if nested_level == 2 {
+                break;
+            }
+            current_node = parent_node;
+        }
+
+        match nested_level {
+            0 => {}
+            1 => {
+                if let AstKind::ParenthesizedExpression(_) = ctx.nodes().parent_kind(node.id()) {
+                    return;
+                }
+                ctx.diagnostic_with_fix(unparenthesized_nested_ternary(cond_expr.span), |fixer| {
+                    let content = format!("({})", fixer.source_range(cond_expr.span));
+                    fixer.replace(cond_expr.span, content)
+                });
+            }
+            _ => {
+                ctx.diagnostic(deeply_nested_ternary(cond_expr.span));
+            }
+        }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "const foo = i > 5 ? true : false;",
+        "const foo = i > 5 ? true : (i < 100 ? true : false);",
+        "const foo = i > 5 ? (i < 100 ? true : false) : true;",
+        "const foo = i > 5 ? (i < 100 ? true : false) : (i < 100 ? true : false);",
+        "const foo = i > 5 ? true : (i < 100 ? FOO(i > 50 ? false : true) : false);",
+        "foo ? doBar() : doBaz();",
+        "var foo = bar === baz ? qux : quxx;",
+        "const pluginName = isAbsolute ?
+                pluginPath.slice(pluginPath.lastIndexOf('/') + 1) :
+                (
+                    isNamespaced ?
+                    pluginPath.split('@')[1].split('/')[1] :
+                    pluginPath
+                );",
+    ];
+
+    let fail = vec![
+        "const foo = i > 5 ? true : (i < 100 ? true : (i < 1000 ? true : false));",
+        "const foo = i > 5 ? true : (i < 100 ? (i > 50 ? false : true) : false);",
+        "const foo = i > 5 ? i < 100 ? true : false : true;",
+        "const foo = i > 5 ? i < 100 ? true : false : i < 100 ? true : false;",
+        "const foo = i > 5 ? true : i < 100 ? true : false;",
+        "foo ? bar : baz === qux ? quxx : foobar;",
+        "foo ? baz === qux ? quxx : foobar : bar;",
+        "const foo = i > 5 ? i < 100 ? true : false : i < 100 ? true : false;",
+        "const foo = i > 5 ? true : (i < 100 ? true : (i < 1000 ? true : false));",
+        "const foo = a ?
+                b :
+                (
+                    c ?
+                        d :
+                        (
+                            e ?
+                                f :
+                                (g ? h : i)
+                        )
+                )",
+    ];
+
+    let fix = vec![
+        (
+            "const foo = i > 5 ? i < 100 ? true : false : true;",
+            "const foo = i > 5 ? (i < 100 ? true : false) : true;",
+        ),
+        (
+            "const foo = i > 5 ? i < 100 ? true : false : i < 100 ? true : false;",
+            "const foo = i > 5 ? (i < 100 ? true : false) : (i < 100 ? true : false);",
+        ),
+        (
+            "const foo = i > 5 ? true : i < 100 ? true : false;",
+            "const foo = i > 5 ? true : (i < 100 ? true : false);",
+        ),
+        ("foo ? bar : baz === qux ? quxx : foobar;", "foo ? bar : (baz === qux ? quxx : foobar);"),
+        ("foo ? baz === qux ? quxx : foobar : bar;", "foo ? (baz === qux ? quxx : foobar) : bar;"),
+    ];
+
+    Tester::new(NoNestedTernary::NAME, NoNestedTernary::PLUGIN, pass, fail)
+        .expect_fix(fix)
+        .test();
+}

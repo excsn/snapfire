@@ -1,0 +1,123 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/promise/no_return_in_finally.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{Expression, FunctionBody, Statement},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule, utils::is_promise};
+
+fn no_return_in_finally_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Don't return in a finally callback")
+        .with_help("Remove the return statement as nothing can consume the return value")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoReturnInFinally;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow return statements in a `finally()` callback of a promise.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Disallow return statements inside a callback passed to finally(), since nothing would
+    /// consume what's returned.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// myPromise.finally(function (val) {
+    ///   return val
+    /// })
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// Promise.resolve(1).finally(() => { console.log(2) })
+    /// ```
+    NoReturnInFinally,
+    "promise",
+    "no-return-in-finally",
+    Nursery,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for NoReturnInFinally {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else {
+            return;
+        };
+
+        let Some(prop_name) = is_promise(call_expr) else {
+            return;
+        };
+
+        if prop_name != "finally" {
+            return;
+        }
+
+        for argument in &call_expr.arguments {
+            let Some(arg_expr) = argument.as_expression() else {
+                continue;
+            };
+            match arg_expr {
+                Expression::ArrowFunctionExpression(arrow_expr) => {
+                    if let Some(body) = arrow_expr.get_function_body() {
+                        find_return_statement(body, ctx);
+                    }
+                }
+                Expression::FunctionExpression(func_expr) => {
+                    let Some(func_body) = &func_expr.body else {
+                        continue;
+                    };
+                    find_return_statement(func_body, ctx);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn find_return_statement<'a>(func_body: &FunctionBody<'a>, ctx: &LintContext<'a>) {
+    let Some(return_stmt) =
+        func_body.statements.iter().find(|stmt| matches!(stmt, Statement::ReturnStatement(_)))
+    else {
+        return;
+    };
+
+    let Statement::ReturnStatement(stmt) = return_stmt else {
+        return;
+    };
+
+    ctx.diagnostic(no_return_in_finally_diagnostic(stmt.span));
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "Promise.resolve(1).finally(() => { console.log(2) })",
+        "Promise.reject(4).finally(() => { console.log(2) })",
+        "Promise.reject(4).finally(() => {})",
+        "myPromise.finally(() => {});",
+        "Promise.resolve(1).finally(function () { })",
+    ];
+
+    let fail = vec![
+        "Promise.resolve(1).finally(() => { return 2 })",
+        "Promise.reject(0).finally(() => { return 2 })",
+        "myPromise.finally(() => { return 2 });",
+        "Promise.resolve(1).finally(function () { return 2 })",
+    ];
+
+    Tester::new(NoReturnInFinally::NAME, NoReturnInFinally::PLUGIN, pass, fail).test();
+}

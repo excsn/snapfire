@@ -94,3 +94,22 @@ fn a_typescript_eslint_name_means_the_rule_it_extends() {
   assert!(report.findings.is_empty(), "{:?}", report.findings);
   assert_eq!(report.suppressed[0].finding.rule, "eslint/no-unused-vars");
 }
+
+fn with(toml: &str, source: &str) -> Vec<String> {
+  let config = snapfire_lint::Config::parse(toml, std::path::Path::new("fsr.lint.toml")).unwrap();
+  snapfire_lint::Linter::new(config).unwrap().lint_source(std::path::Path::new("a.ts"), source).findings.into_iter().map(|f| f.rule).collect()
+}
+
+#[test]
+fn a_comment_naming_no_rule_does_not_silence_a_finding_about_itself() {
+  let toml = "[rules]\n\"unicorn/no-abusive-eslint-disable\" = \"error\"\n";
+  assert_eq!(with(toml, "eval(); // eslint-disable-line\n"), ["unicorn/no-abusive-eslint-disable"]);
+  assert_eq!(with(toml, "// eslint-disable-next-line\neval();\n"), ["unicorn/no-abusive-eslint-disable"]);
+}
+
+#[test]
+fn a_disable_comment_covers_a_finding_at_its_own_start() {
+  let toml = "[rules]\n\"unicorn/no-empty-file\" = \"error\"\n";
+  assert_eq!(with(toml, "\n"), ["unicorn/no-empty-file"]);
+  assert!(with(toml, "/* eslint-disable unicorn/no-empty-file */\n").is_empty());
+}

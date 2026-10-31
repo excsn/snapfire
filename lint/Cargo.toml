@@ -15,10 +15,12 @@ license = { workspace = true }
 
 [dependencies]
 bitflags = "2.13"
+convert_case = "0.10"
 cow-utils = "0.1.3"
 fast-glob = "1.1"
 globset = "0.4"
 ignore = "0.4"
+indexmap = "2"
 itertools = "0.15"
 javascript-globals = "2"
 lazy-regex = "3.6"
@@ -48,6 +50,7 @@ snapfire_compiler_wire = { path = "../compiler/wire", version = "0.4.0" }
 tera = "2"
 thiserror = "2"
 toml = "0.8"
+url = "2"
 
 [dev-dependencies]
 snapfire_svelte = { path = "../compiler/svelte" }

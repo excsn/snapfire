@@ -1,0 +1,241 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/unicorn/no_array_for_each.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{CallExpression, Expression, FormalParameters, match_member_expression},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{
+    AstNode,
+    ast_util::{is_method_call, leftmost_identifier_reference},
+    context::LintContext,
+    rule::Rule,
+    utils::is_import_symbol,
+};
+
+fn no_array_for_each_diagnostic(
+    span: Span,
+    callback_arguments: CallbackArguments,
+) -> OxcDiagnostic {
+    let help = match callback_arguments {
+        CallbackArguments::ElementOnly => {
+            "Replace it with a `for…of` loop. It is faster, more readable, and allows early exits with `break` or `return`."
+        }
+        CallbackArguments::Index => {
+            "For arrays that need the index, replace it with a `for…of` loop over `.entries()`, such as `for (const [index, element] of array.entries())`. Otherwise, use the appropriate `for…of` loop. Array `.entries()` keeps indexes numeric and loops allow early exits with `break` or `return`."
+        }
+        CallbackArguments::Extra => {
+            "Replace it with a `for…of` loop that preserves the extra callback arguments you use. For arrays, `.entries()` provides the numeric index, and the original array can be referenced directly if needed."
+        }
+    };
+
+    OxcDiagnostic::warn("Do not use `Array#forEach`").with_help(help).with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct NoArrayForEach;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Forbids the use of `Array#forEach` in favor of a for loop.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Benefits of [`for…of` statement](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/for...of) over the `forEach` method can include:
+    ///
+    /// - Faster
+    /// - Better readability
+    /// - Ability to exit early with `break` or `return`
+    ///
+    /// Additionally, using `for…of` has great benefits if you are using TypeScript, because it does not cause a function boundary to be crossed. This means that type-narrowing earlier on in the current scope will work properly while inside of the loop (without having to re-type-narrow). Furthermore, any mutated variables inside of the loop will picked up on for the purposes of determining if a variable is being used.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// const foo = [1, 2, 3];
+    /// foo.forEach((element) => { /* ... */ });
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// const foo = [1, 2, 3];
+    /// for (const element of foo) { /* ... */ }
+    ///
+    /// for (const [index, element] of foo.entries()) { /* ... */ }
+    /// ```
+    NoArrayForEach,
+    "unicorn",
+    "no-array-for-each",
+    Restriction,
+    recommended = true,
+    fix = RuleFixMeta::FixPending,
+);
+
+impl Rule for NoArrayForEach {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else {
+            return;
+        };
+
+        let Some(member_expr) = (call_expr).callee.get_member_expr() else {
+            return;
+        };
+
+        let Some((_span, _)) = member_expr.static_property_info() else {
+            return;
+        };
+
+        if is_method_call(call_expr, None, Some(&["forEach"]), None, None)
+            && !member_expr.is_computed()
+        {
+            if leftmost_identifier_reference(member_expr.object())
+                .is_ok_and(|ident| is_import_symbol(ident, "effect", "Effect", ctx))
+            {
+                return;
+            }
+
+            let object = member_expr.object();
+
+            match object {
+                Expression::Identifier(ident) if IGNORED_OBJECTS.contains(&ident.name.as_str()) => {
+                    return;
+                }
+                match_member_expression!(Expression) => {
+                    if let Some(name) = object.to_member_expression().static_property_name()
+                        && IGNORED_OBJECTS.iter().any(|object| *object == name)
+                    {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+
+            let Some((span, _)) = member_expr.static_property_info() else {
+                return;
+            };
+
+            ctx.diagnostic(no_array_for_each_diagnostic(span, callback_arguments(call_expr)));
+        }
+    }
+}
+
+pub const IGNORED_OBJECTS: [&str; 3] = ["Children", "r", "pIteration"];
+
+#[derive(Clone, Copy)]
+enum CallbackArguments {
+    ElementOnly,
+    Index,
+    Extra,
+}
+
+fn callback_arguments(call_expr: &CallExpression) -> CallbackArguments {
+    call_expr
+        .arguments
+        .first()
+        .and_then(|argument| argument.as_expression())
+        .map(Expression::get_inner_expression)
+        .map_or(CallbackArguments::ElementOnly, |callback| match callback {
+            Expression::ArrowFunctionExpression(callback) => {
+                formal_parameters_callback_arguments(&callback.params)
+            }
+            Expression::FunctionExpression(callback) => {
+                formal_parameters_callback_arguments(&callback.params)
+            }
+            _ => CallbackArguments::ElementOnly,
+        })
+}
+
+fn formal_parameters_callback_arguments(params: &FormalParameters) -> CallbackArguments {
+    if params.rest.is_some() || params.items.len() >= 3 {
+        CallbackArguments::Extra
+    } else if params.items.len() == 2 {
+        CallbackArguments::Index
+    } else {
+        CallbackArguments::ElementOnly
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "new foo.forEach(element => bar())",
+        "forEach(element => bar())",
+        "foo.notForEach(element => bar())",
+        "React.Children.forEach(children, (child) => {});",
+        "Children.forEach(children, (child) => {});",
+        r#"import { Effect } from "effect"; Effect.forEach([], () => {})"#,
+        r#"import { Effect as E } from "effect"; E.forEach([], () => {})"#,
+    ];
+
+    let fail = vec![
+        "foo.forEach?.(element => bar(element))",
+        "1?.forEach((a, b) => call(a, b))",
+        "array.forEach((arrayInArray) => arrayInArray.forEach(element => bar(element)));",
+        "array.forEach((arrayInArray) => arrayInArray?.forEach(element => bar(element)));",
+        "foo.forEach((value, ...rest) => { bar(rest); });",
+        "array.forEach((element, index = element) => {})",
+        "foo.forEach((value, index) => { doThingWithIndex(index); });",
+        "getItems().forEach((value, index, array) => { use(array); });",
+        "array.forEach(({foo}, index = foo) => {})",
+        "array.forEach((element, {bar = element}) => {})",
+        "array.forEach(({foo}, {bar = foo}) => {})",
+        "foo.forEach(function(element, element1) {})",
+        "foo.forEach(function element(element, element1) {})",
+        "this._listeners.forEach((listener: () => void) => listener());",
+        "return foo.forEach(element => {bar(element)});",
+    ];
+
+    // TODO: Implement a fixer.
+    #[expect(clippy::no_effect_underscore_binding)]
+    let _fix = [
+        (
+            "foo.forEach(function(element) {
+                delete element;
+                console.log(element)
+            });",
+            "for (const element of foo) {
+                delete element;
+                console.log(element)
+            }",
+        ),
+        (
+            "staticPages.forEach((pg) => allStaticPages.add(pg))
+            pageInfos.forEach((info: PageInfo, key: string) => {
+                allPageInfos.set(key, info)
+            })",
+            "for (const pg of staticPages) allStaticPages.add(pg)
+            pageInfos.forEach((info: PageInfo, key: string) => {
+                allPageInfos.set(key, info)
+            })",
+        ),
+        (
+            "const cloakVals: string[] = [];
+            elements.forEach(element => cloakVals.push(cloakElement(element)));",
+            "const cloakVals: string[] = [];
+            for (const element of elements) cloakVals.push(cloakElement(element));",
+        ),
+        (
+            "while (true) return;
+            foo.forEach(element => bar(element));",
+            "while (true) return;
+            for (const element of foo) bar(element);",
+        ),
+        (
+            "foo.forEach(_ => {
+                with (a) return {};
+            })",
+            "for (const _ of foo) {
+                with (a)  { ({}); continue; }
+            }",
+        ),
+    ];
+
+    Tester::new(NoArrayForEach::NAME, NoArrayForEach::PLUGIN, pass, fail).test();
+}

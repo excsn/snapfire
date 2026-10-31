@@ -233,6 +233,11 @@ const CORE: [RuleInfo; 3] = [
 /// FSR build uses compiles JSX without `React` in scope, as eslint-plugin-react's `jsx-runtime` config says.
 const OFF_BY_DEFAULT: [&str; 1] = ["react/react-in-jsx-scope"];
 
+/// The plugins whose recommended rules run without a configuration naming them, as the presets a TypeScript, React
+/// or Vue application's ESLint configuration extends. Another plugin's recommended rules are off until its preset or
+/// a rule is named.
+const ON_BY_DEFAULT: [&str; 5] = ["eslint", "jsx-a11y", "react", "typescript", "vue"];
+
 impl RuleInfo {
   pub const fn new(id: &'static str, default: Level, category: &'static str, docs: &'static str) -> Self {
     RuleInfo { id, default, category, fixable: false, docs }
@@ -242,7 +247,7 @@ impl RuleInfo {
 /// Every rule this crate has, sorted by id.
 pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
-  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
+  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) && ON_BY_DEFAULT.iter().any(|plugin| e.id.split('/').next() == Some(*plugin)) { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
   all.extend(templates::VUE_RULES);
   all.extend(markdown::RULES);
   all.extend(tera::RULES);

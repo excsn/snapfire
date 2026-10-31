@@ -1,0 +1,113 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/unicorn/prefer_blob_reading_methods.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn prefer_blob_reading_methods_diagnostic(
+    span: Span,
+    good_method: &str,
+    bad_method: &str,
+) -> OxcDiagnostic {
+    OxcDiagnostic::warn(format!(
+        "Prefer `Blob#{good_method}()` over `FileReader#{bad_method}(blob)`."
+    ))
+    .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct PreferBlobReadingMethods;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Recommends using `Blob#text()` and `Blob#arrayBuffer()` over `FileReader#readAsText()` and `FileReader#readAsArrayBuffer()`.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// `FileReader` predates promises, and the newer [`Blob#arrayBuffer()`](https://developer.mozilla.org/en-US/docs/Web/API/Blob/arrayBuffer) and [`Blob#text()`](https://developer.mozilla.org/en-US/docs/Web/API/Blob/text) methods are much cleaner and easier to use.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// async function bad() {
+    ///     const arrayBuffer = await new Promise((resolve, reject) => {
+    ///         const fileReader = new FileReader();
+    ///         fileReader.addEventListener('load', () => {
+    ///             resolve(fileReader.result);
+    ///         });
+    ///         fileReader.addEventListener('error', () => {
+    ///             reject(fileReader.error);
+    ///         });
+    ///         fileReader.readAsArrayBuffer(blob);
+    ///     });
+    /// }
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// async function good() {
+    ///     const arrayBuffer = await blob.arrayBuffer();
+    /// }
+    /// ```
+    PreferBlobReadingMethods,
+    "unicorn",
+    "prefer-blob-reading-methods",
+    Pedantic,
+    recommended = true,
+    fix = RuleFixMeta::FixPending,
+);
+
+impl Rule for PreferBlobReadingMethods {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else {
+            return;
+        };
+
+        let Some(member_expr) = call_expr.callee.as_member_expression() else {
+            return;
+        };
+
+        if member_expr.is_computed()
+            || member_expr.optional()
+            || call_expr.optional
+            || call_expr.arguments.len() != 1
+        {
+            return;
+        }
+
+        let (current, replacement, span) = match member_expr.static_property_info() {
+            Some((span, name)) if name == "readAsText" => ("readAsText", "text", span),
+            Some((span, name)) if name == "readAsArrayBuffer" => {
+                ("readAsArrayBuffer", "arrayBuffer", span)
+            }
+            _ => return,
+        };
+
+        ctx.diagnostic(prefer_blob_reading_methods_diagnostic(span, replacement, current));
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "blob.arrayBuffer()",
+        "blob.text()",
+        "new Response(blob).arrayBuffer()",
+        "new Response(blob).text()",
+        "fileReader.readAsDataURL(blob)",
+        "fileReader.readAsBinaryString(blob)",
+        r#"fileReader.readAsText(blob, "ascii")"#,
+    ];
+
+    let fail = vec!["fileReader.readAsArrayBuffer(blob)", "fileReader.readAsText(blob)"];
+
+    Tester::new(PreferBlobReadingMethods::NAME, PreferBlobReadingMethods::PLUGIN, pass, fail)
+        .test();
+}

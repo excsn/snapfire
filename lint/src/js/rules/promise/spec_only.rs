@@ -1,0 +1,163 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/promise/spec_only.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+use oxc_str::{CompactStr, JSStr};
+use rustc_hash::FxHashSet;
+use serde::Deserialize;
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    rule::{DefaultRuleConfig, Rule},
+    utils::PROMISE_STATIC_METHODS,
+};
+
+fn spec_only(prop_name: JSStr, member_span: Span) -> OxcDiagnostic {
+    // A name with lone surrogates is shown in escaped computed form.
+    let member = match prop_name.as_str() {
+        Some(name) => format!("Promise.{name}"),
+        None => format!("Promise[{prop_name:?}]"),
+    };
+    OxcDiagnostic::warn(format!("Avoid using non-standard `{member}` method."))
+        .with_label(member_span)
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct SpecOnly(Box<SpecOnlyConfig>);
+
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct SpecOnlyConfig {
+    /// List of Promise static methods that are allowed to be used.
+    allowed_methods: Option<FxHashSet<CompactStr>>,
+}
+
+impl std::ops::Deref for SpecOnly {
+    type Target = SpecOnlyConfig;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow use of non-standard Promise static methods.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Non-standard Promises may cost more maintenance work.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```js
+    /// Promise.done()
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```js
+    /// Promise.resolve()
+    /// ```
+    SpecOnly,
+    "promise",
+    "spec-only",
+    Restriction,
+    recommended = false,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for SpecOnly {
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        DefaultRuleConfig::<Self>::from_value(value).map(DefaultRuleConfig::into_inner)
+    }
+
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let Some(member_expr) = node.kind().as_member_expression_kind() else {
+            return;
+        };
+
+        if !member_expr.object().is_specific_id("Promise") {
+            return;
+        }
+
+        let Some(prop_name) = member_expr.static_property_name() else {
+            return;
+        };
+        // A name with lone surrogates is never a spec method and is not matched against config.
+        if let Some(name) = prop_name.as_str() {
+            if PROMISE_STATIC_METHODS.contains(&name) {
+                return;
+            }
+
+            if let Some(allowed_methods) = &self.allowed_methods
+                && allowed_methods.contains(name)
+            {
+                return;
+            }
+        }
+
+        ctx.diagnostic(spec_only(prop_name, member_expr.span()));
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        ("Promise.resolve()", None),
+        ("Promise.reject()", None),
+        ("Promise.all()", None),
+        ("Promise.all()", Some(serde_json::json!([{ "allowedMethods": [] }]))),
+        ("Promise.race()", None),
+        ("Promise.try()", None),
+        ("Promise.withResolvers()", None),
+        ("new Promise(function (resolve, reject) {})", None),
+        ("SomeClass.resolve()", None),
+        ("doSomething(Promise.all)", None),
+        (
+            "Promise.permittedMethod()",
+            Some(serde_json::json!([{ "allowedMethods": ["permittedMethod"] }])),
+        ),
+    ];
+
+    let fail = vec![
+        ("Promise.done()", None),
+        ("Promise.done()", Some(serde_json::json!([{ "allowedMethods": [] }]))),
+        ("Promise.something()", None),
+        ("new Promise.done()", None),
+        (
+            "
+            function foo() {
+              var a = getA()
+              return Promise.done(a)
+            }
+            ",
+            None,
+        ),
+        (
+            "
+            function foo() {
+              getA(Promise.done)
+            }
+            ",
+            None,
+        ),
+        (
+            "Promise.notPermittedMethod()",
+            Some(serde_json::json!([{ "allowedMethods": ["permittedMethod"] }])),
+        ),
+        (
+            // test case-sensitive match
+            "Promise.differingCase()",
+            Some(serde_json::json!([{ "allowedMethods": ["differingcase"] }])),
+        ),
+        (r#"Promise["\uD800"]()"#, None),
+    ];
+
+    Tester::new(SpecOnly::NAME, SpecOnly::PLUGIN, pass, fail).test();
+}

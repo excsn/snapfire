@@ -1,0 +1,140 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/unicorn/prefer_dom_node_append.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{AstKind, ast::MemberExpression};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{AstNode, context::LintContext, rule::Rule};
+
+fn prefer_dom_node_append_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Prefer `Node#append()` over `Node#appendChild()` for DOM nodes.")
+        .with_help("Replace `Node#appendChild()` with `Node#append()`.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct PreferDomNodeAppend;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Enforces the use of, for example, `document.body.append(div);` over `document.body.appendChild(div);` for DOM nodes.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// There are [some advantages of using `Node#append()`](https://developer.mozilla.org/en-US/docs/Web/API/ParentNode/append), like the ability to append multiple nodes and to append both [`DOMString`](https://developer.mozilla.org/en-US/docs/Web/API/DOMString) and DOM node objects.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// foo.appendChild(bar);
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// foo.append(bar);
+    /// ```
+    PreferDomNodeAppend,
+    "unicorn",
+    "prefer-dom-node-append",
+    Pedantic,
+    recommended = true,
+    fix = RuleFixMeta::Fixable(FixKind::SafeFix),
+);
+
+impl Rule for PreferDomNodeAppend {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else {
+            return;
+        };
+
+        if call_expr.optional {
+            return;
+        }
+
+        let Some(member_expr) = call_expr.callee.get_member_expr() else {
+            return;
+        };
+
+        let span = match member_expr {
+            MemberExpression::StaticMemberExpression(v) => {
+                if !matches!(v.property.name.as_str(), "appendChild") {
+                    return;
+                }
+                v.property.span
+            }
+            _ => return,
+        };
+
+        if call_expr.arguments.len() != 1 {
+            return;
+        }
+
+        if call_expr.arguments[0].is_spread() {
+            return;
+        }
+
+        ctx.diagnostic_with_fix(prefer_dom_node_append_diagnostic(span), |fixer| {
+            fixer.replace(span, "append")
+        });
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        "parent.append(child);",
+        "new parent.appendChild(child);",
+        "appendChild(child);",
+        "parent['appendChild'](child);",
+        "parent[appendChild](child);",
+        "parent.foo(child);",
+        "parent.appendChild(one, two);",
+        "parent.appendChild();",
+        "parent.appendChild(...argumentsArray)",
+        "parent.appendChild?.(child)",
+    ];
+
+    let fail = vec![
+        "node.appendChild(child);",
+        "document.body.appendChild(child);",
+        "node.appendChild(foo)",
+        "const foo = node.appendChild(child);",
+        "console.log(node.appendChild(child));",
+        "node.appendChild(child).appendChild(grandchild);",
+        r#"node.appendChild(child) || "foo";"#,
+        "node.appendChild(child) + 0;",
+        "node.appendChild(child) + 0;",
+        "+node.appendChild(child);",
+        r#"node.appendChild(child) ? "foo" : "bar";"#,
+        "if (node.appendChild(child)) {}",
+        "const foo = [node.appendChild(child)]",
+        "const foo = { bar: node.appendChild(child) }",
+        "function foo() { return node.appendChild(child); }",
+        "const foo = () => { return node.appendChild(child); }",
+        "foo(bar = node.appendChild(child))",
+        "node?.appendChild(child);",
+        "() => node?.appendChild(child)",
+    ];
+
+    let fix = vec![
+        (
+            "node.appendChild(child).appendChild(grandchild);",
+            "node.append(child).append(grandchild);",
+        ),
+        ("node?.appendChild(child);", "node?.append(child);"),
+        (
+            "function foo() { return node.appendChild(child); }",
+            "function foo() { return node.append(child); }",
+        ),
+        ("const foo = [node.appendChild(child)]", "const foo = [node.append(child)]"),
+    ];
+
+    Tester::new(PreferDomNodeAppend::NAME, PreferDomNodeAppend::PLUGIN, pass, fail)
+        .expect_fix(fix)
+        .test();
+}

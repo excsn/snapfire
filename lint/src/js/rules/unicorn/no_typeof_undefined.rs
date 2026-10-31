@@ -1,0 +1,194 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/unicorn/no_typeof_undefined.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{AstKind, ast::Expression};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::operator::{BinaryOperator, UnaryOperator};
+use serde::Deserialize;
+
+use crate::js::{
+    AstNode,
+    ast_util::get_declaration_of_variable,
+    context::LintContext,
+    fixer::{RuleFix, RuleFixer},
+    rule::{DefaultRuleConfig, Rule},
+};
+
+fn no_typeof_undefined_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Compare with `undefined` directly instead of using `typeof`.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct NoTypeofUndefined {
+    /// If set to `true`, also report `typeof x === "undefined"` when `x` may be a global
+    /// variable that is not declared (commonly checked via `typeof foo === "undefined"`).
+    check_global_variables: bool,
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Disallow `typeof` comparisons with `undefined`.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// Checking if a value is `undefined` by using `typeof value === 'undefined'` is needlessly verbose. It's generally better to compare against `undefined` directly. The only time `typeof` is needed is when a global variable potentially does not exists, in which case, using `globalThis.value === undefined` may be better.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// typeof foo === 'undefined';
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// foo === undefined;
+    /// ```
+    NoTypeofUndefined,
+    "unicorn",
+    "no-typeof-undefined",
+    Pedantic,
+    recommended = true,
+    fix = RuleFixMeta::Fixable(FixKind::Fix.union(FixKind::Suggestion)),
+);
+
+impl Rule for NoTypeofUndefined {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::BinaryExpression(bin_expr) = node.kind() else {
+            return;
+        };
+
+        let operator = match bin_expr.operator {
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => "===",
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => "!==",
+            _ => return,
+        };
+
+        let Expression::UnaryExpression(unary_expr) = &bin_expr.left else {
+            return;
+        };
+
+        if unary_expr.operator != UnaryOperator::Typeof {
+            return;
+        }
+
+        if !bin_expr.right.is_specific_string_literal("undefined") {
+            return;
+        }
+
+        let is_global_variable = is_global_variable(&unary_expr.argument, ctx);
+
+        if !self.check_global_variables && is_global_variable {
+            return;
+        }
+
+        if is_global_variable {
+            ctx.diagnostic_with_suggestion(
+                no_typeof_undefined_diagnostic(bin_expr.span),
+                |fixer| generate_fix(fixer, &unary_expr.argument, operator, bin_expr.span, ctx),
+            );
+        } else {
+            ctx.diagnostic_with_fix(no_typeof_undefined_diagnostic(bin_expr.span), |fixer| {
+                generate_fix(fixer, &unary_expr.argument, operator, bin_expr.span, ctx)
+            });
+        }
+    }
+
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        DefaultRuleConfig::<Self>::from_value(value).map(DefaultRuleConfig::into_inner)
+    }
+}
+
+fn is_global_variable<'a>(ident: &Expression<'a>, ctx: &LintContext<'a>) -> bool {
+    let Expression::Identifier(ident) = ident else {
+        return false;
+    };
+
+    get_declaration_of_variable(ident, ctx).is_none()
+}
+
+fn generate_fix<'a>(
+    fixer: RuleFixer<'_, 'a>,
+    argument: &Expression<'a>,
+    operator: &str,
+    span: Span,
+    ctx: &LintContext<'a>,
+) -> RuleFix {
+    let argument_text = ctx.source_range(argument.span());
+    fixer.replace(span, format!("{argument_text} {operator} undefined"))
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        (r"typeof a.b", None),
+        (r#"typeof a.b > "undefined""#, None),
+        (r#"a.b === "undefined""#, None),
+        (r#"void a.b === "undefined""#, None),
+        (r#"+a.b === "undefined""#, None),
+        (r#"++a.b === "undefined""#, None),
+        (r#"a.b++ === "undefined""#, None),
+        (r"foo === undefined", None),
+        (r#"typeof a.b === "string""#, None),
+        (r#"typeof foo === "undefined""#, None),
+        (r#"foo = 2; typeof foo === "undefined""#, None),
+        (r#"/* globals foo: readonly */ typeof foo === "undefined""#, None),
+        (r#"/* globals globalThis: readonly */ typeof globalThis === "undefined""#, None),
+        (r#""undefined" === typeof a.b"#, None),
+        (r#"const UNDEFINED = "undefined"; typeof a.b === UNDEFINED"#, None),
+        (r"typeof a.b === `undefined`", None),
+    ];
+
+    let fail = vec![
+        (r#"typeof a.b === "undefined""#, None),
+        (r#"typeof a.b !== "undefined""#, None),
+        (r#"typeof a.b == "undefined""#, None),
+        (r#"typeof a.b != "undefined""#, None),
+        (r"typeof a.b == 'undefined'", None),
+        (r#"let foo; typeof foo === "undefined""#, None),
+        (r#"const foo = 1; typeof foo === "undefined""#, None),
+        (r#"var foo; typeof foo === "undefined""#, None),
+        (r#"var foo; var foo; typeof foo === "undefined""#, None),
+        (r#"for (const foo of bar) typeof foo === "undefined";"#, None),
+        (r#"function foo() {typeof foo === "undefined"}"#, None),
+        (r#"function foo(bar) {typeof bar === "undefined"}"#, None),
+        (r#"function foo({bar}) {typeof bar === "undefined"}"#, None),
+        (r#"function foo([bar]) {typeof bar === "undefined"}"#, None),
+        (r#"typeof foo.bar === "undefined""#, None),
+        (
+            r#"let foo; typeof foo === "undefined""#,
+            Some(serde_json::json!([{ "checkGlobalVariables": false }])),
+        ),
+        (
+            r#"typeof foo === "undefined""#,
+            Some(serde_json::json!([{ "checkGlobalVariables": true }])),
+        ),
+    ];
+
+    let fix = vec![
+        (r#"typeof a.b === "undefined""#, r"a.b === undefined", None),
+        (r#"typeof a.b !== "undefined""#, r"a.b !== undefined", None),
+        (r#"typeof a.b == "undefined""#, r"a.b === undefined", None),
+        (r#"typeof a.b != "undefined""#, r"a.b !== undefined", None),
+        (r"typeof a.b == 'undefined'", r"a.b === undefined", None),
+        (r#"let foo; typeof foo === "undefined""#, r"let foo; foo === undefined", None),
+        (r#"const foo = 1; typeof foo === "undefined""#, r"const foo = 1; foo === undefined", None),
+        (r#"var foo; typeof foo === "undefined""#, r"var foo; foo === undefined", None),
+        (r#"typeof foo.bar === "undefined""#, r"foo.bar === undefined", None),
+        (
+            r#"typeof foo === "undefined""#,
+            r"foo === undefined",
+            Some(serde_json::json!([{ "checkGlobalVariables": true }])),
+        ),
+    ];
+
+    Tester::new(NoTypeofUndefined::NAME, NoTypeofUndefined::PLUGIN, pass, fail)
+        .expect_fix(fix)
+        .test();
+}

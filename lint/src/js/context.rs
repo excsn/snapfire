@@ -32,6 +32,8 @@ pub struct ContextHost<'a> {
   env: Vec<String>,
   settings: OxlintSettings,
   fix: FixKind,
+  /// Whether this is the file's first script block, so a rule judging the whole file reports once.
+  first: bool,
   messages: RefCell<Vec<(&'static str, Message)>>,
 }
 
@@ -40,7 +42,7 @@ impl<'a> ContextHost<'a> {
   /// If `semantic` was built without a control flow graph.
   pub fn new(semantic: Semantic<'a>, allocator: &'a Allocator, module_record: ModuleRecord, file_path: &Path, fix: FixKind, setup: Setup) -> Self {
     assert!(semantic.cfg().is_some(), "the linter reads `Semantic::cfg`; build it with `SemanticBuilder::with_cfg`");
-    Self { semantic, allocator, module_record, file_path: file_path.into(), globals: setup.globals, env: setup.env, settings: setup.settings, fix, messages: RefCell::default() }
+    Self { semantic, allocator, module_record, file_path: file_path.into(), globals: setup.globals, env: setup.env, settings: setup.settings, fix, first: setup.first, messages: RefCell::default() }
   }
 
   /// A context reporting under `rule`, the rule's full id.
@@ -59,6 +61,14 @@ impl<'a> ContextHost<'a> {
   /// The extension of the file being linted, without its dot.
   pub fn file_extension(&self) -> Option<&OsStr> {
     self.file_path.extension()
+  }
+
+  pub fn file_path(&self) -> &Path {
+    &self.file_path
+  }
+
+  pub fn is_first_sub_host(&self) -> bool {
+    self.first
   }
 
   /// Every rule's messages, each with the rule that reported it.
@@ -91,6 +101,10 @@ impl<'a> LintContext<'a> {
   }
 
   #[inline]
+  pub fn file_path(&self) -> &Path {
+    self.host.file_path()
+  }
+
   pub fn module_record(&self) -> &ModuleRecord {
     &self.host.module_record
   }
@@ -215,6 +229,19 @@ impl<'a> LintContext<'a> {
     match fix {
       Some(fix) => self.add_diagnostic(Message::new(diagnostic, PossibleFixes::Single(fix))),
       None => self.diagnostic(diagnostic),
+    }
+  }
+
+  pub fn diagnostics_with_multiple_fixes<C, F1, F2>(&self, diagnostic: OxcDiagnostic, fix_one: (FixKind, F1), fix_two: (FixKind, F2))
+  where
+    C: Into<RuleFix>,
+    F1: FnOnce(RuleFixer<'_, 'a>) -> C,
+    F2: FnOnce(RuleFixer<'_, 'a>) -> C,
+  {
+    let fixes: Vec<Fix> = [self.create_fix(fix_one.0, fix_one.1, diagnostic.clone()).1, self.create_fix(fix_two.0, fix_two.1, diagnostic.clone()).1].into_iter().flatten().collect();
+    match fixes.is_empty() {
+      true => self.diagnostic(diagnostic),
+      false => self.add_diagnostic(Message::new(diagnostic, PossibleFixes::Multiple(fixes))),
     }
   }
 

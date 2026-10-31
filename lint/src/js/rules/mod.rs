@@ -3,6 +3,8 @@
 
 use super::{Entry, entry};
 
+pub mod shared;
+
 pub mod eslint {
   pub mod constructor_super;
   pub mod for_direction;
@@ -108,6 +110,25 @@ pub mod jsx_a11y {
   pub mod tabindex_no_positive;
 }
 
+pub mod promise {
+  pub mod always_return;
+  pub mod avoid_new;
+  pub mod catch_or_return;
+  pub mod no_callback_in_promise;
+  pub mod no_multiple_resolved;
+  pub mod no_nesting;
+  pub mod no_new_statics;
+  pub mod no_promise_in_callback;
+  pub mod no_return_in_finally;
+  pub mod no_return_wrap;
+  pub mod param_names;
+  pub mod prefer_await_to_callbacks;
+  pub mod prefer_await_to_then;
+  pub mod prefer_catch;
+  pub mod spec_only;
+  pub mod valid_params;
+}
+
 pub mod react {
   pub mod display_name;
   pub mod exhaustive_deps;
@@ -150,6 +171,146 @@ pub mod typescript {
   pub mod prefer_as_const;
   pub mod prefer_namespace_keyword;
   pub mod triple_slash_reference;
+}
+
+pub mod unicorn {
+  pub mod catch_error_name;
+  pub mod consistent_assert;
+  pub mod consistent_date_clone;
+  pub mod consistent_empty_array_spread;
+  pub mod consistent_existence_index_check;
+  pub mod consistent_function_scoping;
+  pub mod consistent_template_literal_escape;
+  pub mod custom_error_definition;
+  pub mod empty_brace_spaces;
+  pub mod error_message;
+  pub mod escape_case;
+  pub mod explicit_length_check;
+  pub mod explicit_timer_delay;
+  pub mod filename_case;
+  pub mod import_style;
+  pub mod max_nested_calls;
+  pub mod new_for_builtins;
+  pub mod no_abusive_eslint_disable;
+  pub mod no_accessor_recursion;
+  pub mod no_anonymous_default_export;
+  pub mod no_array_callback_reference;
+  pub mod no_array_fill_with_reference_type;
+  pub mod no_array_for_each;
+  pub mod no_array_method_this_argument;
+  pub mod no_array_reduce;
+  pub mod no_array_reverse;
+  pub mod no_array_sort;
+  pub mod no_await_expression_member;
+  pub mod no_await_in_promise_methods;
+  pub mod no_confusing_array_with;
+  pub mod no_console_spaces;
+  pub mod no_document_cookie;
+  pub mod no_empty_file;
+  pub mod no_hex_escape;
+  pub mod no_immediate_mutation;
+  pub mod no_instanceof_array;
+  pub mod no_instanceof_builtins;
+  pub mod no_invalid_fetch_options;
+  pub mod no_invalid_remove_event_listener;
+  pub mod no_length_as_slice_end;
+  pub mod no_lonely_if;
+  pub mod no_magic_array_flat_depth;
+  pub mod no_negated_condition;
+  pub mod no_negation_in_equality_check;
+  pub mod no_nested_ternary;
+  pub mod no_new_array;
+  pub mod no_new_buffer;
+  pub mod no_null;
+  pub mod no_object_as_default_parameter;
+  pub mod no_process_exit;
+  pub mod no_single_promise_in_promise_methods;
+  pub mod no_static_only_class;
+  pub mod no_thenable;
+  pub mod no_this_assignment;
+  pub mod no_typeof_undefined;
+  pub mod no_unnecessary_array_flat_depth;
+  pub mod no_unnecessary_array_splice_count;
+  pub mod no_unnecessary_await;
+  pub mod no_unnecessary_slice_end;
+  pub mod no_unreadable_array_destructuring;
+  pub mod no_unreadable_iife;
+  pub mod no_useless_collection_argument;
+  pub mod no_useless_error_capture_stack_trace;
+  pub mod no_useless_fallback_in_spread;
+  pub mod no_useless_iterator_to_array;
+  pub mod no_useless_length_check;
+  pub mod no_useless_promise_resolve_reject;
+  pub mod no_useless_spread;
+  pub mod no_useless_switch_case;
+  pub mod no_useless_undefined;
+  pub mod no_zero_fractions;
+  pub mod number_literal_case;
+  pub mod numeric_separators_style;
+  pub mod prefer_add_event_listener;
+  pub mod prefer_array_find;
+  pub mod prefer_array_flat;
+  pub mod prefer_array_flat_map;
+  pub mod prefer_array_index_of;
+  pub mod prefer_array_some;
+  pub mod prefer_at;
+  pub mod prefer_bigint_literals;
+  pub mod prefer_blob_reading_methods;
+  pub mod prefer_class_fields;
+  pub mod prefer_classlist_toggle;
+  pub mod prefer_code_point;
+  pub mod prefer_date_now;
+  pub mod prefer_default_parameters;
+  pub mod prefer_dom_node_append;
+  pub mod prefer_dom_node_dataset;
+  pub mod prefer_dom_node_remove;
+  pub mod prefer_dom_node_text_content;
+  pub mod prefer_event_target;
+  pub mod prefer_export_from;
+  pub mod prefer_global_this;
+  pub mod prefer_import_meta_properties;
+  pub mod prefer_includes;
+  pub mod prefer_keyboard_event_key;
+  pub mod prefer_logical_operator_over_ternary;
+  pub mod prefer_math_min_max;
+  pub mod prefer_math_trunc;
+  pub mod prefer_modern_dom_apis;
+  pub mod prefer_modern_math_apis;
+  pub mod prefer_module;
+  pub mod prefer_native_coercion_functions;
+  pub mod prefer_negative_index;
+  pub mod prefer_number_coercion;
+  pub mod prefer_number_properties;
+  pub mod prefer_object_from_entries;
+  pub mod prefer_optional_catch_binding;
+  pub mod prefer_prototype_methods;
+  pub mod prefer_query_selector;
+  pub mod prefer_reflect_apply;
+  pub mod prefer_regexp_test;
+  pub mod prefer_response_static_json;
+  pub mod prefer_set_has;
+  pub mod prefer_set_size;
+  pub mod prefer_single_call;
+  pub mod prefer_spread;
+  pub mod prefer_string_raw;
+  pub mod prefer_string_replace_all;
+  pub mod prefer_string_slice;
+  pub mod prefer_string_starts_ends_with;
+  pub mod prefer_string_trim_start_end;
+  pub mod prefer_structured_clone;
+  pub mod prefer_ternary;
+  pub mod prefer_top_level_await;
+  pub mod prefer_type_error;
+  pub mod relative_url_style;
+  pub mod require_array_join_separator;
+  pub mod require_module_attributes;
+  pub mod require_module_specifiers;
+  pub mod require_number_to_fixed_digits_argument;
+  pub mod require_post_message_target_origin;
+  pub mod switch_case_braces;
+  pub mod switch_case_break_position;
+  pub mod text_encoding_identifier_case;
+  pub mod throw_new_error;
 }
 
 /// Every rule, sorted by id.
@@ -250,6 +411,22 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<jsx_a11y::role_supports_aria_props::RoleSupportsAriaProps>(),
   entry::<jsx_a11y::scope::Scope>(),
   entry::<jsx_a11y::tabindex_no_positive::TabindexNoPositive>(),
+  entry::<promise::always_return::AlwaysReturn>(),
+  entry::<promise::avoid_new::AvoidNew>(),
+  entry::<promise::catch_or_return::CatchOrReturn>(),
+  entry::<promise::no_callback_in_promise::NoCallbackInPromise>(),
+  entry::<promise::no_multiple_resolved::NoMultipleResolved>(),
+  entry::<promise::no_nesting::NoNesting>(),
+  entry::<promise::no_new_statics::NoNewStatics>(),
+  entry::<promise::no_promise_in_callback::NoPromiseInCallback>(),
+  entry::<promise::no_return_in_finally::NoReturnInFinally>(),
+  entry::<promise::no_return_wrap::NoReturnWrap>(),
+  entry::<promise::param_names::ParamNames>(),
+  entry::<promise::prefer_await_to_callbacks::PreferAwaitToCallbacks>(),
+  entry::<promise::prefer_await_to_then::PreferAwaitToThen>(),
+  entry::<promise::prefer_catch::PreferCatch>(),
+  entry::<promise::spec_only::SpecOnly>(),
+  entry::<promise::valid_params::ValidParams>(),
   entry::<react::display_name::DisplayName>(),
   entry::<react::exhaustive_deps::ExhaustiveDeps>(),
   entry::<react::jsx_key::JsxKey>(),
@@ -288,4 +465,141 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<typescript::prefer_as_const::PreferAsConst>(),
   entry::<typescript::prefer_namespace_keyword::PreferNamespaceKeyword>(),
   entry::<typescript::triple_slash_reference::TripleSlashReference>(),
+  entry::<unicorn::catch_error_name::CatchErrorName>(),
+  entry::<unicorn::consistent_assert::ConsistentAssert>(),
+  entry::<unicorn::consistent_date_clone::ConsistentDateClone>(),
+  entry::<unicorn::consistent_empty_array_spread::ConsistentEmptyArraySpread>(),
+  entry::<unicorn::consistent_existence_index_check::ConsistentExistenceIndexCheck>(),
+  entry::<unicorn::consistent_function_scoping::ConsistentFunctionScoping>(),
+  entry::<unicorn::consistent_template_literal_escape::ConsistentTemplateLiteralEscape>(),
+  entry::<unicorn::custom_error_definition::CustomErrorDefinition>(),
+  entry::<unicorn::empty_brace_spaces::EmptyBraceSpaces>(),
+  entry::<unicorn::error_message::ErrorMessage>(),
+  entry::<unicorn::escape_case::EscapeCase>(),
+  entry::<unicorn::explicit_length_check::ExplicitLengthCheck>(),
+  entry::<unicorn::explicit_timer_delay::ExplicitTimerDelay>(),
+  entry::<unicorn::filename_case::FilenameCase>(),
+  entry::<unicorn::import_style::ImportStyle>(),
+  entry::<unicorn::max_nested_calls::MaxNestedCalls>(),
+  entry::<unicorn::new_for_builtins::NewForBuiltins>(),
+  entry::<unicorn::no_abusive_eslint_disable::NoAbusiveEslintDisable>(),
+  entry::<unicorn::no_accessor_recursion::NoAccessorRecursion>(),
+  entry::<unicorn::no_anonymous_default_export::NoAnonymousDefaultExport>(),
+  entry::<unicorn::no_array_callback_reference::NoArrayCallbackReference>(),
+  entry::<unicorn::no_array_fill_with_reference_type::NoArrayFillWithReferenceType>(),
+  entry::<unicorn::no_array_for_each::NoArrayForEach>(),
+  entry::<unicorn::no_array_method_this_argument::NoArrayMethodThisArgument>(),
+  entry::<unicorn::no_array_reduce::NoArrayReduce>(),
+  entry::<unicorn::no_array_reverse::NoArrayReverse>(),
+  entry::<unicorn::no_array_sort::NoArraySort>(),
+  entry::<unicorn::no_await_expression_member::NoAwaitExpressionMember>(),
+  entry::<unicorn::no_await_in_promise_methods::NoAwaitInPromiseMethods>(),
+  entry::<unicorn::no_confusing_array_with::NoConfusingArrayWith>(),
+  entry::<unicorn::no_console_spaces::NoConsoleSpaces>(),
+  entry::<unicorn::no_document_cookie::NoDocumentCookie>(),
+  entry::<unicorn::no_empty_file::NoEmptyFile>(),
+  entry::<unicorn::no_hex_escape::NoHexEscape>(),
+  entry::<unicorn::no_immediate_mutation::NoImmediateMutation>(),
+  entry::<unicorn::no_instanceof_array::NoInstanceofArray>(),
+  entry::<unicorn::no_instanceof_builtins::NoInstanceofBuiltins>(),
+  entry::<unicorn::no_invalid_fetch_options::NoInvalidFetchOptions>(),
+  entry::<unicorn::no_invalid_remove_event_listener::NoInvalidRemoveEventListener>(),
+  entry::<unicorn::no_length_as_slice_end::NoLengthAsSliceEnd>(),
+  entry::<unicorn::no_lonely_if::NoLonelyIf>(),
+  entry::<unicorn::no_magic_array_flat_depth::NoMagicArrayFlatDepth>(),
+  entry::<unicorn::no_negated_condition::NoNegatedCondition>(),
+  entry::<unicorn::no_negation_in_equality_check::NoNegationInEqualityCheck>(),
+  entry::<unicorn::no_nested_ternary::NoNestedTernary>(),
+  entry::<unicorn::no_new_array::NoNewArray>(),
+  entry::<unicorn::no_new_buffer::NoNewBuffer>(),
+  entry::<unicorn::no_null::NoNull>(),
+  entry::<unicorn::no_object_as_default_parameter::NoObjectAsDefaultParameter>(),
+  entry::<unicorn::no_process_exit::NoProcessExit>(),
+  entry::<unicorn::no_single_promise_in_promise_methods::NoSinglePromiseInPromiseMethods>(),
+  entry::<unicorn::no_static_only_class::NoStaticOnlyClass>(),
+  entry::<unicorn::no_thenable::NoThenable>(),
+  entry::<unicorn::no_this_assignment::NoThisAssignment>(),
+  entry::<unicorn::no_typeof_undefined::NoTypeofUndefined>(),
+  entry::<unicorn::no_unnecessary_array_flat_depth::NoUnnecessaryArrayFlatDepth>(),
+  entry::<unicorn::no_unnecessary_array_splice_count::NoUnnecessaryArraySpliceCount>(),
+  entry::<unicorn::no_unnecessary_await::NoUnnecessaryAwait>(),
+  entry::<unicorn::no_unnecessary_slice_end::NoUnnecessarySliceEnd>(),
+  entry::<unicorn::no_unreadable_array_destructuring::NoUnreadableArrayDestructuring>(),
+  entry::<unicorn::no_unreadable_iife::NoUnreadableIife>(),
+  entry::<unicorn::no_useless_collection_argument::NoUselessCollectionArgument>(),
+  entry::<unicorn::no_useless_error_capture_stack_trace::NoUselessErrorCaptureStackTrace>(),
+  entry::<unicorn::no_useless_fallback_in_spread::NoUselessFallbackInSpread>(),
+  entry::<unicorn::no_useless_iterator_to_array::NoUselessIteratorToArray>(),
+  entry::<unicorn::no_useless_length_check::NoUselessLengthCheck>(),
+  entry::<unicorn::no_useless_promise_resolve_reject::NoUselessPromiseResolveReject>(),
+  entry::<unicorn::no_useless_spread::NoUselessSpread>(),
+  entry::<unicorn::no_useless_switch_case::NoUselessSwitchCase>(),
+  entry::<unicorn::no_useless_undefined::NoUselessUndefined>(),
+  entry::<unicorn::no_zero_fractions::NoZeroFractions>(),
+  entry::<unicorn::number_literal_case::NumberLiteralCase>(),
+  entry::<unicorn::numeric_separators_style::NumericSeparatorsStyle>(),
+  entry::<unicorn::prefer_add_event_listener::PreferAddEventListener>(),
+  entry::<unicorn::prefer_array_find::PreferArrayFind>(),
+  entry::<unicorn::prefer_array_flat::PreferArrayFlat>(),
+  entry::<unicorn::prefer_array_flat_map::PreferArrayFlatMap>(),
+  entry::<unicorn::prefer_array_index_of::PreferArrayIndexOf>(),
+  entry::<unicorn::prefer_array_some::PreferArraySome>(),
+  entry::<unicorn::prefer_at::PreferAt>(),
+  entry::<unicorn::prefer_bigint_literals::PreferBigintLiterals>(),
+  entry::<unicorn::prefer_blob_reading_methods::PreferBlobReadingMethods>(),
+  entry::<unicorn::prefer_class_fields::PreferClassFields>(),
+  entry::<unicorn::prefer_classlist_toggle::PreferClasslistToggle>(),
+  entry::<unicorn::prefer_code_point::PreferCodePoint>(),
+  entry::<unicorn::prefer_date_now::PreferDateNow>(),
+  entry::<unicorn::prefer_default_parameters::PreferDefaultParameters>(),
+  entry::<unicorn::prefer_dom_node_append::PreferDomNodeAppend>(),
+  entry::<unicorn::prefer_dom_node_dataset::PreferDomNodeDataset>(),
+  entry::<unicorn::prefer_dom_node_remove::PreferDomNodeRemove>(),
+  entry::<unicorn::prefer_dom_node_text_content::PreferDomNodeTextContent>(),
+  entry::<unicorn::prefer_event_target::PreferEventTarget>(),
+  entry::<unicorn::prefer_export_from::PreferExportFrom>(),
+  entry::<unicorn::prefer_global_this::PreferGlobalThis>(),
+  entry::<unicorn::prefer_import_meta_properties::PreferImportMetaProperties>(),
+  entry::<unicorn::prefer_includes::PreferIncludes>(),
+  entry::<unicorn::prefer_keyboard_event_key::PreferKeyboardEventKey>(),
+  entry::<unicorn::prefer_logical_operator_over_ternary::PreferLogicalOperatorOverTernary>(),
+  entry::<unicorn::prefer_math_min_max::PreferMathMinMax>(),
+  entry::<unicorn::prefer_math_trunc::PreferMathTrunc>(),
+  entry::<unicorn::prefer_modern_dom_apis::PreferModernDomApis>(),
+  entry::<unicorn::prefer_modern_math_apis::PreferModernMathApis>(),
+  entry::<unicorn::prefer_module::PreferModule>(),
+  entry::<unicorn::prefer_native_coercion_functions::PreferNativeCoercionFunctions>(),
+  entry::<unicorn::prefer_negative_index::PreferNegativeIndex>(),
+  entry::<unicorn::prefer_number_coercion::PreferNumberCoercion>(),
+  entry::<unicorn::prefer_number_properties::PreferNumberProperties>(),
+  entry::<unicorn::prefer_object_from_entries::PreferObjectFromEntries>(),
+  entry::<unicorn::prefer_optional_catch_binding::PreferOptionalCatchBinding>(),
+  entry::<unicorn::prefer_prototype_methods::PreferPrototypeMethods>(),
+  entry::<unicorn::prefer_query_selector::PreferQuerySelector>(),
+  entry::<unicorn::prefer_reflect_apply::PreferReflectApply>(),
+  entry::<unicorn::prefer_regexp_test::PreferRegexpTest>(),
+  entry::<unicorn::prefer_response_static_json::PreferResponseStaticJson>(),
+  entry::<unicorn::prefer_set_has::PreferSetHas>(),
+  entry::<unicorn::prefer_set_size::PreferSetSize>(),
+  entry::<unicorn::prefer_single_call::PreferSingleCall>(),
+  entry::<unicorn::prefer_spread::PreferSpread>(),
+  entry::<unicorn::prefer_string_raw::PreferStringRaw>(),
+  entry::<unicorn::prefer_string_replace_all::PreferStringReplaceAll>(),
+  entry::<unicorn::prefer_string_slice::PreferStringSlice>(),
+  entry::<unicorn::prefer_string_starts_ends_with::PreferStringStartsEndsWith>(),
+  entry::<unicorn::prefer_string_trim_start_end::PreferStringTrimStartEnd>(),
+  entry::<unicorn::prefer_structured_clone::PreferStructuredClone>(),
+  entry::<unicorn::prefer_ternary::PreferTernary>(),
+  entry::<unicorn::prefer_top_level_await::PreferTopLevelAwait>(),
+  entry::<unicorn::prefer_type_error::PreferTypeError>(),
+  entry::<unicorn::relative_url_style::RelativeUrlStyle>(),
+  entry::<unicorn::require_array_join_separator::RequireArrayJoinSeparator>(),
+  entry::<unicorn::require_module_attributes::RequireModuleAttributes>(),
+  entry::<unicorn::require_module_specifiers::RequireModuleSpecifiers>(),
+  entry::<unicorn::require_number_to_fixed_digits_argument::RequireNumberToFixedDigitsArgument>(),
+  entry::<unicorn::require_post_message_target_origin::RequirePostMessageTargetOrigin>(),
+  entry::<unicorn::switch_case_braces::SwitchCaseBraces>(),
+  entry::<unicorn::switch_case_break_position::SwitchCaseBreakPosition>(),
+  entry::<unicorn::text_encoding_identifier_case::TextEncodingIdentifierCase>(),
+  entry::<unicorn::throw_new_error::ThrowNewError>(),
 ];

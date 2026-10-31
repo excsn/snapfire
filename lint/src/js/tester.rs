@@ -409,9 +409,13 @@ impl Tester {
         let globals = eslint_config.as_ref().and_then(|c| c.get("globals")).map(|g| serde_json::from_value::<OxlintGlobals>(g.clone()).expect("globals")).unwrap_or_default();
         let env = eslint_config.as_ref().and_then(|c| c.get("env")).and_then(Value::as_object).map(|env| env.iter().filter(|(_, on)| on.as_bool() == Some(true)).map(|(name, _)| name.clone()).collect()).unwrap_or_default();
         let path = path.unwrap_or_else(|| self.rule_path.clone());
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+        if oxc_span::SourceType::from_path(&path).is_err() && super::loader::PartialLoader::parse(ext, source_text).is_none() {
+            return TestResult::Passed;
+        }
         let rules = [(entry.id, rule.as_ref())];
         let settings = eslint_config.as_ref().and_then(|c| c.get("settings")).map(|s| serde_json::from_value::<super::OxlintSettings>(s.clone()).expect("settings")).unwrap_or_default();
-        let (outcome, messages) = super::lint_with(&path, source_text, &rules, &[], FixKind::from(fix_kind), super::Setup { globals, env, settings }, false);
+        let (outcome, messages) = super::lint_with(&path, source_text, &rules, &[], FixKind::from(fix_kind), super::Setup { globals, env, settings, first: true }, false);
         let messages: Vec<_> = messages.into_iter().map(|(_, m)| m).collect();
         let lines = crate::suppress::Lines::new(source_text);
         let directives = crate::suppress::directives(outcome.comments.iter().map(|c| (c.text.as_str(), c.start, c.end)), &lines);

@@ -10,13 +10,17 @@ use oxc_syntax::{
 };
 
 mod config;
+mod jsdoc;
 mod control_flow;
 mod number;
+mod promise;
 mod react;
 mod regex;
+mod static_value;
 mod typescript;
+mod unicorn;
 
-pub use self::{config::*, control_flow::*, number::*, react::*, regex::*, typescript::*};
+pub use self::{config::*, control_flow::*, jsdoc::*, number::*, promise::*, react::*, regex::*, static_value::*, typescript::*, unicorn::*};
 
 /// Pads replacement text with spaces when needed to preserve token boundaries
 /// with neighboring source characters.

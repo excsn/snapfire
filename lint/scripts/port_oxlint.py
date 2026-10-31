@@ -12,7 +12,7 @@ lint/Cargo.toml depends on. RULE is a path under crates/oxc_linter/src/rules/PLU
 oxlint's recommended set turns on. `port` writes into lint/src/js/rules/PLUGIN/ and ends by regenerating the
 registry. A rule oxlint runs through tsgolint has no Rust body and is skipped. `copy` brings one framework
 file, SOURCE under crates/oxc_linter/src/, to DEST under lint/src/js/ with the same rewrites. `registry`
-rewrites lint/src/js/rules/mod.rs from the rule files present. A plugin's directory is oxlint's name for it,
+rewrites lint/src/js/rules/mod.rs from the rule files present, with `rules/shared`, the code oxlint's rules share, when it is there. A plugin's directory is oxlint's name for it,
 `jsx_a11y`; its rule ids use ESLint's, `jsx-a11y/alt-text`.
 
 A ported file starts with the MIT notice and the path it came from. The script rewrites `crate::` to
@@ -94,9 +94,12 @@ def port_declare(text, plugin):
     name, declared_plugin, category = parts[0], parts[1], parts[2]
     recommended = False
     fix = "none"
+    shared_docs = None
     for part in parts[3:]:
         if part == "recommended":
             recommended = True
+        elif part.startswith("docs ="):
+            shared_docs = part.split("=", 1)[1].strip()
         elif part.startswith("fix ="):
             fix = part.split("=", 1)[1].strip()
         elif "=" in part:
@@ -107,7 +110,8 @@ def port_declare(text, plugin):
             raise SystemExit(f"unknown declare_oxc_lint! argument `{part}`")
     if declared_plugin.replace("_", "-") != plugin.replace("_", "-"):
         raise SystemExit(f"{name} is in plugin {declared_plugin}")
-    new = "declare_rule!(\n" + "\n".join(docs) + f"\n    {name},\n    \"{plugin.replace('_', '-')}\",\n    \"{kebab(name)}\",\n    {category.capitalize()},\n    recommended = {'true' if recommended else 'false'},\n    fix = {fix_expr(fix)},\n);"
+    tail = f",\n    docs = {shared_docs}" if shared_docs else ""
+    new = "declare_rule!(\n" + "\n".join(docs) + f"\n    {name},\n    \"{plugin.replace('_', '-')}\",\n    \"{kebab(name)}\",\n    {category.capitalize()},\n    recommended = {'true' if recommended else 'false'},\n    fix = {fix_expr(fix)}{tail},\n);"
     return text[: m.start()] + new + text[m.end() :], name
 
 
@@ -233,6 +237,8 @@ def registry():
                 module = entry.removesuffix(".rs")
                 plugins.setdefault(plugin, []).append((f"{m.group(2)}/{m.group(3)}", module, m.group(1)))
     mods = "".join(f"pub mod {plugin} {{\n" + "".join(f"  pub mod {module};\n" for _, module, _ in sorted(rules, key=lambda r: r[1])) + "}\n\n" for plugin, rules in plugins.items())
+    if os.path.exists(os.path.join(RULES, "shared", "mod.rs")):
+        mods = "pub mod shared;\n\n" + mods
     rows = sorted((id, f"  entry::<{plugin}::{module}::{name}>(),\n") for plugin, rules in plugins.items() for id, module, name in rules)
     text = f"""//! The rules, by plugin. Each file is ported from oxlint and keeps its notice. Written by
 //! lint/scripts/port_oxlint.py registry.

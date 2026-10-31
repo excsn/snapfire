@@ -44,6 +44,11 @@ impl Directive {
   fn names(&self, rule: &str) -> bool {
     self.rules.as_ref().is_none_or(|rules| rules.contains(rule))
   }
+
+  /// Whether `offset` is inside the comment itself.
+  fn covers(&self, offset: usize) -> bool {
+    (self.start..self.start + self.written.len()).contains(&offset)
+  }
 }
 
 /// The prefixes a suppression comment starts with, longest first so `disable-next-line` is not read as `disable`.
@@ -101,13 +106,16 @@ pub(crate) fn directives<'c>(comments: impl IntoIterator<Item = (&'c str, usize,
 }
 
 /// The comment that silences `rule` at `offset` on `line`, marked used.
+/// A comment naming no rule does not silence a finding inside it, which is a finding about the comment. A `disable`
+/// applies from where the comment starts.
 pub(crate) fn silencing<'d>(directives: &'d [Directive], rule: &str, offset: usize, line: usize) -> Option<&'d Directive> {
-  let by_line = directives.iter().find(|d| d.names(rule) && ((d.kind == Kind::NextLine && line == d.end_line + 1) || (d.kind == Kind::Line && line == d.line)));
+  let directives: Vec<&Directive> = directives.iter().filter(|d| d.rules.is_some() || !d.covers(offset)).collect();
+  let by_line = directives.iter().copied().find(|d| d.names(rule) && ((d.kind == Kind::NextLine && line == d.end_line + 1) || (d.kind == Kind::Line && line == d.line)));
   let found = by_line.or_else(|| {
     let mut all: Option<&Directive> = None;
     let mut except: BTreeSet<&str> = BTreeSet::new();
     let mut named: Option<&Directive> = None;
-    for d in directives.iter().filter(|d| d.start < offset && matches!(d.kind, Kind::Disable | Kind::Enable)) {
+    for d in directives.iter().copied().filter(|d| d.start <= offset && matches!(d.kind, Kind::Disable | Kind::Enable)) {
       match (d.kind, &d.rules) {
         (Kind::Disable, None) => {
           all = Some(d);
