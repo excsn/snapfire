@@ -2027,18 +2027,18 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// The values of `Promise.all([...])`, the global's, each written without a spread: awaiting it is awaiting each of them, which a body runs together.
-  fn promise_all<'e>(&self, e: &'e js::Expr) -> Option<Vec<&'e js::Expr>> {
+  /// The argument of the global `Promise.all(...)` or, where no handler resumes later, `Promise.resolve(...)`. A body has no promise values, since a call is its answer, so the argument is what it reads as.
+  fn promise_all<'e>(&self, e: &'e js::Expr) -> Option<&'e js::Expr> {
     let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Member(m) = &**callee else { return None };
     let (js::Expr::Ident(promise), js::MemberProp::Ident(all)) = (&*m.obj, &m.prop) else { return None };
-    if promise.ctxt != self.parsed.unresolved || &*promise.sym != "Promise" || &*all.sym != "all" {
+    let settled_here = &*all.sym == "resolve" && !self.reaches(Reach::Later);
+    if promise.ctxt != self.parsed.unresolved || &*promise.sym != "Promise" || !(&*all.sym == "all" || settled_here) {
       return None;
     }
     let [arg] = call.args.as_slice() else { return None };
-    let js::Expr::Array(array) = crate::meaning::bare(&arg.expr) else { return None };
-    array.elems.iter().map(|e| e.as_ref().filter(|e| e.spread.is_none()).map(|e| &*e.expr)).collect()
+    (arg.spread.is_none()).then_some(&*arg.expr)
   }
 
   /// Whether `name` is a binding the body declared, which a write may rebind.
@@ -2805,10 +2805,11 @@ impl<'a> Lowerer<'a> {
     }
     match expr {
       js::Expr::Paren(p) => self.expr(&p.expr),
-      js::Expr::Await(a) => match self.promise_all(&a.arg) {
-        Some(values) => Ok(Expr::Array(values.iter().map(|v| self.expr(v).map(Entry::Item)).collect::<Lowered<_>>()?)),
-        None => self.expr(&a.arg),
-      },
+      js::Expr::Await(a) => self.expr(&a.arg),
+      js::Expr::Call(_) if self.promise_all(expr).is_some() => {
+        let list = self.promise_all(expr).expect("checked by the guard");
+        self.expr(list)
+      }
       js::Expr::TsAs(a) => self.expr(&a.expr),
       js::Expr::TsConstAssertion(a) => self.expr(&a.expr),
       js::Expr::TsNonNull(a) => self.expr(&a.expr),
