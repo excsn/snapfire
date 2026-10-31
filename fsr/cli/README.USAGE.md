@@ -987,6 +987,23 @@ cp fibre_logging.production.yaml dist/fibre_logging.yaml
 
 An `xwpm.wmf` in the app directory marks it as an application xwpm manages. `fsr add` then runs `xwpm add <package>@<version>` for each spec, `fsr types` runs `xwpm restore` and `xwpm types` and writes only the fsr packages' declarations; the build reads `vendor`, `base`, `importmap` and `types` from the file's root records for the import map, the report and the tsconfig. xwpm carries dependencies and converts packages itself, so `--external` is not used under it. xwpm must be on `PATH`; a missing binary is an error naming the file that asked for it.
 
+```text
+# app/xwpm.wmf
+vendor    = public/js/vendor
+base      = /js/vendor
+importmap = public/js/importmap.json
+types     = types
+registry  = npm
+
+[modules]
+normansoven/editor = cove:0.1.0
+```
+
+```sh
+fsr add app markdown-it@14.1.0   # runs xwpm add markdown-it@14.1.0
+fsr types app                    # runs xwpm restore, then xwpm types
+```
+
 ## Building
 
 `build` writes `generated/` and the two tsconfigs; `check` prints the report and writes `generated/` alone, so the typecheck reads the types this build produced and the editor sees them too. Both exit non-zero on residue, a parse error, a missing `load`, a document that does not import, a duplicate type name or an action input no schema declares.

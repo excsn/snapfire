@@ -167,6 +167,16 @@ A binary not on PATH is `HostError::NotFound` with the install hint; a plugin on
 
 The host looks for `snapfirec-<ext>` on `PATH`, once per extension per build. A missing binary is reported to the user with `cargo install snapfire_<ext>`, so a plugin crate is named after its extension. The extensions that reach a plugin at all are `EXTENSIONS`: `snapfirec` hands a file over only when the list holds its extension or its name ends in one of `SUFFIXES`, a Svelte runes module such as `cart.svelte.ts`; `claimed_name` answers both. A suffix ending in `.ts` reaches the plugin as JavaScript, since the host strips its types first. `fsr` reads the same list to tell a framework it cannot mount yet from an extension nothing claims. The worker is kept for the build's length and across every rebuild under `--watch` or `--driven`; stdin closing is how it learns the build is over; a worker that does not exit on that is killed.
 
+```rust
+use snapfire_compiler_wire::{binary_for, claimed_name, install_hint};
+
+assert_eq!(claimed_name("Card.vue"), Some("vue"));
+assert_eq!(claimed_name("cart.svelte.ts"), Some("svelte"));
+assert_eq!(claimed_name("main.ts"), None);
+assert_eq!(binary_for("vue"), "snapfirec-vue");
+assert_eq!(install_hint("vue"), "cargo install snapfire_vue");
+```
+
 ## Driving the Compiler
 
 The other direction, for a tool that holds `snapfirec --driven` open and owns the assets it serves. The lines are constants and the map is a type, so a driver never spells either by hand:
