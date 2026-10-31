@@ -296,10 +296,6 @@ fn default_exempted_by() -> Vec<String> {
 const DEFAULT_CHECK_TYPES_PATTERN: &str =
     "^(?:[oO]bject|[aA]rray|PlainObject|Generic(?:Object|Array))$"; // spellchecker:disable-line
 
-fn default_check_types_pattern_str() -> String {
-    DEFAULT_CHECK_TYPES_PATTERN.to_string()
-}
-
 fn default_check_types_pattern() -> Regex {
     Regex::new(DEFAULT_CHECK_TYPES_PATTERN)
         .expect("default `checkTypesPattern` is a valid regex pattern")

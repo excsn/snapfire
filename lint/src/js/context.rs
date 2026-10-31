@@ -41,10 +41,6 @@ impl<'a> ContextSubHost<'a> {
     &self.semantic
   }
 
-  pub fn module_record(&self) -> &ModuleRecord {
-    &self.module_record
-  }
-
   pub fn framework_options(&self) -> FrameworkOptions {
     self.framework_options
   }

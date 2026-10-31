@@ -3,7 +3,7 @@
 use oxc_ast::{
     AstKind,
     ast::{
-        BindingPattern, Expression, Function, FunctionBody, IdentifierReference,
+        BindingPattern, Expression, Function, IdentifierReference,
         PropertyDefinition, StaticBlock, ThisExpression, VariableDeclarationKind,
     },
 };
@@ -15,14 +15,6 @@ use crate::js::{
     ast_util::{get_declaration_from_reference_id, variable_declaration_kind},
     context::LintContext,
 };
-
-/// Checks whether a function body contains a `this` expression without traversing into nested
-/// functions.
-pub fn function_body_contains_this(body: &FunctionBody) -> bool {
-    let mut finder = ThisExpressionFinder::new();
-    finder.visit_function_body(body);
-    !finder.spans.is_empty()
-}
 
 /// Finds `this` expressions without traversing into nested functions.
 pub struct ThisExpressionFinder {
@@ -38,16 +30,6 @@ impl ThisExpressionFinder {
             skip_static_blocks: false,
             skip_property_definition_values: false,
         }
-    }
-
-    pub fn skip_static_blocks(mut self) -> Self {
-        self.skip_static_blocks = true;
-        self
-    }
-
-    pub fn skip_property_definition_values(mut self) -> Self {
-        self.skip_property_definition_values = true;
-        self
     }
 
     pub fn into_spans(self) -> Vec<Span> {
