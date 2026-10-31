@@ -7,7 +7,7 @@ export default function ToolPage({ tool, sameCategory, reserved, days, csrf_toke
   return (
     <article className="page tool">
       <p className="when">
-        {tool.category} · {tool.keeper}'s · £{tool.deposit} deposit · {tool.days} days at a time
+        {tool.category} · {tool.keeper}&apos;s · £{tool.deposit} deposit · {tool.days} days at a time
       </p>
       <h2>{tool.name}</h2>
       <p className="tool-note">{tool.note}</p>

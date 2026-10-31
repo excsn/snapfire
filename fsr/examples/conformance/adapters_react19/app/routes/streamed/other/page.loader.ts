@@ -1,6 +1,4 @@
-import type { Ctx } from "@snapfire/fsr/host";
-
-export async function load(_: Ctx<"/streamed/other">) {
+export async function load() {
   return { by: "other" };
 }
 

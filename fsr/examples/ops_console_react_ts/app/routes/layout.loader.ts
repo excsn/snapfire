@@ -4,7 +4,9 @@ export async function load({ session, services }: Ctx) {
   let open = 0n;
   try {
     open = BigInt((await services.fleet.listAlerts()).length);
-  } catch {}
+  } catch {
+    // The fleet may be unreachable; the count stays 0.
+  }
   return { open, watching: BigInt(Object.keys(session.watching).length), density: session.density };
 }
 

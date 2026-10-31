@@ -4,7 +4,7 @@ import { actions } from "@generated/client";
 import { named } from "@src/ui/wire";
 
 /** Names the reader. Everything else about a wave is durable; this is only who you are while you are here. Naming is what unlocks writing and `me` reaches the composers through the page, so the document is asked for again rather than revalidated. */
-export default function Name({ name }: { name: string }) {
+export default function Name({ name, id }: { name: string; id?: string }) {
   const [saved, setSaved] = useState(name);
   async function keep(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -20,7 +20,7 @@ export default function Name({ name }: { name: string }) {
   }
   return (
     <form className="name" onSubmit={keep}>
-      <input name="name" defaultValue={saved} placeholder="who are you" autoComplete="off" autoFocus={name !== ""} />
+      <input name="name" id={id} defaultValue={saved} placeholder="who are you" autoComplete="off" autoFocus={name !== ""} />
       <button type="submit">Save</button>
     </form>
   );

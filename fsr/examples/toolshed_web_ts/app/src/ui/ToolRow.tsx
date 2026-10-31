@@ -12,7 +12,7 @@ export function ToolRow({ tool }: { tool: Tool }) {
           {tool.name}
         </Link>
         <span className="by">
-          {tool.keeper}'s, £{tool.deposit} deposit, {tool.days} days
+          {tool.keeper}&apos;s, £{tool.deposit} deposit, {tool.days} days
         </span>
       </span>
       <span className={`category category-${tool.category.toLowerCase()}`}>{tool.category}</span>

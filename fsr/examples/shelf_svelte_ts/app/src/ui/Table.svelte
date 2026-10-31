@@ -1,7 +1,7 @@
-<script lang="ts">
+<script lang="ts" generics="Row extends { id: string }">
   import type { Snippet } from "svelte";
 
-  let { rows, row, children, ...rest }: { rows: { id: string }[]; row: Snippet<[any, number]>; children?: Snippet; [key: string]: unknown } = $props();
+  let { rows, row, children, ...rest }: { rows: Row[]; row: Snippet<[Row, number]>; children?: Snippet; [key: string]: unknown } = $props();
 </script>
 
 <table class="ranks" {...rest}>

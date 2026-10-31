@@ -1,6 +1,4 @@
-import type { Ctx } from "@snapfire/fsr/host";
-
-export async function load(_: Ctx<"/styles">) {
+export async function load() {
   return {
     rows: [
       { name: "fsr", ms: 2 },

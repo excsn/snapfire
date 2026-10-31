@@ -21,11 +21,11 @@ export default function Me({ name }: { name: string }) {
         {name}
       </button>
       {open ? (
-        <div className="modal" onClick={outside} onKeyDown={escape}>
+        <div className="modal" role="presentation" onClick={outside} onKeyDown={escape}>
           <div className="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title">
             <h2 id="settings-title">Settings</h2>
-            <label>Your name on every wave</label>
-            <Name name={name} />
+            <label htmlFor="settings-name">Your name on every wave</label>
+            <Name name={name} id="settings-name" />
             <button type="button" className="close" onClick={() => setOpen(false)}>
               Close
             </button>

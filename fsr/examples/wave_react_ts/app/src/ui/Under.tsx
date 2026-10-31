@@ -36,6 +36,7 @@ export default function Under({ wave, parent, anchor = "", me, open = false }: {
   useEffect(() => {
     const body = form.current?.querySelector<HTMLInputElement>('input[name="body"]')?.value ?? "";
     if (body) typing(parent, anchor, body, showing);
+  // fsr-lint-disable-next-line react/exhaustive-deps -- re-announces the draft only when `showing` flips
   }, [showing]);
 
   const here = `${parent}#${anchor}`;

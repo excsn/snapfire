@@ -1,0 +1,3 @@
+[rules]
+# A composer or the name field opens because the user asked for it, and the cursor belongs in it.
+"jsx-a11y/no-autofocus" = "off"

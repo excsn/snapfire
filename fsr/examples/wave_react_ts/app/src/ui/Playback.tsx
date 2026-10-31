@@ -10,11 +10,13 @@ export default function Playback({ wave, step, steps, live }: { wave: string; st
   useEffect(() => setShown(step), [step]);
   useEffect(() => {
     if (live) toEnd(true);
+  // fsr-lint-disable-next-line react/exhaustive-deps -- runs on arriving at a wave, not when `live` changes
   }, [wave]);
   useEffect(() => {
     if (!playing || live || shown !== step) return undefined;
     const beat = setTimeout(() => go(step + 1), 800);
     return () => clearTimeout(beat);
+  // fsr-lint-disable-next-line react/exhaustive-deps -- `go` is a new function each render; the beat restarts only when the step or playing changes
   }, [playing, live, step, shown]);
   useEffect(() => {
     if (live) return;

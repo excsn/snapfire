@@ -43,6 +43,7 @@ export default function Pomodoro() {
     if (working) setRounds((n) => n + 1);
     setWorking(!working);
     setLeft(working ? BREAK : WORK);
+  // fsr-lint-disable-next-line react/exhaustive-deps -- runs when the countdown reaches zero; `working` changes here, so depending on it would switch twice
   }, [left]);
 
   useInput((input) => {

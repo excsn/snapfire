@@ -1,4 +1,4 @@
-import { fail, type Ctx } from "@snapfire/fsr/host";
+import { fail } from "@snapfire/fsr/host";
 
 const ORDER = {
   id: "A-17",
@@ -10,7 +10,7 @@ const ORDER = {
   ],
 };
 
-export async function load(_: Ctx<"/patterns">) {
+export async function load() {
   const {
     id,
     customer: { name, address: { city, country = "FR" } },

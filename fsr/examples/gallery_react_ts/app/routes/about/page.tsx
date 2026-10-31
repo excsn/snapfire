@@ -14,7 +14,7 @@ export default function AboutPage({ photographer }: AboutProps) {
           <img src={badge.src} width={badge.width / 2} height={badge.height / 2} alt="" data-sf-raw className="badge" />
         </h1>
         <p>{photographer.bio}</p>
-        <img src={ridge.src} alt="The ridge road, placed as a plain img and served as a picture" className="plain" />
+        <img src={ridge.src} alt="The ridge road" className="plain" />
       </div>
     </div>
   );
