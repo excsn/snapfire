@@ -2618,6 +2618,13 @@ impl<'a> Lowerer<'a> {
       (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
       (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
       (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
+      (Kind::Set, "delete") => {
+        let item = self.temp();
+        let kept = Expr::Compare(CompareOp::Ne, Box::new(Expr::Var(item.clone())), Box::new(arg(self, 0)?));
+        Expr::Filter(Box::new(held), Box::new(Expr::Lambda { params: vec![item], body: Box::new(kept) }))
+      }
+      (Kind::Map, "clear") => Expr::Object(Vec::new()),
+      (Kind::Set, "clear") => Expr::Array(Vec::new()),
       (Kind::Query, "set" | "append") => Expr::Builtin { name: if method == "set" { Builtin::FormSet } else { Builtin::FormAppend }, args: vec![held, Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?] },
       (Kind::Query, "delete") => Expr::Builtin { name: Builtin::FormDelete, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
       (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),

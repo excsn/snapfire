@@ -4973,9 +4973,31 @@ fn keep_kind(lowerer: &mut Lowerer<'_>, name: &str, from: &Expr, to: Expr) {
 }
 
 /// `name` rebound to `value`, which keeps the kind `name` had.
+/// The kind of the value a name holds now. A write that replaces the value leaves it with none.
+fn kind_held(lowerer: &Lowerer<'_>, name: &str) -> Option<crate::Kind> {
+  let bound = lowerer.scope.iter().rev().find(|(n, _)| n == name).map(|(_, bound)| bound)?;
+  lowerer.kinds.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, kind)| *kind)
+}
+
 fn rebind_kind(lowerer: &mut Lowerer<'_>, name: &str, value: Expr, kind: crate::Kind) {
   lowerer.scope.push((name.to_owned(), value.clone()));
   lowerer.kinds.push((name.to_owned(), value, kind));
+}
+
+/// `m.set(k, v)`, `s.add(v)`, `.delete(k)` or `.clear()` with the receiver a local `Map` or `Set`: the local, what it holds after and its kind.
+fn map_or_set_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpr, writable: &Writable<'_>) -> Lowered<Option<(String, Expr, crate::Kind)>> {
+  let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+  let js::Expr::Member(m) = &**callee else { return Ok(None) };
+  let js::Expr::Ident(id) = &*m.obj else { return Ok(None) };
+  let Some(method) = prop_name_of(m).filter(|method| matches!(method.as_ref(), "set" | "add" | "delete" | "clear")) else { return Ok(None) };
+  let Some(kind @ (crate::Kind::Map | crate::Kind::Set)) = lowerer.kind_of(&m.obj) else { return Ok(None) };
+  let name = id.sym.to_string();
+  if !writable.local(lowerer, &name) {
+    return Ok(None);
+  }
+  let held = current(lowerer, &name);
+  let value = lowerer.collection_written(call, kind, &method, held)?;
+  Ok(Some((name, value, kind)))
 }
 
 /// `q.set(k, v)`, `q.append(k, v)` or `q.delete(k)` with `q` a local `URLSearchParams` (or the same on `url.searchParams` with `url` a local `URL`): the local, what it holds after the write and its kind.
@@ -5191,6 +5213,11 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
             }
           }
         }
+        if let Some((name, value, kind)) = map_or_set_write(lowerer, call, writable)? {
+          rebind_kind(lowerer, &name, value, kind);
+          note(assigned, &name);
+          return Ok(());
+        }
         if let Some((name, value, kind)) = search_params_write(lowerer, call, writable)? {
           rebind_kind(lowerer, &name, value, kind);
           note(assigned, &name);
@@ -5356,8 +5383,14 @@ impl Visit for Writes {
   fn visit_call_expr(&mut self, call: &js::CallExpr) {
     if let js::Callee::Expr(callee) = &call.callee {
       if let js::Expr::Member(m) = &**callee {
-        if let (js::Expr::Ident(id), Some("push" | "unshift")) = (&*m.obj, prop_name_of(m).as_deref()) {
-          self.wrote(id.sym.as_ref());
+        match (&*m.obj, prop_name_of(m).as_deref()) {
+          (js::Expr::Ident(id), Some("push" | "unshift" | "set" | "append" | "delete" | "add" | "clear")) => self.wrote(id.sym.as_ref()),
+          (js::Expr::Member(params), Some("set" | "append" | "delete")) => {
+            if let (js::Expr::Ident(id), Some("searchParams")) = (&*params.obj, prop_name_of(params).as_deref()) {
+              self.wrote(id.sym.as_ref());
+            }
+          }
+          _ => {}
         }
       }
     }
@@ -5519,12 +5552,25 @@ fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, bo
   };
   let body = iteration(lowerer, &body)?;
   if names.written.is_empty() {
-    return Ok(());
+    // Nothing outlives the loop, though a statement the build cannot run is still refused.
+    let depth = lowerer.scope.len();
+    let mut inner = Vec::new();
+    lowerer.held.push(Vec::new());
+    lowerer.held_reach.push(lowerer.rebind_reach.len());
+    let run = bind(lowerer).and_then(|_| body.iter().try_for_each(|s| rebind_stmt(lowerer, s, writable, &mut inner)));
+    lowerer.held.pop();
+    lowerer.held_reach.pop();
+    lowerer.scope.truncate(depth);
+    return run;
   }
   let before: Vec<Expr> = names.written.iter().map(|n| current(lowerer, n)).collect();
+  let kinds: Vec<Option<crate::Kind>> = names.written.iter().map(|n| kind_held(lowerer, n)).collect();
   let depth = lowerer.scope.len();
-  for name in &names.written {
-    lowerer.scope.push((name.clone(), names.read(name)));
+  for (name, kind) in names.written.iter().zip(&kinds) {
+    match kind {
+      Some(kind) => rebind_kind(lowerer, name, names.read(name), *kind),
+      None => lowerer.scope.push((name.clone(), names.read(name))),
+    }
   }
   let mut inner = Vec::new();
   lowerer.held.push(Vec::new());
@@ -5535,6 +5581,7 @@ fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, bo
     body.iter().try_for_each(|s| rebind_stmt(lowerer, s, writable, &mut inner))
   });
   let after: Vec<Expr> = names.written.iter().map(|n| current(lowerer, n)).collect();
+  let kinds: Vec<Option<crate::Kind>> = names.written.iter().zip(kinds).map(|(n, kind)| kind.filter(|_| kind_held(lowerer, n) == kind)).collect();
   let held = lowerer.held.pop().expect("the fold's frame");
   lowerer.held_reach.pop();
   lowerer.scope.truncate(depth);
@@ -5551,12 +5598,15 @@ fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, bo
   };
   let step = Expr::Lambda { params: vec![names.acc.clone(), names.item.clone()], body: Box::new(stepped) };
   let folded = Expr::Reduce(Box::new(over), Box::new(gather(before)), Box::new(step));
-  for name in &names.written {
+  for (name, kind) in names.written.iter().zip(kinds) {
     let value = match single {
       true => folded.clone(),
       false => Expr::Field(Box::new(folded.clone()), name.clone()),
     };
-    lowerer.scope.push((name.clone(), value));
+    match kind {
+      Some(kind) => rebind_kind(lowerer, name, value, kind),
+      None => lowerer.scope.push((name.clone(), value)),
+    }
     if !assigned.contains(name) {
       assigned.push(name.clone());
     }
