@@ -87,7 +87,6 @@ struct Args {
   #[arg(long)]
   import_map: Option<PathBuf>,
 
-  /// Typecheck the same tsconfig with `snapfiretc`, which compiles nothing
   /// The asset map a driving process wrote: every image and font a module or a stylesheet
   /// names is rewritten from its row and none is emitted here.
   #[arg(long)]
@@ -117,6 +116,7 @@ struct Args {
   #[arg(long)]
   emit_tailwind_classes: bool,
 
+  /// Typecheck the same tsconfig with `snapfiretc`, which compiles nothing
   #[arg(long)]
   typecheck: bool,
 
