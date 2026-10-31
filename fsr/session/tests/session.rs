@@ -514,3 +514,107 @@ mod lifetime {
     assert!(block_on(store.load(&live)).is_none(), "the store drops the record at its end");
   }
 }
+
+/// A session with a cookie, and that cookie: what two overlapping requests both arrive with.
+fn established(layer: &Sessions) -> String {
+  let opened = block_on(layer.open(None));
+  opened.cell.insert("seed", Value::Bool(true));
+  let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
+  cookie.split(';').next().unwrap().to_owned()
+}
+
+#[test]
+fn overlapping_requests_keep_each_others_csrf_tokens() {
+  let layer = sessions();
+  let cookie = established(&layer);
+  let a = block_on(layer.open(Some(&cookie)));
+  let b = block_on(layer.open(Some(&cookie)));
+  let from_a = layer.csrf_token(&a);
+  let from_b = layer.csrf_token(&b);
+  block_on(layer.persist(&a)).unwrap();
+  block_on(layer.persist(&b)).unwrap();
+
+  let after = block_on(layer.open(Some(&cookie)));
+  assert!(layer.verify_csrf(&after, &from_a), "the earlier save's token survives the later one");
+  assert!(layer.verify_csrf(&after, &from_b));
+}
+
+#[test]
+fn a_token_one_request_spent_stays_spent_when_another_saves() {
+  let layer = sessions();
+  let cookie = established(&layer);
+  let first = block_on(layer.open(Some(&cookie)));
+  let token = layer.csrf_token(&first);
+  block_on(layer.persist(&first)).unwrap();
+
+  let spender = block_on(layer.open(Some(&cookie)));
+  let other = block_on(layer.open(Some(&cookie)));
+  assert!(layer.verify_csrf(&spender, &token));
+  let minted = layer.csrf_token(&other);
+  block_on(layer.persist(&spender)).unwrap();
+  block_on(layer.persist(&other)).unwrap();
+
+  let after = block_on(layer.open(Some(&cookie)));
+  assert!(!layer.verify_csrf(&after, &token), "the other request held the token and must not bring it back");
+  assert!(layer.verify_csrf(&after, &minted));
+}
+
+#[test]
+fn overlapping_requests_keep_each_others_session_writes() {
+  let layer = sessions();
+  let cookie = established(&layer);
+  let a = block_on(layer.open(Some(&cookie)));
+  let b = block_on(layer.open(Some(&cookie)));
+  a.cell.insert("from_a", Value::Int(1));
+  b.cell.insert("from_b", Value::Int(2));
+  b.cell.remove("seed");
+  block_on(layer.persist(&a)).unwrap();
+  block_on(layer.persist(&b)).unwrap();
+
+  let after = block_on(layer.open(Some(&cookie)));
+  assert_eq!(after.cell.get("from_a"), Some(Value::Int(1)));
+  assert_eq!(after.cell.get("from_b"), Some(Value::Int(2)));
+  assert_eq!(after.cell.get("seed"), None, "a removal is a write too");
+}
+
+#[test]
+fn when_two_requests_write_one_key_the_later_save_wins() {
+  let layer = sessions();
+  let cookie = established(&layer);
+  let a = block_on(layer.open(Some(&cookie)));
+  let b = block_on(layer.open(Some(&cookie)));
+  a.cell.insert("same", Value::Int(1));
+  b.cell.insert("same", Value::Int(2));
+  block_on(layer.persist(&a)).unwrap();
+  block_on(layer.persist(&b)).unwrap();
+  assert_eq!(block_on(layer.open(Some(&cookie))).cell.get("same"), Some(Value::Int(2)));
+}
+
+#[test]
+fn a_request_overlapping_a_logout_does_not_bring_the_session_back() {
+  let layer = sessions();
+  let cookie = established(&layer);
+  let leaving = block_on(layer.open(Some(&cookie)));
+  let overlapping = block_on(layer.open(Some(&cookie)));
+  overlapping.cell.insert("late", Value::Int(1));
+  block_on(layer.destroy(&leaving)).unwrap();
+  block_on(layer.persist(&overlapping)).unwrap();
+
+  let after = block_on(layer.open(Some(&cookie)));
+  assert_eq!(after.cell.get("late"), None);
+  assert_eq!(after.cell.get("seed"), None, "the session stays gone");
+}
+
+#[test]
+fn a_custom_scheme_without_a_merge_keeps_its_keys_by_who_changed_them() {
+  let layer = Sessions::new(Arc::new(MemorySessionStore::new(16)), b"k", SessionConfig::default()).with_csrf(Arc::new(Derived::new(b"k")));
+  let cookie = {
+    let opened = block_on(layer.open(None));
+    opened.cell.insert("seed", Value::Bool(true));
+    block_on(layer.persist(&opened)).unwrap().unwrap().split(';').next().unwrap().to_owned()
+  };
+  let a = block_on(layer.open(Some(&cookie)));
+  let token = layer.csrf_token(&a);
+  block_on(layer.persist(&a)).unwrap();
+  assert!(layer.verify_csrf(&block_on(layer.open(Some(&cookie))), &token));
+}

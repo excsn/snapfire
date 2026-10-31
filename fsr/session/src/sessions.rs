@@ -65,6 +65,9 @@ pub struct Opened {
   pub tokens: TokenCell,
   pub csrf: TokenCell,
   pub fresh: bool,
+  /// The record as this request found it, so a save can tell what this request changed from
+  /// what another request saved meanwhile. `None` when there is nothing to merge with.
+  pub base: Option<SessionRecord>,
   /// The cookie decoded under something the codec no longer writes, a
   /// retired-in-waiting key, so `persist` sets it again under the current one.
   pub stale: bool,
@@ -86,6 +89,46 @@ pub struct Sessions {
   /// The CSRF scheme, `SingleUse` unless `with_csrf` chose another.
   csrf: Arc<dyn CsrfScheme>,
   config: SessionConfig,
+  /// One save at a time per session in this process, so a merge reads what the last one wrote.
+  /// A store shared between processes can still interleave two saves.
+  saving: Vec<futures_util::lock::Mutex<()>>,
+}
+
+const SAVE_STRIPES: usize = 64;
+
+fn save_stripes() -> Vec<futures_util::lock::Mutex<()>> {
+  (0..SAVE_STRIPES).map(|_| futures_util::lock::Mutex::new(())).collect()
+}
+
+fn stripe_of(id: &SessionId) -> usize {
+  id.0.bytes().fold(0usize, |hash, byte| hash.wrapping_mul(31).wrapping_add(byte as usize)) % SAVE_STRIPES
+}
+
+/// Each key from whichever side changed it, this request winning when both did.
+pub(crate) fn merged_keys(base: &ValueMap, mine: &ValueMap, latest: &ValueMap) -> ValueMap {
+  let mut out = latest.clone();
+  for key in base.keys().chain(mine.keys()) {
+    match (base.get(key), mine.get(key)) {
+      (b, m) if b == m => {}
+      (_, Some(value)) => {
+        out.insert(key.clone(), value.clone());
+      }
+      (_, None) => {
+        out.remove(key);
+      }
+    }
+  }
+  out
+}
+
+fn merged(base: &SessionRecord, mine: SessionRecord, latest: SessionRecord, csrf: &dyn CsrfScheme) -> SessionRecord {
+  SessionRecord {
+    data: merged_keys(&base.data, &mine.data, &latest.data),
+    identity: if mine.identity != base.identity { mine.identity } else { latest.identity },
+    tokens: merged_keys(&base.tokens, &mine.tokens, &latest.tokens),
+    csrf: csrf.merge(&base.csrf, &mine.csrf, &latest.csrf),
+    expires: if mine.expires != base.expires { mine.expires } else { latest.expires },
+  }
 }
 
 impl Sessions {
@@ -102,14 +145,14 @@ impl Sessions {
     config: SessionConfig,
   ) -> Self {
     let _ = key;
-    Self { keeping: Keeping::Stored { store, codec }, csrf: Arc::new(SingleUse::default()), config }
+    Self { keeping: Keeping::Stored { store, codec }, csrf: Arc::new(SingleUse::default()), config, saving: save_stripes() }
   }
 
   /// The layer with no store: each session's record rides in its cookie, sealed by `sealer`, so
   /// any replica behind a load balancer opens it. A save that would make the cookie larger than
   /// [`COOKIE_LIMIT`] is refused.
   pub fn sealed(sealer: Arc<SealedCookie>, config: SessionConfig) -> Self {
-    Self { keeping: Keeping::Sealed(sealer), csrf: Arc::new(SingleUse::default()), config }
+    Self { keeping: Keeping::Sealed(sealer), csrf: Arc::new(SingleUse::default()), config, saving: save_stripes() }
   }
 
   /// The same layer over a CSRF scheme of the caller's own: one of the three
@@ -140,6 +183,7 @@ impl Sessions {
       Keeping::Sealed(sealer) => {
         return match cookie_header.and_then(|h| self.cookie_value(h)).and_then(|value| sealer.open(&value)) {
           Some((id, record, position)) if record.expires > unix_now() => Opened {
+            base: None,
             id,
             cell: SessionCell::new(record.data, record.identity).expiring(record.expires),
             tokens: TokenCell::new(record.tokens),
@@ -159,6 +203,7 @@ impl Sessions {
       if let Some(record) = store.load(&id).await {
         if record.expires > unix_now() {
           return Opened {
+            base: Some(record.clone()),
             id,
             cell: SessionCell::new(record.data, record.identity).expiring(record.expires),
             tokens: TokenCell::new(record.tokens),
@@ -169,13 +214,13 @@ impl Sessions {
         }
         let _ = store.delete(&id).await;
       }
-      return Opened { id, cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale };
+      return Opened { base: None, id, cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale };
     }
     self.fresh()
   }
 
   fn fresh(&self) -> Opened {
-    Opened { id: SessionId::generate(), cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false }
+    Opened { base: None, id: SessionId::generate(), cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false }
   }
 
   /// An empty cell ending one `ttl` from now.
@@ -223,7 +268,16 @@ impl Sessions {
 
   async fn save(&self, opened: &Opened) -> Result<(), StoreError> {
     match &self.keeping {
-      Keeping::Stored { store, .. } => store.save(&opened.id, Self::record(opened)).await,
+      Keeping::Stored { store, .. } => {
+        let mine = Self::record(opened);
+        let Some(base) = &opened.base else {
+          return store.save(&opened.id, mine).await;
+        };
+        let _holding = self.saving[stripe_of(&opened.id)].lock().await;
+        // Gone means another request destroyed it, and saving would bring it back.
+        let Some(latest) = store.load(&opened.id).await else { return Ok(()) };
+        store.save(&opened.id, merged(base, mine, latest, self.csrf.as_ref())).await
+      }
       Keeping::Sealed(_) => Ok(()),
     }
   }
@@ -316,7 +370,7 @@ impl Sessions {
   /// The same session under a new id, the old record deleted. Called on sign-in, so an id someone else fixed in the visitor's browser before login never becomes the signed-in one.
   pub async fn renew(&self, opened: &Opened) -> Result<Opened, StoreError> {
     self.delete(&opened.id).await?;
-    Ok(Opened { id: SessionId::generate(), cell: opened.cell.clone(), tokens: opened.tokens.clone(), csrf: opened.csrf.clone(), fresh: true, stale: false })
+    Ok(Opened { base: None, id: SessionId::generate(), cell: opened.cell.clone(), tokens: opened.tokens.clone(), csrf: opened.csrf.clone(), fresh: true, stale: false })
   }
 
   /// Tells the scheme the session's standing changed, which the edge calls

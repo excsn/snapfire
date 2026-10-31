@@ -44,6 +44,7 @@ impl Host {
     }
     let request = builder.body(Bytes::copy_from_slice(body)).ok()?;
     let opened = Opened {
+      base: None,
       id: flow.id.clone(),
       cell: session,
       tokens: flow.tokens.clone(),

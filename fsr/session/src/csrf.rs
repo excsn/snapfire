@@ -3,7 +3,7 @@
 //! sent back and is told when the session's standing changed. Its state
 //! lives in the session's `csrf` cell, which nothing else reads.
 
-use snapfire_fsr_core::Value;
+use snapfire_fsr_core::{Value, ValueMap};
 
 use crate::codec::HmacCodec;
 use crate::{to_hex, Opened};
@@ -26,6 +26,12 @@ pub trait CsrfScheme: Send + Sync {
   }
 
   fn memo(&self, opened: &Opened) -> Option<String>;
+
+  /// This scheme's state after two requests that opened the same `base` both changed it, as
+  /// `mine` and `latest`. Each key goes to whichever side changed it unless a scheme knows better.
+  fn merge(&self, base: &ValueMap, mine: &ValueMap, latest: &ValueMap) -> ValueMap {
+    crate::sessions::merged_keys(base, mine, latest)
+  }
 }
 
 /// 32 random bytes as hex, the token a scheme mints when it mints one.
@@ -193,5 +199,22 @@ impl CsrfScheme for SingleUse {
 
   fn memo(&self, _opened: &Opened) -> Option<String> {
     None
+  }
+
+  /// Tokens either side minted stay and tokens either side spent stay spent, newest first.
+  fn merge(&self, base: &ValueMap, mine: &ValueMap, latest: &ValueMap) -> ValueMap {
+    let list = |map: &ValueMap| -> Vec<String> {
+      match map.get(OUTSTANDING) {
+        Some(Value::Seq(items)) => items.iter().filter_map(|item| if let Value::Str(token) = item { Some(token.to_string()) } else { None }).collect(),
+        _ => Vec::new(),
+      }
+    };
+    let (base, mine, latest) = (list(base), list(mine), list(latest));
+    let mut tokens: Vec<String> = mine.iter().filter(|token| !base.contains(token)).cloned().collect();
+    tokens.extend(latest.into_iter().filter(|token| mine.contains(token) || !base.contains(token)));
+    tokens.truncate(self.keep);
+    let mut out = ValueMap::default();
+    out.insert(OUTSTANDING.to_owned(), Value::Seq(tokens.into_iter().map(Value::str).collect::<Vec<_>>().into()));
+    out
   }
 }
