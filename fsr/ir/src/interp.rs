@@ -1900,6 +1900,8 @@ impl Env {
         Expr::Next(request) => {
           let request = self.eval(request).await?;
           let Some(next) = self.ctx.next.clone() else { return Err(Fail::internal("`next` outside a middleware")) };
+          // The route reads the session, so what this body wrote so far has to be there.
+          commit(&self.ctx.session, &self.session, &self.written);
           next.call(request).await.map_err(|e| Fail::new(e.kind, e.message))
         }
         Expr::NativeCall { module, method, args, sync } => {

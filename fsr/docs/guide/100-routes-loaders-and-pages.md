@@ -321,6 +321,8 @@ export async function middleware({ request, identity, next }: MiddlewareCtx) {
 }
 ```
 
+A session write before `await next()` is there when the route runs, and one after it is saved with the response.
+
 The storefront's middleware sends the old `/basket` to `/cart`, serves `/shop` as the catalog and stamps every response. Under `fsr test`, a body test runs it with a `request` in its context, a spec's `fetch` goes through it and `load` follows the redirect and reports where it landed.
 
 ## Work after the response

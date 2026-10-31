@@ -8319,3 +8319,41 @@ mod passkey_method {
     assert!(error.contains("verification is `required` or `preferred`"), "{error}");
   }
 }
+
+fn session_cookies(response: &http::Response<snapfire_fsr_host::Body>) -> usize {
+  response.headers().get_all(header::SET_COOKIE).iter().filter(|v| v.to_str().unwrap().starts_with("sf_session=")).count()
+}
+
+#[tokio::test]
+async fn a_session_write_after_a_middleware_ran_the_route_is_saved() {
+  let dir = server_with("");
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new()))))
+    .middleware(|ctx, _input| async move {
+      let session = ctx.session.clone();
+      let answered = route_with(ctx, Vec::new()).await?;
+      session.insert("after", Value::str("kept"));
+      Ok(answered)
+    })
+    .build()
+    .unwrap();
+  let response = host.handle(Request::get("/").header(header::HOST, "localhost").body(Bytes::new()).unwrap()).await;
+  assert_eq!(session_cookies(&response), 1, "the write reaches a cookie, once");
+}
+
+#[tokio::test]
+async fn a_session_write_before_a_middleware_runs_the_route_is_saved_once() {
+  let dir = server_with("");
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new()))))
+    .middleware(|ctx, _input| async move {
+      ctx.session.insert("before", Value::str("kept"));
+      route_with(ctx, Vec::new()).await
+    })
+    .build()
+    .unwrap();
+  let response = host.handle(Request::get("/").header(header::HOST, "localhost").body(Bytes::new()).unwrap()).await;
+  assert_eq!(session_cookies(&response), 1, "the route saved it and the middleware's end has nothing new");
+}

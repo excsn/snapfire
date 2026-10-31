@@ -120,6 +120,11 @@ impl SessionCell {
     self.0.lock().dirty
   }
 
+  /// The store holds what the cell holds, so only a later write is dirty.
+  pub fn mark_saved(&self) {
+    self.0.lock().dirty = false;
+  }
+
   pub fn snapshot(&self) -> (ValueMap, Option<Identity>) {
     let state = self.0.lock();
     (state.data.clone(), state.identity.clone())

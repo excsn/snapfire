@@ -119,6 +119,39 @@ mod middleware {
     (value, asked)
   }
 
+  #[test]
+  fn a_session_write_before_next_is_there_when_the_route_runs() {
+    let source = "export async function middleware({ query, session, next }) {\n  if (query.space) session.space = query.space;\n  return next();\n}\n";
+    let body = snapfire_fsr_lower::lower_middleware("middleware.ts", source).unwrap_or_else(|e| panic!("{e}"));
+    let mut ctx = RequestCtx::anonymous(Default::default());
+    ctx.query.insert("space".to_owned(), "be".to_owned());
+    let seen = Arc::new(Mutex::new(None));
+    let (cell, record) = (ctx.session.clone(), seen.clone());
+    ctx.next = Some(NextHandle::new(move |_request| {
+      *record.lock() = cell.get("space");
+      let mut head = HttpResponse::new(200);
+      head.downstream = Some(0);
+      Box::pin(async move { Ok(head.to_value()) })
+    }));
+    futures::executor::block_on(Interpreter::default().run(&body, &ctx, Some(Value::Map(ValueMap::default())))).unwrap_or_else(|f| panic!("{}", f.message));
+    assert_eq!(*seen.lock(), Some(Value::str("be")));
+    assert_eq!(ctx.session.get("space"), Some(Value::str("be")));
+  }
+
+  #[test]
+  fn a_session_write_after_next_still_lands() {
+    let source = "export async function middleware({ session, next }) {\n  session.before = 1;\n  const response = await next();\n  session.after = 2;\n  return response;\n}\n";
+    let body = snapfire_fsr_lower::lower_middleware("middleware.ts", source).unwrap_or_else(|e| panic!("{e}"));
+    let mut ctx = RequestCtx::anonymous(Default::default());
+    ctx.next = Some(NextHandle::new(move |_request| {
+      let mut head = HttpResponse::new(200);
+      head.downstream = Some(0);
+      Box::pin(async move { Ok(head.to_value()) })
+    }));
+    futures::executor::block_on(Interpreter::default().run(&body, &ctx, Some(Value::Map(ValueMap::default())))).unwrap_or_else(|f| panic!("{}", f.message));
+    assert!(ctx.session.get("before").is_some() && ctx.session.get("after").is_some());
+  }
+
   const MIDDLEWARE: &str = "import type { MiddlewareCtx } from \"@snapfire/fsr/host\";\n\nexport async function middleware({ request, next }: MiddlewareCtx) {\n  if (request.path === \"/dashboard\") return Response.redirect(\"/\", 307);\n  if (request.path === \"/fleet\") return next(new Request(\"/agents\"));\n  const response = await next();\n  response.headers.set(\"x-ops-console\", \"fsr\");\n  if (response.status === 404) response.headers.set(\"x-missing\", request.path);\n  return response;\n}\n";
 
   #[test]

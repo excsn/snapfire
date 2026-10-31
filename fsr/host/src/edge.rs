@@ -706,7 +706,14 @@ impl Host {
       .await;
       match passed {
         Ok(snapfire_fsr_runtime::Passed::Continue) => self.through(t, req, opened, visit, incoming, inner, path, query).await,
-        Ok(snapfire_fsr_runtime::Passed::Route(head, body)) => joined_response(head, body),
+        Ok(snapfire_fsr_runtime::Passed::Route(head, body)) => {
+          let mut response = joined_response(head, body);
+          // The route saved what it saw, so this is only what the middleware wrote after it ran.
+          if opened.cell.is_dirty() {
+            self.set_cookie(opened, &mut response).await;
+          }
+          response
+        }
         Ok(snapfire_fsr_runtime::Passed::Answer(answered)) => {
           let mut response = http_response(answered);
           self.set_cookie(opened, &mut response).await;
@@ -1195,6 +1202,7 @@ impl Host {
         return;
       }
     };
+    opened.cell.mark_saved();
     if let Some(set_cookie) = set_cookie {
       if let Ok(value) = HeaderValue::from_str(&set_cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
