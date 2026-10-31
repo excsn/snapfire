@@ -385,16 +385,16 @@ Only fixes a rule marks safe are applied, not suggestions. A finding a comment s
 use snapfire_lint::eslint;
 
 let rc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(".eslintrc.json")?)?;
-let translated = eslint::translate_eslintrc(&rc);
+let translated = eslint::translate_eslintrc(&rc, &snapfire_lint::rules());
 std::fs::write("fsr.lint.toml", &translated.toml)?;
 for note in &translated.notes {
   println!("{note}");
 }
 
-let flat = eslint::translate_flat(&std::fs::read_to_string("eslint.config.js")?, Path::new("eslint.config.js"));
+let flat = eslint::translate_flat(&std::fs::read_to_string("eslint.config.js")?, Path::new("eslint.config.js"), &snapfire_lint::rules());
 ```
 
-`translate_eslintrc` takes an `.eslintrc` as JSON or `package.json`'s `eslintConfig`: `rules`, `overrides`, `ignorePatterns` and `settings` carry over. `translate_flat` reads an `eslint.config.js`, `.mjs` or `.ts` without running it: an `export default` list of objects written out literally, also when one call wraps the list, each with `files`, `ignores`, `rules` and `settings`. A preset whose rules run by default, such as `eslint:recommended` or `js.configs.recommended`, needs nothing written. Every rule with no counterpart, every other preset, `env`, `globals`, `parser` and any part of a flat config that is not a literal is a note. `fsr migrate` runs this over the application it migrates and writes `fsr.lint.toml`.
+`translate_eslintrc` takes an `.eslintrc` as JSON or `package.json`'s `eslintConfig`: `rules`, `overrides`, `ignorePatterns` and `settings` carry over. `translate_flat` reads an `eslint.config.js`, `.mjs` or `.ts` without running it: an `export default` list of objects written out literally, also when one call wraps the list, each with `files`, `ignores`, `rules` and `settings`. A preset whose rules run by default, such as `eslint:recommended` or `js.configs.recommended`, needs nothing written. The rule list is what a rule is checked against. Pass `snapfire_lint::rules()`. A linter that runs `Check`s of its own passes its `rules()` instead, so their rules carry over too. Every rule not in the list, every other preset, `env`, `globals`, `parser` and any part of a flat config that is not a literal is a note. `fsr migrate` runs this over the application it migrates and writes `fsr.lint.toml`.
 
 ## Adding a Rule of Your Own
 

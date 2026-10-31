@@ -23,3 +23,4 @@ No features.
 | Run FSR's rules from Rust | `Linter::new_with(config.over(base()), checks())` |
 | Find imports of packages vendored only for another | `ExtraneousDependencies::new(vendored_for)` beside `checks()` |
 | Read what a rule finds | `fsr lint --rules`, then each rule's docs |
+| List every rule `fsr lint` runs from Rust | `rules()` |

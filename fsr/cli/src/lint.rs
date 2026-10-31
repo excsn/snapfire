@@ -73,7 +73,5 @@ pub fn fix(app: &Path) -> Result<(Report, usize), ConfigError> {
 
 /// Every rule `fsr lint` runs, FSR's own among them, with its default level.
 pub fn rules() -> Vec<RuleInfo> {
-  let mut checks = snapfire_fsr_lint::checks();
-  checks.push(Box::new(snapfire_fsr_lint::ExtraneousDependencies::new(BTreeMap::new())));
-  Linter::new_with(snapfire_fsr_lint::base(), checks).map(|linter| linter.rules()).unwrap_or_default()
+  snapfire_fsr_lint::rules()
 }

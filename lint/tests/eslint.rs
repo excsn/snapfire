@@ -24,7 +24,7 @@ fn an_eslintrc_translates_rules_overrides_ignores_and_settings() {
     "settings": { "react": { "version": "18.2.0" } },
     "env": { "browser": true }
   });
-  let translated = eslint::translate_eslintrc(&rc);
+  let translated = eslint::translate_eslintrc(&rc, &snapfire_lint::rules());
   assert_eq!(levels(&translated.toml, "src/a.ts", "debugger;\n"), [("eslint/no-debugger".to_owned(), Level::Warn)], "{}", translated.toml);
   assert!(levels(&translated.toml, "tests/a.ts", "debugger;\n").is_empty(), "{}", translated.toml);
   assert!(levels(&translated.toml, "src/a.ts", "function f(_a) {}\nf();\n").is_empty(), "the options carry over: {}", translated.toml);
@@ -52,7 +52,7 @@ export default [
   ...someShared(),
 ];
 "#;
-  let translated = eslint::translate_flat(source, Path::new("eslint.config.js"));
+  let translated = eslint::translate_flat(source, Path::new("eslint.config.js"), &snapfire_lint::rules());
   assert_eq!(levels(&translated.toml, "src/a.tsx", "debugger;\n"), [("eslint/no-debugger".to_owned(), Level::Warn)], "{}", translated.toml);
   assert_eq!(levels(&translated.toml, "src/a.ts", "debugger;\n"), [("eslint/no-debugger".to_owned(), Level::Error)], "{}", translated.toml);
   assert!(translated.notes.iter().any(|n| n.contains("someShared")), "{:?}", translated.notes);
@@ -61,7 +61,7 @@ export default [
 
 #[test]
 fn a_config_that_is_not_one_is_a_note() {
-  let translated = eslint::translate_flat("export default makeConfig();\n", Path::new("eslint.config.mjs"));
+  let translated = eslint::translate_flat("export default makeConfig();\n", Path::new("eslint.config.mjs"), &snapfire_lint::rules());
   assert!(translated.notes.iter().any(|n| n.contains("makeConfig")), "{:?}", translated.notes);
   Config::parse(&translated.toml, Path::new("fsr.lint.toml")).unwrap();
 }

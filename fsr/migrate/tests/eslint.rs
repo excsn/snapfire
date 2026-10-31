@@ -48,3 +48,13 @@ fn no_eslint_configuration_writes_no_lint_file() {
   let (out, _) = migrate(&tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY)]));
   assert!(out.get("fsr.lint.toml").is_none());
 }
+
+#[test]
+fn a_rule_fsr_lint_adds_carries_over_like_eslints_own() {
+  let rc = r#"{ "rules": { "import/no-extraneous-dependencies": "error", "fsr/no-file-read-in-render": "warn" } }"#;
+  let (out, report) = migrate(&tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), (".eslintrc.json", rc)]));
+  let lint = out.text("fsr.lint.toml").expect("the lint file is written");
+  assert!(lint.contains("\"import/no-extraneous-dependencies\" = \"error\""), "{lint}");
+  assert!(lint.contains("\"fsr/no-file-read-in-render\" = \"warn\""), "{lint}");
+  assert!(!report.notes.iter().any(|n| n.message.contains("no counterpart")), "{:?}", report.notes);
+}

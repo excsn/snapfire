@@ -241,11 +241,11 @@ With [Compilers](#compilers): a `.vue` file's template is described and checked 
 
 ### translate_eslintrc
 
-* `pub fn eslint::translate_eslintrc(config: &serde_json::Value) -> Translation`: an `.eslintrc` as JSON or `package.json`'s `eslintConfig`. `rules`, `overrides` (`files`, `rules`), `ignorePatterns` (`dir/` as `dir/**`) and `settings` carry over. `extends` naming a preset outside `eslint:recommended`, the react, react-hooks, jsx-a11y, typescript-eslint, vue, svelte and markdown recommended sets is a note. `env`, `globals`, `parser`, `parserOptions`, `processor` and `excludedFiles` are notes.
+* `pub fn eslint::translate_eslintrc(config: &serde_json::Value, rules: &[RuleInfo]) -> Translation`: a rule carries over when `rules` has its id; an `.eslintrc` as JSON or `package.json`'s `eslintConfig`. `rules`, `overrides` (`files`, `rules`), `ignorePatterns` (`dir/` as `dir/**`) and `settings` carry over. `extends` naming a preset outside `eslint:recommended`, the react, react-hooks, jsx-a11y, typescript-eslint, vue, svelte and markdown recommended sets is a note. `env`, `globals`, `parser`, `parserOptions`, `processor` and `excludedFiles` are notes.
 
 ### translate_flat
 
-* `pub fn eslint::translate_flat(source: &str, path: &Path) -> Translation`: an `eslint.config.{js,mjs,cjs,ts,mts}` parsed with oxc and not run. Read: `export default [ ... ]`, also when one call wraps the list, `export default f([ ... ])`. Each element written out literally is read: one with only `ignores` adds global ignores; one with `rules` and no `files`, before any with `files`, adds to `[rules]`; each other becomes an `[[overrides]]`, with `files = ["**"]` when it names none. An element naming a recommended preset (`configs.recommended`, `flat/recommended`, `recommended-latest`) needs nothing. Any other element, a spread among them, is a note quoting it.
+* `pub fn eslint::translate_flat(source: &str, path: &Path, rules: &[RuleInfo]) -> Translation`: a rule carries over when `rules` has its id; an `eslint.config.{js,mjs,cjs,ts,mts}` parsed with oxc and not run. Read: `export default [ ... ]`, also when one call wraps the list, `export default f([ ... ])`. Each element written out literally is read: one with only `ignores` adds global ignores; one with `rules` and no `files`, before any with `files`, adds to `[rules]`; each other becomes an `[[overrides]]`, with `files = ["**"]` when it names none. An element naming a recommended preset (`configs.recommended`, `flat/recommended`, `recommended-latest`) needs nothing. Any other element, a spread among them, is a note quoting it.
 
 ## 9. Error Handling
 

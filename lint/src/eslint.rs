@@ -10,6 +10,7 @@ use oxc_span::{GetSpan, SourceType};
 use serde_json::Value;
 
 use crate::config::full_id;
+use crate::RuleInfo;
 
 /// A translated configuration and what it could not carry over.
 #[derive(Debug, Clone, Default)]
@@ -48,6 +49,7 @@ const UNREAD: &[(&str, &str)] = &[
 
 #[derive(Default)]
 struct Out {
+  known: Vec<&'static str>,
   rules: toml::Table,
   overrides: Vec<toml::Table>,
   ignores: Vec<String>,
@@ -62,14 +64,17 @@ impl Out {
     }
   }
 
-  /// `rules` translated: each known rule with its level and options, each unknown one a note.
+  fn knowing(rules: &[RuleInfo]) -> Self {
+    Self { known: rules.iter().map(|r| r.id).collect(), ..Self::default() }
+  }
+
+  /// `rules` translated: each rule in `known` with its level and options, each other one a note.
   fn rules(&mut self, rules: &Value) -> toml::Table {
     let mut out = toml::Table::new();
     let Some(rules) = rules.as_object() else { return out };
-    let known: Vec<&str> = crate::rules().into_iter().map(|r| r.id).collect();
     for (name, setting) in rules {
       let id = full_id(name);
-      if !known.contains(&id.as_str()) && !(id.starts_with("svelte/") && id != "svelte/*") {
+      if !self.known.contains(&id.as_str()) && !(id.starts_with("svelte/") && id != "svelte/*") {
         self.note(format!("`{name}` has no counterpart in fsr lint and is not carried over"));
         continue;
       }
@@ -137,9 +142,10 @@ fn strings(value: &Value) -> Vec<String> {
   }
 }
 
-/// An `.eslintrc` (JSON) or `package.json`'s `eslintConfig`.
-pub fn translate_eslintrc(config: &Value) -> Translation {
-  let mut out = Out::default();
+/// An `.eslintrc` (JSON) or `package.json`'s `eslintConfig`, its rules carried over when `rules` has them:
+/// [`crate::rules`] or a linter's [`crate::Linter::rules`] with its `Check`s among them.
+pub fn translate_eslintrc(config: &Value, rules: &[RuleInfo]) -> Translation {
+  let mut out = Out::knowing(rules);
   let Some(map) = config.as_object() else {
     out.note("the configuration is not an object".to_owned());
     return out.finish();
@@ -204,9 +210,9 @@ fn covered_preset(written: &str) -> bool {
   written.contains("configs.recommended") || written.contains("configs[\"recommended\"]") || written.contains("flat/recommended") || written.contains("recommended-latest") || written.contains("configs.flat.recommended") || written.contains("configs[\"flat/recommended\"]")
 }
 
-/// An `eslint.config.js`, `.mjs` or `.ts`, read without running it.
-pub fn translate_flat(source: &str, path: &Path) -> Translation {
-  let mut out = Out::default();
+/// An `eslint.config.js`, `.mjs` or `.ts`, read without running it, its rules carried over when `rules` has them.
+pub fn translate_flat(source: &str, path: &Path, rules: &[RuleInfo]) -> Translation {
+  let mut out = Out::knowing(rules);
   let allocator = Allocator::default();
   let source_type = SourceType::from_path(path).unwrap_or_default();
   let parsed = Parser::new(&allocator, source, source_type).parse();

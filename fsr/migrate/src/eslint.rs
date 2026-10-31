@@ -29,11 +29,11 @@ pub(crate) fn translate(input: &Tree, tree: &mut Tree, report: &mut Report) {
       }
       (
         flat,
-        snapfire_lint::eslint::translate_flat(input.text(flat).unwrap_or_default(), std::path::Path::new(flat)),
+        snapfire_lint::eslint::translate_flat(input.text(flat).unwrap_or_default(), std::path::Path::new(flat), &snapfire_fsr_lint::rules()),
       )
     }
     (None, Some(rc)) => match serde_json::from_str::<serde_json::Value>(input.text(rc).unwrap_or_default()) {
-      Ok(config) => (rc, snapfire_lint::eslint::translate_eslintrc(&config)),
+      Ok(config) => (rc, snapfire_lint::eslint::translate_eslintrc(&config, &snapfire_fsr_lint::rules())),
       Err(_) => {
         report.note(
           rc,
@@ -44,7 +44,7 @@ pub(crate) fn translate(input: &Tree, tree: &mut Tree, report: &mut Report) {
       }
     },
     (None, None) => match package {
-      Some(config) => ("package.json", snapfire_lint::eslint::translate_eslintrc(&config)),
+      Some(config) => ("package.json", snapfire_lint::eslint::translate_eslintrc(&config, &snapfire_fsr_lint::rules())),
       None => return,
     },
   };

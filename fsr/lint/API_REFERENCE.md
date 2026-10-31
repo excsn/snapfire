@@ -7,6 +7,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 * [1. Functions and Types](#1-functions-and-types)
   * [checks](#checks)
   * [base](#base)
+  * [rules](#rules)
   * [ExtraneousDependencies](#extraneousdependencies)
 * [2. Rules](#2-rules)
   * [fsr/no-browser-globals-in-render](#fsrno-browser-globals-in-render)
@@ -23,6 +24,10 @@ FSR's lint rules and base levels for `snapfire_lint`.
 ### base
 
 * `pub fn base() -> snapfire_lint::Config`: `react/no-unknown-property` at `error` with `ignore` listing htmx 2's and htmx 4's attributes. Put a project's configuration over it with `Config::over`.
+
+### rules
+
+* `pub fn rules() -> Vec<snapfire_lint::RuleInfo>`: every rule `fsr lint` runs, `snapfire_lint`'s, the three of `checks()` and `import/no-extraneous-dependencies`, at the level `base()` gives it. `fsr lint --rules` lists it and `fsr migrate` translates an ESLint configuration against it.
 
 ### ExtraneousDependencies
 

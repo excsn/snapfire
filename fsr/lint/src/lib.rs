@@ -16,6 +16,13 @@ pub fn checks() -> Vec<Box<dyn Check>> {
   vec![Box::new(BrowserGlobals), Box::new(FileRead), Box::new(OutputClash)]
 }
 
+/// Every rule `fsr lint` runs, `snapfire_lint`'s and FSR's, at the level [`base`] gives it.
+pub fn rules() -> Vec<RuleInfo> {
+  let mut checks = checks();
+  checks.push(Box::new(ExtraneousDependencies::new(BTreeMap::new())));
+  snapfire_lint::Linter::new_with(base(), checks).map(|linter| linter.rules()).unwrap_or_default()
+}
+
 /// The attributes of htmx 2 and htmx 4, which a JSX element may carry when htmx drives it.
 const HTMX_ATTRIBUTES: &[&str] = &[
   "hx-action",
