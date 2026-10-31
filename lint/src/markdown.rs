@@ -19,9 +19,22 @@ macro_rules! rule {
   ($id:literal, $what:literal, $why:literal) => {
     RuleInfo { id: $id, default: Level::Error, recommended: true, category: "correctness", fixable: false, docs: concat!("### What it does\n\n", $what, "\n\n### Why is this bad?\n\n", $why, "\n") }
   };
+  (off $id:literal, $what:literal, $why:literal) => {
+    RuleInfo { id: $id, default: Level::Off, recommended: false, category: "style", fixable: false, docs: concat!("### What it does\n\n", $what, "\n\n### Why is this bad?\n\n", $why, "\n") }
+  };
 }
 
-pub(crate) const RULES: [RuleInfo; 11] = [
+pub(crate) const RULES: [RuleInfo; 21] = [
+  rule!("markdown/no-invalid-label-refs", "Disallows `[label][ ]`, a reference whose second brackets hold only white space.", "It is not a reference; the brackets show as text."),
+  rule!("markdown/no-missing-label-refs", "Disallows `[label]`, `[text][label]` and `[label][]` naming no definition. `allowLabels` lists labels to leave alone; GitHub's alert markers, `[!NOTE]` and the rest, are not labels.", "Without the definition the brackets show as text."),
+  rule!("markdown/no-reference-like-urls", "Disallows `[text](id)` whose URL is the identifier of a definition.", "It links to the identifier as a relative URL; `[text][id]` uses the definition."),
+  rule!("markdown/no-space-in-emphasis", "Disallows a space just inside emphasis markers, `* text *`. `checkStrikethrough` adds `~` and `~~`.", "With the space it is not emphasis; the markers show as text."),
+  rule!("markdown/no-unused-definitions", "Disallows a definition or footnote definition nothing references. `allowDefinitions`, by default `//` for comments, `allowFootnoteDefinitions` and `checkFootnoteDefinitions` choose which are judged.", "An unused definition is dead text, usually left after an edit."),
+  rule!(off "markdown/fenced-code-meta", "Requires metadata after a fenced block's language, or with `\"never\"` disallows it.", "A site that reads metadata, such as a file name, gets it every time."),
+  rule!(off "markdown/no-bare-urls", "Disallows a bare URL that GFM turns into a link.", "`<url>` or `[text](url)` says it is a link in every renderer."),
+  rule!(off "markdown/no-duplicate-headings", "Disallows two headings with the same text. `checkSiblingsOnly` compares only headings under the same parent heading.", "Their anchors clash, so a link reaches only the first."),
+  rule!(off "markdown/no-html", "Disallows HTML elements. `allowed` lists elements to leave alone; `allowedIgnoreCase` compares them without case.", "Some renderers drop HTML, and it bypasses Markdown's own structure."),
+  rule!(off "markdown/table-column-count", "Disallows a table row with more cells than the header. `checkMissingCells` also finds rows with fewer.", "The extra cells are dropped when the table renders."),
   rule!("markdown/fenced-code-language", "Requires a language on a fenced code block.", "The language picks the highlighting and tells a reader what the block is."),
   rule!("markdown/heading-increment", "Requires each heading to be at most one level deeper than the one before it. A `title` in the front matter counts as the first heading; `frontmatterTitle` names another key by a regular expression over its line. With `\"\"` none counts.", "A skipped level breaks the outline that a table of contents and a screen reader read."),
   rule!("markdown/no-duplicate-definitions", "Disallows two link definitions with the same label.", "Only the first is used; the second is dead and usually a mistake."),
@@ -92,7 +105,8 @@ fn options(mdx: bool) -> markdown::ParseOptions {
 }
 
 /// The findings in one document. A document that does not parse is one `lint/parse` finding.
-pub(crate) fn lint(source: &str, mdx: bool, titles: &Titles) -> Result<Vec<Found>, (usize, String)> {
+pub(crate) fn lint(source: &str, mdx: bool, rule_options: crate::markdown_rules::Options<'_>) -> Result<Vec<Found>, (usize, String)> {
+  let titles = Titles::of(rule_options);
   let root = markdown::to_mdast(source, &options(mdx)).map_err(|message| {
     let at = match message.place.as_deref() {
       Some(markdown::message::Place::Point(point)) => point.offset,
@@ -102,10 +116,11 @@ pub(crate) fn lint(source: &str, mdx: bool, titles: &Titles) -> Result<Vec<Found
     (at, message.reason)
   })?;
   let mut walk = Walk::default();
-  walk.front(&root, titles);
+  walk.front(&root, &titles);
   walk.node(&root, source);
   walk.finish(source);
   let mut found = walk.found;
+  crate::markdown_rules::lint(&root, source, rule_options, &mut found);
   found.sort_by_key(|f| f.start);
   Ok(found)
 }

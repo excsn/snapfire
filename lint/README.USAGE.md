@@ -330,7 +330,7 @@ impl Compilers for InProcess {
 
 ## Linting Markdown and MDX
 
-`.md` and `.mdx` files are parsed by markdown-rs with GFM and front matter. They are checked by the correctness rules of `@eslint/markdown`'s recommended set, under its names, each at `error`:
+`.md` and `.mdx` files are parsed by markdown-rs with GFM and front matter. They are checked by every rule of `@eslint/markdown`, under its names. Its recommended set is at `error`:
 
 | Rule | Finds |
 | --- | --- |
@@ -343,6 +343,19 @@ impl Compilers for InProcess {
 | `markdown/no-missing-link-fragments` | `[x](#fragment)` that no heading of the document makes |
 | `markdown/no-reversed-media-syntax` | `(text)[url]` |
 | `markdown/no-missing-atx-heading-space` | `#Heading` with no space |
+| `markdown/no-invalid-label-refs` | `[label][ ]`, white space where the label goes |
+| `markdown/no-missing-label-refs` | `[label]` or `[text][label]` naming no definition; GitHub's `[!NOTE]` alerts are left alone |
+| `markdown/no-reference-like-urls` | `[text](id)` whose URL is a definition's identifier |
+| `markdown/no-space-in-emphasis` | `* text *`, emphasis broken by the spaces inside it |
+| `markdown/no-unused-definitions` | a definition or footnote nothing references; `[//]: #` comments are left alone |
+
+The rest are `off` until `fsr.lint.toml` turns them on, as `@eslint/markdown` leaves them out of its recommended set: `markdown/fenced-code-meta`, `markdown/no-bare-urls`, `markdown/no-duplicate-headings`, `markdown/no-html` and `markdown/table-column-count`. Each takes `@eslint/markdown`'s options:
+
+```toml
+[rules]
+"markdown/no-html" = ["error", { allowed = ["details", "summary"] }]
+"markdown/no-duplicate-headings" = ["warn", { checkSiblingsOnly = true }]
+```
 
 ```md
 <!-- eslint-disable-next-line markdown/heading-increment -->
