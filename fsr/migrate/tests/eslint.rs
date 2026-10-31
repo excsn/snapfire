@@ -15,13 +15,13 @@ const ENTRY: &str = "import React from 'react';\nimport {render, Text} from 'ink
 
 #[test]
 fn an_eslintrc_becomes_the_lint_file() {
-  let rc = r#"{ "extends": ["eslint:recommended", "xo"], "rules": { "no-debugger": "warn", "unicorn/filename-case": "error" } }"#;
+  let rc = r#"{ "extends": ["eslint:recommended", "xo"], "rules": { "no-debugger": "warn", "n/no-missing-import": "error" } }"#;
   let (out, report) = migrate(&tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), (".eslintrc.json", rc), (".eslintignore", "dist\n# built\nbuild/\n")]));
   let lint = out.text("fsr.lint.toml").expect("the lint file is written");
   assert!(lint.contains("\"eslint/no-debugger\" = \"warn\""), "{lint}");
   assert!(lint.contains("\"dist\"") && lint.contains("\"build/**\""), "the ignore file carries over: {lint}");
   assert!(out.get(".eslintrc.json").is_none() && out.get(".eslintignore").is_none(), "ESLint's files are not left behind");
-  for named in ["xo", "unicorn/filename-case"] {
+  for named in ["xo", "n/no-missing-import"] {
     assert!(report.notes.iter().any(|n| n.file == ".eslintrc.json" && n.message.contains(named)), "{named}: {:?}", report.notes);
   }
 }

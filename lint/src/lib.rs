@@ -216,6 +216,8 @@ impl Report {
 pub struct RuleInfo {
   pub id: &'static str,
   pub default: Level,
+  /// Whether the rule is in its plugin's own recommended set, which extending the plugin's preset turns on.
+  pub recommended: bool,
   /// `correctness`, `suspicious`, `pedantic` and the rest of clippy's categories; `lint` for the linter's own.
   pub category: &'static str,
   /// Whether the rule offers a fix or a suggestion for some of what it finds.
@@ -224,9 +226,9 @@ pub struct RuleInfo {
 }
 
 const CORE: [RuleInfo; 3] = [
-  RuleInfo { id: COMPILER, default: Level::Warn, category: "lint", fixable: false, docs: "A `.vue` or `.svelte` file whose framework compiler could not be asked, so its template is not linted. Its scripts still are.\n" },
-  RuleInfo { id: PARSE, default: Level::Error, category: "lint", fixable: false, docs: "A file that does not parse. No rule runs on it.\n" },
-  RuleInfo { id: UNUSED_DISABLE, default: Level::Warn, category: "lint", fixable: false, docs: "A suppression comment that silences nothing, such as one left after the code it covered was fixed.\n" },
+  RuleInfo { id: COMPILER, default: Level::Warn, recommended: false, category: "lint", fixable: false, docs: "A `.vue` or `.svelte` file whose framework compiler could not be asked, so its template is not linted. Its scripts still are.\n" },
+  RuleInfo { id: PARSE, default: Level::Error, recommended: false, category: "lint", fixable: false, docs: "A file that does not parse. No rule runs on it.\n" },
+  RuleInfo { id: UNUSED_DISABLE, default: Level::Warn, recommended: false, category: "lint", fixable: false, docs: "A suppression comment that silences nothing, such as one left after the code it covered was fixed.\n" },
 ];
 
 /// Recommended rules that stay off unless a configuration turns them on: the automatic JSX runtime every
@@ -240,14 +242,14 @@ const ON_BY_DEFAULT: [&str; 5] = ["eslint", "jsx-a11y", "react", "typescript", "
 
 impl RuleInfo {
   pub const fn new(id: &'static str, default: Level, category: &'static str, docs: &'static str) -> Self {
-    RuleInfo { id, default, category, fixable: false, docs }
+    RuleInfo { id, default, recommended: false, category, fixable: false, docs }
   }
 }
 
 /// Every rule this crate has, sorted by id.
 pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
-  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) && ON_BY_DEFAULT.iter().any(|plugin| e.id.split('/').next() == Some(*plugin)) { Level::Error } else { Level::Off }, category: e.category, fixable: e.fixable, docs: e.docs }));
+  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) && ON_BY_DEFAULT.iter().any(|plugin| e.id.split('/').next() == Some(*plugin)) { Level::Error } else { Level::Off }, recommended: e.recommended, category: e.category, fixable: e.fixable, docs: e.docs }));
   all.extend(templates::VUE_RULES);
   all.extend(markdown::RULES);
   all.extend(tera::RULES);

@@ -16,6 +16,7 @@ pub(crate) const RULES: [RuleInfo; 3] = [
   RuleInfo {
     id: "tera/no-debug",
     default: Level::Error,
+    recommended: false,
     category: "correctness",
     fixable: false,
     docs: "### What it does\n\nDisallows `__tera_context`.\n\n### Why is this bad?\n\nIt prints every value the template was given, which is a debugging aid left in a page and can show what a visitor should not see.\n",
@@ -23,6 +24,7 @@ pub(crate) const RULES: [RuleInfo; 3] = [
   RuleInfo {
     id: "tera/no-safe-filter",
     default: Level::Warn,
+    recommended: false,
     category: "suspicious",
     fixable: false,
     docs: "### What it does\n\nFlags the `safe` filter.\n\n### Why is this bad?\n\n`safe` turns escaping off, so a value holding markup a visitor wrote runs in the page. Keep it to values the application made, and say why with a suppression comment.\n",
@@ -30,6 +32,7 @@ pub(crate) const RULES: [RuleInfo; 3] = [
   RuleInfo {
     id: "tera/no-unused-set",
     default: Level::Warn,
+    recommended: false,
     category: "correctness",
     fixable: false,
     docs: "### What it does\n\nFlags a `{% set %}` whose name nothing in the template reads.\n\n### Why is this bad?\n\nIt is dead, or the name it is read under is misspelled. `set_global` is not checked, since an included template may read it.\n",

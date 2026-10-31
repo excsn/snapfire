@@ -185,7 +185,7 @@ With [Compilers](#compilers): a `.vue` file's template is described and checked 
 
 ### rules
 
-* `pub fn rules() -> Vec<RuleInfo>`: this crate's rules, sorted by id: the three `lint/` rules, the 134 script rules (`eslint/` 64, `react/` 20, `jsx-a11y/` 31, `typescript/` 18, `import/` 1), the four `vue/` rules, `svelte/*` standing for Svelte's warnings, the eleven `markdown/` rules and the three `tera/` rules.
+* `pub fn rules() -> Vec<RuleInfo>`: this crate's rules, sorted by id: the three `lint/` rules, the 310 script rules (`eslint/` 64, `react/` 20, `jsx-a11y/` 31, `typescript/` 18, `import/` 1, `unicorn/` 137, `promise/` 16, `jsdoc/` 23), the four `vue/` rules, `svelte/*` standing for Svelte's warnings, the eleven `markdown/` rules and the three `tera/` rules.
 
 ### RuleInfo
 
@@ -193,7 +193,8 @@ With [Compilers](#compilers): a `.vue` file's template is described and checked 
 
 * `RuleInfo::new(id: &'static str, default: Level, category: &'static str, docs: &'static str) -> RuleInfo`: `fixable` false.
 * `id: &'static str`
-* `default: Level`
+* `default: Level`: `error` for a rule in the recommended set of ESLint, eslint-plugin-react, jsx-a11y, typescript-eslint or eslint-plugin-vue; `off` for the rest, unicorn's, promise's and jsdoc's recommended rules among them.
+* `recommended: bool`: the rule is in its plugin's own recommended set, which extending the plugin's preset turns on. `RuleInfo::new` gives `false`.
 * `category: &'static str`: one of `correctness`, `suspicious`, `pedantic`, `perf`, `style`, `restriction` and `nursery`; `lint` for the linter's own rules.
 * `fixable: bool`: the rule offers a fix or a suggestion for some findings.
 * `docs: &'static str`: Markdown.

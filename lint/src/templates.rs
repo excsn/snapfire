@@ -23,6 +23,7 @@ pub(crate) const VUE_RULES: [RuleInfo; 4] = [
   RuleInfo {
     id: "vue/no-template-key",
     default: Level::Error,
+    recommended: true,
     category: "correctness",
     fixable: false,
     docs: "### What it does\n\nDisallows `key` on a `<template>` that has no `v-for`.\n\n### Why is this bad?\n\n`<template>` renders no element, so a key on it keys nothing. Put it on the element inside.\n",
@@ -30,6 +31,7 @@ pub(crate) const VUE_RULES: [RuleInfo; 4] = [
   RuleInfo {
     id: "vue/no-use-v-if-with-v-for",
     default: Level::Error,
+    recommended: true,
     category: "correctness",
     fixable: false,
     docs: "### What it does\n\nDisallows `v-if` on the element that has `v-for`.\n\n### Why is this bad?\n\nIn Vue 3 `v-if` runs first, so it cannot read the `v-for` variable. Filter the list in a computed value, or move `v-if` to a wrapping `<template>`.\n",
@@ -37,6 +39,7 @@ pub(crate) const VUE_RULES: [RuleInfo; 4] = [
   RuleInfo {
     id: "vue/require-component-is",
     default: Level::Error,
+    recommended: true,
     category: "correctness",
     fixable: false,
     docs: "### What it does\n\nRequires `is` or `:is` on `<component>`.\n\n### Why is this bad?\n\nWithout it `<component>` has nothing to render.\n",
@@ -44,6 +47,7 @@ pub(crate) const VUE_RULES: [RuleInfo; 4] = [
   RuleInfo {
     id: "vue/require-v-for-key",
     default: Level::Error,
+    recommended: true,
     category: "correctness",
     fixable: false,
     docs: "### What it does\n\nRequires `:key` on an element that has `v-for`.\n\n### Why is this bad?\n\nWithout a key Vue patches the list in place, so an element's state follows its position rather than its item when the list changes.\n",
@@ -54,6 +58,7 @@ pub(crate) const VUE_RULES: [RuleInfo; 4] = [
 pub(crate) const SVELTE_FAMILY: RuleInfo = RuleInfo {
   id: "svelte/*",
   default: Level::Warn,
+  recommended: false,
   category: "correctness",
   fixable: false,
   docs: "### What it does\n\nEach warning Svelte's compiler gives is a finding under `svelte/` and its code with dashes: `a11y_missing_attribute` is `svelte/a11y-missing-attribute`. They default to `warn`, as Svelte gives them. A warning from a `snapfirec-svelte` that gives no code is `svelte/warning`. Svelte's own `<!-- svelte-ignore code -->` silences one as well.\n",

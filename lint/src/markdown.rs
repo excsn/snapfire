@@ -17,7 +17,7 @@ pub(crate) struct Found {
 
 macro_rules! rule {
   ($id:literal, $what:literal, $why:literal) => {
-    RuleInfo { id: $id, default: Level::Error, category: "correctness", fixable: false, docs: concat!("### What it does\n\n", $what, "\n\n### Why is this bad?\n\n", $why, "\n") }
+    RuleInfo { id: $id, default: Level::Error, recommended: true, category: "correctness", fixable: false, docs: concat!("### What it does\n\n", $what, "\n\n### Why is this bad?\n\n", $why, "\n") }
   };
 }
 

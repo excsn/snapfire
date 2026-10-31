@@ -47,9 +47,18 @@ const UNREAD: &[(&str, &str)] = &[
   ("excludedFiles", "an override applies to all of its `files`"),
 ];
 
+/// The rules of a plugin preset `fsr lint` leaves off by default at `warn` rather than the preset's `error`:
+/// eslint-plugin-promise's `recommended`, by rule.
+const PROMISE_WARNS: &[&str] = &["promise/no-callback-in-promise", "promise/no-nesting", "promise/no-promise-in-callback", "promise/no-return-in-finally", "promise/valid-params"];
+
+/// The plugins whose recommended preset a configuration may extend and `fsr lint` writes out rule by rule, since
+/// their rules are off by default.
+const PRESET_PLUGINS: &[&str] = &["unicorn", "promise", "jsdoc"];
+
 #[derive(Default)]
 struct Out {
   known: Vec<&'static str>,
+  recommended: Vec<&'static str>,
   rules: toml::Table,
   overrides: Vec<toml::Table>,
   ignores: Vec<String>,
@@ -65,7 +74,25 @@ impl Out {
   }
 
   fn knowing(rules: &[RuleInfo]) -> Self {
-    Self { known: rules.iter().map(|r| r.id).collect(), ..Self::default() }
+    Self { known: rules.iter().map(|r| r.id).collect(), recommended: rules.iter().filter(|r| r.recommended).map(|r| r.id).collect(), ..Self::default() }
+  }
+
+  /// Writes the recommended rules of the preset `written` names, when it is one of [`PRESET_PLUGINS`]': the level the
+  /// preset gives each, `jsdoc`'s `-error` presets at `error`. Answers whether it was one.
+  fn preset(&mut self, written: &str) -> bool {
+    let Some(plugin) = PRESET_PLUGINS.iter().find(|plugin| written.contains(*plugin)) else { return false };
+    if !written.contains("recommended") {
+      return false;
+    }
+    for id in self.recommended.clone().into_iter().filter(|id| id.strip_prefix(*plugin).is_some_and(|rest| rest.starts_with('/'))) {
+      let level = match *plugin {
+        "jsdoc" if !written.contains("error") => "warn",
+        "promise" if PROMISE_WARNS.contains(&id) => "warn",
+        _ => "error",
+      };
+      self.rules.insert(id.to_owned(), toml::Value::String(level.to_owned()));
+    }
+    true
   }
 
   /// `rules` translated: each rule in `known` with its level and options, each other one a note.
@@ -151,13 +178,14 @@ pub fn translate_eslintrc(config: &Value, rules: &[RuleInfo]) -> Translation {
     return out.finish();
   };
   for preset in strings(map.get("extends").unwrap_or(&Value::Null)) {
-    if !COVERED.contains(&preset.as_str()) {
+    if !COVERED.contains(&preset.as_str()) && !out.preset(&preset) {
       out.note(format!("`{preset}` is a preset fsr lint has no counterpart for; its rules are not carried over"));
     }
   }
   out.unread(map);
   if let Some(rules) = map.get("rules") {
-    out.rules = out.rules(rules);
+    let rules = out.rules(rules);
+    out.rules.extend(rules);
   }
   for block in map.get("overrides").and_then(Value::as_array).into_iter().flatten() {
     let Some(block) = block.as_object() else { continue };
@@ -246,7 +274,7 @@ pub fn translate_flat(source: &str, path: &Path, rules: &[RuleInfo]) -> Translat
       other => other.as_expression().and_then(literal),
     };
     let Some(Value::Object(object)) = object else {
-      if !covered_preset(&written) {
+      if !out.preset(&written) && !covered_preset(&written) {
         out.note(format!("`{written}` in {name} is not carried over: fsr lint reads only what is written out literally"));
       }
       continue;

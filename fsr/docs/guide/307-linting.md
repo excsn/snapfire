@@ -11,7 +11,7 @@ fsr lint app
 ```
 
 It lints everything under the application that it can read:
-- the `.ts`, `.tsx`, `.js` and `.jsx` files, with the recommended rules of ESLint, eslint-plugin-react with its hooks rules, jsx-a11y and typescript-eslint, plus six that are off until `fsr.lint.toml` turns them on (`fsr lint --rules` lists them);
+- the `.ts`, `.tsx`, `.js` and `.jsx` files, with the recommended rules of ESLint, eslint-plugin-react with its hooks rules, jsx-a11y and typescript-eslint, plus rules that stay off until `fsr.lint.toml` turns them on (`fsr lint --rules` lists them): six more of ESLint's and its plugins' with every rule of eslint-plugin-unicorn, eslint-plugin-promise and eslint-plugin-jsdoc;
 - the `<script>` blocks of `.vue` and `.svelte` components with the same rules;
 - their templates, through the framework's own compiler;
 - `.md` and `.mdx` pages;
@@ -77,7 +77,7 @@ The levels and names are ESLint's: `off`, `warn` and `error`, also written `0`, 
 
 A site in the portal shape inherits the shell's levels when it sits inside the shell's repository. `fsr lint` reads every `fsr.lint.toml` from the repository root down to the project, so the site's file holds only what differs. `inherit = false` at the top of a file starts it from the defaults.
 
-`fsr migrate` writes `fsr.lint.toml` from an application's ESLint configuration: `.eslintrc.json`, `package.json`'s `eslintConfig` or an `eslint.config.js` read without running it. It names each rule and preset that has no counterpart.
+`fsr migrate` writes `fsr.lint.toml` from an application's ESLint configuration: `.eslintrc.json`, `package.json`'s `eslintConfig` or an `eslint.config.js` read without running it. A configuration extending unicorn's, promise's or jsdoc's recommended preset gets that preset's rules written out, at the level the preset gives each. It names each rule and preset that has no counterpart.
 
 ## Silencing one finding
 
@@ -90,4 +90,4 @@ ESLint's comments work too, so code brought over keeps the comments it has: `esl
 
 ## What it does not lint yet
 
-The type-aware rules of typescript-eslint, which need a type checker running beside the linter, are not here; `fsr check` runs the type checker itself. Neither are eslint-plugin-react's rules that need the React Compiler. An MDX page's imports and expressions are read but not linted as JavaScript. Vue templates get four rules of eslint-plugin-vue's essential set. Markdown gets the correctness rules of `@eslint/markdown`'s recommended set. typescript-eslint's `no-var-requires` is not ported, since FSR takes no CommonJS. eslint-plugin-unicorn, eslint-plugin-promise and eslint-plugin-jsdoc are not here; `fsr migrate` notes each of their rules an ESLint configuration names. A suppression comment naming a rule `fsr lint` does not have is left alone, since what it silences does not run here.
+The type-aware rules of typescript-eslint, which need a type checker running beside the linter, are not here; `fsr check` runs the type checker itself. Neither are eslint-plugin-react's rules that need the React Compiler. An MDX page's imports and expressions are read but not linted as JavaScript. Vue templates get four rules of eslint-plugin-vue's essential set. Markdown gets the correctness rules of `@eslint/markdown`'s recommended set. typescript-eslint's `no-var-requires` is not ported, since FSR takes no CommonJS. A suppression comment naming a rule `fsr lint` does not have is left alone, since what it silences does not run here.

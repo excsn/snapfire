@@ -65,3 +65,35 @@ fn a_config_that_is_not_one_is_a_note() {
   assert!(translated.notes.iter().any(|n| n.contains("makeConfig")), "{:?}", translated.notes);
   Config::parse(&translated.toml, Path::new("fsr.lint.toml")).unwrap();
 }
+
+#[test]
+fn a_plugin_preset_off_by_default_writes_its_rules() {
+  let rules = snapfire_lint::rules();
+  let preset = |plugin: &str| rules.iter().filter(|r| r.id.starts_with(&format!("{plugin}/")) && r.recommended).map(|r| r.id).collect::<Vec<_>>();
+  assert!(preset("unicorn").len() > 10 && preset("jsdoc").len() > 5 && preset("promise").len() > 3);
+  let rc = serde_json::json!({ "extends": ["plugin:unicorn/recommended", "plugin:jsdoc/recommended", "plugin:promise/recommended"] });
+  let translated = eslint::translate_eslintrc(&rc, &rules);
+  let table: toml::Table = translated.toml.parse().unwrap();
+  let level = |id: &str| table["rules"].get(id).and_then(|v| v.as_str()).map(str::to_owned);
+  for id in preset("unicorn") {
+    assert_eq!(level(id).as_deref(), Some("error"), "{id}: {}", translated.toml);
+  }
+  for id in preset("jsdoc") {
+    assert_eq!(level(id).as_deref(), Some("warn"), "{id}");
+  }
+  assert_eq!(level("promise/no-nesting").as_deref(), Some("warn"));
+  assert_eq!(level("promise/catch-or-return").as_deref(), Some("error"));
+  assert!(!translated.notes.iter().any(|n| n.contains("unicorn") || n.contains("jsdoc") || n.contains("promise")), "{:?}", translated.notes);
+  let flat = "import unicorn from \"eslint-plugin-unicorn\";\nexport default [unicorn.configs.recommended, { rules: { \"unicorn/no-null\": \"off\" } }];\n";
+  let translated = eslint::translate_flat(flat, Path::new("eslint.config.js"), &rules);
+  let table: toml::Table = translated.toml.parse().unwrap();
+  assert_eq!(table["rules"].get("unicorn/no-null").and_then(|v| v.as_str()), Some("off"), "a later rule wins over the preset: {}", translated.toml);
+  assert!(table["rules"].get(preset("unicorn")[0]).is_some(), "{}", translated.toml);
+}
+
+#[test]
+fn a_plugins_rules_are_off_until_a_configuration_names_them() {
+  for rule in snapfire_lint::rules().iter().filter(|r| ["unicorn/", "promise/", "jsdoc/"].iter().any(|p| r.id.starts_with(p))) {
+    assert_eq!(rule.default, Level::Off, "{}", rule.id);
+  }
+}

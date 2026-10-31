@@ -273,7 +273,7 @@ fsr lint --rules
 
 Each rule's `docs` is its documentation from the port: what it does, why and examples.
 
-A recommended rule defaults to `error`. The rest default to `off` and are turned on in `fsr.lint.toml`: `eslint/no-console`, `eslint/no-use-before-define`, `eslint/no-throw-literal`, `typescript/no-non-null-assertion`, `react/no-array-index-key` and `import/no-anonymous-default-export`.
+A rule in the recommended set of ESLint, eslint-plugin-react, jsx-a11y, typescript-eslint or eslint-plugin-vue defaults to `error`, as the presets a TypeScript, React or Vue application extends set it. The rest default to `off` and are turned on in `fsr.lint.toml`: `eslint/no-console` and the other rules past those sets. So is every rule of eslint-plugin-unicorn, eslint-plugin-promise and eslint-plugin-jsdoc, which an ESLint configuration turns on by extending their presets. `rule.recommended` says which rules a plugin's preset holds.
 
 ## Linting Vue and Svelte Components
 
@@ -401,7 +401,7 @@ for note in &translated.notes {
 let flat = eslint::translate_flat(&std::fs::read_to_string("eslint.config.js")?, Path::new("eslint.config.js"), &snapfire_lint::rules());
 ```
 
-`translate_eslintrc` takes an `.eslintrc` as JSON or `package.json`'s `eslintConfig`: `rules`, `overrides`, `ignorePatterns` and `settings` carry over. `translate_flat` reads an `eslint.config.js`, `.mjs` or `.ts` without running it: an `export default` list of objects written out literally, also when one call wraps the list, each with `files`, `ignores`, `rules` and `settings`. A preset whose rules run by default, such as `eslint:recommended` or `js.configs.recommended`, needs nothing written. The rule list is what a rule is checked against. Pass `snapfire_lint::rules()`. A linter that runs `Check`s of its own passes its `rules()` instead, so their rules carry over too. Every rule not in the list, every other preset, `env`, `globals`, `parser` and any part of a flat config that is not a literal is a note. `fsr migrate` runs this over the application it migrates and writes `fsr.lint.toml`.
+`translate_eslintrc` takes an `.eslintrc` as JSON or `package.json`'s `eslintConfig`: `rules`, `overrides`, `ignorePatterns` and `settings` carry over. `translate_flat` reads an `eslint.config.js`, `.mjs` or `.ts` without running it: an `export default` list of objects written out literally, also when one call wraps the list, each with `files`, `ignores`, `rules` and `settings`. A preset whose rules run by default, such as `eslint:recommended` or `js.configs.recommended`, needs nothing written. A preset of unicorn, promise or jsdoc, `plugin:unicorn/recommended` or `unicorn.configs.recommended`, is written out as its rules at the level the preset gives each, since those rules are off by default; a rule the configuration sets after it wins. The rule list is what a rule is checked against. Pass `snapfire_lint::rules()`. A linter that runs `Check`s of its own passes its `rules()` instead, so their rules carry over too. Every rule not in the list, every other preset, `env`, `globals`, `parser` and any part of a flat config that is not a literal is a note. `fsr migrate` runs this over the application it migrates and writes `fsr.lint.toml`.
 
 ## Adding a Rule of Your Own
 
