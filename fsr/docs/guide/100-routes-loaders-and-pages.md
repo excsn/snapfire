@@ -321,6 +321,17 @@ export async function middleware({ request, identity, next }: MiddlewareCtx) {
 }
 ```
 
+A request header reaches a body only when the deployment lists it, so a client cannot put a value of its own there otherwise. `[server] request_headers = ["authorization"]` makes it `request.headers.authorization`, which is how an API checks a token:
+
+```ts
+export async function middleware({ request, services, next }: MiddlewareCtx) {
+  if (request.path.startsWith("/api/") && !(await services.tokens.valid({ header: request.headers.authorization ?? "" }))) {
+    return Response.json({ kind: "unauthorized" }, { status: 401 });
+  }
+  return next();
+}
+```
+
 A session write before `await next()` is there when the route runs, and one after it is saved with the response.
 
 The storefront's middleware sends the old `/basket` to `/cart`, serves `/shop` as the catalog and stamps every response. Under `fsr test`, a body test runs it with a `request` in its context, a spec's `fetch` goes through it and `load` follows the redirect and reports where it landed.

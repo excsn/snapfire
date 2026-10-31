@@ -8357,3 +8357,49 @@ async fn a_session_write_before_a_middleware_runs_the_route_is_saved_once() {
   let response = host.handle(Request::get("/").header(header::HOST, "localhost").body(Bytes::new()).unwrap()).await;
   assert_eq!(session_cookies(&response), 1, "the route saved it and the middleware's end has nothing new");
 }
+
+/// The headers a middleware saw, as `name=value` lines.
+async fn headers_a_middleware_sees(server_lines: &str, sent: &[(&str, &str)]) -> Vec<String> {
+  let dir = server_with(server_lines);
+  let seen = Arc::new(parking_lot::Mutex::new(Vec::new()));
+  let record = seen.clone();
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new()))))
+    .middleware(move |ctx, input| {
+      let record = record.clone();
+      async move {
+        if let Value::Map(request) = &input {
+          if let Some(Value::Map(headers)) = request.get("headers") {
+            for (name, value) in headers.iter() {
+              if let Value::Str(value) = value {
+                record.lock().push(format!("{name}={value}"));
+              }
+            }
+          }
+        }
+        route_with(ctx, Vec::new()).await
+      }
+    })
+    .build()
+    .unwrap();
+  let mut request = Request::get("/").header(header::HOST, "localhost");
+  for (name, value) in sent {
+    request = request.header(*name, *value);
+  }
+  host.handle(request.body(Bytes::new()).unwrap()).await;
+  let mut seen = seen.lock().clone();
+  seen.sort();
+  seen
+}
+
+#[tokio::test]
+async fn a_middleware_reads_only_the_request_headers_the_deployment_listed() {
+  let seen = headers_a_middleware_sees("request_headers = [\"Authorization\", \"x-absent\"]", &[("authorization", "Bearer t"), ("x-other", "secret")]).await;
+  assert_eq!(seen, ["authorization=Bearer t"], "named as listed, lowercase, and nothing unlisted");
+}
+
+#[tokio::test]
+async fn with_none_listed_a_middleware_reads_no_header() {
+  assert!(headers_a_middleware_sees("", &[("authorization", "Bearer t")]).await.is_empty());
+}

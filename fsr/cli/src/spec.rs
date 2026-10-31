@@ -983,7 +983,7 @@ impl Hooks for SpecHooks {
       ctx.params = Params::new();
       ctx.query = parse_query(&query);
       ctx.path = path.clone();
-      let input = snapfire_fsr_host::middleware_request(&method, &path, &query, None);
+      let input = snapfire_fsr_host::middleware_request(&method, &path, &query, None, Default::default());
       let run = move |ctx: snapfire_fsr_runtime::RequestCtx| -> futures_util::future::BoxFuture<'static, Result<Value, snapfire_fsr_runtime::ActionError>> {
         Box::pin(async move { interpreter.run(&body_ir, &ctx, Some(input)).await.map(|outcome| outcome.value).map_err(|fail| snapfire_fsr_runtime::ActionError::new(fail.kind, fail.message)) })
       };

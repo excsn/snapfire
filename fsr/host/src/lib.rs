@@ -306,6 +306,7 @@ pub struct Host {
   /// The hosts a request's `Host` is matched against, `server.hosts`,
   /// lowercased once at boot. Empty, the header is never read.
   hosts: Vec<String>,
+  request_headers: Vec<String>,
   /// `document.origin`, checked at boot, which the canonical link carries.
   origin: Option<String>,
   /// Whether `serve_listener` negotiates HTTP/2 as well as HTTP/1.1 on a

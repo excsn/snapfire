@@ -473,6 +473,11 @@ pub struct ServerConfig {
   /// port included, so a deployment on a port lists the port.
   #[serde(default)]
   pub hosts: Vec<String>,
+  /// The request headers a middleware reads as `request.headers`, by lowercase
+  /// name. A header not listed never reaches a body, so a client cannot put a
+  /// value of its own there unless the deployment asked for it.
+  #[serde(default)]
+  pub request_headers: Vec<String>,
   /// Where `prerender` writes and the host reads a route rendered once at
   /// build time, relative to the app directory. Absent, nothing is prerendered.
   #[serde(default)]
@@ -573,6 +578,7 @@ impl Default for ServerConfig {
       max_body: default_max_body(),
       max_upload: 0,
       hosts: Vec::new(),
+      request_headers: Vec::new(),
       prerender: None,
       dev: None,
       render: None,

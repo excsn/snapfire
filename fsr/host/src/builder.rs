@@ -541,6 +541,7 @@ impl HostBuilder {
       max_body: config.server.max_body,
       max_upload: config.server.max_upload,
       hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
+      request_headers: config.server.request_headers.iter().map(|h| h.to_lowercase()).collect(),
       origin: config.origin()?,
       http2,
       shutdown_grace: std::time::Duration::from_secs(config.server.shutdown_grace),

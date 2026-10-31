@@ -107,6 +107,7 @@ prerender = "dist/prerender"      # optional: where rendered-once routes live
 dev = false                       # optional: live refresh; absent, on unless RELEASE_ENV is set to something else than development
 max_body = 1048576                # optional: bytes a request body may carry; a larger one is 413
 max_upload = 0                    # optional: bytes one uploaded part may carry, 0 for no cap beyond max_body
+request_headers = ["authorization"]  # optional: the headers a middleware reads as request.headers; any other never reaches a body
 http2 = false                     # optional: negotiate h2c beside http/1.1; without tls a browser needs a proxy in front
 shutdown_grace = 20               # optional: seconds to finish in-flight requests after SIGTERM or SIGINT
 trusted_origins = []              # optional: other origins a write may come from, a payment provider posting back

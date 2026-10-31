@@ -139,12 +139,13 @@ pub(crate) enum Stage {
 }
 
 /// The request line a middleware reads as `request`.
-pub fn middleware_request(method: &str, path: &str, query: &str, site: Option<&str>) -> Value {
+pub fn middleware_request(method: &str, path: &str, query: &str, site: Option<&str>, headers: snapfire_fsr_core::ValueMap) -> Value {
   let mut request = snapfire_fsr_core::ValueMap::default();
   request.insert("method".to_owned(), Value::str(method.to_ascii_uppercase()));
   request.insert("path".to_owned(), Value::str(path.to_owned()));
   request.insert("payload".to_owned(), Value::Bool(payload_of(query)));
   request.insert("site".to_owned(), site.map(|s| Value::str(s.to_owned())).unwrap_or(Value::Null));
+  request.insert("headers".to_owned(), Value::Map(headers));
   Value::Map(request)
 }
 
@@ -680,7 +681,11 @@ impl Host {
         return self.through(t, req, opened, visit, incoming, inner, path, query).await;
       };
       let ctx = self.ctx(t, incoming.clone(), Params::new(), parse_query(&query), &path, visit.locale.clone());
-      let input = middleware_request(req.method().as_str(), &path, &query, site.map(|s| s.name.as_str()));
+      let listed = self.request_headers.iter().filter_map(|name| {
+        let value = req.headers().get(name)?.to_str().ok()?;
+        Some((name.clone(), Value::str(value.to_owned())))
+      });
+      let input = middleware_request(req.method().as_str(), &path, &query, site.map(|s| s.name.as_str()), listed.collect());
       let bound = (stage == Stage::Site).then(|| site.map(|s| (s.name.clone(), s.at.clone()))).flatten();
       let passed = tracing::Instrument::instrument(
         snapfire_fsr_runtime::drive_middleware(
