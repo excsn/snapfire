@@ -9,15 +9,17 @@ use crate::interp::Fail;
 use snapfire_fsr_core::Value;
 
 pub fn register(extensions: &mut Extensions) {
-  extensions.register("clipboard.write", Reach::Process, |_, args| {
-    let written = text("clipboard.write", args, 0)?;
-    let tried = commands(std::env::consts::OS, std::env::var_os("WAYLAND_DISPLAY").is_some());
-    first_that_runs(&tried, |(copy, _)| copy_through(copy, written)).map(|()| Value::Null)
-  });
+  extensions.register("clipboard.write", Reach::Process, |_, args| write_local(text("clipboard.write", args, 0)?).map(|()| Value::Null));
   extensions.register("clipboard.read", Reach::Process, |_, _| {
     let tried = commands(std::env::consts::OS, std::env::var_os("WAYLAND_DISPLAY").is_some());
     first_that_runs(&tried, |(_, paste)| paste_through(paste)).map(Value::str)
   });
+}
+
+/// Puts `written` on the clipboard of the machine the program runs on, through the first of [`commands`] installed.
+pub fn write_local(written: &str) -> Result<(), Fail> {
+  let tried = commands(std::env::consts::OS, std::env::var_os("WAYLAND_DISPLAY").is_some());
+  first_that_runs(&tried, |(copy, _)| copy_through(copy, written))
 }
 
 /// A command line: the program and its arguments.

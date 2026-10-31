@@ -5,12 +5,14 @@
 //! of styled cells that reads back as plain lines, as ANSI text or as the
 //! escape sequences that turn one frame into the next.
 
+mod clipboard;
 mod frame;
 mod layout;
 mod markup;
 mod props;
 mod style;
 
+pub use clipboard::{clipboard_copy, clipboard_in_attributes, DEVICE_ATTRIBUTES};
 pub use frame::{Cell, Frame, BEGIN_SYNCHRONIZED, END_SYNCHRONIZED};
 pub use layout::{render, render_measured, Metrics};
 pub use markup::from_markup;

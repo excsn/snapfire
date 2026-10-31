@@ -1381,10 +1381,10 @@ The machine a terminal page runs on. Terminal pages only; in a browser each memb
 
 ### clipboard
 
-The system clipboard of the machine a terminal page runs on. Terminal pages only; in a browser each member throws.
+The clipboard of a terminal page. Terminal pages only; in a browser each member throws.
 
-* `clipboard.write(text: string): void`: puts `text` on the clipboard through `pbcopy`, `clip`, `wl-copy`, `xclip` or `xsel`, the first the platform has.
-* `clipboard.read(): string`: what the clipboard holds, through the matching paste command.
+* `clipboard.write(text: string): void`: puts `text` on the clipboard of the terminal the user sits at through OSC 52 when the terminal names it in its device attributes, over SSH too. Otherwise on the clipboard of the machine the page runs on through `pbcopy`, `clip`, `wl-copy`, `xclip` or `xsel`, the first the platform has.
+* `clipboard.read(): string`: what the clipboard of the machine the page runs on holds, through the matching paste command. Terminals often refuse OSC 52 reads, so reading never asks the terminal.
 
 ### time
 

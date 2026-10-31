@@ -183,6 +183,7 @@ pub struct Session {
   module: String,
   library: Components,
   consts: Arc<snapfire_fsr_ir::ast::Consts>,
+  extensions: Arc<snapfire_fsr_ir::Extensions>,
   state: ValueMap,
   size: (u16, u16),
   written: Vec<String>,
@@ -306,6 +307,12 @@ impl Session {
     Session::open_with(app, Params::new())
   }
 
+  /// The session with `extensions` answering its handlers' calls in place of the standard library.
+  pub fn with_extensions(mut self, extensions: Arc<snapfire_fsr_ir::Extensions>) -> Session {
+    self.extensions = extensions;
+    self
+  }
+
   /// The page under `app` with `params` for its loader: the command line as `fsr dev --terminal -- …` reads it.
   pub fn open_with(app: &Path, params: Params) -> Result<Session, String> {
     Session::open_module_with(app, MODULE, params)
@@ -322,7 +329,7 @@ impl Session {
       Some(body) => load(body, consts.clone(), params)?,
       None => ValueMap::default(),
     };
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), stdin: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false, exit_code: None, props })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, extensions: Arc::new(snapfire_fsr_ir::Extensions::standard()), state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), stdin: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false, exit_code: None, props })
   }
 
   /// The page as it stands.
@@ -776,7 +783,7 @@ impl Session {
     props.insert("$store".to_owned(), Value::Map(store));
     let path = handler.as_ref().map(|handler| handler.path.clone()).unwrap_or_default();
     props.insert(snapfire_fsr_ir::render::CELLS_PROP.to_owned(), Value::Map(self.cells.clone()));
-    let stepped = Interpreter::default().with_consts(Some(self.consts.clone())).island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
+    let stepped = Interpreter::default().with_consts(Some(self.consts.clone())).with_extensions(self.extensions.clone()).island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
     self.cells.extend(stepped.cells.clone());
     self.store.extend(stepped.store.clone());
     let issued = stepped.emitted.iter().filter(|e| e.kind == snapfire_fsr_ir::render::ACT).filter_map(|e| match &e.value {
@@ -888,16 +895,75 @@ fn load(body: &Body, consts: Arc<snapfire_fsr_ir::ast::Consts>, params: Params) 
 }
 
 /// The terminal held in raw mode on the alternate screen, put back on drop.
-struct Screen;
+struct Screen {
+  /// Whether the terminal's device attributes name OSC 52, asked as the screen is entered.
+  clipboard: bool,
+}
 
 impl Screen {
   fn enter() -> std::io::Result<Screen> {
     crossterm::terminal::enable_raw_mode()?;
+    let clipboard = asks_clipboard();
     let mut out = std::io::stdout();
     out.write_all(b"\x1b[?1049h\x1b[?25l\x1b[2J")?;
     out.flush()?;
-    Ok(Screen)
+    Ok(Screen { clipboard })
   }
+}
+
+/// How long the terminal has to answer [`snapfire_fsr_terminal::DEVICE_ATTRIBUTES`]; every VT100-compatible
+/// terminal answers it, so the wait ends on the answer.
+const ATTRIBUTES_WAIT: Duration = Duration::from_millis(300);
+
+/// Whether the terminal on standard input names OSC 52 in its device attributes. Asked before crossterm reads
+/// any input, so the answer is not taken for keys; what arrives with it is dropped.
+#[cfg(unix)]
+fn asks_clipboard() -> bool {
+  if unsafe { libc::isatty(0) } != 1 {
+    return false;
+  }
+  let mut out = std::io::stdout();
+  if out.write_all(snapfire_fsr_terminal::DEVICE_ATTRIBUTES.as_bytes()).and_then(|()| out.flush()).is_err() {
+    return false;
+  }
+  let deadline = Instant::now() + ATTRIBUTES_WAIT;
+  let mut input = Vec::new();
+  loop {
+    let left = deadline.saturating_duration_since(Instant::now());
+    let mut fds = [libc::pollfd { fd: 0, events: libc::POLLIN, revents: 0 }];
+    if left.is_zero() || unsafe { libc::poll(fds.as_mut_ptr(), 1, left.as_millis() as i32) } <= 0 {
+      return false;
+    }
+    let mut buf = [0u8; 256];
+    let read = unsafe { libc::read(0, buf.as_mut_ptr().cast(), buf.len()) };
+    if read <= 0 {
+      return false;
+    }
+    input.extend_from_slice(&buf[..read as usize]);
+    if let Some(named) = snapfire_fsr_terminal::clipboard_in_attributes(&input) {
+      return named;
+    }
+  }
+}
+
+#[cfg(not(unix))]
+fn asks_clipboard() -> bool {
+  false
+}
+
+/// The standard library, with `clipboard.write` putting the text on the terminal's own clipboard through OSC 52 when
+/// the terminal takes it. `clipboard.read` stays the machine's.
+fn extensions_for(screen: &Screen) -> Arc<snapfire_fsr_ir::Extensions> {
+  let mut extensions = snapfire_fsr_ir::Extensions::standard();
+  if screen.clipboard {
+    extensions.register("clipboard.write", snapfire_fsr_ir::ext::Reach::Process, |_, args| {
+      let written = snapfire_fsr_ir::ext::text("clipboard.write", args, 0)?;
+      let mut out = std::io::stdout();
+      out.write_all(snapfire_fsr_terminal::clipboard_copy(written).as_bytes()).and_then(|()| out.flush()).map_err(|e| snapfire_fsr_ir::Fail::internal(format!("clipboard: {e}")))?;
+      Ok(Value::Null)
+    });
+  }
+  Arc::new(extensions)
 }
 
 impl Drop for Screen {
@@ -1013,6 +1079,9 @@ fn run_session(app: &Path, args: &[String], watch: bool) -> Result<(), BuildErro
       (Some(Screen::enter().map_err(fail)?), session)
     }
   };
+  if let Some(screen) = &screen {
+    session = session.with_extensions(extensions_for(screen));
+  }
   let (columns, rows) = terminal_size();
   session.resize(columns, rows);
   let mut drawn = session.view();

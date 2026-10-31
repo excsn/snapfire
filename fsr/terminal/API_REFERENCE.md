@@ -22,10 +22,13 @@ Ink's `Box` and `Text` laid out with flexbox and drawn to a terminal as cells.
   * [Frame](#frame)
   * [Cell](#cell)
   * [BEGIN_SYNCHRONIZED and END_SYNCHRONIZED](#begin_synchronized-and-end_synchronized)
-* [4. Markup](#4-markup)
+* [4. Clipboard](#4-clipboard)
+  * [clipboard_copy](#clipboard_copy)
+  * [clipboard_in_attributes and DEVICE_ATTRIBUTES](#clipboard_in_attributes-and-device_attributes)
+* [5. Markup](#5-markup)
   * [from_markup](#from_markup)
   * [Prop and Value](#prop-and-value)
-* [5. Error Handling](#5-error-handling)
+* [6. Error Handling](#6-error-handling)
 
 ## 1. Elements
 
@@ -131,7 +134,18 @@ Ink's `Text`. A nested `Text` adds its style to the one around it. An SGR sequen
 
 * `pub struct Metrics { pub width: u16, pub height: u16, pub left: i32, pub top: i32, pub client_width: u16, pub client_height: u16 }`, `Copy`, `PartialEq`, `Default`: a box's layout as Ink's `useBoxMetrics` reports it. `left` and `top` are from the parent's corner and leave out any content offset. The client size leaves out the border and keeps the padding.
 
-## 4. Markup
+## 4. Clipboard
+
+### clipboard_copy
+
+* `pub fn clipboard_copy(text: &str) -> String`: `ESC]52;c;<text as standard base64>BEL`, which puts `text` on the terminal's clipboard. [OSC 52](https://github.com/contour-terminal/vt-extensions/blob/master/clipboard-extension.md).
+
+### clipboard_in_attributes and DEVICE_ATTRIBUTES
+
+* `pub const DEVICE_ATTRIBUTES: &str` is `ESC[c`, Primary Device Attributes.
+* `pub fn clipboard_in_attributes(input: &[u8]) -> Option<bool>`: for the first `ESC[?` in `input` and the `c` after it, whether a `;`-separated parameter between them is `52`. `None` when `input` holds no whole answer.
+
+## 5. Markup
 
 ### from_markup
 
@@ -148,6 +162,6 @@ Ink's `Text`. A nested `Text` adds its style to the one around it. An SGR sequen
 * `pub static TEXT_PROPS: &[Prop<Text>]`: `color`, `backgroundColor`, `bold`, `dimColor`, `italic`, `underline`, `strikethrough`, `inverse`, `aria-label` and `aria-hidden` (drawn as nothing) and `wrap` (`wrap`, `truncate`, `truncate-end`, `truncate-start`, `truncate-middle`, cut as `cli-truncate` cuts).
 * `pub fn prop_declarations() -> String`: the TypeScript of `Extent`, `BoxProps` and `TextProps` from the two tables, each prop optional and typed by its value, a word list as a union of its words, a hyphenated name quoted. `BoxProps` adds `children`, `key` and `ref`, `TextProps` `children` and `key`; `ReactNode` is the importing file's.
 
-## 5. Error Handling
+## 6. Error Handling
 
 `render` and the `Frame` methods do not fail. `from_markup` answers `Err(String)` for a tag that is not one of the four (``"`<div>` is not an Ink element"``), an element inside an `ink-text` other than `ink-text` or `ink-newline`, an end tag that closes nothing open, an element never closed, an unquoted attribute value and a prop's value that is not what the prop takes, ``"`flex-direction` on a Box is one of `row`, `column`, `row-reverse`, `column-reverse`, not `diagonal`"``.

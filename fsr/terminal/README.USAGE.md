@@ -12,6 +12,7 @@ How to build Ink elements, lay them out at a terminal's width and draw them, onc
 * [Reading Lowered Markup](#reading-lowered-markup)
 * [Drawing a Frame](#drawing-a-frame)
 * [Redrawing What Changed](#redrawing-what-changed)
+* [Copying to the Terminal's Clipboard](#copying-to-the-terminals-clipboard)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -124,6 +125,22 @@ print!("{}", next.update(None, Some((0, 1))));
 ```
 
 A program that leaves the screen writes `END_SYNCHRONIZED` first, in case a frame was cut off.
+
+## Copying to the Terminal's Clipboard
+
+OSC 52 puts text on the clipboard of the terminal the user sits at, which is the one they mean when the program runs over SSH. Ask the terminal first: write `DEVICE_ATTRIBUTES` and read its answer from standard input in raw mode before anything else reads input.
+
+```rust
+use snapfire_fsr_terminal::{clipboard_copy, clipboard_in_attributes, DEVICE_ATTRIBUTES};
+
+print!("{DEVICE_ATTRIBUTES}");
+let answer = b"\x1b[?62;22;52c";
+if clipboard_in_attributes(answer) == Some(true) {
+  print!("{}", clipboard_copy("copied text"));
+}
+```
+
+`clipboard_in_attributes` is `None` until the answer is whole, so a reader can stop as soon as it is `Some`. Text before the answer, a key typed at that moment, does not change it.
 
 ## Error Handling
 

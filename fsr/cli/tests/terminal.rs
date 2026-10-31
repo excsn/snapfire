@@ -1125,3 +1125,20 @@ fn an_awaited_read_that_fails_inside_a_try_runs_its_catch() {
   session.view().unwrap();
   assert_eq!(line(session.view().unwrap()), "ENOENT");
 }
+
+#[test]
+fn a_handler_calls_the_extensions_the_session_was_given() {
+  let page = "import { useState } from \"react\";\nimport { clipboard } from \"@snapfire/fsr/terminal\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Copy() {\n  const [copied, setCopied] = useState(\"\");\n  useInput((input) => {\n    if (input === \"c\") {\n      clipboard.write(\"copied text\");\n      setCopied(\"yes\");\n    }\n  });\n  return <Text>copied {copied}</Text>;\n}\n";
+  let app = app(page);
+  let written = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+  let mut extensions = snapfire_fsr_ir::Extensions::standard();
+  let into = written.clone();
+  extensions.register("clipboard.write", snapfire_fsr_ir::ext::Reach::Process, move |_, args| {
+    into.lock().unwrap().push(snapfire_fsr_ir::ext::text("clipboard.write", args, 0)?.to_owned());
+    Ok(Value::Null)
+  });
+  let mut session = Session::open(&app).unwrap().with_extensions(std::sync::Arc::new(extensions));
+  let Some(Press::Input(c)) = key_event(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)) else { panic!("c is input") };
+  session.press(&c).unwrap();
+  assert_eq!(*written.lock().unwrap(), ["copied text"]);
+}

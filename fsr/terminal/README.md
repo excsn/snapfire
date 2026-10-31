@@ -25,5 +25,6 @@ No features. `unicode-width` measures wide characters, which take two cells. The
 | Print a frame once, as Ink's `renderToString` does | `Frame::to_ansi` |
 | Redraw only what changed since the last frame | `Frame::diff` |
 | Put a frame on screen without tearing | `Frame::update` |
+| Copy to the terminal's own clipboard | `clipboard_copy`, after `DEVICE_ATTRIBUTES` and `clipboard_in_attributes` |
 | Compare a frame in a test | `Frame::lines` |
 | Parse a color the way Ink takes one | `Color::parse` |

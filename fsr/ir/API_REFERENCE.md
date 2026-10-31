@@ -372,7 +372,7 @@ Every member takes its arguments positionally and answers a `Value`; `std::regis
 | `system.lineEnd` | process | | `"\r\n"` on Windows, `"\n"` elsewhere |
 | `system.cwd` | process | | the working directory |
 | `system.memory` | process | | the resident set of the process in bytes, 0 where it cannot be read |
-| `clipboard.write` | process | `text` | puts `text` on the clipboard through the first of `clipboard::commands` that is installed: `pbcopy` on macOS, `clip` on Windows, `wl-copy` under Wayland then `xclip` and `xsel`; null |
+| `clipboard.write` | process | `text` | puts `text` on the clipboard through the first of `clipboard::commands` that is installed: `pbcopy` on macOS, `clip` on Windows, `wl-copy` under Wayland then `xclip` and `xsel`; null. `clipboard::write_local(text) -> Result<(), Fail>` is the same write for a host that registers its own `clipboard.write` and falls back to it |
 | `clipboard.read` | process | | what the clipboard holds, through the matching paste command |
 | `log.trace`, `log.debug`, `log.info`, `log.warn`, `log.error`, `log.fatal` | render | `message`, `fields?` | a `tracing` event at that level under the target `fsr::app`, `fields` written as `console.log` writes a value; `fatal` is the error level; null |
 | `terminal.wrapAnsi` | terminal | `s`, `columns`, `{ hard?, trim?, wordWrap? }?` | the rows `wrap-ansi` 9 breaks `s` into; escape codes stay where they stand |
