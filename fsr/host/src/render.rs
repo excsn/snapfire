@@ -358,7 +358,10 @@ impl Host {
     head: &Head,
   ) -> Result<Rendered, HostError> {
     let origin = incoming.intercept.as_ref().filter(|i| !i.kept.is_empty()).map(|i| (i.document.clone(), i.params.clone(), i.query.clone(), i.kept.clone()));
-    let ctx = self.ctx(t, incoming, params, query, path, locale.clone());
+    let mut ctx = self.ctx(t, incoming, params, query, path, locale.clone());
+    // Taken here and not where a context is built, since a middleware or a handler renders nothing that could show it.
+    // Taken rather than read, so the next render does not show it again.
+    ctx.failure = ctx.session.remove(snapfire_fsr_runtime::FAILURE_KEY);
     let assembly = match origin {
       Some((document, params, query, nodes)) => {
         let mut under = ctx.clone();

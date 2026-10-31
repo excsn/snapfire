@@ -8403,3 +8403,70 @@ async fn a_middleware_reads_only_the_request_headers_the_deployment_listed() {
 async fn with_none_listed_a_middleware_reads_no_header() {
   assert!(headers_a_middleware_sees("", &[("authorization", "Bearer t")]).await.is_empty());
 }
+
+/// Refuses a form field, then answers what the page says when `between` has run on the same session.
+async fn failure_after(host: Arc<Host>, between: Option<&str>) -> String {
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let token = field(&body_of(response).await, "csrf_token").expect("csrf = always mints a token");
+  let response = host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(header::REFERER, "http://localhost/hello/norm")
+        .body(Bytes::from(format!("by=two&_csrf={token}")))
+        .unwrap(),
+    )
+    .await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  if let Some(path) = between {
+    host.handle(Request::get(path).header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
+  }
+  body_of(host.handle(Request::get("/hello/norm").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await
+}
+
+#[tokio::test]
+async fn a_form_failure_reaches_the_page_through_a_middleware() {
+  let host = Host::from(formed_dir().join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new()))))
+    .middleware(|ctx, _input| async move { route_with(ctx, Vec::new()).await })
+    .build()
+    .unwrap();
+  let html = failure_after(Arc::new(host), None).await;
+  assert!(html.contains("action_failure"), "the middleware's context must not take it: {html}");
+}
+
+#[tokio::test]
+async fn a_form_failure_waits_for_a_page_past_a_request_that_renders_nothing() {
+  let host = Host::from(formed_dir().join("app.toml"))
+    .unwrap()
+    .services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new()))))
+    .handler("GET", "/ping", |_ctx, _input| async move { Ok(Value::str("pong")) })
+    .build()
+    .unwrap();
+  let html = failure_after(Arc::new(host), Some("/ping")).await;
+  assert!(html.contains("action_failure"), "a handler renders nothing, so it must not take it: {html}");
+}
+
+#[tokio::test]
+async fn a_form_failure_shows_once() {
+  let host = formed();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let token = field(&body_of(response).await, "csrf_token").unwrap();
+  host
+    .handle(
+      Request::post("/_sf/action/index.bump")
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .header(header::REFERER, "http://localhost/hello/norm")
+        .body(Bytes::from(format!("by=two&_csrf={token}")))
+        .unwrap(),
+    )
+    .await;
+  let page = || host.handle(Request::get("/hello/norm").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap());
+  assert!(body_of(page().await).await.contains("action_failure"));
+  assert!(!body_of(page().await).await.contains("action_failure"), "a reload does not show it again");
+}

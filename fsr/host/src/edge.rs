@@ -220,8 +220,6 @@ impl Host {
     ctx.path = path.to_owned();
     ctx.document = document;
     ctx.address = address;
-    // Taken rather than read, so the next render does not show it again.
-    ctx.failure = incoming.session.remove(snapfire_fsr_runtime::FAILURE_KEY);
     ctx.session = incoming.session;
     ctx.locale = locale;
     ctx.locales = t.locales.supported.clone();
