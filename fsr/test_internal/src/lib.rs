@@ -85,9 +85,20 @@ pub fn snapfire_root() -> PathBuf {
   Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// The checker a test runs: `$SNAPFIRETC`, else the snapfire root's debug build. The path is returned whether or not a file is there.
+/// The checker a test runs: `$SNAPFIRETC`, else the snapfire root's debug build, else `snapfiretc` on `PATH`. With none
+/// of them there it is the root's build, so a test's message names what to build.
 pub fn snapfiretc() -> PathBuf {
-  std::env::var_os("SNAPFIRETC").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| snapfire_root().join("target/debug/snapfiretc"))
+  checker_from(std::env::var_os("SNAPFIRETC"), snapfire_root().join("target/debug/snapfiretc"), std::env::var_os("PATH"))
+}
+
+fn checker_from(named: Option<std::ffi::OsString>, built: PathBuf, path: Option<std::ffi::OsString>) -> PathBuf {
+  if let Some(named) = named.filter(|v| !v.is_empty()) {
+    return PathBuf::from(named);
+  }
+  if built.is_file() {
+    return built;
+  }
+  path.iter().flat_map(std::env::split_paths).map(|dir| dir.join("snapfiretc")).find(|candidate| candidate.is_file()).unwrap_or(built)
 }
 
 /// A response's body as text.
@@ -99,4 +110,25 @@ where
   use http_body_util::BodyExt;
   let bytes = response.into_body().collect().await.expect("the body reads").to_bytes();
   String::from_utf8(bytes.to_vec()).expect("the body is UTF-8")
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn the_checker_is_the_named_one_then_the_roots_build_then_the_one_on_path() {
+    let dir = std::env::temp_dir().join(format!("fsr-checker-{}", std::process::id()));
+    let (built, installed) = (dir.join("target/debug/snapfiretc"), dir.join("bin/snapfiretc"));
+    std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+    std::fs::write(&installed, "").unwrap();
+    let path = Some(std::env::join_paths([dir.join("empty"), dir.join("bin")]).unwrap());
+    assert_eq!(checker_from(Some("/named/snapfiretc".into()), built.clone(), path.clone()), PathBuf::from("/named/snapfiretc"));
+    assert_eq!(checker_from(None, built.clone(), path.clone()), installed, "no build at the root");
+    assert_eq!(checker_from(None, built.clone(), None), built, "nothing installed names the root's build");
+    std::fs::create_dir_all(built.parent().unwrap()).unwrap();
+    std::fs::write(&built, "").unwrap();
+    assert_eq!(checker_from(None, built.clone(), path), built, "the root's build wins over the installed one");
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
 }
