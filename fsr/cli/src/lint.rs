@@ -15,7 +15,8 @@ pub fn run(app: &Path) -> Result<Report, ConfigError> {
 }
 
 fn linter(app: &Path) -> Result<Linter, ConfigError> {
-  let mut config = Config::discover(&crate::serve::project_root(app))?.over(snapfire_fsr_lint::base());
+  let react = Layout::of(app).is_ok_and(|layout| has_react(app, &layout));
+  let mut config = Config::discover(&crate::serve::project_root(app))?.over(snapfire_fsr_lint::base_for(react));
   let mut checks = snapfire_fsr_lint::checks();
   if let Ok(layout) = Layout::of(app) {
     checks.push(Box::new(snapfire_fsr_lint::ExtraneousDependencies::new(vendored_for(app, &layout))));
@@ -51,6 +52,14 @@ fn vendored_for(app: &Path, layout: &Layout) -> BTreeMap<String, Vec<String>> {
   let shell: Vec<String> = crate::vendor::shell_beside(app).ok().flatten().map(|contract| contract.imports.into_keys().collect()).unwrap_or_default();
   found.retain(|name, _| !under(name, "@snapfire") && !shell.iter().any(|served| under(name, served.trim_end_matches('/'))));
   found
+}
+
+/// Whether the application renders with React: it vendors `react`, its import map names it, or it is a terminal
+/// program, whose Ink FSR supplies.
+fn has_react(app: &Path, layout: &Layout) -> bool {
+  let vendored = crate::vendor::VendorManifest::read(app, layout).is_ok_and(|manifest| manifest.packages.contains_key("react"));
+  let mapped = crate::vendor::read_import_map(app, layout).is_ok_and(|map| map.get("imports").and_then(|i| i.get("react")).is_some());
+  vendored || mapped || crate::is_terminal_app(app)
 }
 
 /// Whether `specifier` is `name` or sits under it.

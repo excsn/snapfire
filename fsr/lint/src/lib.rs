@@ -73,10 +73,20 @@ const HTMX_ATTRIBUTES: &[&str] = &[
 /// What FSR sets under a project's own `fsr.lint.toml`, as a framework's shared ESLint config does. A route page's
 /// front matter is its `meta`, the document's title, so under `routes/` it is not counted as the first heading.
 pub fn base() -> Config {
+  base_for(true)
+}
+
+/// [`base`] for an application that has React or not: without it, a function named `useThing` is no hook, so
+/// `react/rules-of-hooks` and `react/exhaustive-deps` are off, as a framework's shared ESLint config leaves them out.
+pub fn base_for(react: bool) -> Config {
   let ignore = HTMX_ATTRIBUTES.iter().map(|a| format!("\"{a}\"")).collect::<Vec<_>>().join(", ");
   let untitled = "[\"error\", { frontmatterTitle = \"\" }]";
   let routes = format!("[[overrides]]\nfiles = [\"routes/**/*.md\", \"routes/**/*.mdx\"]\nrules = {{ \"markdown/no-multiple-h1\" = {untitled}, \"markdown/heading-increment\" = {untitled} }}\n");
-  Config::parse(&format!("[rules]\n\"react/no-unknown-property\" = [\"error\", {{ ignore = [{ignore}] }}]\n\n{routes}"), Path::new("fsr")).expect("FSR's base configuration parses")
+  let hooks = match react {
+    true => "",
+    false => "\"react/rules-of-hooks\" = \"off\"\n\"react/exhaustive-deps\" = \"off\"\n",
+  };
+  Config::parse(&format!("[rules]\n\"react/no-unknown-property\" = [\"error\", {{ ignore = [{ignore}] }}]\n{hooks}\n{routes}"), Path::new("fsr")).expect("FSR's base configuration parses")
 }
 
 /// Globals that exist only in a browser.

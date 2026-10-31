@@ -45,7 +45,7 @@ Six rules know what only FSR knows:
 | `fsr/output-name-clash` | two sources snapfirec writes to one name, such as `format.ts` beside `Format.js` |
 | `import/no-extraneous-dependencies` | an import of a package vendored only because another package imports it, such as `clsx` brought in by `svelte`. `fsr add` declares it. In an xwpm application, a module the import map holds that `[modules]` does not name. It is a warning. It keeps ESLint's name so ESLint's comments for it still work |
 
-FSR also tells `react/no-unknown-property` about htmx's attributes, so `hx-get` and `hx-swap` on a JSX element are not findings.
+FSR also tells `react/no-unknown-property` about htmx's attributes, so `hx-get` and `hx-swap` on a JSX element are not findings. In an application without React, a Vue one or an htmx one, React's two hooks rules are off, since a composable named `useAuth` is no hook.
 
 ## Templates and pages
 

@@ -135,4 +135,6 @@ import clsx from "clsx";
 
 keeps the ignore list and changes only the level.
 
+An application without React gets `base_for(false)`: a Vue composable named `useAuth` is not a React hook, so `react/rules-of-hooks` and `react/exhaustive-deps` are off. `fsr lint` passes whether the app vendors `react`, names it in its import map or is a terminal program.
+
 Under `routes/`, a Markdown or MDX page's front matter is the route's `meta`, the document's title, so `base()` does not count its `title` as the first heading: a page with `title` in its front matter and one `#` heading has one `h1`. A file outside `routes/`, such as content another page imports and heads with `meta.title`, keeps ESLint's reading.

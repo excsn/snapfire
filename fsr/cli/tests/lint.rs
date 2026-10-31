@@ -120,3 +120,21 @@ fn an_xwpm_application_declares_its_modules_in_the_wmf() {
   assert!(found[0].contains("`markdown-it`"), "{}", found[0]);
   let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn reacts_hooks_rules_run_only_where_the_app_has_react() {
+  let composable = "export function useAuth() { return 1; }\nexport function signIn(ok: boolean) {\n  if (ok) {\n    return useAuth();\n  }\n  return 0;\n}\n";
+  let hooks = |manifest: &str| {
+    let root = project();
+    let app = root.join("app");
+    std::fs::create_dir_all(app.join("vendor")).unwrap();
+    std::fs::write(app.join("vendor/.fsr-vendor.json"), manifest).unwrap();
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("src/auth.ts"), composable).unwrap();
+    let report = snapfire_fsr_cli::lint::run(&app).unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    report.findings.iter().filter(|f| f.rule == "react/rules-of-hooks").count()
+  };
+  assert_eq!(hooks(r#"{ "packages": { "vue": { "version": "3.5.44" } } }"#), 0, "a Vue app's composables are not React hooks");
+  assert_eq!(hooks(r#"{ "packages": { "react": { "version": "18.3.1" }, "react-dom": { "version": "18.3.1" } } }"#), 1);
+}

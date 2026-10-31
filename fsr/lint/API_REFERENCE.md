@@ -7,6 +7,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 * [1. Functions and Types](#1-functions-and-types)
   * [checks](#checks)
   * [base](#base)
+  * [base_for](#base_for)
   * [rules](#rules)
   * [ExtraneousDependencies](#extraneousdependencies)
 * [2. Rules](#2-rules)
@@ -26,6 +27,10 @@ FSR's lint rules and base levels for `snapfire_lint`.
 ### base
 
 * `pub fn base() -> snapfire_lint::Config`: `react/no-unknown-property` at `error` with `ignore` listing htmx 2's and htmx 4's attributes. For `routes/**/*.md` and `routes/**/*.mdx`, `markdown/no-multiple-h1` and `markdown/heading-increment` at `error` with `frontmatterTitle = ""`. Put a project's configuration over it with `Config::over`.
+
+### base_for
+
+* `pub fn base_for(react: bool) -> snapfire_lint::Config`: `base()` for an application with React or without it. Without it, `react/rules-of-hooks` and `react/exhaustive-deps` are `off`, since a `useThing` function there is no hook. `base()` is `base_for(true)`. `fsr lint` passes whether the app vendors `react`, its import map names it or it is a terminal program.
 
 ### rules
 
