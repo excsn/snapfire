@@ -1444,6 +1444,8 @@ export default function Status() {
 }
 ```
 
+Each redraw writes only the cells that changed, as one synchronized update (mode 2026). Terminals that support it, among them Ghostty, Kitty, WezTerm, iTerm2, Alacritty, foot, Windows Terminal and Zellij, show the frame whole instead of half drawn, which is what keeps a resize or a large change from flickering. A terminal that does not know the mode ignores it.
+
 Each key runs the `useInput` handler with Ink's `(input, key)`: `input` is the character typed, empty for a named key, and `key` carries `upArrow`, `downArrow`, `leftArrow`, `rightArrow`, `pageUp`, `pageDown`, `return`, `escape`, `tab`, `backspace`, `delete`, `ctrl`, `shift` and `meta`. The handler sets state or calls an action, as an `onClick` handler does; the page redraws and only the cells that changed are written. Ctrl-C quits, as Ink's does by default.
 
 A mount effect's timers run too, the way Ink's spinners and clocks start theirs:

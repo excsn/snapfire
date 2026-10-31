@@ -112,6 +112,19 @@ for count in 0..3 {
 
 Each changed run of cells is written after a cursor move. Rows the new frame no longer has are cleared. A diff against an empty frame writes the whole frame.
 
+`update` is what a program writes: the diff (with no previous frame, a cleared screen and every cell) then the cursor, all between `BEGIN_SYNCHRONIZED` and `END_SYNCHRONIZED`. A terminal that supports synchronized output (mode 2026) holds the frame off screen until the end marker, so a frame split across writes never shows half drawn. One that does not know the mode ignores both markers.
+
+```rust
+use snapfire_fsr_terminal::{render, Text};
+
+let shown = render(&Text::plain("count 1").into(), 80);
+let next = render(&Text::plain("count 2").into(), 80);
+print!("{}", next.update(Some(&shown), None));
+print!("{}", next.update(None, Some((0, 1))));
+```
+
+A program that leaves the screen writes `END_SYNCHRONIZED` first, in case a frame was cut off.
+
 ## Error Handling
 
 `render` does not fail: a tree it cannot lay out draws an empty frame. `from_markup` answers `Err(String)` naming what it refused:

@@ -21,6 +21,7 @@ Ink's `Box` and `Text` laid out with flexbox and drawn to a terminal as cells.
   * [Metrics](#metrics)
   * [Frame](#frame)
   * [Cell](#cell)
+  * [BEGIN_SYNCHRONIZED and END_SYNCHRONIZED](#begin_synchronized-and-end_synchronized)
 * [4. Markup](#4-markup)
   * [from_markup](#from_markup)
   * [Prop and Value](#prop-and-value)
@@ -112,10 +113,15 @@ Ink's `Text`. A nested `Text` adds its style to the one around it. An SGR sequen
 * `pub fn lines(&self) -> Vec<String>`: each row as plain text with trailing blanks dropped.
 * `pub fn to_ansi(&self) -> String`: each row with its styles, rows joined by `\n`, trailing blanks dropped, every styled run ending in `ESC[0m`.
 * `pub fn diff(&self, previous: &Frame) -> String`: `ESC[<row>;<column>H` before each run of changed cells, then `ESC[<row>;1H ESC[2K` for each row of `previous` past this frame's height. Empty when the frames are equal. Positions are 1-based from the top left.
+* `pub fn update(&self, previous: Option<&Frame>, cursor: Option<(u16, u16)>) -> String`: `BEGIN_SYNCHRONIZED`, then `diff(previous)` (with `None`, `ESC[2J` and the diff against an empty frame), then `ESC[<row>;<column>H ESC[?25h` for `cursor` (column, row from 0) or `ESC[?25l` without one, then `END_SYNCHRONIZED`.
 
 ### Cell
 
 * `pub struct Cell { pub ch: char, pub style: Style, pub tail: bool }`, `Copy`. `tail` marks the second cell of a wide character, which its first cell draws.
+
+### BEGIN_SYNCHRONIZED and END_SYNCHRONIZED
+
+* `pub const BEGIN_SYNCHRONIZED: &str` is `ESC[?2026h` and `pub const END_SYNCHRONIZED: &str` is `ESC[?2026l`: the start and end of a synchronized update, [mode 2026](https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md).
 
 ### render_measured
 

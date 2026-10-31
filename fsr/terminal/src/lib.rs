@@ -11,7 +11,7 @@ mod markup;
 mod props;
 mod style;
 
-pub use frame::{Cell, Frame};
+pub use frame::{Cell, Frame, BEGIN_SYNCHRONIZED, END_SYNCHRONIZED};
 pub use layout::{render, render_measured, Metrics};
 pub use markup::from_markup;
 pub use props::{prop_declarations, Prop, Value, BOX_PROPS, TEXT_PROPS};

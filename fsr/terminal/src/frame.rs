@@ -4,6 +4,11 @@ use crate::style::Style;
 
 const RESET: &str = "\x1b[0m";
 
+/// Mode 2026, synchronized output: the terminal holds what follows off screen until `END_SYNCHRONIZED`, then shows it
+/// at once. <https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md>
+pub const BEGIN_SYNCHRONIZED: &str = "\x1b[?2026h";
+pub const END_SYNCHRONIZED: &str = "\x1b[?2026l";
+
 /// One cell. A wide character's second cell is its `tail`, drawn by the first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cell {
@@ -82,6 +87,25 @@ impl Frame {
       rows.push(row);
     }
     rows.join("\n")
+  }
+
+  /// The bytes that put this frame on screen as one synchronized update: the cells that changed since `previous`,
+  /// or with `None` a cleared screen and every cell, then the cursor shown at `cursor` (column, row from 0) or hidden.
+  pub fn update(&self, previous: Option<&Frame>, cursor: Option<(u16, u16)>) -> String {
+    let mut out = String::from(BEGIN_SYNCHRONIZED);
+    match previous {
+      Some(previous) => out.push_str(&self.diff(previous)),
+      None => {
+        out.push_str("\x1b[2J");
+        out.push_str(&self.diff(&Frame::new(0, 0)));
+      }
+    }
+    match cursor {
+      Some((x, y)) => out.push_str(&format!("\x1b[{};{}H\x1b[?25h", u32::from(y) + 1, u32::from(x) + 1)),
+      None => out.push_str("\x1b[?25l"),
+    }
+    out.push_str(END_SYNCHRONIZED);
+    out
   }
 
   /// What turns `previous` into this frame on a terminal showing `previous`

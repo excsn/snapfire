@@ -1,6 +1,6 @@
 //! Ink's elements laid out and drawn: what each frame holds as text, as ANSI and as a redraw.
 
-use snapfire_fsr_terminal::{render, Border, Boxed, Color, Text};
+use snapfire_fsr_terminal::{render, Border, Boxed, Color, Frame, Text, BEGIN_SYNCHRONIZED, END_SYNCHRONIZED};
 
 #[test]
 fn a_row_lays_its_children_side_by_side_and_a_column_stacks_them() {
@@ -67,6 +67,16 @@ fn a_redraw_writes_only_the_cells_that_changed_and_clears_rows_that_went_away() 
   let after = lines(&["count 2", "same"]);
   assert_eq!(after.diff(&before), "\x1b[1;7H2\x1b[3;1H\x1b[2K");
   assert_eq!(after.diff(&after), "");
+}
+
+#[test]
+fn an_update_is_one_synchronized_frame_with_the_cursor_placed_inside_it() {
+  let before = render(&Text::plain("count 1").into(), 20);
+  let after = render(&Text::plain("count 2").into(), 20);
+  assert_eq!((BEGIN_SYNCHRONIZED, END_SYNCHRONIZED), ("\x1b[?2026h", "\x1b[?2026l"));
+  assert_eq!(after.update(Some(&before), None), "\x1b[?2026h\x1b[1;7H2\x1b[?25l\x1b[?2026l");
+  assert_eq!(after.update(Some(&before), Some((3, 0))), "\x1b[?2026h\x1b[1;7H2\x1b[1;4H\x1b[?25h\x1b[?2026l");
+  assert_eq!(after.update(None, None), format!("\x1b[?2026h\x1b[2J{}\x1b[?25l\x1b[?2026l", after.diff(&Frame::new(0, 0))), "a whole redraw clears inside the frame");
 }
 
 #[test]

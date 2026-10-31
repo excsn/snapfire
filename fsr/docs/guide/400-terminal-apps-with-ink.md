@@ -20,7 +20,7 @@ cd fsr/examples/counter_terminal_ts
 fsr dev app
 ```
 
-The command lowers the app's root page `routes/page.tsx` and draws it in the terminal it was started from. Nothing is served and no JavaScript engine starts. Ctrl-C quits, as does a page that calls `exit()`. `fsr dev` redraws the page on every edit; `fsr run app` runs it once with no watcher, the way someone using the tool runs it. What follows `--` reaches the loader as `params`.
+The command lowers the app's root page `routes/page.tsx` and draws it in the terminal it was started from. Nothing is served and no JavaScript engine starts. Ctrl-C quits, as does a page that calls `exit()`. Each redraw writes only the cells that changed, wrapped in synchronized output (mode 2026), so a terminal that supports it shows each frame whole. `fsr dev` redraws the page on every edit; `fsr run app` runs it once with no watcher, the way someone using the tool runs it. What follows `--` reaches the loader as `params`.
 
 ## A page is an Ink component
 

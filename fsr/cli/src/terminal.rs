@@ -903,7 +903,7 @@ impl Screen {
 impl Drop for Screen {
   fn drop(&mut self) {
     let mut out = std::io::stdout();
-    let _ = out.write_all(b"\x1b[0m\x1b[?25h\x1b[?1049l");
+    let _ = out.write_all(format!("{}\x1b[0m\x1b[?25h\x1b[?1049l", snapfire_fsr_terminal::END_SYNCHRONIZED).as_bytes());
     let _ = out.flush();
     let _ = crossterm::terminal::disable_raw_mode();
   }
@@ -1274,7 +1274,7 @@ fn terminal_size() -> (u16, u16) {
   }
 }
 
-/// Draws `node` or the error in its place, writing what changed since
+/// Draws `node` or the error in its place as one synchronized update, writing what changed since
 /// `shown`; `whole` clears the screen and writes every cell. The cursor shows at `cursor` and is hidden without one.
 fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool, cursor: Option<(u16, u16)>) -> std::io::Result<()> {
   let (columns, _) = terminal_size();
@@ -1283,15 +1283,7 @@ fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool, cursor: Opt
     Err(why) => render(&Node::Text(Text::plain(&format!("fsr: {why}")).color(Color::Ansi(1))), columns),
   };
   let mut out = std::io::stdout();
-  if whole {
-    out.write_all(b"\x1b[2J")?;
-    *shown = Frame::new(0, 0);
-  }
-  out.write_all(frame.diff(shown).as_bytes())?;
-  match cursor {
-    Some((x, y)) => write!(out, "\x1b[{};{}H\x1b[?25h", u32::from(y) + 1, u32::from(x) + 1)?,
-    None => out.write_all(b"\x1b[?25l")?,
-  }
+  out.write_all(frame.update((!whole).then_some(&*shown), cursor).as_bytes())?;
   out.flush()?;
   *shown = frame;
   Ok(())
