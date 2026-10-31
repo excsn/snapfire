@@ -63,3 +63,14 @@ fn the_rules_are_listed_with_eslint_markdown_s_names() {
   let ids: Vec<_> = snapfire_lint::rules().into_iter().filter(|r| r.id.starts_with("markdown/")).map(|r| r.id).collect();
   assert_eq!(ids.len(), 11, "{ids:?}");
 }
+
+#[test]
+fn frontmatter_title_names_the_key_that_counts_as_the_first_heading() {
+  let config = |toml: &str| Linter::new(Config::parse(toml, Path::new("fsr.lint.toml")).unwrap()).unwrap();
+  let page = "---\ntitle: FAQ\n---\n\n# Questions\n\n### Deep\n";
+  let off = config("[rules]\n\"markdown/no-multiple-h1\" = [\"error\", { frontmatterTitle = \"\" }]\n\"markdown/heading-increment\" = [\"error\", { frontmatterTitle = \"\" }]\n");
+  assert_eq!(found(&off.lint_source(Path::new("page.md"), page)), [("markdown/heading-increment", 7, 1)], "the title is not a heading; `# Questions` is the first");
+  let named = config("[rules]\n\"markdown/no-multiple-h1\" = [\"error\", { frontmatterTitle = \"^heading:\" }]\n");
+  assert!(found(&named.lint_source(Path::new("page.md"), page)).iter().all(|(rule, _, _)| *rule != "markdown/no-multiple-h1"), "only a `heading:` key counts");
+  assert_eq!(found(&named.lint_source(Path::new("page.md"), "---\nheading: FAQ\n---\n\n# Questions\n")), [("markdown/no-multiple-h1", 5, 1)]);
+}

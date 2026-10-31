@@ -139,3 +139,11 @@ fn a_module_variable_written_where_the_browser_runs_it_is_not() {
     assert!(fsr(&lint("routes/page.tsx", source)).is_empty(), "{source}");
   }
 }
+
+#[test]
+fn a_route_pages_front_matter_title_is_its_meta_and_not_a_heading() {
+  let rules = |path: &str, source: &str| lint(path, source).findings.into_iter().map(|f| f.rule).collect::<Vec<_>>();
+  assert!(rules("routes/faq/page.md", "---\ntitle: FAQ\n---\n\n# Questions\n").is_empty());
+  assert_eq!(rules("routes/faq/page.md", "# Questions\n\n# Again\n"), ["markdown/no-multiple-h1"]);
+  assert_eq!(rules("content/post.md", "---\ntitle: Post\n---\n\n# Post\n"), ["markdown/no-multiple-h1"], "content another page imports keeps ESLint's reading");
+}

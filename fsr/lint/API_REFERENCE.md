@@ -24,7 +24,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 
 ### base
 
-* `pub fn base() -> snapfire_lint::Config`: `react/no-unknown-property` at `error` with `ignore` listing htmx 2's and htmx 4's attributes. Put a project's configuration over it with `Config::over`.
+* `pub fn base() -> snapfire_lint::Config`: `react/no-unknown-property` at `error` with `ignore` listing htmx 2's and htmx 4's attributes. For `routes/**/*.md` and `routes/**/*.mdx`, `markdown/no-multiple-h1` and `markdown/heading-increment` at `error` with `frontmatterTitle = ""`. Put a project's configuration over it with `Config::over`.
 
 ### rules
 

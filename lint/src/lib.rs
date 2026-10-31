@@ -417,7 +417,8 @@ impl Linter {
     if let Some(mdx) = markdown::reads(path) {
       let lines = suppress::Lines::new(text);
       let comments = markdown::comments(text, mdx);
-      let reported = match markdown::lint(text, mdx) {
+      let titles = markdown::Titles::of(|rule| settings.get(rule).and_then(|setting| setting.options.clone()));
+      let reported = match markdown::lint(text, mdx, &titles) {
         Ok(found) => found.into_iter().map(|f| (f.rule.to_owned(), f.start, f.message, None)).collect(),
         Err((at, message)) => vec![(PARSE.to_owned(), at, message, None)],
       };

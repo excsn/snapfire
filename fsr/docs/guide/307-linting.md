@@ -50,7 +50,7 @@ FSR also tells `react/no-unknown-property` about htmx's attributes, so `hx-get` 
 
 A `.vue` component's template is checked by eslint-plugin-vue's essential rules: `vue/require-v-for-key`, `vue/no-use-v-if-with-v-for`, `vue/require-component-is` and `vue/no-template-key`. A `.svelte` component reports every warning Svelte's compiler gives, its accessibility checks among them, as `svelte/` and the warning's code: `svelte/a11y-missing-attribute`. Both go through `snapfirec-vue` and `snapfirec-svelte`, the plugins the build uses. When one is not installed the file gets one `lint/compiler` warning and its scripts are still linted.
 
-A `.md` or `.mdx` page is checked by `@eslint/markdown`'s correctness rules: a skipped heading level, a second `#` title, an empty link, an image with no alt text, a code fence with no language, a `#fragment` link no heading makes.
+A `.md` or `.mdx` page is checked by `@eslint/markdown`'s correctness rules: a skipped heading level, a second `#` title, an empty link, an image with no alt text, a code fence with no language, a `#fragment` link no heading makes. A route page's front-matter `title` is its `meta`, so it does not count as the page's first heading; a page with a `title` and one `#` heading is fine.
 
 A `.tera` template is handed to tera. What tera cannot parse is a finding at the place tera names. `tera/no-safe-filter` flags `| safe`, `tera/no-unused-set` a `{% set %}` nothing reads and `tera/no-debug` a leftover `__tera_context`.
 

@@ -346,6 +346,13 @@ impl Compilers for InProcess {
 ### Skipped level
 ```
 
+`markdown/no-multiple-h1` and `markdown/heading-increment` count a front-matter `title` as the first heading, as `@eslint/markdown` does. Their `frontmatterTitle` option names another key by a regular expression over its line. With `""` none counts, which fits a site whose front matter is the document's title rather than a heading:
+
+```toml
+[rules]
+"markdown/no-multiple-h1" = ["error", { frontmatterTitle = "" }]
+```
+
 In MDX a comment is `{/* fsr-lint-disable-next-line markdown/heading-increment */}`. An MDX file's imports and expressions are read as MDX but not linted as JavaScript yet.
 
 ## Linting Tera Templates
