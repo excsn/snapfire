@@ -1,0 +1,103 @@
+// Ported from oxlint (crates/oxc_linter/src/utils/this_expression.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{
+        BindingPattern, Expression, Function, FunctionBody, IdentifierReference,
+        PropertyDefinition, StaticBlock, ThisExpression, VariableDeclarationKind,
+    },
+};
+use oxc_ast_visit::{VisitJs, walk_js};
+use oxc_semantic::ScopeFlags;
+use oxc_span::Span;
+
+use crate::js::{
+    ast_util::{get_declaration_from_reference_id, variable_declaration_kind},
+    context::LintContext,
+};
+
+/// Checks whether a function body contains a `this` expression without traversing into nested
+/// functions.
+pub fn function_body_contains_this(body: &FunctionBody) -> bool {
+    let mut finder = ThisExpressionFinder::new();
+    finder.visit_function_body(body);
+    !finder.spans.is_empty()
+}
+
+/// Finds `this` expressions without traversing into nested functions.
+pub struct ThisExpressionFinder {
+    spans: Vec<Span>,
+    skip_static_blocks: bool,
+    skip_property_definition_values: bool,
+}
+
+impl ThisExpressionFinder {
+    pub fn new() -> Self {
+        Self {
+            spans: Vec::new(),
+            skip_static_blocks: false,
+            skip_property_definition_values: false,
+        }
+    }
+
+    pub fn skip_static_blocks(mut self) -> Self {
+        self.skip_static_blocks = true;
+        self
+    }
+
+    pub fn skip_property_definition_values(mut self) -> Self {
+        self.skip_property_definition_values = true;
+        self
+    }
+
+    pub fn into_spans(self) -> Vec<Span> {
+        self.spans
+    }
+}
+
+impl<'a> VisitJs<'a> for ThisExpressionFinder {
+    fn visit_this_expression(&mut self, expr: &ThisExpression) {
+        self.spans.push(expr.span);
+    }
+
+    fn visit_function(&mut self, _func: &Function<'a>, _flags: ScopeFlags) {}
+
+    fn visit_static_block(&mut self, block: &StaticBlock<'a>) {
+        if !self.skip_static_blocks {
+            walk_js::walk_static_block(self, block);
+        }
+    }
+
+    fn visit_property_definition(&mut self, prop: &PropertyDefinition<'a>) {
+        if self.skip_property_definition_values {
+            self.visit_property_key(&prop.key);
+        } else {
+            walk_js::walk_property_definition(self, prop);
+        }
+    }
+}
+
+/// Detects `this` aliases like `vm` in `const vm = this`.
+/// Strips `Parenthesized`/`TSAs`/`TSNonNull`/`TSSatisfies` wrappers; only `const` bindings with a plain `BindingIdentifier` qualify.
+pub fn is_this_alias(ident: &IdentifierReference, ctx: &LintContext<'_>) -> bool {
+    get_declaration_from_reference_id(ident.reference_id(), ctx.semantic())
+        .and_then(|node| match node.kind() {
+            AstKind::VariableDeclarator(var) => Some(var),
+            _ => None,
+        })
+        .filter(|var| {
+            variable_declaration_kind(var, ctx.nodes())
+                .is_some_and(VariableDeclarationKind::is_const)
+                && matches!(&var.id, BindingPattern::BindingIdentifier(_))
+        })
+        .and_then(|var| var.init.as_ref())
+        .is_some_and(|init| matches!(init.get_inner_expression(), Expression::ThisExpression(_)))
+}
+
+pub fn is_this_object(expr: &Expression<'_>, ctx: &LintContext<'_>) -> bool {
+    match expr.get_inner_expression() {
+        Expression::ThisExpression(_) => true,
+        Expression::Identifier(ident) => is_this_alias(ident, ctx),
+        _ => false,
+    }
+}

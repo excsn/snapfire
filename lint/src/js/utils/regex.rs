@@ -261,7 +261,8 @@ mod test {
 
         let program = allocator.alloc(parser_ret.program);
         let semantic = SemanticBuilder::new_linter().build(program).semantic;
-        let host = std::rc::Rc::new(ContextHost::new(semantic, &allocator, ModuleRecord::default(), std::path::Path::new("test.js"), crate::js::FixKind::None, crate::js::Setup::default()));
+        let sub = std::rc::Rc::new(crate::js::context::ContextSubHost::new(semantic, ModuleRecord::default(), crate::js::frameworks::FrameworkOptions::Default));
+        let host = std::rc::Rc::new(ContextHost::new(sub, Vec::new(), &allocator, std::path::Path::new("test.js"), crate::js::FixKind::None, crate::js::Setup::default()));
         let ctx = host.spawn("test");
 
         ctx.nodes().iter().find_map(|node| match node.kind() {

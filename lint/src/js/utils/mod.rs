@@ -17,10 +17,13 @@ mod promise;
 mod react;
 mod regex;
 mod static_value;
+mod this_expression;
 mod typescript;
 mod unicorn;
+mod vue;
+pub mod vue_casing;
 
-pub use self::{config::*, control_flow::*, jsdoc::*, number::*, promise::*, react::*, regex::*, static_value::*, typescript::*, unicorn::*};
+pub use self::{config::*, control_flow::*, jsdoc::*, number::*, promise::*, react::*, regex::*, static_value::*, this_expression::*, typescript::*, unicorn::*, vue::*};
 
 /// Pads replacement text with spaces when needed to preserve token boundaries
 /// with neighboring source characters.

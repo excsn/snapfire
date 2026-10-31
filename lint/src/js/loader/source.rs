@@ -2,6 +2,8 @@
 
 use oxc_span::SourceType;
 
+use crate::js::frameworks::FrameworkOptions;
+
 /// JavaScript or TypeScript to lint, and where it starts in the file it came from.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
@@ -10,14 +12,19 @@ pub struct JavaScriptSource<'a> {
     pub source_type: SourceType,
     /// The byte offset of `source_text` in its file; 0 for a whole file.
     pub start: u32,
+    pub framework_options: FrameworkOptions,
 }
 
 impl<'a> JavaScriptSource<'a> {
     pub fn new(source_text: &'a str, source_type: SourceType) -> Self {
-        Self { source_text, source_type, start: 0 }
+        Self { source_text, source_type, start: 0, framework_options: FrameworkOptions::Default }
     }
 
     pub fn partial(source_text: &'a str, source_type: SourceType, start: u32) -> Self {
-        Self { source_text, source_type, start }
+        Self { source_text, source_type, start, framework_options: FrameworkOptions::Default }
+    }
+
+    pub fn partial_with_framework_options(source_text: &'a str, source_type: SourceType, framework_options: FrameworkOptions, start: u32) -> Self {
+        Self { source_text, source_type, start, framework_options }
     }
 }

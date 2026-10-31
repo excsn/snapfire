@@ -4,6 +4,8 @@ use memchr::memmem::{Finder, FinderRev};
 
 use oxc_span::SourceType;
 
+use crate::js::frameworks::FrameworkOptions;
+
 use super::{
     JavaScriptSource,
     partial::{COMMENT_END, COMMENT_START, SCRIPT_END, SCRIPT_START, find_script_closing_angle, find_script_start},
@@ -63,6 +65,7 @@ impl<'a> VuePartialLoader<'a> {
 
         // parse `lang`
         let lang = Self::extract_lang_attribute(content);
+        let is_setup = content.contains("setup");
 
         let Ok(mut source_type) = SourceType::from_extension(lang) else { return None };
         // Vue script blocks are ESM modules - upgrade unambiguous to module
@@ -85,7 +88,7 @@ impl<'a> VuePartialLoader<'a> {
         let source_text = &self.source_text[js_start..js_end];
         // NOTE: loader checked that source_text.len() is less than u32::MAX
         #[expect(clippy::cast_possible_truncation)]
-        Some(JavaScriptSource::partial(source_text, source_type, js_start as u32))
+        Some(JavaScriptSource::partial_with_framework_options(source_text, source_type, if is_setup { FrameworkOptions::VueSetup } else { FrameworkOptions::Default }, js_start as u32))
     }
 
     fn extract_lang_attribute(content: &str) -> &str {

@@ -97,3 +97,23 @@ fn a_plugins_rules_are_off_until_a_configuration_names_them() {
     assert_eq!(rule.default, Level::Off, "{}", rule.id);
   }
 }
+
+#[test]
+fn vues_essential_rules_run_by_default_and_its_other_presets_translate() {
+  let rules = snapfire_lint::rules();
+  let default = |id: &str| rules.iter().find(|r| r.id == id).map(|r| r.default).unwrap_or_else(|| panic!("{id}"));
+  assert_eq!(default("vue/no-dupe-keys"), Level::Error, "in vue3-essential");
+  assert_eq!(default("vue/require-default-prop"), Level::Off, "in vue3-strongly-recommended");
+  assert_eq!(default("vue/no-multiple-slot-args"), Level::Off, "in vue3-recommended");
+  let rc = serde_json::json!({ "extends": ["plugin:vue/vue3-recommended"] });
+  let translated = eslint::translate_eslintrc(&rc, &rules);
+  let table: toml::Table = translated.toml.parse().unwrap();
+  let level = |id: &str| table["rules"].get(id).and_then(|v| v.as_str()).map(str::to_owned);
+  assert_eq!(level("vue/require-default-prop").as_deref(), Some("warn"), "{}", translated.toml);
+  assert_eq!(level("vue/no-multiple-slot-args").as_deref(), Some("warn"));
+  assert_eq!(level("vue/no-dupe-keys"), None, "essential runs by default and is not written");
+  let rc = serde_json::json!({ "extends": ["plugin:vue/vue3-strongly-recommended-error"] });
+  let table: toml::Table = eslint::translate_eslintrc(&rc, &rules).toml.parse().unwrap();
+  assert_eq!(table["rules"].get("vue/require-default-prop").and_then(|v| v.as_str()), Some("error"));
+  assert!(table["rules"].get("vue/no-multiple-slot-args").is_none(), "strongly-recommended stops short of recommended");
+}

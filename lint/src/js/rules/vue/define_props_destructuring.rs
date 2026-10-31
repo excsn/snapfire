@@ -1,0 +1,496 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/vue/define_props_destructuring.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::{
+    AstKind,
+    ast::{BindingPattern, VariableDeclarator},
+};
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+use serde::{Deserialize, Serialize};
+
+use crate::js::{
+    AstNode,
+    context::{ContextHost, LintContext},
+    frameworks::FrameworkOptions,
+    rule::{DefaultRuleConfig, Rule},
+};
+
+fn prefer_destructuring_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Prefer destructuring from `defineProps` directly.").with_label(span)
+}
+
+fn avoid_destructuring_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Avoid destructuring from `defineProps`.").with_label(span)
+}
+
+fn avoid_with_defaults_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Avoid using `withDefaults` with destructuring.").with_label(span)
+}
+
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum Destructure {
+    /// Requires destructuring when `defineProps` is assigned to a variable and warns against using `withDefaults` with destructuring
+    #[default]
+    OnlyWhenAssigned,
+    /// Requires destructuring when using `defineProps` and warns against using `withDefaults` with destructuring
+    Always,
+    /// Requires using a variable to store props and prohibits destructuring
+    Never,
+}
+
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct DefinePropsDestructuring {
+    /// Require or prohibit destructuring.
+    destructure: Destructure,
+}
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// This rule enforces a consistent style for handling Vue 3 Composition API props,
+    /// allowing you to choose between requiring destructuring or prohibiting it.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// By default, the rule requires you to use destructuring syntax when `defineProps`
+    /// is assigned to a variable and warns against combining `withDefaults` with destructuring.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```vue
+    /// <script setup lang="ts">
+    ///   const props = defineProps(['foo']);
+    ///   const propsWithDefaults = withDefaults(defineProps(['foo']), { foo: 'default' });
+    ///   const { baz } = withDefaults(defineProps(['baz']), { baz: 'default' });
+    ///   const props = defineProps<{ foo?: string }>()
+    ///   const propsWithDefaults = withDefaults(defineProps<{ foo?: string }>(), { foo: 'default' })
+    /// </script>
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```vue
+    /// <script setup lang="ts">
+    ///   const { foo } = defineProps(['foo'])
+    ///   const { bar = 'default' } = defineProps(['bar'])
+    ///   const { foo } = defineProps<{ foo?: string }>()
+    ///   const { bar = 'default' } = defineProps<{ bar?: string }>()
+    /// </script>
+    /// ```
+    DefinePropsDestructuring,
+    "vue",
+    "define-props-destructuring",
+    Style,
+    recommended = false,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for DefinePropsDestructuring {
+    fn from_configuration(value: serde_json::Value) -> Result<Self, serde_json::error::Error> {
+        DefaultRuleConfig::<Self>::from_value(value).map(DefaultRuleConfig::into_inner)
+    }
+
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        let AstKind::CallExpression(call_expr) = node.kind() else { return };
+
+        // only check call Expression which is `defineProps`
+        if call_expr
+            .callee
+            .get_identifier_reference()
+            .is_none_or(|reference| reference.name != "defineProps")
+        {
+            return;
+        }
+
+        if call_expr.arguments.is_empty() && call_expr.type_arguments.is_none() {
+            return;
+        }
+
+        let parent = &ctx.nodes().parent_node(node.id());
+        let with_defaults_span = get_parent_with_defaults_call_expression_span(parent);
+        let parent_variable_declarator = get_parent_variable_declarator(parent, ctx);
+        let has_destructuring = parent_variable_declarator
+            .is_some_and(|declarator| matches!(declarator.id, BindingPattern::ObjectPattern(_)));
+        let is_assigned = parent_variable_declarator.is_some();
+
+        if self.destructure == Destructure::Never {
+            if has_destructuring {
+                ctx.diagnostic(avoid_destructuring_diagnostic(call_expr.span));
+            }
+        } else if !has_destructuring && (self.destructure == Destructure::Always || is_assigned) {
+            ctx.diagnostic(prefer_destructuring_diagnostic(call_expr.span));
+        } else if let Some(span) = with_defaults_span {
+            ctx.diagnostic(avoid_with_defaults_diagnostic(span));
+        }
+    }
+
+    fn should_run(&self, ctx: &ContextHost<'_>) -> bool {
+        ctx.frameworks_options() == FrameworkOptions::VueSetup
+    }
+}
+
+fn get_parent_with_defaults_call_expression_span(parent: &AstNode<'_>) -> Option<Span> {
+    let AstKind::CallExpression(call_expr) = parent.kind() else { return None };
+
+    call_expr.callee.get_identifier_reference().and_then(|reference| {
+        if reference.name == "withDefaults" { Some(reference.span) } else { None }
+    })
+}
+
+fn get_parent_variable_declarator<'a>(
+    parent: &AstNode<'a>,
+    ctx: &LintContext<'a>,
+) -> Option<&'a VariableDeclarator<'a>> {
+    match parent.kind() {
+        AstKind::VariableDeclarator(var_decl) => Some(var_decl),
+        _ => ctx.nodes().ancestor_kinds(parent.id()).find_map(|kind| {
+            if let AstKind::VariableDeclarator(var_decl) = kind { Some(var_decl) } else { None }
+        }),
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+    use std::path::PathBuf;
+
+    let pass = vec![
+        (
+            "
+                  <script setup>
+                  const props = defineProps()
+                  </script>
+                  ",
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  const { foo = 'default' } = defineProps(['foo'])
+                  </script>
+                  ",
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            r#"
+                  <script setup lang="ts">
+                  const { foo = 'default' } = defineProps<{ foo?: string }>()
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  import type { Props } from './type'
+                  const { foo } = defineProps<Props>()
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  import { propsObj } from './type'
+                  const { foo } = defineProps(propsObj)
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            "
+                  <script setup>
+                  defineProps(['foo'])
+                  </script>
+                  ",
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  defineProps(['foo'])
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "only-when-assigned" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  const props = defineProps(['foo'])
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  const props = withDefaults(defineProps(['foo']), { foo: 'default' })
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            r#"
+                  <script setup lang="ts">
+                  const props = defineProps<{ foo?: string }>()
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      }
+        (
+            r#"
+                  <script setup lang="ts">
+                  import type { Props } from './type'
+                  const props = defineProps<Props>()
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  import { propsObj } from './type'
+                  const props = defineProps(propsObj)
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  defineProps<{ foo?: string }>()
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      }
+    ];
+
+    let fail = vec![
+        (
+            "
+                  <script setup>
+                  const props = defineProps(['foo'])
+                  </script>
+                  ",
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  const props = withDefaults(defineProps(['foo']), { foo: 'default' })
+                  </script>
+                  ",
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  const { foo } = withDefaults(defineProps(['foo']), { foo: 'default' })
+                  </script>
+                  ",
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            r#"
+                  <script setup lang="ts">
+                  const props = withDefaults(defineProps<{ foo?: string }>(), { foo: 'default' })
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  const { foo } = withDefaults(defineProps<{ foo?: string }>(), { foo: 'default' })
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  import type { Props } from './type'
+                  const props = defineProps<Props>()
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  import { propsObj } from './type'
+                  const props = defineProps(propsObj)
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            "
+                  <script setup>
+                  const props = defineProps(['foo'])
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "only-when-assigned" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  const { foo } = defineProps(['foo'])
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            "
+                  <script setup>
+                  const { foo } = withDefaults(defineProps(['foo']), { foo: 'default' })
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            r#"
+                  <script setup lang="ts">
+                  const { foo } = defineProps<{ foo?: string }>()
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      }
+        (
+            r#"
+                  <script setup lang="ts">
+                  import type { Props } from './type'
+                  const { foo } = defineProps<Props>()
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            r#"
+                  <script setup lang="ts">
+                  import { propsObj } from './type'
+                  const { foo } = defineProps(propsObj)
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "never" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            "
+                  <script setup lang=\"ts\">
+                  withDefaults(defineProps(['foo']), { foo: 'default' })
+                  </script>
+                  ",
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            r#"
+                  <script setup lang="ts">
+                  withDefaults(defineProps<{ foo?: string }>(), { foo: 'default' })
+                  </script>
+                  "#,
+            None,
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            "
+                  <script setup lang=\"ts\">
+                  withDefaults(defineProps(['foo']), { foo: 'default' })
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "always" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            r#"
+                  <script setup lang="ts">
+                  withDefaults(defineProps<{ foo?: string }>(), { foo: 'default' })
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "always" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      },
+        (
+            "
+                  <script setup>
+                  defineProps(['foo'])
+                  </script>
+                  ",
+            Some(serde_json::json!([{ "destructure": "always" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ),
+        (
+            r#"
+                  <script setup lang="ts">
+                  defineProps<{ foo?: string }>()
+                  </script>
+                  "#,
+            Some(serde_json::json!([{ "destructure": "always" }])),
+            None,
+            Some(PathBuf::from("test.vue")),
+        ), // {        "parserOptions": { "parser": require.resolve("@typescript-eslint/parser") }      }
+    ];
+
+    Tester::new(DefinePropsDestructuring::NAME, DefinePropsDestructuring::PLUGIN, pass, fail)
+        .test();
+}

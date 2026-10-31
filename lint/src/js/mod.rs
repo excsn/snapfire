@@ -11,6 +11,7 @@ mod aria;
 mod ast_util;
 mod context;
 mod fixer;
+pub(crate) mod frameworks;
 mod globals;
 mod loader;
 mod module_record;
@@ -154,6 +155,14 @@ pub(crate) struct Outcome {
   pub comments: Vec<Comment>,
 }
 
+impl Outcome {
+  /// Takes in `part`, found in a block starting at byte `start` of the file.
+  fn extend(&mut self, part: Outcome, start: usize) {
+    self.reported.extend(part.reported.into_iter().map(|r| Reported { start: r.start + start, end: r.end + start, ..r }));
+    self.comments.extend(part.comments.into_iter().map(|c| Comment { start: c.start + start, end: c.end + start, ..c }));
+  }
+}
+
 /// Whether this front end reads `path`.
 pub(crate) fn reads(path: &Path) -> bool {
   path.extension().and_then(|e| e.to_str()).is_some_and(|ext| matches!(ext, "js" | "mjs" | "cjs" | "jsx" | "ts" | "mts" | "cts" | "tsx") || loader::LINT_PARTIAL_LOADER_EXTENSIONS.contains(&ext))
@@ -200,16 +209,47 @@ pub(crate) fn lint(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)]
 fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], checks: &[(&'static str, &dyn crate::Check)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<(&'static str, fixer::Message)>) {
   let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
   let sections = loader::PartialLoader::parse(ext, source).unwrap_or_else(|| vec![loader::JavaScriptSource::new(source, source_type(path))]);
+  let allocators: Vec<Allocator> = sections.iter().map(|_| Allocator::default()).collect();
   let mut outcome = Outcome { reported: Vec::new(), comments: Vec::new() };
-  let mut messages = Vec::new();
-  for (index, section) in sections.into_iter().enumerate() {
+  let mut built: Vec<(usize, &str, std::rc::Rc<context::ContextSubHost<'_>>)> = Vec::new();
+  for (index, section) in sections.iter().enumerate() {
     let start = section.start as usize;
-    let (part, mut found) = lint_section(path, section.source_text, section.source_type, rules, checks, fix, Setup { first: index == 0, ..setup.clone() }, check_syntax);
-    outcome.reported.extend(part.reported.into_iter().map(|r| Reported { start: r.start + start, end: r.end + start, ..r }));
-    outcome.comments.extend(part.comments.into_iter().map(|c| Comment { start: c.start + start, end: c.end + start, ..c }));
+    match analyse(path, section, &allocators[index], check_syntax) {
+      Analysed::Refused(part) => outcome.extend(part, start),
+      Analysed::Built(comments, sub) => {
+        outcome.comments.extend(comments.into_iter().map(|c| Comment { start: c.start + start, end: c.end + start, ..c }));
+        built.push((index, section.source_text, std::rc::Rc::new(sub)));
+      }
+    }
+  }
+  let mut messages = Vec::new();
+  for (index, text, sub) in &built {
+    let start = sections[*index].start as usize;
+    let others = built.iter().filter(|(other, _, _)| other != index).map(|(_, _, sub)| std::rc::Rc::clone(sub)).collect();
+    let host = std::rc::Rc::new(context::ContextHost::new(std::rc::Rc::clone(sub), others, &allocators[*index], path, fix, Setup { first: *index == 0, ..setup.clone() }));
+    for (id, rule) in rules {
+      if !rule.should_run(&host) {
+        continue;
+      }
+      let ctx = host.spawn(id);
+      rule.run_once(&ctx);
+      for node in ctx.nodes().iter() {
+        rule.run(node, &ctx);
+      }
+    }
+    let mut found = host.take_messages();
+    let mut reported: Vec<Reported> = found
+      .iter()
+      .map(|(rule, message)| Reported { rule, start: message.span.start as usize, end: message.span.end as usize, message: message.error.message.to_string(), help: message.error.help.as_ref().map(ToString::to_string) })
+      .collect();
+    let file = crate::File { path, source: text, semantic: sub.semantic() };
+    for (id, check) in checks {
+      check.check(&file, &mut |start, message| reported.push(Reported { rule: id, start, end: start, message, help: None }));
+    }
+    outcome.extend(Outcome { reported, comments: Vec::new() }, start);
     if start != 0 {
       for (_, message) in &mut found {
-        message.move_offset(section.start);
+        message.move_offset(start as u32);
       }
     }
     messages.extend(found);
@@ -217,57 +257,37 @@ fn lint_with(path: &Path, source: &str, rules: &[(&'static str, &dyn Run)], chec
   (outcome, messages)
 }
 
-#[expect(clippy::too_many_arguments)]
-fn lint_section(path: &Path, source: &str, source_type: SourceType, rules: &[(&'static str, &dyn Run)], checks: &[(&'static str, &dyn crate::Check)], fix: FixKind, setup: Setup, check_syntax: bool) -> (Outcome, Vec<(&'static str, fixer::Message)>) {
-  let allocator = Allocator::default();
-  let parsed = Parser::new(&allocator, source, source_type).with_options(ParseOptions { parse_regular_expression: true, allow_return_outside_function: true, ..ParseOptions::default() }).parse();
-  let comments = parsed.program.comments.iter().map(|c| Comment { text: c.span.source_text(source).to_owned(), start: c.span.start as usize, end: c.span.end as usize }).collect();
-  if !parsed.diagnostics.is_empty() || parsed.fatal_error {
-    let reported = parsed
-      .diagnostics
+/// One script block parsed and analysed, or refused with its `lint/parse` findings.
+enum Analysed<'a> {
+  Refused(Outcome),
+  Built(Vec<Comment>, context::ContextSubHost<'a>),
+}
+
+fn analyse<'a>(path: &Path, section: &loader::JavaScriptSource<'a>, allocator: &'a Allocator, check_syntax: bool) -> Analysed<'a> {
+  let source = section.source_text;
+  let parsed = Parser::new(allocator, source, section.source_type).with_options(ParseOptions { parse_regular_expression: true, allow_return_outside_function: true, ..ParseOptions::default() }).parse();
+  let comments: Vec<Comment> = parsed.program.comments.iter().map(|c| Comment { text: c.span.source_text(source).to_owned(), start: c.span.start as usize, end: c.span.end as usize }).collect();
+  let parse_error = |diagnostics: &[oxc_diagnostics::OxcDiagnostic], comments: Vec<Comment>| {
+    let reported = diagnostics
       .iter()
       .map(|d| {
         let (start, end) = d.labels.first().map_or((0, 0), |l| (l.offset() as usize, (l.offset() + l.len()) as usize));
         Reported { rule: "lint/parse", start, end, message: d.message.to_string(), help: d.help.as_ref().map(ToString::to_string) }
       })
       .collect();
-    return (Outcome { reported, comments }, Vec::new());
+    Analysed::Refused(Outcome { reported, comments })
+  };
+  if !parsed.diagnostics.is_empty() || parsed.fatal_error {
+    return parse_error(&parsed.diagnostics, comments);
   }
   let program = allocator.alloc(parsed.program);
   let built = SemanticBuilder::new_linter().with_check_syntax_error(check_syntax).build(program);
   if !built.diagnostics.is_empty() {
-    let reported = built
-      .diagnostics
-      .iter()
-      .map(|d| {
-        let (start, end) = d.labels.first().map_or((0, 0), |l| (l.offset() as usize, (l.offset() + l.len()) as usize));
-        Reported { rule: "lint/parse", start, end, message: d.message.to_string(), help: d.help.as_ref().map(ToString::to_string) }
-      })
-      .collect();
-    return (Outcome { reported, comments }, Vec::new());
+    return parse_error(&built.diagnostics, comments);
   }
   let mut semantic = built.semantic;
   semantic.set_irregular_whitespaces(parsed.irregular_whitespaces);
   let module_record = ModuleRecord::new(path, &parsed.module_record, &semantic);
-  let host = std::rc::Rc::new(context::ContextHost::new(semantic, &allocator, module_record, path, fix, setup));
-  for (id, rule) in rules {
-    if !rule.should_run(&host) {
-      continue;
-    }
-    let ctx = host.spawn(id);
-    rule.run_once(&ctx);
-    for node in ctx.nodes().iter() {
-      rule.run(node, &ctx);
-    }
-  }
-  let messages = host.take_messages();
-  let mut reported: Vec<Reported> = messages
-    .iter()
-    .map(|(rule, message)| Reported { rule, start: message.span.start as usize, end: message.span.end as usize, message: message.error.message.to_string(), help: message.error.help.as_ref().map(ToString::to_string) })
-    .collect();
-  let file = crate::File { path, source, semantic: host.semantic() };
-  for (id, check) in checks {
-    check.check(&file, &mut |start, message| reported.push(Reported { rule: id, start, end: start, message, help: None }));
-  }
-  (Outcome { reported, comments }, messages)
+  Analysed::Built(comments, context::ContextSubHost::new(semantic, module_record, section.framework_options))
 }
+

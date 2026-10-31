@@ -51,6 +51,47 @@ const UNREAD: &[(&str, &str)] = &[
 /// eslint-plugin-promise's `recommended`, by rule.
 const PROMISE_WARNS: &[&str] = &["promise/no-callback-in-promise", "promise/no-nesting", "promise/no-promise-in-callback", "promise/no-return-in-finally", "promise/valid-params"];
 
+/// eslint-plugin-vue's presets past `vue3-essential`, which `fsr lint` runs by default: `vue3-strongly-recommended`
+/// adds the first, `vue3-recommended` both, at `warn`, or at `error` in their `-error` forms.
+/// <https://github.com/vuejs/eslint-plugin-vue/tree/master/lib/configs>
+const VUE_STRONGLY_RECOMMENDED: &[&str] = &[
+  "vue/attribute-hyphenation",
+  "vue/component-definition-name-casing",
+  "vue/first-attribute-linebreak",
+  "vue/html-closing-bracket-newline",
+  "vue/html-closing-bracket-spacing",
+  "vue/html-end-tags",
+  "vue/html-indent",
+  "vue/html-quotes",
+  "vue/html-self-closing",
+  "vue/max-attributes-per-line",
+  "vue/multiline-html-element-content-newline",
+  "vue/mustache-interpolation-spacing",
+  "vue/no-multi-spaces",
+  "vue/no-spaces-around-equal-signs-in-attribute",
+  "vue/no-template-shadow",
+  "vue/one-component-per-file",
+  "vue/prop-name-casing",
+  "vue/require-default-prop",
+  "vue/require-explicit-emits",
+  "vue/require-prop-types",
+  "vue/singleline-html-element-content-newline",
+  "vue/v-bind-style",
+  "vue/v-on-event-hyphenation",
+  "vue/v-on-style",
+  "vue/v-slot-style",
+];
+const VUE_RECOMMENDED: &[&str] = &[
+  "vue/attributes-order",
+  "vue/block-order",
+  "vue/no-lone-template",
+  "vue/no-multiple-slot-args",
+  "vue/no-required-prop-with-default",
+  "vue/no-v-html",
+  "vue/order-in-components",
+  "vue/this-in-template",
+];
+
 /// The plugins whose recommended preset a configuration may extend and `fsr lint` writes out rule by rule, since
 /// their rules are off by default.
 const PRESET_PLUGINS: &[&str] = &["unicorn", "promise", "jsdoc"];
@@ -80,6 +121,17 @@ impl Out {
   /// Writes the recommended rules of the preset `written` names, when it is one of [`PRESET_PLUGINS`]': the level the
   /// preset gives each, `jsdoc`'s `-error` presets at `error`. Answers whether it was one.
   fn preset(&mut self, written: &str) -> bool {
+    if written.contains("vue") && (written.contains("strongly-recommended") || written.contains("recommended")) {
+      let level = if written.contains("error") { "error" } else { "warn" };
+      let mut ids: Vec<&str> = VUE_STRONGLY_RECOMMENDED.to_vec();
+      if !written.contains("strongly-recommended") {
+        ids.extend(VUE_RECOMMENDED);
+      }
+      for id in ids.into_iter().filter(|id| self.known.contains(id)) {
+        self.rules.insert(id.to_owned(), toml::Value::String(level.to_owned()));
+      }
+      return true;
+    }
     let Some(plugin) = PRESET_PLUGINS.iter().find(|plugin| written.contains(*plugin)) else { return false };
     if !written.contains("recommended") {
       return false;

@@ -339,6 +339,55 @@ pub mod unicorn {
   pub mod throw_new_error;
 }
 
+pub mod vue {
+  pub mod component_definition_name_casing;
+  pub mod define_emits_declaration;
+  pub mod define_props_declaration;
+  pub mod define_props_destructuring;
+  pub mod max_props;
+  pub mod next_tick_style;
+  pub mod no_arrow_functions_in_watch;
+  pub mod no_async_in_computed_properties;
+  pub mod no_computed_properties_in_data;
+  pub mod no_deprecated_data_object_declaration;
+  pub mod no_deprecated_delete_set;
+  pub mod no_deprecated_destroyed_lifecycle;
+  pub mod no_deprecated_events_api;
+  pub mod no_deprecated_model_definition;
+  pub mod no_deprecated_props_default_this;
+  pub mod no_deprecated_vue_config_keycodes;
+  pub mod no_dupe_keys;
+  pub mod no_export_in_script_setup;
+  pub mod no_expose_after_await;
+  pub mod no_import_compiler_macros;
+  pub mod no_lifecycle_after_await;
+  pub mod no_multiple_slot_args;
+  pub mod no_required_prop_with_default;
+  pub mod no_reserved_component_names;
+  pub mod no_reserved_keys;
+  pub mod no_reserved_props;
+  pub mod no_shared_component_data;
+  pub mod no_side_effects_in_computed_properties;
+  pub mod no_this_in_before_route_enter;
+  pub mod no_watch_after_await;
+  pub mod prefer_import_from_vue;
+  pub mod prop_name_casing;
+  pub mod require_default_export;
+  pub mod require_default_prop;
+  pub mod require_direct_export;
+  pub mod require_prop_type_constructor;
+  pub mod require_prop_types;
+  pub mod require_render_return;
+  pub mod require_slots_as_functions;
+  pub mod require_typed_ref;
+  pub mod return_in_computed_property;
+  pub mod return_in_emits_validator;
+  pub mod valid_define_emits;
+  pub mod valid_define_options;
+  pub mod valid_define_props;
+  pub mod valid_next_tick;
+}
+
 /// Every rule, sorted by id.
 pub(crate) static RULES: &[Entry] = &[
   entry::<eslint::constructor_super::ConstructorSuper>(),
@@ -651,4 +700,50 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<unicorn::switch_case_break_position::SwitchCaseBreakPosition>(),
   entry::<unicorn::text_encoding_identifier_case::TextEncodingIdentifierCase>(),
   entry::<unicorn::throw_new_error::ThrowNewError>(),
+  entry::<vue::component_definition_name_casing::ComponentDefinitionNameCasing>(),
+  entry::<vue::define_emits_declaration::DefineEmitsDeclaration>(),
+  entry::<vue::define_props_declaration::DefinePropsDeclaration>(),
+  entry::<vue::define_props_destructuring::DefinePropsDestructuring>(),
+  entry::<vue::max_props::MaxProps>(),
+  entry::<vue::next_tick_style::NextTickStyle>(),
+  entry::<vue::no_arrow_functions_in_watch::NoArrowFunctionsInWatch>(),
+  entry::<vue::no_async_in_computed_properties::NoAsyncInComputedProperties>(),
+  entry::<vue::no_computed_properties_in_data::NoComputedPropertiesInData>(),
+  entry::<vue::no_deprecated_data_object_declaration::NoDeprecatedDataObjectDeclaration>(),
+  entry::<vue::no_deprecated_delete_set::NoDeprecatedDeleteSet>(),
+  entry::<vue::no_deprecated_destroyed_lifecycle::NoDeprecatedDestroyedLifecycle>(),
+  entry::<vue::no_deprecated_events_api::NoDeprecatedEventsApi>(),
+  entry::<vue::no_deprecated_model_definition::NoDeprecatedModelDefinition>(),
+  entry::<vue::no_deprecated_props_default_this::NoDeprecatedPropsDefaultThis>(),
+  entry::<vue::no_deprecated_vue_config_keycodes::NoDeprecatedVueConfigKeycodes>(),
+  entry::<vue::no_dupe_keys::NoDupeKeys>(),
+  entry::<vue::no_export_in_script_setup::NoExportInScriptSetup>(),
+  entry::<vue::no_expose_after_await::NoExposeAfterAwait>(),
+  entry::<vue::no_import_compiler_macros::NoImportCompilerMacros>(),
+  entry::<vue::no_lifecycle_after_await::NoLifecycleAfterAwait>(),
+  entry::<vue::no_multiple_slot_args::NoMultipleSlotArgs>(),
+  entry::<vue::no_required_prop_with_default::NoRequiredPropWithDefault>(),
+  entry::<vue::no_reserved_component_names::NoReservedComponentNames>(),
+  entry::<vue::no_reserved_keys::NoReservedKeys>(),
+  entry::<vue::no_reserved_props::NoReservedProps>(),
+  entry::<vue::no_shared_component_data::NoSharedComponentData>(),
+  entry::<vue::no_side_effects_in_computed_properties::NoSideEffectsInComputedProperties>(),
+  entry::<vue::no_this_in_before_route_enter::NoThisInBeforeRouteEnter>(),
+  entry::<vue::no_watch_after_await::NoWatchAfterAwait>(),
+  entry::<vue::prefer_import_from_vue::PreferImportFromVue>(),
+  entry::<vue::prop_name_casing::PropNameCasing>(),
+  entry::<vue::require_default_export::RequireDefaultExport>(),
+  entry::<vue::require_default_prop::RequireDefaultProp>(),
+  entry::<vue::require_direct_export::RequireDirectExport>(),
+  entry::<vue::require_prop_type_constructor::RequirePropTypeConstructor>(),
+  entry::<vue::require_prop_types::RequirePropTypes>(),
+  entry::<vue::require_render_return::RequireRenderReturn>(),
+  entry::<vue::require_slots_as_functions::RequireSlotsAsFunctions>(),
+  entry::<vue::require_typed_ref::RequireTypedRef>(),
+  entry::<vue::return_in_computed_property::ReturnInComputedProperty>(),
+  entry::<vue::return_in_emits_validator::ReturnInEmitsValidator>(),
+  entry::<vue::valid_define_emits::ValidDefineEmits>(),
+  entry::<vue::valid_define_options::ValidDefineOptions>(),
+  entry::<vue::valid_define_props::ValidDefineProps>(),
+  entry::<vue::valid_next_tick::ValidNextTick>(),
 ];

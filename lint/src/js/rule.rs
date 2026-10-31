@@ -452,3 +452,56 @@ mod test {
     }
 
 }
+
+/// A rule configuration read from ESLint's options list, its tuple's items in order.
+#[derive(Debug, Clone)]
+pub struct TupleRuleConfig<T>(T);
+
+impl<T> TupleRuleConfig<T> {
+    /// Unwraps the inner configuration value.
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T: Default> Default for TupleRuleConfig<T> {
+    fn default() -> Self {
+        Self(T::default())
+    }
+}
+
+impl<'de, T> serde::Deserialize<'de> for TupleRuleConfig<T>
+where
+    T: serde::de::DeserializeOwned + Default,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        if let serde_json::Value::Array(arr) = value {
+            let config = if arr.is_empty() {
+                T::default()
+            } else {
+                // Parse the entire array as the tuple configuration.
+                let arr_value = serde_json::Value::Array(arr);
+                T::deserialize(&arr_value).map_err(|e| {
+                    match compact_json_for_error(&arr_value) {
+                        Some(compact) => D::Error::custom(format!("{e}, received `{compact}`")),
+                        None => D::Error::custom(e),
+                    }
+                })?
+            };
+
+            Ok(TupleRuleConfig(config))
+        } else if value == serde_json::Value::Null {
+            // Missing configuration (null) is treated as default (no rule options provided)
+            Ok(TupleRuleConfig(T::default()))
+        } else {
+            Err(D::Error::custom("Expected array for rule configuration"))
+        }
+    }
+}

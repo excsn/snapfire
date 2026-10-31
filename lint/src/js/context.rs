@@ -11,6 +11,7 @@ use oxc_semantic::{IsGlobalReference, Semantic};
 use oxc_span::Span;
 
 use super::{
+  frameworks::FrameworkOptions,
   fixer::{Fix, FixKind, Message, PossibleFixes, RuleFix, RuleFixer},
   Setup,
   globals::{GlobalValue, OxlintGlobals},
@@ -21,11 +22,39 @@ use super::{
 /// The environments a real run's files see: an FSR page runs in a browser.
 pub const ENV: [&str; 2] = ["browser", "es2026"];
 
-/// What every rule reads about one file.
-pub struct ContextHost<'a> {
+/// One script block of a file: its analysis, its module record and the framework context it is in.
+pub struct ContextSubHost<'a> {
   semantic: Semantic<'a>,
-  allocator: &'a Allocator,
   module_record: ModuleRecord,
+  framework_options: FrameworkOptions,
+}
+
+impl<'a> ContextSubHost<'a> {
+  /// # Panics
+  /// If `semantic` was built without a control flow graph.
+  pub fn new(semantic: Semantic<'a>, module_record: ModuleRecord, framework_options: FrameworkOptions) -> Self {
+    assert!(semantic.cfg().is_some(), "the linter reads `Semantic::cfg`; build it with `SemanticBuilder::with_cfg`");
+    Self { semantic, module_record, framework_options }
+  }
+
+  pub fn semantic(&self) -> &Semantic<'a> {
+    &self.semantic
+  }
+
+  pub fn module_record(&self) -> &ModuleRecord {
+    &self.module_record
+  }
+
+  pub fn framework_options(&self) -> FrameworkOptions {
+    self.framework_options
+  }
+}
+
+/// What every rule reads about one script block, with the file's other blocks beside it.
+pub struct ContextHost<'a> {
+  sub: Rc<ContextSubHost<'a>>,
+  others: Vec<Rc<ContextSubHost<'a>>>,
+  allocator: &'a Allocator,
   file_path: Box<Path>,
   globals: OxlintGlobals,
   /// The environments whose globals the file sees beside the builtins, as ESLint's `env` names them.
@@ -38,11 +67,8 @@ pub struct ContextHost<'a> {
 }
 
 impl<'a> ContextHost<'a> {
-  /// # Panics
-  /// If `semantic` was built without a control flow graph.
-  pub fn new(semantic: Semantic<'a>, allocator: &'a Allocator, module_record: ModuleRecord, file_path: &Path, fix: FixKind, setup: Setup) -> Self {
-    assert!(semantic.cfg().is_some(), "the linter reads `Semantic::cfg`; build it with `SemanticBuilder::with_cfg`");
-    Self { semantic, allocator, module_record, file_path: file_path.into(), globals: setup.globals, env: setup.env, settings: setup.settings, fix, first: setup.first, messages: RefCell::default() }
+  pub fn new(sub: Rc<ContextSubHost<'a>>, others: Vec<Rc<ContextSubHost<'a>>>, allocator: &'a Allocator, file_path: &Path, fix: FixKind, setup: Setup) -> Self {
+    Self { sub, others, allocator, file_path: file_path.into(), globals: setup.globals, env: setup.env, settings: setup.settings, fix, first: setup.first, messages: RefCell::default() }
   }
 
   /// A context reporting under `rule`, the rule's full id.
@@ -51,11 +77,20 @@ impl<'a> ContextHost<'a> {
   }
 
   pub fn semantic(&self) -> &Semantic<'a> {
-    &self.semantic
+    &self.sub.semantic
+  }
+
+  pub fn module_record(&self) -> &ModuleRecord {
+    &self.sub.module_record
+  }
+
+  /// The file's other script blocks: a Vue component's `<script>` beside its `<script setup>`.
+  pub fn other_file_hosts(&self) -> Vec<&ContextSubHost<'a>> {
+    self.others.iter().map(AsRef::as_ref).collect()
   }
 
   pub fn source_type(&self) -> &oxc_span::SourceType {
-    self.semantic.source_type()
+    self.sub.semantic.source_type()
   }
 
   /// The extension of the file being linted, without its dot.
@@ -69,6 +104,10 @@ impl<'a> ContextHost<'a> {
 
   pub fn is_first_sub_host(&self) -> bool {
     self.first
+  }
+
+  pub fn frameworks_options(&self) -> FrameworkOptions {
+    self.sub.framework_options
   }
 
   /// Every rule's messages, each with the rule that reported it.
@@ -90,14 +129,14 @@ impl<'a> Deref for LintContext<'a> {
 
   #[inline]
   fn deref(&self) -> &Self::Target {
-    &self.host.semantic
+    self.host.semantic()
   }
 }
 
 impl<'a> LintContext<'a> {
   #[inline]
   pub fn semantic(&self) -> &Semantic<'a> {
-    &self.host.semantic
+    self.host.semantic()
   }
 
   #[inline]
@@ -105,8 +144,20 @@ impl<'a> LintContext<'a> {
     self.host.file_path()
   }
 
+  pub fn frameworks_options(&self) -> FrameworkOptions {
+    self.host.frameworks_options()
+  }
+
+  pub fn file_extension(&self) -> Option<&OsStr> {
+    self.host.file_extension()
+  }
+
+  pub fn other_file_hosts(&self) -> Vec<&ContextSubHost<'a>> {
+    self.host.other_file_hosts()
+  }
+
   pub fn module_record(&self) -> &ModuleRecord {
-    &self.host.module_record
+    self.host.module_record()
   }
 
   /// The arena the file's AST lives in.
@@ -117,12 +168,12 @@ impl<'a> LintContext<'a> {
 
   #[inline]
   pub fn cfg(&self) -> &ControlFlowGraph {
-    self.host.semantic.cfg().expect("built with a control flow graph")
+    self.host.semantic().cfg().expect("built with a control flow graph")
   }
 
   /// The source text `span` covers.
   pub fn source_range(&self, span: Span) -> &'a str {
-    span.source_text(self.host.semantic.source_text())
+    span.source_text(self.host.semantic().source_text())
   }
 
   /// The offset from `start` of the next `token` before `end`, skipping comments.

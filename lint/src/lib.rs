@@ -238,7 +238,104 @@ const OFF_BY_DEFAULT: [&str; 1] = ["react/react-in-jsx-scope"];
 /// The plugins whose recommended rules run without a configuration naming them, as the presets a TypeScript, React
 /// or Vue application's ESLint configuration extends. Another plugin's recommended rules are off until its preset or
 /// a rule is named.
-const ON_BY_DEFAULT: [&str; 5] = ["eslint", "jsx-a11y", "react", "typescript", "vue"];
+const ON_BY_DEFAULT: [&str; 4] = ["eslint", "jsx-a11y", "react", "typescript"];
+
+/// eslint-plugin-vue's `vue3-essential` preset, the Vue rules that run without a configuration naming them.
+/// <https://github.com/vuejs/eslint-plugin-vue/blob/master/lib/configs/vue3-essential.ts>
+pub(crate) const VUE_ESSENTIAL: &[&str] = &[
+  "vue/multi-word-component-names",
+  "vue/no-arrow-functions-in-watch",
+  "vue/no-async-in-computed-properties",
+  "vue/no-child-content",
+  "vue/no-computed-properties-in-data",
+  "vue/no-deprecated-data-object-declaration",
+  "vue/no-deprecated-delete-set",
+  "vue/no-deprecated-destroyed-lifecycle",
+  "vue/no-deprecated-dollar-listeners-api",
+  "vue/no-deprecated-dollar-scopedslots-api",
+  "vue/no-deprecated-events-api",
+  "vue/no-deprecated-filter",
+  "vue/no-deprecated-functional-template",
+  "vue/no-deprecated-html-element-is",
+  "vue/no-deprecated-inline-template",
+  "vue/no-deprecated-model-definition",
+  "vue/no-deprecated-props-default-this",
+  "vue/no-deprecated-router-link-tag-prop",
+  "vue/no-deprecated-scope-attribute",
+  "vue/no-deprecated-slot-attribute",
+  "vue/no-deprecated-slot-scope-attribute",
+  "vue/no-deprecated-v-bind-sync",
+  "vue/no-deprecated-v-is",
+  "vue/no-deprecated-v-on-native-modifier",
+  "vue/no-deprecated-v-on-number-modifiers",
+  "vue/no-deprecated-vue-config-keycodes",
+  "vue/no-dupe-keys",
+  "vue/no-dupe-v-else-if",
+  "vue/no-duplicate-attributes",
+  "vue/no-export-in-script-setup",
+  "vue/no-expose-after-await",
+  "vue/no-lifecycle-after-await",
+  "vue/no-mutating-props",
+  "vue/no-parsing-error",
+  "vue/no-ref-as-operand",
+  "vue/no-reserved-component-names",
+  "vue/no-reserved-keys",
+  "vue/no-reserved-props",
+  "vue/no-shared-component-data",
+  "vue/no-side-effects-in-computed-properties",
+  "vue/no-template-key",
+  "vue/no-textarea-mustache",
+  "vue/no-unused-components",
+  "vue/no-unused-vars",
+  "vue/no-use-computed-property-like-method",
+  "vue/no-use-v-if-with-v-for",
+  "vue/no-useless-template-attributes",
+  "vue/no-v-for-template-key-on-child",
+  "vue/no-v-text-v-html-on-component",
+  "vue/no-watch-after-await",
+  "vue/prefer-import-from-vue",
+  "vue/require-component-is",
+  "vue/require-prop-type-constructor",
+  "vue/require-render-return",
+  "vue/require-slots-as-functions",
+  "vue/require-toggle-inside-transition",
+  "vue/require-v-for-key",
+  "vue/require-valid-default-prop",
+  "vue/return-in-computed-property",
+  "vue/return-in-emits-validator",
+  "vue/use-v-on-exact",
+  "vue/valid-attribute-name",
+  "vue/valid-define-emits",
+  "vue/valid-define-options",
+  "vue/valid-define-props",
+  "vue/valid-next-tick",
+  "vue/valid-template-root",
+  "vue/valid-v-bind",
+  "vue/valid-v-cloak",
+  "vue/valid-v-else-if",
+  "vue/valid-v-else",
+  "vue/valid-v-for",
+  "vue/valid-v-html",
+  "vue/valid-v-if",
+  "vue/valid-v-is",
+  "vue/valid-v-memo",
+  "vue/valid-v-model",
+  "vue/valid-v-on",
+  "vue/valid-v-once",
+  "vue/valid-v-pre",
+  "vue/valid-v-show",
+  "vue/valid-v-slot",
+  "vue/valid-v-text",
+];
+
+/// Whether `id` runs without a configuration naming it, when oxlint marks it recommended in its plugin.
+fn on_by_default(id: &str, recommended: bool) -> bool {
+  match id.split('/').next() {
+    Some("vue") => VUE_ESSENTIAL.contains(&id),
+    Some(plugin) => recommended && ON_BY_DEFAULT.contains(&plugin) && !OFF_BY_DEFAULT.contains(&id),
+    None => false,
+  }
+}
 
 impl RuleInfo {
   pub const fn new(id: &'static str, default: Level, category: &'static str, docs: &'static str) -> Self {
@@ -249,7 +346,7 @@ impl RuleInfo {
 /// Every rule this crate has, sorted by id.
 pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
-  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if e.recommended && !OFF_BY_DEFAULT.contains(&e.id) && ON_BY_DEFAULT.iter().any(|plugin| e.id.split('/').next() == Some(*plugin)) { Level::Error } else { Level::Off }, recommended: e.recommended, category: e.category, fixable: e.fixable, docs: e.docs }));
+  all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if on_by_default(e.id, e.recommended) { Level::Error } else { Level::Off }, recommended: e.recommended, category: e.category, fixable: e.fixable, docs: e.docs }));
   all.extend(templates::VUE_RULES);
   all.extend(markdown::RULES);
   all.extend(tera::RULES);
