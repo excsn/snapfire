@@ -18,3 +18,5 @@ pub use value::{Fields, Items, Props, RefKind, Text, TypedArray, Value, ValueHas
 
 pub type Params = indexmap::IndexMap<String, String>;
 pub type Data = value::ValueMap;
+pub mod dynamic;
+pub use dynamic::{Dynamic, DynamicError};

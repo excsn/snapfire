@@ -16,10 +16,12 @@ readme = "README.md"
 [dependencies]
 foldhash = "0.2"
 indexmap = "2"
+serde = "1"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
 proptest = "1"
 criterion = "0.5"
 
