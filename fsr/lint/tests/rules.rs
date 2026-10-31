@@ -79,7 +79,7 @@ fn htmx_attributes_are_known_properties() {
 fn the_rules_are_listed() {
   let linter = Linter::new_with(snapfire_fsr_lint::base(), snapfire_fsr_lint::checks()).unwrap();
   let ids: Vec<_> = linter.rules().into_iter().map(|r| r.id).filter(|id| id.starts_with("fsr/")).collect();
-  assert_eq!(ids, ["fsr/no-browser-globals-in-render", "fsr/no-file-read-in-render", "fsr/no-module-state-in-render", "fsr/output-name-clash"]);
+  assert_eq!(ids, ["fsr/no-browser-globals-in-render", "fsr/no-file-read-in-render", "fsr/no-focused-tests", "fsr/no-module-state-in-render", "fsr/output-name-clash"]);
 }
 
 fn extraneous(path: &str, source: &str) -> Vec<(usize, String, Level)> {
@@ -146,4 +146,25 @@ fn a_route_pages_front_matter_title_is_its_meta_and_not_a_heading() {
   assert!(rules("routes/faq/page.md", "---\ntitle: FAQ\n---\n\n# Questions\n").is_empty());
   assert_eq!(rules("routes/faq/page.md", "# Questions\n\n# Again\n"), ["markdown/no-multiple-h1"]);
   assert_eq!(rules("content/post.md", "---\ntitle: Post\n---\n\n# Post\n"), ["markdown/no-multiple-h1"], "content another page imports keeps ESLint's reading");
+}
+
+#[test]
+fn a_focused_test_is_found() {
+  let source = "import { describe, expect, fit, fdescribe, it, test } from \"@snapfire/fsr/testing\";\ntest.only(\"a\", () => {});\nit.only(\"b\", () => {});\ndescribe.only(\"c\", () => {});\nfit(\"d\", () => {});\nfdescribe(\"e\", () => {});\ntest.only.each([[1]])(\"f %i\", () => {});\ntest(\"g\", () => expect(1).toBe(1));\n";
+  let report = lint("tests/a.test.ts", source);
+  assert_eq!(fsr(&report), [("fsr/no-focused-tests", 2), ("fsr/no-focused-tests", 3), ("fsr/no-focused-tests", 4), ("fsr/no-focused-tests", 5), ("fsr/no-focused-tests", 6), ("fsr/no-focused-tests", 7)]);
+  let spec = "import { test as check } from \"@snapfire/fsr/client/testing\";\ncheck.only(\"renders\", () => {});\n";
+  assert_eq!(fsr(&lint("tests/page.spec.ts", spec)), [("fsr/no-focused-tests", 2)], "the binding is followed under another name");
+}
+
+#[test]
+fn a_test_that_is_not_focused_or_not_fsrs_is_not() {
+  let cases = [
+    "import { test } from \"@snapfire/fsr/testing\";\ntest.skip(\"a\", () => {});\ntest.todo(\"b\");\n",
+    "const test = { only: (name: string) => name };\ntest.only(\"a\");\n",
+    "import { test } from \"other-runner\";\ntest.only(\"a\", () => {});\n",
+  ];
+  for source in cases {
+    assert!(fsr(&lint("tests/a.test.ts", source)).is_empty(), "{source}");
+  }
 }

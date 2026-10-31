@@ -12,6 +12,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 * [2. Rules](#2-rules)
   * [fsr/no-browser-globals-in-render](#fsrno-browser-globals-in-render)
   * [fsr/no-file-read-in-render](#fsrno-file-read-in-render)
+  * [fsr/no-focused-tests](#fsrno-focused-tests)
   * [fsr/no-module-state-in-render](#fsrno-module-state-in-render)
   * [fsr/output-name-clash](#fsroutput-name-clash)
   * [import/no-extraneous-dependencies](#importno-extraneous-dependencies)
@@ -20,7 +21,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 
 ### checks
 
-* `pub fn checks() -> Vec<Box<dyn snapfire_lint::Check>>`: the four `fsr/` rules of section 2, for `Linter::new_with`.
+* `pub fn checks() -> Vec<Box<dyn snapfire_lint::Check>>`: the five `fsr/` rules of section 2, for `Linter::new_with`.
 
 ### base
 
@@ -28,7 +29,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 
 ### rules
 
-* `pub fn rules() -> Vec<snapfire_lint::RuleInfo>`: every rule `fsr lint` runs, `snapfire_lint`'s, the four of `checks()` and `import/no-extraneous-dependencies`, at the level `base()` gives it. `fsr lint --rules` lists it and `fsr migrate` translates an ESLint configuration against it.
+* `pub fn rules() -> Vec<snapfire_lint::RuleInfo>`: every rule `fsr lint` runs, `snapfire_lint`'s, the five of `checks()` and `import/no-extraneous-dependencies`, at the level `base()` gives it. `fsr lint --rules` lists it and `fsr migrate` translates an ESLint configuration against it.
 
 ### ExtraneousDependencies
 
@@ -49,6 +50,13 @@ FSR's lint rules and base levels for `snapfire_lint`.
 * Default `error`, category `perf`.
 * Files: `.tsx` and `.jsx` that are not server modules.
 * Finds: a call `file.<method>(...)` whose `file` is bound by `import { file } from "@snapfire/fsr/host"`, placed in render as above.
+
+### fsr/no-focused-tests
+
+* Default `error`, category `correctness`.
+* Files: every script.
+* Finds: `.only` read off a `test`, `it` or `describe` imported from `@snapfire/fsr/testing` or `@snapfire/fsr/client/testing`, under any local name, `test.only.each` among them; and every use of `fit` or `fdescribe` imported from them.
+* Skips: `.skip`, `.todo` and the rest; a `test` bound to anything else.
 
 ### fsr/no-module-state-in-render
 

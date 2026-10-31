@@ -13,7 +13,7 @@ use snapfire_lint::{Check, Config, File, Level, RuleInfo};
 
 /// The checks only FSR can make.
 pub fn checks() -> Vec<Box<dyn Check>> {
-  vec![Box::new(BrowserGlobals), Box::new(FileRead), Box::new(ModuleStateInRender), Box::new(OutputClash)]
+  vec![Box::new(BrowserGlobals), Box::new(FileRead), Box::new(ModuleStateInRender), Box::new(FocusedTests), Box::new(OutputClash)]
 }
 
 /// Every rule `fsr lint` runs, `snapfire_lint`'s and FSR's, at the level [`base`] gives it.
@@ -377,6 +377,63 @@ impl Check for ModuleStateInRender {
         let AstKind::CallExpression(call) = semantic.nodes().parent_kind(node.id()) else { continue };
         if call.callee.span() == node.span() && in_render(node, semantic) {
           found(call.span.start as usize, format!("`{}` writes `{written}` and is called while the component renders", scoping.symbol_name(writer)));
+        }
+      }
+    }
+  }
+}
+
+/// The modules FSR's tests import their runner from.
+const TESTING_MODULES: &[&str] = &["@snapfire/fsr/testing", "@snapfire/fsr/client/testing"];
+
+/// Each local symbol bound by an import from [`TESTING_MODULES`], with the name it imports.
+fn testing_imports(semantic: &Semantic<'_>) -> Vec<(SymbolId, String)> {
+  let mut out = Vec::new();
+  for statement in &semantic.nodes().program().body {
+    let Statement::ImportDeclaration(import) = statement else { continue };
+    if !import.source.value.as_str().is_some_and(|source| TESTING_MODULES.contains(&source)) {
+      continue;
+    }
+    for specifier in import.specifiers.iter().flatten() {
+      if let ImportDeclarationSpecifier::ImportSpecifier(named) = specifier {
+        out.push((named.local.symbol_id(), named.imported.name().to_string()));
+      }
+    }
+  }
+  out
+}
+
+struct FocusedTests;
+
+impl Check for FocusedTests {
+  fn info(&self) -> RuleInfo {
+    RuleInfo::new(
+      "fsr/no-focused-tests",
+      Level::Error,
+      "correctness",
+      "### What it does\n\nDisallows `test.only`, `it.only`, `describe.only`, `fit` and `fdescribe` from `@snapfire/fsr/testing` and `@snapfire/fsr/client/testing`.\n\n### Why is this bad?\n\nA focused test runs alone, so every other test in the file is skipped and the run still passes. One left in by mistake hides failures in CI.\n",
+    )
+  }
+
+  fn check(&self, file: &File<'_>, found: &mut dyn FnMut(usize, String)) {
+    let semantic = file.semantic;
+    for (symbol, imported) in testing_imports(semantic) {
+      let focused = matches!(imported.as_str(), "fit" | "fdescribe");
+      let focusable = matches!(imported.as_str(), "test" | "it" | "describe");
+      if !focused && !focusable {
+        continue;
+      }
+      for reference in semantic.scoping().get_resolved_references(symbol) {
+        let node = semantic.nodes().get_node(reference.node_id());
+        if focused {
+          found(node.span().start as usize, format!("`{imported}` runs only this test"));
+          continue;
+        }
+        if let AstKind::StaticMemberExpression(member) = semantic.nodes().parent_kind(node.id())
+          && member.object.span() == node.span()
+          && member.property.name == "only"
+        {
+          found(member.property.span.start as usize, format!("`{imported}.only` runs only this test"));
         }
       }
     }
