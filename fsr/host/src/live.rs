@@ -183,6 +183,11 @@ impl Host {
       .get("sec-websocket-key")
       .and_then(|v| v.to_str().ok())
       .map(str::to_owned);
+    if let (Some(_), Some(binding)) = (&key, req.extensions_mut().remove::<socket::BindingUpgrade>()) {
+      let who = socket::Who { topic, session: opened.cell.clone(), identity, connection: 0 };
+      *binding.0.lock() = Some(socket::Accepted { who, sockets: self.sockets.clone(), handler });
+      return Response::builder().status(StatusCode::SWITCHING_PROTOCOLS).body(Body::default()).expect("a handshake response");
+    }
     let (Some(key), Some(upgrading)) = (key, req.extensions_mut().remove::<hyper::upgrade::OnUpgrade>()) else {
       return text_response(StatusCode::BAD_REQUEST, "not a websocket upgrade".to_owned());
     };

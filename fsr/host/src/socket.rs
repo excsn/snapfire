@@ -92,7 +92,7 @@ pub type SocketHandler = Arc<dyn Fn(&Who, On) -> Reply + Send + Sync>;
 /// to write them encodes them and every other one reuses the bytes, so a send
 /// to a whole topic is encoded once and the encoding never runs on the
 /// caller, which may be an application's single controller task.
-struct Frame {
+pub(crate) struct Frame {
   rows: Vec<Row>,
   text: std::sync::OnceLock<tokio_tungstenite::tungstenite::Utf8Bytes>,
 }
@@ -102,10 +102,21 @@ impl Frame {
     Arc::new(Self { rows, text: std::sync::OnceLock::new() })
   }
 
-  fn text(&self) -> tokio_tungstenite::tungstenite::Utf8Bytes {
+  pub(crate) fn text(&self) -> tokio_tungstenite::tungstenite::Utf8Bytes {
     self.text.get_or_init(|| encode(&self.rows).into()).clone()
   }
 }
+
+/// A socket the host accepted for a binding that does its own upgrade, which is what such a binding serves once it has.
+pub(crate) struct Accepted {
+  pub(crate) who: Who,
+  pub(crate) sockets: Arc<Sockets>,
+  pub(crate) handler: SocketHandler,
+}
+
+/// In a request's extensions from a binding with its own upgrade, where the host leaves what it accepted.
+#[derive(Clone, Default)]
+pub(crate) struct BindingUpgrade(pub(crate) Arc<parking_lot::Mutex<Option<Accepted>>>);
 
 /// Every open socket, by topic. A connection is dropped from its topic when
 /// its writer half goes, which happens when the browser closes the socket or
@@ -123,14 +134,14 @@ impl Sockets {
 
   /// Frames go out from `send` (synchronous) and are read by `serve` (not),
   /// so the sync half is kept and the receiver is converted.
-  fn join(&self, topic: &str) -> (u64, mpsc::UnboundedAsyncReceiver<Arc<Frame>>) {
+  pub(crate) fn join(&self, topic: &str) -> (u64, mpsc::UnboundedAsyncReceiver<Arc<Frame>>) {
     let id = self.next.fetch_add(1, Ordering::Relaxed);
     let (tx, rx) = mpsc::unbounded();
     self.open.lock().entry(topic.to_owned()).or_default().push((id, tx));
     (id, rx.to_async())
   }
 
-  fn leave(&self, topic: &str, id: u64) {
+  pub(crate) fn leave(&self, topic: &str, id: u64) {
     let mut open = self.open.lock();
     if let Some(peers) = open.get_mut(topic) {
       peers.retain(|(peer, _)| *peer != id);
@@ -165,7 +176,7 @@ impl Sockets {
     }
   }
 
-  fn deliver(&self, topic: &str, reply: &Reply, from: u64) {
+  pub(crate) fn deliver(&self, topic: &str, reply: &Reply, from: u64) {
     self.send(topic, &reply.everyone, Reach::Everyone, from);
     self.send(topic, &reply.others, Reach::Others, from);
     self.send(topic, &reply.sender, Reach::Sender, from);
@@ -228,7 +239,7 @@ fn encode(rows: &[Row]) -> String {
   serde_json::json!({ "rows": rows }).to_string()
 }
 
-fn decode(text: &str) -> Option<Row> {
+pub(crate) fn decode(text: &str) -> Option<Row> {
   let json: serde_json::Value = serde_json::from_str(text).ok()?;
   let key = json.get("key")?.as_str()?.to_owned();
   let value = snapfire_fsr_payload::json_to_value(json.get("value")?).ok()?;

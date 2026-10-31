@@ -4012,6 +4012,78 @@ async fn a_topic_rule_decides_who_may_follow_what() {
   );
 }
 
+#[cfg(all(feature = "ws", feature = "actix"))]
+#[actix_web::test]
+async fn a_socket_opens_through_the_actix_binding() {
+  use futures::{SinkExt, StreamExt};
+  use snapfire_fsr_host::socket::{On, Reply, Row};
+  use std::sync::atomic::{AtomicBool, Ordering};
+  use tokio_tungstenite::tungstenite::Message;
+
+  let left = Arc::new(AtomicBool::new(false));
+  let saw_left = left.clone();
+  let dir = app_dir();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .socket(move |who, on| match on {
+      On::Joined => Reply::sender([Row::new("joined", Value::str(who.topic.clone()))]),
+      On::Said(row) => Reply::everyone([row]),
+      On::Left => {
+        saw_left.store(true, Ordering::SeqCst);
+        Reply::default()
+      }
+    })
+    .build()
+    .unwrap();
+  let host = Arc::new(host);
+
+  let app_host = host.clone();
+  let server = actix_web::HttpServer::new(move || actix_web::App::new().app_data(actix_web::web::Data::new(app_host.clone())).default_service(actix_web::web::to(snapfire_fsr_host::actix::handle)))
+    .workers(1)
+    .disable_signals()
+    .bind(("127.0.0.1", 0))
+    .unwrap();
+  let address = server.addrs()[0];
+  let running = server.run();
+  let stopper = running.handle();
+  actix_web::rt::spawn(running);
+
+  let patience = std::time::Duration::from_secs(5);
+  let tcp = tokio::net::TcpStream::connect(address).await.unwrap();
+  let opened = tokio::time::timeout(patience, tokio_tungstenite::client_async(format!("ws://{address}/_sf/socket?topic=wave/1"), tcp)).await.expect("the handshake answered");
+  let (mut socket, _) = opened.unwrap_or_else(|e| panic!("{e}"));
+  let next_text = |frame: Option<Result<Message, tokio_tungstenite::tungstenite::Error>>| match frame {
+    Some(Ok(Message::Text(text))) => text.to_string(),
+    other => panic!("{other:?}"),
+  };
+  let joined = next_text(tokio::time::timeout(patience, socket.next()).await.expect("a frame arrived"));
+  assert!(joined.contains("joined") && joined.contains("wave/1"), "{joined}");
+
+  socket.send(Message::Text(r#"{"key":"typed","value":"hi"}"#.into())).await.unwrap();
+  let echoed = next_text(tokio::time::timeout(patience, socket.next()).await.expect("a frame arrived"));
+  assert!(echoed.contains("typed") && echoed.contains("hi"), "{echoed}");
+
+  assert_eq!(host.sockets().on("wave/1"), 1);
+  host.sockets().push("wave/1", [Row::new("pushed", Value::str("from the server"))]);
+  let pushed = next_text(tokio::time::timeout(patience, socket.next()).await.expect("a frame arrived"));
+  assert!(pushed.contains("from the server"), "{pushed}");
+
+  socket.close(None).await.unwrap();
+  let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+  while (host.sockets().on("wave/1") != 0 || !left.load(Ordering::SeqCst)) && std::time::Instant::now() < until {
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+  }
+  assert_eq!(host.sockets().on("wave/1"), 0);
+  assert!(left.load(Ordering::SeqCst));
+
+  let plain = tokio::net::TcpStream::connect(address).await.unwrap();
+  let refused = tokio::time::timeout(patience, tokio_tungstenite::client_async(format!("ws://{address}/_sf/socket"), plain)).await.expect("the refusal answered");
+  assert!(refused.is_err(), "a socket with no topic is refused");
+  stopper.stop(false).await;
+}
+
 #[cfg(feature = "ws")]
 #[tokio::test]
 async fn a_socket_is_refused_without_a_handler_a_topic_or_the_rule_s_blessing() {
