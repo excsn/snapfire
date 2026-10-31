@@ -8,6 +8,7 @@ How FSR's rules run, what each finds and the levels FSR sets.
 * [Quick Start](#quick-start)
 * [Finding Browser Globals Where the Server Runs](#finding-browser-globals-where-the-server-runs)
 * [Finding File Reads in Render](#finding-file-reads-in-render)
+* [Finding Module State Written in Render](#finding-module-state-written-in-render)
 * [Finding Two Sources With One Output](#finding-two-sources-with-one-output)
 * [Finding Imports of Undeclared Packages](#finding-imports-of-undeclared-packages)
 * [The Base Levels](#the-base-levels)
@@ -69,6 +70,22 @@ export default function Notes() {
 ```
 
 Read it in the page's loader instead, which runs once per request. A `file` that is not FSR's is not checked.
+
+## Finding Module State Written in Render
+
+`fsr/no-module-state-in-render`, `error`, finds a module-level variable written while a component renders, directly or through a function of the same file:
+
+```tsx
+let nextId = 0;
+const createId = () => nextId++;
+
+export default function Row() {
+  const id = createId();
+  return <li id={`row-${id}`} />;
+}
+```
+
+FSR renders each request on its own copy of the module's variables, so `nextId` is 0 again on every server render. Write it in a handler or an effect, where FSR keeps it as state. For an id, `useId` gives one. A cache filled the first time, `if (!cache) cache = load()` or `cache ??= load()`, is not a finding.
 
 ## Finding Two Sources With One Output
 

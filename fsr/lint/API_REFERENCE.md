@@ -12,6 +12,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 * [2. Rules](#2-rules)
   * [fsr/no-browser-globals-in-render](#fsrno-browser-globals-in-render)
   * [fsr/no-file-read-in-render](#fsrno-file-read-in-render)
+  * [fsr/no-module-state-in-render](#fsrno-module-state-in-render)
   * [fsr/output-name-clash](#fsroutput-name-clash)
   * [import/no-extraneous-dependencies](#importno-extraneous-dependencies)
 
@@ -19,7 +20,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 
 ### checks
 
-* `pub fn checks() -> Vec<Box<dyn snapfire_lint::Check>>`: the three `fsr/` rules of section 2, for `Linter::new_with`.
+* `pub fn checks() -> Vec<Box<dyn snapfire_lint::Check>>`: the four `fsr/` rules of section 2, for `Linter::new_with`.
 
 ### base
 
@@ -27,7 +28,7 @@ FSR's lint rules and base levels for `snapfire_lint`.
 
 ### rules
 
-* `pub fn rules() -> Vec<snapfire_lint::RuleInfo>`: every rule `fsr lint` runs, `snapfire_lint`'s, the three of `checks()` and `import/no-extraneous-dependencies`, at the level `base()` gives it. `fsr lint --rules` lists it and `fsr migrate` translates an ESLint configuration against it.
+* `pub fn rules() -> Vec<snapfire_lint::RuleInfo>`: every rule `fsr lint` runs, `snapfire_lint`'s, the four of `checks()` and `import/no-extraneous-dependencies`, at the level `base()` gives it. `fsr lint --rules` lists it and `fsr migrate` translates an ESLint configuration against it.
 
 ### ExtraneousDependencies
 
@@ -48,6 +49,13 @@ FSR's lint rules and base levels for `snapfire_lint`.
 * Default `error`, category `perf`.
 * Files: `.tsx` and `.jsx` that are not server modules.
 * Finds: a call `file.<method>(...)` whose `file` is bound by `import { file } from "@snapfire/fsr/host"`, placed in render as above.
+
+### fsr/no-module-state-in-render
+
+* Default `error`, category `correctness`.
+* Files: `.tsx` and `.jsx` that are not server modules.
+* Finds: a write to a variable declared at the module's top level, where the function it runs in, callbacks of `useMemo`, `useState` and `useReducer` skipped, is a component. And a call, placed in render the same way, to a top-level function or `const` arrow of the file that writes such a variable.
+* Skips: a write at the module's top level; `x ??= v` and `x ||= v`; a write under an `if` whose test is `!x`, `x == null`, `x === undefined`, `x === null` or `typeof x === "undefined"` for a top-level `x`, so a cache filled the first time is not a finding. Changing an object a `const` holds is not a write.
 
 ### fsr/output-name-clash
 

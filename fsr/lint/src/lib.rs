@@ -5,7 +5,7 @@ use std::path::Path;
 
 use snapfire_lint::oxc_ast::{
   AstKind,
-  ast::{Expression, ImportDeclarationSpecifier, Statement, StringLiteral},
+  ast::{AssignmentOperator, BinaryOperator, Expression, ImportDeclarationSpecifier, Statement, StringLiteral, UnaryOperator},
 };
 use snapfire_lint::oxc_semantic::{AstNode, Semantic, SymbolId};
 use snapfire_lint::oxc_span::GetSpan;
@@ -13,7 +13,7 @@ use snapfire_lint::{Check, Config, File, Level, RuleInfo};
 
 /// The checks only FSR can make.
 pub fn checks() -> Vec<Box<dyn Check>> {
-  vec![Box::new(BrowserGlobals), Box::new(FileRead), Box::new(OutputClash)]
+  vec![Box::new(BrowserGlobals), Box::new(FileRead), Box::new(ModuleStateInRender), Box::new(OutputClash)]
 }
 
 /// Every rule `fsr lint` runs, `snapfire_lint`'s and FSR's, at the level [`base`] gives it.
@@ -165,6 +165,68 @@ fn place<'a>(node: &AstNode<'a>, semantic: &Semantic<'a>) -> Place {
   Place::Render
 }
 
+/// The function `node` runs in, the callbacks of hooks that run while rendering skipped; `None` at a module's top level.
+fn running_in<'a, 'b>(node: &AstNode<'a>, semantic: &'b Semantic<'a>) -> Option<&'b AstNode<'a>> {
+  semantic.nodes().ancestors(node.id()).find(|ancestor| matches!(ancestor.kind(), AstKind::Function(_) | AstKind::ArrowFunctionExpression(_)) && !render_hook_callback(ancestor, semantic))
+}
+
+/// Whether `node` runs while a component renders: its function is a component.
+fn in_render<'a>(node: &AstNode<'a>, semantic: &Semantic<'a>) -> bool {
+  running_in(node, semantic).is_some_and(|function| is_component(function, semantic))
+}
+
+/// The symbol a module-level function is bound to: its own name or the `const` it is assigned to.
+fn function_symbol<'a>(function: &AstNode<'a>, semantic: &Semantic<'a>) -> Option<SymbolId> {
+  let root = semantic.scoping().root_scope_id();
+  let symbol = match function.kind() {
+    AstKind::Function(f) => f.id.as_ref().map(|id| id.symbol_id())?,
+    AstKind::ArrowFunctionExpression(_) => match semantic.nodes().parent_kind(function.id()) {
+      AstKind::VariableDeclarator(declarator) => declarator.id.get_binding_identifier().map(|id| id.symbol_id())?,
+      _ => return None,
+    },
+    _ => return None,
+  };
+  (semantic.scoping().symbol_scope_id(symbol) == root).then_some(symbol)
+}
+
+/// Whether `test` holds only when a module-level variable is unset: `!x`, `x == null`, `x === undefined`, `x === null`
+/// or `typeof x === "undefined"`.
+fn tests_unset<'a>(test: &Expression<'a>, semantic: &Semantic<'a>) -> bool {
+  let module_level = |expression: &Expression<'a>| match expression.get_inner_expression() {
+    Expression::Identifier(ident) => semantic.scoping().get_reference(ident.reference_id()).symbol_id().is_some_and(|symbol| semantic.scoping().symbol_scope_id(symbol) == semantic.scoping().root_scope_id()),
+    _ => false,
+  };
+  let nothing = |expression: &Expression<'a>| matches!(expression.get_inner_expression(), Expression::NullLiteral(_)) || matches!(expression.get_inner_expression(), Expression::Identifier(ident) if ident.name == "undefined");
+  match test.get_inner_expression() {
+    Expression::UnaryExpression(unary) => unary.operator == UnaryOperator::LogicalNot && module_level(&unary.argument),
+    Expression::BinaryExpression(binary) if matches!(binary.operator, BinaryOperator::Equality | BinaryOperator::StrictEquality) => {
+      let typeof_undefined = |left: &Expression<'a>, right: &Expression<'a>| match (left.get_inner_expression(), right.get_inner_expression()) {
+        (Expression::UnaryExpression(unary), Expression::StringLiteral(text)) => unary.operator == UnaryOperator::Typeof && module_level(&unary.argument) && text.value == "undefined",
+        _ => false,
+      };
+      (module_level(&binary.left) && nothing(&binary.right)) || (module_level(&binary.right) && nothing(&binary.left)) || typeof_undefined(&binary.left, &binary.right) || typeof_undefined(&binary.right, &binary.left)
+    }
+    _ => false,
+  }
+}
+
+/// Whether the write at `node`, inside `function`, fills a module-level cache the first time: `x ??= v`, `x ||= v`, or
+/// under an `if` that runs only while a module-level variable is unset.
+fn lazy_initialization<'a>(node: &AstNode<'a>, function: &AstNode<'a>, semantic: &Semantic<'a>) -> bool {
+  let span = node.span();
+  for ancestor in semantic.nodes().ancestors(node.id()) {
+    if ancestor.id() == function.id() {
+      return false;
+    }
+    match ancestor.kind() {
+      AstKind::AssignmentExpression(assignment) if matches!(assignment.operator, AssignmentOperator::LogicalNullish | AssignmentOperator::LogicalOr) => return true,
+      AstKind::IfStatement(statement) if statement.consequent.span().contains_inclusive(span) && tests_unset(&statement.test, semantic) => return true,
+      _ => {}
+    }
+  }
+  false
+}
+
 /// Whether `node` sits where `typeof <global>` has been tested: a guard that runs it only in a browser.
 fn guarded<'a>(node: &AstNode<'a>, semantic: &Semantic<'a>, source: &str) -> bool {
   semantic.nodes().ancestors(node.id()).any(|ancestor| {
@@ -263,6 +325,56 @@ impl Check for FileRead {
       if symbols.contains(&symbol) && matches!(place(node, semantic), Place::Render) {
         let method = member.static_property_name().map_or_else(|| "call".to_owned(), |name| name.as_str().unwrap_or("call").to_owned());
         found(call.span.start as usize, format!("`file.{method}` runs on every render"));
+      }
+    }
+  }
+}
+
+struct ModuleStateInRender;
+
+impl Check for ModuleStateInRender {
+  fn info(&self) -> RuleInfo {
+    RuleInfo::new(
+      "fsr/no-module-state-in-render",
+      Level::Error,
+      "correctness",
+      "### What it does\n\nDisallows writing a module-level variable while a component renders: in its body, in a callback of `useMemo`, `useState` or `useReducer` and through a call to a function of the same file that writes one.\n\n### Why is this bad?\n\nA render must not change anything outside it, as React requires. FSR renders each request on its own copy of a module's variables, so a write during a server render is gone with the request and the page shows the same value every time. A handler or an effect writing the variable is how FSR keeps it as state.\n",
+    )
+  }
+
+  fn check(&self, file: &File<'_>, found: &mut dyn FnMut(usize, String)) {
+    if server_module(file.path) || !component_file(file.path) {
+      return;
+    }
+    let semantic = file.semantic;
+    let scoping = semantic.scoping();
+    let root = scoping.root_scope_id();
+    let mut writers: Vec<(SymbolId, String)> = Vec::new();
+    for symbol in scoping.symbol_ids() {
+      if scoping.symbol_scope_id(symbol) != root {
+        continue;
+      }
+      let name = scoping.symbol_name(symbol).to_owned();
+      for reference in scoping.get_resolved_references(symbol).filter(|r| r.is_write()) {
+        let node = semantic.nodes().get_node(reference.node_id());
+        let Some(function) = running_in(node, semantic) else { continue };
+        if lazy_initialization(node, function, semantic) {
+          continue;
+        }
+        if is_component(function, semantic) {
+          found(node.span().start as usize, format!("`{name}` is written while the component renders"));
+        } else if let Some(writer) = function_symbol(function, semantic) {
+          writers.push((writer, name.clone()));
+        }
+      }
+    }
+    for (writer, written) in writers {
+      for reference in scoping.get_resolved_references(writer) {
+        let node = semantic.nodes().get_node(reference.node_id());
+        let AstKind::CallExpression(call) = semantic.nodes().parent_kind(node.id()) else { continue };
+        if call.callee.span() == node.span() && in_render(node, semantic) {
+          found(call.span.start as usize, format!("`{}` writes `{written}` and is called while the component renders", scoping.symbol_name(writer)));
+        }
       }
     }
   }

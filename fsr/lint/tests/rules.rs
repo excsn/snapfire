@@ -79,7 +79,7 @@ fn htmx_attributes_are_known_properties() {
 fn the_rules_are_listed() {
   let linter = Linter::new_with(snapfire_fsr_lint::base(), snapfire_fsr_lint::checks()).unwrap();
   let ids: Vec<_> = linter.rules().into_iter().map(|r| r.id).filter(|id| id.starts_with("fsr/")).collect();
-  assert_eq!(ids, ["fsr/no-browser-globals-in-render", "fsr/no-file-read-in-render", "fsr/output-name-clash"]);
+  assert_eq!(ids, ["fsr/no-browser-globals-in-render", "fsr/no-file-read-in-render", "fsr/no-module-state-in-render", "fsr/output-name-clash"]);
 }
 
 fn extraneous(path: &str, source: &str) -> Vec<(usize, String, Level)> {
@@ -111,4 +111,31 @@ fn a_declared_package_a_type_import_and_a_module_of_the_app_are_not() {
 fn a_comment_silences_it_in_its_eslint_name() {
   let source = "// eslint-disable-next-line import/no-extraneous-dependencies -- clsx comes with svelte\nimport clsx from \"clsx\";\nexport const c = clsx;\n";
   assert!(extraneous("src/lib.ts", source).is_empty());
+}
+
+#[test]
+fn a_module_variable_written_while_rendering_is_found() {
+  let direct = "let renders = 0;\nexport default function Page() {\n  renders++;\n  return <p>{renders}</p>;\n}\n";
+  assert_eq!(fsr(&lint("routes/page.tsx", direct)), [("fsr/no-module-state-in-render", 3)]);
+  let helper = "let nextId = 0;\nfunction createId() {\n  return nextId++;\n}\nexport default function Page() {\n  const id = createId();\n  return <p>{id}</p>;\n}\n";
+  assert_eq!(fsr(&lint("routes/page.tsx", helper)), [("fsr/no-module-state-in-render", 6)]);
+  let memo = "let cache = null;\nexport const List = () => {\n  const items = useMemo(() => (cache = [1, 2]), []);\n  return <ul>{items.length}</ul>;\n};\n";
+  assert_eq!(fsr(&lint("src/list.tsx", memo)), [("fsr/no-module-state-in-render", 3)]);
+}
+
+#[test]
+fn a_module_variable_written_where_the_browser_runs_it_is_not() {
+  let cases = [
+    "let count = 0;\nexport default function Page() {\n  return <button onClick={() => { count++; }}>{count}</button>;\n}\n",
+    "let seen = 0;\nexport default function Page() {\n  useEffect(() => { seen = seen + 1; }, []);\n  return <p />;\n}\n",
+    "let nextId = 0;\nfunction createId() {\n  return nextId++;\n}\nexport default function Page() {\n  return <button onClick={() => createId()}>add</button>;\n}\n",
+    "let ready = false;\nready = true;\nexport default function Page() {\n  return <p>{String(ready)}</p>;\n}\n",
+    "let total = 0;\nexport default function Page() {\n  let total = 1;\n  total += 1;\n  return <p>{total}</p>;\n}\n",
+    "const items = [];\nexport default function Page() {\n  items.push(1);\n  return <p>{items.length}</p>;\n}\n",
+    "let promise;\nlet state;\nconst read = () => {\n  if (!promise) {\n    promise = new Promise((resolve) => setTimeout(resolve, 500));\n    state = 'pending';\n  }\n  if (state === 'pending') throw promise;\n  return 'done';\n};\nexport default function Page() {\n  return <p>{read()}</p>;\n}\n",
+    "let cache;\nexport default function Page() {\n  cache ??= new Map();\n  if (cache === undefined) cache = new Map();\n  return <p>{cache.size}</p>;\n}\n",
+  ];
+  for source in cases {
+    assert!(fsr(&lint("routes/page.tsx", source)).is_empty(), "{source}");
+  }
 }
