@@ -11,9 +11,9 @@ use snapfire_fsr_ir::render::{prepare, Components};
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
 
-static LINES: Mutex<Vec<(tracing::Level, String)>> = Mutex::new(Vec::new());
+type Lines = Arc<Mutex<Vec<(tracing::Level, String)>>>;
 
-struct Capture;
+struct Capture(Lines);
 
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Capture {
   fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
@@ -28,9 +28,18 @@ impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Capture {
     if event.metadata().target() == "fsr::console" {
       let mut message = Message(String::new());
       event.record(&mut message);
-      LINES.lock().unwrap().push((*event.metadata().level(), message.0));
+      self.0.lock().unwrap().push((*event.metadata().level(), message.0));
     }
   }
+}
+
+/// The `fsr::console` lines `run` writes on this thread.
+fn captured(run: impl FnOnce()) -> Vec<(tracing::Level, String)> {
+  use tracing_subscriber::layer::SubscriberExt;
+  let lines = Lines::default();
+  tracing::subscriber::with_default(tracing_subscriber::registry().with(Capture(lines.clone())), run);
+  let lines = lines.lock().unwrap().clone();
+  lines
 }
 
 fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
@@ -46,8 +55,6 @@ fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
 
 #[test]
 fn a_console_call_logs_on_every_render_and_renders_nothing() {
-  use tracing_subscriber::layer::SubscriberExt;
-  tracing::subscriber::set_global_default(tracing_subscriber::registry().with(Capture)).unwrap();
   let page = "import { useState } from \"react\";\nexport default function Page() {\n  const [liked, setLiked] = useState(true);\n  console.log(\"rendering\", liked, { n: 1 }, [2, 3]);\n  if (liked) {\n    console.warn(\"liked\");\n  } else {\n    console.error(\"not liked\");\n  }\n  return <button onClick={() => setLiked(!liked)}>{liked ? \"yes\" : \"no\"}</button>;\n}\n";
   let dir = app("logs", &[("routes/page.tsx", page)]);
   let mut set = ComponentSet::new(&dir);
@@ -58,11 +65,12 @@ fn a_console_call_logs_on_every_render_and_renders_nothing() {
   assert!(set.browser_only.is_empty(), "{:?}", set.browser_only);
   let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
   let module = "routes/page.tsx#default";
-  for _ in 0..2 {
-    let out = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap();
-    assert_eq!(out.html, "<button>yes</button>");
-  }
-  let lines = LINES.lock().unwrap().clone();
+  let lines = captured(|| {
+    for _ in 0..2 {
+      let out = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap();
+      assert_eq!(out.html, "<button>yes</button>");
+    }
+  });
   let line = (tracing::Level::INFO, "rendering true {\"n\":1} [2,3]".to_owned());
   let warned = (tracing::Level::WARN, "liked".to_owned());
   assert_eq!(lines, vec![line.clone(), warned.clone(), line, warned], "one line per call per render, the branch not taken writing none");
@@ -92,8 +100,6 @@ fn a_console_call_reaching_a_server_only_extension_is_still_refused() {
 
 #[test]
 fn a_console_call_spreading_an_array_writes_its_items() {
-  use tracing_subscriber::layer::SubscriberExt;
-  let _ = tracing::subscriber::set_global_default(tracing_subscriber::registry().with(Capture));
   let page = "const tag = (message: string, ...rest: unknown[]) => {\n  console.log(message, ...rest);\n  return message;\n};\nexport default function Page() {\n  const xs = [\"a\", \"b\"];\n  console.warn(...xs, \"c\");\n  return <p>{tag(\"ready\", 1, { n: 2 })}</p>;\n}\n";
   let dir = app("spread", &[("routes/page.tsx", page)]);
   let mut set = ComponentSet::new(&dir);
@@ -104,8 +110,9 @@ fn a_console_call_spreading_an_array_writes_its_items() {
   assert!(set.browser_only.is_empty(), "{:?}", set.browser_only);
   let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
   let module = "routes/page.tsx#default";
-  let out = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap();
-  assert_eq!(out.html, "<p>ready</p>");
-  let lines = LINES.lock().unwrap().clone();
+  let lines = captured(|| {
+    let out = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap();
+    assert_eq!(out.html, "<p>ready</p>");
+  });
   assert_eq!(lines, vec![(tracing::Level::WARN, "a b c".to_owned()), (tracing::Level::INFO, "ready 1 {\"n\":2}".to_owned())]);
 }
