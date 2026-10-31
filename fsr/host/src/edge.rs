@@ -404,7 +404,7 @@ impl Host {
     if self.changed.is_some() {
       // `fsr dev` calls the control routes with no `Origin`; a request
       // carrying one came from a page.
-      let control = ["/__fsr/changed", "/__fsr/failed", "/__fsr/reload"].contains(&path.as_str()) && req.method() == Method::POST;
+      let control = ["/__fsr/changed", "/__fsr/failed", "/__fsr/types", "/__fsr/reload"].contains(&path.as_str()) && req.method() == Method::POST;
       if control && req.headers().contains_key(header::ORIGIN) {
         return text_response(StatusCode::FORBIDDEN, "a development control route is called by fsr dev, not a page".to_owned());
       }
@@ -426,6 +426,13 @@ impl Host {
       }
       if path == "/__fsr/failed" && req.method() == Method::POST {
         self.failed(String::from_utf8_lossy(req.body()).into_owned());
+        return Response::builder()
+          .status(StatusCode::NO_CONTENT)
+          .body(Body::default())
+          .expect("an empty response");
+      }
+      if path == "/__fsr/types" && req.method() == Method::POST {
+        self.types(String::from_utf8_lossy(req.body()).into_owned());
         return Response::builder()
           .status(StatusCode::NO_CONTENT)
           .body(Body::default())

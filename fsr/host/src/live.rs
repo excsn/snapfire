@@ -31,6 +31,8 @@ pub(crate) struct Reload {
 pub(crate) struct DevState {
   pub(crate) bundle: Option<String>,
   pub(crate) failure: Option<String>,
+  /// What the typechecker found in the last build, which still landed.
+  pub(crate) types: Option<String>,
   /// This process's, so a page tells a restarted server from a dropped connection.
   pub(crate) boot: String,
   /// How many builds have landed in this process.
@@ -68,6 +70,9 @@ pub(crate) fn dev_event(state: &parking_lot::RwLock<DevState>, facts: &Path) -> 
   let mut event = serde_json::json!({ "bundle": bundle, "boot": boot, "generation": generation, "styles": styles });
   if let Some(failure) = state.read().failure.clone() {
     event["error"] = serde_json::Value::String(failure);
+  }
+  if let Some(types) = state.read().types.clone() {
+    event["types"] = serde_json::Value::String(types);
   }
   format!("data: {event}\n\n")
 }
@@ -124,6 +129,15 @@ impl Host {
   pub fn failed(&self, message: impl Into<String>) {
     if let Some(reload) = &self.changed {
       reload.state.write().failure = Some(message.into());
+      let _ = reload.tx.send((), ());
+    }
+  }
+
+  /// Tells every open development document what the typechecker found, which it shows beside the page. An empty message clears it. Nothing happens when `dev` is off.
+  pub fn types(&self, message: impl Into<String>) {
+    if let Some(reload) = &self.changed {
+      let message = message.into();
+      reload.state.write().types = (!message.is_empty()).then_some(message);
       let _ = reload.tx.send((), ());
     }
   }
@@ -240,10 +254,10 @@ impl Host {
       .expect("an event stream")
   }
 
-  /// A server-sent event stream: one event on open and one per `changed` or
-  /// `failed` call, each `data: {"bundle":"<id>","boot":"<id>","generation":<n>,"styles":[...]}`
+  /// A server-sent event stream: one event on open and one per `changed`,
+  /// `failed` or `types` call, each `data: {"bundle":"<id>","boot":"<id>","generation":<n>,"styles":[...]}`
   /// with the bundle id the last build left, plus `"error"` while that build
-  /// is refused, until the client goes away.
+  /// is refused and `"types"` while it has type errors, until the client goes away.
   pub(crate) fn events(&self, t: &Tables) -> Response<Body> {
     let (Some(reload), Some(facts)) = (&self.changed, t.dev_bundle.clone()) else {
       return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned());

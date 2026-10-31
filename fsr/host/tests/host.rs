@@ -1198,6 +1198,39 @@ fn dev_event(frame: &[u8]) -> serde_json::Value {
 }
 
 #[tokio::test]
+async fn type_errors_reach_every_open_document_beside_a_build_that_landed() {
+  use http_body_util::BodyExt;
+
+  let dir = app_dir();
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport).build().unwrap();
+  let html = host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("sf-dev-types"), "the document can show type errors: {html}");
+  let mut body = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await.into_body();
+  let greeting = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert!(greeting.get("types").is_none(), "{greeting}");
+
+  let told = host.handle(Request::post("/__fsr/types").body(Bytes::from_static(b"routes/page.tsx(3,7): error TS2322: nope")).unwrap()).await;
+  assert_eq!(told.status(), StatusCode::NO_CONTENT);
+  let event = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert_eq!(event["types"], "routes/page.tsx(3,7): error TS2322: nope");
+  assert!(event.get("error").is_none(), "a type error refuses nothing: {event}");
+  assert_eq!(event["generation"], greeting["generation"], "so the page does not reload: {event}");
+
+  let mut late = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await.into_body();
+  let opened = dev_event(&late.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert_eq!(opened["types"], "routes/page.tsx(3,7): error TS2322: nope", "a page opened later hears them too");
+
+  let cleared = host.handle(Request::post("/__fsr/types").body(Bytes::new()).unwrap()).await;
+  assert_eq!(cleared.status(), StatusCode::NO_CONTENT);
+  let event = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert!(event.get("types").is_none(), "{event}");
+
+  let from_a_page = host.handle(Request::post("/__fsr/types").header("origin", "http://x.test").body(Bytes::from_static(b"forged")).unwrap()).await;
+  assert_eq!(from_a_page.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn a_refused_build_reaches_every_open_document_and_the_next_build_clears_it() {
   use http_body_util::BodyExt;
 

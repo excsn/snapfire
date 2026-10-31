@@ -16,11 +16,14 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use fibre::{RecvErrorTimeout, TryRecvError};
 use fibre::mpsc::{UnboundedSyncReceiver, UnboundedSyncSender, unbounded};
 use std::time::Duration;
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use parking_lot::Mutex;
 use snapfire_fsr_host::config::Config;
 
 use crate::typecheck::{self, Checked, Typecheck};
@@ -227,11 +230,37 @@ impl App {
     self.tell("/__fsr/failed", message);
   }
 
+  /// Tells the running server what the typechecker found, so open documents show it. An empty message clears it. `starting` waits up to [`REACH`] for a server just spawned.
+  fn notify_types(&self, message: &str, starting: bool) {
+    self.tell_with("/__fsr/types", message, starting);
+  }
+
+  /// What serves the port while a refused build has left no server to carry the refusal. `None` when the port cannot be read or bound.
+  fn refusal_page(&self, message: &str) -> Option<RefusalPage> {
+    let root = crate::serve::project_root(&self.dir);
+    let listen = Config::load(&root).ok()?.server.listen;
+    match RefusalPage::start(&listen, message) {
+      Ok(page) => {
+        println!("dev: showing the refusal on {listen}");
+        Some(page)
+      }
+      Err(e) => {
+        eprintln!("dev: could not show the refusal on {listen}: {e}");
+        None
+      }
+    }
+  }
+
   fn tell(&self, path: &str, body: &str) {
+    self.tell_with(path, body, false);
+  }
+
+  fn tell_with(&self, path: &str, body: &str, starting: bool) {
     let root = crate::serve::project_root(&self.dir);
     let Ok(config) = Config::load(&root) else { return };
     let listen = config.server.listen;
-    let Ok(mut stream) = std::net::TcpStream::connect(&listen) else { return };
+    let connected = if starting { connect(&listen) } else { std::net::TcpStream::connect(&listen) };
+    let Ok(mut stream) = connected else { return };
     let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
     let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
     let head = format!("POST {path} HTTP/1.1\r\nHost: {listen}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
@@ -974,6 +1003,8 @@ struct Tracked<'a> {
   bundler: Bundler,
   /// The plugin workers the build reads components through and the compiler compiles them with.
   plugins: Plugins,
+  /// The last build's type errors, which do not stop it landing.
+  types: String,
   /// Sources the compiler has not compiled yet, kept across a failed batch so the next carries them.
   pending: HashSet<PathBuf>,
   /// The asset manifest of the last build, derived under `dist/` once the bundle has run.
@@ -987,7 +1018,7 @@ struct Tracked<'a> {
 
 impl<'a> Tracked<'a> {
   fn new(app: &'a App) -> Self {
-    Self { app, files: None, bundler: Bundler::default(), plugins: Plugins::new(), pending: HashSet::new(), last: None, adopted: std::collections::BTreeSet::new(), bundled: None }
+    Self { app, files: None, bundler: Bundler::default(), plugins: Plugins::new(), types: String::new(), pending: HashSet::new(), last: None, adopted: std::collections::BTreeSet::new(), bundled: None }
   }
 
   /// Generates and bundles, `sources` naming what changed and none of them meaning everything.
@@ -1009,6 +1040,7 @@ impl<'a> Tracked<'a> {
     };
     self.pending.clear();
     report_types(checked.as_ref(), self.app.options.verbose);
+    self.types = type_errors(checked.as_ref());
     for (rel, content) in built.refresh_assets() {
       let path = self.app.dir.join(&rel);
       std::fs::write(&path, content).map_err(|e| BuildError::Io(path, e))?;
@@ -1047,6 +1079,64 @@ fn bundled(dist: &Path) -> Bundled {
   let mut externals = listed("externals");
   externals.sort();
   Bundled { sheets, externals }
+}
+
+/// Answers every request on the app's port with a refused build's message, for as long as there is no server to carry it.
+struct RefusalPage {
+  message: Arc<Mutex<String>>,
+  stop: Arc<AtomicBool>,
+  serving: Option<std::thread::JoinHandle<()>>,
+}
+
+impl RefusalPage {
+  const RECHECK_SECONDS: u32 = 2;
+
+  fn start(listen: &str, message: &str) -> std::io::Result<Self> {
+    let listener = std::net::TcpListener::bind(listen)?;
+    listener.set_nonblocking(true)?;
+    let held = Arc::new(Mutex::new(message.to_owned()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let serving = {
+      let (held, stop) = (held.clone(), stop.clone());
+      std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+          match listener.accept() {
+            Ok((stream, _)) => Self::answer(stream, &held.lock()),
+            Err(_) => std::thread::sleep(Duration::from_millis(50)),
+          }
+        }
+      })
+    };
+    Ok(Self { message: held, stop, serving: Some(serving) })
+  }
+
+  fn set(&self, message: &str) {
+    *self.message.lock() = message.to_owned();
+  }
+
+  fn answer(mut stream: std::net::TcpStream, message: &str) {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+    let mut request = [0u8; 8192];
+    let _ = std::io::Read::read(&mut stream, &mut request);
+    let shown = message.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let page = format!(
+      "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"{}\"><title>fsr dev: refused</title></head><body style=\"margin:0;padding:16px;background:#2b0f0f;color:#ffd7d7\"><pre style=\"font:13px/1.5 ui-monospace,monospace;white-space:pre-wrap\">fsr dev: the last build was refused\n\n{shown}</pre></body></html>",
+      Self::RECHECK_SECONDS
+    );
+    let response = format!("HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{page}", page.len());
+    let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+  }
+}
+
+impl Drop for RefusalPage {
+  fn drop(&mut self) {
+    self.stop.store(true, Ordering::Relaxed);
+    if let Some(serving) = self.serving.take() {
+      let _ = serving.join();
+    }
+  }
 }
 
 struct Server {
@@ -1240,6 +1330,8 @@ fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(
   }
 
   let mut server = Server { child: None };
+  let mut refusal: Option<RefusalPage> = None;
+  let mut told_types = String::new();
   let root = project.root();
   let sites: Vec<String> = project.apps[1..].iter().map(|app| app.dir.strip_prefix(&root).unwrap_or(&app.dir).display().to_string()).collect();
   let shell = project.shell().dir.display();
@@ -1303,6 +1395,7 @@ fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(
             for path in built.declared {
               watch(&mut watcher, &mut watching, path)?;
             }
+            refusal = None;
             server.restart(&project, built.executable.as_deref());
           }
           Err(e) => {
@@ -1323,8 +1416,19 @@ fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(
       }
       rewatch(&mut watcher, &mut watching, &mut declared_watched, declared.values().flatten())?;
       if failed {
-        project.shell().notify_failed(&refusals.join("\n\n"));
+        let message = refusals.join("\n\n");
+        match (&server.child, &refusal) {
+          (Some(_), _) => project.shell().notify_failed(&message),
+          (None, Some(page)) => page.set(&message),
+          (None, None) => refusal = project.shell().refusal_page(&message),
+        }
         println!("dev: waiting for changes");
+      } else {
+        let types = tracked.iter().map(|state| state.types.as_str()).filter(|types| !types.is_empty()).collect::<Vec<_>>().join("\n");
+        if types != told_types || (restart && !types.is_empty()) {
+          project.shell().notify_types(&types, restart);
+          told_types = types;
+        }
       }
     }
     let Some(batch) = collect(&rx, &mut server)? else {
@@ -1457,6 +1561,12 @@ fn report_derived(derived: crate::assets::Derived, verbose: bool) {
 
 /// A type error is printed and the server keeps running: the bundle carries
 /// no types, so what is served is what the sources say either way.
+/// The type errors of a build, one per line, as the terminal shows them.
+fn type_errors(checked: Option<&Checked>) -> String {
+  let Some(checked) = checked else { return String::new() };
+  checked.diagnostics.iter().filter(|d| d.is_error()).map(|d| d.to_string()).collect::<Vec<_>>().join("\n")
+}
+
 fn report_types(checked: Option<&Checked>, verbose: bool) {
   let Some(checked) = checked else { return };
   for diagnostic in &checked.diagnostics {

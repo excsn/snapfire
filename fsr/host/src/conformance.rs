@@ -113,7 +113,7 @@ pub fn framework_routes(host: &Host) -> Vec<Route> {
   if host.changed.is_some() {
     routes.push(Route::read("/__fsr/traces"));
     routes.push(Route::read("/__fsr/events"));
-    for path in ["/__fsr/changed", "/__fsr/failed", "/__fsr/reload"] {
+    for path in ["/__fsr/changed", "/__fsr/failed", "/__fsr/types", "/__fsr/reload"] {
       routes.push(Route::write(path, "").with_class(Class::DevControl));
     }
   }
