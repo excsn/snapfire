@@ -6,7 +6,7 @@
 
 A bespoke, high-performance *typescript to browser* build tool written in Rust.
 
-`SnapFire Compiler` replaces the traditional Node.js build chain (TypeScript, Vite/Rollup, PostCSS, Babel) with a single binary. It is designed to compile TypeScript libraries into browser-native ES Modules and standard CSS without requiring a `package.json` or `node_modules` folder. Task-by-task instructions live in the [usage guide](README.USAGE.md).
+`SnapFire Compiler` replaces the traditional Node.js build chain (TypeScript, Vite/Rollup, PostCSS, Babel) with a single binary. It is designed to compile TypeScript libraries into browser-native ES Modules and standard CSS without requiring a `package.json` or `node_modules` folder. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Philosophy
 
