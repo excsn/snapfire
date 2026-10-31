@@ -2225,9 +2225,14 @@ fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
       }
     }
     (Value::Map(map), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => Ok(map.get(stringify(key)?.as_str()).cloned().unwrap_or(Value::Undefined)),
-    (Value::Map(_), other) => Err(type_error("indexing an object", "a string key", other)),
-    (Value::Seq(_), other) => Err(type_error("indexing an array", "an integer", other)),
-    (other, _) => Err(type_error("indexing", "an object or an array", other)),
+    (Value::Map(map), other) => Ok(stringify(other).ok().and_then(|k| map.get(k.as_str()).cloned()).unwrap_or(Value::Undefined)),
+    (Value::Seq(items), Value::Str(k)) if k.as_str() == "length" => Ok(Value::F64(items.len() as f64)),
+    (Value::Str(s), Value::Str(k)) if k.as_str() == "length" => Ok(Value::F64(s.encode_utf16().count() as f64)),
+    (Value::Seq(_) | Value::Str(_), Value::Str(k)) => match k.parse::<u128>() {
+      Ok(at) if at.to_string() == k.as_str() => index(target, &Value::UInt(at)),
+      _ => Ok(Value::Undefined),
+    },
+    _ => Ok(Value::Undefined),
   }
 }
 
