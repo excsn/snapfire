@@ -103,3 +103,17 @@ fn fixing_the_refusal_gives_the_port_to_the_app() {
   let answer = answer_where(port, Duration::from_secs(120), |answer| !answer.starts_with("HTTP/1.1 503")).unwrap_or_else(|last| panic!("still refused: {last:?}"));
   assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
 }
+
+#[test]
+fn a_server_that_dies_on_start_answers_on_the_apps_port_with_that() {
+  let port = free_port();
+  let root = project("crash", port);
+  std::fs::write(root.join("app/routes/page.loader.ts"), FINE).unwrap();
+  std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"crashes\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n").unwrap();
+  std::fs::create_dir_all(root.join("src")).unwrap();
+  std::fs::write(root.join("src/main.rs"), "fn main() {\n  std::process::exit(7);\n}\n").unwrap();
+  let _dev = fsr_dev(&root);
+  let answer = answer_where(port, Duration::from_secs(180), |_| true).unwrap_or_else(|last| panic!("nothing answered: {last:?}"));
+  assert!(answer.starts_with("HTTP/1.1 503"), "{answer}");
+  assert!(answer.contains("server exited"), "{answer}");
+}

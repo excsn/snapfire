@@ -1141,11 +1141,16 @@ impl Drop for RefusalPage {
 
 struct Server {
   child: Option<Child>,
+  /// Holds the port while there is no child to.
+  refusal: Option<RefusalPage>,
+  /// Why the child stopped, until the port shows it.
+  exited: Option<String>,
 }
 
 impl Server {
   fn restart(&mut self, project: &Project, executable: Option<&Path>) {
     self.stop();
+    self.refusal = None;
     match project.spawn(executable) {
       Ok(child) => {
         if project.verbose {
@@ -1174,10 +1179,21 @@ impl Server {
         if status.success() {
           return Err(BuildError::Dev("dev: the app exited 0; fsr dev runs it as the server and a server listens until it is stopped. A program that writes files and exits is named in `[build] before` or `after`, not `src/main.rs`".to_owned()));
         }
-        eprintln!("dev: server exited with {status}; the next change starts it again");
+        let message = format!("dev: server exited with {status}; the next change starts it again");
+        eprintln!("{message}");
+        self.exited = Some(message);
       }
     }
     Ok(())
+  }
+
+  /// With a server running it carries the refusal to open documents. Without one, the port shows it.
+  fn show_refusal(&mut self, shell: &App, message: &str) {
+    match (&self.child, &self.refusal) {
+      (Some(_), _) => shell.notify_failed(message),
+      (None, Some(page)) => page.set(message),
+      (None, None) => self.refusal = shell.refusal_page(message),
+    }
   }
 }
 
@@ -1329,8 +1345,7 @@ fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(
     watch(&mut watcher, &mut watching, path)?;
   }
 
-  let mut server = Server { child: None };
-  let mut refusal: Option<RefusalPage> = None;
+  let mut server = Server { child: None, refusal: None, exited: None };
   let mut told_types = String::new();
   let root = project.root();
   let sites: Vec<String> = project.apps[1..].iter().map(|app| app.dir.strip_prefix(&root).unwrap_or(&app.dir).display().to_string()).collect();
@@ -1395,7 +1410,6 @@ fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(
             for path in built.declared {
               watch(&mut watcher, &mut watching, path)?;
             }
-            refusal = None;
             server.restart(&project, built.executable.as_deref());
           }
           Err(e) => {
@@ -1416,12 +1430,7 @@ fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(
       }
       rewatch(&mut watcher, &mut watching, &mut declared_watched, declared.values().flatten())?;
       if failed {
-        let message = refusals.join("\n\n");
-        match (&server.child, &refusal) {
-          (Some(_), _) => project.shell().notify_failed(&message),
-          (None, Some(page)) => page.set(&message),
-          (None, None) => refusal = project.shell().refusal_page(&message),
-        }
+        server.show_refusal(project.shell(), &refusals.join("\n\n"));
         println!("dev: waiting for changes");
       } else {
         let types = tracked.iter().map(|state| state.types.as_str()).filter(|types| !types.is_empty()).collect::<Vec<_>>().join("\n");
@@ -1431,7 +1440,7 @@ fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(
         }
       }
     }
-    let Some(batch) = collect(&rx, &mut server)? else {
+    let Some(batch) = collect(&rx, &mut server, project.shell())? else {
       if project.verbose {
         println!("dev: stopping");
       }
@@ -1588,7 +1597,7 @@ struct Batch {
 /// Takes whatever is already queued, else blocks for the first event, polling the server
 /// meanwhile, then keeps draining until the filesystem has been quiet for `SETTLE`. `None` on a
 /// stop signal or once the watcher has hung up.
-fn collect(rx: &UnboundedSyncReceiver<Msg>, server: &mut Server) -> Result<Option<Batch>, BuildError> {
+fn collect(rx: &UnboundedSyncReceiver<Msg>, server: &mut Server, shell: &App) -> Result<Option<Batch>, BuildError> {
   let mut paths: HashSet<PathBuf> = HashSet::new();
   loop {
     match rx.try_recv() {
@@ -1602,7 +1611,12 @@ fn collect(rx: &UnboundedSyncReceiver<Msg>, server: &mut Server) -> Result<Optio
     match rx.recv_timeout(POLL) {
       Ok(Msg::Fs(event)) => absorb(event, &mut paths),
       Ok(Msg::Stop) | Err(RecvErrorTimeout::Disconnected) => return Ok(None),
-      Err(RecvErrorTimeout::Timeout) => server.poll()?,
+      Err(RecvErrorTimeout::Timeout) => {
+        server.poll()?;
+        if let Some(message) = server.exited.take() {
+          server.show_refusal(shell, &message);
+        }
+      }
     }
   }
   loop {
@@ -2461,7 +2475,7 @@ mod server_tests {
 
   /// Polls until the child has been seen to exit, returning what `poll` said then.
   fn polled(command: &str) -> Result<(), BuildError> {
-    let mut server = Server { child: Some(Command::new(command).spawn().unwrap()) };
+    let mut server = Server { child: Some(Command::new(command).spawn().unwrap()), refusal: None, exited: None };
     for _ in 0..500 {
       let result = server.poll();
       if server.child.is_none() {
