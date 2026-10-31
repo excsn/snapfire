@@ -369,7 +369,7 @@ The rest are `off` until `fsr.lint.toml` turns them on, as `@eslint/markdown` le
 "markdown/no-multiple-h1" = ["error", { frontmatterTitle = "" }]
 ```
 
-In MDX a comment is `{/* fsr-lint-disable-next-line markdown/heading-increment */}`. An MDX file's imports and expressions are read as MDX but not linted as JavaScript yet.
+In MDX a comment is `{/* fsr-lint-disable-next-line markdown/heading-increment */}`. An MDX file's `import` and `export` blocks, its `{expressions}` and its components' attribute values are linted with the JavaScript rules, each finding where it is in the page. A component tag counts as a use of what it names, so an import used only as `<Chart />` is not unused. A rendered value is not an unused expression.
 
 ## Linting Tera Templates
 

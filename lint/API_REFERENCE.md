@@ -142,7 +142,7 @@ With [Compilers](#compilers): a `.vue` file's template is described and checked 
 
 ### Markdown and MDX
 
-`md`, `markdown` and `mdx`, parsed by markdown-rs with GFM and front matter; `mdx` with MDX's constructs. A parse error is `lint/parse`. `<!-- -->` comments are read as suppression comments, as is `{/* */}` in MDX. The `markdown/` rules default to `error`. `markdown/no-multiple-h1` and `markdown/heading-increment` take `{ frontmatterTitle }`: a regular expression matched against each line of the front matter, by default `^\s*['"]?title['"]?\s*[:=]`; a matching line counts as the first heading. With `""` none counts. MDX's JavaScript is not linted.
+`md`, `markdown` and `mdx`, parsed by markdown-rs with GFM and front matter; `mdx` with MDX's constructs. A parse error is `lint/parse`. `<!-- -->` comments are read as suppression comments, as is `{/* */}` in MDX. The `markdown/` rules default to `error` but for the five outside `@eslint/markdown`'s recommended set. `markdown/no-multiple-h1` and `markdown/heading-increment` take `{ frontmatterTitle }`: a regular expression matched against each line of the front matter, by default `^\s*['"]?title['"]?\s*[:=]`; a matching line counts as the first heading. With `""` none counts. An MDX page's `import` and `export` blocks, `{expressions}` and attribute values are linted with the JS rules over a script that keeps each byte where it is in the page, a component tag read as a reference to its name; `no-unused-expressions` is not judged on a rendered value.
 
 ### Tera
 

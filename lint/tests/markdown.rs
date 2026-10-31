@@ -160,3 +160,32 @@ fn their_options_change_what_they_find() {
   let changelog = "# Change log\n\n## 1.0.0\n\n### Features\n\n## 2.0.0\n\n### Features\n";
   assert!(of(&all_on("a.md", changelog, "\"markdown/no-duplicate-headings\" = [\"error\", { checkSiblingsOnly = true }]\n"), "markdown/no-duplicate-headings").is_empty());
 }
+
+#[test]
+fn an_mdx_pages_script_is_linted_where_it_sits() {
+  let source = "import Chart from \"./Chart\";\nimport { unused } from \"./unused\";\nexport const meta = { title: \"Report\" };\n\n# Report\n\n<Chart data={[1, 2]} />\n\nThe total is {(() => { debugger; return 3; })()}.\n";
+  let report = lint("report.mdx", source);
+  let found: Vec<_> = report.findings.iter().filter(|f| f.rule.starts_with("eslint/")).map(|f| (f.rule.as_str(), f.line, f.column)).collect();
+  assert_eq!(found, [("eslint/no-unused-vars", 2, 10), ("eslint/no-debugger", 9, 24)], "{}", report.render());
+}
+
+#[test]
+fn an_mdx_comment_silences_a_script_finding() {
+  let source = "{/* eslint-disable-next-line eslint/no-debugger */}\n{(() => { debugger; })()}\n";
+  let report = lint("page.mdx", source);
+  assert!(report.findings.iter().all(|f| f.rule != "eslint/no-debugger"), "{}", report.render());
+}
+
+#[test]
+fn mdx_values_side_by_side_are_separate_renders() {
+  let source = "import { a, b } from \"./values\";\n\nx{a}\n{b}\n\n<Card title={a}>{b}</Card>\n";
+  let report = lint("page.mdx", source);
+  assert!(report.findings.iter().all(|f| !f.rule.starts_with("eslint/")), "{}", report.render());
+}
+
+#[test]
+fn an_mdx_expression_reads_on_past_a_brace_inside_a_string() {
+  let source = "<style>{`\n  @media screen {\n    .a { color: red; }\n  }\n`}</style>\n\n{'}' + `{`}\n";
+  let report = lint("page.mdx", source);
+  assert!(report.findings.iter().all(|f| f.rule != "lint/parse"), "{}", report.render());
+}

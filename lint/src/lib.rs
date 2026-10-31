@@ -525,10 +525,18 @@ impl Linter {
       let lines = suppress::Lines::new(text);
       let comments = markdown::comments(text, mdx);
       let options = |rule: &str| settings.get(rule).and_then(|setting| setting.options.clone());
-      let reported = match markdown::lint(text, mdx, &options) {
+      let mut reported: Vec<(String, usize, String, Option<String>)> = match markdown::lint(text, mdx, &options) {
         Ok(found) => found.into_iter().map(|f| (f.rule.to_owned(), f.start, f.message, None)).collect(),
         Err((at, message)) => vec![(PARSE.to_owned(), at, message, None)],
       };
+      if let Some((script, rendered)) = mdx.then(|| markdown::script(text)).flatten() {
+        let active = self.active(&settings);
+        let checks: Vec<(&'static str, &dyn Check)> = self.checks.iter().filter(|(info, _)| settings.get(info.id).is_some_and(|s| s.level != Level::Off)).map(|(info, check)| (info.id, check.as_ref())).collect();
+        let outcome = js::lint(path, &script, &active, &checks, &self.settings);
+        let in_rendered = |at: usize| rendered.iter().any(|(from, to)| (*from..*to).contains(&at));
+        let used_by_rendering = |rule: &str| matches!(rule, "eslint/no-unused-expressions" | "typescript/no-unused-expressions");
+        reported.extend(outcome.reported.into_iter().filter(|r| !(used_by_rendering(r.rule) && in_rendered(r.start))).map(|r| (r.rule.to_owned(), r.start, r.message, r.help)));
+      }
       return self.report(path, &lines, &settings, comments, reported);
     }
     if tera::reads(path) {

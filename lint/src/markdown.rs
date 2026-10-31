@@ -101,7 +101,12 @@ fn options(mdx: bool) -> markdown::ParseOptions {
   constructs.gfm_table = gfm.gfm_table;
   constructs.gfm_task_list_item = gfm.gfm_task_list_item;
   constructs.frontmatter = true;
-  markdown::ParseOptions { constructs, ..markdown::ParseOptions::default() }
+  let mut options = markdown::ParseOptions { constructs, ..markdown::ParseOptions::default() };
+  if mdx {
+    options.mdx_esm_parse = Some(Box::new(|text| closed(text)));
+    options.mdx_expression_parse = Some(Box::new(|text, _| closed(text)));
+  }
+  options
 }
 
 /// The findings in one document. A document that does not parse is one `lint/parse` finding.
@@ -262,6 +267,134 @@ impl Walk {
       }
     }
   }
+}
+
+/// What markdown-rs asks of an MDX `import`/`export` block or `{expression}` it is reading: whether its brackets
+/// close, outside strings, template literals and comments. markdown-rs reads on while the answer is `Eof`; the JS
+/// front end judges the JavaScript itself.
+fn closed(text: &str) -> markdown::MdxSignal {
+  let bytes = text.as_bytes();
+  let mut depth: i64 = 0;
+  let mut i = 0;
+  while i < bytes.len() {
+    match bytes[i] {
+      b'(' | b'[' | b'{' => depth += 1,
+      b')' | b']' | b'}' => depth -= 1,
+      quote @ (b'"' | b'\'' | b'`') => {
+        i += 1;
+        while i < bytes.len() && bytes[i] != quote {
+          i += if bytes[i] == b'\\' { 2 } else { 1 };
+        }
+        if i >= bytes.len() {
+          depth += 1;
+        }
+      }
+      b'/' if bytes.get(i + 1) == Some(&b'/') => {
+        while i < bytes.len() && bytes[i] != b'\n' {
+          i += 1;
+        }
+      }
+      b'/' if bytes.get(i + 1) == Some(&b'*') => match text[i + 2..].find("*/") {
+        Some(end) => i += 2 + end + 1,
+        None => {
+          depth += 1;
+          i = bytes.len();
+        }
+      },
+      _ => {}
+    }
+    i += 1;
+  }
+  match depth > 0 {
+    true => markdown::MdxSignal::Eof("unclosed".to_owned(), Box::new(String::new()), Box::new(String::new())),
+    false => markdown::MdxSignal::Ok,
+  }
+}
+
+/// An MDX page's JavaScript as a script the JS front end lints, each byte where it is in the page: the `import`
+/// and `export` blocks and every `{expression}` as written, each component tag as a `{Name}` reference to what
+/// renders it as `(Name)`, an expression as `(value)` and a spread attribute as `[...value]`, the ranges of those
+/// returned beside the script since rendering is their use, and everything else blanked to spaces with its line endings kept.
+/// `None` for a page with no JavaScript.
+pub(crate) fn script(source: &str) -> Option<(String, Vec<(usize, usize)>)> {
+  let root = markdown::to_mdast(source, &options(true)).ok()?;
+  let mut out: Vec<u8> = source.bytes().map(|b| if b == b'\n' || b == b'\r' { b } else { b' ' }).collect();
+  let mut any = false;
+  let mut rendered: Vec<(usize, usize)> = Vec::new();
+  let copy = |out: &mut Vec<u8>, from: usize, to: usize| {
+    if from < to && to <= source.len() {
+      out[from..to].copy_from_slice(&source.as_bytes()[from..to]);
+    }
+  };
+  // `{value}` as `(value)`, an expression of the same length; one holding only a comment stays a block.
+  let as_value = |out: &mut Vec<u8>, from: usize, to: usize, rendered: &mut Vec<(usize, usize)>| {
+    let inner = source.get(from + 1..to.saturating_sub(1)).unwrap_or_default();
+    let bare = lazy_regex::regex!(r"(?s)/\*.*?\*/|//[^\n]*").replace_all(inner, "");
+    if !bare.trim().is_empty() && out.get(from) == Some(&b'{') && out.get(to - 1) == Some(&b'}') {
+      out[from] = b'(';
+      out[to - 1] = b')';
+      rendered.push((from, to));
+    }
+  };
+  let mut stack = vec![&root];
+  while let Some(node) = stack.pop() {
+    let (from, to) = node.position().map_or((0, 0), |p| (p.start.offset, p.end.offset));
+    match node {
+      Node::MdxjsEsm(_) => {
+        copy(&mut out, from, to);
+        any = true;
+      }
+      Node::MdxFlowExpression(_) | Node::MdxTextExpression(_) => {
+        copy(&mut out, from, to);
+        as_value(&mut out, from, to, &mut rendered);
+        any = true;
+      }
+      Node::MdxJsxFlowElement(markdown::mdast::MdxJsxFlowElement { name, attributes, .. }) | Node::MdxJsxTextElement(markdown::mdast::MdxJsxTextElement { name, attributes, .. }) => {
+        if let Some(name) = name.as_deref().filter(|n| n.starts_with(|c: char| c.is_ascii_uppercase()) || n.contains('.'))
+          && source.get(from + 1..from + 1 + name.len()) == Some(name)
+          && from + name.len() + 2 <= to
+        {
+          let reference = format!("({name})");
+          out[from..from + reference.len()].copy_from_slice(reference.as_bytes());
+          rendered.push((from, from + reference.len()));
+          any = true;
+        }
+        for attribute in attributes {
+          let (value, stops, spread) = match attribute {
+            markdown::mdast::AttributeContent::Expression(e) => (&e.value, &e.stops, true),
+            markdown::mdast::AttributeContent::Property(markdown::mdast::MdxJsxAttribute { value: Some(markdown::mdast::AttributeValue::Expression(e)), .. }) => (&e.value, &e.stops, false),
+            _ => continue,
+          };
+          let (Some(first), Some(last)) = (stops.first(), stops.last()) else { continue };
+          let (open, close) = (first.1.saturating_sub(1), last.1 + (value.len() - last.0));
+          if source.as_bytes().get(open) != Some(&b'{') || source.as_bytes().get(close) != Some(&b'}') {
+            continue;
+          }
+          copy(&mut out, open, close + 1);
+          match spread {
+            true => {
+              out[open] = b'[';
+              out[close] = b']';
+              rendered.push((open, close + 1));
+            }
+            false => as_value(&mut out, open, close + 1, &mut rendered),
+          }
+          any = true;
+        }
+      }
+      _ => {}
+    }
+    stack.extend(node.children().into_iter().flatten());
+  }
+  let blank = |b: u8| matches!(b, b' ' | b'\n' | b'\r');
+  for (from, _) in &rendered {
+    if let Some(before) = from.checked_sub(1)
+      && blank(out[before])
+    {
+      out[before] = b';';
+    }
+  }
+  any.then(|| (String::from_utf8_lossy(&out).into_owned(), rendered))
 }
 
 /// The offset of `(text)[url]` in a paragraph's source.
