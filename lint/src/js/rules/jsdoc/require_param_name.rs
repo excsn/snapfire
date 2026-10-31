@@ -1,0 +1,201 @@
+// Ported from oxlint (crates/oxc_linter/src/rules/jsdoc/require_param_name.rs) at oxc crates_v0.155.0, MIT License, Copyright (c) 2024-present VoidZero Inc. & Contributors.
+
+use oxc_ast::AstKind;
+use oxc_diagnostics::OxcDiagnostic;
+use crate::js::declare_rule;
+use oxc_span::Span;
+
+use crate::js::{
+    AstNode,
+    context::LintContext,
+    rule::Rule,
+    utils::{get_function_nearest_jsdoc_node, should_ignore_as_internal, should_ignore_as_private},
+};
+
+fn missing_name_diagnostic(span: Span) -> OxcDiagnostic {
+    OxcDiagnostic::warn("Missing JSDoc `@param` name.")
+        .with_help("Add name to `@param` tag.")
+        .with_label(span)
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct RequireParamName;
+
+declare_rule!(
+    /// ### What it does
+    ///
+    /// Requires that all `@param` tags have names.
+    ///
+    /// ### Why is this bad?
+    ///
+    /// The name of a param should be documented.
+    ///
+    /// ### Examples
+    ///
+    /// Examples of **incorrect** code for this rule:
+    /// ```javascript
+    /// /** @param {SomeType} */
+    /// function quux (foo) {}
+    /// ```
+    ///
+    /// Examples of **correct** code for this rule:
+    /// ```javascript
+    /// /** @param {SomeType} foo */
+    /// function quux (foo) {}
+    /// ```
+    RequireParamName,
+    "jsdoc",
+    "require-param-name",
+    Pedantic,
+    recommended = true,
+    fix = RuleFixMeta::None,
+);
+
+impl Rule for RequireParamName {
+    fn run<'a>(&self, node: &AstNode<'a>, ctx: &LintContext<'a>) {
+        match node.kind() {
+            AstKind::Function(f) if f.is_function_declaration() || f.is_expression() => {}
+            AstKind::ArrowFunctionExpression(_) => {}
+            _ => return,
+        }
+
+        // If no JSDoc is found, skip
+        let Some(jsdocs) = get_function_nearest_jsdoc_node(node, ctx)
+            .and_then(|node| ctx.jsdoc().get_all_by_node(ctx.nodes(), node))
+        else {
+            return;
+        };
+
+        let settings = &ctx.settings().jsdoc;
+        let resolved_param_tag_name = settings.resolve_tag_name("param");
+
+        for jsdoc in jsdocs
+            .iter()
+            .filter(|jsdoc| !should_ignore_as_internal(jsdoc, settings))
+            .filter(|jsdoc| !should_ignore_as_private(jsdoc, settings))
+        {
+            for tag in jsdoc.tags() {
+                if tag.kind.parsed() != resolved_param_tag_name {
+                    continue;
+                }
+
+                let (_, name_part, _) = tag.type_name_comment();
+
+                // If name exists, skip
+                if name_part.is_some() {
+                    continue;
+                }
+
+                ctx.diagnostic(missing_name_diagnostic(tag.kind.span));
+            }
+        }
+    }
+}
+
+#[test]
+fn test() {
+    use crate::js::tester::Tester;
+
+    let pass = vec![
+        (
+            "
+			          /**
+			           * @param foo
+			           */
+			          function quux (foo) {
+
+			          }
+			      ",
+            None,
+            None,
+        ),
+        (
+            "
+			          /**
+			           * @param {string} foo
+			           */
+			          function quux (foo) {
+
+			          }
+			      ",
+            None,
+            None,
+        ),
+        (
+            "
+			          /**
+			           * @function
+			           * @param
+			           */
+			      ",
+            None,
+            None,
+        ),
+        (
+            "
+			          /**
+			           * @callback
+			           * @param
+			           */
+			      ",
+            None,
+            None,
+        ),
+        (
+            "
+			      /**
+			       * @param {Function} [processor=data => data] A function to run
+			       */
+			      function processData(processor) {
+			        return processor(data)
+			      }
+			      ",
+            None,
+            None,
+        ),
+        (
+            "
+			      /** Example with multi-line param type.
+			      *
+			      * @param {function(
+			      *   number
+			      * )} cb Callback.
+			      */
+			      function example(cb) {
+			        cb(42);
+			      }
+			      ",
+            None,
+            None,
+        ),
+    ];
+
+    let fail = vec![
+        (
+            "
+			          /**
+			           * @param
+			           */
+			          function quux (foo) {
+
+			          }
+			      ",
+            None,
+            None,
+        ),
+        (
+            "
+			          /**
+			           * @param {string}
+			           */
+			          function quux (foo) {
+
+			          }
+			      ",
+            None,
+            None,
+        ),
+    ];
+
+    Tester::new(RequireParamName::NAME, RequireParamName::PLUGIN, pass, fail).test();
+}

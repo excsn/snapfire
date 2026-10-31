@@ -76,6 +76,32 @@ pub mod import {
   pub mod no_anonymous_default_export;
 }
 
+pub mod jsdoc {
+  pub mod check_access;
+  pub mod check_property_names;
+  pub mod check_tag_names;
+  pub mod empty_tags;
+  pub mod implements_on_classes;
+  pub mod no_blank_blocks;
+  pub mod no_defaults;
+  pub mod require_param;
+  pub mod require_param_description;
+  pub mod require_param_name;
+  pub mod require_param_type;
+  pub mod require_property;
+  pub mod require_property_description;
+  pub mod require_property_name;
+  pub mod require_property_type;
+  pub mod require_returns;
+  pub mod require_returns_description;
+  pub mod require_returns_type;
+  pub mod require_throws_description;
+  pub mod require_throws_type;
+  pub mod require_yields;
+  pub mod require_yields_description;
+  pub mod require_yields_type;
+}
+
 pub mod jsx_a11y {
   pub mod alt_text;
   pub mod anchor_has_content;
@@ -380,6 +406,29 @@ pub(crate) static RULES: &[Entry] = &[
   entry::<eslint::use_isnan::UseIsnan>(),
   entry::<eslint::valid_typeof::ValidTypeof>(),
   entry::<import::no_anonymous_default_export::NoAnonymousDefaultExport>(),
+  entry::<jsdoc::check_access::CheckAccess>(),
+  entry::<jsdoc::check_property_names::CheckPropertyNames>(),
+  entry::<jsdoc::check_tag_names::CheckTagNames>(),
+  entry::<jsdoc::empty_tags::EmptyTags>(),
+  entry::<jsdoc::implements_on_classes::ImplementsOnClasses>(),
+  entry::<jsdoc::no_blank_blocks::NoBlankBlocks>(),
+  entry::<jsdoc::no_defaults::NoDefaults>(),
+  entry::<jsdoc::require_param::RequireParam>(),
+  entry::<jsdoc::require_param_description::RequireParamDescription>(),
+  entry::<jsdoc::require_param_name::RequireParamName>(),
+  entry::<jsdoc::require_param_type::RequireParamType>(),
+  entry::<jsdoc::require_property::RequireProperty>(),
+  entry::<jsdoc::require_property_description::RequirePropertyDescription>(),
+  entry::<jsdoc::require_property_name::RequirePropertyName>(),
+  entry::<jsdoc::require_property_type::RequirePropertyType>(),
+  entry::<jsdoc::require_returns::RequireReturns>(),
+  entry::<jsdoc::require_returns_description::RequireReturnsDescription>(),
+  entry::<jsdoc::require_returns_type::RequireReturnsType>(),
+  entry::<jsdoc::require_throws_description::RequireThrowsDescription>(),
+  entry::<jsdoc::require_throws_type::RequireThrowsType>(),
+  entry::<jsdoc::require_yields::RequireYields>(),
+  entry::<jsdoc::require_yields_description::RequireYieldsDescription>(),
+  entry::<jsdoc::require_yields_type::RequireYieldsType>(),
   entry::<jsx_a11y::alt_text::AltText>(),
   entry::<jsx_a11y::anchor_has_content::AnchorHasContent>(),
   entry::<jsx_a11y::anchor_is_valid::AnchorIsValid>(),
