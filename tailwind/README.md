@@ -1,8 +1,12 @@
 # snapfire_tailwind
 
+[![Crates.io](https://img.shields.io/crates/v/snapfire_tailwind.svg)](https://crates.io/crates/snapfire_tailwind)
+[![Docs.rs](https://docs.rs/snapfire_tailwind/badge.svg)](https://docs.rs/snapfire_tailwind)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 License: MPL-2.0 for the crate, MIT for the Tailwind CSS sources and tests it carries. Status: Tailwind CSS v4.3.2.
 
-Tailwind CSS v4 in Rust. A stylesheet configures it the way Tailwind's own does, with `@import "tailwindcss"`, `@theme`, `@utility`, `@custom-variant` and `@source inline(...)`. The crate builds that stylesheet for the class names you give it, with no Node and no file scanning. The [usage guide](README.USAGE.md) walks through each task and the [API reference](API_REFERENCE.md) lists the surface.
+Tailwind CSS v4 in Rust. A stylesheet configures it the way Tailwind's own does, with `@import "tailwindcss"`, `@theme`, `@utility`, `@custom-variant` and `@source inline(...)`. The crate builds that stylesheet for the class names you give it, with no Node and no file scanning. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -15,7 +19,7 @@ The crate has no features. It depends on Lightning CSS for the optimize pass Tai
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | --- | --- |
 | Build a stylesheet for a set of classes | `Compiler::new`, then `Compiler::build` |
 | Resolve `@import` from your own files | `CompileOptions::load_stylesheet`, falling back to `tailwind_stylesheet` |

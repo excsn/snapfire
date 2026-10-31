@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_host/badge.svg)](https://docs.rs/snapfire_fsr_host)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The stock host for SnapFire FSR. It reads `config/` through c5store, so files layer and `C5_` environment variables win, infers the rest from the app directory, reads the plan file and the contract `fsr build` wrote, binds every lowered loader and action, builds the service clients from the OpenAPI, `.proto` and `.graphql` documents the configuration names, over HTTP, gRPC or GraphQL, opens and persists sessions from the cookie and serves the static roots. All of that is one `tower::Service` over the `http` crate's request and response types with a streaming body, so it is served by the hyper listener the crate carries, nested into an axum router as it is or reached from actix through the shim behind the `actix` feature. A Rust host that wants to take a name back keeps the same builder: `source_override`, `action_override`, `route`, `evaluator`, `shell` and `services_over` are all here. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
+The stock host for SnapFire FSR. It reads `config/` through c5store, so files layer and `C5_` environment variables win, infers the rest from the app directory, reads the plan file and the contract `fsr build` wrote, binds every lowered loader and action, builds the service clients from the OpenAPI, `.proto` and `.graphql` documents the configuration names, over HTTP, gRPC or GraphQL, opens and persists sessions from the cookie and serves the static roots. All of that is one `tower::Service` over the `http` crate's request and response types with a streaming body, so it is served by the hyper listener the crate carries, nested into an axum router as it is or reached from actix through the shim behind the `actix` feature. A Rust host that wants to take a name back keeps the same builder: `source_override`, `action_override`, `route`, `evaluator`, `shell` and `services_over` are all here. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -28,7 +28,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 
 ## What to reach for
 
-| What you are doing | What to reach for |
+| Problem | Piece |
 | --- | --- |
 | Start from a project root, its `config/` or one file | `Host::from`, `Host::from_cwd` |
 | Override a setting per deployment | `config/<APP_ENV>.toml`, `config/<RELEASE_ENV>.toml`, `config/<APP_REGION>.toml` or `C5_SERVER__LISTEN` |

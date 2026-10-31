@@ -4,15 +4,13 @@
 [![Docs.rs](https://docs.rs/snapfire_sitemap/badge.svg)](https://docs.rs/snapfire_sitemap)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-**snapfire_sitemap** writes `<urlset>` and `<sitemapindex>` documents, with the image, video, news and xhtml alternate-link extensions.
+**snapfire_sitemap** writes `<urlset>` and `<sitemapindex>` documents, with the image, video, news and xhtml alternate-link extensions. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 Write a sitemap with 50,001 URLs and Google will not tell you. No warning, no partial index, nothing in Search Console. It ignores the file and you find out weeks later as absent traffic.
 
 Every limit in the protocol fails that way: silently and at a distance from the code that caused it. So every one of them is a constructor error here. Nothing is clamped, truncated or quietly dropped.
 
 One dependency, `chrono`. No XML crate, no URL crate, no builder macro.
-
-The [usage guide](README.USAGE.md) walks the tasks. The [API reference](API_REFERENCE.md) lists the surface.
 
 ## Install
 

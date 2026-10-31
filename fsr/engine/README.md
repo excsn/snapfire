@@ -19,7 +19,7 @@ It builds QuickJS through `rquickjs`, so a build takes longer than the rest of t
 
 ## What to reach for
 
-| What you are doing | What to reach for |
+| Problem | Piece |
 | --- | --- |
 | Run a spec file in its own context | `Engine` |
 | Answer the module a spec imports | `Resolution` |

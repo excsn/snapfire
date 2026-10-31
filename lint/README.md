@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_lint/badge.svg)](https://docs.rs/snapfire_lint)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-A linter that needs no Node, for development and CI: ESLint's rules, ESLint's levels and ESLint's suppression comments. It reads TypeScript and JavaScript in every dialect with the recommended rules of ESLint, eslint-plugin-react with its hooks rules, jsx-a11y and typescript-eslint, plus six rules ESLint configurations often turn on, such as `no-console` and `import/no-anonymous-default-export`. It has the rules of eslint-plugin-unicorn, eslint-plugin-promise and eslint-plugin-jsdoc too, off until a configuration names them. All 356 are ported from [oxlint](https://oxc.rs/docs/guide/usage/linter) with their tests and run on oxc. It reads a Vue component's script with eslint-plugin-vue's rules as oxlint ports them, its `vue3-essential` preset on by default, its template with 42 of that preset's template rules and Svelte components with every warning Svelte's compiler gives. It reads Markdown and MDX with `@eslint/markdown`'s 21 rules, its recommended set on by default. It reads Tera templates with tera's own parser. Levels live in `fsr.lint.toml`. It applies safe fixes, writes SARIF for CI and translates an ESLint configuration. Rules from outside the crate plug in as a `Check`. `fsr lint` is the command that runs it over an application, with FSR's own rules added. This crate is new. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
+A linter that needs no Node, for development and CI, with ESLint's rules, ESLint's levels and ESLint's suppression comments. It reads TypeScript and JavaScript in every dialect with 356 rules ported from [oxlint](https://oxc.rs/docs/guide/usage/linter) with their tests: ESLint's, eslint-plugin-react's, jsx-a11y's and typescript-eslint's recommended sets on by default, eslint-plugin-unicorn, eslint-plugin-promise and eslint-plugin-jsdoc off until a configuration names them. It reads Vue components with eslint-plugin-vue's script and template rules (`vue3-essential` on by default), Svelte components with every warning Svelte's compiler gives, Markdown and MDX with `@eslint/markdown`'s rules, an MDX page's JavaScript with the script rules. Tera templates are read with tera's own parser. Levels live in `fsr.lint.toml`; it applies safe fixes, writes SARIF and translates an ESLint configuration. `fsr lint` runs it over an application with FSR's own rules added. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -17,7 +17,7 @@ No features.
 
 ## What to reach for
 
-| What you are doing | What to reach for |
+| Problem | Piece |
 | --- | --- |
 | Lint an FSR application | `fsr lint app` |
 | Lint a directory from Rust | `Config::discover`, `Linter::new`, `Linter::lint_dir` |

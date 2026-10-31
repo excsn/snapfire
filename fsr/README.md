@@ -158,7 +158,9 @@ cargo build
 fsr dev app
 ```
 
-[examples/](examples/README.md) is the index: thirteen applications in reading order, what each one shows and the ports they take.
+`fsr lint app` lints it with ESLint's rules and FSR's own, with no Node; [guide chapter 307](docs/guide/307-linting.md) covers it.
+
+[examples/](examples/README.md) is the index: twenty-seven applications in reading order, what each one shows and the ports they take.
 
 ## Education
 

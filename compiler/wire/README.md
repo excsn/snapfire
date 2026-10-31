@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_compiler_wire/badge.svg)](https://docs.rs/snapfire_compiler_wire)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The wire contract between `snapfirec` and a framework compiler plugin: the types both sides serialize as one JSON object per line over stdin and stdout. A plugin depends on this crate to speak the protocol; `snapfirec` depends on it to read the answers. The `driven` module is the other direction: what `snapfirec --driven` and the process driving it say to each other, line by line, plus the asset map that process hands the compiler. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
+The wire contract between `snapfirec` and a framework compiler plugin: the types both sides serialize as one JSON object per line over stdin and stdout. A plugin depends on this crate to speak the protocol; `snapfirec` depends on it to read the answers. The `driven` module is the other direction: what `snapfirec --driven` and the process driving it say to each other, line by line, plus the asset map that process hands the compiler. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -17,7 +17,7 @@ No features.
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | --- | --- |
 | Announce a plugin and what it compiles | `Hello`, written first, once |
 | Read a batch of units to compile | `Request`, one per line on stdin |
@@ -26,6 +26,7 @@ No features.
 | Refuse a unit with a place | `Outcome::Failed { diagnostics }` |
 | Ask for a file beside the source | `Outcome::Needs { files }`, answered through `Unit::files` |
 | Say a compile is a warning rather than a stop | `Diagnostic::warning` |
+| Name what the framework found, as Svelte's warning codes do | `Diagnostic::code` |
 | Describe a component for a host that lowers it rather than shipping it | answer a `Request` whose `kind` is `Describe` with `Outcome::Described(Described)` |
 | Spawn a plugin and talk to it | `host::Worker`, which `snapfirec` and `fsr` both use |
 | Refuse a host speaking another protocol | compare `Hello::protocol` with `PROTOCOL` |

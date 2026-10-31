@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_svelte/badge.svg)](https://docs.rs/snapfire_svelte)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-Svelte components compiled for `snapfirec`, with no JavaScript runtime on the machine: the crate carries Svelte's own compiler (`svelte/compiler` 5.57.2) and runs it in QuickJS. The binary is `snapfirec-svelte`, the plugin `snapfirec` finds on `PATH` for every `.svelte` file; the library behind it is `Compiler`, for a tool that wants the same compile in process. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
+Svelte components compiled for `snapfirec`, with no JavaScript runtime on the machine: the crate carries Svelte's own compiler (`svelte/compiler` 5.57.2) and runs it in QuickJS. The binary is `snapfirec-svelte`, the plugin `snapfirec` finds on `PATH` for every `.svelte` file; the library behind it is `Compiler`, for a tool that wants the same compile in process. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -23,7 +23,7 @@ No features.
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | --- | --- |
 | Compile the `.svelte` files of a project | `snapfirec`, with `snapfirec-svelte` installed; nothing to pass |
 | See which Svelte compiler is carried | `snapfirec-svelte --version` |

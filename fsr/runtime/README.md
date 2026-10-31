@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_runtime/badge.svg)](https://docs.rs/snapfire_fsr_runtime)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The request blocks of SnapFire FSR: matching a path, resolving it to a plan, loading the plan's data, evaluating its modules, assembling the payload tree and streaming it out. It works in the vocabulary types of `snapfire_fsr_core` (`Value`, `Node`, `PlanNode`) and hands its result to the encoders in `snapfire_fsr_payload`. Task-by-task instructions live in the [usage guide](README.USAGE.md); the full surface is in the [API reference](API_REFERENCE.md).
+The request blocks of SnapFire FSR: matching a path, resolving it to a plan, loading the plan's data, evaluating its modules, assembling the payload tree and streaming it out. It works in the vocabulary types of `snapfire_fsr_core` (`Value`, `Node`, `PlanNode`) and hands its result to the encoders in `snapfire_fsr_payload`. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ```text
 path
@@ -37,7 +37,7 @@ snapfire_fsr_core = "0"
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | :--- | :--- |
 | Turn a path into a route entry plus params | `Matcher`, `MatchitMatcher` |
 | Turn a route entry into a render plan | `Resolver`, `TableResolver` |

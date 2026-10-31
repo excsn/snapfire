@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_vue/badge.svg)](https://docs.rs/snapfire_vue)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-Vue single-file components compiled for `snapfirec`, with no JavaScript runtime on the machine: the crate carries Vue's own browser build of `@vue/compiler-sfc` and runs it in QuickJS. The binary is `snapfirec-vue`, the plugin `snapfirec` finds on `PATH` for every `.vue` file; the library behind it is `Compiler`, for a tool that wants the same compile in process. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
+Vue single-file components compiled for `snapfirec`, with no JavaScript runtime on the machine: the crate carries Vue's own browser build of `@vue/compiler-sfc` and runs it in QuickJS. The binary is `snapfirec-vue`, the plugin `snapfirec` finds on `PATH` for every `.vue` file; the library behind it is `Compiler`, for a tool that wants the same compile in process. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -23,7 +23,7 @@ No features.
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | --- | --- |
 | Compile the `.vue` files of a project | `snapfirec`, with `snapfirec-vue` installed; nothing to pass |
 | See which Vue compiler is carried | `snapfirec-vue --version` |

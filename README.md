@@ -23,7 +23,8 @@ Each one installs and is used from its own README.
 | Tailwind CSS v4 built in Rust | [snapfire_tailwind](tailwind/README.md) |
 | An image's display size and EXIF orientation, a font's family, weight and fallback metrics | [snapfire_media](media/README.md) |
 | Sitemaps and sitemap indexes with every protocol limit enforced as a constructor error | [snapfire_sitemap](sitemap/README.md) |
-| Seven applications demonstrating FSR | [The SnapFire FSR examples](fsr/examples/README.md) |
+| ESLint's rules, levels and suppression comments over TypeScript, Vue, Svelte, Markdown and Tera, with no Node | [snapfire_lint](lint/README.md), which `fsr lint` runs |
+| Twenty-seven applications demonstrating FSR | [The SnapFire FSR examples](fsr/examples/README.md) |
 | One question per chapter, with a lab on the running example | [The SnapFire FSR guide](fsr/docs/guide/README.md) |
 
 ## Layout
@@ -37,6 +38,7 @@ Each one installs and is used from its own README.
 | `tailwind/` | `snapfire_tailwind`, Tailwind CSS v4 in Rust |
 | `media/` | `snapfire_media`, image and font metadata |
 | `sitemap/` | `snapfire_sitemap`, sitemap writing |
+| `lint/` | `snapfire_lint`, the linter `fsr lint` runs |
 
 Every crate carries a `README.md` to skim, a `README.USAGE.md` to work from and an `API_REFERENCE.md` for the surface.
 

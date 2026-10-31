@@ -1073,7 +1073,7 @@ The checker is `$SNAPFIRETC`, else `snapfiretc` beside `fsr`, else one on `PATH`
 
 ## Linting
 
-`fsr lint` runs `snapfire_lint` over the application with `snapfire_fsr_lint`'s rules added: ESLint's, eslint-plugin-react's, jsx-a11y's and typescript-eslint's recommended rules over the scripts, the Vue and Svelte templates through `snapfirec-vue` and `snapfirec-svelte`, the Markdown and MDX pages, the Tera templates and FSR's own three rules. No build command runs it.
+`fsr lint` runs `snapfire_lint` over the application with `snapfire_fsr_lint`'s rules added: ESLint's, eslint-plugin-react's, jsx-a11y's and typescript-eslint's recommended rules over the scripts (React's hooks rules only in an app with React), eslint-plugin-vue's `vue3-essential` over Vue components and every Svelte warning through `snapfirec-vue` and `snapfirec-svelte`, `@eslint/markdown`'s recommended rules over Markdown and MDX with the script rules over an MDX page's JavaScript, the Tera templates and FSR's own rules. unicorn's, promise's and jsdoc's rules are there to turn on in `fsr.lint.toml`. No build command runs it.
 
 ```sh
 fsr lint app

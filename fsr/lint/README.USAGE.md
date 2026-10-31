@@ -103,7 +103,13 @@ describe.only("sign in", () => {});
 
 ## Finding Two Sources With One Output
 
-`fsr/output-name-clash`, `error`, finds two sources in one directory that snapfirec writes to the same output name, compared without case: `format.ts` beside `Format.js`; `Card.svelte.ts` beside `Card.svelte.js`. The one that sorts later is reported. A `.vue` or `.svelte` component keeps its own name, so `Pantry.vue` beside `pantry.ts` is no clash; a `.d.ts` file is not compiled alone.
+`fsr/output-name-clash`, `error`, finds two sources in one directory that snapfirec writes to the same output name, compared without case: `format.ts` beside `Format.js`; `Card.svelte.ts` beside `Card.svelte.js`. The one that sorts later is reported.
+
+```text
+src/util/format.ts
+src/util/Format.js
+# error  fsr/output-name-clash  src/util/format.ts:1:1  `format.ts` and `Format.js` both compile to `format.js`
+``` A `.vue` or `.svelte` component keeps its own name, so `Pantry.vue` beside `pantry.ts` is no clash; a `.d.ts` file is not compiled alone.
 
 ## Finding Imports of Undeclared Packages
 

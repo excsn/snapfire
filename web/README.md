@@ -1,10 +1,10 @@
 # SnapFire
 
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
-![Crates.io](https://img.shields.io/crates/v/snapfire?style=flat-square)
-![Docs.rs](https://img.shields.io/docsrs/snapfire?style=flat-square)
+[![Crates.io](https://img.shields.io/crates/v/snapfire.svg)](https://crates.io/crates/snapfire)
+[![Docs.rs](https://docs.rs/snapfire/badge.svg)](https://docs.rs/snapfire)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-An ergonomic web templating engine with live-reload, featuring first-class support for **Tera 2** and **Actix Web**. It gives you a fluent builder for wiring Tera into an Actix application and a zero-overhead live-reload system that pushes template and stylesheet edits straight to the browser. Full instructions live in the [usage guide](README.USAGE.md) and every public item is listed in the [API reference](API_REFERENCE.md).
+An ergonomic web templating engine with live-reload, featuring first-class support for **Tera 2** and **Actix Web**. It gives you a fluent builder for wiring Tera into an Actix application and a zero-overhead live-reload system that pushes template and stylesheet edits straight to the browser. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 Upgrading from 0.4? SnapFire 0.5 moves to Tera 2, which changes both the Rust API and the template language. See [MIGRATION.md](MIGRATION.md).
 
@@ -25,7 +25,7 @@ SnapFire enables `glob_fs` and `fast` on `tera`. Cargo features are additive, so
 
 ## What to reach for
 
-| You want to | Use |
+| Problem | Piece |
 | --- | --- |
 | Serve a template from an Actix handler | `TeraWeb::render` |
 | Make a value available to every template | `TeraWebBuilder::add_global` |

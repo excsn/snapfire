@@ -90,8 +90,9 @@ Every block in every crate, one line each, sorted by what you would be looking f
 
 ## I want the tools
 
-- **`fsr build`**, **`fsr check`**, **`fsr dev`**, **`fsr serve`**, **`fsr test`**, **`fsr add`**, **`fsr types`**, the commands, all thin fronts over the library.
+- **`fsr build`**, **`fsr check`**, **`fsr dev`**, **`fsr serve`**, **`fsr test`**, **`fsr lint`**, **`fsr add`**, **`fsr types`**, the commands, all thin fronts over the library.
 - **`snapfire_fsr_cli::dev`**, the watch loop; **`serve`**, the stock host over an app with no Rust beside it; **`vendor`**, **`types`** and **`xwpm`**, the dependency side.
 - **`snapfire_fsr_lower::ALIASES`**, the five import prefixes, the same table the tsconfigs get.
 - **snapfirec**, the TypeScript and CSS compiler, with `paths` for aliases, `--import-map` for externals, `--public-path` for the preload manifest and `--tailwind-classes` with `--tailwind-themes` for a stylesheet that imports Tailwind.
 - **`snapfire_fsr_cli::tailwind`**, the classes the plan renders, the `tailwind/unlisted-class` findings and the card table.
+- **`snapfire_lint`**, the linter: `Linter`, `Config` from `fsr.lint.toml`, `Check` for a rule of your own and `eslint::translate_eslintrc` for a configuration brought over; **`snapfire_fsr_lint`**, FSR's rules and `base_for` the levels under a project's (chapter [307](307-linting.md)).

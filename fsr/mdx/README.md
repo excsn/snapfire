@@ -1,8 +1,12 @@
 # snapfire_fsr_mdx
 
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_mdx.svg)](https://crates.io/crates/snapfire_fsr_mdx)
+[![Docs.rs](https://docs.rs/snapfire_fsr_mdx/badge.svg)](https://docs.rs/snapfire_fsr_mdx)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 License: MPL-2.0. Status: used by `snapfire_fsr_cli` behind its `mdx` features.
 
-MDX and markdown for SnapFire FSR. `convert` turns an `.mdx` or `.md` file into a TSX module whose default export renders it, as `@mdx-js/mdx` compiles one, with a map from every byte it wrote back to the source so a diagnostic names the line the author wrote. It writes one module for the build to lower and another for the browser. It can also highlight fenced code into classed spans at build. The [usage guide](README.USAGE.md) walks through each task and the [API reference](API_REFERENCE.md) lists the surface.
+MDX and markdown for SnapFire FSR. `convert` turns an `.mdx` or `.md` file into a TSX module whose default export renders it, as `@mdx-js/mdx` compiles one, with a map from every byte it wrote back to the source so a diagnostic names the line the author wrote. It writes one module for the build to lower and another for the browser. It can also highlight fenced code into classed spans at build. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -20,7 +24,7 @@ Without a feature, asking for what it adds is an `Error::Feature`.
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | --- | --- |
 | Turn a file into the module the build lowers | `convert` with `Target::Lowered` |
 | Turn a file into the module the browser runs | `convert` with `Target::Browser` and `Options::provider` |

@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr/badge.svg)](https://docs.rs/snapfire_fsr)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The binding rule of SnapFire FSR. A plan file names routes, data sources, actions and components; this crate binds each name to what answers it and refuses to start when something is unanswered or claimed twice. With nothing but the file, every lowered row binds itself to the interpreter and the report says `lowered` on every line. Rust takes a name back with `source_override` or `action_override`, adds one with `source`, `action` or `route` and the report says `rust` or `rust override` where it did. The result is an `App`: the matcher, the resolver, the runtime, the services, the action registry and the report, which `snapfire_fsr_host` wraps in an HTTP edge. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
+The binding rule of SnapFire FSR. A plan file names routes, data sources, actions and components; this crate binds each name to what answers it and refuses to start when something is unanswered or claimed twice. With nothing but the file, every lowered row binds itself to the interpreter and the report says `lowered` on every line. Rust takes a name back with `source_override` or `action_override`, adds one with `source`, `action` or `route` and the report says `rust` or `rust override` where it did. The result is an `App`: the matcher, the resolver, the runtime, the services, the action registry and the report, which `snapfire_fsr_host` wraps in an HTTP edge. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -17,7 +17,7 @@ It depends on `snapfire_fsr_plan` to read the file, `snapfire_fsr_ir` to bind lo
 
 ## What to reach for
 
-| What you are doing | What to reach for |
+| Problem | Piece |
 | --- | --- |
 | Start from a plan file | `App::from_manifest` |
 | Start from routes written in Rust | `App::builder(Routes)` |

@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_ir/badge.svg)](https://docs.rs/snapfire_fsr_ir)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The lowered form of a loader or action body for SnapFire FSR plus the interpreter that runs it. A body is a small typed tree over the value model: reads from the request context, literals, field access, arithmetic and comparison, lambdas over typed arrays, service calls, session writes and guards. The runtime executes it directly over `Value`, through the same service handle and session cell a Rust data source uses, so a TypeScript loader lowered to this form runs with no JavaScript engine in the path. The build produces the tree; this crate carries its JSON form, its interpreter and the two adapters that make a body answer a data source id or an action id. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
+The lowered form of a loader or action body for SnapFire FSR plus the interpreter that runs it. A body is a small typed tree over the value model: reads from the request context, literals, field access, arithmetic and comparison, lambdas over typed arrays, service calls, session writes and guards. The runtime executes it directly over `Value`, through the same service handle and session cell a Rust data source uses, so a TypeScript loader lowered to this form runs with no JavaScript engine in the path. The build produces the tree; this crate carries its JSON form, its interpreter and the two adapters that make a body answer a data source id or an action id. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -17,7 +17,7 @@ It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runti
 
 ## What to reach for
 
-| What you are doing | What to reach for |
+| Problem | Piece |
 | --- | --- |
 | Build a body in Rust | `Stmt`, `Expr` and the `Expr` constructors |
 | Read a body out of a plan file | `ast::from_json` |

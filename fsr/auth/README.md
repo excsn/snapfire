@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_auth/badge.svg)](https://docs.rs/snapfire_fsr_auth)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-Auth for SnapFire FSR: the front door of the session layer, covering how an anonymous session becomes an identified one and where backend tokens live. `IdentityProvider` is the seam, a sign-in as a sequence of steps that redirect, present data to the page or complete; `Auth` is the flow over it (`begin`, `advance`, `logout`) and `DevProvider` is a name-and-password implementation for development. The crate never renders and owns no HTTP endpoints; the login page is an ordinary route through the ordinary plan, identity reaches templates only as the injected `identity` prop and the flow endpoints live at whatever HTTP adapter the application brings. Task-shaped instructions are in [README.USAGE.md](README.USAGE.md); signatures are in [API_REFERENCE.md](API_REFERENCE.md).
+Auth for SnapFire FSR: the front door of the session layer, covering how an anonymous session becomes an identified one and where backend tokens live. `IdentityProvider` is the seam, a sign-in as a sequence of steps that redirect, present data to the page or complete; `Auth` is the flow over it (`begin`, `advance`, `logout`) and `DevProvider` is a name-and-password implementation for development. The crate never renders and owns no HTTP endpoints; the login page is an ordinary route through the ordinary plan, identity reaches templates only as the injected `identity` prop and the flow endpoints live at whatever HTTP adapter the application brings. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -20,7 +20,7 @@ snapfire_fsr_session = "0"
 
 ## What to reach for
 
-| What you are trying to do | What to reach for |
+| Problem | Piece |
 | --- | --- |
 | Start a sign-in and learn what the browser does first | `Auth::begin` with `Start::sign_in` |
 | Take the browser's answer and learn the next step | `Auth::advance` |

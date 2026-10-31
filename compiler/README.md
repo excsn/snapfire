@@ -1,8 +1,8 @@
 # SnapFire Compiler (`snapfirec`)
 
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
-![Crates.io](https://img.shields.io/crates/v/snapfire_compiler?style=flat-square)
-![Docs.rs](https://img.shields.io/docsrs/snapfire_compiler?style=flat-square)
+[![Crates.io](https://img.shields.io/crates/v/snapfire_compiler.svg)](https://crates.io/crates/snapfire_compiler)
+[![Docs.rs](https://docs.rs/snapfire_compiler/badge.svg)](https://docs.rs/snapfire_compiler)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 A bespoke, high-performance *typescript to browser* build tool written in Rust.
 
@@ -52,7 +52,7 @@ Then read `example/dist`, which is what a browser would be served.
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | :--- | :--- |
 | Compile a project | `snapfirec --root ./my-lib` |
 | Choose which files are in it | `include`, `exclude` and `files` in `tsconfig.json` |

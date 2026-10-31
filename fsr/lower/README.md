@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_lower/badge.svg)](https://docs.rs/snapfire_fsr_lower)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The recogniser for SnapFire FSR. It reads a TypeScript loader or actions module with the swc parser snapfirec uses and lowers each body to the IR in `snapfire_fsr_ir`, so the body runs in Rust with no JavaScript engine. A body that uses anything outside the IR is residue, reported with the file, the line, the column and the construct, so the developer knows exactly what stopped it. It also reads schema modules, exported interfaces in the subset the contract holds, into contract types, which is how a session schema or an action input declared in TypeScript reaches the runtime. The recogniser follows the syntax, not a type checker: every read is typed by where it comes from on `ctx`, which is what makes a syntactic pass sufficient for the bodies it accepts. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
+The recogniser for SnapFire FSR. It reads a TypeScript loader or actions module with the swc parser snapfirec uses and lowers each body to the IR in `snapfire_fsr_ir`, so the body runs in Rust with no JavaScript engine. A body that uses anything outside the IR is residue, reported with the file, the line, the column and the construct, so the developer knows exactly what stopped it. It also reads schema modules, exported interfaces in the subset the contract holds, into contract types, which is how a session schema or an action input declared in TypeScript reaches the runtime. The recogniser follows the syntax, not a type checker: every read is typed by where it comes from on `ctx`, which is what makes a syntactic pass sufficient for the bodies it accepts. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -17,7 +17,7 @@ It depends on `snapfire_fsr_ir` for the tree it produces, on `snapfire_fsr_servi
 
 ## What to reach for
 
-| What you are doing | What to reach for |
+| Problem | Piece |
 | --- | --- |
 | Lower a `page.loader.ts` with an exported `load` | `lower_loader` |
 | Lower an `actions.ts` with `export const x = action(...)` entries | `lower_actions` |
