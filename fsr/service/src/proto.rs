@@ -322,7 +322,8 @@ fn well_known(full_name: &str) -> Option<Result<Type, String>> {
     "google.protobuf.FloatValue" => Ok(Type::optional(Type::F32)),
     "google.protobuf.DoubleValue" => Ok(Type::optional(Type::F64)),
     "google.protobuf.Empty" => Ok(Type::Null),
-    "google.protobuf.Any" | "google.protobuf.Struct" | "google.protobuf.Value" | "google.protobuf.ListValue" | "google.protobuf.FieldMask" => Err(format!("{full_name}, which the value model has no shape for")),
+    "google.protobuf.Struct" | "google.protobuf.Value" | "google.protobuf.ListValue" => Ok(Type::Dynamic),
+    "google.protobuf.Any" | "google.protobuf.FieldMask" => Err(format!("{full_name}, which the value model has no shape for")),
     _ => return None,
   })
 }

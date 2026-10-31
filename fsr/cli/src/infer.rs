@@ -86,6 +86,7 @@ impl Ts {
       Type::List(inner) => Ts::List(Box::new(Ts::from_contract(inner))),
       Type::Map(v) => Ts::Map(Box::new(Ts::from_contract(v))),
       Type::Named(n) => Ts::Named(n.clone()),
+      Type::Dynamic => Ts::Unknown,
       other => Ts::Named(type_name_for(other, Flavour::Client)),
     }
   }

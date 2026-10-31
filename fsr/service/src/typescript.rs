@@ -115,6 +115,7 @@ pub fn type_name_for(ty: &Type, flavour: Flavour) -> String {
     },
     Type::Map(values) => format!("Record<string, {}>", type_name_for(values, flavour)),
     Type::Named(name) => name.clone(),
+    Type::Dynamic => "unknown".to_owned(),
   }
 }
 

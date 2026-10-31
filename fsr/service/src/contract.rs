@@ -58,6 +58,8 @@ pub enum Type {
   List(Box<Type>),
   Map(Box<Type>),
   Named(String),
+  /// Any value in the value model. Only this part of a contract goes unchecked.
+  Dynamic,
 }
 
 impl Type {
@@ -96,6 +98,7 @@ impl Type {
       Self::List(inner) => format!("list<{}>", inner.describe()),
       Self::Map(values) => format!("map<str, {}>", values.describe()),
       Self::Named(name) => name.clone(),
+      Self::Dynamic => "dynamic".to_owned(),
     }
   }
 }

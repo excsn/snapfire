@@ -150,6 +150,7 @@ impl Contract {
       Type::U128 => matches!(value, Value::UInt(_)) || int_in_range(value, 0, i128::MAX),
       Type::F32 => matches!(value, Value::F32(_)),
       Type::F64 => matches!(value, Value::F64(_)),
+      Type::Dynamic => true,
       Type::Str => matches!(value, Value::Str(_)),
       Type::Bytes => matches!(value, Value::Bytes(_)),
       Type::Array(kind) => matches!(value, Value::TypedArray(a) if array_kind(a) == *kind),

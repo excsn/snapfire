@@ -59,6 +59,7 @@ scalar! {
   f32 => Type::F32,
   f64 => Type::F64,
   String => Type::Str,
+  snapfire_fsr_core::Dynamic => Type::Dynamic,
   str => Type::Str,
 }
 

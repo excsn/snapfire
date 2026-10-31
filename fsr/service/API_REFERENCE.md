@@ -87,6 +87,7 @@ The contract type vocabulary. Every variant projects onto exactly one shape of t
 * `List(Box<Type>)`
 * `Map(Box<Type>)`, keys are always strings
 * `Named(String)`, a reference to a `TypeDef` in the same contract
+* `Dynamic`, any value: `unknown` in TypeScript and `google.protobuf.Struct`, `Value` or `ListValue` in a proto. A `#[service]` signature spells it `snapfire_fsr_core::Dynamic`
 * `fn optional(inner: Type) -> Self`
 * `fn list(inner: Type) -> Self`
 * `fn map(values: Type) -> Self`
@@ -114,6 +115,7 @@ What each variant accepts when checked against a `Value`:
 | `List(t)` | `Value::Seq`, every element checked against `t` |
 | `Map(t)` | `Value::Map`, every entry value checked against `t` |
 | `Named(n)` | `Value::Map` when `n` is a record, `Value::Variant` when `n` is a union |
+| `Dynamic` | Any value |
 
 There is no numeric coercion in either direction: an integer offered where `F64` is declared is a mismatch; a float offered where `I64` is declared is a mismatch.
 

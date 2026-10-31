@@ -125,6 +125,12 @@ impl FromNativeValue for Value {
   }
 }
 
+impl FromNativeValue for snapfire_fsr_core::Dynamic {
+  fn from_native_value(value: Value) -> Option<Self> {
+    Some(snapfire_fsr_core::Dynamic(value))
+  }
+}
+
 impl FromNativeValue for ValueMap {
   fn from_native_value(value: Value) -> Option<Self> {
     match value {
@@ -200,6 +206,12 @@ impl<T: FromNativeValue> FromNativeValue for Vec<T> {
 impl IntoNativeValue for Value {
   fn into_native_value(self) -> Value {
     self
+  }
+}
+
+impl IntoNativeValue for snapfire_fsr_core::Dynamic {
+  fn into_native_value(self) -> Value {
+    self.0
   }
 }
 

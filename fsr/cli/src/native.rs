@@ -344,6 +344,7 @@ fn contract_type(ty: &syn::Type, wanted: &mut Vec<String>) -> Result<Type, Strin
       let inner = generic_args(last);
       match last.ident.to_string().as_str() {
         "String" | "str" => Ok(Type::Str),
+        "Dynamic" => Ok(Type::Dynamic),
         "bool" => Ok(Type::Bool),
         "i8" | "i16" | "i32" => Ok(Type::I32),
         "u8" | "u16" | "u32" => Ok(Type::U32),
@@ -404,7 +405,7 @@ fn ts_type(ty: &syn::Type, wanted: &mut Vec<String>) -> String {
           None => "unknown[]".to_owned(),
         },
         "Result" => inner(wanted).unwrap_or_else(|| "unknown".to_owned()),
-        "Value" => "unknown".to_owned(),
+        "Value" | "Dynamic" => "unknown".to_owned(),
         other => {
           wanted.push(other.to_owned());
           other.to_owned()

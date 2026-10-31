@@ -119,6 +119,18 @@ A record's fields reach TypeScript camelCased, `load_avg` as `loadAvg`. A field 
 
 An `Option` field is in every value the record makes, `null` when it is `None`, so TypeScript sees `category: string | null`. Mark it `#[record(optional)]` to leave the key out on `None` instead; it is then `tag?: string | null`, the way a field an OpenAPI backend may omit reads.
 
+A method whose data has no fixed shape takes and answers `Dynamic`, which TypeScript sees as `unknown`. Only that part of the contract goes unchecked: the method's other arguments and anything around the `Dynamic` still are. A type with serde derives converts with `Dynamic::from_serde` and `to_serde`, which work on the value model and write no JSON:
+
+```rust
+#[service]
+impl Search {
+  pub async fn run(&self, query: Dynamic) -> Result<Dynamic, ServiceError> {
+    let query: Query = query.to_serde().map_err(invalid)?;
+    Dynamic::from_serde(&self.answer(query)).map_err(invalid)
+  }
+}
+```
+
 Unlike a native call, a service call crosses the contract, so its arguments and its answer are checked, the interceptors run, a `#[cache]` policy is honoured and a `Result<T, ServiceError>` reaches the body as the failure it names. A method that takes a parameter typed `Caller` is told who is calling, the identity the session resolved and the metadata the interceptors added, without the body passing anything and without the contract listing it; `caller.require()?` refuses an anonymous call. `fsr build` reads the block the way it reads a native one and writes the contract to `generated/contracts/rust.json`, which is what types `services.fleet` in TypeScript; the host merges the contract the attribute wrote over that file and refuses a disagreement at boot, so a build that fell behind the Rust is a boot failure rather than a call that fails later.
 
 ## The lab

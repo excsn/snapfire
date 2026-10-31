@@ -644,7 +644,8 @@ A file with one service takes the name you pass; with several, each keeps its ow
 | a nested message `Outer.Inner` | the record `OuterInner`; the package drops |
 | `Timestamp`, `Duration` | `Str`, RFC 3339 or `1.5s` |
 | the wrapper types | `Optional` of the scalar |
-| `Any`, `Struct`, `Value`, `ListValue`, `FieldMask` | refused |
+| `Struct`, `Value`, `ListValue` | `Dynamic`. A number is a double on the wire, so a whole number a double cannot hold exactly is refused when encoding |
+| `Any`, `FieldMask` | refused |
 
 On the wire the arguments become the request message field by field and the response comes back with every field present, an unset message or `optional` as `null` and an unset scalar at its default. Integers are checked against their width before they leave.
 

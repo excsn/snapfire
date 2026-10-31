@@ -13,6 +13,7 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
    * [Value](#value)
    * [RefKind](#refkind)
    * [TypedArray](#typedarray)
+   * [Dynamic](#dynamic)
 3. [The Payload Tree](#3-the-payload-tree)
    * [Html](#html)
    * [SlotId](#slotid)
@@ -135,6 +136,16 @@ A numeric series held as one `Vec`, mirroring the JavaScript `TypedArray` elemen
 * Derives `Debug`, `Clone` and `PartialEq`.
 * The element kind is part of the value's identity: `F32(vec![1.0])` and `F64(vec![1.0])` fingerprint differently and neither matches a `Seq` of the same numbers.
 * Integer elements are never normalized between kinds. `U8` and `I8` holding the same numbers are different values.
+
+### Dynamic
+
+Data whose shape a contract does not declare.
+
+* `pub struct Dynamic(pub Value)` - derives `Debug`, `Clone` and `PartialEq`. `From<Value>` and `Into<Value>` both ways.
+* `fn from_serde<T: Serialize + ?Sized>(value: &T) -> Result<Dynamic, DynamicError>` - writes no JSON. A unit variant is its name and a variant with data is a one-field map.
+* `fn to_serde<T: DeserializeOwned>(&self) -> Result<T, DynamicError>` - a whole float reads as an integer, since a script's numbers are floats. `Undefined` reads as absent.
+* `fn from_json(json: &serde_json::Value) -> Dynamic` and `fn to_json(&self) -> Result<serde_json::Value, DynamicError>`.
+* `pub struct DynamicError(pub String)` - implements `Display` and `Error`.
 
 ## 3. The Payload Tree
 

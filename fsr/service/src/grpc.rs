@@ -229,6 +229,9 @@ fn scalar_to_reflect(kind: &Kind, value: &Value, at: &str) -> Result<Option<Refl
         message.transcode_from(&d).map_err(|e| format!("{at}: {e}"))?;
         Reflect::Message(message)
       }
+      "google.protobuf.Value" => Reflect::Message(json_value_message(desc, value, at)?),
+      "google.protobuf.Struct" => Reflect::Message(json_struct_message(desc, value, at)?),
+      "google.protobuf.ListValue" => Reflect::Message(json_list_message(desc, value, at)?),
       name if WRAPPERS.contains(&name) => {
         let mut message = DynamicMessage::new(desc.clone());
         let inner = desc.get_field_by_name("value").ok_or_else(|| format!("{at}: {name} has no value field"))?;
@@ -301,6 +304,123 @@ fn map_key(key: &MapKey) -> String {
   }
 }
 
+fn message_field(desc: &MessageDescriptor, name: &str) -> Result<prost_reflect::FieldDescriptor, String> {
+  desc.get_field_by_name(name).ok_or_else(|| format!("{} has no field {name}", desc.full_name()))
+}
+
+fn field_message(field: &prost_reflect::FieldDescriptor) -> Result<MessageDescriptor, String> {
+  match field.kind() {
+    Kind::Message(message) => Ok(message),
+    other => Err(format!("{} is not a message but {other:?}", field.full_name())),
+  }
+}
+
+/// The largest magnitude where every whole number is exactly one double.
+const MAX_EXACT_DOUBLE: i128 = 1 << 53;
+
+/// A `google.protobuf.Value` holds every number as a double, so a whole number that a double cannot hold exactly is refused and never rounded.
+fn json_value_message(desc: &MessageDescriptor, value: &Value, at: &str) -> Result<DynamicMessage, String> {
+  let mut message = DynamicMessage::new(desc.clone());
+  let number = |number: f64| -> Result<(prost_reflect::FieldDescriptor, Reflect), String> { Ok((message_field(desc, "number_value")?, Reflect::F64(number))) };
+  let (field, reflect) = match value {
+    Value::Null | Value::Undefined => (message_field(desc, "null_value")?, Reflect::EnumNumber(0)),
+    Value::Bool(flag) => (message_field(desc, "bool_value")?, Reflect::Bool(*flag)),
+    Value::Str(text) => (message_field(desc, "string_value")?, Reflect::String(text.to_string())),
+    Value::F64(float) => number(*float)?,
+    Value::F32(float) => number(*float as f64)?,
+    Value::Int(whole) if whole.abs() <= MAX_EXACT_DOUBLE => number(*whole as f64)?,
+    Value::Int(whole) => return Err(format!("{at}: {whole} does not fit a double exactly")),
+    Value::UInt(whole) => return Err(format!("{at}: {whole} does not fit a double exactly")),
+    Value::Map(_) => {
+      let field = message_field(desc, "struct_value")?;
+      let inner = json_struct_message(&field_message(&field)?, value, at)?;
+      (field, Reflect::Message(inner))
+    }
+    Value::Seq(_) => {
+      let field = message_field(desc, "list_value")?;
+      let inner = json_list_message(&field_message(&field)?, value, at)?;
+      (field, Reflect::Message(inner))
+    }
+    other => return Err(format!("{at}: {other:?} has no form in a google.protobuf.Value")),
+  };
+  message.set_field(&field, reflect);
+  Ok(message)
+}
+
+fn json_struct_message(desc: &MessageDescriptor, value: &Value, at: &str) -> Result<DynamicMessage, String> {
+  let Value::Map(fields) = value else { return Err(format!("{at}: expected a record, found {value:?}")) };
+  let field = message_field(desc, "fields")?;
+  let Kind::Message(entry) = field.kind() else { return Err(format!("{} is not a map", field.full_name())) };
+  let value_desc = field_message(&message_field(&entry, "value")?)?;
+  let mut entries = std::collections::HashMap::with_capacity(fields.len());
+  for (key, item) in fields.iter() {
+    entries.insert(MapKey::String(key.to_string()), Reflect::Message(json_value_message(&value_desc, item, &format!("{at}.{key}"))?));
+  }
+  let mut message = DynamicMessage::new(desc.clone());
+  message.set_field(&field, Reflect::Map(entries));
+  Ok(message)
+}
+
+fn json_list_message(desc: &MessageDescriptor, value: &Value, at: &str) -> Result<DynamicMessage, String> {
+  let Value::Seq(items) = value else { return Err(format!("{at}: expected a list, found {value:?}")) };
+  let field = message_field(desc, "values")?;
+  let value_desc = field_message(&field)?;
+  let values = items.iter().enumerate().map(|(index, item)| json_value_message(&value_desc, item, &format!("{at}[{index}]")).map(Reflect::Message)).collect::<Result<Vec<_>, _>>()?;
+  let mut message = DynamicMessage::new(desc.clone());
+  message.set_field(&field, Reflect::List(values));
+  Ok(message)
+}
+
+fn json_value_from(message: &DynamicMessage) -> Result<Value, String> {
+  let desc = message.descriptor();
+  let held = |name: &str| -> Result<Option<Reflect>, String> {
+    let field = message_field(&desc, name)?;
+    Ok(message.has_field(&field).then(|| message.get_field(&field).into_owned()))
+  };
+  if let Some(Reflect::F64(number)) = held("number_value")? {
+    return Ok(Value::F64(number));
+  }
+  if let Some(Reflect::String(text)) = held("string_value")? {
+    return Ok(Value::str(text));
+  }
+  if let Some(Reflect::Bool(flag)) = held("bool_value")? {
+    return Ok(Value::Bool(flag));
+  }
+  if let Some(Reflect::Message(inner)) = held("struct_value")? {
+    return json_struct_from(&inner);
+  }
+  if let Some(Reflect::Message(inner)) = held("list_value")? {
+    return json_list_from(&inner);
+  }
+  Ok(Value::Null)
+}
+
+fn json_struct_from(message: &DynamicMessage) -> Result<Value, String> {
+  let field = message_field(&message.descriptor(), "fields")?;
+  let mut out = ValueMap::default();
+  if let Reflect::Map(entries) = message.get_field(&field).into_owned() {
+    for (key, item) in entries {
+      if let (MapKey::String(key), Reflect::Message(item)) = (key, item) {
+        out.insert(key, json_value_from(&item)?);
+      }
+    }
+  }
+  Ok(Value::Map(out))
+}
+
+fn json_list_from(message: &DynamicMessage) -> Result<Value, String> {
+  let field = message_field(&message.descriptor(), "values")?;
+  let mut out = Vec::new();
+  if let Reflect::List(items) = message.get_field(&field).into_owned() {
+    for item in items {
+      if let Reflect::Message(item) = item {
+        out.push(json_value_from(&item)?);
+      }
+    }
+  }
+  Ok(Value::Seq(out.into_iter().collect()))
+}
+
 /// A message as a record: every field present, an unset message or
 /// presence-tracking field as null, a Timestamp or Duration as its string.
 pub fn from_message(message: &DynamicMessage) -> Result<Value, String> {
@@ -314,6 +434,9 @@ pub fn from_message(message: &DynamicMessage) -> Result<Value, String> {
       let d: prost_types::Duration = message.transcode_to().map_err(|e| e.to_string())?;
       return Ok(Value::str(d.to_string()));
     }
+    "google.protobuf.Value" => return json_value_from(message),
+    "google.protobuf.Struct" => return json_struct_from(message),
+    "google.protobuf.ListValue" => return json_list_from(message),
     name if WRAPPERS.contains(&name) => {
       let inner = desc.get_field_by_name("value").ok_or_else(|| format!("{name} has no value field"))?;
       return from_reflect(&inner.kind(), &message.get_field(&inner));
