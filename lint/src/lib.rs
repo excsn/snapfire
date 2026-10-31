@@ -13,6 +13,7 @@ mod markdown;
 mod suppress;
 mod templates;
 mod tera;
+mod vue_template;
 
 pub use config::Config;
 pub use oxc_ast;
@@ -348,6 +349,7 @@ pub fn rules() -> Vec<RuleInfo> {
   let mut all: Vec<RuleInfo> = CORE.into_iter().collect();
   all.extend(js::RULES.iter().map(|e| RuleInfo { id: e.id, default: if on_by_default(e.id, e.recommended) { Level::Error } else { Level::Off }, recommended: e.recommended, category: e.category, fixable: e.fixable, docs: e.docs }));
   all.extend(templates::VUE_RULES);
+  all.extend(vue_template::RULES);
   all.extend(markdown::RULES);
   all.extend(tera::RULES);
   all.push(templates::SVELTE_FAMILY);
@@ -399,7 +401,7 @@ impl Linter {
     }
     for layer in config.layers() {
       for (id, setting) in &layer.rules {
-        if CORE.iter().chain(&templates::VUE_RULES).chain(&markdown::RULES).chain(&tera::RULES).any(|r| r.id == id) || checks.iter().any(|(info, _)| info.id == id) || svelte_warning(id) {
+        if CORE.iter().chain(&templates::VUE_RULES).chain(&vue_template::RULES).chain(&markdown::RULES).chain(&tera::RULES).any(|r| r.id == id) || checks.iter().any(|(info, _)| info.id == id) || svelte_warning(id) {
           continue;
         }
         let Some(entry) = js::RULES.iter().find(|e| e.id == id) else {

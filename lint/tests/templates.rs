@@ -115,3 +115,65 @@ fn a_warning_without_a_code_is_still_a_finding() {
   let report = linter.lint_source(Path::new("Pic.svelte"), "<img src=\"a.png\">\n");
   assert_eq!(found(&report), [("svelte/warning", 1, 1, Level::Warn)], "{}", report.render());
 }
+
+fn template_rules(source: &str) -> Vec<String> {
+  let report = linter("").lint_source(Path::new("A.vue"), source);
+  report.findings.iter().filter(|f| f.rule.starts_with("vue/")).map(|f| f.rule.clone()).collect()
+}
+
+#[test]
+fn vues_essential_template_rules_each_find_their_case() {
+  let script = "\n<script setup>const xs = []; const a = 1; const b = 2; const f = () => 0; const html = '';</script>\n";
+  let cases = [
+    ("<template><p v-if></p></template>", "vue/valid-v-if"),
+    ("<template><p v-else-if=\"a\"></p></template>", "vue/valid-v-else-if"),
+    ("<template><p v-if=\"a\"></p><p v-else=\"b\"></p></template>", "vue/valid-v-else"),
+    ("<template><p v-for=\"xs\" :key=\"a\"></p></template>", "vue/valid-v-for"),
+    ("<template><p v-show></p></template>", "vue/valid-v-show"),
+    ("<template><p v-html></p></template>", "vue/valid-v-html"),
+    ("<template><p v-text></p></template>", "vue/valid-v-text"),
+    ("<template><p v-once=\"a\"></p></template>", "vue/valid-v-once"),
+    ("<template><p v-cloak=\"a\"></p></template>", "vue/valid-v-cloak"),
+    ("<template><p v-bind></p></template>", "vue/valid-v-bind"),
+    ("<template><p :title.foo=\"a\"></p></template>", "vue/valid-v-bind"),
+    ("<template><p @click></p></template>", "vue/valid-v-on"),
+    ("<template><input v-model=\"f()\"></template>", "vue/valid-v-model"),
+    ("<template><p v-model=\"a\"></p></template>", "vue/valid-v-model"),
+    ("<template><p v-slot=\"a\"></p></template>", "vue/valid-v-slot"),
+    ("<template><p v-memo></p></template>", "vue/valid-v-memo"),
+    ("<template><p 0abc=\"a\"></p></template>", "vue/valid-attribute-name"),
+    ("<template></template>", "vue/valid-template-root"),
+    ("<template><p title=\"a\" :title=\"b\"></p></template>", "vue/no-duplicate-attributes"),
+    ("<template><p v-if=\"a\"></p><p v-else-if=\"a\"></p></template>", "vue/no-dupe-v-else-if"),
+    ("<template><textarea>{{ a }}</textarea></template>", "vue/no-textarea-mustache"),
+    ("<template><MyThing v-html=\"html\" /></template>", "vue/no-v-text-v-html-on-component"),
+    ("<template><p v-html=\"html\">child</p></template>", "vue/no-child-content"),
+    ("<template><template v-if=\"a\" class=\"x\"><p /></template></template>", "vue/no-useless-template-attributes"),
+    ("<template><template v-for=\"x in xs\"><p :key=\"x\" /></template></template>", "vue/no-v-for-template-key-on-child"),
+    ("<template><transition><p /></transition></template>", "vue/require-toggle-inside-transition"),
+    ("<template><button @click=\"f\" @click.ctrl=\"f\"></button></template>", "vue/use-v-on-exact"),
+    ("<template><MyThing :title.sync=\"a\" /></template>", "vue/no-deprecated-v-bind-sync"),
+    ("<template><MyThing @click.native=\"f\" /></template>", "vue/no-deprecated-v-on-native-modifier"),
+    ("<template><input @keyup.13=\"f\"></template>", "vue/no-deprecated-v-on-number-modifiers"),
+    ("<template><MyThing><p slot=\"head\" /></MyThing></template>", "vue/no-deprecated-slot-attribute"),
+    ("<template><MyThing><template slot-scope=\"a\"><p /></template></MyThing></template>", "vue/no-deprecated-slot-scope-attribute"),
+    ("<template><MyThing><template scope=\"a\"><p /></template></MyThing></template>", "vue/no-deprecated-scope-attribute"),
+    ("<template><table is=\"my-row\"></table></template>", "vue/no-deprecated-html-element-is"),
+    ("<template><MyThing inline-template><p /></MyThing></template>", "vue/no-deprecated-inline-template"),
+    ("<template><router-link to=\"/\" tag=\"li\">x</router-link></template>", "vue/no-deprecated-router-link-tag-prop"),
+    ("<template><p v-is=\"'x'\"></p></template>", "vue/no-deprecated-v-is"),
+    ("<template><MyThing v-bind=\"$listeners\" /></template>", "vue/no-deprecated-dollar-listeners-api"),
+  ];
+  let missed: Vec<String> = cases.iter().filter_map(|(template, rule)| {
+    let found = template_rules(&format!("{template}{script}"));
+    (!found.iter().any(|r| r == rule)).then(|| format!("{rule} on {template}: {found:?}"))
+  }).collect();
+  assert!(missed.is_empty(), "{missed:#?}");
+}
+
+#[test]
+fn vues_template_rules_pass_what_is_valid() {
+  let source = "<template>\n  <p v-if=\"a\">1</p>\n  <p v-else-if=\"b\">2</p>\n  <p v-else>3</p>\n  <ul><li v-for=\"(x, i) in xs\" :key=\"i\" :title=\"x\" class=\"a\" :class=\"b\" @click.stop>{{ x }}</li></ul>\n  <input v-model.trim=\"a\" @keyup.enter=\"f\" @click.ctrl.exact=\"f\" @click.exact=\"f\">\n  <MyThing v-model:title=\"a\" :is=\"'vue:x'\"><template #head=\"{ item }\"><p v-show=\"item\" /></template></MyThing>\n  <transition><p v-if=\"a\" /></transition>\n  <template v-for=\"x in xs\" :key=\"x\"><p v-text=\"x\" /></template>\n  <p v-once v-pre v-cloak :id />\n  <table is=\"vue:my-row\"></table>\n</template>\n<script setup>const xs = []; const a = 1; const b = 2; const f = () => 0; const id = 'p';</script>\n";
+  let found = template_rules(source);
+  assert!(found.is_empty(), "{found:?}");
+}

@@ -185,7 +185,7 @@ With [Compilers](#compilers): a `.vue` file's template is described and checked 
 
 ### rules
 
-* `pub fn rules() -> Vec<RuleInfo>`: this crate's rules, sorted by id: the three `lint/` rules, the 356 script rules (`eslint/` 64, `react/` 20, `jsx-a11y/` 31, `typescript/` 18, `import/` 1, `unicorn/` 137, `promise/` 16, `jsdoc/` 23, `vue/` 46), the four `vue/` rules, `svelte/*` standing for Svelte's warnings, the eleven `markdown/` rules and the three `tera/` rules.
+* `pub fn rules() -> Vec<RuleInfo>`: this crate's rules, sorted by id: the three `lint/` rules, the 356 script rules (`eslint/` 64, `react/` 20, `jsx-a11y/` 31, `typescript/` 18, `import/` 1, `unicorn/` 137, `promise/` 16, `jsdoc/` 23, `vue/` 46), the 42 `vue/` template rules, `svelte/*` standing for Svelte's warnings, the eleven `markdown/` rules and the three `tera/` rules.
 
 ### RuleInfo
 

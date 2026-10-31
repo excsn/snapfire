@@ -295,6 +295,9 @@ assert_eq!(report.findings[0].rule, "vue/require-v-for-key");
 | `vue/no-use-v-if-with-v-for` | `v-if` on the element that has `v-for` |
 | `vue/require-component-is` | `<component>` with no `is` |
 | `vue/no-template-key` | a `key` on a `<template>` with no `v-for` |
+| `vue/valid-v-if`, `vue/valid-v-for`, `vue/valid-v-model` and the rest of `vue/valid-v-*` | a directive in the wrong place or one missing a value, argument or modifier it needs |
+| `vue/no-duplicate-attributes`, `vue/no-dupe-v-else-if`, `vue/no-child-content` | an attribute set twice, a branch tested twice, children `v-html` overwrites |
+| `vue/no-deprecated-*` | what Vue 3 removed: `.sync`, `.native`, `slot`, `slot-scope`, `v-is`, `$listeners` and the rest |
 | `svelte/<code>` | each warning Svelte's compiler gives, `a11y_missing_attribute` as `svelte/a11y-missing-attribute`, at `warn` |
 
 Svelte's codes are not listed ahead of time, so any `svelte/` id is accepted in `fsr.lint.toml`. A warning from a `snapfirec-svelte` that gives no code is `svelte/warning`. Svelte's own `<!-- svelte-ignore code -->` still silences a warning; so does `<!-- eslint-disable-next-line svelte/a11y-missing-attribute -->`.

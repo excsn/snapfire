@@ -124,7 +124,7 @@ pub(crate) fn lint(ext: &str, path: &Path, source: &str, compilers: &dyn Compile
   match asked {
     Err(message) => vec![Found { rule: crate::COMPILER.to_owned(), line: 1, column: 1, message, help: Some(format!("install snapfirec-{ext} to lint its templates")) }],
     Ok(Outcome::Failed { diagnostics }) => diagnostics.iter().filter(|d| d.severity == Severity::Error).map(|d| at(crate::PARSE.to_owned(), d)).collect(),
-    Ok(Outcome::Described(described)) => described.template.as_ref().map(vue).unwrap_or_default(),
+    Ok(Outcome::Described(described)) => described.template.as_ref().map(|template| vue(template, source)).unwrap_or_default(),
     Ok(Outcome::Ok(compiled)) => compiled.diagnostics.iter().filter(|d| d.severity == Severity::Warning).map(|d| at(d.code.as_ref().map_or_else(|| UNCODED.to_owned(), |code| format!("svelte/{}", code.replace('_', "-"))), d)).collect(),
     Ok(Outcome::Needs { .. }) => Vec::new(),
   }
@@ -136,9 +136,10 @@ fn at(rule: String, d: &Diagnostic) -> Found {
 }
 
 /// The findings of the Vue rules over the tree `snapfirec-vue` describes.
-fn vue(template: &Value) -> Vec<Found> {
+fn vue(template: &Value, source: &str) -> Vec<Found> {
   let mut out = Vec::new();
   walk(template, &mut out);
+  crate::vue_template::lint(template, source, &mut out);
   out.sort_by_key(|f| (f.line, f.column));
   out
 }
