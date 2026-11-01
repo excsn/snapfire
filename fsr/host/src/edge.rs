@@ -23,6 +23,17 @@ pub(crate) struct Incoming {
   pub(crate) nonce: Option<String>,
 }
 
+/// How a request ended. A 4xx is the caller asking for something it may not have, so the server did not fail, and a redirect is an answer.
+fn outcome_of(status: StatusCode) -> &'static str {
+  if status.is_server_error() {
+    "error"
+  } else if status.is_client_error() {
+    "rejected"
+  } else {
+    "ok"
+  }
+}
+
 impl Incoming {
   pub(crate) fn anonymous(session: SessionCell) -> Self {
     Self {
@@ -326,7 +337,7 @@ impl Host {
       answered.headers_mut().insert("x-sf-request", value);
     }
     root.record("status", answered.status().as_u16());
-    root.record("fibre.outcome", if answered.status().is_success() { "ok" } else { "error" });
+    root.record("fibre.outcome", outcome_of(answered.status()));
     let html = answered.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|ct| ct.starts_with("text/html"));
     let (mut parts, body) = answered.into_parts();
     let body = match inline.filter(|_| html) {

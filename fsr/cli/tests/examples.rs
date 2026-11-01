@@ -172,7 +172,14 @@ fn every_example_builds_tests_and_boots_from_a_checkout() {
         continue;
       }
     };
-    write(&app, &built).unwrap();
+    match write(&app, &built) {
+      Ok(_) => {}
+      Err(e @ snapfire_fsr_cli::BuildError::TerminalFeature(_)) => {
+        println!("{name}: skipped, {e}");
+        continue;
+      }
+      Err(e) => panic!("{name}: {e}"),
+    }
     if app.join("tests").is_dir() {
       match test::run(&app, &Options::beside(&app), &snapfire_fsr_cli::typecheck::Typecheck::beside(&app), None) {
         Ok(summary) if summary.failed == 0 => {

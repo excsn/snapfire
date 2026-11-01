@@ -7109,6 +7109,19 @@ async fn a_request_trace_stays_open_until_its_body_has_been_sent() {
 }
 
 #[tokio::test]
+async fn a_request_the_caller_got_wrong_is_rejected_not_an_error() {
+  let (host, traces, _guard) = traced_host(false, "");
+  let found = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert_eq!(found.status(), 200);
+  body_of(found).await;
+  assert_eq!(traces.recent(1)[0].root().unwrap().outcome(), Some("ok"));
+  let missing = host.handle(Request::get("/no/such/page").body(Bytes::new()).unwrap()).await;
+  assert_eq!(missing.status(), 404);
+  body_of(missing).await;
+  assert_eq!(traces.recent(1)[0].root().unwrap().outcome(), Some("rejected"));
+}
+
+#[tokio::test]
 async fn an_exposed_page_reads_back_its_own_trace_by_the_signed_token() {
   let (host, _traces, _guard) = traced_host(false, "[trace]\nexpose = [\"/\"]\n");
   let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;

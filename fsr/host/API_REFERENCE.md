@@ -676,7 +676,7 @@ Opened by the framework, all on target `fsr::trace`.
 
 | Span | Where | Fields |
 | --- | --- | --- |
-| `request` | `Host::handle`, the root of every trace | `method`, `path`, `status`, `fibre.outcome` of `ok` or `error` |
+| `request` | `Host::handle`, the root of every trace | `method`, `path`, `status`, `fibre.outcome` of `ok`, `rejected` for a 4xx or `error` for a 5xx |
 | `session` | `Host::handle`, opening the session before anything reads it and saving it before the response leaves | `op` of `open` or `save` |
 | `middleware` | `Host::handle`, the application's and a mounted site's middleware for a page or action request | none |
 | `match` | resolving a path to its route's plan | `pattern`, the route the path matched |

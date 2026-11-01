@@ -124,7 +124,7 @@ pub fn declarations_of(sources: &[(String, &str)]) -> Result<Vec<(String, String
 /// Without the `terminal` feature this fsr cannot run a terminal page and does not declare its modules.
 #[cfg(not(feature = "terminal"))]
 fn write_terminal(app: &Path, _: &Layout, _: bool) -> Result<bool, BuildError> {
-  Err(BuildError::Types(format!("{}: the root page draws with Ink but this fsr is built without the `terminal` feature, which declares its modules", app.display())))
+  Err(BuildError::TerminalFeature(app.to_path_buf()))
 }
 
 /// Writes the declarations of FSR's terminal modules under [`TERMINAL_TYPES`] when `always` holds or what they are written from changed since they were last written; true when it wrote them.

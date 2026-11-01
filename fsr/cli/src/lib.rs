@@ -166,6 +166,8 @@ pub enum BuildError {
   TemplateFeature(PathBuf),
   #[error("{what} needs an fsr built with its `{feature}` feature, as `cargo install snapfire_fsr_cli --features {feature}`")]
   MdxFeature { what: String, feature: &'static str },
+  #[error("{0}: the root page draws with Ink but this fsr is built without the `terminal` feature, which declares its modules")]
+  TerminalFeature(PathBuf),
   #[error("{file}: {message}")]
   Mdx { file: String, message: String },
   #[error("{module} sets the route's meta and so does {page}; keep one")]
