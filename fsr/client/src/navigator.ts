@@ -561,6 +561,20 @@ function isSegmentSlot(el: Element): boolean {
 }
 
 /** An island marker the new markup places again. A root that was scheduled, under a region the payload describes, keeps its DOM and its state: its props script and the island take the new props. Any other marker is swapped for the new one, whose props script is patched in beside it for the next scan to mount. */
+/** A custom element's inputs are its `data-*` attributes rather than props, so a kept one takes them from the new markup. The rest of its attributes and its children are its own. */
+function syncElementData(current: Element, next: Element): void {
+  const kept = current.firstElementChild;
+  const fresh = next.firstElementChild;
+  if (!kept || !fresh || !kept.localName.includes("-") || kept.localName !== fresh.localName) return;
+  for (const name of kept.getAttributeNames()) {
+    if (name.startsWith("data-") && !fresh.hasAttribute(name)) kept.removeAttribute(name);
+  }
+  for (const name of fresh.getAttributeNames()) {
+    const value = fresh.getAttribute(name);
+    if (name.startsWith("data-") && value !== null && kept.getAttribute(name) !== value) kept.setAttribute(name, value);
+  }
+}
+
 function takeIsland(current: Element, next: Element, sources: ReturnType<typeof regionSources>, hooks: MorphHooks): void {
   const after = current.nextElementSibling;
   const script = after?.tagName === "SCRIPT" && after.getAttribute("data-sf-props") === current.id ? after : null;
@@ -569,6 +583,7 @@ function takeIsland(current: Element, next: Element, sources: ReturnType<typeof 
   const source = regionKey === null ? undefined : sources.get(regionKey);
   if (source && current.hasAttribute("data-sf-scheduled")) {
     if (script) script.textContent = propsScript(source);
+    syncElementData(current, next);
     void patchIsland(current, source.props, source.nested, source.children, source.encoded, source.markup);
     return;
   }

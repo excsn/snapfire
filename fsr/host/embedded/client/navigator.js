@@ -495,6 +495,18 @@ function morphStatic(key, node, seg, slotsSettled = false, values) {
 function isSegmentSlot(el) {
     return el.tagName === "SF-S" && !el.hasAttribute("data-sf-island") && !el.hasAttribute(CHILDREN_ATTR);
 }
+function syncElementData(current, next) {
+    const kept = current.firstElementChild;
+    const fresh = next.firstElementChild;
+    if (!kept || !fresh || !kept.localName.includes("-") || kept.localName !== fresh.localName) return;
+    for (const name of kept.getAttributeNames()){
+        if (name.startsWith("data-") && !fresh.hasAttribute(name)) kept.removeAttribute(name);
+    }
+    for (const name of fresh.getAttributeNames()){
+        const value = fresh.getAttribute(name);
+        if (name.startsWith("data-") && value !== null && kept.getAttribute(name) !== value) kept.setAttribute(name, value);
+    }
+}
 function takeIsland(current, next, sources, hooks) {
     const after = current.nextElementSibling;
     const script = after?.tagName === "SCRIPT" && after.getAttribute("data-sf-props") === current.id ? after : null;
@@ -503,6 +515,7 @@ function takeIsland(current, next, sources, hooks) {
     const source = regionKey === null ? undefined : sources.get(regionKey);
     if (source && current.hasAttribute("data-sf-scheduled")) {
         if (script) script.textContent = propsScript(source);
+        syncElementData(current, next);
         void patchIsland(current, source.props, source.nested, source.children, source.encoded, source.markup);
         return;
     }
