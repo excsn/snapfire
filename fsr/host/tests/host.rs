@@ -8575,3 +8575,11 @@ async fn a_form_failure_shows_once() {
   assert!(body_of(page().await).await.contains("action_failure"));
   assert!(!body_of(page().await).await.contains("action_failure"), "a reload does not show it again");
 }
+
+#[tokio::test]
+async fn a_page_names_the_route_pattern_it_was_served_by() {
+  let (host, _traces, _guard) = traced_host(false, "");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let html = body_of(response).await;
+  assert!(html.contains("<meta name=\"sf-route\" content=\"/\">"), "{html}");
+}

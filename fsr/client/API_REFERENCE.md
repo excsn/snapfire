@@ -62,6 +62,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [mountServer](#mountserver)
 * [6. Navigation](#6-navigation)
   * [enableNavigation](#enablenavigation)
+  * [enableTelemetry](#enabletelemetry)
   * [prefetch](#prefetch)
   * [clearRouterCache](#clearroutercache)
   * [navigate](#navigate)
@@ -759,6 +760,11 @@ Adds `<script src>` to `document.head` once per resolved URL and resolves on its
 * `loadMarkedScript(marker: Record<string, string>): void`
 
 `loadDeclaredScripts` calls `loadMarkedScript` with the attributes of every `script[data-sf-script]` under `root`, the inert element the host writes for a script row. `boot` calls it for the document and on every `sf:fill`. It also sets `window.__sf.script` to `loadMarkedScript` for the fill script, which hands it a streamed resolution's script rows or writes them as inert elements when the client has not booted. `loadMarkedScript` loads `data-src` at the timing `data-sf-script` names, with every other attribute but `type` set as written and `data-type` set as `type`. A failure is written to the console.
+
+### `enableTelemetry`
+
+* `enableTelemetry(options: TelemetryOptions): void`: reports this page view's web vitals once, as a POST of JSON to `options.beacon`, when the page is hidden. `TelemetryOptions` is `{ beacon, app, version, sample? }`.
+* The report holds `app`, `version`, `route` from `<meta name="sf-route">`, a device class and `samples` of `ttfb_ms`, `fcp_ms`, `lcp_ms` and `inp_ms`. It holds no URL and nothing about the person.
 
 ## 7. Actions and Sign-In
 

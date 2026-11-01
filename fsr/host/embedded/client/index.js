@@ -8,6 +8,7 @@ export { nodeToHtml, renderSegment } from "./render.js";
 export { loadDeclaredScripts, loadMarkedScript, loadScript } from "./script.js";
 export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, pendingLink, prefetch, refresh, subscribePendingLink } from "./navigator.js";
 export { live } from "./live.js";
+export { enableTelemetry } from "./telemetry.js";
 export { socket } from "./socket.js";
 export { adoptNodes, applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";

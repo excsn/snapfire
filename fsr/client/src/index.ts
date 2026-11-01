@@ -14,6 +14,7 @@ export { loadDeclaredScripts, loadMarkedScript, loadScript } from "./script.js";
 export type { ScriptOptions, ScriptTiming } from "./script.js";
 export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, pendingLink, prefetch, refresh, subscribePendingLink } from "./navigator.js";
 export { live, type LiveOptions } from "./live.js";
+export { enableTelemetry, type TelemetryOptions } from "./telemetry.js";
 export { socket, type Socket, type SocketOptions } from "./socket.js";
 export type { NavigateOptions, NavigationOptions, PrefetchTiming } from "./navigator.js";
 export { adoptNodes, applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";

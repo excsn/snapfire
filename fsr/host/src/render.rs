@@ -268,6 +268,11 @@ impl Host {
     {
       extra.push(snapfire_fsr_core::Node::raw(shell::request_meta(&token)));
     }
+    if matches!(mode, RenderMode::Html)
+      && let Some(pattern) = t.app.matcher.match_path(&visit.path).and_then(|matched| t.app.patterns.get(matched.entry.0 as usize))
+    {
+      extra.push(snapfire_fsr_core::Node::raw(shell::route_meta(pattern)));
+    }
     if let Some(facts) = &t.dev_bundle {
       let bundle = match &self.changed {
         Some(reload) => held_bundle(&reload.state, facts),
