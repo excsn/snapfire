@@ -1,5 +1,5 @@
 import { Island } from "@snapfire/fsr/client/react";
-import { Embed } from "@snapfire/fsr/components";
+import { Embed, Link } from "@snapfire/fsr/components";
 
 import AskDesk from "@src/ui/AskDesk";
 import Checklist from "@src/ui/Checklist";
@@ -11,7 +11,7 @@ import walkWebm from "@src/media/walk.webm";
 import walkCaptions from "@src/media/walk.vtt";
 import walkPoster from "@src/media/walk-poster.png";
 
-export default function VenuePage({ venue, talks }: VenueProps) {
+export default function VenuePage({ venue, track, tracks, counted, talks }: VenueProps) {
   return (
     <section className="page venue-page">
       <h2>{venue}</h2>
@@ -48,8 +48,20 @@ export default function VenuePage({ venue, talks }: VenueProps) {
       <Island when="visible">
         <Floors talks={talks} />
       </Island>
+      <nav className="tracks venue-tracks">
+        <Link href="/venue" className={track === "all" ? "chip chip-on" : "chip"}>
+          All tracks
+        </Link>
+        {tracks.map((name) => (
+          <Link key={name} href={`/venue?track=${encodeURIComponent(name)}`} className={track === name ? "chip chip-on" : "chip"}>
+            {name}
+          </Link>
+        ))}
+      </nav>
       <Island when="load" define="@src/elements/talk-count.ts">
-        <talk-count talks={talks.length}>{talks.length} talks</talk-count>
+        <talk-count talks={counted} track={track === "all" ? undefined : track}>
+          {counted} talks
+        </talk-count>
       </Island>
       <Island mode="server">
         <AskDesk desk="help" />

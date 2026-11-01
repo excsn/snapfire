@@ -1,10 +1,12 @@
 import type { Ctx } from "@snapfire/fsr/host";
 import { jsonLd, og, scriptTag } from "@snapfire/fsr/head";
 
-export async function load({ services }: Ctx) {
+export async function load({ query, services }: Ctx) {
   const talks = await services.program.listTalks();
   const conference = await services.program.getConference();
-  return { venue: conference.venue, talks: talks.map((t) => ({ id: t.id, title: t.title, room: t.room, starts: t.starts })) };
+  const track = query.track ?? "all";
+  const counted = track === "all" ? talks.length : talks.filter((t) => t.track === track).length;
+  return { venue: conference.venue, track, tracks: conference.tracks, counted, talks: talks.map((t) => ({ id: t.id, title: t.title, room: t.room, starts: t.starts })) };
 }
 
 export const meta = () => ({

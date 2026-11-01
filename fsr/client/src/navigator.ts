@@ -4,8 +4,8 @@ import { filledPlaces, placedPieces, recordFilled, type Piece } from "./places.j
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, HeadRow, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
-import { previousRegion, readyRecords, recordMorphed, recordWritten } from "./rendered.js";
-import { morphElement, morphNodes, type MorphHooks } from "./server.js";
+import { parsed, previousMarker, previousRegion, readyRecords, recordMarker, recordMorphed, recordWritten } from "./rendered.js";
+import { morphAttributes, morphElement, morphNodes, type MorphHooks } from "./server.js";
 import { contribute, restore, retain, take, transaction, type Contribution } from "./store.js";
 
 let current: Segment | null = null;
@@ -561,18 +561,15 @@ function isSegmentSlot(el: Element): boolean {
 }
 
 /** An island marker the new markup places again. A root that was scheduled, under a region the payload describes, keeps its DOM and its state: its props script and the island take the new props. Any other marker is swapped for the new one, whose props script is patched in beside it for the next scan to mount. */
-/** A custom element's inputs are its `data-*` attributes rather than props, so a kept one takes them from the new markup. The rest of its attributes and its children are its own. */
-function syncElementData(current: Element, next: Element): void {
-  const kept = current.firstElementChild;
+/** A kept custom element takes the server's change to its attributes by the rules of `morphAttributes`, from the markup the server last wrote inside its marker. Attributes it set on itself and its children are its own. Nothing is removed when no markup was recorded, since nothing says who wrote what is there. */
+function morphKeptElement(marker: Element, next: Element): void {
+  const kept = marker.firstElementChild;
   const fresh = next.firstElementChild;
   if (!kept || !fresh || !kept.localName.includes("-") || kept.localName !== fresh.localName) return;
-  for (const name of kept.getAttributeNames()) {
-    if (name.startsWith("data-") && !fresh.hasAttribute(name)) kept.removeAttribute(name);
-  }
-  for (const name of fresh.getAttributeNames()) {
-    const value = fresh.getAttribute(name);
-    if (name.startsWith("data-") && value !== null && kept.getAttribute(name) !== value) kept.setAttribute(name, value);
-  }
+  const written = previousMarker(marker);
+  const was = written === null ? undefined : parsed(written).find((node): node is Element => node instanceof Element && node.localName === kept.localName);
+  morphAttributes(kept, was ?? fresh.ownerDocument.createElement(kept.localName), fresh, true);
+  recordMarker(marker, next.innerHTML);
 }
 
 function takeIsland(current: Element, next: Element, sources: ReturnType<typeof regionSources>, hooks: MorphHooks): void {
@@ -583,7 +580,7 @@ function takeIsland(current: Element, next: Element, sources: ReturnType<typeof 
   const source = regionKey === null ? undefined : sources.get(regionKey);
   if (source && current.hasAttribute("data-sf-scheduled")) {
     if (script) script.textContent = propsScript(source);
-    syncElementData(current, next);
+    morphKeptElement(current, next);
     void patchIsland(current, source.props, source.nested, source.children, source.encoded, source.markup);
     return;
   }

@@ -37,3 +37,5 @@ export interface MorphHooks {
 export declare function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks, before?: Node[] | null): void;
 /** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. `was` is the element as the server wrote it last; left out, `current` stands for it. */
 export declare function morphElement(current: Element, next: Element, hooks: MorphHooks, was?: Element): void;
+/** Applies to `current` what changed between `was`, the element as the server wrote it last, and `next`: an attribute `was` carried and `next` does not is removed and one whose value differs is set. One they agree on is left as it stands, as is one neither carries. A control's value and check follow the same rule. */
+export declare function morphAttributes(current: Element, was: Element, next: Element, keepValues?: boolean): void;

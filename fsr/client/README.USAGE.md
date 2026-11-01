@@ -243,6 +243,8 @@ A custom element has no mount: the browser upgrades it the moment `customElement
 
 The child is an element rather than a component, its markup is the server's, with nothing mounted over it. The build registers the module with `defineMounter`, whose mount does nothing, so the island machinery imports the module at the timing asked for, at which point the elements inside upgrade themselves. A definition module must be a module: give it an `export` so it can be imported dynamically.
 
+On a soft navigation that keeps the island, an element that is the island's first child takes what the server changed in its attributes, added and removed ones included. An attribute it set on itself and its children stay its own, so it redraws from `attributeChangedCallback`.
+
 Without this the definition runs when the entry module does, which is right for an element the first paint needs, such as a masthead's, but wasteful for one below the fold.
 
 ## Adopting a Shadow Root the Server Wrote

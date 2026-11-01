@@ -314,7 +314,7 @@ function morphNested(current, next) {
     }
     void patchIsland(current, decodeValue(raw));
 }
-function morphAttributes(current, was, next, keepValues = false) {
+export function morphAttributes(current, was, next, keepValues = false) {
     for (const attr of Array.from(was.attributes)){
         if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
     }

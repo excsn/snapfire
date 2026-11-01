@@ -131,3 +131,38 @@ test("a row both pages carry unchanged keeps its element", async () => {
   await settle();
   expect(document.head.querySelector('link[rel="icon"]'), "not taken out and put back, which would refetch it").toBe(icon);
 });
+
+test("a click that stays on the page gives a kept custom element the server's new attributes and leaves what it set itself", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  const count = document.querySelector("talk-count") as HTMLElement & { seen?: number };
+  count.seen = 1;
+  expect(count.textContent).toEqual("2 talks today");
+  expect(count.hasAttribute("track"), "no track is chosen").toEqual(false);
+
+  await fireEvent.click(document.querySelector('.venue-tracks a[href="/venue?track=Data"]') as HTMLElement);
+  await settle();
+  expect(location.search).toEqual("?track=Data");
+  expect(document.querySelector("talk-count"), "the island kept its element").toBe(count);
+  expect(count.getAttribute("talks"), "an attribute the server changed").toEqual("1");
+  expect(count.getAttribute("track"), "an attribute the server added").toEqual("Data");
+  expect(count.textContent, "the element read them").toEqual("One Data talk today");
+  expect(count.hasAttribute("data-upgraded"), "an attribute it set on itself").toEqual(true);
+  expect(count.seen, "a property it was given").toEqual(1);
+
+  await fireEvent.click(document.querySelector('.venue-tracks a[href="/venue"]') as HTMLElement);
+  await settle();
+  expect(location.search).toEqual("");
+  expect(document.querySelector("talk-count")).toBe(count);
+  expect(count.hasAttribute("track"), "an attribute the server took away").toEqual(false);
+  expect(count.getAttribute("talks")).toEqual("2");
+  expect(count.textContent).toEqual("2 talks today");
+  expect(count.hasAttribute("data-upgraded"), "still its own").toEqual(true);
+
+  history.back();
+  await settle();
+  expect(location.search).toEqual("?track=Data");
+  expect(document.querySelector("talk-count")).toBe(count);
+  expect(count.getAttribute("track"), "a step back is a soft navigation too").toEqual("Data");
+  expect(count.textContent).toEqual("One Data talk today");
+});

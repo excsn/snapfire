@@ -379,7 +379,7 @@ function morphNested(current: Element, next: Element): void {
 }
 
 /** Applies to `current` what changed between `was`, the element as the server wrote it last, and `next`: an attribute `was` carried and `next` does not is removed and one whose value differs is set. One they agree on is left as it stands, as is one neither carries. A control's value and check follow the same rule. */
-function morphAttributes(current: Element, was: Element, next: Element, keepValues = false): void {
+export function morphAttributes(current: Element, was: Element, next: Element, keepValues = false): void {
   for (const attr of Array.from(was.attributes)) {
     if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
   }

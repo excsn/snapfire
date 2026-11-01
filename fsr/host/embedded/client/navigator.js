@@ -4,8 +4,8 @@ import { filledPlaces, placedPieces, recordFilled } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
-import { previousRegion, readyRecords, recordMorphed, recordWritten } from "./rendered.js";
-import { morphElement, morphNodes } from "./server.js";
+import { parsed, previousMarker, previousRegion, readyRecords, recordMarker, recordMorphed, recordWritten } from "./rendered.js";
+import { morphAttributes, morphElement, morphNodes } from "./server.js";
 import { contribute, restore, retain, take, transaction } from "./store.js";
 let current = null;
 const ids = {
@@ -495,17 +495,14 @@ function morphStatic(key, node, seg, slotsSettled = false, values) {
 function isSegmentSlot(el) {
     return el.tagName === "SF-S" && !el.hasAttribute("data-sf-island") && !el.hasAttribute(CHILDREN_ATTR);
 }
-function syncElementData(current, next) {
-    const kept = current.firstElementChild;
+function morphKeptElement(marker, next) {
+    const kept = marker.firstElementChild;
     const fresh = next.firstElementChild;
     if (!kept || !fresh || !kept.localName.includes("-") || kept.localName !== fresh.localName) return;
-    for (const name of kept.getAttributeNames()){
-        if (name.startsWith("data-") && !fresh.hasAttribute(name)) kept.removeAttribute(name);
-    }
-    for (const name of fresh.getAttributeNames()){
-        const value = fresh.getAttribute(name);
-        if (name.startsWith("data-") && value !== null && kept.getAttribute(name) !== value) kept.setAttribute(name, value);
-    }
+    const written = previousMarker(marker);
+    const was = written === null ? undefined : parsed(written).find((node)=>node instanceof Element && node.localName === kept.localName);
+    morphAttributes(kept, was ?? fresh.ownerDocument.createElement(kept.localName), fresh, true);
+    recordMarker(marker, next.innerHTML);
 }
 function takeIsland(current, next, sources, hooks) {
     const after = current.nextElementSibling;
@@ -515,7 +512,7 @@ function takeIsland(current, next, sources, hooks) {
     const source = regionKey === null ? undefined : sources.get(regionKey);
     if (source && current.hasAttribute("data-sf-scheduled")) {
         if (script) script.textContent = propsScript(source);
-        syncElementData(current, next);
+        morphKeptElement(current, next);
         void patchIsland(current, source.props, source.nested, source.children, source.encoded, source.markup);
         return;
     }
