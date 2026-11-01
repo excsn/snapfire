@@ -16,15 +16,53 @@ const STILL_STYLE = "width:100%;height:100%;object-fit:cover;display:block";
 const TITLE_STYLE = "position:absolute;left:0;right:0;top:0;padding:12px 16px;color:#fff;font:600 16px/1.3 system-ui,sans-serif;text-align:left;background:linear-gradient(rgba(0,0,0,.65),transparent)";
 const PLAY_STYLE = "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:68px;height:48px;border-radius:12px;background:rgba(0,0,0,.75);color:#fff;display:flex;align-items:center;justify-content:center;font:24px/1 sans-serif";
 
+const written = new Map<string, Record<string, string>>();
+const warned = new Set<string>();
+
 function player(provider: EmbedOptions["provider"], id: string): string {
   return provider === "vimeo" ? `https://player.vimeo.com/video/${id}?autoplay=1` : `https://www.youtube-nocookie.com/embed/${id}?autoplay=1`;
 }
 
-/** The placeholder's parts as an adapter renders them in the browser: YouTube's still from its CDN, none for Vimeo, whose still needs a lookup only the build makes. */
+/** The still the server wrote for `src`, as its attributes. A hydrating component renders it so its markup is the server's whichever still the build chose. Later renders keep it after a click has replaced the placeholder. */
+function writtenStill(src: string): Record<string, string> | null {
+  const kept = written.get(src);
+  if (kept) return kept;
+  if (typeof document === "undefined") return null;
+  for (const holder of document.querySelectorAll(`[${EMBED_ATTR}]`)) {
+    const img = holder.getAttribute(EMBED_ATTR) === src ? holder.querySelector(":scope > button > img") : null;
+    if (!img) continue;
+    const attrs: Record<string, string> = {};
+    for (const name of img.getAttributeNames()) {
+      if (!name.startsWith("on")) attrs[name] = img.getAttribute(name) ?? "";
+    }
+    written.set(src, attrs);
+    return attrs;
+  }
+  return null;
+}
+
+/** Whether `[media] embed_stills = "local"` rules out the provider's still, read from the document. */
+function localStills(): boolean {
+  return typeof document !== "undefined" && document.querySelector('meta[name="sf:embed-stills"]')?.getAttribute("content") === "local";
+}
+
+function warnNoStill(src: string): void {
+  if (warned.has(src)) return;
+  warned.add(src);
+  console.warn(`Embed: stills are local and the page holds none for ${src}, so the placeholder shows the title alone`);
+}
+
+/** The placeholder's parts as an adapter renders them in the browser: the still the server wrote when there is one, else YouTube's from its CDN. Vimeo's needs a lookup only the build makes and `local` stills rule the provider out, so those show the title alone. */
 export function embedParts(props: EmbedOptions): { outer: Record<string, string>; button: Record<string, string>; still: Record<string, string> | null; title: Record<string, string>; play: Record<string, string> } {
-  const outer: Record<string, string> = { [EMBED_ATTR]: player(props.provider, props.id), "data-sf-embed-title": props.title, style: OUTER_STYLE };
+  const src = player(props.provider, props.id);
+  const outer: Record<string, string> = { [EMBED_ATTR]: src, "data-sf-embed-title": props.title, style: OUTER_STYLE };
   if (props.className) outer.class = props.className;
-  const still = props.provider === "youtube" ? { src: `https://i.ytimg.com/vi/${props.id}/hqdefault.jpg`, alt: "", width: "480", height: "360", loading: "lazy", decoding: "async", style: STILL_STYLE } : null;
+  let still = writtenStill(src);
+  if (!still && localStills()) {
+    warnNoStill(src);
+  } else if (!still && props.provider === "youtube") {
+    still = { src: `https://i.ytimg.com/vi/${props.id}/hqdefault.jpg`, alt: "", width: "480", height: "360", loading: "lazy", decoding: "async", style: STILL_STYLE };
+  }
   return { outer, button: { type: "button", style: BUTTON_STYLE }, still, title: { style: TITLE_STYLE }, play: { "aria-hidden": "true", style: PLAY_STYLE } };
 }
 

@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_core/badge.svg)](https://docs.rs/snapfire_fsr_core)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The vocabulary crate of SnapFire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It also holds `ext`, the contract the Rust half of a native extension is written against. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. Task-by-task instructions live in the [usage guide](README.USAGE.md); every signature is in the [API reference](API_REFERENCE.md).
+The vocabulary crate of SnapFire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It also holds `ext`, the contract the Rust half of a native extension is written against. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 The value model decides what can exist. Encodings are projections of it, ranked by how much they preserve: an encoding is either lossless over the model or a degradation it declares, never a silent one. That is why `Value` is not limited to what JSON can express. It carries `i128` and `u128` integers, `f32` separately from `f64`, raw bytes, typed numeric arrays, tagged variants and references. JSON tags whatever it cannot spell natively.
 
@@ -23,7 +23,7 @@ snapfire_fsr_core = "0"
 
 ## What to reach for
 
-| You want to | Reach for |
+| Problem | Piece |
 | :--- | :--- |
 | Represent any data crossing the server/browser boundary | `Value` |
 | Hold a props map or a loader result | `ValueMap`, aliased as `Props` and `Data` |

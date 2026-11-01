@@ -388,6 +388,18 @@ fn composition_places_a_component_with_state_as_an_island_and_a_framework_render
 }
 
 #[test]
+fn a_store_key_the_build_cannot_read_takes_the_island_and_leaves_the_page() {
+  let set = lower(
+    &[
+      ("routes/page.tsx", "import Tally from \"@src/Tally\";\nexport default function Page() {\n  return <main><h1>Top</h1><Tally id=\"a\" /></main>;\n}\n"),
+      ("src/Tally.tsx", "import { useStore } from \"@snapfire/fsr/client/react\";\nexport default function Tally({ id }) {\n  const [n] = useStore(id, 0);\n  return <p>{n}</p>;\n}\n"),
+    ],
+    "routes/page.tsx#default",
+  );
+  assert_eq!(set.browser_only.iter().map(|(module, _)| module.as_str()).collect::<Vec<_>>(), vec!["src/Tally.tsx#default"]);
+}
+
+#[test]
 fn a_component_that_does_not_lower_is_placed_from_composition_and_hands_a_framework_tree_to_the_browser() {
   let set = lower(
     &[

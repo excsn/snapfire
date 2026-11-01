@@ -244,8 +244,8 @@ pub struct LoweredHandler {
 /// The exports of a `route.ts` that are handlers.
 pub const HANDLER_METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
-/// Methods JavaScript gives strings, arrays, numbers, objects and promises that the build does not lower: a call of one is refused by name rather than read as a call of a function value held in a field.
-const STANDARD_METHODS: &[&str] = &["flat", "entries", "keys", "values", "forEach", "push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin", "lastIndexOf", "findLast", "findLastIndex", "reduceRight", "toSpliced", "with", "charAt", "charCodeAt", "codePointAt", "normalize", "localeCompare", "match", "matchAll", "search", "trimStart", "trimEnd", "toString", "valueOf", "toLocaleUpperCase", "toLocaleLowerCase", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toPrecision", "toExponential", "then", "catch", "finally", "get", "set", "has", "delete", "add", "clear", "replaceAll", "anchor", "at", "bind", "call", "apply"];
+/// Names of JavaScript's own methods. A call of one that no arm lowers is refused by name rather than read as a call of a function value held in a field.
+const STANDARD_METHODS: &[&str] = &["flat", "entries", "keys", "values", "forEach", "push", "pop", "shift", "unshift", "splice", "fill", "copyWithin", "findLast", "findLastIndex", "reduceRight", "toSpliced", "with", "normalize", "trimStart", "trimEnd", "toLocaleUpperCase", "toLocaleLowerCase", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toPrecision", "toExponential", "then", "catch", "finally", "get", "set", "has", "delete", "add", "clear", "anchor", "bind", "call", "apply"];
 
 /// Session keys with the value a body reads when the key is absent, from
 /// `export const defaults` in the session schema. A read of such a key lowers
@@ -2473,7 +2473,7 @@ impl<'a> Lowerer<'a> {
         },
         _ => return Err(self.residue(var.span, "an `await` inside an expression; await as a statement, a `const`'s value or an assignment")),
       },
-      other => return Err(self.residue(other.span(), "an `await` inside a loop or a `switch`")),
+      other => return Err(self.residue(other.span(), "an `await` inside a `switch`, a `do...while`, a `for...in` or a bare block")),
     };
     let before = self.before_await(&stmts[..at])?;
     let deferred = self.expr(awaited)?;
@@ -2957,7 +2957,7 @@ impl<'a> Lowerer<'a> {
       js::Expr::Arrow(arrow) => self.lambda(arrow),
       js::Expr::OptChain(o) => match &*o.base {
         js::OptChainBase::Member(member) => self.member(member),
-        js::OptChainBase::Call(call) if o.optional => Err(self.residue_with(call.span, "an optional call of a function value", "the server holds no function values; call a builtin or a helper the build can follow")),
+        js::OptChainBase::Call(call) if o.optional => Err(self.residue_with(call.span, "an optional call of a function value", "write `f ? f(x) : null` or call a helper the build can follow")),
         js::OptChainBase::Call(call) => self.optional_call(call),
       },
       js::Expr::New(n) => self.new_expr(n),
@@ -4106,7 +4106,7 @@ impl<'a> Lowerer<'a> {
       other => Err(self.residue_with(
         member.span,
         format!("`.{other}()`, which is not a builtin"),
-        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test`, `localeCompare` and `toLocaleString`; anything else goes in a module-level helper the build can read",
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test`, `localeCompare`, `toLocaleString`, `trimStart`, `trimEnd`, `valueOf`, `getTime`, `toISOString` and `toJSON`, with `sort` and `reverse` on a fresh array; anything else goes in a module-level helper the build can read",
       )),
     }
   }
@@ -4267,7 +4267,7 @@ impl<'a> Lowerer<'a> {
       js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
       other => match self.class_new(n)? {
         Some(made) => return Ok(made),
-        None => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set`, `URL`, `URLSearchParams` or a class the build reads")),
+        None => return Err(self.residue(other.span(), "`new` of something other than a platform global or a class the build reads")),
       },
     };
     let first = match args.first() {
@@ -5247,14 +5247,14 @@ fn describe_stmt(stmt: &js::Stmt) -> (&'static str, &'static str) {
     js::Stmt::For(_) | js::Stmt::ForIn(_) => ("a `for` loop other than `for...of`", "`for...of` over a list, or `map` and `filter`, which the interpreter runs directly"),
     js::Stmt::Switch(_) => ("`switch`", "a chain of `if`, or a ternary when every arm is an expression"),
     js::Stmt::Decl(js::Decl::Fn(_)) => ("a function declared inside a body", "declare it at module level and call it; the build follows a module-level helper"),
-    js::Stmt::Decl(js::Decl::Class(_)) => ("a class", "the value model has objects and lists; an object literal carries the same fields"),
-    js::Stmt::Decl(_) => ("a declaration the build does not read", "a body declares values with `const`"),
+    js::Stmt::Decl(js::Decl::Class(_)) => ("a class outside module level", "declare the class at module level or use an object literal"),
+    js::Stmt::Decl(_) => ("a declaration the build does not read", "a body declares values with `const` or `let`"),
     js::Stmt::Break(_) | js::Stmt::Continue(_) => ("`break` or `continue`", "`find` stops at the first match and `filter` selects, so neither needs to leave a loop early"),
-    js::Stmt::Labeled(_) => ("a label", "a body has no loops to jump out of; `find` and `filter` express the same intent"),
+    js::Stmt::Labeled(_) => ("a label", "a `for...of` in a body runs over every item; `find` and `filter` express the same intent"),
     js::Stmt::With(_) => ("`with`", "read what the body needs from `ctx` by name"),
     js::Stmt::Debugger(_) => ("`debugger`", "the body runs in Rust, where there is nothing to attach to; `fsr test` replays it instead"),
     js::Stmt::Empty(_) => ("an empty statement", "remove the stray `;`"),
-    _ => ("a statement outside the IR", "the statements a body may use are `const`, `if`, `for...of`, `return`, `fail` and a session write"),
+    js::Stmt::Block(_) | js::Stmt::If(_) | js::Stmt::ForOf(_) | js::Stmt::Return(_) | js::Stmt::Expr(_) | js::Stmt::Throw(_) | js::Stmt::Try(_) => unreachable!("`stmt` lowers these itself"),
   }
 }
 
@@ -5262,9 +5262,9 @@ fn describe_stmt(stmt: &js::Stmt) -> (&'static str, &'static str) {
 fn describe_expr(expr: &js::Expr) -> (&'static str, &'static str) {
   match expr {
     js::Expr::This(_) => ("`this`, and a body has no receiver", "read what the body needs from `ctx`"),
-    js::Expr::Class(_) => ("a class", "the value model has objects and lists; an object literal carries the same fields"),
+    js::Expr::Class(_) => ("a class outside module level", "declare the class at module level or use an object literal"),
     js::Expr::Seq(_) => ("a comma expression", "one expression per statement"),
-    js::Expr::Update(_) => ("`++` or `--`, which mutate", "a body's bindings do not change; bind the new value with `const n = n0 + 1`"),
+    js::Expr::Update(_) => ("`++` or `--` on something this body did not declare", "declare a local with `let` and write that"),
     js::Expr::Yield(_) => ("`yield`", "a body runs once and returns; there is no generator in the serving path"),
     js::Expr::TaggedTpl(_) => ("a tagged template", "a plain template literal, or a module-level helper the build can follow"),
     js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => ("JSX in a body", "a body returns data; the page it feeds is where the markup goes"),

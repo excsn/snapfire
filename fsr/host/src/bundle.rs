@@ -291,6 +291,9 @@ pub(crate) fn asset_head_rows(manifest: &crate::assets::AssetsManifest) -> Vec<s
   use snapfire_fsr_runtime::HeadEl;
   let row = |tag: &str, attrs: &[(&str, &str)]| HeadEl::new(tag.to_owned(), attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), None);
   let mut rows = vec![row("meta", &[("name", "sf:images"), ("content", &manifest.policy_json())])];
+  if manifest.local_stills {
+    rows.push(row("meta", &[("name", "sf:embed-stills"), ("content", "local")]));
+  }
   for remote in &manifest.fonts.remote {
     for origin in &remote.preconnect {
       rows.push(row("link", &[("rel", "preconnect"), ("href", origin), ("crossorigin", "")]));

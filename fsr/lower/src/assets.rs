@@ -26,6 +26,11 @@ pub trait AssetResolver {
   fn embed_still(&self, provider: &str, id: &str) -> Option<ImageFacts> {
     youtube_still(provider, id)
   }
+  /// Whether an `<Embed>` whose id the page computes shows the provider's
+  /// still, which only YouTube names by the id and `local` stills rule out.
+  fn computed_still(&self, provider: &str) -> bool {
+    provider == "youtube"
+  }
   /// The URL template of a named remote source, `{src}` and `{width}` in it.
   fn source(&self, name: &str) -> Option<String>;
   /// The policy's widths, for a remote image whose own width is unknown.

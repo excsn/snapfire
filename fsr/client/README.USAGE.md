@@ -1037,7 +1037,7 @@ import { Embed } from "@snapfire/fsr/components";
 <Embed provider="youtube" id="f_WuRfuMXQw" title="Rick Astley - Never Gonna Give You Up" />
 ```
 
-The build writes the placeholder on the server and `boot` listens for the click, so the page needs no island for it. Place it where the server renders: the build refuses an `Embed` inside a component that hydrates.
+The build writes the placeholder on the server and `boot` listens for the click, so the page needs no island for it. In a component that hydrates, the browser keeps the still the server wrote.
 
 ## Declaring a Place for Teleported Content
 

@@ -248,8 +248,8 @@ pub struct MediaSection {
   /// Where an `<Embed>`'s still comes from: `provider`, the video host's own
   /// image, or `local`, fetched once at build and served from this
   /// application, so a page asks the provider for nothing until it plays and
-  /// still shows it offline. `local` falls back to the provider's image when
-  /// the fetch fails.
+  /// still shows it offline. A placeholder `local` holds no still for shows
+  /// the title alone and the build report names it.
   #[serde(default)]
   pub embed_stills: EmbedStills,
 }

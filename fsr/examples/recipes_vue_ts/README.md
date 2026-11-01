@@ -40,7 +40,7 @@ Read `app/generated/islands.ts` after a build. It registers three modules, all o
 
 That is the build reading each template: a page or layout with no state and no handlers has nothing for the browser to change, so it is marked `static` in the `--verbose` report, left out of the registry and left out of the bundle. The server renders its markup and the client's navigator swaps it as markup. The islands inside it are mounted by the document's own scan, so a Vue island sits under a static layout the way it would under a React one.
 
-The page a Vue island is placed on has nothing of the island in it. The server has no body for a `.vue` component, so it writes the island's marker and its props and nothing between them and Vue mounts rather than hydrates. Look at `/recipe/3` before the scripts run: the plan button is not there yet.
+With `snapfirec-vue` on `PATH` the build lowers a `.vue` island, so the server writes its markup inside the marker and Vue hydrates it. Look at `/recipe/3` before the scripts run: the plan button is already there.
 
 ## The scoped styles
 

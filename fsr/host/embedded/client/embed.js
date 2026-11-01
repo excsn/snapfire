@@ -4,25 +4,57 @@ const BUTTON_STYLE = "all:unset;cursor:pointer;position:absolute;inset:0;display
 const STILL_STYLE = "width:100%;height:100%;object-fit:cover;display:block";
 const TITLE_STYLE = "position:absolute;left:0;right:0;top:0;padding:12px 16px;color:#fff;font:600 16px/1.3 system-ui,sans-serif;text-align:left;background:linear-gradient(rgba(0,0,0,.65),transparent)";
 const PLAY_STYLE = "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:68px;height:48px;border-radius:12px;background:rgba(0,0,0,.75);color:#fff;display:flex;align-items:center;justify-content:center;font:24px/1 sans-serif";
+const written = new Map();
+const warned = new Set();
 function player(provider, id) {
     return provider === "vimeo" ? `https://player.vimeo.com/video/${id}?autoplay=1` : `https://www.youtube-nocookie.com/embed/${id}?autoplay=1`;
 }
+function writtenStill(src) {
+    const kept = written.get(src);
+    if (kept) return kept;
+    if (typeof document === "undefined") return null;
+    for (const holder of document.querySelectorAll(`[${EMBED_ATTR}]`)){
+        const img = holder.getAttribute(EMBED_ATTR) === src ? holder.querySelector(":scope > button > img") : null;
+        if (!img) continue;
+        const attrs = {};
+        for (const name of img.getAttributeNames()){
+            if (!name.startsWith("on")) attrs[name] = img.getAttribute(name) ?? "";
+        }
+        written.set(src, attrs);
+        return attrs;
+    }
+    return null;
+}
+function localStills() {
+    return typeof document !== "undefined" && document.querySelector('meta[name="sf:embed-stills"]')?.getAttribute("content") === "local";
+}
+function warnNoStill(src) {
+    if (warned.has(src)) return;
+    warned.add(src);
+    console.warn(`Embed: stills are local and the page holds none for ${src}, so the placeholder shows the title alone`);
+}
 export function embedParts(props) {
+    const src = player(props.provider, props.id);
     const outer = {
-        [EMBED_ATTR]: player(props.provider, props.id),
+        [EMBED_ATTR]: src,
         "data-sf-embed-title": props.title,
         style: OUTER_STYLE
     };
     if (props.className) outer.class = props.className;
-    const still = props.provider === "youtube" ? {
-        src: `https://i.ytimg.com/vi/${props.id}/hqdefault.jpg`,
-        alt: "",
-        width: "480",
-        height: "360",
-        loading: "lazy",
-        decoding: "async",
-        style: STILL_STYLE
-    } : null;
+    let still = writtenStill(src);
+    if (!still && localStills()) {
+        warnNoStill(src);
+    } else if (!still && props.provider === "youtube") {
+        still = {
+            src: `https://i.ytimg.com/vi/${props.id}/hqdefault.jpg`,
+            alt: "",
+            width: "480",
+            height: "360",
+            loading: "lazy",
+            decoding: "async",
+            style: STILL_STYLE
+        };
+    }
     return {
         outer,
         button: {

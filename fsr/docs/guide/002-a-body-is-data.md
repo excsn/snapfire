@@ -25,13 +25,13 @@ The interpreter runs the rows in the plan file rather than the TypeScript source
 
 ## Residue
 
-A body that says something outside the language is residue: a `while`, a regular expression, an import the build cannot follow or a call it does not know. Instead of guessing, the build names the file, the line and the construct:
+A body that says something outside the language is residue: a `while`, a regular expression with a nested unbounded quantifier, an import the build cannot follow or a call it does not know. Instead of guessing, the build names the file, the line and the construct:
 
 ```
 app/routes/cart/page.loader.ts:3:3: `while`, a loop whose length the build cannot know
 ```
 
-and stops, because there is no engine to hand the body to. This limit is deliberate: fsr is built to prevent a silent failure, where a build quietly moves a body from "data the runtime executes" to "JavaScript some engine runs", so an application that meant to have no server JavaScript grows one without anybody deciding. When an engine exists, residue will run there and the report will say `engine` beside the name.
+and stops, because there is no engine to hand the body to. This limit is deliberate: fsr is built to prevent a silent failure, where a build quietly moves a body from "data the runtime executes" to "JavaScript some engine runs", so an application that meant to have no server JavaScript grows one without anybody deciding. No engine runs residue on the server: a component holding it renders in the browser.
 
 The language grows when an application shows a body that needs a construct and cannot be written another way. The storefront's cart forced computed keys, its catalog forced the query string, its pages forced `Math.round` and `toFixed`; the arrivals board, the chat and the terminal between them forced `split`, `startsWith`, `endsWith` and `replace`. Each was added for a body that needed it and every fsr application can use them.
 

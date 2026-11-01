@@ -845,7 +845,7 @@ For every bare specifier the sources import, the import map gives the vendored f
 
 ## Compiling Framework Components
 
-A single-file component, a `.vue` file today, is compiled by a plugin rather than by `snapfirec` itself: a separate executable found on `PATH` as `snapfirec-<ext>`, spawned once per build and kept for its length, spoken to over stdin and stdout with one JSON object per line. `snapfirec` gains no dependency and no engine for a framework it does not compile; a project that never writes such a file never learns the plugin exists.
+A single-file component, a `.vue` or `.svelte` file today, is compiled by a plugin rather than by `snapfirec` itself: a separate executable found on `PATH` as `snapfirec-<ext>`, spawned once per build and kept for its length, spoken to over stdin and stdout with one JSON object per line. `snapfirec` gains no dependency and no engine for a framework it does not compile; a project that never writes such a file never learns the plugin exists.
 
 ```text
 src/

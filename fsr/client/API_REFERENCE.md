@@ -1116,7 +1116,7 @@ The policy is read once from the document's `<meta name="sf:images">`, which the
 * `function enableEmbeds(): void`: listens on the document for a click on a placeholder's button and replaces the placeholder with its player's iframe, the `data-sf-embed` URL with the `data-sf-embed-title` title. `boot` calls it once per document.
 * `function playEmbed(button: Element): void`: the swap itself, for the placeholder `button` sits in.
 
-The placeholder the build writes on the server: a `div` with `data-sf-embed` and `data-sf-embed-title` holding a `button` with the still, the title and a play mark. The build lowers `Embed` wherever it renders on the server and refuses one inside a component that hydrates. The component here is what a component the browser alone renders writes: YouTube's still from its CDN, none for Vimeo, whose still only the build looks up.
+The placeholder the build writes on the server: a `div` with `data-sf-embed` and `data-sf-embed-title` holding a `button` with the still, the title and a play mark. The build lowers `Embed` wherever it renders on the server. In the browser the component reuses the still the server wrote, so a hydrating component's markup matches. With no such still it shows YouTube's from its CDN. Vimeo shows the title alone, as does any provider under `[media] embed_stills = "local"`, which warns in the console. The component here is what a component the browser alone renders writes: YouTube's still from its CDN, none for Vimeo, whose still only the build looks up.
 
 ### Place
 

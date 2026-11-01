@@ -15,6 +15,24 @@ fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
 }
 
 #[test]
+fn a_loader_reads_a_class_declared_at_module_level() {
+  let source = "class Foo {\n  a: number;\n  constructor() {\n    this.a = 1;\n  }\n  get() {\n    return this.a + 1;\n  }\n}\nexport async function load() {\n  const f = new Foo();\n  return { a: f.a, b: f.get() };\n}\n";
+  let dir = app("module_class", &[("routes/a/page.loader.ts", source)]);
+  ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn a_function_value_lowers_behind_a_condition_where_an_optional_call_does_not() {
+  let lowers = |tag: &str, helper: &str| {
+    let source = format!("const pick = (f, x) => {helper};\nexport async function load() {{\n  return {{ a: pick((n) => n + 1, 1) }};\n}}\n");
+    let dir = app(tag, &[("routes/a/page.loader.ts", &source)]);
+    ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").map(|_| ()).map_err(|e| e.to_string())
+  };
+  assert_eq!(lowers("cond_call", "(f ? f(x) : null)"), Ok(()));
+  assert!(lowers("opt_call", "f?.(x)").unwrap_err().contains("f ? f(x) : null"), "the hint names the form that lowers");
+}
+
+#[test]
 fn find_index_lowers_beside_find() {
   let dir = app(
     "find_index",

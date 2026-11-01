@@ -3196,8 +3196,8 @@ fn forwards_ref(parsed: &Parsed, export: &str) -> bool {
   })
 }
 
-/// What a class component is told: the build lowers functions, so the class renders in the browser.
-pub(crate) const CLASS_COMPONENT: &str = "a class component, which the build does not lower";
+/// What a class component with no `render` method is told.
+pub(crate) const CLASS_COMPONENT: &str = "a class component without a `render` method";
 
 /// `export` when it is a class extending React's `Component` or `PureComponent` with a `render()` method, and that method's body.
 fn find_class<'a>(parsed: &'a Parsed, export: &str) -> Option<(&'a js::Class, Found<'a>)> {
@@ -9316,7 +9316,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// An `on*` attribute's handler as a lowered body or why it is not one.
-  /// A handler is `const`s, calls to state setters and calls to actions, `e.preventDefault()`
+  /// A handler is `const`s, calls to state setters, writes to the store and calls to actions, `e.preventDefault()`
   /// aside; the body returns the state it set.
   fn handler_attr(&mut self, attr: &'p js::JSXAttr) -> Lowered<usize> {
     let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return Err(self.lowerer.residue(attr.span, "a handler that is not an expression")) };
@@ -9946,7 +9946,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             return Ok(true);
           }
         }
-        other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters, writes to the store and calls to actions")),
+        other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, `try`, calls to state setters, writes to the store and calls to actions")),
       }
     }
     Ok(false)
@@ -10570,7 +10570,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               }
               _ => self.lowerer.unbound = unbound,
             }
-            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, branches, calls to state setters and calls to actions")))
+            Err(self.lowerer.residue(call.span, format!("`.{method}()` in a handler; a handler is `const`s, branches, `try`, calls to state setters, writes to the store and calls to actions")))
           }
           other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
         }
@@ -10600,13 +10600,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           },
           _ => None,
         };
-        let Some(held) = held else { return Err(self.lowerer.residue(assign.span, "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")) };
+        let Some(held) = held else { return Err(self.lowerer.residue(assign.span, "a statement a handler cannot hold; a handler is `const`s, branches, `try`, calls to state setters, writes to the store and calls to actions")) };
         let value = self.lowerer.expr(&assign.right)?;
         walk.set(held, Expr::Object(vec![Entry::Field("current".to_owned(), value)]));
         self.reread_effect_locals(walk);
         Ok(())
       }
-      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")),
+      other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, `try`, calls to state setters, writes to the store and calls to actions")),
     }
   }
 

@@ -41,13 +41,13 @@ export const text = {
     if (chars.length <= Math.max(0, max)) return s;
     return chars.slice(0, Math.max(0, max)).join("") + ellipsis;
   },
-  /** The YAML block between two delimiter lines at the top of `source` as `data`, the rest as `content`, read as gray-matter reads it. `delimiters` is one string for both lines or `[open, close]`, `---` by default. Terminal pages only. */
+  /** The YAML block between two delimiter lines at the top of `source` as `data`, the rest as `content`, read as gray-matter reads it. `delimiters` is one string for both lines or `[open, close]`, `---` by default. Host only. */
   frontMatter<T = { [key: string]: unknown }>(source: string, options?: FrontMatterOptions): { data: T; content: string } {
-    return terminalOnly("text.frontMatter", [source, options ?? null]);
+    return hostOnly("text.frontMatter", [source, options ?? null]);
   },
-  /** `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes it; empty `data` writes no block. Terminal pages only. */
+  /** `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes it; empty `data` writes no block. Host only. */
   withFrontMatter(content: string, data: { [key: string]: unknown }, options?: FrontMatterOptions): string {
-    return terminalOnly("text.withFrontMatter", [content, data, options ?? null]);
+    return hostOnly("text.withFrontMatter", [content, data, options ?? null]);
   },
 };
 
@@ -63,31 +63,31 @@ export interface FileStat {
   mtimeMs: number;
 }
 
-/** The files of the machine a terminal page runs on. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file. Terminal pages only. */
+/** The files a host body reads and writes: the directories `[files] roots` names on a web host and the machine a terminal program runs on. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file. Host only. */
 export const file = {
   /** The file as text, bytes that are not UTF-8 as U+FFFD. */
   read(path: string): string {
-    return terminalOnly("file.read", [path]);
+    return hostOnly("file.read", [path]);
   },
   /** Writes `data` as the file's text, a value that is not text as JSON. */
   write(path: string, data: unknown): void {
-    terminalOnly("file.write", [path, data]);
+    hostOnly("file.write", [path, data]);
   },
   /** Whether anything is at `path`. */
   exists(path: string): boolean {
-    return terminalOnly("file.exists", [path]);
+    return hostOnly("file.exists", [path]);
   },
   /** The names of a directory's entries, sorted. */
   list(path: string): string[] {
-    return terminalOnly("file.list", [path]);
+    return hostOnly("file.list", [path]);
   },
   /** Makes the directory, its parents too with `recursive`. */
   makeDir(path: string, options?: { recursive?: boolean }): void {
-    terminalOnly("file.makeDir", [path, options ?? null]);
+    hostOnly("file.makeDir", [path, options ?? null]);
   },
   /** What is at `path`: whether it is a file or a directory, its size in bytes and when it last changed. */
   stat(path: string): FileStat {
-    return terminalOnly("file.stat", [path]);
+    return hostOnly("file.stat", [path]);
   },
 };
 
@@ -100,7 +100,7 @@ export const path = {
   },
   /** The parts right to left until one is absolute, the working directory before them otherwise. Host only. */
   resolve(...parts: string[]): string {
-    return terminalOnly("path.resolve", parts);
+    return hostOnly("path.resolve", parts);
   },
   /** `.` and empty segments dropped, `..` resolved against what precedes it. */
   normalize(p: string): string {
@@ -129,7 +129,7 @@ export const path = {
   },
   /** The path from `from` to `to`, both resolved. Host only. */
   relative(from: string, to: string): string {
-    return terminalOnly("path.relative", [from, to]);
+    return hostOnly("path.relative", [from, to]);
   },
   /** Whether `p` starts with `/`. */
   isAbsolute(p: string): boolean {
@@ -257,9 +257,17 @@ export class Scope<T> {
 }
 
 /** A member whose Rust half is the only one: `fsr test` answers it through the runner. A browser has no answer. */
+function hostOnly<T>(name: string, args: unknown[]): T {
+  return rustHalf(name, args, `${name} runs in a host only`);
+}
+
 function terminalOnly<T>(name: string, args: unknown[]): T {
+  return rustHalf(name, args, `${name} runs in a terminal page only`);
+}
+
+function rustHalf<T>(name: string, args: unknown[], refusal: string): T {
   const sf = (globalThis as { __sf?: Bridge }).__sf;
-  if (!sf?.ext) throw new Error(`${name} runs in a terminal page only`);
+  if (!sf?.ext) throw new Error(refusal);
   const json = JSON.stringify(args, (_, v: unknown) => (typeof v === "bigint" ? Number(v) : v === undefined ? null : v));
   return JSON.parse(sf.ext(name, json, currentLocale())) as T;
 }

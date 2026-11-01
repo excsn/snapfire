@@ -21,6 +21,9 @@ pub struct AssetsManifest {
   pub fonts: Fonts,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub media: Vec<MediaFile>,
+  /// `[media] embed_stills = "local"`, which the browser's `Embed` reads from the document.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub local_stills: bool,
 }
 
 /// The policy as the page's `Picture` runtime reads it, so the browser writes

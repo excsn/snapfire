@@ -24,13 +24,13 @@ export const text = {
         return chars.slice(0, Math.max(0, max)).join("") + ellipsis;
     },
     frontMatter (source, options) {
-        return terminalOnly("text.frontMatter", [
+        return hostOnly("text.frontMatter", [
             source,
             options ?? null
         ]);
     },
     withFrontMatter (content, data, options) {
-        return terminalOnly("text.withFrontMatter", [
+        return hostOnly("text.withFrontMatter", [
             content,
             data,
             options ?? null
@@ -39,34 +39,34 @@ export const text = {
 };
 export const file = {
     read (path) {
-        return terminalOnly("file.read", [
+        return hostOnly("file.read", [
             path
         ]);
     },
     write (path, data) {
-        terminalOnly("file.write", [
+        hostOnly("file.write", [
             path,
             data
         ]);
     },
     exists (path) {
-        return terminalOnly("file.exists", [
+        return hostOnly("file.exists", [
             path
         ]);
     },
     list (path) {
-        return terminalOnly("file.list", [
+        return hostOnly("file.list", [
             path
         ]);
     },
     makeDir (path, options) {
-        terminalOnly("file.makeDir", [
+        hostOnly("file.makeDir", [
             path,
             options ?? null
         ]);
     },
     stat (path) {
-        return terminalOnly("file.stat", [
+        return hostOnly("file.stat", [
             path
         ]);
     }
@@ -77,7 +77,7 @@ export const path = {
         return joined.length === 0 ? "." : normalizePath(joined.join("/"));
     },
     resolve (...parts) {
-        return terminalOnly("path.resolve", parts);
+        return hostOnly("path.resolve", parts);
     },
     normalize (p) {
         return normalizePath(p);
@@ -101,7 +101,7 @@ export const path = {
         return at > 0 ? base.slice(at) : "";
     },
     relative (from, to) {
-        return terminalOnly("path.relative", [
+        return hostOnly("path.relative", [
             from,
             to
         ]);
@@ -190,9 +190,15 @@ export class Scope {
         this.#value = value;
     }
 }
+function hostOnly(name, args) {
+    return rustHalf(name, args, `${name} runs in a host only`);
+}
 function terminalOnly(name, args) {
+    return rustHalf(name, args, `${name} runs in a terminal page only`);
+}
+function rustHalf(name, args, refusal) {
     const sf = globalThis.__sf;
-    if (!sf?.ext) throw new Error(`${name} runs in a terminal page only`);
+    if (!sf?.ext) throw new Error(refusal);
     const json = JSON.stringify(args, (_, v)=>typeof v === "bigint" ? Number(v) : v === undefined ? null : v);
     return JSON.parse(sf.ext(name, json, currentLocale()));
 }

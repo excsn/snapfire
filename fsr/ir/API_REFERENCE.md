@@ -154,8 +154,8 @@ A lowered component's tree: `Text`, `Expr`, `Element { tag, attrs, children }`, 
 What renders a component in the browser.
 
 * `pub enum Owner { Fsr, React, Vue, Svelte }`; derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`, lowercase in the JSON form.
-* `Fsr` is composition: the server renders it and nothing renders it again. A template with no state, no handlers and no context provider of its own is `Fsr`. A page or a layout holding any of them is split by the build so that it is `Fsr` too, unless the report names it under `kept`. `React` is a TSX component with state, handlers or a context provider, which the React adapter hydrates. `Vue` is a `.vue` file the build lowered, which the Vue adapter hydrates.
-* `Owner::as_str(self) -> &'static str`: `fsr`, `react` or `vue`. `Owner::of(word: &str) -> Option<Owner>` reads one back.
+* `Fsr` is composition: the server renders it and nothing renders it again. A template with no state, no handlers and no context provider of its own is `Fsr`. A page or a layout holding any of them is split by the build so that it is `Fsr` too, unless the report names it under `kept`. `React` is a TSX component with state, handlers or a context provider, which the React adapter hydrates. `Vue` is a `.vue` file the build lowered, which the Vue adapter hydrates. `Svelte` is a `.svelte` file the build lowered, which the Svelte adapter hydrates.
+* `Owner::as_str(self) -> &'static str`: `fsr`, `react`, `vue` or `svelte`. `Owner::of(word: &str) -> Option<Owner>` reads one back.
 * `Owner::hydrates(self) -> bool`: true for every owner but `Fsr`.
 
 ### ShadowRoot

@@ -154,7 +154,7 @@ Only the query changes, so the navigator morphs the page rather than replacing i
 
 **One connection per page, not per island.** `src/ui/wire.ts` holds the socket and the `live` stream in a module and hands out shares. Islands come and go as the transcript re-renders; the connection does not and presence does not flicker.
 
-**A store key the build can read.** The rows are `wave/here` and `wave/drafts`, not `wave/<id>/here`. A `useStore` key built from a prop cannot be lowered, so the island falls to the browser and takes the page with it. The key names what the page is showing rather than which wave, since a document shows one.
+**A store key the build can read.** The rows are `wave/here` and `wave/drafts`, not `wave/<id>/here`. A `useStore` key built from a prop cannot be lowered, so the island renders in the browser alone and its markup is missing from the first response. The key names what the page is showing rather than which wave, since a document shows one.
 
 **Ghosts sit in their own element.** They used to be siblings of the composer and React reconciles children by position: someone else starting to type shifted the composer down a slot, React remounted it and the draft in it was lost. Wrapping them in one `<div className="ghosts">` keeps the composer's position fixed and a draft survives whatever anyone else is doing.
 

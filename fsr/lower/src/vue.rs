@@ -1672,7 +1672,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       match (prop.prop.as_str(), prop.name.as_str()) {
         ("directive", "if" | "else-if" | "else" | "for") => {}
         ("directive", "bind") if prop.binds("key") => {}
-        ("directive", "slot") => return Err(self.at(prop.line, prop.column, "`v-slot`, which fills a component's slot; the build places no component inside a Vue template")),
+        ("directive", "slot") => return Err(self.at(prop.line, prop.column, "`v-slot` here; it goes on a `.vue` child or a `<template>` directly inside one")),
         ("directive", other) => return Err(self.at(prop.line, prop.column, format!("`v-{other}` on `<template>`"))),
         (_, other) => return Err(self.at(prop.line, prop.column, format!("`{other}` on `<template>`, which is not an element"))),
       }

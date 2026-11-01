@@ -1,6 +1,6 @@
 //! `text.frontMatter` and `text.withFrontMatter`: a YAML block between two
 //! delimiter lines at the top of a text, read and written as gray-matter
-//! does. `Terminal` reach, since the browser half has no YAML.
+//! does. `Body` reach, since the browser half has no YAML.
 
 use snapfire_fsr_core::ext::type_error;
 use snapfire_fsr_core::{Value, ValueMap};

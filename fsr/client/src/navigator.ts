@@ -971,7 +971,7 @@ export interface NavigationOptions {
   cacheMs?: number;
   /** Whether a navigation swaps the page inside a view transition, `document.startViewTransition`, so the browser animates from the old page to the new one. A link's own `data-sf-transition` overrides it. Skipped where the browser has no view transitions, when the visitor prefers reduced motion and when the tab is hidden. Defaults to false. */
   transitions?: boolean;
-  /** Whether a navigation keeps the page it leaves, out of the document, so a later navigation back to it, by a link or through history, puts it back as the visitor left it: its DOM, a custom element's state, a video's position and, through history, the window's scroll. An island whose framework would keep running while detached, React's and Vue's, is unmounted instead and mounts afresh when the page comes back. A link's own `data-sf-activity` overrides it. A mutation, a refresh and a move of the session drop what is held. Defaults to false. */
+  /** Whether a navigation keeps the page it leaves, out of the document, so a later navigation back to it, by a link or through history, puts it back as the visitor left it: its DOM, a custom element's state, a video's position and, through history, the window's scroll. An island whose framework would keep running while detached, Vue's and React's before 19.2, is unmounted instead and mounts afresh when the page comes back. A link's own `data-sf-activity` overrides it. A mutation, a refresh and a move of the session drop what is held. Defaults to false. */
   activity?: boolean;
   /** How many pages `activity` holds, the least recently left dropped first. Defaults to 10. */
   activityLimit?: number;

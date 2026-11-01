@@ -76,6 +76,8 @@ pub struct Resolver {
   fonts: RefCell<BTreeMap<String, FontFile>>,
   /// Every media file a module named, by its path under the app.
   media: RefCell<BTreeMap<String, MediaFile>>,
+  /// Each `<Embed>` still `local` could not serve: the provider, the id and why.
+  pub(crate) stills_failed: RefCell<Vec<(String, String, String)>>,
   /// Files that were asked for and are not images this build decodes, with why.
   pub refused: RefCell<Vec<(String, String)>>,
 }
@@ -86,7 +88,7 @@ pub const MAP_FILE: &str = "generated/assets.map.json";
 impl Resolver {
   pub fn new(app: &Path, public_path: &str, sections: Sections) -> Self {
     let policy = sections.policy();
-    Self { app: app.to_path_buf(), public_path: public_path.trim_end_matches('/').to_owned(), sections, policy, seen: RefCell::new(BTreeMap::new()), fonts: RefCell::new(BTreeMap::new()), media: RefCell::new(BTreeMap::new()), refused: RefCell::new(Vec::new()) }
+    Self { app: app.to_path_buf(), public_path: public_path.trim_end_matches('/').to_owned(), stills_failed: RefCell::new(Vec::new()), sections, policy, seen: RefCell::new(BTreeMap::new()), fonts: RefCell::new(BTreeMap::new()), media: RefCell::new(BTreeMap::new()), refused: RefCell::new(Vec::new()) }
   }
 
   /// Defines every path the compiler reported as referenced and not in the
@@ -289,6 +291,15 @@ impl Resolver {
   }
 }
 
+impl Resolver {
+  fn still_failed(&self, provider: &str, id: &str, why: String) {
+    let mut failed = self.stills_failed.borrow_mut();
+    if !failed.iter().any(|(p, i, _)| p == provider && i == id) {
+      failed.push((provider.to_owned(), id.to_owned(), why));
+    }
+  }
+}
+
 impl AssetResolver for Resolver {
   fn image(&self, path: &str, request: &ImageRequest) -> Option<ImageFacts> {
     if !self.record(path) {
@@ -347,26 +358,34 @@ impl AssetResolver for Resolver {
   }
 
   fn embed_still(&self, provider: &str, id: &str) -> Option<ImageFacts> {
+    let local = self.sections.media.embed_stills == EmbedStills::Local;
     if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+      if local {
+        self.still_failed(provider, id, "the id is not one a still can be named by".to_owned());
+      }
       return None;
     }
-    if self.sections.media.embed_stills == EmbedStills::Local {
-      let rel = format!("{EMBEDS_DIR}/{provider}-{id}.jpg");
-      let file = self.app.join(&rel);
-      if !file.is_file() {
-        let fetched = remote_still(&self.app, provider, id).ok_or_else(|| "no still to fetch".to_owned()).and_then(|still| fetch(&still.src));
-        match fetched.and_then(|bytes| file.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&file, bytes)).map_err(|e| e.to_string())) {
-          Ok(()) => {}
-          Err(why) => eprintln!("embed     {provider} {id}: the still was not fetched, {why}; the provider's is shown instead"),
-        }
-      }
-      if file.is_file() {
-        if let Some(facts) = self.original(&rel) {
-          return Some(facts);
-        }
+    if !local {
+      return remote_still(&self.app, provider, id);
+    }
+    let rel = format!("{EMBEDS_DIR}/{provider}-{id}.jpg");
+    let file = self.app.join(&rel);
+    if !file.is_file() {
+      let fetched = remote_still(&self.app, provider, id).ok_or_else(|| "no still to fetch".to_owned()).and_then(|still| fetch(&still.src));
+      if let Err(why) = fetched.and_then(|bytes| file.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&file, bytes)).map(|_| ()).map_err(|e| e.to_string())) {
+        self.still_failed(provider, id, format!("the still was not fetched, {why}"));
+        return None;
       }
     }
-    remote_still(&self.app, provider, id)
+    let facts = self.original(&rel);
+    if facts.is_none() {
+      self.still_failed(provider, id, "the still is not an image this build reads".to_owned());
+    }
+    facts
+  }
+
+  fn computed_still(&self, provider: &str) -> bool {
+    provider == "youtube" && self.sections.media.embed_stills != EmbedStills::Local
   }
 
   fn source(&self, name: &str) -> Option<String> {
@@ -382,7 +401,7 @@ impl AssetResolver for Resolver {
 /// font directory holds.
 pub fn manifest(resolver: &Resolver, mut fonts: Fonts) -> AssetsManifest {
   fonts.referenced = resolver.referenced_fonts(&fonts.faces);
-  AssetsManifest { version: VERSION, images: resolver.policy_out(), entries: resolver.entries(), fonts, media: resolver.media.borrow().values().cloned().collect() }
+  AssetsManifest { local_stills: resolver.sections.media.embed_stills == EmbedStills::Local, version: VERSION, images: resolver.policy_out(), entries: resolver.entries(), fonts, media: resolver.media.borrow().values().cloned().collect() }
 }
 
 /// What `derive` wrote and what it found already there.

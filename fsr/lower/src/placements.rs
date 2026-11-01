@@ -546,7 +546,7 @@ pub(crate) fn embed<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At) ->
   let element = |tag: &str, attrs: Vec<Entry>, children: Vec<Tmpl>| Tmpl::Element { tag: tag.to_owned(), attrs, children };
   let still = match &id {
     Expr::Lit(Lit::Str(id)) => cx.assets().embed_still(&provider, id).map(|still| (Expr::lit_str(still.src), still.width, still.height)),
-    computed => (provider == "youtube").then(|| {
+    computed => cx.assets().computed_still(&provider).then(|| {
       let (before, after, width, height) = crate::assets::YOUTUBE_STILL;
       (around_id(before, computed, after), width, height)
     }),

@@ -178,8 +178,6 @@ pub enum BuildError {
   InlineScript(String),
   #[error("{0}: {1}")]
   SocialImage(PathBuf, String),
-  #[error("`{0}` places an `<Embed>` and hydrates, but the browser has no still to render it with; place the `<Embed>` in a page or a component that does not hydrate")]
-  EmbedInIsland(String),
   #[error("{module} exports `paths` but its route `{pattern}` has no parameter to enumerate")]
   PathsWithoutParameter { module: String, pattern: String },
   #[error("{path}: `{file}` names slot `{slot}`, which no layout above it declares")]
@@ -335,8 +333,12 @@ pub struct Report {
   pub images: Vec<(String, String)>,
   /// A face the font directory holds or a remote stylesheet, one line each.
   pub fonts: Vec<String>,
-  /// Each `<Embed>` whose id the page computes under `[media] embed_stills = "local"`: its module and the provider, which serves the still or none.
+  /// Each `<Embed>` whose id the page computes under `[media] embed_stills = "local"`, which shows no still: its module and the provider.
   pub embeds: Vec<(String, String)>,
+  /// Each `<Embed>` still `local` could not serve: the provider, the id and why.
+  pub embed_failures: Vec<(String, String, String)>,
+  /// Each component the browser renders alone that places an `<Embed>` under `local`, which shows no still.
+  pub browser_embeds: Vec<String>,
   /// When a stylesheet imports Tailwind: how many classes the plan renders. Each module with a
   /// class value the build cannot list comes with that value.
   pub tailwind: Option<(usize, Vec<(String, String)>)>,
@@ -424,10 +426,15 @@ impl Report {
         let label = if i == 0 { "font" } else { "" };
         writeln!(f, "{label:<9} {line}")?;
       }
-      for (module, provider) in &self.embeds {
-        let shows = if provider == "youtube" { "so YouTube serves the still" } else { "so the placeholder shows the title alone" };
-        writeln!(f, "{:<9} {module:<34} {provider}: the id is computed, {shows}", "embed")?;
-      }
+    }
+    for (module, provider) in &self.embeds {
+      writeln!(f, "{:<9} {module:<34} {provider}: the id is computed, so the placeholder shows the title alone", "embed")?;
+    }
+    for (provider, id, why) in &self.embed_failures {
+      writeln!(f, "{:<9} {provider} {id}: {why}, so the placeholder shows the title alone", "embed")?;
+    }
+    for module in &self.browser_embeds {
+      writeln!(f, "{:<9} {module:<34} renders in the browser, which holds no local still, so the placeholder shows the title alone", "embed")?;
     }
     if let Some((count, unlisted)) = &self.tailwind {
       if verbose {
@@ -1496,8 +1503,12 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let mut static_modules: Vec<String> = Vec::new();
   // What renders each lowered module in the browser, which picks its adapter.
   let mut owners: HashMap<String, Owner> = HashMap::new();
+  let local_stills = sections.media.embed_stills == snapfire_fsr_host::config::EmbedStills::Local;
   for (module, residue) in std::mem::take(&mut set.foreign_residue) {
     let at = format!("{}:{}:{}", residue.file, residue.line, residue.column);
+    if local_stills && places_embed(app, &module) {
+      report.browser_embeds.push(module.clone());
+    }
     report.components.push((module.clone(), "foreign".to_owned(), at.clone()));
     match report.foreign.iter_mut().find(|c| c.at == at && c.message == residue.message) {
       Some(cause) => cause.pages.push((module, String::new())),
@@ -1511,9 +1522,6 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       Owner::Fsr => "static".to_owned(),
     };
     report.components.push((module.clone(), "lowered".to_owned(), detail));
-    if component.owner.hydrates() && !snapfire_fsr_ir::ast::embed_players(&component.render).is_empty() {
-      return Err(BuildError::EmbedInIsland(module));
-    }
     if sections.media.embed_stills == snapfire_fsr_host::config::EmbedStills::Local {
       for player in snapfire_fsr_ir::ast::computed_embed_players(&component.render) {
         if let Some(provider) = snapfire_fsr_lower::assets::embed_provider(&player) {
@@ -1548,12 +1556,16 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       return Err(BuildError::NoJsxFramework { module, at, reason: residue.message });
     }
     let chain = residue.chain();
+    if local_stills && places_embed(app, &module) {
+      report.browser_embeds.push(module.clone());
+    }
     blame(&mut report, &module, at, residue.message, residue.hint, chain);
     owners.insert(module.clone(), Owner::React);
     if !islands.contains(&module) {
       islands.push(module);
     }
   }
+  report.embed_failures = resolver.stills_failed.borrow().clone();
   if options.strict {
     if let Some(refused) = strict_refusal(&report) {
       return Err(BuildError::Strict(refused));
@@ -3951,12 +3963,32 @@ fn lower_into(set: &mut ComponentSet, module: &str, report: &mut Report) -> Resu
 
 /// Marks `module` client and files it under the cause at `at`, which several
 /// modules reach when they import their way to the same unlowerable line.
+/// Whether the file behind `module` places FSR's `<Embed>`. A page's split island reads its page's file.
+fn places_embed(app: &Path, module: &str) -> bool {
+  let file = module.split('#').next().unwrap_or(module);
+  let file = match file.rfind(".island") {
+    Some(at) => format!("{}{}", &file[..at], file.rfind('.').map_or("", |dot| &file[dot..])),
+    None => file.to_owned(),
+  };
+  std::fs::read_to_string(app.join(file)).is_ok_and(|text| text.contains("@snapfire/fsr/") && text.contains("Embed"))
+}
+
 /// What `[build] strict` refuses in `report`: each cause that leaves a component to render in the browser alone, with the components it leaves there.
 fn strict_refusal(report: &Report) -> Option<String> {
-  if report.causes.is_empty() && report.foreign.is_empty() && report.plugins.is_empty() {
+  let stills = report.embeds.len() + report.embed_failures.len() + report.browser_embeds.len();
+  if report.causes.is_empty() && report.foreign.is_empty() && report.plugins.is_empty() && stills == 0 {
     return None;
   }
-  let mut out = String::from("these components render in the browser alone, which `[build] strict` refuses; make each lower or drop `strict`");
+  let mut out = String::from("these components render in the browser alone or show no still, which `[build] strict` refuses; make each lower and serve its still or drop `strict`");
+  for (module, provider) in &report.embeds {
+    out.push_str(&format!("\n  embed    {module}: {provider}, the id is computed"));
+  }
+  for (provider, id, why) in &report.embed_failures {
+    out.push_str(&format!("\n  embed    {provider} {id}: {why}"));
+  }
+  for module in &report.browser_embeds {
+    out.push_str(&format!("\n  embed    {module}: renders in the browser"));
+  }
   for (kind, causes) in [("client", &report.causes), ("foreign", &report.foreign)] {
     for cause in causes {
       out.push_str(&format!("\n  {kind:<8} {}: {}", cause.at, cause.message));

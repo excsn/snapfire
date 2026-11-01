@@ -8,7 +8,7 @@ export interface EmbedOptions {
 }
 /** The attribute the server writes on a placeholder: the player the click puts in its place. */
 export declare const EMBED_ATTR = "data-sf-embed";
-/** The placeholder's parts as an adapter renders them in the browser: YouTube's still from its CDN, none for Vimeo, whose still needs a lookup only the build makes. */
+/** The placeholder's parts as an adapter renders them in the browser: the still the server wrote when there is one, else YouTube's from its CDN. Vimeo's needs a lookup only the build makes and `local` stills rule the provider out, so those show the title alone. */
 export declare function embedParts(props: EmbedOptions): {
 	outer: Record<string, string>;
 	button: Record<string, string>;

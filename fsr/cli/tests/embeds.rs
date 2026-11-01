@@ -75,6 +75,47 @@ fn a_local_still_is_served_from_the_application_and_the_policy_names_no_image_ho
   std::fs::remove_dir_all(&root).unwrap();
 }
 
+const PLACES_PLAYER: &str = "import Player from \"@src/ui/Player\";\nexport default function Page() {\n  return <main><Player /></main>;\n}\n";
+
+fn with_player(root: &PathBuf, player: &str) {
+  let app = root.join("app");
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
+  std::fs::create_dir_all(app.join("vendor")).unwrap();
+  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1"},"react-dom":{"version":"19.3.1"}}}"#).unwrap();
+  std::fs::create_dir_all(app.join("src/ui")).unwrap();
+  std::fs::write(app.join("src/ui/Player.tsx"), player).unwrap();
+}
+
+#[test]
+fn a_component_that_hydrates_places_an_embed_and_the_server_writes_its_still() {
+  for (tag, media, still) in [("hydrates-provider", "", "src=\"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg\""), ("hydrates-local", "\n[media]\nembed_stills = \"local\"\n", "src=\"/static/js/app/generated/embeds/youtube-dQw4w9WgXcQ.")] {
+    let root = project(tag, PLACES_PLAYER, media);
+    with_player(&root, "import { useState } from \"react\";\nimport { Embed } from \"@snapfire/fsr/client/react\";\nexport default function Player() {\n  const [n, set] = useState(0);\n  return <div onClick={() => set(n + 1)}><Embed provider=\"youtube\" id=\"dQw4w9WgXcQ\" title=\"t\" />{n}</div>;\n}\n");
+    let (html, _) = render(&root);
+    assert!(html.contains(still), "{tag}: {html}");
+    std::fs::remove_dir_all(&root).unwrap();
+  }
+}
+
+#[test]
+fn a_component_the_browser_renders_alone_that_places_an_embed_under_local_stills_is_reported() {
+  let player = "import { Embed } from \"@snapfire/fsr/client/react\";\nexport default function Player() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <div>{zone}<Embed provider=\"youtube\" id=\"dQw4w9WgXcQ\" title=\"t\" /></div>;\n}\n";
+  let root = project("browser-local", PLACES_PLAYER, "\n[media]\nembed_stills = \"local\"\n");
+  with_player(&root, player);
+  let app = root.join("app");
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  let report = built.report.to_string();
+  assert!(report.contains("embed     src/ui/Player.tsx#default") && report.contains("renders in the browser"), "{report}");
+  std::fs::remove_dir_all(&root).unwrap();
+
+  let root = project("browser-provider", PLACES_PLAYER, "");
+  with_player(&root, player);
+  let app = root.join("app");
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  assert!(!built.report.to_string().contains("embed "), "the provider's still is what the configuration asked for: {}", built.report);
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
 const LOADED: &str = r#"import { Embed } from "@snapfire/fsr/template";
 
 export default function Page({ video, name, film }: { video: string; name: string; film: string }) {
@@ -121,23 +162,52 @@ fn a_computed_vimeo_id_shows_the_title_alone() {
 }
 
 #[test]
-fn a_computed_id_under_local_stills_falls_back_to_the_providers_still() {
+fn a_computed_id_under_local_stills_shows_no_still_and_asks_the_provider_for_none() {
   let root = loaded("loaded-local", "\n[media]\nembed_stills = \"local\"\n");
   let (html, policy) = render(&root);
-  assert!(html.contains("src=\"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg\""), "the build fetches only the stills it can name: {html}");
-  assert!(policy.contains("https://i.ytimg.com"), "the fallback still's host is allowed: {policy}");
+  assert!(html.contains("data-sf-embed=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1\""), "{html}");
+  assert!(!html.contains("i.ytimg.com"), "{html}");
+  assert!(!policy.contains("i.ytimg.com"), "{policy}");
   std::fs::remove_dir_all(&root).unwrap();
 }
 
 #[test]
-fn verbose_names_each_embed_whose_id_is_computed_under_local_stills() {
+fn a_still_the_build_cannot_fetch_shows_no_still_and_the_report_says_so() {
+  let page = "import { Embed } from \"@snapfire/fsr/template\";\n\nexport default function Page() {\n  return <Embed provider=\"youtube\" id=\"no-such-video-at-all\" title=\"Gone\" />;\n}\n";
+  let root = project("unfetched", page, "\n[media]\nembed_stills = \"local\"\n");
+  let app = root.join("app");
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  let report = built.report.to_string();
+  assert!(report.contains("embed") && report.contains("no-such-video-at-all") && report.contains("the placeholder shows the title alone"), "{report}");
+  let (html, policy) = render(&root);
+  assert!(!html.contains("<img") && !html.contains("i.ytimg.com"), "{html}");
+  assert!(!policy.contains("i.ytimg.com"), "{policy}");
+  let strict = build(&app, &Options::beside(&app).strict(true)).err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(strict.contains("no-such-video-at-all"), "strict refuses a placeholder with no still: {strict}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn the_document_tells_the_browser_when_stills_are_local() {
+  let meta = "<meta name=\"sf:embed-stills\" content=\"local\">";
+  let root = project("meta-local", PAGE, "\n[media]\nembed_stills = \"local\"\n");
+  assert!(render(&root).0.contains(meta));
+  std::fs::remove_dir_all(&root).unwrap();
+  let root = project("meta-provider", PAGE, "");
+  assert!(!render(&root).0.contains("sf:embed-stills"));
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn the_report_names_each_embed_whose_id_is_computed_under_local_stills() {
   let root = loaded("loaded-verbose", "\n[media]\nembed_stills = \"local\"\n");
   let app = root.join("app");
   let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
-  let verbose = built.report.verbose().to_string();
-  assert!(verbose.contains("embed     routes/page.tsx#default            youtube: the id is computed, so YouTube serves the still"), "{verbose}");
-  assert!(verbose.contains("embed     routes/page.tsx#default            vimeo: the id is computed, so the placeholder shows the title alone"), "{verbose}");
-  assert!(!built.report.to_string().contains("embed "), "{}", built.report);
+  let report = built.report.to_string();
+  assert!(report.contains("embed     routes/page.tsx#default            youtube: the id is computed, so the placeholder shows the title alone"), "{report}");
+  assert!(report.contains("embed     routes/page.tsx#default            vimeo: the id is computed, so the placeholder shows the title alone"), "{report}");
+  let strict = build(&app, &Options::beside(&app).strict(true)).err().map(|e| e.to_string()).unwrap_or_default();
+  assert!(strict.contains("routes/page.tsx#default"), "{strict}");
   std::fs::remove_dir_all(&root).unwrap();
 
   let root = loaded("loaded-provider", "");
@@ -149,20 +219,13 @@ fn verbose_names_each_embed_whose_id_is_computed_under_local_stills() {
 
 #[test]
 fn an_embed_the_build_cannot_place_is_refused() {
-  let island = "import Player from \"@src/ui/Player\";\nexport default function Page() {\n  return <main><Player /></main>;\n}\n";
   for (tag, page, says) in [
     ("untitled", "import { Embed } from \"@snapfire/fsr/template\";\nexport default function Page() {\n  return <Embed provider=\"youtube\" id=\"x\" />;\n}\n", "needs a `title`"),
     ("unknown", "import { Embed } from \"@snapfire/fsr/template\";\nexport default function Page() {\n  return <Embed provider=\"tiktok\" id=\"x\" title=\"t\" />;\n}\n", "`youtube` or `vimeo`, not `tiktok`"),
     ("computed-provider", "import { Embed } from \"@snapfire/fsr/template\";\nexport default function Page({ p }: { p: string }) {\n  return <Embed provider={p} id=\"x\" title=\"t\" />;\n}\n", "an `<Embed>`'s `provider` is a string written out"),
-    ("island", island, "places an `<Embed>` and hydrates"),
   ] {
     let root = project(tag, page, "");
     let app = root.join("app");
-    if tag == "island" {
-      std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
-      std::fs::create_dir_all(app.join("src/ui")).unwrap();
-      std::fs::write(app.join("src/ui/Player.tsx"), "import { useState } from \"react\";\nimport { Embed } from \"@snapfire/fsr/client/react\";\nexport default function Player() {\n  const [n, set] = useState(0);\n  return <div><button onClick={() => set(n + 1)}>{n}</button><Embed provider=\"youtube\" id=\"dQw4w9WgXcQ\" title=\"t\" /></div>;\n}\n").unwrap();
-    }
     let error = build(&app, &Options::beside(&app)).err().unwrap_or_else(|| panic!("{tag}: refused")).to_string();
     assert!(error.contains(says), "{tag}: {error}");
     std::fs::remove_dir_all(&root).unwrap();

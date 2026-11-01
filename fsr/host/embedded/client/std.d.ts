@@ -5,14 +5,14 @@ export declare const text: {
 	slug(s: string): string;
 	/** The first `max` characters and `ellipsis` when `s` is longer, else `s`. Characters are code points. */
 	truncate(s: string, max: number, ellipsis?: string): string;
-	/** The YAML block between two delimiter lines at the top of `source` as `data`, the rest as `content`, read as gray-matter reads it. `delimiters` is one string for both lines or `[open, close]`, `---` by default. Terminal pages only. */
+	/** The YAML block between two delimiter lines at the top of `source` as `data`, the rest as `content`, read as gray-matter reads it. `delimiters` is one string for both lines or `[open, close]`, `---` by default. Host only. */
 	frontMatter<T = {
 		[key: string]: unknown;
 	}>(source: string, options?: FrontMatterOptions): {
 		data: T;
 		content: string;
 	};
-	/** `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes it; empty `data` writes no block. Terminal pages only. */
+	/** `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes it; empty `data` writes no block. Host only. */
 	withFrontMatter(content: string, data: {
 		[key: string]: unknown;
 	}, options?: FrontMatterOptions): string;
@@ -27,7 +27,7 @@ export interface FileStat {
 	size: number;
 	mtimeMs: number;
 }
-/** The files of the machine a terminal page runs on. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file. Terminal pages only. */
+/** The files a host body reads and writes: the directories `[files] roots` names on a web host and the machine a terminal program runs on. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file. Host only. */
 export declare const file: {
 	/** The file as text, bytes that are not UTF-8 as U+FFFD. */
 	read(path: string): string;
