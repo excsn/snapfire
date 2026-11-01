@@ -7098,6 +7098,17 @@ fn traced_host(dev: bool, trace_section: &str) -> (Host, snapfire_fsr_host::trac
 }
 
 #[tokio::test]
+async fn a_request_trace_stays_open_until_its_body_has_been_sent() {
+  let (host, traces, _guard) = traced_host(false, "");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(traces.recent(1).is_empty(), "the body is still to come, so the trace is not finished");
+  body_of(response).await;
+  let finished = traces.recent(1);
+  assert_eq!(finished.len(), 1, "reading the body ends the trace");
+  assert_eq!(finished[0].root().unwrap().name, "request");
+}
+
+#[tokio::test]
 async fn an_exposed_page_reads_back_its_own_trace_by_the_signed_token() {
   let (host, _traces, _guard) = traced_host(false, "[trace]\nexpose = [\"/\"]\n");
   let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;

@@ -181,6 +181,37 @@ pub fn server_timing(trace: &Trace) -> String {
 /// is held until the body ends, then written with the script before its
 /// `</body>`. It keeps the request's root span open until then, so the trace
 /// holds every span the request ran, the session save included.
+/// Keeps a request's root open while its body is produced, so a page that streams has its work in the trace and its real duration.
+pub(crate) struct InTrace {
+  inner: crate::Body,
+  root: tracing::Span,
+}
+
+impl InTrace {
+  pub(crate) fn new(inner: crate::Body, root: tracing::Span) -> Self {
+    Self { inner, root }
+  }
+}
+
+impl http_body::Body for InTrace {
+  type Data = bytes::Bytes;
+  type Error = std::io::Error;
+
+  fn poll_frame(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+    let this = &mut *self;
+    let _inside = this.root.enter();
+    std::pin::Pin::new(&mut this.inner).poll_frame(cx)
+  }
+
+  fn is_end_stream(&self) -> bool {
+    self.inner.is_end_stream()
+  }
+
+  fn size_hint(&self) -> http_body::SizeHint {
+    self.inner.size_hint()
+  }
+}
+
 pub(crate) struct TraceTail {
   inner: crate::Body,
   held: Option<bytes::Bytes>,

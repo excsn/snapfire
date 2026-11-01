@@ -333,10 +333,11 @@ impl Host {
       Some(traces) => {
         parts.headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
         parts.headers.remove(header::CONTENT_LENGTH);
-        Body::new(crate::trace::TraceTail::new(body, root, started, traces))
+        Body::new(crate::trace::TraceTail::new(body, root.clone(), started, traces))
       }
       None => body,
     };
+    let body = Body::new(crate::trace::InTrace::new(body, root));
     Response::from_parts(parts, Body::new(crate::after::Finishing::new(body, after, self.afters.clone())))
   }
 
