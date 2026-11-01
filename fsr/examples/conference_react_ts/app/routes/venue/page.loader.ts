@@ -1,5 +1,5 @@
 import type { Ctx } from "@snapfire/fsr/host";
-import { scriptTag } from "@snapfire/fsr/head";
+import { jsonLd, og, scriptTag } from "@snapfire/fsr/head";
 
 export async function load({ services }: Ctx) {
   const talks = await services.program.listTalks();
@@ -8,5 +8,6 @@ export async function load({ services }: Ctx) {
 }
 
 export const meta = () => ({
-  head: [scriptTag("/static/demo/venue-map.js", "interaction")],
+  title: "The venue",
+  head: [scriptTag("/static/demo/venue-map.js", "interaction"), og("type", "place"), jsonLd('{"@type":"Place"}')],
 });

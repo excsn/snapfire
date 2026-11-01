@@ -278,6 +278,9 @@ pub struct Resolved {
   /// What the resolved subtree says about the document, when a segment in
   /// it has metadata; the streams patch the title and description with it.
   pub meta: Meta,
+  /// Every head row of the document now that this subtree's metadata is in,
+  /// empty when it has none.
+  pub rows: Vec<crate::meta::HeadEl>,
   /// What the resolved subtree's own segments seeded; the streams write them
   /// ahead of its markup, so the browser holds them before it mounts anything
   /// rendered from them.
@@ -286,7 +289,7 @@ pub struct Resolved {
 
 impl Resolved {
   pub fn new(slot: SlotId, key: String, node: Node, segments: Vec<SegmentInfo>, pending: Vec<PendingResolution>, meta: Meta, contributions: Vec<Contribution>) -> Self {
-    Self { slot, key, node, segments, pending, meta, contributions }
+    Self { slot, key, node, segments, pending, meta, rows: Vec::new(), contributions }
   }
 }
 
@@ -297,6 +300,8 @@ pub struct Assembly {
   pub segments: SegmentInfo,
   /// The title and description the eager wave settled on, defaults included.
   pub meta: Meta,
+  /// Every head row the document carries under `meta`, the defaults included.
+  pub rows: Vec<crate::meta::HeadEl>,
   /// What each eager segment seeded, one entry per seeding segment.
   pub contributions: Vec<Contribution>,
   /// The store the eager wave rendered from: `contributions` merged by position.
@@ -319,7 +324,7 @@ pub struct Assembly {
 impl Assembly {
   #[allow(clippy::too_many_arguments)]
   pub fn new(tree: Node, pending: Vec<PendingResolution>, segments: SegmentInfo, meta: Meta, contributions: Vec<Contribution>, store: Data, locale: crate::ctx::Locale, entry: Option<String>, styles: Vec<String>, catalog: Option<String>, theme: Option<crate::meta::DocumentTheme>, failed: Option<FailureKind>) -> Self {
-    Self { tree, pending, segments, meta, contributions, store, locale, entry, styles, catalog, theme, failed }
+    Self { tree, pending, segments, meta, rows: Vec::new(), contributions, store, locale, entry, styles, catalog, theme, failed }
   }
 }
 
@@ -418,6 +423,8 @@ pub(crate) struct Session {
   pub(crate) origin: Option<Origin>,
   pub(crate) head: Head,
   pub(crate) next_slot: AtomicU32,
+  /// The document's metadata so far: the eager wave's and each resolution's as it lands.
+  pub(crate) described: parking_lot::Mutex<Meta>,
 }
 
 impl Session {
@@ -703,6 +710,13 @@ impl Session {
       future: Box::pin(async move {
         match session.resolve_subtree(&child, path, around).await {
           Ok((node, pending, segments, mut meta, contributions, _digest, _failed)) => {
+            let rows = if meta.is_empty() {
+              Vec::new()
+            } else {
+              let mut described = session.described.lock();
+              described.merge(meta.clone());
+              session.head.rows(&described)
+            };
             session.head.settle(&mut meta);
             Resolved {
               slot,
@@ -711,6 +725,7 @@ impl Session {
               segments,
               pending,
               meta,
+              rows,
               contributions,
             }
           }
@@ -721,6 +736,7 @@ impl Session {
             segments: Vec::new(),
             pending: Vec::new(),
             meta: Meta::default(),
+            rows: Vec::new(),
             contributions: kept,
           },
         }
@@ -1289,9 +1305,12 @@ async fn assemble_in(
     origin,
     head: head.clone(),
     next_slot: AtomicU32::new(1),
+    described: parking_lot::Mutex::new(Meta::default()),
   });
   let (tree, pending, children, meta, contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
   let head = session.head.clone();
+  let rows = head.rows(&meta);
+  *session.described.lock() = meta.clone();
   let store = merge_contributions(&contributions, &runtime.slot_order);
   let segments = SegmentInfo {
     key: session.segment_key(plan),
@@ -1313,6 +1332,7 @@ async fn assemble_in(
     pending,
     segments,
     meta,
+    rows,
     contributions,
     store,
     locale: ctx.locale.clone(),

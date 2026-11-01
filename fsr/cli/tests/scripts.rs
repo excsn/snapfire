@@ -78,6 +78,48 @@ fn a_json_ld_row_builds_and_is_written_into_the_document() {
   std::fs::remove_dir_all(&root).unwrap();
 }
 
+fn document(root: &Path) -> String {
+  let host = host(root);
+  let runtime = tokio::runtime::Runtime::new().unwrap();
+  runtime.block_on(host.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap()
+}
+
+#[test]
+fn json_ld_can_be_stringified_inside_meta() {
+  let root = project("jsonld-meta", "import { jsonLd } from \"@snapfire/fsr/head\";\nexport async function load() {\n  return { name: \"Channels\" };\n}\nexport const meta = ({ data }: { data: { name: string } }) => ({ head: [jsonLd(JSON.stringify({ \"@type\": \"TechArticle\", headline: data.name }))] });\n");
+  let html = document(&root);
+  assert!(html.contains(r#"<script type="application/ld+json">{"@type":"TechArticle","headline":"Channels"}</script>"#), "{html}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn every_json_ld_row_of_a_page_is_written() {
+  let root = project("jsonld-two", "import { jsonLd } from \"@snapfire/fsr/head\";\nexport const meta = () => ({ head: [jsonLd('{\"@type\":\"TechArticle\"}'), jsonLd('{\"@type\":\"BreadcrumbList\"}')] });\n");
+  let html = document(&root);
+  assert!(html.contains(r#"{"@type":"TechArticle"}</script>"#), "{html}");
+  assert!(html.contains(r#"{"@type":"BreadcrumbList"}</script>"#), "{html}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_layouts_json_ld_stays_beside_the_pages() {
+  let root = project("jsonld-layout", "import { jsonLd } from \"@snapfire/fsr/head\";\nexport const meta = () => ({ head: [jsonLd('{\"@type\":\"TechArticle\"}')] });\n");
+  std::fs::write(root.join("app/routes/layout.loader.ts"), "import { jsonLd } from \"@snapfire/fsr/head\";\nexport const meta = () => ({ head: [jsonLd('{\"@type\":\"Organization\"}')] });\n").unwrap();
+  let html = document(&root);
+  assert!(html.contains(r#"{"@type":"TechArticle"}</script>"#), "{html}");
+  assert!(html.contains(r#"{"@type":"Organization"}</script>"#), "{html}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_json_ld_block_the_page_repeats_is_written_once() {
+  let root = project("jsonld-repeat", "import { jsonLd } from \"@snapfire/fsr/head\";\nexport const meta = () => ({ head: [jsonLd('{\"@type\":\"Organization\"}')] });\n");
+  std::fs::write(root.join("app/routes/layout.loader.ts"), "import { jsonLd } from \"@snapfire/fsr/head\";\nexport const meta = () => ({ head: [jsonLd('{\"@type\":\"Organization\"}')] });\n").unwrap();
+  let html = document(&root);
+  assert_eq!(html.matches(r#"{"@type":"Organization"}</script>"#).count(), 1, "{html}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 fn a_script_src_computed_at_request_time_is_reported_for_the_policy_to_name() {
   let root = project("computed", "export async function load() {\n  return { cdn: \"https://cdn.example\" };\n}\nexport const meta = ({ data }: { data: { cdn: string } }) => ({ head: [{ tag: \"script\", src: `${data.cdn}/a.js` }] });\n");

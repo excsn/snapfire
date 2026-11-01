@@ -3565,7 +3565,7 @@ async fn a_keyed_title_and_template_read_the_catalog_of_the_request_locale() {
   assert!(render("/bare").await.contains("<title>Sign in</title>"), "an absolute title is written as given");
   assert!(render("/fr/bare").await.contains("<title>Sign in</title>"));
   let payload = host.render_to_string("/fr/named", RenderMode::Payload, SessionCell::default()).await.unwrap();
-  assert!(payload.contains("\nH {\"title\":\"Boutique : Nozzle\"}\n"), "the payload carries the title as the document shows it: {payload}");
+  assert!(payload.contains("\nH {\"title\":\"Boutique : Nozzle\","), "the payload carries the title as the document shows it: {payload}");
 
   std::fs::remove_file(dir.join("locales/en.toml")).unwrap();
   std::fs::remove_file(dir.join("locales/fr.toml")).unwrap();

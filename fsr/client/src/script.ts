@@ -56,7 +56,7 @@ export function loadScript(src: string, options: ScriptOptions = {}): Promise<vo
   return promise;
 }
 
-/** Loads every script a route's `meta` declared under `root`, the inert `script[data-sf-script]` the server writes in the head. The boot runtime calls it for the document; a navigation adds no head markup, so the navigator loads the rows its payload's `H` row lists through `loadMarkedScript`. A failure is reported on the console rather than thrown, since no caller is waiting on it. */
+/** Loads every script a route's `meta` declared under `root`, the inert `script[data-sf-script]` the server writes in the head. The boot runtime calls it for the document; a navigation writes no script row as markup, so the navigator loads the rows its payload's `H` row lists through `loadMarkedScript`. A failure is reported on the console rather than thrown, since no caller is waiting on it. */
 export function loadDeclaredScripts(root: ParentNode = document): void {
   for (const marker of Array.from(root.querySelectorAll<HTMLScriptElement>("script[data-sf-script]"))) {
     loadMarkedScript(Object.fromEntries(Array.from(marker.attributes, ({ name, value }) => [name, value])));

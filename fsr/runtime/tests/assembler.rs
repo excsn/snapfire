@@ -49,7 +49,7 @@ fn head_slot_fills_from_the_runtime_and_unknown_modules_fall_to_null() {
     panic!("shell output is a Seq")
   };
   assert_eq!(parts[0], Node::raw("<before>"));
-  assert_eq!(parts[1], Node::raw("<title>t</title>"));
+  assert_eq!(parts[1], Node::Seq(vec![Node::raw("<title>t</title>"), Node::raw("<!--sf-head--><!--/sf-head-->")]));
   let Node::Client { module, props, rendered, .. } = &parts[2] else {
     panic!("the .tsx child fell through to the null evaluator")
   };

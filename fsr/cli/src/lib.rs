@@ -2297,7 +2297,7 @@ export function alternate(href: string, hreflang: string): HeadEl {
   return { tag: "link", rel: "alternate", href, hreflang };
 }
 
-/** Structured data, already serialised. `JSON.stringify` is not lowerable, so build the string in the body. */
+/** Structured data, already serialised: `jsonLd(JSON.stringify({ "@type": "TechArticle", headline }))`. A layout's block stays beside its page's. A block they both write is written once. */
 export function jsonLd(json: string): HeadEl {
   return { tag: "script", type: "application/ld+json", children: json };
 }

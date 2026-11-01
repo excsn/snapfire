@@ -568,6 +568,47 @@ export function applyHead(head) {
         }
         meta.setAttribute("content", head.description);
     }
+    if (head.head !== undefined) applyHeadRows(head.head);
+}
+function headElementKey(el) {
+    return JSON.stringify([
+        el.localName,
+        Array.from(el.attributes, (a)=>[
+                a.name,
+                a.value
+            ]).sort(),
+        el.textContent
+    ]);
+}
+function applyHeadRows(rows) {
+    const held = [];
+    let close = null;
+    let open = false;
+    for (const node of Array.from(document.head.childNodes)){
+        if (node.nodeType === 8) {
+            if (node.textContent === "sf-head") open = true;
+            else if (node.textContent === "/sf-head") {
+                close = node;
+                break;
+            }
+        } else if (open && node.nodeType === 1 && !node.hasAttribute("data-sf-script")) {
+            held.push(node);
+        }
+    }
+    if (!close) return;
+    const keys = held.map(headElementKey);
+    for (const row of rows){
+        const el = document.createElement(row.tag);
+        for (const [name, value] of row.attrs)el.setAttribute(name, value);
+        if (row.children !== undefined) el.textContent = row.children;
+        const at = keys.indexOf(headElementKey(el));
+        if (at === -1) document.head.insertBefore(el, close);
+        else {
+            keys.splice(at, 1);
+            held.splice(at, 1);
+        }
+    }
+    for (const el of held)el.remove();
 }
 function setRootAttribute(name, value) {
     if (value === null) document.documentElement.removeAttribute(name);
@@ -639,6 +680,7 @@ function applyEager(eager, force, keep) {
     documentSidecar = false;
     openSlot = interceptSlot(eager.segments);
     for (const head of eager.heads)applyHead(head);
+    if (!eager.heads.some((head)=>head.head !== undefined)) applyHeadRows([]);
     if (eager.locale !== null) {
         if (eager.catalog !== null) setCatalog(eager.locale, eager.catalog);
         setLocale(eager.locale);

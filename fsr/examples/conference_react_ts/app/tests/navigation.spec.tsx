@@ -95,3 +95,39 @@ test("a Link an island renders tells the component inside it that its navigation
   expect(location.pathname).toEqual("/talk/2");
   expect(document.querySelector(".opening-on"), "nothing is pending once the page is shown").toBeNull();
 });
+
+const card = (property: string) => document.head.querySelector(`meta[property="${property}"]`)?.getAttribute("content");
+const blocks = () => Array.from(document.head.querySelectorAll('script[type="application/ld+json"]')).map((s) => s.textContent);
+
+test("a navigation writes the head rows of the page it lands on and takes away the last page's", async () => {
+  await load("/", { ctx: day() });
+  await settle();
+  const title = document.title;
+  expect(card("og:type"), "the home page names none").toBeUndefined();
+  expect(blocks()).toEqual([]);
+
+  await fireEvent.click(screen.getByText("Venue"));
+  await settle();
+  expect(location.pathname).toEqual("/venue");
+  expect(card("og:type"), "the venue's own row").toEqual("place");
+  expect(blocks(), "its data block, with its text").toEqual(['{"@type":"Place"}']);
+  expect(card("og:title"), "the card follows the page's title").toEqual(document.title);
+
+  await fireEvent.click(document.querySelector('a[href="/"]')!);
+  await settle();
+  expect(location.pathname).toEqual("/");
+  expect(card("og:type"), "taken away").toBeUndefined();
+  expect(blocks(), "taken away").toEqual([]);
+  expect(card("og:title"), "and the home page's card is back").toEqual(title);
+  expect(document.head.querySelectorAll('meta[property="og:title"]').length, "one card, however many pages were visited").toEqual(1);
+});
+
+test("a row both pages carry unchanged keeps its element", async () => {
+  await load("/", { ctx: day() });
+  await settle();
+  const icon = document.head.querySelector('link[rel="icon"]');
+  expect(icon, "the document links an icon").toBeTruthy();
+  await fireEvent.click(screen.getByText("Venue"));
+  await settle();
+  expect(document.head.querySelector('link[rel="icon"]'), "not taken out and put back, which would refetch it").toBe(icon);
+});

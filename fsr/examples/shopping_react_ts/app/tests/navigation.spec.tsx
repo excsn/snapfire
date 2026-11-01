@@ -244,3 +244,15 @@ test("a navigation skips the view transition when the visitor prefers reduced mo
     fake.restore();
   }
 });
+
+test("a streamed page's head rows land with its resolution", async () => {
+  const stock = { product_id: 1n, on_hand: 5n, reserved: 0n, warehouse: "Prague", bins: ["A1"] };
+  const c = ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament], getProduct: () => filament }, inventory: { getStock: () => stock } } });
+  await load("/", { ctx: c });
+  document.body.insertAdjacentHTML("beforeend", '<a id="view" href="/product/1" data-sf-full>view</a>');
+  await fireEvent.click(document.getElementById("view")!);
+  await settle();
+  const card = (property: string) => document.head.querySelector(`meta[property="${property}"]`)?.getAttribute("content");
+  expect(card("og:type"), "the page's row, from its late H row").toEqual("product");
+  expect(card("og:title"), "the derived card follows the late title").toEqual("PLA filament · Shopping");
+});

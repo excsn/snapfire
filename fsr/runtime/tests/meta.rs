@@ -96,7 +96,7 @@ fn a_described_segment_titles_the_document_over_the_defaults() {
     Meta::default().title(Some("Nozzle <XL> · Shop".into())).description(Some("All about Nozzle <XL>".into()))
   );
   let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
-  assert!(html.contains("<meta charset=\"utf-8\"><title>Nozzle &lt;XL&gt; · Shop</title><meta name=\"description\" content=\"All about Nozzle &lt;XL&gt;\"><meta property=\"og:title\" content=\"Nozzle &lt;XL&gt; · Shop\"><meta property=\"og:description\" content=\"All about Nozzle &lt;XL&gt;\"></head>"), "{html}");
+  assert!(html.contains("<meta charset=\"utf-8\"><title>Nozzle &lt;XL&gt; · Shop</title><meta name=\"description\" content=\"All about Nozzle &lt;XL&gt;\"><!--sf-head--><meta property=\"og:title\" content=\"Nozzle &lt;XL&gt; · Shop\"><meta property=\"og:description\" content=\"All about Nozzle &lt;XL&gt;\"><!--/sf-head--></head>"), "{html}");
 }
 
 /// Titles the document and names its own `og:title`.
@@ -153,7 +153,7 @@ fn without_a_described_segment_the_head_keeps_its_defaults() {
   );
   let wire: String = block_on(wire_stream(assembly).collect::<Vec<_>>()).concat();
   assert!(
-    wire.contains("\nH {\"title\":\"Shop\",\"description\":\"A shop\"}\n"),
+    wire.contains("\nH {\"title\":\"Shop\",\"description\":\"A shop\","),
     "{wire}"
   );
 }
@@ -175,13 +175,13 @@ fn a_deferred_segment_describes_the_document_when_it_resolves() {
   );
   let wire: Vec<String> = block_on(wire_stream(assembly).collect());
   assert!(
-    wire[0].contains("\nH {\"title\":\"Shop\",\"description\":\"A shop\"}\n"),
+    wire[0].contains("\nH {\"title\":\"Shop\",\"description\":\"A shop\","),
     "{}",
     wire[0]
   );
   assert!(wire[1].starts_with("S 1 "), "{}", wire[1]);
   assert!(
-    wire[1].ends_with("\nH {\"title\":\"Nozzle <XL> · Shop\",\"description\":\"All about Nozzle <XL>\"}\n"),
+    wire[1].contains("\nH {\"title\":\"Nozzle <XL> · Shop\",\"description\":\"All about Nozzle <XL>\","),
     "{}",
     wire[1]
   );
@@ -195,7 +195,7 @@ fn a_deferred_segment_describes_the_document_when_it_resolves() {
   .unwrap();
   let html: Vec<String> = block_on(html_stream(assembly).collect());
   assert!(html[0].contains("<title>Shop</title>"), "{}", html[0]);
-  assert!(html[1].ends_with("<script type=\"application/json\" data-sf-fill-data=\"1\">{\"head\":{\"title\":\"Nozzle \\u003cXL> · Shop\",\"description\":\"All about Nozzle \\u003cXL>\"}}</script><script>__sfFill(1)</script>"), "{}", html[1]);
+  assert!(html[1].contains("<script type=\"application/json\" data-sf-fill-data=\"1\">{\"head\":{\"title\":\"Nozzle \\u003cXL> · Shop\",\"description\":\"All about Nozzle \\u003cXL>\","), "{}", html[1]);
 }
 
 /// Titles the document after the product alone, leaving the suffix to the head's template.
@@ -236,7 +236,7 @@ fn a_template_writes_a_described_title_around_the_default_and_leaves_an_undescri
   let assembly = block_on(assemble(&runtime_titled(false), &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
   assert_eq!(assembly.meta.title.as_deref(), Some("Nozzle {title} · Shop"), "a token inside the page's title is not expanded");
   let wire: String = block_on(wire_stream(assembly).collect::<Vec<_>>()).concat();
-  assert!(wire.contains("\nH {\"title\":\"Nozzle {title} · Shop\",\"description\":\"A shop\"}\n"), "{wire}");
+  assert!(wire.contains("\nH {\"title\":\"Nozzle {title} · Shop\",\"description\":\"A shop\","), "{wire}");
   let assembly = block_on(assemble(&runtime_titled(false), &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
   let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
   assert!(html.contains("<title>Nozzle {title} · Shop</title>"), "{html}");
@@ -266,11 +266,11 @@ fn an_absolute_title_is_written_as_given() {
 fn a_deferred_segment_retitles_through_the_template() {
   let assembly = block_on(assemble(&runtime_titled(false), &plan(true), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
   let wire: Vec<String> = block_on(wire_stream(assembly).collect());
-  assert!(wire[0].contains("\nH {\"title\":\"Shop\",\"description\":\"A shop\"}\n"), "{}", wire[0]);
-  assert!(wire[1].ends_with("\nH {\"title\":\"Nozzle {title} · Shop\"}\n"), "{}", wire[1]);
+  assert!(wire[0].contains("\nH {\"title\":\"Shop\",\"description\":\"A shop\","), "{}", wire[0]);
+  assert!(wire[1].contains("\nH {\"title\":\"Nozzle {title} · Shop\","), "{}", wire[1]);
   let assembly = block_on(assemble(&runtime_titled(false), &plan(true), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
   let html: Vec<String> = block_on(html_stream(assembly).collect());
-  assert!(html[1].ends_with("<script type=\"application/json\" data-sf-fill-data=\"1\">{\"head\":{\"title\":\"Nozzle {title} · Shop\"}}</script><script>__sfFill(1)</script>"), "{}", html[1]);
+  assert!(html[1].contains("<script type=\"application/json\" data-sf-fill-data=\"1\">{\"head\":{\"title\":\"Nozzle {title} · Shop\","), "{}", html[1]);
 }
 
 fn el(tag: &str, attrs: &[(&str, &str)]) -> HeadEl {
@@ -342,4 +342,85 @@ fn an_element_with_content_closes_its_tag() {
     out,
     "<script type=\"application/ld+json\">{\"@type\":\"Article\"}</script>"
   );
+}
+
+/// Names its own `og:type` and carries a data block, over a document that names both `og:site_name` and `og:type`.
+struct RowsMeta;
+
+impl Metadata for RowsMeta {
+  fn describe(&self, _ctx: &RequestCtx, _data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
+    Box::pin(async move {
+      Ok(Meta::default().title(Some("Nozzle · Shop".into())).head(vec![
+        el("meta", &[("property", "og:type"), ("content", "product")]),
+        HeadEl::new("script".into(), vec![("type".into(), "application/ld+json".into())], Some("{\"@type\":\"Product\"}".into())),
+      ]))
+    })
+  }
+}
+
+fn rows_runtime() -> Arc<Runtime> {
+  let mut sources = DataSources::new();
+  sources.insert_fn("product", |_p| async move { Ok(ValueMap::default()) });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(Shell));
+  evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(Page));
+  Runtime::builder().sources(sources).evaluators(evaluators).meta("product", Arc::new(RowsMeta)).build()
+}
+
+fn rows_head() -> Head {
+  let mut head = Head::new("Shop", Node::raw(""));
+  head.head = vec![el("meta", &[("property", "og:site_name"), ("content", "Shop")]), el("meta", &[("property", "og:type"), ("content", "website")])];
+  head
+}
+
+fn head_rows(line: &str) -> Vec<String> {
+  let row: serde_json::Value = serde_json::from_str(line.strip_prefix("H ").unwrap()).unwrap();
+  row["head"].as_array().unwrap_or_else(|| panic!("no `head` in {line}")).iter().map(|el| el.to_string()).collect()
+}
+
+#[test]
+fn the_payload_carries_every_head_row_the_document_writes() {
+  let wire: String = block_on(wire_stream(block_on(assemble(&rows_runtime(), &plan(false), &RequestCtx::anonymous(Params::new()), rows_head())).unwrap()).collect::<Vec<_>>()).concat();
+  let line = wire.lines().find(|l| l.starts_with("H ")).unwrap();
+  let rows = head_rows(line);
+  assert_eq!(rows.len(), 4, "{rows:?}");
+  assert!(rows[0].contains("og:site_name"), "a document row the route left alone: {rows:?}");
+  assert!(rows[1].contains("og:type") && rows[1].contains("product"), "the route's row over the document's: {rows:?}");
+  assert!(rows[2].contains("ld+json") && rows[2].contains("children"), "a data block with its text: {rows:?}");
+  assert!(rows[3].contains("og:title") && rows[3].contains("Nozzle · Shop"), "the card text the document derives: {rows:?}");
+}
+
+#[test]
+fn a_deferred_segments_row_carries_the_whole_head_with_its_rows_folded_in() {
+  let assembly = block_on(assemble(&rows_runtime(), &plan(true), &RequestCtx::anonymous(Params::new()), rows_head())).unwrap();
+  let wire: Vec<String> = block_on(wire_stream(assembly).collect());
+  let eager = head_rows(wire[0].lines().find(|l| l.starts_with("H ")).unwrap());
+  assert!(eager.iter().any(|r| r.contains("og:type") && r.contains("website")), "the eager wave has the document's: {eager:?}");
+  let late = head_rows(wire[1].lines().find(|l| l.starts_with("H ")).unwrap());
+  assert_eq!(late.len(), 4, "{late:?}");
+  assert!(late[1].contains("product"), "{late:?}");
+  assert!(late[3].contains("og:title") && late[3].contains("Nozzle · Shop"), "the card text follows the deferred title: {late:?}");
+}
+
+#[test]
+fn a_page_with_no_rows_of_its_own_still_says_the_head_is_the_documents() {
+  let mut bare = plan(false);
+  bare.children[0].1.data_source = None;
+  let assembly = block_on(assemble(&rows_runtime(), &bare, &RequestCtx::anonymous(Params::new()), rows_head())).unwrap();
+  let wire: String = block_on(wire_stream(assembly).collect::<Vec<_>>()).concat();
+  let rows = head_rows(wire.lines().find(|l| l.starts_with("H ")).unwrap());
+  assert!(rows.iter().any(|r| r.contains("website")), "going back to this page restores the document's row: {rows:?}");
+}
+
+#[test]
+fn the_document_marks_where_its_head_rows_begin_and_end() {
+  let assembly = block_on(assemble(&rows_runtime(), &plan(false), &RequestCtx::anonymous(Params::new()), rows_head())).unwrap();
+  let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
+  let open = html.find("<!--sf-head-->").unwrap_or_else(|| panic!("{html}"));
+  let close = html.find("<!--/sf-head-->").unwrap_or_else(|| panic!("{html}"));
+  let rows = &html[open..close];
+  for row in ["og:site_name", "og:type", "ld+json", "og:title"] {
+    assert!(rows.contains(row), "{row} between the marks: {html}");
+  }
+  assert!(!rows.contains("<title>"), "the title is outside: {html}");
 }

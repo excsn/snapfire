@@ -432,6 +432,13 @@ globalThis.__sf.load = (html, url) => {
   const nested = globalThis.document.documentElement.querySelector("html");
   if (nested) {
     for (const name of nested.getAttributeNames()) globalThis.document.documentElement.setAttribute(name, nested.getAttribute(name));
+    // The segment comment ahead of `<html>` makes linkedom nest the document's element under an empty head and body of its own; a browser's parser does not.
+    const head = nested.querySelector("head");
+    if (head) {
+      const body = page.body;
+      Object.defineProperty(page, "head", { configurable: true, get: () => head });
+      Object.defineProperty(page, "body", { configurable: true, get: () => body });
+    }
   }
 };
 // Upgrades the elements of the page showing that a definition still names, once the page's own modules have run again and defined theirs: what is left is defined by a module that ran once, a package's.

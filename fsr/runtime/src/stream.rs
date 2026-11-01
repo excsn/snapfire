@@ -6,12 +6,12 @@ use snapfire_fsr_core::Node;
 use snapfire_fsr_payload::{FORMAT_VERSION, HtmlSession, escape_key, node_to_row_json};
 
 use crate::assembler::{Assembly, PendingResolution};
-use crate::meta::Meta;
+use crate::meta::{HeadEl, Meta};
 use crate::segments::SegmentInfo;
 use crate::store::Contribution;
 
 /// Installed once, ahead of the first fill. Each fill's data rides in an inert JSON block beside it, so the executable text is this and `__sfFill(n)` alone, which a policy names by hash. `__sfFill` takes the block's seed, moves the resolved template into its slot, hands the boot runtime the segments inside it and applies its head.
-pub const FILL_SCRIPT_BODY: &str = "function __sfFill(n){var d=document.querySelector('script[data-sf-fill-data=\"'+n+'\"]'),j=d?JSON.parse(d.textContent):{},g=j.segments;if(d)d.remove();if(j.store)__sfStore(j.store);var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){(window.__sfServer=window.__sfServer||[]).push(t.innerHTML);s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}if(j.head)__sfHead(j.head)}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}";
+pub const FILL_SCRIPT_BODY: &str = "function __sfFill(n){var d=document.querySelector('script[data-sf-fill-data=\"'+n+'\"]'),j=d?JSON.parse(d.textContent):{},g=j.segments;if(d)d.remove();if(j.store)__sfStore(j.store);var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){(window.__sfServer=window.__sfServer||[]).push(t.innerHTML);s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}if(j.head)__sfHead(j.head)}function __sfRows(w){var H=document.head,C=H.childNodes,e=null,h=[],o=false,i,n;for(i=0;i<C.length;i++){n=C[i];if(n.nodeType==8){if(n.data=='sf-head')o=true;else if(n.data=='/sf-head'){e=n;break}}else if(o&&n.nodeType==1&&!n.hasAttribute('data-sf-script'))h.push(n)}if(!e)return;var K=function(x){return JSON.stringify([x.localName,Array.from(x.attributes,function(a){return[a.name,a.value]}).sort(),x.textContent])},k=h.map(K);w.forEach(function(r){var x=document.createElement(r.tag);r.attrs.forEach(function(a){x.setAttribute(a[0],a[1])});if(r.children!=null)x.textContent=r.children;var j=k.indexOf(K(x));if(j>=0){k.splice(j,1);h.splice(j,1)}else H.insertBefore(x,e)});h.forEach(function(x){x.remove()})}function __sfHead(h){if(h.head)__sfRows(h.head);if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}";
 
 /// What the document's capture script runs: it keeps the body as the parser
 /// first finished it, before any module or deferred script can change it, so
@@ -22,7 +22,7 @@ pub const CAPTURE_SCRIPT_BODY: &str = "window.__sfServer=[document.body.innerHTM
 /// The capture script as the document carries it, after the segments sidecar.
 pub const CAPTURE_SCRIPT: &str = concat!("<script>", "window.__sfServer=[document.body.innerHTML]", "</script>");
 
-pub const FILL_SCRIPT: &str = concat!("<script>", "function __sfFill(n){var d=document.querySelector('script[data-sf-fill-data=\"'+n+'\"]'),j=d?JSON.parse(d.textContent):{},g=j.segments;if(d)d.remove();if(j.store)__sfStore(j.store);var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){(window.__sfServer=window.__sfServer||[]).push(t.innerHTML);s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}if(j.head)__sfHead(j.head)}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}", "</script>");
+pub const FILL_SCRIPT: &str = concat!("<script>", "function __sfFill(n){var d=document.querySelector('script[data-sf-fill-data=\"'+n+'\"]'),j=d?JSON.parse(d.textContent):{},g=j.segments;if(d)d.remove();if(j.store)__sfStore(j.store);var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){(window.__sfServer=window.__sfServer||[]).push(t.innerHTML);s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}if(j.head)__sfHead(j.head)}function __sfRows(w){var H=document.head,C=H.childNodes,e=null,h=[],o=false,i,n;for(i=0;i<C.length;i++){n=C[i];if(n.nodeType==8){if(n.data=='sf-head')o=true;else if(n.data=='/sf-head'){e=n;break}}else if(o&&n.nodeType==1&&!n.hasAttribute('data-sf-script'))h.push(n)}if(!e)return;var K=function(x){return JSON.stringify([x.localName,Array.from(x.attributes,function(a){return[a.name,a.value]}).sort(),x.textContent])},k=h.map(K);w.forEach(function(r){var x=document.createElement(r.tag);r.attrs.forEach(function(a){x.setAttribute(a[0],a[1])});if(r.children!=null)x.textContent=r.children;var j=k.indexOf(K(x));if(j>=0){k.splice(j,1);h.splice(j,1)}else H.insertBefore(x,e)});h.forEach(function(x){x.remove()})}function __sfHead(h){if(h.head)__sfRows(h.head);if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}", "</script>");
 
 /// The executable text that fills slot `n`.
 pub fn fill_call(n: u32) -> String {
@@ -65,10 +65,16 @@ fn seed_script(contributions: &[Contribution], fragment: bool) -> String {
 }
 
 /// The `H` row's body: only the fields a segment set, so a reader leaves
-/// the rest alone. `scripts` carries the attributes of each script row the
-/// segments' `meta` declared, which a navigation loads since it adds no
-/// head markup.
+/// the rest alone. `scripts` carries the attributes of each script row, which
+/// a navigation loads since it writes none as markup. `head` carries every
+/// other head row.
 pub fn meta_to_json(meta: &Meta) -> Json {
+  row_json(meta, &meta.head)
+}
+
+/// The `H` row of a response whose document carries `rows`, which a reader
+/// makes the document's head rows.
+fn row_json(meta: &Meta, rows: &[HeadEl]) -> Json {
   let mut obj = serde_json::Map::new();
   if let Some(title) = &meta.title {
     obj.insert("title".to_owned(), json!(title));
@@ -76,12 +82,11 @@ pub fn meta_to_json(meta: &Meta) -> Json {
   if let Some(description) = &meta.description {
     obj.insert("description".to_owned(), json!(description));
   }
-  let scripts: Vec<Json> = meta.head.iter().filter(|el| el.is_script()).map(|el| Json::Object(el.attrs.iter().map(|(k, v)| (k.clone(), json!(v))).collect())).collect();
+  let scripts: Vec<Json> = rows.iter().filter(|el| el.is_script()).map(|el| Json::Object(el.attrs.iter().map(|(k, v)| (k.clone(), json!(v))).collect())).collect();
   if !scripts.is_empty() {
     obj.insert("scripts".to_owned(), Json::Array(scripts));
   }
-  let head: Vec<Json> = meta
-    .head
+  let head: Vec<Json> = rows
     .iter()
     .filter(|el| !el.is_script())
     .map(|el| {
@@ -205,15 +210,15 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     node_to_row_json(&assembly.tree)
   );
   if let Some(theme) = &assembly.theme {
-    let mut head = meta_to_json(&assembly.meta);
+    let mut head = row_json(&assembly.meta, &assembly.rows);
     if let Json::Object(fields) = &mut head {
       fields.insert("theme".to_owned(), json!(theme.name));
       fields.insert("scheme".to_owned(), json!(theme.scheme));
       fields.insert("forced".to_owned(), json!(theme.forced));
     }
     header.push_str(&format!("H {head}\n"));
-  } else if !assembly.meta.is_empty() {
-    header.push_str(&format!("H {}\n", meta_to_json(&assembly.meta)));
+  } else if !assembly.meta.is_empty() || !assembly.rows.is_empty() {
+    header.push_str(&format!("H {}\n", row_json(&assembly.meta, &assembly.rows)));
   }
   if !assembly.contributions.is_empty() {
     header.push_str(&format!("T {}\n", contributions_to_json(&assembly.contributions)));
@@ -245,7 +250,7 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     }
     row.push_str(&format!("S {} {}\n", resolved.slot.0, fill_to_row_json(&resolved.node, &resolved.segments)));
     if !resolved.meta.is_empty() {
-      row.push_str(&format!("H {}\n", meta_to_json(&resolved.meta)));
+      row.push_str(&format!("H {}\n", row_json(&resolved.meta, &resolved.rows)));
     }
     Some((row, state))
   }))
@@ -358,7 +363,7 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
       data.insert("segments".to_owned(), Json::Array(info.children.iter().map(segments_to_json).collect()));
     }
     if !resolved.meta.is_empty() {
-      data.insert("head".to_owned(), meta_to_json(&resolved.meta));
+      data.insert("head".to_owned(), row_json(&resolved.meta, &resolved.rows));
     }
     let mut chunk = state.session.take_placed();
     chunk.push_str(&format!("<template data-sf-fill=\"{slot}\">{body}</template>"));

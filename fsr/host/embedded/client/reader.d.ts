@@ -46,9 +46,17 @@ export interface Segment {
 	keep?: string[];
 }
 /** What a route says about the document; a field left out keeps what the document has. */
+/** One head element as an `H` row carries it: its tag, its attributes in order and, for a tag that takes content, its text. */
+export interface HeadRow {
+	tag: string;
+	attrs: [string, string][];
+	children?: string;
+}
 export interface Head {
 	title?: string;
 	description?: string;
+	/** Every head element the document carries under this row besides its script rows, which replaces the ones the document holds. */
+	head?: HeadRow[];
 	/** The attributes of each script row the route's `meta` declared, as the document's inert marker carries them. */
 	scripts?: Record<string, string>[];
 	/** The document's named theme, `<html data-sf-theme>`; null is the root theme. Absent when the application has no themes. */

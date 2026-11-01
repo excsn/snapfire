@@ -132,6 +132,9 @@ impl HeadEl {
 
   pub fn identity(&self) -> (String, String) {
     let of = |name: &str| self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+    if self.tag == "script" && of("type") == Some("application/ld+json") {
+      return ("script[ld+json]".to_owned(), self.children.clone().unwrap_or_default());
+    }
     for name in ["rel", "name", "property", "http-equiv", "itemprop", "id"] {
       if let Some(value) = of(name) {
         let mut qualifier: String = ["sizes", "media", "type", "hreflang"]
@@ -351,6 +354,11 @@ impl DocumentTheme {
   }
 }
 
+/// The comments around a document's head rows in its markup, the region a
+/// navigation's `H` row replaces.
+pub const HEAD_OPEN: &str = "<!--sf-head-->";
+pub const HEAD_CLOSE: &str = "<!--/sf-head-->";
+
 /// How a response's own stylesheets are written into a document and the mark
 /// the browser reconciles them by: a link the client did not put there is one
 /// it must not take away on a navigation.
@@ -412,20 +420,12 @@ impl Head {
     }
   }
 
-  pub fn node(&self, meta: &Meta) -> Node {
+  /// Every head element a document under `meta` carries, in order: the
+  /// defaults with `meta`'s folded over them, the card text its title and
+  /// description fill in and each path a crawler reads as a URL made absolute.
+  pub fn rows(&self, meta: &Meta) -> Vec<HeadEl> {
     let title = self.title_for(meta);
     let description = meta.description.as_deref().or(self.description.as_deref());
-    let mut tail = String::new();
-    if !title.is_empty() {
-      tail.push_str("<title>");
-      tail.push_str(&escape(&title));
-      tail.push_str("</title>");
-    }
-    if let Some(description) = description {
-      tail.push_str("<meta name=\"description\" content=\"");
-      tail.push_str(&escape(description));
-      tail.push_str("\">");
-    }
     let mut merged = Meta {
       head: self.head.clone(),
       ..Meta::default()
@@ -452,9 +452,28 @@ impl Head {
         }
       }
     }
-    for element in &merged.head {
+    merged.head
+  }
+
+  pub fn node(&self, meta: &Meta) -> Node {
+    let title = self.title_for(meta);
+    let description = meta.description.as_deref().or(self.description.as_deref());
+    let mut tail = String::new();
+    if !title.is_empty() {
+      tail.push_str("<title>");
+      tail.push_str(&escape(&title));
+      tail.push_str("</title>");
+    }
+    if let Some(description) = description {
+      tail.push_str("<meta name=\"description\" content=\"");
+      tail.push_str(&escape(description));
+      tail.push_str("\">");
+    }
+    tail.push_str(HEAD_OPEN);
+    for element in self.rows(meta) {
       element.render(&mut tail);
     }
+    tail.push_str(HEAD_CLOSE);
     for href in &self.styles {
       tail.push_str(STYLE_OPEN);
       tail.push_str(&escape(href));
@@ -464,9 +483,6 @@ impl Head {
       tail.push_str(ENTRY_OPEN);
       tail.push_str(&escape(entry));
       tail.push_str("\"></script>");
-    }
-    if tail.is_empty() {
-      return self.rest.clone();
     }
     Node::Seq(vec![self.rest.clone(), Node::raw(tail)])
   }

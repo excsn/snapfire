@@ -740,9 +740,11 @@ Writes `online` from `navigator.onLine` and keeps it current from the window's `
 
 * `applyHead(head: Head): void`
 
-Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. Each entry of `head.scripts`, the attributes of a script row a route's `meta` declared, goes to `loadMarkedScript`. `head.theme` and `head.scheme` set `data-sf-theme` and `data-sf-scheme` on `<html>`, null removing the attribute; `head.forced` sets or removes `data-sf-theme-forced`. A row without the key leaves its attribute. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
+Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. Each entry of `head.scripts`, the attributes of a script row a route's `meta` declared, goes to `loadMarkedScript`. `head.theme` and `head.scheme` set `data-sf-theme` and `data-sf-scheme` on `<html>`, null removing the attribute; `head.forced` sets or removes `data-sf-theme-forced`. A row without the key leaves its attribute. `head.head` lists the document's head rows: the elements between the document's `<!--sf-head-->` and `<!--/sf-head-->` comments become these, except its script rows. An element already there unchanged stays in place and a document without the comments is left alone. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
 
-* `interface Head { title?: string; description?: string; scripts?: Record<string, string>[]; theme?: string | null; scheme?: string | null; forced?: boolean }`
+* `interface HeadRow { tag: string; attrs: [string, string][]; children?: string }`
+
+* `interface Head { title?: string; description?: string; head?: HeadRow[]; scripts?: Record<string, string>[]; theme?: string | null; scheme?: string | null; forced?: boolean }`
 
 ### loadScript
 

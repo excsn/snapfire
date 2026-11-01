@@ -2,7 +2,7 @@ import { loadMarkedScript } from "./script.js";
 import { addStyles, discard, loadEntry, mountedIsland, owned, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
 import { filledPlaces, placedPieces, recordFilled, type Piece } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
-import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
+import { Head, HeadRow, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { previousRegion, readyRecords, recordMorphed, recordWritten } from "./rendered.js";
 import { morphElement, morphNodes, type MorphHooks } from "./server.js";
@@ -636,7 +636,7 @@ export function subscribePendingLink(watcher: () => void): () => void {
   };
 }
 
-/** Sets the document's title and description meta, its theme and its scheme from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
+/** Sets the document's title and description meta, its theme, its scheme and its head rows from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
 export function applyHead(head: Head): void {
   for (const script of head.scripts ?? []) loadMarkedScript(script);
   if (head.theme !== undefined) setRootAttribute("data-sf-theme", head.theme);
@@ -652,6 +652,44 @@ export function applyHead(head: Head): void {
     }
     meta.setAttribute("content", head.description);
   }
+  if (head.head !== undefined) applyHeadRows(head.head);
+}
+
+/** What makes two head elements the same element, whatever order their attributes were written in. */
+function headElementKey(el: Element): string {
+  return JSON.stringify([el.localName, Array.from(el.attributes, (a) => [a.name, a.value]).sort(), el.textContent]);
+}
+
+/** Makes the elements between the document's head marks these rows. One that is already there stays in place, so an unchanged icon or stylesheet is not fetched again, and a script row stays since it is a marker the loader already read. A document without the marks is one whose shell writes its own head, and it is left alone. The fill script's `__sfRows` does the same for a streamed document. */
+function applyHeadRows(rows: HeadRow[]): void {
+  const held: Element[] = [];
+  let close: Node | null = null;
+  let open = false;
+  for (const node of Array.from(document.head.childNodes)) {
+    if (node.nodeType === 8) {
+      if (node.textContent === "sf-head") open = true;
+      else if (node.textContent === "/sf-head") {
+        close = node;
+        break;
+      }
+    } else if (open && node.nodeType === 1 && !(node as Element).hasAttribute("data-sf-script")) {
+      held.push(node as Element);
+    }
+  }
+  if (!close) return;
+  const keys = held.map(headElementKey);
+  for (const row of rows) {
+    const el = document.createElement(row.tag);
+    for (const [name, value] of row.attrs) el.setAttribute(name, value);
+    if (row.children !== undefined) el.textContent = row.children;
+    const at = keys.indexOf(headElementKey(el));
+    if (at === -1) document.head.insertBefore(el, close);
+    else {
+      keys.splice(at, 1);
+      held.splice(at, 1);
+    }
+  }
+  for (const el of held) el.remove();
 }
 
 function setRootAttribute(name: string, value: string | null): void {
@@ -729,6 +767,7 @@ function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
   documentSidecar = false;
   openSlot = interceptSlot(eager.segments);
   for (const head of eager.heads) applyHead(head);
+  if (!eager.heads.some((head) => head.head !== undefined)) applyHeadRows([]);
   if (eager.locale !== null) {
     if (eager.catalog !== null) setCatalog(eager.locale, eager.catalog);
     setLocale(eager.locale);
