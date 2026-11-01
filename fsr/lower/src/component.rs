@@ -5977,18 +5977,25 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       Ok(sequenced(lets, value))
     }
     js::Stmt::Decl(js::Decl::Var(var)) => {
+      let mut lets = Vec::new();
       for decl in &var.decls {
-        let expr = match decl.init.as_deref() {
+        let mut expr = match decl.init.as_deref() {
           Some(init) => lowerer.expr(init)?,
           None => Expr::Lit(Lit::Undefined),
         };
+        if loops(&expr) {
+          let held = lowerer.temp();
+          lets.push(Stmt::Let { name: held.clone(), expr });
+          expr = Expr::Var(held);
+        }
         bind_pattern(lowerer, &decl.name, expr)?;
         if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
           lowerer.note_kind(id.id.sym.as_ref(), init);
           note_alias(lowerer, id.id.sym.as_ref(), init, &Writable { floor, frozen: &[], setters: &[] })?;
         }
       }
-      block_to_expr_inner(lowerer, rest, floor)
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(lets, value))
     }
     js::Stmt::Return(ret) => {
       let value = match &ret.arg {
@@ -6176,6 +6183,16 @@ fn computed_once(lowerer: &Lowerer<'_>, expr: &Expr) -> bool {
 fn touches_cells(expr: &Expr) -> bool {
   let mut found = false;
   expr.visit(&mut |e| found |= matches!(e, Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::Apply { .. }));
+  found
+}
+
+/// Whether a value passes a function to something, as `xs.map(f)` does. A `const` holding one runs where it is declared, since pasting it at each read runs its loop at each read and a `const` built from it multiplies that. A function value on its own runs nothing.
+fn loops(expr: &Expr) -> bool {
+  if matches!(expr, Expr::Lambda { .. } | Expr::Fix { .. }) {
+    return false;
+  }
+  let mut found = false;
+  expr.visit(&mut |e| found |= matches!(e, Expr::Lambda { .. }));
   found
 }
 

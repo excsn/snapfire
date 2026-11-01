@@ -408,3 +408,34 @@ fn a_division_with_a_bigint_side_truncates_and_any_other_divides_as_numbers() {
   assert_eq!(division_of(&lowered("divide-bigint", "7n / 2n").unwrap()), ArithOp::Quot);
   assert_eq!(division_of(&lowered("divide-bigint-call", "BigInt(params.a) / 2n").unwrap()), ArithOp::Quot);
 }
+
+/// How many lambdas with this one parameter a loader's lowered body holds.
+fn lambdas_taking(body: &[Stmt], param: &str) -> usize {
+  let mut found = 0;
+  let mut look = |e: &Expr| {
+    if let Expr::Lambda { params, .. } = e {
+      found += usize::from(params.len() == 1 && params[0] == param);
+    }
+  };
+  for stmt in body {
+    match stmt {
+      Stmt::Let { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.visit(&mut look),
+      _ => {}
+    }
+  }
+  found
+}
+
+#[test]
+fn a_helper_const_holding_a_loop_runs_once_however_often_it_is_read() {
+  let dir = app(
+    "consts_once",
+    &[
+      ("src/rows.ts", "export const summary = (ys: number[]) => {\n  const bigger = ys.map((y) => y + 1);\n  return [bigger.length, bigger[0], bigger[1]];\n};\n"),
+      ("routes/a/page.loader.ts", "import { summary } from \"@src/rows\";\nexport async function load() {\n  return { held: summary([1, 2]) };\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  let body = set.lower_loader("routes/a/page.loader.ts").unwrap();
+  assert_eq!(lambdas_taking(&body, "y"), 1, "three reads are one loop: {body:?}");
+}
