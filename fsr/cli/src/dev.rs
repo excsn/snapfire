@@ -411,6 +411,7 @@ impl Project {
     let mut executables = Vec::new();
     for line in BufReader::new(stdout).lines().map_while(Result::ok) {
       built.declared.extend(inputs_of(cargo, &line));
+      built.declared.extend(sources_of(&line));
       executables.extend(executable_of(&line));
     }
     let status = child.wait().map_err(|e| BuildError::Dev(format!("cargo build: {e}")))?;
@@ -1531,6 +1532,17 @@ fn inputs_of(cargo: &Path, message: &str) -> Vec<PathBuf> {
     .collect()
 }
 
+/// A path dependency's sources, from one cargo message, since the binary is rebuilt from them too.
+fn sources_of(message: &str) -> Vec<PathBuf> {
+  let Ok(json) = serde_json::from_str::<serde_json::Value>(message) else { return Vec::new() };
+  if json["reason"].as_str() != Some("compiler-artifact") || !json["package_id"].as_str().is_some_and(|id| id.starts_with("path+")) {
+    return Vec::new();
+  }
+  let Some(manifest) = json["manifest_path"].as_str().map(Path::new) else { return Vec::new() };
+  let Some(crate_dir) = manifest.parent() else { return Vec::new() };
+  vec![crate_dir.join("src"), manifest.to_path_buf()]
+}
+
 /// The binary one cargo message says the project's own package produced.
 fn executable_of(message: &str) -> Option<PathBuf> {
   let json = serde_json::from_str::<serde_json::Value>(message).ok()?;
@@ -2061,6 +2073,16 @@ mod tests {
 
   fn message(reason: &str, package: &str, out_dir: &Path) -> String {
     format!(r#"{{"reason":"{reason}","package_id":"{package}","out_dir":"{}"}}"#, out_dir.display())
+  }
+
+  #[test]
+  fn a_path_dependency_is_watched_like_the_crate_itself() {
+    let artifact = |id: &str, manifest: &str| serde_json::json!({ "reason": "compiler-artifact", "package_id": id, "manifest_path": manifest }).to_string();
+    let sources = sources_of(&artifact("path+file:///p/query#beedrill_query@0.1.0", "/p/query/Cargo.toml"));
+    assert_eq!(sources, vec![PathBuf::from("/p/query/src"), PathBuf::from("/p/query/Cargo.toml")]);
+    assert!(sources_of(&artifact("registry+https://x#serde@1.0.0", "/registry/serde/Cargo.toml")).is_empty());
+    assert!(sources_of(&serde_json::json!({ "reason": "build-script-executed", "package_id": "path+file:///p/query#q@0.1.0", "manifest_path": "/p/query/Cargo.toml" }).to_string()).is_empty());
+    assert!(sources_of("not json at all").is_empty());
   }
 
   #[test]
