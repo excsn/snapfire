@@ -5,6 +5,8 @@ export interface TelemetryOptions {
 	version: string;
 	/** The share of page views that report, from 0 to 1. */
 	sample?: number;
+	/** A page whose largest paint takes at least this long reports the trace id the server named, so the report can lead to the server's side of it. Leave it out to report none. */
+	slowMs?: number;
 }
 /**
 * Reports this page view's web vitals once, when the page is hidden. It names the route pattern

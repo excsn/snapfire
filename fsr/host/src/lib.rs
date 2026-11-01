@@ -400,6 +400,7 @@ struct Tables {
   trace_expose: builder::PathSet,
   /// `trace.inline`: the paths whose pages end with their own trace.
   trace_inline: builder::PathSet,
+  trace_report: builder::PathSet,
   /// `server.health` and `server.ready`, `None` when empty.
   health: Option<String>,
   ready: Option<String>,

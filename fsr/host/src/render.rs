@@ -269,6 +269,12 @@ impl Host {
       extra.push(snapfire_fsr_core::Node::raw(shell::request_meta(&token)));
     }
     if matches!(mode, RenderMode::Html)
+      && t.trace_report.contains(&visit.path)
+      && let Some(trace) = self.traces.as_ref().and_then(|traces| traces.current())
+    {
+      extra.push(snapfire_fsr_core::Node::raw(shell::trace_meta(&trace.trace_id)));
+    }
+    if matches!(mode, RenderMode::Html)
       && let Some(pattern) = t.app.matcher.match_path(&visit.path).and_then(|matched| t.app.patterns.get(matched.entry.0 as usize))
     {
       extra.push(snapfire_fsr_core::Node::raw(shell::route_meta(pattern)));

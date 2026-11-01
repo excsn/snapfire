@@ -764,6 +764,7 @@ Adds `<script src>` to `document.head` once per resolved URL and resolves on its
 ### `enableTelemetry`
 
 * `enableTelemetry(options: TelemetryOptions): void`: reports this page view's web vitals once, as a POST of JSON to `options.beacon`, when the page is hidden. `TelemetryOptions` is `{ beacon, app, version, sample? }`.
+* `slowMs`: a page whose largest paint takes at least this many milliseconds adds `traceId` to the report, from `<meta name="sf-trace">`, which `[trace] report` turns on. Leave it out to report none.
 * The report holds `app`, `version`, `route` from `<meta name="sf-route">`, a device class and `samples` of `ttfb_ms`, `fcp_ms`, `lcp_ms` and `inp_ms`. It holds no URL and nothing about the person.
 
 ## 7. Actions and Sign-In

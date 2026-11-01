@@ -5,6 +5,8 @@ export interface TelemetryOptions {
   version: string;
   /** The share of page views that report, from 0 to 1. */
   sample?: number;
+  /** A page whose largest paint takes at least this long reports the trace id the server named, so the report can lead to the server's side of it. Leave it out to report none. */
+  slowMs?: number;
 }
 
 const MOBILE = /Mobi|Android|iPhone/;
@@ -14,6 +16,10 @@ const INTERACTION_FLOOR_MS = 40;
 function deviceClass(agent: string): string {
   if (TABLET.test(agent)) return "tablet";
   return MOBILE.test(agent) ? "mobile" : "desktop";
+}
+
+function traceOfPage(): string | undefined {
+  return document.querySelector('meta[name="sf-trace"]')?.getAttribute("content") ?? undefined;
 }
 
 function routeOfPage(): string {
@@ -47,7 +53,8 @@ export function enableTelemetry(options: TelemetryOptions): void {
   document.addEventListener("visibilitychange", () => {
     if (sent || document.visibilityState !== "hidden") return;
     sent = true;
-    const report = { app: options.app, version: options.version, route: routeOfPage(), device: deviceClass(navigator.userAgent), samples: [...samples], counts: [] };
+    const slow = options.slowMs !== undefined && (samples.get("lcp_ms") ?? 0) >= options.slowMs;
+    const report = { app: options.app, version: options.version, route: routeOfPage(), device: deviceClass(navigator.userAgent), samples: [...samples], counts: [], traceId: slow ? traceOfPage() : undefined };
     void fetch(options.beacon, { method: "POST", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify(report) }).catch(() => {});
   });
 }

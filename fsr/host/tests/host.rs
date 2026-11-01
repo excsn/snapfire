@@ -7190,6 +7190,9 @@ fn a_trace_field_cannot_close_the_inline_script() {
   fields.insert("path".to_owned(), fibre_tracing::Value::Str("/</script><script>alert(1)</script>".to_owned()));
   let trace = fibre_tracing::Trace {
     id: 1,
+    trace_id: vec![1],
+    parent_ref: None,
+    started_at: std::time::SystemTime::UNIX_EPOCH,
     duration: std::time::Duration::from_millis(1),
     spans: vec![fibre_tracing::Span {
       name: "request",
@@ -8574,6 +8577,26 @@ async fn a_form_failure_shows_once() {
   let page = || host.handle(Request::get("/hello/norm").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap());
   assert!(body_of(page().await).await.contains("action_failure"));
   assert!(!body_of(page().await).await.contains("action_failure"), "a reload does not show it again");
+}
+
+#[tokio::test]
+async fn a_reported_page_names_its_trace_id_and_gives_no_way_to_read_the_trace() {
+  let (host, _traces, _guard) = traced_host(false, "[trace]\nreport = [\"/\"]\n");
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert!(response.headers().get("x-sf-request").is_none(), "report does not expose");
+  let html = body_of(response).await;
+  let from = html.find("<meta name=\"sf-trace\" content=\"").expect(&html) + "<meta name=\"sf-trace\" content=\"".len();
+  let id = &html[from..from + html[from..].find('"').unwrap()];
+  assert!(id.len() >= 16 && id.chars().all(|c| c.is_ascii_hexdigit()), "{id}");
+  let response = host.handle(Request::get(format!("/__fsr/trace/{id}")).body(Bytes::new()).unwrap()).await;
+  assert_ne!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_page_not_reported_names_no_trace_id() {
+  let (host, _traces, _guard) = traced_host(false, "[trace]\nreport = [\"/docs\"]\n");
+  let html = body_of(host.handle(Request::get("/").body(Bytes::new()).unwrap()).await).await;
+  assert!(!html.contains("sf-trace"), "{html}");
 }
 
 #[tokio::test]

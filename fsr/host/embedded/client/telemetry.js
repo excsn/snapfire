@@ -5,6 +5,9 @@ function deviceClass(agent) {
     if (TABLET.test(agent)) return "tablet";
     return MOBILE.test(agent) ? "mobile" : "desktop";
 }
+function traceOfPage() {
+    return document.querySelector('meta[name="sf-trace"]')?.getAttribute("content") ?? undefined;
+}
 function routeOfPage() {
     return document.querySelector('meta[name="sf-route"]')?.getAttribute("content") ?? "other";
 }
@@ -35,6 +38,7 @@ export function enableTelemetry(options) {
     document.addEventListener("visibilitychange", ()=>{
         if (sent || document.visibilityState !== "hidden") return;
         sent = true;
+        const slow = options.slowMs !== undefined && (samples.get("lcp_ms") ?? 0) >= options.slowMs;
         const report = {
             app: options.app,
             version: options.version,
@@ -43,7 +47,8 @@ export function enableTelemetry(options) {
             samples: [
                 ...samples
             ],
-            counts: []
+            counts: [],
+            traceId: slow ? traceOfPage() : undefined
         };
         void fetch(options.beacon, {
             method: "POST",

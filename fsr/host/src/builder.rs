@@ -1225,6 +1225,7 @@ impl HostBuilder {
         csp_report_only,
         trace_expose: trace_paths(&config, |t| &t.expose)?,
         trace_inline: trace_paths(&config, |t| &t.inline)?,
+        trace_report: trace_paths(&config, |t| &t.report)?,
         health: Some(config.server.health.clone()).filter(|p| !p.is_empty()),
         ready: Some(config.server.ready.clone()).filter(|p| !p.is_empty()),
         prerendered,

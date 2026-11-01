@@ -191,6 +191,7 @@ after = ["generate"]              # optional: Cargo projects fsr build and fsr d
 
 [trace]                           # optional: without it no client reads a trace outside dev
 expose = ["/", "/{*rest}"]        # route patterns whose requests a page may read its own trace of; these two cover every path
+report = ["/{*rest}"]             # route patterns whose pages name their trace id in <meta name="sf-trace">, for a client report; it reads nothing back
 inline = ["/"]                    # route patterns whose pages end with their own trace in <script id="sf-trace">, answered private
 
 [media]                           # optional

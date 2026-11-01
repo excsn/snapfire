@@ -75,6 +75,11 @@ pub fn head(title: &str, styles: &[String], import_map: Option<&str>, preload: &
 
 /// The request's trace token, which a page script reads to fetch the trace of
 /// the request that served it.
+pub fn trace_meta(trace_id: &[u8]) -> String {
+  let id: String = trace_id.iter().map(|byte| format!("{byte:02x}")).collect();
+  format!("<meta name=\"sf-trace\" content=\"{id}\">")
+}
+
 pub fn request_meta(token: &str) -> String {
   format!("<meta name=\"sf-request\" content=\"{}\">", escape(token))
 }

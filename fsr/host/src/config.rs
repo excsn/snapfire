@@ -1413,6 +1413,11 @@ pub struct TraceSection {
   /// `private`, since what it carries belongs to one request.
   #[serde(default)]
   pub inline: Vec<String>,
+  /// The paths whose HTML pages name their trace id in `<meta name="sf-trace">`,
+  /// so a client report can point at the server's side of a slow page. The id
+  /// reads nothing back: `expose` is what lets a client read a trace.
+  #[serde(default)]
+  pub report: Vec<String>,
 }
 
 /// `[crawl]`. Each file is served at the path its key names and not at all
@@ -2476,14 +2481,14 @@ impl Config {
 
     let trace: Option<TraceSection> = if store.path_exists("trace") || !store.key_paths_with_prefix(Some("trace")).is_empty() {
       let mut json = serde_json::Map::new();
-      for key in ["expose", "inline"] {
+      for key in ["expose", "inline", "report"] {
         if let Some(value) = store.get(&format!("trace.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }
       }
       let section: TraceSection = serde_json::from_value(serde_json::Value::Object(json))
         .map_err(|e| HostError::Config(at.clone(), format!("trace: {e}")))?;
-      for (key, patterns) in [("expose", &section.expose), ("inline", &section.inline)] {
+      for (key, patterns) in [("expose", &section.expose), ("inline", &section.inline), ("report", &section.report)] {
         let mut router = matchit::Router::new();
         for pattern in patterns {
           if !pattern.starts_with('/') {
