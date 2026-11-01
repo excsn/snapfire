@@ -323,6 +323,22 @@ async fn independent_lets_issue_their_calls_together() {
 }
 
 #[tokio::test]
+async fn a_function_value_beside_independent_lets_is_made_in_turn() {
+  let mock = Mock::returning("shopping.getProduct", product(1, "Filament", 2400));
+  mock.returns.lock().insert("shopping.listProducts".into(), Value::seq(vec![]));
+  let body = vec![
+    Stmt::Let { name: "a".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
+    Stmt::Let { name: "b".into(), expr: Expr::call("shopping", "getProduct", vec![("id", Expr::lit_int(1))]) },
+    Stmt::Let { name: "f".into(), expr: Expr::lambda(&["x"], Expr::var("x")) },
+    Stmt::Let { name: "held".into(), expr: Expr::object(vec![("g", Expr::lambda(&["x"], Expr::var("x")))]) },
+    Stmt::Return(Expr::var("b")),
+  ];
+  let c = ctx(mock, &[], ValueMap::default());
+  let outcome = Interpreter::default().run(&body, &c, None).await.unwrap();
+  assert_eq!(outcome.value, product(1, "Filament", 2400));
+}
+
+#[tokio::test]
 async fn a_dependent_let_waits_for_the_one_it_reads() {
   let mock = Mock::returning("shopping.getProduct", product(1, "Filament", 2400));
   mock.returns.lock().insert("shopping.listProducts".into(), Value::seq(vec![product(1, "Filament", 2400)]));

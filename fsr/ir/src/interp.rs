@@ -2162,13 +2162,28 @@ impl Env {
   }
 }
 
+/// Function values are numbered in a table a parallel copy does not hold.
+fn makes_function_value(expr: &Expr) -> bool {
+  match expr {
+    Expr::Lambda { .. } | Expr::Fix { .. } => true,
+    Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
+      Entry::Field(_, value) | Entry::Computed(_, value) | Entry::Item(value) | Entry::Spread(value) => makes_function_value(value),
+      Entry::Baked(_) => false,
+    }),
+    _ => false,
+  }
+}
+
 /// How many statements from the front are `let`s that read none of each
-/// other's names. Two or more are evaluated together.
+/// other's names and make no function value. Two or more are evaluated together.
 fn independent_lets(stmts: &[Stmt]) -> usize {
   let mut bound: Vec<&str> = Vec::new();
   let mut count = 0;
   for stmt in stmts {
     let Stmt::Let { name, expr } = stmt else { break };
+    if makes_function_value(expr) {
+      break;
+    }
     let mut free = Vec::new();
     expr.free_vars(&mut free);
     if free.iter().any(|f| bound.iter().any(|b| b == f)) {
