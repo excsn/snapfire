@@ -40,6 +40,13 @@ fn a_route_whose_directory_starts_with_a_digit_gets_a_props_type_that_starts_wit
 }
 
 #[test]
+fn a_route_named_host_does_not_take_the_name_of_the_host_props_type() {
+  let client = client("host", &[("routes/host/page.tsx", PAGE), ("routes/host/page.loader.ts", LOADER)]);
+  assert!(client.contains("export type RouteHostProps = Wire<Awaited<ReturnType<typeof import(\"../routes/host/page.loader\")[\"load\"]>>> & HostProps;"), "{client}");
+  assert!(!client.contains("export type HostProps"), "{client}");
+}
+
+#[test]
 fn an_action_group_that_is_not_an_identifier_is_quoted() {
   let client = client("actions", &[
     ("routes/cart/page.tsx", PAGE),

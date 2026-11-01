@@ -2845,7 +2845,8 @@ fn props_name(id: &str) -> String {
       name.push_str(chars.as_str());
     }
   }
-  if name.starts_with(|c: char| c.is_ascii_digit()) {
+  // `HostProps` is the type every route's props extend.
+  if name == "Host" || name.starts_with(|c: char| c.is_ascii_digit()) {
     name.insert_str(0, "Route");
   }
   name + "Props"
