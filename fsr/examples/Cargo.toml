@@ -24,3 +24,6 @@ members = [
 edition = "2024"
 license = "MPL-2.0"
 authors = ["Norm O <normo.pub@gmail.com>"]
+
+[patch.crates-io]
+fibre_tracing = { path = "/Users/norm/excsn/project_support/fibre/tracing" }
