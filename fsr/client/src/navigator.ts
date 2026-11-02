@@ -597,20 +597,59 @@ function staticChanged(oldSeg: Segment, newSeg: Segment, same: boolean, force: b
   return oldSeg.n !== undefined && known && !same;
 }
 
-/** The slot an intercepted payload fills: the child, of the segment that keeps its page, that is not kept. */
-function interceptSlot(seg: Segment): string | null {
+/** The segment an intercepted payload fills its slot with: the child, of the segment that keeps its page, that is not kept. */
+function interceptChild(seg: Segment): Segment | null {
   if (seg.keep?.includes("content")) {
-    return seg.c.find((c) => c.n !== undefined && !seg.keep?.includes(c.n))?.n ?? null;
+    return seg.c.find((c) => c.n !== undefined && !seg.keep?.includes(c.n)) ?? null;
   }
   for (const child of seg.c) {
-    const found = interceptSlot(child);
+    const found = interceptChild(child);
     if (found !== null) return found;
   }
   return null;
 }
 
+/** The slot an intercepted payload fills. */
+function interceptSlot(seg: Segment): string | null {
+  return interceptChild(seg)?.n ?? null;
+}
+
 /** The slot the current URL is rendered into, when the last navigation was intercepted; a refresh asks for the same. */
 let openSlot: string | null = null;
+
+/** The page an open intercept sits over, as it stood when the intercept opened: its segments and its head. A step back to it closes the intercept without a request. */
+let beneath: { segments: Segment; head: Head } | null = null;
+
+/** The document's head as `applyHead` would write it back. */
+function headNow(): Head {
+  const rows: HeadRow[] = [];
+  let open = false;
+  for (const node of Array.from(document.head.childNodes)) {
+    if (node.nodeType === 8) {
+      if (node.textContent === "sf-head") open = true;
+      else if (node.textContent === "/sf-head") break;
+    } else if (open && node.nodeType === 1 && !(node as Element).hasAttribute("data-sf-script")) {
+      const el = node as Element;
+      rows.push({ tag: el.localName, attrs: Array.from(el.attributes, (a): [string, string] => [a.name, a.value]), children: el.textContent || undefined });
+    }
+  }
+  const description = document.head.querySelector('meta[name="description"]')?.getAttribute("content") ?? undefined;
+  return { title: document.title, description, head: rows };
+}
+
+/** Closes the open intercept when `path` is the page beneath it: empties its slot and puts back that page's segments and head. False when there is none to close or `path` is another page. */
+function closeIntercept(path: string): boolean {
+  if (openSlot === null || beneath === null || path !== documentPath || !current) return false;
+  const child = interceptChild(current);
+  if (child) removeChild(child);
+  current = beneath.segments;
+  retain(segmentKeys(current));
+  applyHead(beneath.head);
+  openSlot = null;
+  beneath = null;
+  currentPath = documentPath;
+  return true;
+}
 
 /** The document's path and search as the navigator last left them, which is where the next navigation comes from. */
 let currentPath = "";
@@ -772,10 +811,12 @@ function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
   if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
   sweepPlaced();
   remountDisplaced(before, places);
+  const under = openSlot === null ? { segments: current, head: headNow() } : beneath;
   current = eager.segments;
   retain(segmentKeys(current));
   documentSidecar = false;
   openSlot = interceptSlot(eager.segments);
+  beneath = openSlot === null ? null : under;
   for (const head of eager.heads) applyHead(head);
   if (!eager.heads.some((head) => head.head !== undefined)) applyHeadRows([]);
   if (eager.locale !== null) {
@@ -1356,6 +1397,15 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   window.addEventListener("popstate", () => {
     leave();
     entry = adoptEntry();
+    if (closeIntercept(window.location.pathname + window.location.search)) {
+      ++generation;
+      showPending(null);
+      markLinks();
+      announce();
+      const back = scrolls.get(entry);
+      if (back) window.scrollTo(back.x, back.y);
+      return;
+    }
     void navigate(window.location.pathname + window.location.search + window.location.hash, false);
   });
 }

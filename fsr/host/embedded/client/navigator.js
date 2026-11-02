@@ -530,17 +530,59 @@ function staticChanged(oldSeg, newSeg, same, force) {
     if (newSeg.c.length === 0) return known ? !same : force;
     return oldSeg.n !== undefined && known && !same;
 }
-function interceptSlot(seg) {
+function interceptChild(seg) {
     if (seg.keep?.includes("content")) {
-        return seg.c.find((c)=>c.n !== undefined && !seg.keep?.includes(c.n))?.n ?? null;
+        return seg.c.find((c)=>c.n !== undefined && !seg.keep?.includes(c.n)) ?? null;
     }
     for (const child of seg.c){
-        const found = interceptSlot(child);
+        const found = interceptChild(child);
         if (found !== null) return found;
     }
     return null;
 }
+function interceptSlot(seg) {
+    return interceptChild(seg)?.n ?? null;
+}
 let openSlot = null;
+let beneath = null;
+function headNow() {
+    const rows = [];
+    let open = false;
+    for (const node of Array.from(document.head.childNodes)){
+        if (node.nodeType === 8) {
+            if (node.textContent === "sf-head") open = true;
+            else if (node.textContent === "/sf-head") break;
+        } else if (open && node.nodeType === 1 && !node.hasAttribute("data-sf-script")) {
+            const el = node;
+            rows.push({
+                tag: el.localName,
+                attrs: Array.from(el.attributes, (a)=>[
+                        a.name,
+                        a.value
+                    ]),
+                children: el.textContent || undefined
+            });
+        }
+    }
+    const description = document.head.querySelector('meta[name="description"]')?.getAttribute("content") ?? undefined;
+    return {
+        title: document.title,
+        description,
+        head: rows
+    };
+}
+function closeIntercept(path) {
+    if (openSlot === null || beneath === null || path !== documentPath || !current) return false;
+    const child = interceptChild(current);
+    if (child) removeChild(child);
+    current = beneath.segments;
+    retain(segmentKeys(current));
+    applyHead(beneath.head);
+    openSlot = null;
+    beneath = null;
+    currentPath = documentPath;
+    return true;
+}
 let currentPath = "";
 let documentPath = "";
 let documentSidecar = false;
@@ -685,10 +727,15 @@ function applyEager(eager, force, keep) {
     if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
     sweepPlaced();
     remountDisplaced(before, places);
+    const under = openSlot === null ? {
+        segments: current,
+        head: headNow()
+    } : beneath;
     current = eager.segments;
     retain(segmentKeys(current));
     documentSidecar = false;
     openSlot = interceptSlot(eager.segments);
+    beneath = openSlot === null ? null : under;
     for (const head of eager.heads)applyHead(head);
     if (!eager.heads.some((head)=>head.head !== undefined)) applyHeadRows([]);
     if (eager.locale !== null) {
@@ -1173,6 +1220,15 @@ export function enableNavigation(options = {}) {
     window.addEventListener("popstate", ()=>{
         leave();
         entry = adoptEntry();
+        if (closeIntercept(window.location.pathname + window.location.search)) {
+            ++generation;
+            showPending(null);
+            markLinks();
+            announce();
+            const back = scrolls.get(entry);
+            if (back) window.scrollTo(back.x, back.y);
+            return;
+        }
         void navigate(window.location.pathname + window.location.search + window.location.hash, false);
     });
 }

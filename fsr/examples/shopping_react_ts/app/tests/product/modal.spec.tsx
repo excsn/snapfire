@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, screen, test } from "@snapfire/fsr/client/testing";
+import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr/client/testing";
 
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 8n, description: "A spool.", tags: ["pla"], attributes: [] };
 const stock = { product_id: 1n, on_hand: 8n, reserved: 0n, warehouse: "Prague", bins: ["A1"] };
@@ -28,6 +28,25 @@ test("a click on a product from the catalog opens it in the layout's modal slot 
   expect(modal!.innerHTML, "the modal slot emptied").toEqual("");
   expect(screen.queryByText("Today's picks"), "the catalog gave way to the page").toBeNull();
   expect(document.querySelector('sf-i[data-sf-module="routes/product/[id]/page.island0.tsx#default"][data-sf-mounted]'), "the full page's island hydrated in the content slot").toBeTruthy();
+});
+
+test("a step back from the modal empties the slot and leaves the catalog under it as it was, with no request", async () => {
+  const c = ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament], getProduct: () => filament }, inventory: { getStock: () => stock } } });
+  await load("/", { ctx: c });
+  const catalog = screen.getByText("Today's picks");
+  const modal = document.querySelector('sf-s[data-sf-name="modal"]')!;
+
+  await fireEvent.click(screen.getByText("PLA filament"));
+  expect(modal.textContent?.includes("Full details")).toBeTruthy();
+  const calls = c.trace.calls.length;
+
+  history.back();
+  await settle();
+
+  expect(location.pathname).toEqual("/");
+  expect(modal.innerHTML, "the modal slot emptied").toEqual("");
+  expect(screen.getByText("Today's picks"), "the catalog kept its DOM").toBe(catalog);
+  expect(c.trace.calls.map((call) => call.method).slice(calls), "no loader ran again").toEqual([]);
 });
 
 test("a document load of the product is the full page and the modal slot stays empty", async () => {
