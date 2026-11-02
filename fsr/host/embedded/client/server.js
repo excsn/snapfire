@@ -268,9 +268,10 @@ export function morphNodes(parent, old, fresh, end, hooks, before = null) {
     }
 }
 export function morphElement(current, next, hooks, was = current) {
+    if (hooks.values !== "kept" || current.tagName !== "TEXTAREA") {
+        morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, was === current ? null : Array.from(was.childNodes));
+    }
     morphAttributes(current, was, next, hooks.values === "kept");
-    if (hooks.values === "kept" && current.tagName === "TEXTAREA") return;
-    morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, was === current ? null : Array.from(was.childNodes));
 }
 function morphNode(current, next, hooks, was) {
     if (current.nodeType === Node.TEXT_NODE || current.nodeType === Node.COMMENT_NODE) {
@@ -314,7 +315,7 @@ function morphNested(current, next) {
     }
     void patchIsland(current, decodeValue(raw));
 }
-export function morphAttributes(current, was, next, keepValues = false) {
+function morphAttributes(current, was, next, keepValues = false) {
     for (const attr of Array.from(was.attributes)){
         if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
     }

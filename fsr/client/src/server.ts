@@ -323,11 +323,12 @@ export function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node |
   }
 }
 
-/** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. `was` is the element as the server wrote it last; left out, `current` stands for it. */
+/** Patches `current` to match `next`: children by the rules of `morph`, then attributes by name. Attributes come last so a custom element's `attributeChangedCallback` draws over the fallback the server wrote inside it. `was` is the element as the server wrote it last; left out, `current` stands for it. */
 export function morphElement(current: Element, next: Element, hooks: MorphHooks, was: Element = current): void {
+  if (hooks.values !== "kept" || current.tagName !== "TEXTAREA") {
+    morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, was === current ? null : Array.from(was.childNodes));
+  }
   morphAttributes(current, was, next, hooks.values === "kept");
-  if (hooks.values === "kept" && current.tagName === "TEXTAREA") return;
-  morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, was === current ? null : Array.from(was.childNodes));
 }
 
 function morphNode(current: Node, next: Node, hooks: MorphHooks, was: Node): void {
@@ -379,7 +380,7 @@ function morphNested(current: Element, next: Element): void {
 }
 
 /** Applies to `current` what changed between `was`, the element as the server wrote it last, and `next`: an attribute `was` carried and `next` does not is removed and one whose value differs is set. One they agree on is left as it stands, as is one neither carries. A control's value and check follow the same rule. */
-export function morphAttributes(current: Element, was: Element, next: Element, keepValues = false): void {
+function morphAttributes(current: Element, was: Element, next: Element, keepValues = false): void {
   for (const attr of Array.from(was.attributes)) {
     if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
   }

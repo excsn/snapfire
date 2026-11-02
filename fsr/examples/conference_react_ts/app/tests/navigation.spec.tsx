@@ -166,3 +166,81 @@ test("a click that stays on the page gives a kept custom element the server's ne
   expect(count.getAttribute("track"), "a step back is a soft navigation too").toEqual("Data");
   expect(count.textContent).toEqual("One Data talk today");
 });
+
+const timetable = [
+  { ...talks[0], id: "1", title: "First", track: "Runtime", room: "Hall B", starts: "09:30" },
+  { ...talks[0], id: "2", title: "Second", track: "Data", room: "Room 2", starts: "10:20" },
+  { ...talks[0], id: "3", title: "Third", track: "Data", room: "Room 2", starts: "11:00" },
+];
+
+const timetabled = () =>
+  ctx({
+    services: {
+      program: { getConference: () => conference, listTalks: () => timetable, listAnnouncements: () => [], listSponsors: () => [] },
+    },
+  });
+
+const pickTrack = async (href: string) => {
+  await fireEvent.click(document.querySelector(`.venue-tracks a[href="${href}"]`) as HTMLElement);
+  await settle();
+};
+
+const rows = () => Array.from(document.querySelectorAll(".venue-times li"), (row) => row.textContent?.trim());
+
+test("an island holding only the server's markup takes all of it on a soft navigation, however deep", async () => {
+  await load("/venue", { ctx: timetabled() });
+  await settle();
+  const first = document.querySelector(".venue-first talk-time") as HTMLElement & { seen?: number };
+  first.seen = 1;
+  const list = document.querySelector(".venue-times ul");
+  expect(first.textContent).toEqual("at 09:30");
+  expect(rows()).toEqual(["at 09:30 First", "at 10:20 Second", "at 11:00 Third"]);
+
+  await pickTrack("/venue?track=Data");
+  expect(document.querySelector(".venue-first talk-time"), "the nested element is kept").toBe(first);
+  expect(first.seen, "with what it was given").toEqual(1);
+  expect(first.getAttribute("starts"), "and takes the attribute the server changed").toEqual("10:20");
+  expect(first.textContent, "and what it writes itself is not replaced by what the server wrote inside it").toEqual("at 10:20");
+  expect(document.querySelector(".venue-times ul"), "the list around the rows is kept").toBe(list);
+  expect(rows(), "a row the server dropped goes").toEqual(["at 10:20 Second", "at 11:00 Third"]);
+
+  await pickTrack("/venue");
+  expect(first.getAttribute("starts")).toEqual("09:30");
+  expect(rows(), "a row the server added comes").toEqual(["at 09:30 First", "at 10:20 Second", "at 11:00 Third"]);
+
+  history.back();
+  await settle();
+  expect(rows(), "a step back takes it too").toEqual(["at 10:20 Second", "at 11:00 Third"]);
+});
+
+test("an island whose timing has not fired mounts with what the last navigation gave it", async () => {
+  const shown: (() => void)[] = [];
+  const observer = globalThis.IntersectionObserver;
+  globalThis.IntersectionObserver = class {
+    cb: (entries: unknown[]) => void;
+    constructor(cb: (entries: unknown[]) => void) {
+      this.cb = cb;
+    }
+    observe(target: Element) {
+      shown.push(() => this.cb([{ isIntersecting: true, target }]));
+    }
+    disconnect() {}
+    unobserve() {}
+  } as unknown as typeof IntersectionObserver;
+  const rooms = () => Array.from(document.querySelectorAll(".floors-room"), (room) => room.textContent?.trim());
+  await load("/venue", { ctx: timetabled() });
+  await settle();
+  const floors = 'sf-i[data-sf-module="src/ui/Floors.vue#default"]';
+  expect(document.querySelector(floors)?.hasAttribute("data-sf-mounted"), "out of view, nothing has mounted").toEqual(false);
+
+  await pickTrack("/venue?track=Data");
+  expect(rooms(), "the server's markup follows the navigation").toEqual(["Room 2"]);
+  globalThis.IntersectionObserver = observer;
+  for (const show of shown.splice(0)) show();
+  await settle();
+  expect(document.querySelector(floors)?.hasAttribute("data-sf-mounted"), "once shown it mounts").toEqual(true);
+  expect(rooms(), "from the navigation's props rather than the first page's").toEqual(["Room 2"]);
+  await fireEvent.click(screen.getByText("Room 2"));
+  await settle();
+  expect(document.querySelectorAll(".floors-talks li").length, "and holds them in its own state").toEqual(2);
+});

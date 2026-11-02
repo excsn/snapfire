@@ -1,11 +1,11 @@
 import { loadMarkedScript } from "./script.js";
-import { addStyles, discard, loadEntry, mountedIsland, owned, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
+import { addStyles, discard, keptBy, loadEntry, mountedIsland, owned, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
 import { filledPlaces, placedPieces, recordFilled } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
 import { parsed, previousMarker, previousRegion, readyRecords, recordMarker, recordMorphed, recordWritten } from "./rendered.js";
-import { morphAttributes, morphElement, morphNodes } from "./server.js";
+import { morphElement, morphNodes } from "./server.js";
 import { contribute, restore, retain, take, transaction } from "./store.js";
 let current = null;
 const ids = {
@@ -361,15 +361,17 @@ function islandOf(region) {
     return null;
 }
 function patchProps(region, node) {
-    if (node.kind !== "client") return;
+    if (node.kind !== "client") return true;
     const island = islandOf(region);
-    if (!island) return;
+    if (!island) return true;
+    if (keptBy(island.el) === "replaced") return false;
     const json = propsScript(node);
     const children = childrenOf(node, ids);
     const markup = markupOf(node, ids);
-    if (island.script?.textContent === json && children === null && markup === null) return;
+    if (island.script?.textContent === json && children === null && markup === null) return true;
     if (island.script) island.script.textContent = json;
     void patchIsland(island.el, node.props, regionSources(node, ids), children, node.encoded, markup);
+    return true;
 }
 function diff(oldSeg, newSeg, newNode, force, keep) {
     const swap = ()=>replaceChild(oldSeg, newNode, newSeg);
@@ -394,7 +396,7 @@ function diff(oldSeg, newSeg, newNode, force, keep) {
     if (newNode.kind === "client") {
         if (!same) {
             const region = findRegion(key);
-            if (region) patchProps(region, newNode);
+            if (region && !patchProps(region, newNode)) return swap();
         }
     } else if (staticChanged(oldSeg, newSeg, same, force)) {
         if (newSeg.c.length === 0) return morphStatic(key, newNode, newSeg) || swap();
@@ -495,25 +497,23 @@ function morphStatic(key, node, seg, slotsSettled = false, values) {
 function isSegmentSlot(el) {
     return el.tagName === "SF-S" && !el.hasAttribute("data-sf-island") && !el.hasAttribute(CHILDREN_ATTR);
 }
-function morphKeptElement(marker, next) {
-    const kept = marker.firstElementChild;
-    const fresh = next.firstElementChild;
-    if (!kept || !fresh || !kept.localName.includes("-") || kept.localName !== fresh.localName) return;
-    const written = previousMarker(marker);
-    const was = written === null ? undefined : parsed(written).find((node)=>node instanceof Element && node.localName === kept.localName);
-    morphAttributes(kept, was ?? fresh.ownerDocument.createElement(kept.localName), fresh, true);
-    recordMarker(marker, next.innerHTML);
-}
 function takeIsland(current, next, sources, hooks) {
     const after = current.nextElementSibling;
     const script = after?.tagName === "SCRIPT" && after.getAttribute("data-sf-props") === current.id ? after : null;
     const wrapper = current.parentElement;
     const regionKey = wrapper?.hasAttribute("data-sf-island") ? wrapper.getAttribute("data-sf-region") : null;
     const source = regionKey === null ? undefined : sources.get(regionKey);
-    if (source && current.hasAttribute("data-sf-scheduled")) {
+    const kept = source && current.hasAttribute("data-sf-scheduled") ? keptBy(current) : "replaced";
+    if (source && kept === "patched") {
         if (script) script.textContent = propsScript(source);
-        morphKeptElement(current, next);
         void patchIsland(current, source.props, source.nested, source.children, source.encoded, source.markup);
+        return;
+    }
+    if (source && kept === "morphed") {
+        if (script) script.textContent = propsScript(source);
+        const written = previousMarker(current);
+        morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, written === null ? null : parsed(written));
+        recordMarker(current, next.innerHTML);
         return;
     }
     const wanted = next.nextElementSibling;

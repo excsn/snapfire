@@ -1,11 +1,11 @@
 import { loadMarkedScript } from "./script.js";
-import { addStyles, discard, loadEntry, mountedIsland, owned, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
+import { addStyles, discard, keptBy, loadEntry, mountedIsland, owned, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
 import { filledPlaces, placedPieces, recordFilled, type Piece } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, HeadRow, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { parsed, previousMarker, previousRegion, readyRecords, recordMarker, recordMorphed, recordWritten } from "./rendered.js";
-import { morphAttributes, morphElement, morphNodes, type MorphHooks } from "./server.js";
+import { morphElement, morphNodes, type MorphHooks } from "./server.js";
 import { contribute, restore, retain, take, transaction, type Contribution } from "./store.js";
 
 let current: Segment | null = null;
@@ -409,16 +409,18 @@ function islandOf(region: Region): { el: Element; script: Element | null } | nul
 }
 
 /** Hands a kept island the props the new payload carries, the regions the payload describes inside it and the markup of its children region, so it re-renders in place with its DOM and its state and the islands nested under it follow. Its props script is rewritten for the next mount. */
-function patchProps(region: Region, node: SfNode): void {
-  if (node.kind !== "client") return;
+function patchProps(region: Region, node: SfNode): boolean {
+  if (node.kind !== "client") return true;
   const island = islandOf(region);
-  if (!island) return;
+  if (!island) return true;
+  if (keptBy(island.el) === "replaced") return false;
   const json = propsScript(node);
   const children = childrenOf(node, ids);
   const markup = markupOf(node, ids);
-  if (island.script?.textContent === json && children === null && markup === null) return;
+  if (island.script?.textContent === json && children === null && markup === null) return true;
   if (island.script) island.script.textContent = json;
   void patchIsland(island.el, node.props, regionSources(node, ids), children, node.encoded, markup);
+  return true;
 }
 
 /** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. With `keep`, a mismatch of the same module is morphed in place instead, so every island its new markup places again keeps its DOM and its state, unless the new segment carries a slot over untouched, which its markup does not hold. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
@@ -452,7 +454,7 @@ function diff(oldSeg: Segment, newSeg: Segment, newNode: SfNode, force: boolean,
   if (newNode.kind === "client") {
     if (!same) {
       const region = findRegion(key);
-      if (region) patchProps(region, newNode);
+      if (region && !patchProps(region, newNode)) return swap();
     }
   } else if (staticChanged(oldSeg, newSeg, same, force)) {
     if (newSeg.c.length === 0) return morphStatic(key, newNode, newSeg) || swap();
@@ -561,27 +563,23 @@ function isSegmentSlot(el: Element): boolean {
 }
 
 /** An island marker the new markup places again. A root that was scheduled, under a region the payload describes, keeps its DOM and its state: its props script and the island take the new props. Any other marker is swapped for the new one, whose props script is patched in beside it for the next scan to mount. */
-/** A kept custom element takes the server's change to its attributes by the rules of `morphAttributes`, from the markup the server last wrote inside its marker. Attributes it set on itself and its children are its own. Nothing is removed when no markup was recorded, since nothing says who wrote what is there. */
-function morphKeptElement(marker: Element, next: Element): void {
-  const kept = marker.firstElementChild;
-  const fresh = next.firstElementChild;
-  if (!kept || !fresh || !kept.localName.includes("-") || kept.localName !== fresh.localName) return;
-  const written = previousMarker(marker);
-  const was = written === null ? undefined : parsed(written).find((node): node is Element => node instanceof Element && node.localName === kept.localName);
-  morphAttributes(kept, was ?? fresh.ownerDocument.createElement(kept.localName), fresh, true);
-  recordMarker(marker, next.innerHTML);
-}
-
 function takeIsland(current: Element, next: Element, sources: ReturnType<typeof regionSources>, hooks: MorphHooks): void {
   const after = current.nextElementSibling;
   const script = after?.tagName === "SCRIPT" && after.getAttribute("data-sf-props") === current.id ? after : null;
   const wrapper = current.parentElement;
   const regionKey = wrapper?.hasAttribute("data-sf-island") ? wrapper.getAttribute("data-sf-region") : null;
   const source = regionKey === null ? undefined : sources.get(regionKey);
-  if (source && current.hasAttribute("data-sf-scheduled")) {
+  const kept = source && current.hasAttribute("data-sf-scheduled") ? keptBy(current) : "replaced";
+  if (source && kept === "patched") {
     if (script) script.textContent = propsScript(source);
-    morphKeptElement(current, next);
     void patchIsland(current, source.props, source.nested, source.children, source.encoded, source.markup);
+    return;
+  }
+  if (source && kept === "morphed") {
+    if (script) script.textContent = propsScript(source);
+    const written = previousMarker(current);
+    morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks, written === null ? null : parsed(written));
+    recordMarker(current, next.innerHTML);
     return;
   }
   const wanted = next.nextElementSibling;

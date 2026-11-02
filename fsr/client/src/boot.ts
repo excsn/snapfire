@@ -470,6 +470,12 @@ export async function patchIsland(el: Element, props: Props, regions: unknown = 
   return true;
 }
 
+/** How a marker a navigation keeps takes the new markup. `patched` hands a running island its props. `morphed` applies the server's change, since nothing mounted over a definition's markup and that markup stays the server's. `replaced` puts the new marker in, since an island with no patcher cannot take props and one whose timing has not fired holds the old ones and no state worth keeping. */
+export function keptBy(el: Element): "patched" | "morphed" | "replaced" {
+  if (islands.get(el.getAttribute("data-sf-module") ?? "")?.mount === defineMounter) return "morphed";
+  return isServerIsland(el) || mounted.get(el)?.entry.patch ? "patched" : "replaced";
+}
+
 function schedule(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {
   switch (entry.when ?? "load") {
     case "load":

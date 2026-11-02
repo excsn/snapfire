@@ -11,7 +11,7 @@ import walkWebm from "@src/media/walk.webm";
 import walkCaptions from "@src/media/walk.vtt";
 import walkPoster from "@src/media/walk-poster.png";
 
-export default function VenuePage({ venue, track, tracks, counted, talks }: VenueProps) {
+export default function VenuePage({ venue, track, tracks, talks }: VenueProps) {
   return (
     <section className="page venue-page">
       <h2>{venue}</h2>
@@ -59,9 +59,23 @@ export default function VenuePage({ venue, track, tracks, counted, talks }: Venu
         ))}
       </nav>
       <Island when="load" define="@src/elements/talk-count.ts">
-        <talk-count talks={counted} track={track === "all" ? undefined : track}>
-          {counted} talks
+        <talk-count talks={talks.length} track={track === "all" ? undefined : track}>
+          {talks.length} talks
         </talk-count>
+      </Island>
+      <Island when="load" define="@src/elements/talk-time.ts">
+        <div className="venue-times">
+          <p className="venue-first">
+            First talk <talk-time starts={talks[0]?.starts}>{talks[0]?.starts}</talk-time>
+          </p>
+          <ul>
+            {talks.map((talk) => (
+              <li key={talk.id}>
+                <talk-time starts={talk.starts}>{talk.starts}</talk-time> {talk.title}
+              </li>
+            ))}
+          </ul>
+        </div>
       </Island>
       <Island mode="server">
         <AskDesk desk="help" />

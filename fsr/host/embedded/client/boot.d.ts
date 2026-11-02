@@ -121,6 +121,8 @@ export declare function islandState(el: Element): {
 export declare function patchIsland(el: Element, props: Props, regions?: unknown, children?: string | null, encoded?: unknown, markup?: {
 	[n: string]: string;
 } | null): Promise<boolean>;
+/** How a marker a navigation keeps takes the new markup. `patched` hands a running island its props. `morphed` applies the server's change, since nothing mounted over a definition's markup and that markup stays the server's. `replaced` puts the new marker in, since an island with no patcher cannot take props and one whose timing has not fired holds the old ones and no state worth keeping. */
+export declare function keptBy(el: Element): "patched" | "morphed" | "replaced";
 /** Settles when an island's timing fires: at once on load, once its element is in view or once the main thread is idle. */
 export declare function timingFired(when: MountTiming, find: () => Element | null): Promise<void>;
 /** Whether the island named `name`, by its region key or else its id, is mounted in the document. */

@@ -354,6 +354,10 @@ export async function patchIsland(el, props, regions = null, children = null, en
     island.entry.patch(handle, mod, props, el);
     return true;
 }
+export function keptBy(el) {
+    if (islands.get(el.getAttribute("data-sf-module") ?? "")?.mount === defineMounter) return "morphed";
+    return isServerIsland(el) || mounted.get(el)?.entry.patch ? "patched" : "replaced";
+}
 function schedule(entry, moduleId, el, props) {
     switch(entry.when ?? "load"){
         case "load":
