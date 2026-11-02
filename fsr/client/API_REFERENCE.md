@@ -530,6 +530,8 @@ What a module id is registered with.
 
 * `registerIsland(moduleId: string, entry: IslandEntry): void`
 
+An island registered without `patch` cannot take new props, so a soft navigation that keeps its place replaces it with a new marker, which mounts afresh and loses the island's state.
+
 Registers or replaces the entry for a module id in the process-wide registry. `moduleId` must equal the marker's `data-sf-module` exactly. Registration only affects markers scanned afterwards.
 
 ### registerModule
