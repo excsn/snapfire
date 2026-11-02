@@ -488,9 +488,13 @@ fn a_loader_meta_titles_the_document_and_a_streamed_page_retitles_it_on_resoluti
 
   let parts: Vec<String> = block_on(async { app.render("/product/1", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
   assert!(parts[0].contains("<title>Shopping</title>"), "the document ships with the default: {}", parts[0]);
-  assert!(parts[1].ends_with("\"head\":{\"title\":\"Nozzle · Shopping\",\"description\":\"Nozzle for $12.00\"}}</script><script>__sfFill(1)</script>"), "{}", parts[1]);
+  assert!(parts[1].contains("\"head\":{\"title\":\"Nozzle · Shopping\",\"description\":\"Nozzle for $12.00\","), "{}", parts[1]);
+  assert!(parts[1].contains("[\"property\",\"og:type\"],[\"content\",\"product\"]"), "{}", parts[1]);
+  assert!(parts[1].ends_with("}}</script><script>__sfFill(1)</script>"), "{}", parts[1]);
   let payload = block_on(app.render_to_string("/product/1", RenderMode::Payload, SessionCell::default())).unwrap();
-  assert!(payload.ends_with("\nH {\"title\":\"Nozzle · Shopping\",\"description\":\"Nozzle for $12.00\"}\n"), "{payload}");
+  assert!(payload.contains("\nH {\"title\":\"Nozzle · Shopping\",\"description\":\"Nozzle for $12.00\","), "{payload}");
+  assert!(payload.contains("[\"property\",\"og:type\"],[\"content\",\"product\"]"), "{payload}");
+  assert!(payload.ends_with("}\n"), "{payload}");
 }
 
 #[test]
