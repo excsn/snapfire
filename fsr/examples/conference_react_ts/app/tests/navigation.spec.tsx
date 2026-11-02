@@ -244,3 +244,39 @@ test("an island whose timing has not fired mounts with what the last navigation 
   await settle();
   expect(document.querySelectorAll(".floors-talks li").length, "and holds them in its own state").toEqual(2);
 });
+
+test("an island with no patcher takes a navigation's props by being replaced", async () => {
+  await load("/venue", { ctx: timetabled() });
+  await settle();
+  const marker = 'sf-i[data-sf-module="src/ui/TrackNote.tsx#default"]';
+  const first = document.querySelector(marker);
+  expect(first?.hasAttribute("data-sf-mounted"), "it mounted").toEqual(true);
+  expect(document.querySelector(".track-note")?.textContent).toEqual("Showing all");
+
+  await pickTrack("/venue?track=Data");
+  const second = document.querySelector(marker);
+  expect(document.querySelector(".track-note")?.textContent, "the new props reach it").toEqual("Showing Data");
+  expect(second === first, "through a new marker, since it cannot be patched").toEqual(false);
+  expect(second?.hasAttribute("data-sf-mounted"), "which mounts").toEqual(true);
+
+  history.back();
+  await settle();
+  expect(document.querySelector(".track-note")?.textContent, "a step back takes it too").toEqual("Showing all");
+});
+
+test("a whole segment with no patcher takes a navigation's props by being replaced", async () => {
+  await load("/desk", { ctx: timetabled() });
+  await settle();
+  expect(document.querySelector('sf-i[data-sf-module="routes/desk/layout.tsx#default"]')?.hasAttribute("data-sf-mounted"), "the layout is an island").toEqual(true);
+  expect(document.querySelector(".desk-track")?.textContent).toEqual("Desk for all");
+  await fireEvent.click(document.querySelector(".desk-ask") as HTMLElement);
+  await settle();
+  expect(document.querySelector(".desk-ask")?.textContent, "with state of its own").toEqual("Asked 1");
+
+  await fireEvent.click(document.querySelector('.desk-tracks a[href="/desk?track=Data"]') as HTMLElement);
+  await settle();
+  expect(location.search).toEqual("?track=Data");
+  expect(document.querySelector(".desk-track")?.textContent, "the new props reach it").toEqual("Desk for Data");
+  expect(document.querySelector(".desk-ask")?.textContent, "and what it cannot carry over starts again").toEqual("Asked 0");
+  expect(document.querySelector(".desk-open"), "the page inside it is there").toBeTruthy();
+});

@@ -5,6 +5,7 @@ import AskDesk from "@src/ui/AskDesk";
 import Checklist from "@src/ui/Checklist";
 import Floors from "@src/ui/Floors.vue";
 import LocalClock from "@src/ui/LocalClock";
+import TrackNote from "@src/ui/TrackNote";
 import type { VenueProps } from "@generated/client";
 import walkMp4 from "@src/media/walk.mp4";
 import walkWebm from "@src/media/walk.webm";
@@ -58,6 +59,9 @@ export default function VenuePage({ venue, track, tracks, talks }: VenueProps) {
           </Link>
         ))}
       </nav>
+      <Island when="load">
+        <TrackNote track={track} />
+      </Island>
       <Island when="load" define="@src/elements/talk-count.ts">
         <talk-count talks={talks.length} track={track === "all" ? undefined : track}>
           {talks.length} talks
