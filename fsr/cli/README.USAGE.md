@@ -1362,6 +1362,8 @@ fsr serve app --listen 127.0.0.1:8080
 fsr dev app
 ```
 
+Whatever `fsr dev` starts stops with it, including when it is killed outright. It runs the server with a pipe on stdin and `FSR_HOST_LIFELINE` set. A host, whichever program built it, shuts down when that pipe closes. A server that builds no `Host` has nothing watching the pipe, so a hard kill of `fsr dev` leaves it running.
+
 On a site, `fsr dev app` serves the site under its shell when `[site] shell` points into a shell tree with a configuration, which it does inside a repository that holds both. `--under <shell>` names one elsewhere: the shell's project directory or the deploy tree its `fsr bundle` wrote, handed over as a directory. The site is the one application built and watched and the shell is served as it stands with the site mounted from its working tree in place of the table's row, so the shell's files are never written to. `--alone` serves the site by itself, with its own layout as the page.
 
 ```sh

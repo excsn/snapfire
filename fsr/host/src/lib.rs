@@ -27,6 +27,7 @@ mod probe;
 mod remote;
 mod render;
 mod report;
+mod lifeline;
 mod serve;
 mod theme;
 pub mod shell;
@@ -98,6 +99,7 @@ pub use probe::{Candidate, Probe, ReloadCheck};
 pub use service_provider::ServiceProvider;
 pub use remote::ServiceSessionStore;
 pub use report::{Brief, CrawlReport, HostReport, SiteReport, TlsReport};
+pub use lifeline::LIFELINE;
 pub use serve::{HostService, shutdown_signal};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 

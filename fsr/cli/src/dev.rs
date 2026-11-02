@@ -434,7 +434,7 @@ impl Project {
       (Some(_), None) => "cargo run".to_owned(),
       (None, _) => "fsr serve".to_owned(),
     };
-    self.host_command(executable).spawn().map_err(|e| BuildError::Dev(format!("{named}: {e}")))
+    self.host_command(executable).env(snapfire_fsr_host::LIFELINE, "1").stdin(Stdio::piped()).spawn().map_err(|e| BuildError::Dev(format!("{named}: {e}")))
   }
 
   /// The command `spawn` runs.

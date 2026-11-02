@@ -398,6 +398,7 @@ impl HostBuilder {
   }
 
   pub fn build(mut self) -> Result<Host, HostError> {
+    crate::lifeline::hold();
     let reload_checks = std::mem::take(&mut self.reload_checks);
     let traces = self.traces.take();
     let reloader = self.reloader.take();

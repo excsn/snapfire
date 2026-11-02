@@ -50,7 +50,7 @@ fn serving_on(root: &Path, envs: &[(&str, &str)], args: &[&str], ports: impl Ite
   let mut failures = Vec::new();
   for port in ports.take(5) {
     let listen = format!("127.0.0.1:{port}");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("serve").arg(root.join("app")).args(["--listen", &listen]).args(args).envs(envs.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("serve").arg(root.join("app")).args(["--listen", &listen]).args(args).envs(envs.iter().copied()).env(snapfire_fsr_host::LIFELINE, "1").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let mut seen = String::new();
     let mut line = String::new();
