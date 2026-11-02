@@ -133,7 +133,7 @@ const CONTRACT: &str = r#"{
 }"#;
 
 fn app_dir() -> PathBuf {
-  let dir = std::env::temp_dir().join(format!("fsr-host-test-{}-{}", std::process::id(), rand_suffix()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-test-{}-{}", std::process::id(), rand_suffix()));
   std::fs::create_dir_all(dir.join("generated/contracts")).unwrap();
   std::fs::create_dir_all(dir.join("public")).unwrap();
   write_plan(&dir, PLAN);
@@ -798,7 +798,7 @@ fn the_environment_sets_a_key_whose_name_holds_an_underscore() {
 
 #[test]
 fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
-  let root = std::env::temp_dir().join(format!("fsr-host-root-{}-{}", std::process::id(), rand_suffix()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-root-{}-{}", std::process::id(), rand_suffix()));
   let app = root.join("app");
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::create_dir_all(app.join("generated/contracts")).unwrap();
@@ -907,7 +907,7 @@ fn every_example_configuration_validates_against_the_schema_and_a_misspelt_key_d
 fn a_section_the_host_reads_is_never_listed_as_left_to_the_application() {
   use snapfire_fsr_host::config::{Deployment, Loader};
 
-  let root = std::env::temp_dir().join(format!("fsr-host-store-section-{}-{}", std::process::id(), rand_suffix()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-store-section-{}-{}", std::process::id(), rand_suffix()));
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::write(root.join("config/app.toml"), "[session]\nkey = \"k\"\n[store]\nslot_order = [\"content\"]\n[metrics]\non = true\n").unwrap();
   let config = Loader::at(&root).deployment(Deployment::default()).config().unwrap();
@@ -920,7 +920,7 @@ fn a_section_the_host_reads_is_never_listed_as_left_to_the_application() {
 fn a_loaded_configuration_is_development_by_the_deployment_it_was_loaded_for() {
   use snapfire_fsr_host::config::{env_name, Deployment, Loader, RuntimeValue, ValueState};
 
-  let root = std::env::temp_dir().join(format!("fsr-host-deployment-{}-{}", std::process::id(), rand_suffix()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-deployment-{}-{}", std::process::id(), rand_suffix()));
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::write(root.join("config/app.toml"), "[document]\ntitle = \"App\"\n").unwrap();
   let production = Loader::at(&root).deployment(Deployment::default().release_env("production".to_owned())).config().unwrap();
@@ -938,7 +938,7 @@ fn a_loaded_configuration_is_development_by_the_deployment_it_was_loaded_for() {
 fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
   use snapfire_fsr_host::config::{Deployment, Loader, config_paths};
 
-  let root = std::env::temp_dir().join(format!("fsr-host-ladder-{}-{}", std::process::id(), rand_suffix()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-ladder-{}-{}", std::process::id(), rand_suffix()));
   let dir = root.join("config");
   std::fs::create_dir_all(&dir).unwrap();
   std::fs::write(
@@ -1753,7 +1753,7 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
 /// host serves needs every URL its import map gives.
 #[tokio::test]
 async fn prerender_writes_every_client_url_the_documents_import_map_names() {
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-hashed-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-hashed-{}-{}", std::process::id(), rand_suffix()));
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(production(localised_dir()).join("app.toml")).unwrap().services_over(transport).prerendered(&out).build().unwrap();
   host.prerender(&out).await.unwrap();
@@ -1772,7 +1772,7 @@ async fn prerender_writes_every_client_url_the_documents_import_map_names() {
 
 #[tokio::test]
 async fn prerender_writes_the_names_a_minified_client_is_loaded_by() {
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-min-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-min-{}-{}", std::process::id(), rand_suffix()));
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(production(localised_dir()).join("app.toml")).unwrap().services_over(transport).prerendered(&out).build().unwrap();
   assert!(host.report().to_string().contains("modules, minified,"), "{}", host.report());
@@ -1793,7 +1793,7 @@ async fn prerender_writes_the_names_a_minified_client_is_loaded_by() {
 
 #[tokio::test]
 async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_directory() {
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let host = Host::from(production(localised_dir()).join("app.toml"))
     .unwrap()
@@ -3021,7 +3021,7 @@ async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
 #[test]
 fn the_inferred_entry_is_a_url_under_the_route_however_the_public_path_is_written() {
   for public_path in ["/static/js/app/", "/static/js/app"] {
-    let dir = std::env::temp_dir().join(format!("fsr-host-entry-{}-{}", std::process::id(), rand_suffix()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-entry-{}-{}", std::process::id(), rand_suffix()));
     std::fs::create_dir_all(dir.join("generated/contracts")).unwrap();
     std::fs::create_dir_all(dir.join("dist/src")).unwrap();
     write_plan(&dir, PLAN);
@@ -3650,7 +3650,7 @@ async fn catalogs_under_locales_reach_the_document_the_payload_and_t() {
 #[tokio::test]
 async fn a_route_reading_only_the_identity_prerenders_for_anonymous_visitors_and_renders_live_for_a_signed_in_one() {
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let host = Host::from(production(identified_dir(USERS)).join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -4191,7 +4191,7 @@ async fn an_application_with_no_document_section_still_renders_a_document() {
 
 #[tokio::test]
 async fn a_warmed_load_answers_a_route_the_layout_keeps_dynamic() {
-  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
   let (host, _) = host();
   assert!(
     !host.prerenderable().contains(&"/console".to_owned())
@@ -4259,7 +4259,7 @@ async fn without_a_warm_pass_every_load_runs() {
 
 #[tokio::test]
 async fn a_source_reading_the_request_is_never_warmed() {
-  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
   let (host, _) = host();
   host.prerender(&out).await.unwrap();
   let warmed: serde_json::Value =
@@ -4288,7 +4288,7 @@ async fn a_source_reading_the_request_is_never_warmed() {
 #[tokio::test]
 async fn a_second_warm_pass_writes_documents_from_the_loads_it_just_took() {
   let app = production(app_dir());
-  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
   let first = Host::from(app.join("app.toml"))
     .unwrap()
     .services_over(Arc::new(
@@ -4320,7 +4320,7 @@ async fn a_second_warm_pass_writes_documents_from_the_loads_it_just_took() {
 
 #[tokio::test]
 async fn a_source_reading_the_identity_is_warmed_for_anonymous_visitors_alone() {
-  let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
   let host = Host::from(identified_dir(USERS).join("app.toml"))
     .unwrap()
     .services_over(Arc::new(
@@ -5384,7 +5384,7 @@ fn blog_dir() -> PathBuf {
 
 #[tokio::test]
 async fn a_route_with_paths_is_prerendered_once_per_set_per_locale() {
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let host = Host::from(production(blog_dir()).join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   assert_eq!(host.prerenderable(), vec!["/blog".to_owned(), "/blog/{slug}".to_owned()], "{}", host.report());
   assert_eq!(host.prerenderable_anonymous(), vec!["/me/{slug}".to_owned()]);
@@ -5413,7 +5413,7 @@ async fn a_route_with_paths_is_prerendered_once_per_set_per_locale() {
 
 #[tokio::test]
 async fn an_identified_visitor_on_an_expanded_anonymous_route_renders_live() {
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let host = Host::from(production(blog_dir()).join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   host.prerender(&out).await.unwrap();
   let host = Arc::new(host);
@@ -5445,7 +5445,7 @@ async fn an_identified_visitor_on_an_expanded_anonymous_route_renders_live() {
 
 #[tokio::test]
 async fn a_set_dropped_from_paths_leaves_no_file_behind() {
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let dir = blog_dir();
   let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   host.prerender(&out).await.unwrap();
@@ -5487,7 +5487,7 @@ const CONSOLE_PLAN: &str = r#"{
 
 #[tokio::test]
 async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_serves_it() {
-  let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let dir = production(identified_dir(USERS));
   write_plan(&dir, CONSOLE_PLAN);
   let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();

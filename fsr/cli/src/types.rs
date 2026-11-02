@@ -1655,7 +1655,7 @@ pub mod range {
 mod tests {
   #[test]
   fn a_package_with_its_own_declarations_brings_the_dependencies_they_import() {
-    let dir = std::env::temp_dir().join(format!("fsr-types-imports-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-types-imports-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("dist")).unwrap();
     std::fs::write(dir.join("dist/vue.d.ts"), "import { CompilerOptions } from '@vue/compiler-dom';\nexport * from '@vue/runtime-dom';\nexport type X = import(\"@vue/shared/dist\").Y;\nimport './local';\n").unwrap();
     let dependencies = ["@vue/compiler-dom", "@vue/runtime-dom", "@vue/shared", "@vue/compiler-sfc", "@vue/server-renderer"].map(String::from);
@@ -1667,7 +1667,7 @@ mod tests {
 
   #[test]
   fn a_component_is_shadowed_by_a_module_of_its_name_with_a_script_extension_whatever_its_case() {
-    let app = std::env::temp_dir().join(format!("fsr-types-shadowed-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-types-shadowed-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(app.join("src/ui")).unwrap();
     for file in ["src/ui/Recent.svelte", "src/ui/recent.svelte.ts", "src/ui/Card.vue", "src/ui/Card.vue.js", "src/ui/Tally.svelte", "src/ui/tally.ts", "src/ui/Plain.svelte"] {
@@ -1682,7 +1682,7 @@ mod tests {
 
   #[test]
   fn the_build_tsconfig_is_the_same_whatever_order_its_files_arrive_in() {
-    let app = std::env::temp_dir().join(format!("fsr-types-build-order-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-types-build-order-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(app.join("styles")).unwrap();
     let files = ["src/ui/money.ts", "src/ui/Header.tsx", "routes/b.island0.tsx", "routes/a.island0.tsx", "src/store.ts"].map(String::from);
@@ -1700,7 +1700,7 @@ mod tests {
 
   #[test]
   fn a_vendored_package_that_carries_declarations_is_declared_from_the_vendor_tree_offline() {
-    let app = std::env::temp_dir().join(format!("fsr-types-vendored-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-types-vendored-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(app.join("vendor/@acme/ui")).unwrap();
     std::fs::write(app.join("vendor/@acme/ui/index.min.js"), "export function Badge(){}\n").unwrap();
@@ -1772,7 +1772,7 @@ mod tests {
 
   #[test]
   fn declarations_a_package_carries_itself_follow_its_vendored_version_exactly() {
-    let app = std::env::temp_dir().join(format!("fsr-types-pinned-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-types-pinned-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(app.join("vendor")).unwrap();
     std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.44","externals":[],"entries":{"vue":"vue/vue.min.js"}}}}"#).unwrap();
@@ -1856,7 +1856,7 @@ mod tests {
   /// DEFECTS 1.148, the case `wanted` does not cover: a package fetched again for a later range.
   #[test]
   fn a_package_fetched_again_for_a_later_range_is_reported_once_at_the_version_it_ended_on() {
-    let root = std::env::temp_dir().join(format!("fsr-types-refetch-{}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-types-refetch-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     crate::new::create(&root, crate::new::NewOptions::default().fetch(false)).unwrap();
     let app = root.join("app");

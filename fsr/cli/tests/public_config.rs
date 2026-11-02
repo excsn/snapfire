@@ -12,7 +12,7 @@ use snapfire_fsr_host::config::Config;
 use snapfire_fsr_host::Host;
 
 fn project(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-public-config-{}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-public-config-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   let toml = root.join("config/app.toml");

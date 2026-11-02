@@ -4,7 +4,7 @@ use patterns::{app_of, cases, outcome, root};
 
 #[test]
 fn every_case_builds_to_the_outcome_it_is_held_to() {
-  let scratch = std::env::temp_dir().join(format!("fsr-patterns-{}", std::process::id()));
+  let scratch = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-patterns-{}", std::process::id()));
   let mut lines = Vec::new();
   for case in cases() {
     let app = app_of(&case, &scratch);

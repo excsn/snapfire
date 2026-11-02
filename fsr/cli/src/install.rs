@@ -132,7 +132,7 @@ mod tests {
 
   fn stub(name: &str, version: &str) -> std::path::PathBuf {
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("fsr-install-{name}-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-install-{name}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("snapfirec");
     std::fs::write(&path, format!("#!/bin/sh\necho '{version}'\n")).unwrap();

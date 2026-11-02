@@ -8,7 +8,7 @@ fn dir(name: &str) -> PathBuf {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_nanos();
-  let at = std::env::temp_dir().join(format!("fsr-layout-{name}-{}-{nanos}", std::process::id()));
+  let at = snapfire_fsr_test_internal::scratch_root().join("layout").join(format!("fsr-layout-{name}-{}-{nanos}", std::process::id()));
   std::fs::create_dir_all(&at).unwrap();
   at
 }

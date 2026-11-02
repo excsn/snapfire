@@ -26,5 +26,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../test_internal" }
 futures = "0.3"
 proptest = "1"

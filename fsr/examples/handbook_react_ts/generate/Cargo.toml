@@ -15,6 +15,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 snapfire_fsr_cli = { path = "../../../cli" }
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../../../test_internal" }
 futures = "0.3"
 snapfire_fsr_core = { path = "../../../core" }
 snapfire_fsr_runtime = { path = "../../../runtime" }

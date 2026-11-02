@@ -39,7 +39,7 @@ fn the_window_title_leads_with_the_app_name_then_the_page_title() {
 #[test]
 fn the_app_name_is_the_configured_one_else_the_project_directory() {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let project = std::env::temp_dir().join(format!("fsr-desktop-{}-{nanos}", std::process::id())).join("storefront");
+  let project = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-desktop-{}-{nanos}", std::process::id())).join("storefront");
   std::fs::create_dir_all(project.join("app")).unwrap();
   let toml = "[app]\ndir = \"app\"\n\n[server]\nlisten = \"127.0.0.1:0\"\n\n[session]\nkey = \"k\"\n";
   std::fs::write(project.join("app.toml"), toml).unwrap();
@@ -95,7 +95,7 @@ fn the_jar_sends_back_what_the_host_set_until_it_expires_or_is_cleared() {
 #[test]
 fn a_jar_on_disk_keeps_what_has_not_expired_and_no_cookie_without_an_end() {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let file = std::env::temp_dir().join(format!("fsr-jar-{}-{nanos}", std::process::id())).join("cookies.json");
+  let file = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-jar-{}-{nanos}", std::process::id())).join("cookies.json");
   let mut jar = desktop::CookieJar::default();
   jar.store("sf_session=abc; Path=/; HttpOnly; Max-Age=3600", 1_000);
   jar.store("short=1; Max-Age=10", 1_000);

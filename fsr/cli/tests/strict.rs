@@ -14,7 +14,7 @@ const CLOCK: &str = "import { useTransition } from \"react\";\nexport function C
 /// A React scaffold whose page places a component that does not lower, with `toml` appended to its configuration.
 fn project(tag: &str, toml: &str) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-cli-strict-{}-{n}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-strict-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");

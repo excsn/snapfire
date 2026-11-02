@@ -8,7 +8,7 @@ use snapfire_fsr_cli::{build, bundle, write, BuildError, Options};
 const PAGE: &str = "export default function Page() {\n  return <main>page</main>;\n}\n";
 
 fn project(tag: &str, files: &[(&str, &str)], config: &str) -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-public-{}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-public-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   for (path, text) in files {

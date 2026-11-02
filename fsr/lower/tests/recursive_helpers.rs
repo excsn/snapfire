@@ -9,7 +9,7 @@ use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
 
 fn html(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
-  let dir: PathBuf = std::env::temp_dir().join(format!("fsr_recursive_helpers_{}_{tag}", std::process::id()));
+  let dir: PathBuf = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_recursive_helpers_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   for (name, text) in files {
     let path = dir.join(name);

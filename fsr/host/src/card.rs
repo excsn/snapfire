@@ -648,7 +648,7 @@ mod tests {
   /// A deploy tree carries the bundle's hashed copies and none of the sources, so a face is read from the copy the manifest names.
   #[test]
   fn a_face_is_read_from_the_bundles_copy_which_a_deploy_tree_carries() {
-    let root = std::env::temp_dir().join(format!("fsr-card-fonts-{}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-card-fonts-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let (app, out) = (root.join("app"), root.join("serve/static/js/app"));
     std::fs::create_dir_all(out.join("fonts")).unwrap();

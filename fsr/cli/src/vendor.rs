@@ -682,7 +682,7 @@ mod tests {
 
   #[test]
   fn every_source_map_a_vendored_module_names_is_vendored_beside_it() {
-    let app = std::env::temp_dir().join(format!("fsr-vendor-maps-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-vendor-maps-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
     add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], &[esm_stub()]).unwrap();
@@ -702,7 +702,7 @@ mod tests {
 
   #[test]
   fn a_host_that_fails_hands_the_package_to_the_next() {
-    let app = std::env::temp_dir().join(format!("fsr-vendor-fallback-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-vendor-fallback-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
     let down = answering(Some("HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"));
@@ -715,7 +715,7 @@ mod tests {
 
   #[test]
   fn a_version_the_first_host_says_does_not_exist_is_not_asked_of_the_next() {
-    let app = std::env::temp_dir().join(format!("fsr-vendor-missing-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-vendor-missing-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
     let first = esm_stub();
@@ -728,7 +728,7 @@ mod tests {
 
   #[test]
   fn a_run_with_nothing_to_add_or_repair_writes_nothing() {
-    let app = std::env::temp_dir().join(format!("fsr-vendor-nothing-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-vendor-nothing-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
     let report = add_from(&app, &[], &[], &[esm_stub()]).unwrap();
@@ -740,7 +740,7 @@ mod tests {
 
   #[test]
   fn a_vendored_module_naming_a_map_the_tree_lacks_gets_the_map_or_loses_the_comment() {
-    let app = std::env::temp_dir().join(format!("fsr-vendor-repair-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-vendor-repair-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
     let host = esm_stub();

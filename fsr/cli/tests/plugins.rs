@@ -24,7 +24,7 @@ fn copy(from: &Path, to: &Path) {
 /// The recipes example's `.vue` files, described by `snapfirec-vue` from `PATH`.
 #[test]
 fn a_rebuild_describes_only_the_vue_files_that_changed() {
-  let root = std::env::temp_dir().join(format!("fsr-plugins-{}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-plugins-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/recipes_vue_ts"), &root);
   let app: PathBuf = root.join("app");
@@ -44,7 +44,7 @@ fn a_rebuild_describes_only_the_vue_files_that_changed() {
 
 #[test]
 fn a_vue_file_left_foreign_is_printed_without_verbose() {
-  let root = std::env::temp_dir().join(format!("fsr-plugins-foreign-{}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-plugins-foreign-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/recipes_vue_ts"), &root);
   let app: PathBuf = root.join("app");

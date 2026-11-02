@@ -11,7 +11,7 @@ fn app(files: &[(&str, &str)]) -> std::path::PathBuf {
 
 fn project(config: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-terminal-build-{}-{n}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-terminal-build-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::write(root.join("config/app.toml"), config).unwrap();

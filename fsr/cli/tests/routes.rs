@@ -8,7 +8,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 fn app(files: &[(&str, &str)]) -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-cli-routes-{}-{n}-{nanos}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-routes-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   vendor_react(&dir, "18.3.1");
@@ -1675,7 +1675,7 @@ fn jsx_a_react_island_also_reaches_is_shared_by_a_plain_root() {
 #[test]
 fn the_document_entry_the_configuration_names_is_a_bundle_root() {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-cli-routes-entry-{}-{n}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-routes-entry-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   snapfire_fsr_cli::new::create(&root, snapfire_fsr_cli::new::NewOptions::default().fetch(false)).unwrap();
   let config = root.join("config/app.toml");

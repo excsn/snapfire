@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use snapfire_fsr_lower::component::ComponentSet;
 
 fn app(tag: &str, files: &[(&str, &[u8])]) -> PathBuf {
-  let dir = std::env::temp_dir().join(format!("fsr_imports_{}_{tag}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_imports_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   for (name, bytes) in files {
     let path = dir.join(name);

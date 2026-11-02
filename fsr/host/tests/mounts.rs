@@ -8,7 +8,7 @@ fn shell(table: &str) -> PathBuf {
   static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-mounts-{}-{nanos}-{n}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-mounts-{}-{nanos}-{n}", std::process::id()));
   std::fs::create_dir_all(dir.join("generated")).unwrap();
   std::fs::write(dir.join("generated/plan.sexp"), "(plan 6)\n").unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();

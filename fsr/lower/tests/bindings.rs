@@ -4,7 +4,7 @@ use snapfire_fsr_lower::component::ComponentSet;
 
 /// What lowering `page` as `routes/page.tsx` refuses, or `None` when it lowers.
 fn refused(tag: &str, page: &str) -> Option<String> {
-  let dir = std::env::temp_dir().join(format!("fsr_lower_bindings_{}_{tag}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_lower_bindings_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), page).unwrap();

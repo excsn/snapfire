@@ -447,7 +447,7 @@ fn middleware_written_in_rust_must_override_the_lowered_one() {
 
 #[test]
 fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
-  let out = std::env::temp_dir().join(format!("fsr-prerender-{}", std::process::id()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-prerender-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&out);
   let app = storefront()
     .route("/about", about_plan())

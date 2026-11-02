@@ -10,7 +10,7 @@ use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
 
 fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-  let dir = std::env::temp_dir().join(format!("fsr_statements_{}_{tag}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_statements_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   for (name, text) in files {
     let path = dir.join(name);
@@ -357,7 +357,7 @@ fn json_parse_reads_a_document_into_a_value() {
 fn a_hook_named_use_store_from_another_package_is_that_package_s_not_fsr_s() {
   let page = "import { useStore } from \"@nanostores/react\";\nimport { $count } from \"@src/stores\";\n\nexport default function Page() {\n  const count = useStore($count);\n  return <p>{count}</p>;\n}\n";
   let stores = "export const $count = { get: () => 1 };\n";
-  let dir = std::env::temp_dir().join(format!("fsr_statements_nanostores_{}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_statements_nanostores_{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::create_dir_all(dir.join("src")).unwrap();

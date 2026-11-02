@@ -10,7 +10,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 fn rules(candidates: &[&str]) -> Vec<CardClass> {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-cli-cards-{}-{n}-{nanos}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-cards-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(&dir).unwrap();
   std::fs::write(dir.join("app.css"), "@import \"tailwindcss\";\n@theme {\n  --color-brand: #e11d48;\n}\n").unwrap();
   let mut classes = Classes::default();

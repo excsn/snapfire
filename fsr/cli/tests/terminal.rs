@@ -10,7 +10,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 
 fn app(page: &str) -> std::path::PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let app = std::env::temp_dir().join(format!("fsr-terminal-{}-{n}", std::process::id())).join("app");
+  let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-terminal-{}-{n}", std::process::id())).join("app");
   let _ = std::fs::remove_dir_all(&app);
   std::fs::create_dir_all(app.join("routes")).unwrap();
   std::fs::write(app.join("routes/page.tsx"), page).unwrap();
@@ -753,7 +753,7 @@ fn a_mount_timer_whose_delay_is_computed_starts_when_the_effect_runs() {
 }
 
 fn host_dir(name: &str) -> std::path::PathBuf {
-  let dir = std::env::temp_dir().join(format!("fsr-terminal-host-{}-{name}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-terminal-host-{}-{name}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(&dir).unwrap();
   dir

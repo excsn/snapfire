@@ -5,7 +5,7 @@ use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::LowerError;
 
 fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-  let dir = std::env::temp_dir().join(format!("fsr_extensions_{}_{tag}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_extensions_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   for (name, source) in files {
     let path = dir.join(name);

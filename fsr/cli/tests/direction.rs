@@ -9,7 +9,7 @@ const BARE_MAP: &str = r#"{"imports":{"@snapfire/fsr/client":"/static/js/fsr/ind
 
 fn bare(files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-cli-direction-{}-{n}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-direction-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("importmap.json"), BARE_MAP).unwrap();
@@ -47,7 +47,7 @@ fn a_direction_leaves_the_adapters_line_to_the_host_and_names_what_it_would_vend
 
 #[test]
 fn an_application_serving_its_own_client_is_given_the_adapters_lines() {
-  let root = std::env::temp_dir().join(format!("fsr-cli-direction-own-client-{}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-direction-own-client-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::write(root.join("config/app.toml"), "[app]\ndir = \"app\"\n\n[[static]]\nroute = \"/static/js/fsr\"\ndir = \"client\"\n").unwrap();

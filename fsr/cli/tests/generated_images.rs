@@ -42,7 +42,7 @@ export default function Image({ notice, params }: { notice: { title: string }; p
 
 fn project(tag: &str, files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-cli-generated-{}-{n}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-generated-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");

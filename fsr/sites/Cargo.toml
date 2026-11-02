@@ -36,6 +36,7 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 ureq = { version = "3", optional = true }
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../test_internal" }
 snapfire_fsr_plan.workspace = true
 bolero = "0.13"
 proptest = "1"

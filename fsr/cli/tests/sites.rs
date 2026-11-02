@@ -7,7 +7,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 
 fn root(tag: &str) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-cli-sites-{}-{n}-{tag}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-sites-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   dir
 }
@@ -137,7 +137,7 @@ fn unlinking_a_name_the_table_does_not_hold_says_what_it_holds() {
 fn pinnable() -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-pin-{}-{n}-{nanos}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-pin-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
   std::fs::write(root.join("app.toml"), "[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n[sites]\nroot = \"sites\"\n\n[sites.billing]\nartifact = \"billing@1.0.0\"\n").unwrap();
   std::fs::write(root.join("app/generated/plan.sexp"), "(plan 2)\n").unwrap();

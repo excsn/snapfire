@@ -153,7 +153,7 @@ mod tests {
   #[test]
   fn a_sites_vendor_tree_is_served_under_its_prefix_unless_the_wmf_names_a_base() {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-    let dir = std::env::temp_dir().join(format!("fsr-xwpm-{}-{nanos}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-xwpm-{}-{nanos}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let site = crate::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: None };
 

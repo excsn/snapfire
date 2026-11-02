@@ -20,7 +20,7 @@ fn ready(test: &str) -> Option<PathBuf> {
 }
 
 fn project(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-props-{}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-props-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default()).unwrap();
   for (path, text) in files {

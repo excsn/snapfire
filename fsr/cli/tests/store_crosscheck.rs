@@ -165,7 +165,7 @@ test("the browser's store reads every generated case as the server's does", () =
 "#;
 
 fn app(spec: &str) -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-store-crosscheck-{}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-store-crosscheck-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   let dir = root.join("app");
   std::fs::create_dir_all(root.join("config")).unwrap();

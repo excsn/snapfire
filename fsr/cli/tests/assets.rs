@@ -12,7 +12,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 
 fn root(tag: &str) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-cli-assets-{}-{n}-{tag}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-assets-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   dir
 }
@@ -340,7 +340,7 @@ fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build
   assert_eq!(fonts.preload.len(), 1, "one subset is the regular face the default preloads: {:?}", fonts.preload);
   assert!(!app.join("fonts/Inter-400-latin.woff2.family").exists(), "a file naming the provider's family gets no sidecar");
 
-  let second = std::env::temp_dir().join(format!("fsr-cli-assets-{}-variable", std::process::id()));
+  let second = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-assets-{}-variable", std::process::id()));
   let _ = std::fs::remove_dir_all(&second);
   create(&second, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = second.join("app");

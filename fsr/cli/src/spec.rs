@@ -1264,7 +1264,7 @@ mod dev_build_tests {
 
   #[test]
   fn the_spec_config_names_only_the_spec_patterns_a_file_under_tests_matches() {
-    let app = std::env::temp_dir().join(format!("fsr-spec-patterns-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-spec-patterns-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(app.join("tests/book")).unwrap();
     assert!(spec_patterns(&app).unwrap().is_empty());
@@ -1304,7 +1304,7 @@ mod dev_build_tests {
 
   #[test]
   fn a_test_vendor_manifest_of_an_older_format_is_not_trusted() {
-    let dir = std::env::temp_dir().join(format!("fsr-test-vendor-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-test-vendor-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("manifest.json");
     std::fs::write(&path, r#"{"entries":{"react":["https://esm.sh/react@19.3.1?dev","react/react.development.bundle.mjs"]}}"#).unwrap();
@@ -1317,7 +1317,7 @@ mod dev_build_tests {
   #[test]
   fn a_new_version_of_a_package_replaces_the_bundle_an_earlier_one_left() {
     let host = registry();
-    let dir = std::env::temp_dir().join(format!("fsr-dev-build-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-dev-build-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let client = reqwest::blocking::Client::new();
     for version in ["18.3.1", "19.3.1"] {

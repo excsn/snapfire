@@ -29,7 +29,7 @@ const AMOUNT: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/Amou
 const SCALE: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/scale.ts");
 
 fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
-  let dir = std::env::temp_dir().join(format!("fsr_vue_{}_{tag}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_vue_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(&dir).unwrap();
   for (name, source) in files {

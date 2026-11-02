@@ -23,7 +23,7 @@ const PAGE: &str = r#"export default function Page() {
 fn project(policy: &str) -> PathBuf {
   static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-cli-inline-styles-{}-{n}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-inline-styles-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   std::fs::write(root.join("app/routes/page.tsx"), PAGE).unwrap();

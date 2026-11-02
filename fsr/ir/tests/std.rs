@@ -352,7 +352,7 @@ fn front_matter_writes_as_gray_matter_stringifies() {
 
 #[test]
 fn a_file_stat_answers_the_kind_and_size_as_fields() {
-  let dir = std::env::temp_dir().join(format!("fsr-std-stat-{}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-std-stat-{}", std::process::id()));
   std::fs::create_dir_all(&dir).unwrap();
   let file = dir.join("five.txt");
   std::fs::write(&file, "hello").unwrap();
@@ -408,7 +408,7 @@ fn the_clipboard_runs_the_platforms_copy_and_paste_commands_through_their_standa
   assert_eq!(commands("macos", false), [(&["pbcopy"][..], &["pbpaste"][..])]);
   assert_eq!(commands("linux", true)[0].0, ["wl-copy"]);
   assert_eq!(commands("linux", false)[0].0, ["xclip", "-selection", "clipboard"]);
-  let held = std::env::temp_dir().join(format!("fsr-clipboard-{}", std::process::id()));
+  let held = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-clipboard-{}", std::process::id()));
   let held = held.to_string_lossy().into_owned();
   copy_through(&["sh", "-c", &format!("cat > {held}")], "copied\nlines\n").unwrap();
   assert_eq!(paste_through(&["cat", &held]).unwrap(), "copied\nlines\n");

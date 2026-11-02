@@ -86,7 +86,7 @@ enum Outcome {
 
 fn app(files: &[(String, String)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-spellings-{}-{n}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-spellings-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   for (name, source) in files {
     let path = dir.join(name);

@@ -46,7 +46,7 @@ fn deployed() -> &'static Deployed {
   static DEPLOYED: OnceLock<Deployed> = OnceLock::new();
   DEPLOYED.get_or_init(|| {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let scratch = std::env::temp_dir().join(format!("portal-sites-{}", std::process::id()));
+    let scratch = snapfire_fsr_test_internal::scratch_root().join(format!("portal-sites-{}", std::process::id()));
     pack(&root.join("sites/status"), "1.0.0", &scratch.join("store/status-1.0.0.tar.gz")).unwrap();
     let store = HttpStore::new(serve(scratch.join("store")));
     let markers = root.join("deploy/.once");
@@ -232,7 +232,7 @@ async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
   assert_eq!(response.status(), StatusCode::NOT_FOUND, "a slug off the blog is a 404 document");
   assert!(body_of(response).await.contains("That did not load"), "rendered through the blog's error page");
 
-  let out = std::env::temp_dir().join(format!("portal-prerender-{}", std::process::id()));
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("portal-prerender-{}", std::process::id()));
   let written = portal.prerender(&out).await.unwrap();
   assert!(written.iter().any(|(name, _)| name == "renders.json"), "the blog's fixed subtrees are rendered ahead: {written:?}");
   assert!(!written.iter().any(|(pattern, _)| pattern.starts_with("/blog")), "no document under the session-reading layout is written whole: {written:?}");

@@ -13,7 +13,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 fn app(toml: &str) -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-bundle-{}-{n}-{nanos}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-bundle-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("app/generated/contracts")).unwrap();
   std::fs::create_dir_all(dir.join("app/public")).unwrap();
   std::fs::write(dir.join("app/public/app.css"), "a{}\n").unwrap();

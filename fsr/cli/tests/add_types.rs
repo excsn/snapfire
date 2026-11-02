@@ -16,7 +16,7 @@ fn a_package_fsr_add_vendors_has_its_types_fetched_too() {
   if !services_answer("a_package_fsr_add_vendors_has_its_types_fetched_too") {
     return;
   }
-  let root = std::env::temp_dir().join(format!("fsr-add-types-{}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-add-types-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");

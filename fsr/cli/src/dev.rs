@@ -1760,7 +1760,7 @@ mod tests {
   }
 
   fn scaffold(tag: &str, server: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("fsr-cli-dev-{}-{tag}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-{}-{tag}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     crate::new::create(&root, crate::new::NewOptions { fetch: false, ..crate::new::NewOptions::default() }).unwrap();
     let config = root.join("config/app.toml");
@@ -1787,7 +1787,7 @@ mod tests {
   #[test]
   fn a_compiler_that_refuses_an_argument_is_named_with_what_it_wrote() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("fsr-cli-dev-refusing-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-refusing-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let compiler = dir.join("snapfirec");
     std::fs::write(&compiler, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"snapfirec 99.0.0\"; exit 0; fi\necho \"error: unexpected argument '--locale-from' found\" >&2\nexit 2\n").unwrap();
@@ -1804,7 +1804,7 @@ mod tests {
   /// DEFECTS 1.168.
   #[test]
   fn a_failed_build_names_what_the_compiler_wrote_to_stderr() {
-    let dir = std::env::temp_dir().join(format!("fsr-cli-dev-failing-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-failing-{}", std::process::id()));
     let compiler = failing_compiler(&dir, "snapfirec-vue is not installed");
     let mut plugins = Plugins::new();
     let error = match Driven::spawn(Command::new(&compiler), &compiler, &mut |_: &[String]| Ok(()), &mut plugins, true) {
@@ -1819,7 +1819,7 @@ mod tests {
   #[test]
   fn a_compiler_that_exits_before_its_first_build_is_named_with_what_it_wrote() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("fsr-cli-dev-exits-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-exits-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let compiler = dir.join("snapfirec");
     let script = format!("#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"snapfirec 99.0.0\"; exit 0; fi\necho \"{}\"\necho \"Error: Failed to read importmap.json\" >&2\nexit 1\n", protocol::hello());
@@ -1849,7 +1849,7 @@ mod tests {
 
   #[test]
   fn the_compiler_checks_imports_against_the_map_the_host_serves() {
-    let root = std::env::temp_dir().join(format!("fsr-cli-dev-served-map-{}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-served-map-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     std::fs::write(root.join("importmap.json"), r#"{"imports":{"react":"/v/react.js"}}"#).unwrap();
@@ -1863,7 +1863,7 @@ mod tests {
 
   #[test]
   fn a_bundle_importing_another_client_module_is_a_change_the_host_reloads_for() {
-    let dist = std::env::temp_dir().join(format!("fsr-cli-dev-bundled-{}", std::process::id()));
+    let dist = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-bundled-{}", std::process::id()));
     std::fs::create_dir_all(&dist).unwrap();
     let facts = |externals: &str| std::fs::write(dist.join(".snapfire-build.json"), format!(r#"{{"outputs":["b.css","a.css","x.js"],"externals":{externals}}}"#)).unwrap();
     facts(r#"["@snapfire/fsr/client"]"#);
@@ -1878,7 +1878,7 @@ mod tests {
 
   #[test]
   fn an_app_serving_its_own_client_compiles_against_its_own_map() {
-    let root = std::env::temp_dir().join(format!("fsr-cli-dev-own-client-{}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-own-client-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("app")).unwrap();
     std::fs::create_dir_all(root.join("config")).unwrap();
@@ -1910,7 +1910,7 @@ mod tests {
 
   #[test]
   fn a_vendor_tree_is_named_to_the_compiler_for_tailwind_and_none_is_not() {
-    let root = std::env::temp_dir().join(format!("fsr-cli-dev-vendor-{}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-vendor-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
     assert!(!args(&app(&root)).iter().any(|a| a == "--tailwind-vendor"), "no vendor directory, no flag");
@@ -1923,7 +1923,7 @@ mod tests {
 
   #[test]
   fn a_vendored_svelte_compiler_is_named_to_the_compiler() {
-    let root = std::env::temp_dir().join(format!("fsr-cli-dev-svelte-{}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-svelte-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("vendor")).unwrap();
     assert!(!args(&app(&root)).iter().any(|a| a == "--plugin-compiler"), "nothing vendored, no flag");
@@ -2028,7 +2028,7 @@ mod tests {
 
   #[test]
   fn a_file_that_holds_what_it_held_is_not_a_change() {
-    let dir = std::env::temp_dir().join(format!("fsr-seen-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-seen-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("a.ts");
     std::fs::write(&file, "one").unwrap();
@@ -2087,7 +2087,7 @@ mod tests {
 
   #[test]
   fn a_build_script_declares_what_the_watcher_has_to_watch() {
-    let dir = std::env::temp_dir().join(format!("fsr-declared-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-declared-{}", std::process::id()));
     let out = dir.join("build/www-abc/out");
     std::fs::create_dir_all(&out).unwrap();
     std::fs::write(
@@ -2322,7 +2322,7 @@ mod tests {
   #[cfg(feature = "terminal")]
   #[test]
   fn a_terminal_app_builds_without_an_import_map_or_a_bundle() {
-    let root = std::env::temp_dir().join(format!("fsr-cli-dev-{}-terminal-no-map", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-{}-terminal-no-map", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     let app = root.join("app");
     std::fs::create_dir_all(root.join("config")).unwrap();
@@ -2405,7 +2405,7 @@ mod under_tests {
   use super::*;
 
   fn fresh(tag: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!("fsr-cli-under-{}-{tag}", std::process::id()));
+    let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-under-{}-{tag}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     root
   }

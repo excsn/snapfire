@@ -15,7 +15,7 @@ fn free_port() -> u16 {
 }
 
 fn project(tag: &str, port: u16) -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-dev-refused-{}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-dev-refused-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   let config = root.join("config/app.toml");

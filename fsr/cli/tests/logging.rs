@@ -14,7 +14,7 @@ const LOADER: &str = "import type { Ctx } from \"@snapfire/fsr/host\";\nexport a
 const IMAGE: &str = "export const size = { width: 300, height: 160 };\nexport const alt = \"A notice\";\n\nexport default function Image({ notice }: { notice: { title: string } }) {\n  return <div style={{ display: \"grid\", width: \"100%\", height: \"100%\", backgroundColor: \"#1e3a8a\", color: \"white\" }}>{notice.title}</div>;\n}\n";
 
 fn project(tag: &str, logging: Option<&str>) -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-logging-{}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-logging-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");

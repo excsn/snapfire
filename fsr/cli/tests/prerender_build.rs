@@ -17,7 +17,7 @@ fn page(text: &str) -> String {
 }
 
 fn project() -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-prerender-build-{}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-prerender-build-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   std::fs::create_dir_all(root.join("app/routes/about")).unwrap();

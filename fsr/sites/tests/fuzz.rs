@@ -17,7 +17,7 @@ fn project(id: u64) -> PathBuf {
     .duration_since(std::time::UNIX_EPOCH)
     .unwrap()
     .as_nanos();
-  std::env::temp_dir().join(format!("fsr-fuzz-layout-{}-{id}-{nanos}", std::process::id()))
+  snapfire_fsr_test_internal::scratch_root().join(format!("fsr-fuzz-layout-{}-{id}-{nanos}", std::process::id()))
 }
 
 fn inside(root: &Path, to: &str) -> bool {

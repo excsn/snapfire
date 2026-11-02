@@ -571,7 +571,7 @@ mod tests {
   }
 
   fn app(name: &str) -> std::path::PathBuf {
-    let app = std::env::temp_dir().join(format!("fsr-published-{name}-{}", std::process::id()));
+    let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-published-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&app);
     std::fs::create_dir_all(&app).unwrap();
     app

@@ -3,7 +3,7 @@
 use snapfire_fsr_cli::{theme_files, BuildError};
 
 fn dir(files: &[&str]) -> std::path::PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-themes-{}-{}", std::process::id(), files.join("-")));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-themes-{}-{}", std::process::id(), files.join("-")));
   let _ = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(&root).unwrap();
   for file in files {
@@ -28,7 +28,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 /// An app with React in its import map and `files` under it.
 fn app(files: &[(&str, &str)]) -> std::path::PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-cli-named-themes-{}-{n}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-named-themes-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();

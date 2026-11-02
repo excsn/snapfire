@@ -15,7 +15,7 @@ fn registry_answers(test: &str) -> bool {
 }
 
 fn app(name: &str) -> PathBuf {
-  let app = std::env::temp_dir().join(format!("fsr-registry-{name}-{}", std::process::id()));
+  let app = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-registry-{name}-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&app);
   std::fs::create_dir_all(&app).unwrap();
   app

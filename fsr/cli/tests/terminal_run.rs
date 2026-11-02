@@ -5,7 +5,7 @@ use snapfire_fsr_cli::terminal::run_once;
 fn project(config: &str, page: &str) -> std::path::PathBuf {
   static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-terminal-run-{}-{n}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-terminal-run-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   std::fs::create_dir_all(root.join("config")).unwrap();
   std::fs::write(root.join("config/app.toml"), config).unwrap();

@@ -20,7 +20,7 @@ fn counter(from: &str) -> String {
 
 fn library(source: &str) -> Components {
   let n = NEXT.fetch_add(1, Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_terminal_{}_{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), source).unwrap();
@@ -82,7 +82,7 @@ fn key(input: &str, pressed: &[&str]) -> Value {
 fn an_npm_package_fsr_provides_its_own_of_is_refused_naming_fsrs_module() {
   for (npm, fsr) in [("ink", "@snapfire/fsr/terminal/ink"), ("ink-spinner", "@snapfire/fsr/terminal/spinner"), ("ink-text-input", "@snapfire/fsr/terminal/text-input"), ("cli-spinners", "@snapfire/fsr/terminal/spinners"), ("ink-big-text", "@snapfire/fsr/terminal/big-text")] {
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_terminal_{}_{n}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("routes")).unwrap();
     std::fs::write(dir.join("routes/page.tsx"), format!("import thing from \"{npm}\";\n\nexport default function Page() {{\n  return thing;\n}}\n")).unwrap();
@@ -369,7 +369,7 @@ fn a_module_let_a_function_writes_lasts_from_one_step_to_the_next_in_a_cell() {
 fn ink_hooks_written_in_the_provided_module_are_inlined_like_an_apps_own() {
   let page = "import { Text, useWindowSize } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Size() {\n  const { columns } = useWindowSize();\n  return <Text>{columns}</Text>;\n}\n";
   let n = NEXT.fetch_add(1, Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_terminal_{}_{n}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), page).unwrap();
   let mut set = ComponentSet::new(&dir).for_terminal();
@@ -381,7 +381,7 @@ fn ink_hooks_written_in_the_provided_module_are_inlined_like_an_apps_own() {
 #[test]
 fn a_file_read_on_a_web_page_is_refused_naming_what_it_needs() {
   let page = "import { file } from \"@snapfire/fsr/host\";\n\nexport default function Page() {\n  return <p>{file.read(\"/etc/hostname\")}</p>;\n}\n";
-  let dir = std::env::temp_dir().join(format!("fsr_lower_terminal_web_fs_{}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_lower_terminal_web_fs_{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), page).unwrap();

@@ -2,10 +2,50 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-/// A directory of its own under the system temporary directory, removed when dropped. Two tests, two processes or two runs never share one.
+const ROOT_PREFIX: &str = "fsr-test-root-";
+
+/// This process's own directory under the system's temporary one, removed when the process exits. A test's directories go under it, so what a test leaves does not outlive the run. A root whose process was killed before it could remove its own goes the next time any test process starts.
+pub fn scratch_root() -> PathBuf {
+  static ROOT: OnceLock<PathBuf> = OnceLock::new();
+  extern "C" fn remove_root() {
+    if let Some(root) = ROOT.get() {
+      let _ = std::fs::remove_dir_all(root);
+    }
+  }
+  ROOT
+    .get_or_init(|| {
+      let system = std::env::temp_dir();
+      sweep_roots_of_dead_processes(&system);
+      let root = system.join(format!("{ROOT_PREFIX}{}", std::process::id()));
+      let _ = std::fs::remove_dir_all(&root);
+      std::fs::create_dir_all(&root).unwrap_or_else(|e| panic!("creating {}: {e}", root.display()));
+      // SAFETY: registers a function with C linkage that takes nothing, once.
+      unsafe {
+        libc::atexit(remove_root);
+      }
+      root
+    })
+    .clone()
+}
+
+fn sweep_roots_of_dead_processes(system: &Path) {
+  let Ok(entries) = std::fs::read_dir(system) else { return };
+  for entry in entries.flatten() {
+    let name = entry.file_name();
+    let Some(pid) = name.to_str().and_then(|name| name.strip_prefix(ROOT_PREFIX)).and_then(|pid| pid.parse::<i32>().ok()) else { continue };
+    // SAFETY: signal 0 only asks whether the process exists.
+    let gone = unsafe { libc::kill(pid, 0) } == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+    if gone {
+      let _ = std::fs::remove_dir_all(entry.path());
+    }
+  }
+}
+
+/// A directory of its own under [`scratch_root`], removed when dropped. Two tests, two processes or two runs never share one.
 #[derive(Debug)]
 pub struct Scratch {
   path: PathBuf,
@@ -15,7 +55,7 @@ impl Scratch {
   /// An empty directory whose name starts `fsr-<tag>-`.
   pub fn new(tag: &str) -> Self {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
-    let path = std::env::temp_dir().join(format!("fsr-{tag}-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let path = scratch_root().join(format!("fsr-{tag}-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
     let _ = std::fs::remove_dir_all(&path);
     std::fs::create_dir_all(&path).unwrap_or_else(|e| panic!("creating {}: {e}", path.display()));
     Self { path }
@@ -118,7 +158,7 @@ mod tests {
 
   #[test]
   fn the_checker_is_the_named_one_then_the_roots_build_then_the_one_on_path() {
-    let dir = std::env::temp_dir().join(format!("fsr-checker-{}", std::process::id()));
+    let dir = scratch_root().join(format!("fsr-checker-{}", std::process::id()));
     let (built, installed) = (dir.join("target/debug/snapfiretc"), dir.join("bin/snapfiretc"));
     std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
     std::fs::write(&installed, "").unwrap();

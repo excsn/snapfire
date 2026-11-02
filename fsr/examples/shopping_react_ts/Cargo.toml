@@ -28,6 +28,7 @@ protox = "0.9"
 tonic-prost-build = "0.14"
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../../test_internal" }
 bytes = "1"
 http = "1"
 http-body-util = "0.1"

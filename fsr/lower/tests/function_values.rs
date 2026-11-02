@@ -10,7 +10,7 @@ use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
 
 fn html(tag: &str, page: &str) -> Result<String, String> {
-  let dir: PathBuf = std::env::temp_dir().join(format!("fsr_function_values_{}_{tag}", std::process::id()));
+  let dir: PathBuf = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_function_values_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   let path = dir.join("routes/page.tsx");
   std::fs::create_dir_all(path.parent().unwrap()).unwrap();

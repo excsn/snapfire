@@ -604,7 +604,7 @@ mod tests {
         assert!(sources.iter().all(|source| source.as_str().is_some_and(|text| !text.is_empty())), "{named} inlines no TypeScript");
       }
     }
-    let dir = std::env::temp_dir().join(format!("fsr-client-with-maps-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-client-with-maps-{}", std::process::id()));
     let written = write_to(&dir, true).unwrap();
     assert!(written.iter().any(|path| path.extension().is_some_and(|e| e == "map")), "a tree written for a web server carries the maps");
   }
@@ -620,7 +620,7 @@ mod tests {
         }
       }
     }
-    let dir = std::env::temp_dir().join(format!("fsr-client-maps-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-client-maps-{}", std::process::id()));
     for minified in [false, true] {
       for path in write_to(&dir, minified).unwrap() {
         assert!(!std::fs::read_to_string(&path).unwrap().contains("sourceMappingURL"), "{} names a map", path.display());
@@ -630,7 +630,7 @@ mod tests {
 
   #[test]
   fn a_tree_written_for_a_web_server_carries_the_desktop_module() {
-    let dir = std::env::temp_dir().join(format!("fsr-client-desktop-{}", std::process::id()));
+    let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-client-desktop-{}", std::process::id()));
     for minified in [false, true] {
       let written = write_to(&dir, minified).unwrap();
       assert!(written.contains(&dir.join(DESKTOP_FILE)), "minified {minified}: {written:?}");

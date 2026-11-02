@@ -116,7 +116,7 @@ fn a_try_inside_a_try_catches_what_its_own_await_throws() {
 }
 
 fn html(tag: &str, page: &str) -> Result<String, String> {
-  let dir: PathBuf = std::env::temp_dir().join(format!("fsr_exceptions_{}_{tag}", std::process::id()));
+  let dir: PathBuf = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_exceptions_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), page).unwrap();
@@ -160,7 +160,7 @@ fn a_component_try_that_returns_markup_renders_the_return_it_reached() {
 }
 
 fn stepped(tag: &str, page: &str, handler: usize) -> Result<String, String> {
-  let dir: PathBuf = std::env::temp_dir().join(format!("fsr_exceptions_step_{}_{tag}", std::process::id()));
+  let dir: PathBuf = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_exceptions_step_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), page).unwrap();

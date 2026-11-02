@@ -249,7 +249,7 @@ fn as_a_second_factor_only_the_identitys_own_passkeys_are_offered_and_accepted()
 
 #[test]
 fn a_file_store_keeps_passkeys_across_instances() {
-  let path = std::env::temp_dir().join(format!("fsr-passkeys-{}.json", std::process::id()));
+  let path = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-passkeys-{}.json", std::process::id()));
   let _ = std::fs::remove_file(&path);
   let mut authenticator = Authenticator::new();
   let store: Arc<dyn PasskeyStore> = Arc::new(FilePasskeys::new(&path));

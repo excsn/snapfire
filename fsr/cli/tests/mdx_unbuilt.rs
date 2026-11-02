@@ -10,7 +10,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 
 fn project(config: &str, files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-cli-mdx-unbuilt-{}-{n}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-mdx-unbuilt-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   let app = root.join("app");
   std::fs::create_dir_all(app.join("routes")).unwrap();

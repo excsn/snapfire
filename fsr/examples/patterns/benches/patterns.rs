@@ -20,7 +20,7 @@ struct Ready {
 
 fn bench(c: &mut Criterion) {
   let label = std::env::var("PATTERNS_LABEL").unwrap_or_else(|_| "current".to_owned());
-  let scratch = std::env::temp_dir().join(format!("fsr-patterns-bench-{label}"));
+  let scratch = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-patterns-bench-{label}"));
   let _ = std::fs::remove_dir_all(&scratch);
   let cache = scratch.join("react-dom-server");
   let rt = tokio::runtime::Builder::new_current_thread().build().expect("runtime");

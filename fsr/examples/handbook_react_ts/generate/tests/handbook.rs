@@ -14,7 +14,7 @@ fn handbook() -> Host {
 }
 
 fn out() -> std::path::PathBuf {
-  let dir = std::env::temp_dir().join(format!("fsr-handbook-{}-{:?}", std::process::id(), std::time::SystemTime::now()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-handbook-{}-{:?}", std::process::id(), std::time::SystemTime::now()));
   std::fs::create_dir_all(&dir).unwrap();
   dir
 }

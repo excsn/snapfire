@@ -12,7 +12,7 @@ use snapfire_fsr_host::Host;
 
 fn project(files: &[(&str, &str)]) -> PathBuf {
   static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-  let root = std::env::temp_dir().join(format!("fsr-cli-next-metadata-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-next-metadata-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   for (path, text) in files {

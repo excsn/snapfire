@@ -21,6 +21,7 @@ serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../test_internal" }
 serde = { version = "1", features = ["derive"] }
 proptest = "1"
 criterion = "0.5"

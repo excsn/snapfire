@@ -19,7 +19,7 @@ const DATED: &str = "import { modified } from \"@snapfire/fsr/head\";\nexport as
 
 fn project(tag: &str, crawl: &str, extra: &str, files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-cli-crawl-{}-{n}-{tag}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-crawl-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");

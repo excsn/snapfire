@@ -26,7 +26,7 @@ export default function Page() {
 "#;
 
 fn project() -> PathBuf {
-  let root = std::env::temp_dir().join(format!("fsr-cli-media-{}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-cli-media-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
   create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");

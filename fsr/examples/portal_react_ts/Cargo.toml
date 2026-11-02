@@ -19,6 +19,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 snapfire_fsr_cli = { path = "../../cli" }
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../../test_internal" }
 bytes = "1"
 http-body-util = "0.1"
 futures = "0.3"

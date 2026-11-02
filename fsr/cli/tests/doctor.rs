@@ -13,7 +13,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 fn app(toml: &str, files: &[(&str, &str)]) -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr-doctor-{}-{n}-{nanos}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-doctor-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("app/generated")).unwrap();
   std::fs::create_dir_all(dir.join("app/routes")).unwrap();
   // a case that opens `[document]` itself supplies the title, since the table
@@ -270,7 +270,7 @@ fn every_finding_carries_a_remedy() {
 
 #[test]
 fn a_directory_with_no_configuration_is_an_error_rather_than_a_finding() {
-  let dir = std::env::temp_dir().join(format!("fsr-doctor-none-{}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-doctor-none-{}", std::process::id()));
   std::fs::create_dir_all(&dir).unwrap();
   assert!(doctor::run(&dir).is_err());
 }
@@ -279,7 +279,7 @@ fn a_directory_with_no_configuration_is_an_error_rather_than_a_finding() {
 fn shell(sites_toml: &str, site_toml: &str, site_files: &[(&str, &str)]) -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let root = std::env::temp_dir().join(format!("fsr-doctor-shell-{}-{n}-{nanos}", std::process::id()));
+  let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-doctor-shell-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
   std::fs::create_dir_all(root.join("app/routes")).unwrap();
   std::fs::write(root.join("app.toml"), format!("[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n[sites]\nroot = \"sites\"\n{sites_toml}")).unwrap();

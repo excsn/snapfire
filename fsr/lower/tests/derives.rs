@@ -13,7 +13,7 @@ const KEYS: &str = "import { key } from \"@snapfire/fsr/client/store\";\nexport 
 
 fn derives(files: &[(&str, &str)]) -> Result<Vec<LoweredDerive>, String> {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let dir: PathBuf = std::env::temp_dir().join(format!("fsr-derives-{}-{n}", std::process::id()));
+  let dir: PathBuf = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-derives-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   for (name, source) in [("src/keys.ts", KEYS)].iter().chain(files) {
     let path = dir.join(name);

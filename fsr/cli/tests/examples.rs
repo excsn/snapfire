@@ -130,7 +130,7 @@ fn boot_and_render(root: &Path) -> (Result<(), String>, Result<(), String>) {
 
 #[test]
 fn every_example_builds_tests_and_boots_from_a_checkout() {
-  let scratch = std::env::temp_dir().join(format!("fsr-examples-{}", std::process::id()));
+  let scratch = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-examples-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&scratch);
   let examples = examples();
   for entry in std::fs::read_dir(&examples).unwrap().flatten().filter(|e| e.path().is_dir()) {
