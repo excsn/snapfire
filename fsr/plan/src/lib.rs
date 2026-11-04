@@ -856,6 +856,28 @@ fn namespace_node(node: &mut serde_json::Value, prefix: &str, shell: &str) {
 }
 
 impl Manifest {
+  /// Calls `f` on every expression the plan holds, to change it: each row's bodies, every component, the constants, the middleware and the theme.
+  pub fn visit_exprs_mut(&mut self, f: &mut dyn FnMut(&mut snapfire_fsr_ir::ast::Expr)) {
+    use snapfire_fsr_ir::ast::body_visit_mut;
+    for row in &mut self.sources {
+      for body in [&mut row.body, &mut row.meta, &mut row.store, &mut row.defaults, &mut row.paths].into_iter().flatten() {
+        body_visit_mut(body, f);
+      }
+    }
+    for body in self.actions.iter_mut().filter_map(|row| row.body.as_mut()).chain(self.handlers.iter_mut().filter_map(|row| row.body.as_mut())) {
+      body_visit_mut(body, f);
+    }
+    for body in self.images.iter_mut().filter_map(|row| row.images.as_mut()).chain(self.middleware.as_mut()).chain(self.theme.as_mut()) {
+      body_visit_mut(body, f);
+    }
+    for row in &mut self.components {
+      row.body.visit_mut(f);
+    }
+    for expr in self.derives.iter_mut().filter_map(|row| row.body.as_mut()).chain(self.consts.values_mut()) {
+      expr.visit_mut(f);
+    }
+  }
+
   /// The manifest as a site's artifact: every id prefixed `<name>:` and every
   /// pattern under `at`, so two sites can carry the same files. The document
   /// module `shell` stays the host's. Inputs name types and are prefixed the
@@ -937,6 +959,38 @@ impl Manifest {
         .collect();
     }
     serde_json::from_value(json).expect("a namespaced manifest deserializes")
+  }
+}
+
+#[cfg(test)]
+mod visit_tests {
+  use super::*;
+
+  #[test]
+  fn the_walk_reaches_the_expressions_of_every_kind_of_body() {
+    let call = |method: &str| format!(r#"{{ "native_call": {{ "module": "m", "method": "{method}" }} }}"#);
+    let text = format!(
+      r#"{{
+        "version": 2,
+        "routes": [],
+        "sources": [ {{ "id": "a", "owner": "lowered", "body": [ {{ "return": {} }} ], "meta": [ {{ "return": {} }} ] }} ],
+        "actions": [ {{ "id": "b", "owner": "lowered", "body": [ {{ "return": {} }} ] }} ],
+        "handlers": [ {{ "id": "c.GET", "method": "GET", "pattern": "/c", "owner": "lowered", "body": [ {{ "return": {} }} ] }} ],
+        "middleware": [ {{ "return": {} }} ],
+        "consts": {{ "k": {} }},
+        "derives": [ {{ "key": "d", "sources": [], "body": {} }} ]
+      }}"#,
+      call("source"), call("meta"), call("action"), call("handler"), call("middleware"), call("const"), call("derive")
+    );
+    let mut manifest = Manifest::from_json(&text).unwrap();
+    let mut reached = Vec::new();
+    manifest.visit_exprs_mut(&mut |e| {
+      if let snapfire_fsr_ir::ast::Expr::NativeCall { method, .. } = e {
+        reached.push(method.clone());
+      }
+    });
+    reached.sort();
+    assert_eq!(reached, ["action", "const", "derive", "handler", "meta", "middleware", "source"]);
   }
 }
 
