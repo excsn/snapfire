@@ -61,10 +61,27 @@ export interface IslandEntry {
 	pause?: Pauser;
 }
 export declare function registerIsland(moduleId: string, entry: IslandEntry): void;
+/** What an island mounts with: an adapter's mounter and the hooks beside it. */
+export interface Adapter {
+	mount: Mounter;
+	patch?: Patcher;
+	unmount?: Unmounter;
+	pause?: Pauser;
+}
+/** An island registered before its adapter is loaded. `adapter` is imported when a scan first finds an island naming it, once for every island that names the same loader, so a page holding none of its islands loads no framework. */
+export interface DeferredIsland {
+	loader: () => Promise<unknown>;
+	adapter: () => Promise<Adapter>;
+	when?: MountTiming;
+}
+/** Registers an island whose adapter loads when the island is first found, replacing what was registered under `moduleId` as `registerIsland` does. An adapter already loaded is used at once. */
+export declare function registerDeferredIsland(moduleId: string, island: DeferredIsland): void;
 /** Registers a module the browser imports a function prop from, by the file's path as the build names it, so a module reference `file#export` among an island's props resolves to that export before the island mounts. */
 export declare function registerModule(file: string, loader: () => Promise<unknown>): void;
 /** Every island registered so far, by module id. */
 export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
+/** The islands registered with an adapter that no scan has loaded yet. */
+export declare function deferredIslands(): ReadonlyMap<string, DeferredIsland>;
 /** An island marker's props script beside it and the props it holds, decoded and as written. */
 export declare function markerProps(marker: Element): {
 	script: Element | null;

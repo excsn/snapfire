@@ -10,7 +10,7 @@ export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, e
 export { live } from "./live.js";
 export { enableTelemetry } from "./telemetry.js";
 export { socket } from "./socket.js";
-export { adoptNodes, applyStyles, boot, childrenRegion, defineMounter, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
+export { adoptNodes, applyStyles, boot, childrenRegion, defineMounter, deferredIslands, discard, hydrationMismatch, islandChildren, loadedModule, loadEntry, loadModule, markerProps, markRendered, nestsIn, patchIsland, piecesOf, readPieces, registerDeferredIsland, registerIsland, registerModule, registeredIslands, rendersNested, scan, serverRendered, timingFired, unmarked } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
 export { enablePwa, online, updateReady } from "./pwa.js";
 export * from "./standard.js";

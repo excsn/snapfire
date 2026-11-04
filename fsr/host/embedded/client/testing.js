@@ -1,6 +1,6 @@
 import { forgetLoadedScripts } from "./script.js";
 import { restartRecords } from "./rendered.js";
-import { boot, discard, patchIsland, registeredIslands, scan } from "./boot.js";
+import { boot, deferredIslands, discard, patchIsland, registeredIslands, scan } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -412,11 +412,17 @@ function matchError(e, match) {
     if (!hit) throw new AssertionError(`expected an error matching ${show(match instanceof RegExp ? String(match) : match)}, got ${show(text.trim())}`);
 }
 let bootIslands = null;
+function knownIslands() {
+    return new Map([
+        ...deferredIslands(),
+        ...registeredIslands()
+    ]);
+}
 async function moduleOf(type) {
     const foreign = type?.[Symbol.for("sf.foreign")];
     if (typeof foreign === "string") return foreign;
     for (const registry of [
-        registeredIslands(),
+        knownIslands(),
         bootIslands ?? new Map()
     ]){
         for (const [id, entry] of registry){
@@ -699,7 +705,7 @@ export async function load(path, options = {}) {
     adopt();
     const late = applyFills();
     const evaluation = ++loads;
-    bootIslands ??= new Map(registeredIslands());
+    bootIslands ??= knownIslands();
     await sf().islands?.(evaluation);
     await sf().entry?.(evaluation);
     sf().upgrade?.();

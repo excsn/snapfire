@@ -45,8 +45,12 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Pauser](#pauser)
   * [IslandEntry](#islandentry)
   * [registerIsland](#registerisland)
+  * [Adapter](#adapter)
+  * [DeferredIsland](#deferredisland)
+  * [registerDeferredIsland](#registerdeferredisland)
   * [registerModule](#registermodule)
   * [registeredIslands](#registeredislands)
+  * [deferredIslands](#deferredislands)
   * [scan](#scan)
   * [loadEntry](#loadentry)
   * [boot](#boot)
@@ -533,6 +537,30 @@ What a module id is registered with.
 An island registered without `patch` cannot take new props, so a soft navigation that keeps its place replaces it with a new marker, which mounts afresh and loses the island's state.
 
 Registers or replaces the entry for a module id in the process-wide registry. `moduleId` must equal the marker's `data-sf-module` exactly. Registration only affects markers scanned afterwards.
+
+### Adapter
+
+* `interface Adapter { mount: Mounter; patch?: Patcher; unmount?: Unmounter; pause?: Pauser }`
+
+What an island mounts with: an adapter module's mounter and the hooks beside it, the fields of [IslandEntry](#islandentry) an adapter supplies.
+
+### DeferredIsland
+
+* `interface DeferredIsland { loader: () => Promise<unknown>; adapter: () => Promise<Adapter>; when?: MountTiming }`
+
+An island registered before its adapter is loaded. `adapter` imports the adapter module and answers its hooks.
+
+### registerDeferredIsland
+
+* `registerDeferredIsland(moduleId: string, island: DeferredIsland): void`
+
+Registers or replaces an island whose adapter is imported when a scan first finds a marker for it. The import happens once for every island registered with the same `adapter` function, then each of them is registered as `registerIsland` would register it and the document is scanned again. A page with no marker for any of them never imports the adapter. A miss is not reported while an adapter import is in flight. When the `adapter` function has already answered, the island is registered with its hooks at once. `fsr build` writes the registry this way, one `adapter` function per framework.
+
+### deferredIslands
+
+* `function deferredIslands(): ReadonlyMap<string, DeferredIsland>`
+
+Every island registered with an adapter no scan has loaded yet, by module id.
 
 ### registerModule
 

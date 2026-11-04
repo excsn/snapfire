@@ -102,7 +102,68 @@ const pending = new WeakMap<Element, () => void>();
 const islands = new Map<string, IslandEntry>();
 
 export function registerIsland(moduleId: string, entry: IslandEntry): void {
+  deferred.delete(moduleId);
   islands.set(moduleId, entry);
+}
+
+/** What an island mounts with: an adapter's mounter and the hooks beside it. */
+export interface Adapter {
+  mount: Mounter;
+  patch?: Patcher;
+  unmount?: Unmounter;
+  pause?: Pauser;
+}
+
+/** An island registered before its adapter is loaded. `adapter` is imported when a scan first finds an island naming it, once for every island that names the same loader, so a page holding none of its islands loads no framework. */
+export interface DeferredIsland {
+  loader: () => Promise<unknown>;
+  adapter: () => Promise<Adapter>;
+  when?: MountTiming;
+}
+
+const deferred = new Map<string, DeferredIsland>();
+/** Adapter loaders whose import is in flight. */
+const adapting = new Set<() => Promise<Adapter>>();
+/** What each adapter loader answered once it landed. */
+const adapted = new Map<() => Promise<Adapter>, Adapter>();
+
+/** Registers an island whose adapter loads when the island is first found, replacing what was registered under `moduleId` as `registerIsland` does. An adapter already loaded is used at once. */
+export function registerDeferredIsland(moduleId: string, island: DeferredIsland): void {
+  const adapter = adapted.get(island.adapter);
+  if (adapter) {
+    deferred.delete(moduleId);
+    islands.set(moduleId, { loader: island.loader, when: island.when, ...adapter });
+    return;
+  }
+  islands.delete(moduleId);
+  deferred.set(moduleId, island);
+}
+
+/** Starts the import of the adapter `moduleId` was deferred with and scans again once every island naming it is registered with its hooks. False when no registry deferred the island. A miss is not reported while the import is in flight. */
+function adapt(moduleId: string): boolean {
+  const island = deferred.get(moduleId);
+  if (!island) return false;
+  const load = island.adapter;
+  if (adapting.has(load)) return true;
+  adapting.add(load);
+  loading += 1;
+  load()
+    .then((adapter) => {
+      adapted.set(load, adapter);
+      for (const [id, waiting] of Array.from(deferred)) {
+        if (waiting.adapter !== load) continue;
+        deferred.delete(id);
+        islands.set(id, { loader: waiting.loader, when: waiting.when, ...adapter });
+      }
+      scan(document);
+    })
+    .catch((err) => console.warn(`sf: loading the adapter for ${moduleId} failed`, err))
+    .finally(() => {
+      adapting.delete(load);
+      loading -= 1;
+      report();
+    });
+  return true;
 }
 
 const modules = new Map<string, () => Promise<unknown>>();
@@ -151,6 +212,11 @@ async function resolveModuleRefs(props: Props): Promise<Props> {
 /** Every island registered so far, by module id. */
 export function registeredIslands(): ReadonlyMap<string, IslandEntry> {
   return islands;
+}
+
+/** The islands registered with an adapter that no scan has loaded yet. */
+export function deferredIslands(): ReadonlyMap<string, DeferredIsland> {
+  return deferred;
 }
 
 function rawPropsFor(root: ParentNode, id: string): unknown {
@@ -587,6 +653,7 @@ export function scan(root: ParentNode): void {
     }
     const entry = islands.get(moduleId);
     if (!entry) {
+      if (adapt(moduleId)) continue;
       missing.add(moduleId);
       arm();
       continue;

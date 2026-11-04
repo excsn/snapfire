@@ -3,7 +3,7 @@ import { restartRecords } from "./rendered.js";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
-import { boot, discard, patchIsland, registeredIslands, scan, type IslandEntry, type Props } from "./boot.js";
+import { boot, deferredIslands, discard, patchIsland, registeredIslands, scan, type Props } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -551,13 +551,18 @@ export interface Rendered extends BoundQueries {
   debug(element?: Element, maxLength?: number): void;
 }
 
-/** The islands as the boot registered them, whose loaders answer the modules a spec's own imports hold; a load registers them again from modules evaluated for its document. */
-let bootIslands: Map<string, IslandEntry> | null = null;
+/** The islands as the boot registered them, deferred ones among them, whose loaders answer the modules a spec's own imports hold; a load registers them again from modules evaluated for its document. */
+let bootIslands: Map<string, { loader: () => Promise<unknown> }> | null = null;
+
+/** Every island a registry named, whether or not its adapter has loaded. */
+function knownIslands(): Map<string, { loader: () => Promise<unknown> }> {
+  return new Map<string, { loader: () => Promise<unknown> }>([...deferredIslands(), ...registeredIslands()]);
+}
 
 async function moduleOf(type: unknown): Promise<string | null> {
   const foreign = (type as { [key: symbol]: unknown } | null)?.[Symbol.for("sf.foreign")];
   if (typeof foreign === "string") return foreign;
-  for (const registry of [registeredIslands(), bootIslands ?? new Map<string, IslandEntry>()]) {
+  for (const registry of [knownIslands(), bootIslands ?? new Map<string, { loader: () => Promise<unknown> }>()]) {
     for (const [id, entry] of registry) {
       if ((await entry.loader()) === type) return id;
     }
@@ -852,7 +857,7 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   adopt();
   const late = applyFills();
   const evaluation = ++loads;
-  bootIslands ??= new Map(registeredIslands());
+  bootIslands ??= knownIslands();
   await sf().islands?.(evaluation);
   await sf().entry?.(evaluation);
   sf().upgrade?.();

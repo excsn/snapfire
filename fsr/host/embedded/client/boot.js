@@ -12,7 +12,51 @@ const paused = new WeakSet();
 const pending = new WeakMap();
 const islands = new Map();
 export function registerIsland(moduleId, entry) {
+    deferred.delete(moduleId);
     islands.set(moduleId, entry);
+}
+const deferred = new Map();
+const adapting = new Set();
+const adapted = new Map();
+export function registerDeferredIsland(moduleId, island) {
+    const adapter = adapted.get(island.adapter);
+    if (adapter) {
+        deferred.delete(moduleId);
+        islands.set(moduleId, {
+            loader: island.loader,
+            when: island.when,
+            ...adapter
+        });
+        return;
+    }
+    islands.delete(moduleId);
+    deferred.set(moduleId, island);
+}
+function adapt(moduleId) {
+    const island = deferred.get(moduleId);
+    if (!island) return false;
+    const load = island.adapter;
+    if (adapting.has(load)) return true;
+    adapting.add(load);
+    loading += 1;
+    load().then((adapter)=>{
+        adapted.set(load, adapter);
+        for (const [id, waiting] of Array.from(deferred)){
+            if (waiting.adapter !== load) continue;
+            deferred.delete(id);
+            islands.set(id, {
+                loader: waiting.loader,
+                when: waiting.when,
+                ...adapter
+            });
+        }
+        scan(document);
+    }).catch((err)=>console.warn(`sf: loading the adapter for ${moduleId} failed`, err)).finally(()=>{
+        adapting.delete(load);
+        loading -= 1;
+        report();
+    });
+    return true;
 }
 const modules = new Map();
 export function registerModule(file, loader) {
@@ -55,6 +99,9 @@ async function resolveModuleRefs(props) {
 }
 export function registeredIslands() {
     return islands;
+}
+export function deferredIslands() {
+    return deferred;
 }
 function rawPropsFor(root, id) {
     const script = root.querySelector(`script[data-sf-props="${id}"]`) ?? document.querySelector(`script[data-sf-props="${id}"]`);
@@ -459,6 +506,7 @@ export function scan(root) {
         }
         const entry = islands.get(moduleId);
         if (!entry) {
+            if (adapt(moduleId)) continue;
             missing.add(moduleId);
             arm();
             continue;
