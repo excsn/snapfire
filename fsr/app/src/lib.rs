@@ -106,6 +106,8 @@ pub struct Report {
   /// `METHOD pattern` per handler.
   pub handlers: Vec<(String, Owner)>,
   pub middleware: Option<Owner>,
+  /// The lowered sources, actions, handlers (as `METHOD pattern`) and `middleware` that run a compiled body. `None` when the host was handed no compiled bodies.
+  pub compiled: Option<Vec<String>>,
   /// Patterns one render serves for every request; the host prerenders these.
   pub prerenderable: Vec<String>,
   /// Patterns one render serves for every anonymous request: their only
@@ -143,6 +145,17 @@ pub struct Report {
 
 }
 
+impl Report {
+  /// Who answers `row` and, for a lowered row in a host handed compiled bodies, whether its body runs compiled or interpreted.
+  fn runs(&self, row: &str, owner: Owner) -> String {
+    match (&self.compiled, owner) {
+      (Some(compiled), Owner::Lowered) if compiled.iter().any(|c| c == row) => format!("{}, compiled", owner.as_str()),
+      (Some(_), Owner::Lowered) => format!("{}, interpreted", owner.as_str()),
+      _ => owner.as_str().to_owned(),
+    }
+  }
+}
+
 impl std::fmt::Display for Report {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     for (i, (pattern, owner)) in self.routes.iter().enumerate() {
@@ -151,18 +164,18 @@ impl std::fmt::Display for Report {
     }
     for (i, (source, owner)) in self.sources.iter().enumerate() {
       let label = if i == 0 { "sources" } else { "" };
-      writeln!(f, "{label:<9} {source:<22} {}", owner.as_str())?;
+      writeln!(f, "{label:<9} {source:<22} {}", self.runs(source, *owner))?;
     }
     for (i, (action, owner)) in self.actions.iter().enumerate() {
       let label = if i == 0 { "actions" } else { "" };
-      writeln!(f, "{label:<9} {action:<22} {}", owner.as_str())?;
+      writeln!(f, "{label:<9} {action:<22} {}", self.runs(action, *owner))?;
     }
     for (i, (handler, owner)) in self.handlers.iter().enumerate() {
       let label = if i == 0 { "handlers" } else { "" };
-      writeln!(f, "{label:<9} {handler:<22} {}", owner.as_str())?;
+      writeln!(f, "{label:<9} {handler:<22} {}", self.runs(handler, *owner))?;
     }
     if let Some(owner) = &self.middleware {
-      writeln!(f, "{:<9} {:<22} {}", "middleware", "middleware", owner.as_str())?;
+      writeln!(f, "{:<9} {:<22} {}", "middleware", "middleware", self.runs("middleware", *owner))?;
     }
     for (i, (module, owner)) in self.components.iter().enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
@@ -256,6 +269,8 @@ pub struct App {
   /// What a lowered body runs on: the plan's constants, extensions and
   /// catalogs, every mounted site's included.
   interpreter: Interpreter,
+  /// The compiled bodies the builder was handed, for a body bound after the build.
+  bodies: Vec<&'static snapfire_fsr_ir::native::Native>,
 }
 
 impl std::fmt::Debug for App {
@@ -326,6 +341,8 @@ pub struct Images {
   matcher: MatchitMatcher,
   under_catch_all: Vec<CatchAllImage>,
   entries: Vec<snapfire_fsr_plan::ImageEntry>,
+  /// Each entry's lowered `images` body, by the entry's index.
+  listings: Vec<Option<snapfire_fsr_ir::PreparedBody>>,
 }
 
 /// An image under a catch-all page. matchit allows nothing after `{*name}`,
@@ -360,7 +377,8 @@ impl CatchAllImage {
 }
 
 impl Images {
-  fn new(entries: Vec<snapfire_fsr_plan::ImageEntry>) -> Result<Self, BindError> {
+  fn new(rows: Vec<(snapfire_fsr_plan::ImageEntry, Option<snapfire_fsr_ir::PreparedBody>)>) -> Result<Self, BindError> {
+    let (entries, listings): (Vec<_>, Vec<_>) = rows.into_iter().unzip();
     let mut matcher = MatchitMatcher::new();
     let mut under_catch_all = Vec::new();
     let listed_tail = format!("/{{{}}}", snapfire_fsr_plan::IMAGE_PARAM);
@@ -381,7 +399,7 @@ impl Images {
       page_matcher.insert(page, id).map_err(|e| BindError::Image(entry.pattern.clone(), e.to_string()))?;
       under_catch_all.push(CatchAllImage { page: page_matcher, tail: tail.to_owned(), listed, entry: id });
     }
-    Ok(Self { matcher, under_catch_all, entries })
+    Ok(Self { matcher, under_catch_all, entries, listings })
   }
 
   /// The image `path` names, with the page's params.
@@ -394,6 +412,12 @@ impl Images {
 
   pub fn entries(&self) -> &[snapfire_fsr_plan::ImageEntry] {
     &self.entries
+  }
+
+  /// The lowered `images` body of the entry answering `pattern`, when its module lists its images.
+  pub fn listing(&self, pattern: &str) -> Option<&snapfire_fsr_ir::PreparedBody> {
+    let at = self.entries.iter().position(|entry| entry.pattern == pattern)?;
+    self.listings.get(at)?.as_ref()
   }
 
   pub fn is_empty(&self) -> bool {
@@ -412,11 +436,11 @@ pub struct ListedImage {
   pub content_type: String,
 }
 
-/// The images `entry`'s `images` body returns for `ctx`, each with the
+/// The images `listing`, `entry`'s `images` body, returns for `ctx`, each with the
 /// entry's size, type and alt where it names none of its own.
-pub async fn listed_images(interpreter: &Interpreter, entry: &snapfire_fsr_plan::ImageEntry, ctx: &RequestCtx) -> Result<Vec<ListedImage>, String> {
-  let Some(body) = &entry.images else { return Ok(Vec::new()) };
-  let outcome = interpreter.run(body, ctx, None).await.map_err(|fail| fail.message)?;
+pub async fn listed_images(interpreter: &Interpreter, entry: &snapfire_fsr_plan::ImageEntry, listing: Option<&snapfire_fsr_ir::PreparedBody>, ctx: &RequestCtx) -> Result<Vec<ListedImage>, String> {
+  let Some(body) = listing else { return Ok(Vec::new()) };
+  let outcome = body.run(interpreter, ctx, None).await.map_err(|fail| fail.message)?;
   let snapfire_fsr_core::Value::Seq(items) = &outcome.value else {
     return Err("`images` must return a list".to_owned());
   };
@@ -454,16 +478,18 @@ pub async fn listed_images(interpreter: &Interpreter, entry: &snapfire_fsr_plan:
 /// The head rows of a card module's listed images, one group per image.
 struct ListedImages {
   entry: snapfire_fsr_plan::ImageEntry,
+  listing: snapfire_fsr_ir::PreparedBody,
   interpreter: Interpreter,
 }
 
 impl snapfire_fsr_runtime::HeadRows for ListedImages {
   fn rows(&self, ctx: &RequestCtx) -> futures_util::future::BoxFuture<'static, Result<(String, Vec<snapfire_fsr_runtime::HeadEl>), LoadError>> {
     let entry = self.entry.clone();
+    let listing = self.listing.clone();
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     Box::pin(async move {
-      let listed = listed_images(&interpreter, &entry, &ctx).await.map_err(|message| LoadError::new(entry.module.clone(), message))?;
+      let listed = listed_images(&interpreter, &entry, Some(&listing), &ctx).await.map_err(|message| LoadError::new(entry.module.clone(), message))?;
       let (key, field, stem) = if entry.card == "twitter" { ("name", "twitter:image", "twitter-image") } else { ("property", "og:image", "opengraph-image") };
       let path = ctx.path.trim_end_matches('/');
       let row = |name: String, content: String| snapfire_fsr_runtime::HeadEl::new("meta".to_owned(), vec![(key.to_owned(), name), ("content".to_owned(), content)], None);
@@ -507,27 +533,28 @@ pub struct AppBuilder {
   natives: snapfire_fsr_runtime::Natives,
   islands: snapfire_fsr_runtime::IslandRegistry,
   routes: Routes,
-  lowered_middleware: Option<snapfire_fsr_ir::Body>,
+  lowered_middleware: Option<snapfire_fsr_ir::PreparedBody>,
   rust_middleware: Option<(Arc<dyn ActionHandler>, Owner)>,
   declared_handlers: Vec<(String, String, String)>,
-  lowered_handlers: Vec<(String, String, String, Option<String>, snapfire_fsr_ir::Body)>,
+  lowered_handlers: Vec<(String, String, String, Option<String>, snapfire_fsr_ir::PreparedBody)>,
   rust_handlers: Vec<(String, String, Arc<dyn ActionHandler>, Owner)>,
   declared_actions: Vec<String>,
-  lowered_sources: Vec<(String, snapfire_fsr_ir::Body)>,
+  lowered_sources: Vec<(String, snapfire_fsr_ir::PreparedBody)>,
   /// By source id: the loader module's `meta` body.
-  lowered_metas: Vec<(String, snapfire_fsr_ir::Body)>,
+  lowered_metas: Vec<(String, snapfire_fsr_ir::PreparedBody)>,
   /// By source id: metadata a Rust host describes a segment with.
   rust_metas: Vec<(String, Arc<dyn Metadata>)>,
-  lowered_stores: Vec<(String, Option<snapfire_fsr_ir::Body>, Option<snapfire_fsr_ir::Body>, Option<Vec<String>>)>,
+  lowered_stores: Vec<(String, Option<snapfire_fsr_ir::PreparedBody>, Option<snapfire_fsr_ir::PreparedBody>, Option<Vec<String>>)>,
   /// The plan's `reads`: the store keys each island the server does not render reads.
   island_reads: std::collections::BTreeMap<String, Vec<String>>,
   /// By source id: the page loader module's `paths` body.
-  lowered_paths: Vec<(String, snapfire_fsr_ir::Body)>,
-  lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
+  lowered_paths: Vec<(String, snapfire_fsr_ir::PreparedBody)>,
+  lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::PreparedBody)>,
   lowered_components: Vec<(String, Component)>,
   /// The head rows each lowered module asks for, by module id.
   lowered_heads: Vec<(String, Vec<snapfire_fsr_plan::HeadRow>)>,
-  images: Vec<snapfire_fsr_plan::ImageEntry>,
+  /// Each card image with its lowered `images` body, when the module lists its images.
+  images: Vec<(snapfire_fsr_plan::ImageEntry, Option<snapfire_fsr_ir::PreparedBody>)>,
   clients: Vec<snapfire_fsr_plan::ClientEntry>,
   contract: Option<Arc<Contract>>,
   sources: DataSources,
@@ -551,14 +578,17 @@ pub struct AppBuilder {
   bearer_services: Vec<String>,
   /// The frameworks the application vendors, whose markup the lowered components match.
   frameworks: snapfire_fsr_ir::Frameworks,
+  /// Lowered bodies compiled into the application, `generated/bodies.rs`.
+  bodies: Vec<&'static snapfire_fsr_ir::native::Native>,
 }
 
 impl App {
   /// `body` as a handler that runs with this app's constants, extensions and
   /// catalogs, for a lowered body bound outside the plan's own tables: a
-  /// mounted site's middleware or a theme.
-  pub fn lowered_handler(&self, body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler> {
-    Arc::new(IrAction::new(body).with_interpreter(self.interpreter.clone()))
+  /// mounted site's middleware or a theme. It runs compiled when one of the
+  /// builder's compiled bodies was written from its plan.
+  pub fn lowered_handler(&self, body: impl Into<snapfire_fsr_ir::PreparedBody>) -> Arc<dyn ActionHandler> {
+    Arc::new(IrAction::new(body.into().compiled_from(&self.bodies)).with_interpreter(self.interpreter.clone()))
   }
 
   /// The input of the action or handler `id` read against its declared type,
@@ -619,6 +649,7 @@ impl App {
       slot_order: Vec::new(),
       derives: Vec::new(),
       frameworks: snapfire_fsr_ir::Frameworks::default(),
+      bodies: Vec::new(),
     }
   }
 
@@ -629,7 +660,8 @@ impl App {
     let parsed = snapfire_fsr_plan::Manifest::from_text(manifest)?;
     let mut builder = Self::builder(Routes::from_manifest(manifest)?);
     builder.add_rows(&parsed);
-    builder.lowered_middleware = parsed.middleware.clone();
+    let consts = (!parsed.consts.is_empty()).then_some(&parsed.consts);
+    builder.lowered_middleware = parsed.middleware.clone().map(|body| snapfire_fsr_ir::PreparedBody::new(body, consts));
     if let Some(version) = parsed.frameworks.get("react") {
       builder.frameworks.react = Some(snapfire_fsr_ir::ReactMajor::of(version).ok_or_else(|| BindError::React { version: version.clone() })?);
     }
@@ -657,23 +689,25 @@ impl AppBuilder {
 
   /// Every lowered row of `parsed` beside the ones this builder holds.
   fn add_rows(&mut self, parsed: &snapfire_fsr_plan::Manifest) {
+    let consts = (!parsed.consts.is_empty()).then_some(&parsed.consts);
+    let prepared = |body: &Option<snapfire_fsr_ir::Body>| body.clone().map(|body| snapfire_fsr_ir::PreparedBody::new(body, consts));
     self.declared_actions.extend(parsed.action_ids());
-    self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body))));
-    self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta))));
+    self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.body).map(|body| (row.id.clone(), body))));
+    self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.meta).map(|meta| (row.id.clone(), meta))));
     self.lowered_stores.extend(
       parsed
         .lowered_sources()
         .filter(|row| row.store.is_some() || row.defaults.is_some())
-        .map(|row| (row.id.clone(), row.store.clone(), row.defaults.clone(), row.store_keys.clone())),
+        .map(|row| (row.id.clone(), prepared(&row.store), prepared(&row.defaults), row.store_keys.clone())),
     );
     self.island_reads.extend(parsed.reads.clone());
     self.derives.extend(parsed.derives.iter().cloned());
-    self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
-    self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
+    self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.paths).map(|paths| (row.id.clone(), paths))));
+    self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| prepared(&row.body).map(|body| (row.id.clone(), row.input.clone(), body))));
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
     self.lowered_heads.extend(parsed.components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())));
     self.lowered_heads.extend(parsed.heads.iter().map(|row| (row.module.clone(), row.head.clone())));
-    self.images.extend(parsed.images.iter().cloned());
+    self.images.extend(parsed.images.iter().map(|entry| (entry.clone(), prepared(&entry.images))));
     self.clients.extend(parsed.clients.iter().cloned());
     if !parsed.consts.is_empty() {
       let mut merged = self.consts.as_deref().cloned().unwrap_or_default();
@@ -682,7 +716,7 @@ impl AppBuilder {
     }
     for row in &parsed.handlers {
       match &row.body {
-        Some(body) => self.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), body.clone())),
+        Some(body) => self.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), snapfire_fsr_ir::PreparedBody::new(body.clone(), consts))),
         None => self.declared_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone())),
       }
     }
@@ -725,6 +759,12 @@ impl AppBuilder {
   /// so it takes no contract and passes through no interceptor.
   pub fn native(mut self, name: impl Into<String>, module: Arc<dyn snapfire_fsr_runtime::Native>) -> Self {
     self.natives.register(name, module);
+    self
+  }
+
+  /// Lowered bodies compiled into the application, the `BODIES` of a `generated/bodies.rs`. Each runs in place of every lowered body whose plan it was written from; any other body runs interpreted.
+  pub fn bodies(mut self, bodies: &'static [snapfire_fsr_ir::native::Native]) -> Self {
+    self.bodies.extend(bodies);
     self
   }
 
@@ -1000,7 +1040,7 @@ impl AppBuilder {
       .lowered_sources
       .iter()
       .map(|(name, body)| {
-        let meta = self.lowered_metas.iter().find(|(m, _)| m == name).map(|(_, meta)| meta);
+        let meta = self.lowered_metas.iter().find(|(m, _)| m == name).map(|(_, meta)| meta.body());
         (name.clone(), classify(body, meta, &self.bearer_services))
       })
       .collect();
@@ -1013,12 +1053,17 @@ impl AppBuilder {
       .filter(|(_, body)| reads_path(body) || reads_param(body))
       .map(|(name, _)| name.clone())
       .collect();
+    let mut compiled: Vec<String> = Vec::new();
     for (name, body) in std::mem::take(&mut self.lowered_sources) {
       match self.claimed.iter().rev().find(|(claimed, _)| *claimed == name).map(|(_, o)| *o) {
         Some(Owner::RustOverride) => {}
         Some(_) => return Err(BindError::Claimed(name)),
         None => {
           self.claimed.push((name.clone(), Owner::Lowered));
+          let body = body.compiled_from(&self.bodies);
+          if body.is_compiled() {
+            compiled.push(name.clone());
+          }
           self.sources.insert(name.clone(), Arc::new(IrSource::new(name, body).with_interpreter(interpreter.clone())));
         }
       }
@@ -1035,15 +1080,20 @@ impl AppBuilder {
         Some(Owner::RustOverride) => {}
         Some(_) => return Err(BindError::ActionClaimed(id)),
         None => {
+          let body = body.compiled_from(&self.bodies);
+          if body.is_compiled() {
+            compiled.push(id.clone());
+          }
+          let lowered = IrAction::new(body).with_interpreter(interpreter.clone());
           let handler: Arc<dyn ActionHandler> = match input {
-            None => Arc::new(IrAction::new(body).with_interpreter(interpreter.clone())),
+            None => Arc::new(lowered),
             Some(input) => {
               let contract = self.contract.clone().ok_or_else(|| BindError::NoContract { id: id.clone(), input: input.clone() })?;
               if !contract.types.contains_key(&input) {
                 return Err(BindError::UnknownInput { id: id.clone(), input });
               }
               declared_inputs.insert(id.clone(), input.clone());
-              Arc::new(CheckedInput { input, contract, inner: IrAction::new(body).with_interpreter(interpreter.clone()) })
+              Arc::new(CheckedInput { input, contract, inner: lowered })
             }
           };
           self.action_claims.push((id.clone(), Owner::Lowered));
@@ -1081,7 +1131,13 @@ impl AppBuilder {
       (Some((_, Owner::Rust)), Some(_)) => return Err(BindError::MiddlewareClaimed),
       (Some((_, Owner::RustOverride)), None) => return Err(BindError::MiddlewareOverridesNothing),
       (Some((handler, owner)), _) => (Some(handler), Some(owner)),
-      (None, Some(body)) => (Some(Arc::new(IrAction::new(body).with_interpreter(interpreter.clone()))), Some(Owner::Lowered)),
+      (None, Some(body)) => {
+        let body = body.compiled_from(&self.bodies);
+        if body.is_compiled() {
+          compiled.push("middleware".to_owned());
+        }
+        (Some(Arc::new(IrAction::new(body).with_interpreter(interpreter.clone()))), Some(Owner::Lowered))
+      }
       (None, None) => (None, None),
     };
 
@@ -1105,15 +1161,20 @@ impl AppBuilder {
         Some(_) => return Err(BindError::HandlerClaimed(key)),
         None => {}
       }
+      let body = body.compiled_from(&self.bodies);
+      if body.is_compiled() {
+        compiled.push(key.clone());
+      }
+      let lowered = IrAction::new(body).with_interpreter(interpreter.clone());
       let handler: Arc<dyn ActionHandler> = match input {
-        None => Arc::new(IrAction::new(body).with_interpreter(interpreter.clone())),
+        None => Arc::new(lowered),
         Some(input) => {
           let contract = self.contract.clone().ok_or_else(|| BindError::NoContract { id: id.clone(), input: input.clone() })?;
           if !contract.types.contains_key(&input) {
             return Err(BindError::UnknownInput { id: id.clone(), input });
           }
           declared_inputs.insert(id.clone(), input.clone());
-          Arc::new(CheckedInput { input, contract, inner: IrAction::new(body).with_interpreter(interpreter.clone()) })
+          Arc::new(CheckedInput { input, contract, inner: lowered })
         }
       };
       handlers.matcher.insert(&method, &pattern, id.clone()).map_err(|e| BindError::Pattern { pattern: pattern.clone(), message: e.to_string() })?;
@@ -1159,7 +1220,7 @@ impl AppBuilder {
       if on.is_empty() {
         return Err(BindError::PathsOffRoute { loader: name });
       }
-      let enumerated: Arc<dyn Paths> = Arc::new(IrPaths::new(name.clone(), body).with_interpreter(interpreter.clone()));
+      let enumerated: Arc<dyn Paths> = Arc::new(IrPaths::new(name.clone(), body.compiled_from(&self.bodies)).with_interpreter(interpreter.clone()));
       for pattern in on {
         if !pattern.contains('{') {
           return Err(BindError::PathsWithoutParameter { loader: name, pattern: pattern.clone() });
@@ -1258,6 +1319,7 @@ impl AppBuilder {
       actions,
       handlers: handler_rows,
       middleware: middleware_owner,
+      compiled: (!self.bodies.is_empty()).then_some(compiled),
       prerenderable: prerenderable.clone(),
       prerenderable_anonymous: prerenderable_anonymous.clone(),
       paths: resolved.iter().map(|(p, _, _)| p).filter(|p| paths.contains_key(*p)).cloned().collect(),
@@ -1295,9 +1357,10 @@ impl AppBuilder {
       heads.entry(module.clone()).or_default().extend(rows.iter().map(|row| snapfire_fsr_runtime::HeadEl::new(row.tag.clone(), row.attrs.clone(), None)));
     }
     let mut listers: Vec<(String, Arc<dyn snapfire_fsr_runtime::HeadRows>)> = Vec::new();
-    for entry in &self.images {
-      if entry.images.is_some() {
-        listers.push((entry.page.clone(), Arc::new(ListedImages { entry: entry.clone(), interpreter: interpreter.clone() })));
+    let images: Vec<(snapfire_fsr_plan::ImageEntry, Option<snapfire_fsr_ir::PreparedBody>)> = std::mem::take(&mut self.images).into_iter().map(|(entry, listing)| (entry, listing.map(|body| body.compiled_from(&self.bodies)))).collect();
+    for (entry, listing) in &images {
+      if let Some(listing) = listing {
+        listers.push((entry.page.clone(), Arc::new(ListedImages { entry: entry.clone(), listing: listing.clone(), interpreter: interpreter.clone() })));
       }
     }
     let mut runtime = Runtime::builder()
@@ -1331,7 +1394,7 @@ impl AppBuilder {
     }
     for (name, meta) in std::mem::take(&mut self.lowered_metas) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
-        runtime = runtime.meta(name.clone(), Arc::new(IrMeta::new(name, meta).with_interpreter(interpreter.clone())));
+        runtime = runtime.meta(name.clone(), Arc::new(IrMeta::new(name, meta.compiled_from(&self.bodies)).with_interpreter(interpreter.clone())));
       }
     }
     for (name, meta) in std::mem::take(&mut self.rust_metas) {
@@ -1339,11 +1402,13 @@ impl AppBuilder {
     }
     for (name, store, defaults, keys) in std::mem::take(&mut self.lowered_stores) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
+        let store = store.map(|body| body.compiled_from(&self.bodies));
+        let defaults = defaults.map(|body| body.compiled_from(&self.bodies));
         runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name).with_store(store).with_defaults(defaults).with_keys(keys).with_interpreter(interpreter.clone())));
       }
     }
 
-    let images = Images::new(std::mem::take(&mut self.images))?;
+    let images = Images::new(images)?;
     Ok(App {
       matcher,
       resolver,
@@ -1368,6 +1433,7 @@ impl AppBuilder {
       declared_inputs,
       report,
       interpreter,
+      bodies: self.bodies,
     })
   }
 }
