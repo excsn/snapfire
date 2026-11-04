@@ -5,6 +5,8 @@
 mod actions;
 mod after;
 pub mod assets;
+/// What `generated/bodies.rs` is written against.
+pub use snapfire_fsr_ir::native as bodies;
 mod auth;
 #[cfg(feature = "auth")]
 mod service_provider;
@@ -12,6 +14,10 @@ mod service_provider;
 mod signin;
 mod builder;
 mod bundle;
+#[cfg(feature = "share_cards")]
+mod card;
+#[cfg(not(feature = "share_cards"))]
+#[path = "card_absent.rs"]
 mod card;
 mod crawl;
 pub mod client;
@@ -48,6 +54,12 @@ pub mod tera;
 /// Where the build writes what each Tailwind class means on a card image, relative to the app.
 pub const CARD_CLASSES_FILE: &str = "generated/tailwind.cards.json";
 
+/// Whether this host draws share cards: its `share_cards` feature.
+pub const SHARE_CARDS: bool = cfg!(feature = "share_cards");
+
+/// Whether this host calls an HTTP service over the network: its `http` feature. A mocked one is served either way.
+pub const HTTP: bool = cfg!(feature = "http");
+
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
@@ -74,9 +86,11 @@ use snapfire_fsr_runtime::{
   parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
-  Contract, CredentialInterceptor, Credentials, DeclaredService, HttpTransport, IdentityInterceptor, MockTransport,
-  NoCredentials, Services, TraceInterceptor, Transport,
+  Contract, CredentialInterceptor, Credentials, DeclaredService, IdentityInterceptor, MockTransport, NoCredentials, Services,
+  TraceInterceptor, Transport,
 };
+#[cfg(feature = "http")]
+use snapfire_fsr_service::HttpTransport;
 use snapfire_fsr_session::{CookieCodec, CsrfScheme, HmacCodec, Keyring, MemorySessionStore, Opened, SessionConfig, SessionStore, Sessions};
 #[cfg(feature = "auth")]
 use snapfire_fsr_session::{SessionId, TokenCell};
@@ -408,6 +422,7 @@ struct Tables {
   ready: Option<String>,
   prerendered: Option<PathBuf>,
   /// What generated card images are drawn with; `None` when the plan has none.
+  #[cfg_attr(not(feature = "share_cards"), allow(dead_code))]
   cards: Option<card::Cards>,
   /// The build `prerender::build_of` names for these tables, which a
   /// prerender writes beside its documents.
@@ -416,6 +431,9 @@ struct Tables {
   /// directory was written by another build, until a `prerender` from this
   /// one replaces them.
   prerender_current: std::sync::atomic::AtomicBool,
+  /// The documents and images of `prerendered`, read at boot and after this
+  /// host's own `prerender`, so a request reads no file.
+  held: prerender::Held,
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
   warm: Arc<WarmLoads>,

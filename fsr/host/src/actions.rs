@@ -127,7 +127,7 @@ pub fn island_step(
       ));
     }
   };
-  if let Some(unknown) = state.keys().find(|k| !k.contains('/') && !component.state.contains(k)) {
+  if let Some(unknown) = state.keys().find(|k| !k.contains('/') && !component.state.iter().any(|name| name == k.as_str())) {
     return Err((
       StatusCode::BAD_REQUEST,
       serde_json::json!({ "kind": "invalid", "message": format!("`{unknown}` is not state of `{module}`") }),

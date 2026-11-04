@@ -235,7 +235,7 @@ pub(crate) fn clients_of(
       continue;
     }
     let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
-    let imported = snapfire_fsr_service::import(&text, name).map_err(|error| HostError::Import { document, error })?;
+    let imported = snapfire_fsr_service::import(&text, name).map_err(|error| HostError::Import { document: document.clone(), error })?;
     let site_contract = site_contract(&imported.contract, config);
     contract.types.extend(site_contract.types.clone());
     contract.services.extend(site_contract.services.clone());
@@ -244,19 +244,24 @@ pub(crate) fn clients_of(
       service_rows.push((named.clone(), "mock".to_owned(), file));
       continue;
     }
-    let base_url = client.base_url.clone().unwrap_or_default();
-    let mut transport = HttpTransport::new(&base_url);
-    for (path, route) in &imported.routes {
-      transport = transport.route(path.clone(), route.clone());
+    #[cfg(not(feature = "http"))]
+    return Err(HostError::Import { document, error: snapfire_fsr_service::ImportError::Feature { at: path.display().to_string(), contract: "HTTP", feature: "http" } });
+    #[cfg(feature = "http")]
+    {
+      let base_url = client.base_url.clone().unwrap_or_default();
+      let mut transport = HttpTransport::new(&base_url);
+      for (path, route) in &imported.routes {
+        transport = transport.route(path.clone(), route.clone());
+      }
+      if let Some((header, value)) = credential_header(config, client) {
+        transport = transport.header(header, value);
+      }
+      if let Some((query, value)) = client.credential.as_ref().and_then(|c| Some((c.query.clone()?, secret_value(config, &c.secret)?))) {
+        transport = transport.query(query, value);
+      }
+      transports.push((named.clone(), Arc::new(transport)));
+      service_rows.push((named.clone(), "http".to_owned(), base_url));
     }
-    if let Some((header, value)) = credential_header(config, client) {
-      transport = transport.header(header, value);
-    }
-    if let Some((query, value)) = client.credential.as_ref().and_then(|c| Some((c.query.clone()?, secret_value(config, &c.secret)?))) {
-      transport = transport.query(query, value);
-    }
-    transports.push((named.clone(), Arc::new(transport)));
-    service_rows.push((named.clone(), "http".to_owned(), base_url));
   }
   Ok(())
 }

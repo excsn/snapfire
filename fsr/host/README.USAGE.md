@@ -23,6 +23,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Middleware in Rust](#middleware-in-rust)
 * [Prerendering the Routes That Never Change](#prerendering-the-routes-that-never-change)
 * [Warming the Loads a Route Cannot Prerender](#warming-the-loads-a-route-cannot-prerender)
+* [Compiling Loaders into the Binary](#compiling-loaders-into-the-binary)
 * [Rendering a Template Route](#rendering-a-template-route)
 * [Serving Files Under Their Own Names](#serving-files-under-their-own-names)
 * [Serving robots.txt and a Sitemap](#serving-robotstxt-and-a-sitemap)
@@ -609,7 +610,7 @@ assert!(host.prerendered("/blog/hello", RenderMode::Html).is_some());
 assert_eq!(host.prerendered("/blog/gone", RenderMode::Html), None);
 ```
 
-`prerender` lists every file it wrote in `prerendered.json` at the top of the directory and writes `prerender.build`, the hash of the build it rendered from. A host booting a different build reads nothing from the directory and its report's `prerender` rows say it was written by another build. The next run from this build puts it back in use.
+`prerender` lists every file it wrote in `prerendered.json` at the top of the directory and writes `prerender.build`, the hash of the build it rendered from. A host booting a different build reads nothing from the directory and its report's `prerender` rows say it was written by another build. The next run from this build puts it back in use. The host reads the documents and images the list names into memory at boot and again when its own `prerender` finishes, so a request reads no file. A directory rewritten by another process, `fsr prerender` among them, is served once the host restarts.
 
 `prerender` is safe to call while the host serves, for an application that refreshes its pages from its own job; the host never calls it on its own. Each file is written aside and renamed into place. A page whose loader fails keeps the file the last run wrote. Once every page is written, the files of a set dropped from `paths` and the directories they emptied are removed, so no stale page is left behind. A file nothing recorded is left alone.
 
@@ -657,6 +658,30 @@ render    /help                  routes/help/page.tsx#default not rendered
 assert_eq!(host.report().app.warmable, vec!["layout.promo".to_owned(), "widths".to_owned()]);
 assert_eq!(host.report().warmed, 2);
 ```
+
+## Compiling Loaders into the Binary
+
+A production `fsr build` writes `app/generated/bodies.rs`: every lowered body of the plan the generator can write, as a Rust function over the same values and rules the interpreter uses, plus a `BODIES` list naming each one's row and the plan it was written from. That covers each loader with its `meta`, `store`, `defaults` and `paths`, each action and route handler, the middleware, the theme and each card image's `images`. Two rows with the same plan share one function. `fsr build` names on stderr each body it could not write, with the reason. A development build writes the list empty. Include the file and hand the list to the builder, once for the shell and once for each mounted site:
+
+```rust
+// src/bodies.rs
+pub mod shell {
+  include!(concat!(env!("CARGO_MANIFEST_DIR"), "/app/generated/bodies.rs"));
+}
+
+pub mod site {
+  include!(concat!(env!("CARGO_MANIFEST_DIR"), "/sites/docs/app/generated/bodies.rs"));
+}
+```
+
+```rust
+let host = Host::from_cwd()?
+  .bodies(crate::bodies::shell::BODIES)
+  .bodies(crate::bodies::site::BODIES)
+  .build()?;
+```
+
+A body runs its function only while the plan the host loaded holds the body and module constants the function was written from. One whose plan changed since, as a reloaded plan under `fsr dev` does, runs interpreted, so stale code never answers a request. A body that calls a service, calls an `async` native method or writes the session gets no function and runs interpreted as before. When the host was handed compiled bodies, its boot report says `lowered, compiled` or `lowered, interpreted` for each lowered source, action, handler and the middleware.
 
 ## Rendering a Template Route
 

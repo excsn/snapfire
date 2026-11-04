@@ -182,6 +182,53 @@ pub(crate) fn fill_pattern(pattern: &str, set: &Params) -> Result<String, HostEr
   Ok(out)
 }
 
+/// The files a prerender directory lists in `prerendered.json`, held in
+/// memory under their paths relative to it. The client modules under
+/// `static/` are left out, since the host serves those from the binary.
+#[derive(Default)]
+pub(crate) struct Held {
+  files: parking_lot::RwLock<Arc<HashMap<String, Bytes>>>,
+}
+
+impl Held {
+  pub(crate) fn read(dir: &Path) -> Held {
+    let held = Held::default();
+    held.reload(dir);
+    held
+  }
+
+  /// Replaces what is held with what `dir` lists now. A listed file that cannot be read is left out, so its route renders live.
+  pub(crate) fn reload(&self, dir: &Path) {
+    let listed = read_written(dir).unwrap_or_default();
+    let files: HashMap<String, Bytes> = listed
+      .into_iter()
+      .filter(|rel| !rel.starts_with("static/"))
+      .filter_map(|rel| std::fs::read(dir.join(&rel)).ok().map(|bytes| (rel, Bytes::from(bytes))))
+      .collect();
+    *self.files.write() = Arc::new(files);
+  }
+
+  pub(crate) fn get(&self, rel: &str) -> Option<Bytes> {
+    self.files.read().get(rel).cloned()
+  }
+}
+
+/// Where under a prerender directory `name` for `path` lives: the default locale at the top, every other under its tag.
+pub(crate) fn held_path(locale: &Locale, path: &str, name: &str) -> String {
+  let mut parts = Vec::with_capacity(3);
+  if !locale.is_default {
+    parts.push(locale.tag.as_str());
+  }
+  let path = path.trim_matches('/');
+  if !path.is_empty() {
+    parts.push(path);
+  }
+  if !name.is_empty() {
+    parts.push(name);
+  }
+  parts.join("/")
+}
+
 /// What the last prerender under `out` listed in `prerendered.json`, paths
 /// relative to `out`; empty when there is no list.
 pub(crate) fn read_written(out: &Path) -> Result<Vec<String>, HostError> {
@@ -425,6 +472,9 @@ impl Host {
       write_whole(&file, serde_json::to_string_pretty(&listed).expect("a list of paths serializes").as_bytes())?;
       written.push((WRITTEN_FILE.to_owned(), file));
     }
+    if t.prerendered.as_deref() == Some(out) {
+      t.held.reload(out);
+    }
     Ok(written)
   }
 
@@ -519,7 +569,7 @@ impl Host {
     locale: &Locale,
     anonymous: bool,
   ) -> Option<String> {
-    let dir = t.prerendered.as_ref()?;
+    t.prerendered.as_ref()?;
     if !t.prerender_current.load(std::sync::atomic::Ordering::Acquire) {
       return None;
     }
@@ -530,16 +580,12 @@ impl Host {
         return None;
       }
     }
-    let root = if locale.is_default {
-      dir.clone()
-    } else {
-      dir.join(&locale.tag)
-    };
     let name = match mode {
       RenderMode::Html => "index.html",
       RenderMode::Payload => "index.payload",
       RenderMode::Fragment(_) => return None,
     };
-    std::fs::read_to_string(root.join(path.trim_matches('/')).join(name)).ok()
+    let held = t.held.get(&held_path(locale, path, name))?;
+    String::from_utf8(held.to_vec()).ok()
   }
 }

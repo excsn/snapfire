@@ -295,6 +295,12 @@ impl HostBuilder {
     self
   }
 
+  /// Lowered bodies compiled into the application, the `BODIES` of a `generated/bodies.rs`, for the shell or a mounted site.
+  pub fn bodies(mut self, bodies: &'static [crate::bodies::Native]) -> Self {
+    self.app_mut(move |app| app.bodies(bodies));
+    self
+  }
+
   pub fn source_impl(mut self, name: impl Into<String>, source: Arc<dyn DataSource>) -> Self {
     self.app_mut(|app| app.source_impl(name, source));
     self
@@ -601,12 +607,13 @@ impl HostBuilder {
       Manifest::from_text(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
     let (mut sheets, attributed) = route_sheets(&manifest.sheets, config.bundle.as_ref(), served_bundle(&config));
     let shell_module = config.document.shell.clone();
-    let shell_theme = manifest.theme.clone();
+    let shell_consts = (!manifest.consts.is_empty()).then_some(&manifest.consts);
+    let shell_theme = manifest.theme.clone().map(|body| snapfire_fsr_ir::PreparedBody::new(body, shell_consts));
     let mut themes: HashMap<String, (String, bool)> = manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))).collect();
     let mut app = self.app.take().expect("the builder holds its app until build");
     let mut taken: Vec<String> = manifest.routes.iter().map(|r| r.pattern.clone()).collect();
     let mut sites = Vec::new();
-    let mut site_bodies: HashMap<String, (Option<snapfire_fsr_ir::Body>, Option<snapfire_fsr_ir::Body>)> = HashMap::new();
+    let mut site_bodies: HashMap<String, (Option<snapfire_fsr_ir::PreparedBody>, Option<snapfire_fsr_ir::PreparedBody>)> = HashMap::new();
     let mut probes: Vec<(String, Probe)> = Vec::new();
     let mut site_reports = Vec::new();
     let mut statics: Vec<StaticRootResolved> = config
@@ -702,7 +709,10 @@ impl HostBuilder {
         ));
       }
       leaks(&mount.artifact.config, &mount.artifact.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
-      site_bodies.insert(mount.name.clone(), (site_manifest.middleware.take(), site_manifest.theme.take()));
+      let site_consts = (!site_manifest.consts.is_empty()).then_some(&site_manifest.consts);
+      let prepared = |body: Option<snapfire_fsr_ir::Body>| body.map(|body| snapfire_fsr_ir::PreparedBody::new(body, site_consts));
+      let bodies = (prepared(site_manifest.middleware.take()), prepared(site_manifest.theme.take()));
+      site_bodies.insert(mount.name.clone(), bodies);
       themes.extend(site_manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))));
       graft(&manifest, &mut site_manifest, &shell_module);
       site_manifest.not_found = None;
@@ -1229,6 +1239,7 @@ impl HostBuilder {
         trace_report: trace_paths(&config, |t| &t.report)?,
         health: Some(config.server.health.clone()).filter(|p| !p.is_empty()),
         ready: Some(config.server.ready.clone()).filter(|p| !p.is_empty()),
+        held: prerendered.as_deref().filter(|_| !prerender_stale).map(prerender::Held::read).unwrap_or_default(),
         prerendered,
         cards,
         build,

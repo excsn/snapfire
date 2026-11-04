@@ -1866,6 +1866,25 @@ async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_dir
   std::fs::remove_dir_all(&out).unwrap();
 }
 
+#[tokio::test]
+async fn a_prerendered_page_is_answered_from_what_the_host_holds_not_read_from_disk_per_request() {
+  let out = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-host-prerender-held-{}-{}", std::process::id(), rand_suffix()));
+  let transport = || Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(production(localised_dir()).join("app.toml")).unwrap().services_over(transport()).prerendered(&out).build().unwrap();
+  host.prerender(&out).await.unwrap();
+  let booted = Host::from(production(localised_dir()).join("app.toml")).unwrap().services_over(transport()).prerendered(&out).build().unwrap();
+  std::fs::remove_file(out.join("index.html")).unwrap();
+  std::fs::remove_file(out.join("fr_FR/index.html")).unwrap();
+
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").map(|v| v.to_str().unwrap()), Some("1"), "the host that wrote the directory holds what it wrote");
+  assert!(body_of(response).await.contains("lang=\"en-US\""));
+  let response = booted.handle(Request::get("/fr_FR").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("x-sf-prerendered").map(|v| v.to_str().unwrap()), Some("1"), "a host booted over the directory holds what it found at boot");
+  assert!(body_of(response).await.contains("lang=\"fr-FR\""));
+  std::fs::remove_dir_all(&out).unwrap();
+}
+
 #[test]
 fn a_bad_locales_section_refuses_to_start() {
   let dir = app_dir();
@@ -7797,7 +7816,7 @@ fn a_record_field_named_by_its_attribute_crosses_under_that_name_both_ways() {
 
   let value = Feature { feature_id: "f1".to_owned(), created_at: "2026-10-21".to_owned() }.into_native_value();
   let Value::Map(map) = &value else { panic!("{value:?}") };
-  assert_eq!(map.keys().map(String::as_str).collect::<Vec<_>>(), ["featureId", "created_at"]);
+  assert_eq!(map.keys().map(|k| k.as_str()).collect::<Vec<_>>(), ["featureId", "created_at"]);
   assert_eq!(Feature::from_native_value(value.clone()).unwrap(), Feature { feature_id: "f1".to_owned(), created_at: "2026-10-21".to_owned() });
 }
 

@@ -38,6 +38,14 @@ passkey = ["auth", "dep:snapfire_fsr_passkey"]
 sites_reload = []
 # A `.tera` route or layout under the app, rendered by the Tera evaluator.
 tera = ["dep:snapfire_fsr_tera", "dep:tera"]
+# Card images, `opengraph-image.tsx` and its kin, drawn on request.
+share_cards = ["dep:snapfire_fsr_ogimage"]
+# A `clients/<name>.proto` contract, called over gRPC.
+grpc = ["snapfire_fsr_service/grpc"]
+# A `clients/<name>.graphql` contract.
+graphql = ["snapfire_fsr_service/graphql"]
+# An OpenAPI contract called over HTTP. A mocked one needs no feature.
+http = ["snapfire_fsr_service/http"]
 
 [dependencies]
 fibre = "0.6"
@@ -55,9 +63,9 @@ snapfire_fsr_payload.workspace = true
 snapfire_fsr_tera = { workspace = true, optional = true }
 tera = { version = "2", features = ["fast", "preserve_order"], optional = true }
 snapfire_fsr_plan.workspace = true
-snapfire_fsr_ogimage.workspace = true
+snapfire_fsr_ogimage = { workspace = true, optional = true }
 snapfire_fsr_runtime.workspace = true
-snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
+snapfire_fsr_service.workspace = true
 snapfire_fsr_session.workspace = true
 snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.4.0" }
 snapfire_sitemap = { path = "../../sitemap", version = "0.2.0" }
@@ -97,11 +105,12 @@ multer = "3"
 libc = "0.2"
 
 [dev-dependencies]
+snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql", "http"] }
 actix-web = "4"
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 snapfire_fsr_test_internal = { path = "../test_internal" }
 # The tests sign in, so they build the host with every sign-in method.
-snapfire_fsr_host = { path = ".", features = ["auth", "oidc", "passkey"] }
+snapfire_fsr_host = { path = ".", features = ["auth", "oidc", "passkey", "share_cards", "http"] }
 snapfire_fsr_macros.workspace = true
 jsonschema = { version = "0", default-features = false }
 proptest = "1"

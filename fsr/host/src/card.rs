@@ -209,7 +209,7 @@ impl Host {
     let (width, height, content_type) = match &listed_id {
       None => (entry.width, entry.height, entry.content_type.clone()),
       Some(id) => {
-        let listed = snapfire_fsr::listed_images(evaluator.interpreter(), entry, &ctx).await.map_err(|why| {
+        let listed = snapfire_fsr::listed_images(evaluator.interpreter(), entry, t.app.images.listing(&entry.pattern), &ctx).await.map_err(|why| {
           tracing::warn!(target: "fsr::card", image = %entry.pattern, %why, "the image list failed");
           server(format!("the image list failed: {why}"))
         })?;
@@ -303,7 +303,7 @@ impl Host {
         params.shift_remove(snapfire_fsr_plan::IMAGE_PARAM);
         let ctx = self.ctx(t, crate::edge::Incoming::anonymous(snapfire_fsr_runtime::SessionCell::default()), params, Params::new(), path, locale.clone());
         let evaluator = t.app.lowered.as_ref().expect("an image's component is lowered");
-        match snapfire_fsr::listed_images(evaluator.interpreter(), entry, &ctx).await {
+        match snapfire_fsr::listed_images(evaluator.interpreter(), entry, t.app.images.listing(&entry.pattern), &ctx).await {
           Ok(listed) => found.extend(listed.into_iter().map(|image| (format!("{base}/{stem}/{}", image.id), dir.join(stem).join(&image.id)))),
           Err(why) => tracing::warn!(target: "fsr::host", path = %path, %why, "prerender: the image list failed, so no image under it is written"),
         }
@@ -333,12 +333,11 @@ impl Host {
 /// A prerender's file for a card image's path, when the directory is this
 /// build's.
 fn prerendered_image(t: &Tables, path: &str, locale: &Locale) -> Option<Vec<u8>> {
-  let dir = t.prerendered.as_ref()?;
+  t.prerendered.as_ref()?;
   if !t.prerender_current.load(std::sync::atomic::Ordering::Acquire) {
     return None;
   }
-  let root = if locale.is_default { dir.clone() } else { dir.join(&locale.tag) };
-  std::fs::read(root.join(path.trim_matches('/'))).ok()
+  t.held.get(&crate::prerender::held_path(locale, path, "")).map(|bytes| bytes.to_vec())
 }
 
 fn image_response(content_type: &str, bytes: Vec<u8>, live: bool) -> Response<Body> {

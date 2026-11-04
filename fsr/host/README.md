@@ -21,6 +21,10 @@ snapfire_fsr_host = "0"
 | `oidc` | `provider = "oidc"`, sign-in against an OpenID Connect issuer. Implies `auth`; adds `snapfire_fsr_oidc` |
 | `passkey` | `provider = "passkey"`, WebAuthn passkeys. Implies `auth`; adds `snapfire_fsr_passkey` |
 | `tls` | `[server.tls]`: the hyper listener terminates TLS with rustls over ring, ALPN chooses the version and the configured signal re-reads the certificate. Adds `rustls`, `rustls-pki-types` and `tokio-rustls` |
+| `share_cards` | card images: `opengraph-image.tsx` and its kin, drawn on request and at prerender. Adds `snapfire_fsr_ogimage`. Off, an application whose plan draws card images is refused at boot naming the feature |
+| `grpc` | a `clients/<name>.proto` contract, called over gRPC. Off, the contract is refused at boot naming the feature |
+| `graphql` | a `clients/<name>.graphql` contract. Off, the contract is refused at boot naming the feature |
+| `http` | an OpenAPI contract called over HTTP. Adds `reqwest` and `rustls`. Off, a client with a `base_url` is refused at boot naming the feature; a mocked one is served either way |
 | `client_readable` | on by default: the readable build of the browser client, beside the minified one the binary always carries. Off, a binary is about 215 KiB smaller and `/static/js/fsr` answers minified whatever `document.client` says |
 | `client_source_maps` | off: each browser client module's source map, with its TypeScript inlined, served beside it under `/static/js/fsr` so devtools show the client's source. About 1.3 MB. Off, the modules are served without their `sourceMappingURL` comment |
 
