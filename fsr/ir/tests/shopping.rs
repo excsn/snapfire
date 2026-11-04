@@ -233,11 +233,11 @@ fn the_cart_loader_joins_held_lines_with_the_catalog() {
 
   let mut first = product(1, "Filament", 2400);
   if let Value::Map(m) = &mut first {
-    m.insert("quantity".into(), Value::int(2));
+    m.insert("quantity", Value::int(2));
   }
   let mut third = product(3, "Bed", 5000);
   if let Value::Map(m) = &mut third {
-    m.insert("quantity".into(), Value::int(1));
+    m.insert("quantity", Value::int(1));
   }
   assert_eq!(lines, &vec![first, third]);
 }
@@ -247,8 +247,8 @@ fn add_to_cart_adds_removes_and_returns_the_lines() {
   let mock = Arc::new(Mock::default());
   let input = |id: i64, qty: i64| {
     let mut m = ValueMap::default();
-    m.insert("product_id".into(), Value::int(id));
-    m.insert("quantity".into(), Value::int(qty));
+    m.insert("product_id", Value::int(id));
+    m.insert("quantity", Value::int(qty));
     Value::Map(m)
   };
 
@@ -280,8 +280,8 @@ fn checkout_refuses_an_empty_cart_before_any_call_and_clears_it_after() {
   let (_, args) = &mock.calls()[0];
   let Some(Value::Seq(lines)) = args.get("lines") else { panic!("lines were sent") };
   let mut line = ValueMap::default();
-  line.insert("product_id".into(), Value::int(2));
-  line.insert("quantity".into(), Value::int(1));
+  line.insert("product_id", Value::int(2));
+  line.insert("quantity", Value::int(1));
   assert_eq!(lines[0], Value::Map(line));
   assert_eq!(full.session.get("cart"), Some(Value::Map(ValueMap::default())), "the cart is cleared");
 }
@@ -306,8 +306,8 @@ async fn independent_lets_issue_their_calls_together() {
     barrier: Some(Arc::new(tokio::sync::Barrier::new(2))),
     ..Default::default()
   });
-  mock.returns.lock().insert("shopping.listProducts".into(), Value::seq(vec![]));
-  mock.returns.lock().insert("shopping.getProduct".into(), product(1, "Filament", 2400));
+  mock.returns.lock().insert("shopping.listProducts", Value::seq(vec![]));
+  mock.returns.lock().insert("shopping.getProduct", product(1, "Filament", 2400));
   let body = vec![
     Stmt::Let { name: "a".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
     Stmt::Let { name: "b".into(), expr: Expr::call("shopping", "getProduct", vec![("id", Expr::lit_int(1))]) },
@@ -325,7 +325,7 @@ async fn independent_lets_issue_their_calls_together() {
 #[tokio::test]
 async fn a_function_value_beside_independent_lets_is_made_in_turn() {
   let mock = Mock::returning("shopping.getProduct", product(1, "Filament", 2400));
-  mock.returns.lock().insert("shopping.listProducts".into(), Value::seq(vec![]));
+  mock.returns.lock().insert("shopping.listProducts", Value::seq(vec![]));
   let body = vec![
     Stmt::Let { name: "a".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
     Stmt::Let { name: "b".into(), expr: Expr::call("shopping", "getProduct", vec![("id", Expr::lit_int(1))]) },
@@ -341,7 +341,7 @@ async fn a_function_value_beside_independent_lets_is_made_in_turn() {
 #[tokio::test]
 async fn a_dependent_let_waits_for_the_one_it_reads() {
   let mock = Mock::returning("shopping.getProduct", product(1, "Filament", 2400));
-  mock.returns.lock().insert("shopping.listProducts".into(), Value::seq(vec![product(1, "Filament", 2400)]));
+  mock.returns.lock().insert("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400)]));
   let body = vec![
     Stmt::Let { name: "catalog".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
     Stmt::Let {
@@ -365,7 +365,7 @@ fn identity_and_now_are_reads() {
     }
   }
   let mut claims = ValueMap::default();
-  claims.insert("tenant".into(), Value::str("acme"));
+  claims.insert("tenant", Value::str("acme"));
   let mut c = RequestCtx::anonymous(Params::new());
   c.session = SessionCell::new(ValueMap::default(), Some(Identity::new("u1".into(), claims)));
   let body = vec![Stmt::Return(Expr::object(vec![
@@ -436,16 +436,14 @@ fn has_and_get_all_read_every_value_under_a_key_of_a_query_string() {
 }
 
 #[test]
-fn mixed_scalar_operands_coerce_and_an_array_operand_is_an_internal_failure() {
+fn mixed_operands_coerce_as_javascript_coerces_them() {
   let c = ctx(Arc::new(Mock::default()), &[], ValueMap::default());
   let body = vec![Stmt::Return(Expr::Arith(ArithOp::Add, Box::new(Expr::lit_int(1)), Box::new(Expr::lit_str("1"))))];
   assert_eq!(run(&body, &c, None).unwrap(), Value::str("11"));
   let body = vec![Stmt::Return(Expr::Arith(ArithOp::Sub, Box::new(Expr::lit_int(1)), Box::new(Expr::lit_str("1"))))];
   assert_eq!(run(&body, &c, None).unwrap(), Value::F64(0.0));
   let body = vec![Stmt::Return(Expr::Arith(ArithOp::Sub, Box::new(Expr::lit_int(1)), Box::new(Expr::Array(Vec::new()))))];
-  let fail = run(&body, &c, None).unwrap_err();
-  assert_eq!(fail.kind, FailureKind::Internal);
-  assert!(fail.message.contains("int and array"), "{}", fail.message);
+  assert_eq!(run(&body, &c, None).unwrap(), Value::F64(1.0));
 }
 
 #[test]
@@ -601,4 +599,13 @@ fn a_guard_fails_with_any_kind_and_refuses_a_name_that_is_not_one() {
   let fail = run(&body, &ctx(mock, &[], ValueMap::default()), None).unwrap_err();
   assert_eq!(fail.kind, FailureKind::Internal);
   assert!(fail.message.contains("`teapot` is not a failure kind"), "{fail}");
+}
+
+#[test]
+fn a_loop_past_its_pass_limit_fails_the_step() {
+  let c = ctx(Arc::new(Mock::default()), &[], ValueMap::default());
+  let body = vec![Stmt::While { cond: Expr::Lit(Lit::Bool(true)), body: Vec::new(), step: Vec::new() }, Stmt::Return(Expr::lit_int(1))];
+  let fail = run(&body, &c, None).unwrap_err();
+  assert_eq!(fail.kind, FailureKind::Internal);
+  assert!(fail.message.contains(&snapfire_fsr_ir::interp::MAX_PASSES.to_string()), "{}", fail.message);
 }

@@ -7,6 +7,7 @@ use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalEr
 
 use crate::ast::{Body, Component, Entry, Expr, Stmt};
 use crate::interp::Interpreter;
+use crate::prepared::PreparedBody;
 use crate::render::{rendered_store, store_keys, Components, Rendered, AWAITS_PROP, HOISTED_PROP, ISLAND_MARK, OUTLET_MARK, PLACE_MARK, RENDERED_STORE_PROP, SLOT_MARK};
 use snapfire_fsr_runtime::PENDING_PROP;
 
@@ -80,13 +81,13 @@ fn island_body(body: &Rendered) -> Node {
 /// object; its fields are the source's data.
 pub struct IrSource {
   id: String,
-  body: Arc<Body>,
+  body: PreparedBody,
   interpreter: Interpreter,
 }
 
 impl IrSource {
-  pub fn new(id: impl Into<String>, body: Body) -> Self {
-    Self { id: id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+  pub fn new(id: impl Into<String>, body: impl Into<PreparedBody>) -> Self {
+    Self { id: id.into(), body: body.into(), interpreter: Interpreter::default() }
   }
 
   pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
@@ -102,10 +103,7 @@ impl DataSource for IrSource {
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     Box::pin(async move {
-      let outcome = interpreter
-        .run(&body, &ctx, None)
-        .await
-        .map_err(|fail| LoadError::failed(id.clone(), fail))?;
+      let outcome = body.run(&interpreter, &ctx, None).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
       match outcome.value {
         Value::Map(data) => Ok(data),
         other => Err(LoadError::new(id, format!("a loader must return an object, got {}", kind_name(&other)))),
@@ -120,13 +118,13 @@ impl DataSource for IrSource {
 /// is ignored.
 pub struct IrMeta {
   source_id: String,
-  body: Arc<Body>,
+  body: PreparedBody,
   interpreter: Interpreter,
 }
 
 impl IrMeta {
-  pub fn new(source_id: impl Into<String>, body: Body) -> Self {
-    Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+  pub fn new(source_id: impl Into<String>, body: impl Into<PreparedBody>) -> Self {
+    Self { source_id: source_id.into(), body: body.into(), interpreter: Interpreter::default() }
   }
 
   pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
@@ -143,7 +141,7 @@ impl Metadata for IrMeta {
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
+      let outcome = body.run(&interpreter, &ctx, Some(input)).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
       let Value::Map(map) = outcome.value else {
         return Err(LoadError::new(id, format!("meta must return an object, got {}", kind_name(&outcome.value))));
       };
@@ -203,7 +201,7 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
     if !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == ':') || key.is_empty() {
       return Err(fail(format!("`{key}` is not an attribute name")));
     }
-    attrs.push((key.clone(), text));
+    attrs.push((key.to_string(), text));
   }
   if tag.as_ref() == "script" {
     return HeadEl::script(attrs, children).map_err(fail);
@@ -217,9 +215,9 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
 pub struct IrStore {
   source_id: String,
   /// The lowered `store` export, when the module has one.
-  body: Option<Arc<Body>>,
+  body: Option<PreparedBody>,
   /// The lowered `defaults` export, when the module has one.
-  defaults: Option<Arc<Body>>,
+  defaults: Option<PreparedBody>,
   /// The keys the build inferred the body returns, which win over reading its returns.
   keys: Option<Vec<String>>,
   interpreter: Interpreter,
@@ -230,13 +228,13 @@ impl IrStore {
     Self { source_id: source_id.into(), body: None, defaults: None, keys: None, interpreter: Interpreter::default() }
   }
 
-  pub fn with_store(mut self, store: Option<Body>) -> Self {
-    self.body = store.map(Arc::new);
+  pub fn with_store(mut self, store: Option<impl Into<PreparedBody>>) -> Self {
+    self.body = store.map(Into::into);
     self
   }
 
-  pub fn with_defaults(mut self, defaults: Option<Body>) -> Self {
-    self.defaults = defaults.map(Arc::new);
+  pub fn with_defaults(mut self, defaults: Option<impl Into<PreparedBody>>) -> Self {
+    self.defaults = defaults.map(Into::into);
     self
   }
 
@@ -281,14 +279,14 @@ impl Seeds for IrStore {
 
 impl IrStore {
   /// `body` run over the segment's data, which must return an object.
-  fn run_map(&self, body: &Arc<Body>, export: &'static str, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
+  fn run_map(&self, body: &PreparedBody, export: &'static str, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
     let id = self.source_id.clone();
     let body = body.clone();
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
+      let outcome = body.run(&interpreter, &ctx, Some(input)).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
       match outcome.value {
         Value::Map(map) => Ok(map),
         other => Err(LoadError::new(id, format!("{export} must return an object, got {}", kind_name(&other))).with_kind(FailureKind::Internal)),
@@ -340,13 +338,13 @@ fn object_keys(expr: &Expr, body: &Body, keys: &mut std::collections::BTreeSet<S
 /// the route's pattern as a string or a number.
 pub struct IrPaths {
   source_id: String,
-  body: Arc<Body>,
+  body: PreparedBody,
   interpreter: Interpreter,
 }
 
 impl IrPaths {
-  pub fn new(source_id: impl Into<String>, body: Body) -> Self {
-    Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+  pub fn new(source_id: impl Into<String>, body: impl Into<PreparedBody>) -> Self {
+    Self { source_id: source_id.into(), body: body.into(), interpreter: Interpreter::default() }
   }
 
   pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
@@ -362,7 +360,7 @@ impl Paths for IrPaths {
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
+      let outcome = body.run(&interpreter, &ctx, None).await.map_err(|fail| LoadError::failed(id.clone(), fail))?;
       let Value::Seq(items) = outcome.value else {
         return Err(LoadError::new(id, format!("paths must return a list, got {}", kind_name(&outcome.value))));
       };
@@ -380,7 +378,7 @@ impl Paths for IrPaths {
             Value::F64(n) => n.to_string(),
             other => return Err(fail(format!("paths `{key}` must be a string or a number, got {}", kind_name(other)))),
           };
-          params.insert(key.clone(), text);
+          params.insert(key.to_string(), text);
         }
         out.push(params);
       }
@@ -391,13 +389,13 @@ impl Paths for IrPaths {
 
 /// A lowered action answering an action id.
 pub struct IrAction {
-  body: Arc<Body>,
+  body: PreparedBody,
   interpreter: Interpreter,
 }
 
 impl IrAction {
-  pub fn new(body: Body) -> Self {
-    Self { body: Arc::new(body), interpreter: Interpreter::default() }
+  pub fn new(body: impl Into<PreparedBody>) -> Self {
+    Self { body: body.into(), interpreter: Interpreter::default() }
   }
 
   pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
@@ -411,8 +409,8 @@ impl ActionHandler for IrAction {
     let body = self.body.clone();
     let interpreter = self.interpreter.clone();
     Box::pin(async move {
-      interpreter
-        .run(&body, &ctx, Some(input))
+      body
+        .run(&interpreter, &ctx, Some(input))
         .await
         .map(|outcome| outcome.value)
         .map_err(|fail| ActionError::new(fail.kind, fail.message))

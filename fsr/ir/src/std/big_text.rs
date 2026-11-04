@@ -43,7 +43,7 @@ impl Font {
       lines: count("lines")?,
       buffer: lines_of("buffer", map.get("buffer"))?,
       letterspace: lines_of("letterspace", map.get("letterspace"))?,
-      chars: chars.iter().map(|(name, lines)| Ok((name.clone(), lines_of(&format!("chars.{name}"), Some(lines))?))).collect::<Result<_, Fail>>()?,
+      chars: chars.iter().map(|(name, lines)| Ok((name.to_string(), lines_of(&format!("chars.{name}"), Some(lines))?))).collect::<Result<_, Fail>>()?,
     };
     for (what, lines) in [("buffer", &font.buffer), ("letterspace", &font.letterspace)].into_iter().chain(font.chars.iter().map(|(name, lines)| (name.as_str(), lines))) {
       if lines.len() < font.lines {

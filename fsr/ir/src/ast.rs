@@ -17,7 +17,13 @@ pub enum Stmt {
   Set { name: String, expr: Expr },
   If { cond: Expr, then: Body, #[serde(default, skip_serializing_if = "Vec::is_empty")] r#else: Body },
   ForOf { name: String, over: Expr, body: Body },
+  /// `while (cond) body`, with `step` run after every pass, one a `Continue` ends included. A loop past `interp::MAX_PASSES` passes fails the step.
+  While { cond: Expr, body: Body, #[serde(default, skip_serializing_if = "Vec::is_empty")] step: Body },
   Return(Expr),
+  /// Leaves the nearest `ForOf`.
+  Break,
+  /// Ends this pass of the nearest `ForOf`, which goes on with its next item.
+  Continue,
   /// `if (cond) fail(kind, message)`. The kind is a `FailureKind` name; the
   /// message is any expression, evaluated only when the guard fires.
   Guard { cond: Expr, kind: String, message: Expr },
@@ -330,6 +336,22 @@ pub enum Builtin {
   Checked,
   /// A radio's or an option's `v-model`: whether an array model holds the value, else whether the two are equal as text.
   LooseMatch,
+  /// `a == b`, JavaScript's loose equality.
+  LooseEq,
+  /// Turns on a body that writes objects: from here it reads its own copy of what requests share.
+  HeapOn,
+  /// Makes the object or array behind the first argument hold what the second says, keeping its identity.
+  Overwrite,
+  /// Its argument with every object and array in it a new one.
+  CopyDeep,
+  /// The text a `Map` keeps a key under: an object or an array by its identity.
+  MapKey,
+  /// `new Map(pairs)`: the pairs as an object, each key as [`Builtin::MapKey`] reads it.
+  MapOf,
+  /// Its argument, an object, marked as a `Map`, which it converts and serializes as.
+  AsMap,
+  /// Its argument, an array, marked as a `Set`.
+  AsSet,
   /// The global `isNaN(x)`: whether `Number(x)` is NaN.
   IsNaN,
   /// `x == null`: whether `x` is null or undefined.
@@ -613,6 +635,15 @@ impl Component {
     self.render.visit(f);
   }
 
+  /// `visit` with each expression open to change, the handlers' bodies included.
+  pub fn visit_mut(&mut self, f: &mut dyn FnMut(&mut Expr)) {
+    body_visit_mut(&mut self.body, f);
+    self.render.visit_mut(f);
+    for handler in &mut self.handlers {
+      body_visit_mut(&mut handler.body, f);
+    }
+  }
+
   /// True when the component reads `$props.<name>` or uses `$props` whole,
   /// which is how a spread or a rest carries every prop along.
   pub fn reads_prop(&self, name: &str) -> bool {
@@ -647,6 +678,7 @@ pub fn body_visit_mut(body: &mut Body, f: &mut dyn FnMut(&mut Expr)) {
   for stmt in body {
     match stmt {
       Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.visit_mut(f),
+      Stmt::Break | Stmt::Continue => {}
       Stmt::If { cond, then, r#else } => {
         cond.visit_mut(f);
         body_visit_mut(then, f);
@@ -655,6 +687,11 @@ pub fn body_visit_mut(body: &mut Body, f: &mut dyn FnMut(&mut Expr)) {
       Stmt::ForOf { over, body, .. } => {
         over.visit_mut(f);
         body_visit_mut(body, f);
+      }
+      Stmt::While { cond, body, step } => {
+        cond.visit_mut(f);
+        body_visit_mut(body, f);
+        body_visit_mut(step, f);
       }
       Stmt::Guard { cond, message, .. } => {
         cond.visit_mut(f);
@@ -681,6 +718,7 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
   for stmt in body {
     match stmt {
       Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.visit(f),
+      Stmt::Break | Stmt::Continue => {}
       Stmt::If { cond, then, r#else } => {
         cond.visit(f);
         body_visit(then, f);
@@ -689,6 +727,11 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
       Stmt::ForOf { over, body, .. } => {
         over.visit(f);
         body_visit(body, f);
+      }
+      Stmt::While { cond, body, step } => {
+        cond.visit(f);
+        body_visit(body, f);
+        body_visit(step, f);
       }
       Stmt::Guard { cond, message, .. } => {
         cond.visit(f);
@@ -1221,6 +1264,7 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
       let mut exprs: Vec<&Expr> = Vec::new();
       match stmt {
         Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => exprs.push(expr),
+        Stmt::Break | Stmt::Continue => {}
         Stmt::Guard { cond, message, .. } => {
           exprs.push(cond);
           exprs.push(message);
@@ -1232,7 +1276,7 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
         }
         Stmt::SessionDelete { path, .. } => exprs.extend(path.iter()),
         Stmt::SessionExtend { seconds } => exprs.push(seconds),
-        Stmt::If { cond, .. } | Stmt::ForOf { over: cond, .. } => exprs.push(cond),
+        Stmt::If { cond, .. } | Stmt::ForOf { over: cond, .. } | Stmt::While { cond, .. } => exprs.push(cond),
         Stmt::Try { .. } => {}
       }
       for expr in exprs {
@@ -1282,8 +1326,10 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
 pub fn body_reads_request(body: &Body) -> bool {
   body.iter().any(|stmt| match stmt {
     Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.reads_request(),
+    Stmt::Break | Stmt::Continue => false,
     Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
+    Stmt::While { cond, body, step } => cond.reads_request() || body_reads_request(body) || body_reads_request(step),
     Stmt::Guard { cond, message, .. } => cond.reads_request() || message.reads_request(),
     Stmt::Try { body, handler, finally, .. } => body_reads_request(body) || handler.as_ref().is_some_and(|handler| body_reads_request(handler)) || body_reads_request(finally),
     Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => true,
@@ -1312,6 +1358,7 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
     for stmt in body {
       match stmt {
         Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => into.push(expr),
+        Stmt::Break | Stmt::Continue => {}
         Stmt::If { cond, then, r#else } => {
           into.push(cond);
           exprs(then, into);
@@ -1320,6 +1367,11 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
         Stmt::ForOf { over, body, .. } => {
           into.push(over);
           exprs(body, into);
+        }
+        Stmt::While { cond, body, step } => {
+          into.push(cond);
+          exprs(body, into);
+          exprs(step, into);
         }
         Stmt::Guard { cond, message, .. } => {
           into.push(cond);

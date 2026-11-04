@@ -1,14 +1,12 @@
-//! The Rust half of each `Intl` form the lowerer reads, against what Chrome answers for the same call. `fixtures/intl_chrome.json` was recorded with `browserc eval` in HeadlessChrome 153: `k` names the form, `loc` the locale, `a` the arguments and `o` the options.
+//! The Rust half of each `Intl` form the lowerer reads, against what Chrome answers for the same call. `fixtures/intl_chrome.json` was recorded with `browserc eval` in HeadlessChrome 153 and `fixtures/intl_chrome_currency.json` in HeadlessChrome 158: `k` names the form, `loc` the locale, `a` the arguments and `o` the options.
 
 use snapfire_fsr_core::Value;
 use snapfire_fsr_ir::{Ambient, Extensions};
 
-/// Where ICU4X's data is known to differ from Chrome's, by form, locale and options. Reported, not failed. ICU4X pads the day of an `en-IN` medium date; it glues an `es-ES` full date to its time with "a las" where Chrome writes a comma; icu_experimental 0.6's percent data writes the Latin `%` and LRM beside Arabic digits where Chrome writes `٪` and ALM.
+/// Where ICU4X's data is known to differ from Chrome's, by form, locale and options. Reported, not failed. ICU4X pads the day of an `en-IN` medium date; it glues an `es-ES` full date to its time with "a las" where Chrome writes a comma.
 const KNOWN: &[(&str, &str, &str)] = &[
   ("intl.date", "en-IN", r#"{"dateStyle":"medium","timeStyle":"short"}"#),
   ("intl.date", "es-ES", r#"{"dateStyle":"full","timeStyle":"medium"}"#),
-  ("intl.number", "ar-EG", r#"{"style":"percent"}"#),
-  ("intl.number", "ar-EG", r#"{"style":"percent","maximumFractionDigits":1}"#),
 ];
 
 fn to_value(json: &serde_json::Value) -> Value {
@@ -47,7 +45,16 @@ fn call(case: &serde_json::Value) -> (String, Vec<Value>) {
 
 #[test]
 fn every_intl_form_the_lowerer_reads_formats_as_chrome_does() {
-  let fixture: serde_json::Value = serde_json::from_str(include_str!("fixtures/intl_chrome.json")).unwrap();
+  agrees_with_chrome(include_str!("fixtures/intl_chrome.json"));
+}
+
+#[test]
+fn every_currency_formats_as_chrome_does() {
+  agrees_with_chrome(include_str!("fixtures/intl_chrome_currency.json"));
+}
+
+fn agrees_with_chrome(fixture: &str) {
+  let fixture: serde_json::Value = serde_json::from_str(fixture).unwrap();
   let registry = Extensions::standard();
   let ambient = Ambient::default().now(0).catalogs(None);
   let mut wrong = Vec::new();

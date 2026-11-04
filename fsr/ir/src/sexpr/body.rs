@@ -28,7 +28,10 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
       rest.extend(body_to_sx(body));
       form("for-of", rest)
     }
+    Stmt::While { cond, body, step } => form("while", vec![expr_to_sx(cond), Sx::list(body_to_sx(body)), Sx::list(body_to_sx(step))]),
     Stmt::Return(expr) => form("ret", vec![expr_to_sx(expr)]),
+    Stmt::Break => form("break", Vec::new()),
+    Stmt::Continue => form("continue", Vec::new()),
     Stmt::Guard { cond, kind, message } => form(
       "guard",
       vec![
@@ -143,7 +146,19 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
       let a = at_least(items, head, 2)?;
       Stmt::ForOf { name: sym_of(&a[0])?, over: expr_from_sx(&a[1])?, body: body_from_sx(&a[2..])? }
     }
+    "while" => {
+      let a = args(items, head, 3)?;
+      Stmt::While { cond: expr_from_sx(&a[0])?, body: body_from_sx(a[1].as_list()?)?, step: body_from_sx(a[2].as_list()?)? }
+    }
     "ret" => Stmt::Return(expr_from_sx(&args(items, head, 1)?[0])?),
+    "break" => {
+      args(items, head, 0)?;
+      Stmt::Break
+    }
+    "continue" => {
+      args(items, head, 0)?;
+      Stmt::Continue
+    }
     "guard" => {
       let a = args(items, head, 3)?;
       Stmt::Guard {

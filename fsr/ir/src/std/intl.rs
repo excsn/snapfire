@@ -1,5 +1,5 @@
-//! `intl`: number, currency, date, plural and list formatting and string collation through ICU4X, under
-//! the ambient locale. The browser half is `Intl` with the same options, so
+//! `intl`: number, currency, date, plural and list formatting and string collation through ICU4X, with
+//! currency, percent and relative-time wording from snapfire_i18n, under the ambient locale. The browser half is `Intl` with the same options, so
 //! the outputs agree wherever the two CLDR snapshots do.
 
 use fixed_decimal::{Decimal, FloatPrecision, SignDisplay, SignedRoundingMode, UnsignedRoundingMode};
@@ -13,17 +13,12 @@ use icu_datetime::options::TimePrecision;
 use icu_datetime::DateTimeFormatter;
 use icu_decimal::options::{DecimalFormatterOptions, GroupingStrategy};
 use icu_decimal::DecimalFormatter;
-use icu_experimental::dimension::currency::formatter::CurrencyFormatter;
-use icu_experimental::dimension::currency::CurrencyType;
-use icu_experimental::dimension::percent::formatter::PercentFormatter;
-use icu_experimental::dimension::percent::options::Display as PercentDisplay;
-use icu_experimental::relativetime::options::{Numeric, RelativeTimeFormatterOptions};
-use icu_experimental::relativetime::RelativeTimeFormatter;
 use icu_list::options::{ListFormatterOptions, ListLength};
 use icu_list::ListFormatter;
 use icu_locale_core::{locale, Locale};
-use icu_plurals::{PluralOperands, PluralRules};
+use icu_plurals::{PluralCategory, PluralOperands, PluralRules};
 use snapfire_fsr_core::Value;
+use snapfire_i18n::{Currency, Display, Percent, Plural, Relative, Sign, Unit, Width};
 
 use crate::ext::{number, option, text, text_opt, Ambient, Extensions, Reach};
 use crate::interp::Fail;
@@ -139,15 +134,23 @@ fn number_fn(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   if !percent {
     return Ok(Value::str(formatter.format(&d).to_string()));
   }
-  let display = match d.sign() {
-    fixed_decimal::Sign::Positive => PercentDisplay::ExplicitSign,
-    _ => PercentDisplay::Standard,
-  };
-  let percents = PercentFormatter::try_new_with_decimal_formatter((&locale).into(), formatter, display.into()).map_err(|e| data(what, e))?;
-  Ok(Value::str(percents.format(&d).to_string()))
+  let (digits, sign) = unsigned(&formatter, &d);
+  Ok(Value::str(Percent::new(&locale.to_string()).format(&digits, sign)))
 }
 
-/// `intl.currency(n, code, { display?, locale?, minimumFractionDigits?, maximumFractionDigits? })`: the amount with the ISO code, the currency's own fraction digits, which is `currencyDisplay: "code"` in the browser; `display` `symbol` or `narrowSymbol` writes the symbol CLDR gives the locale instead. With fraction digits given the amount is rounded half away from zero as `intl.number` rounds.
+/// The absolute value of `d` in the formatter's digits with the sign it was written with.
+fn unsigned(formatter: &DecimalFormatter, d: &Decimal) -> (String, Sign) {
+  let sign = match d.sign() {
+    fixed_decimal::Sign::Negative => Sign::Minus,
+    fixed_decimal::Sign::Positive => Sign::Plus,
+    fixed_decimal::Sign::None => Sign::None,
+  };
+  let mut absolute = d.clone();
+  absolute.set_sign(fixed_decimal::Sign::None);
+  (formatter.format(&absolute).to_string(), sign)
+}
+
+/// `intl.currency(n, code, { display?, locale?, minimumFractionDigits?, maximumFractionDigits? })`: the amount with the ISO code, the currency's own fraction digits, which is `currencyDisplay: "code"` in the browser; `display` `symbol` or `narrowSymbol` writes the symbol CLDR gives the locale instead. Fraction digits default to the currency's own for both bounds; one bound given moves the other only as far as it must, as the browser does. The amount is rounded half away from zero as `intl.number` rounds.
 fn currency(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.currency";
   let mut d = match decimal(what, args, 0)? {
@@ -155,45 +158,29 @@ fn currency(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Err(text) => return Ok(Value::str(text.to_owned())),
   };
   let code = text(what, args, 1)?;
-  let code: CurrencyType = code.parse().map_err(|_| Fail::internal(format!("{what}: `{code}` is not a currency code")))?;
-  let min = digits(what, args, 2, "minimumFractionDigits")?;
-  let max = digits(what, args, 2, "maximumFractionDigits")?;
-  let locale = locale_for(what, ambient, args.get(2))?;
-  let prefs = locale.clone().into();
-  let formatter = match option(what, args, 2, "display")? {
-    None => CurrencyFormatter::try_new_code(prefs, code, Default::default()),
+  let display = match option(what, args, 2, "display")? {
+    None => Display::Code,
     Some(Value::Str(display)) => match display.as_str() {
-      "code" => CurrencyFormatter::try_new_code(prefs, code, Default::default()),
-      "symbol" => CurrencyFormatter::try_new_symbol(prefs, code, Default::default()),
-      "narrowSymbol" => CurrencyFormatter::try_new_symbol_narrow(prefs, code, Default::default()),
+      "code" => Display::Code,
+      "symbol" => Display::Symbol,
+      "narrowSymbol" => Display::NarrowSymbol,
       other => return Err(Fail::internal(format!("{what}: `{other}` is not a display; code, symbol or narrowSymbol"))),
     },
     Some(other) => return Err(Fail::internal(format!("{what}: `display` wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
-  }
-  .map_err(|e| data(what, e))?;
-  if min.is_none() && max.is_none() {
-    return Ok(Value::str(formatter.format_fixed_decimal(&d).to_string()));
-  }
-  // The currency formatter pads to the currency's own digits, so the digits
-  // the options ask for go through the decimal formatter and take the
-  // currency's symbol and placing from a zero formatted the currency's way.
-  let min = min.unwrap_or(0);
-  round(&mut d, min, max.unwrap_or(3.max(min)).max(min));
-  let negative = d.sign() == fixed_decimal::Sign::Negative;
-  d.set_sign(fixed_decimal::Sign::None);
-  let decimals = DecimalFormatter::try_new(locale.into(), Default::default()).map_err(|e| data(what, e))?;
-  let zero: Decimal = "0".parse().map_err(|_| Fail::internal(format!("{what}: zero is a decimal")))?;
-  let sentinel = formatter.format_fixed_decimal(&zero).to_string();
-  let (prefix, suffix) = (0..=4i16)
-    .rev()
-    .find_map(|places| {
-      let mut padded = zero.clone();
-      padded.pad_end(-places);
-      let text = decimals.format(&padded).to_string();
-      sentinel.find(&text).map(|at| (sentinel[..at].to_owned(), sentinel[at + text.len()..].to_owned()))
-    })
-    .ok_or_else(|| Fail::internal(format!("{what}: `{sentinel}` holds no number the locale writes")))?;
-  Ok(Value::str(format!("{}{prefix}{}{suffix}", if negative { "-" } else { "" }, decimals.format(&d))))
+  };
+  let locale = locale_for(what, ambient, args.get(2))?;
+  let currency = Currency::new(&locale.to_string(), &code, display).map_err(|e| Fail::internal(format!("{what}: {e}")))?;
+  let own = i16::from(currency.digits());
+  let (min, max) = match (digits(what, args, 2, "minimumFractionDigits")?, digits(what, args, 2, "maximumFractionDigits")?) {
+    (None, None) => (own, own),
+    (Some(min), None) => (min, own.max(min)),
+    (None, Some(max)) => (own.min(max), max),
+    (Some(min), Some(max)) => (min, max.max(min)),
+  };
+  round(&mut d, min, max);
+  let formatter = DecimalFormatter::try_new((&locale).into(), Default::default()).map_err(|e| data(what, e))?;
+  let (digits, sign) = unsigned(&formatter, &d);
+  Ok(Value::str(currency.format(&digits, sign)))
 }
 
 /// `intl.date(when, style?)`: a calendar date in UTC at `dateStyle`
@@ -458,33 +445,46 @@ fn relative(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Err(text) => return Err(Fail::internal(format!("{what}: {text} is not a finite number"))),
   };
   round(&mut value, 0, 3);
-  let unit = text(what, args, 1)?;
-  let numeric = match string_option(what, args, 2, "numeric")?.as_deref() {
-    None | Some("always") => Numeric::Always,
-    Some("auto") => Numeric::Auto,
+  let name = text(what, args, 1)?;
+  let auto = match string_option(what, args, 2, "numeric")?.as_deref() {
+    None | Some("always") => false,
+    Some("auto") => true,
     Some(other) => return Err(Fail::internal(format!("{what}: `numeric` is always or auto, got `{other}`"))),
   };
-  let mut options = RelativeTimeFormatterOptions::default();
-  options.numeric = numeric;
-  let prefs = locale_for(what, ambient, args.get(2))?.into();
-  let style = string_option(what, args, 2, "style")?;
-  macro_rules! formatter {
-    ($($style:literal, $unit:literal => $make:ident;)*) => {
-      match (style.as_deref().unwrap_or("long"), unit.strip_suffix('s').unwrap_or(&unit)) {
-        $(($style, $unit) => RelativeTimeFormatter::$make(prefs, options),)*
-        (style @ ("long" | "short" | "narrow"), _) => return Err(Fail::internal(format!("{what}: `{unit}` is not a unit at style {style}; second, minute, hour, day, week, month, quarter or year"))),
-        (other, _) => return Err(Fail::internal(format!("{what}: `style` is long, short or narrow, got `{other}`"))),
-      }
-    };
+  let width = match string_option(what, args, 2, "style")?.as_deref() {
+    None | Some("long") => Width::Long,
+    Some("short") => Width::Short,
+    Some("narrow") => Width::Narrow,
+    Some(other) => return Err(Fail::internal(format!("{what}: `style` is long, short or narrow, got `{other}`"))),
+  };
+  let Some(unit) = Unit::from_name(&name) else {
+    return Err(Fail::internal(format!("{what}: `{name}` is not a unit; second, minute, hour, day, week, month, quarter or year")));
+  };
+  let locale = locale_for(what, ambient, args.get(2))?;
+  let tag = locale.to_string();
+  let relative = Relative::new(&tag, unit, width);
+  let past = value.sign() == fixed_decimal::Sign::Negative;
+  value.set_sign(fixed_decimal::Sign::None);
+  let whole = value.absolute.magnitude_range() == (0..=0);
+  if auto && whole {
+    let digit = value.absolute.digit_at(0) as i8;
+    if let Some(word) = relative.literal(if past { -digit } else { digit }) {
+      return Ok(Value::str(word.to_owned()));
+    }
   }
-  let formatter = formatter! {
-    "long", "second" => try_new_long_second; "long", "minute" => try_new_long_minute; "long", "hour" => try_new_long_hour; "long", "day" => try_new_long_day;
-    "long", "week" => try_new_long_week; "long", "month" => try_new_long_month; "long", "quarter" => try_new_long_quarter; "long", "year" => try_new_long_year;
-    "short", "second" => try_new_short_second; "short", "minute" => try_new_short_minute; "short", "hour" => try_new_short_hour; "short", "day" => try_new_short_day;
-    "short", "week" => try_new_short_week; "short", "month" => try_new_short_month; "short", "quarter" => try_new_short_quarter; "short", "year" => try_new_short_year;
-    "narrow", "second" => try_new_narrow_second; "narrow", "minute" => try_new_narrow_minute; "narrow", "hour" => try_new_narrow_hour; "narrow", "day" => try_new_narrow_day;
-    "narrow", "week" => try_new_narrow_week; "narrow", "month" => try_new_narrow_month; "narrow", "quarter" => try_new_narrow_quarter; "narrow", "year" => try_new_narrow_year;
-  }
-  .map_err(|e| data(what, e))?;
-  Ok(Value::str(formatter.format(value).to_string()))
+  let rules = PluralRules::try_new_cardinal((&locale).into()).map_err(|e| data(what, e))?;
+  let plural = match rules.category_for(PluralOperands::from(&value)) {
+    PluralCategory::Zero => Plural::Zero,
+    PluralCategory::One => Plural::One,
+    PluralCategory::Two => Plural::Two,
+    PluralCategory::Few => Plural::Few,
+    PluralCategory::Many => Plural::Many,
+    PluralCategory::Other => Plural::Other,
+  };
+  let exact = match (whole, value.absolute.digit_at(0)) {
+    (true, digit @ (0 | 1)) => Some(digit),
+    _ => None,
+  };
+  let formatter = DecimalFormatter::try_new((&locale).into(), Default::default()).map_err(|e| data(what, e))?;
+  Ok(Value::str(relative.format(&formatter.format(&value).to_string(), past, plural, exact)))
 }

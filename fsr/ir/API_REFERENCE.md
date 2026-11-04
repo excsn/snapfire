@@ -31,6 +31,8 @@ The lowered form of a loader or action body and the interpreter that runs it ove
 * [4. The Interpreter](#4-the-interpreter)
   * [Interpreter](#interpreter)
   * [Outcome](#outcome)
+  * [Prepared](#prepared)
+  * [native](#native)
   * [Clock](#clock)
   * [Extensions](#extensions)
   * [Reach](#reach)
@@ -52,10 +54,12 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Guards](#guards)
   * [Parallel lets](#parallel-lets)
 * [6. Runtime Adapters](#6-runtime-adapters)
+  * [PreparedBody](#preparedbody)
   * [IrSource](#irsource)
   * [IrPaths](#irpaths)
   * [IrStore](#irstore)
   * [IrAction](#iraction)
+  * [IrMeta](#irmeta)
 * [7. The Host](#7-the-host)
   * [Event](#event)
   * [Report](#report)
@@ -83,6 +87,7 @@ One statement. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`
 * `If { cond: Expr, then: Body, else: Body }`; `else` is omitted from JSON when empty.
 * `ForOf { name: String, over: Expr, body: Body }`; `over` must evaluate to `Value::Seq`.
 * `Return(Expr)` ends the body, from any depth.
+* `Break` leaves the nearest `ForOf`; `Continue` ends this pass of it and goes on with the next item. Neither crosses a function: one reaching a function's body or a block expression fails the step as internal. In the text form they are `(break)` and `(continue)`.
 * `Guard { cond: Expr, kind: String, message: String }` fails the body with `kind` when `cond` is truthy; `kind` is a `FailureKind` name.
 * `SessionSet { key: String, path: Vec<Expr>, value: Expr }`; `path` is omitted from JSON when empty.
 * `SessionDelete { key: String, path: Vec<Expr> }`; `path` is omitted from JSON when empty.
@@ -109,7 +114,7 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 * `Call { service: String, method: String, args: Vec<(String, Expr)> }`; `args` defaults to empty in JSON.
 * `Next(Box<Expr>)`: middleware's `next(request)`, run through `RequestCtx.next` and answering the route's response; the request is `undefined` for the request as it came. Only the async evaluator runs it.
 * `After(Box<Expr>)`: `after(fn)`, a lambda pushed onto `RequestCtx.after` with a copy of the environment it was evaluated in, its scope included; `undefined`. A failure while the lambda runs is a warning under `fsr::after`. `has_call` is false, since nothing suspends where it stands. The guards hoisted ahead of a body stop at a statement holding one.
-* `Lambda { params: Vec<String>, body: Box<Expr> }`; a parameter named `...x` takes every argument past the named ones as an array. Evaluating a lambda as a value is `Internal`. `Fix { name, f }` is `f`, a `Lambda`, as a function value that sees itself under `name` while it runs, so it may call itself; a call nested `interp::MAX_APPLIES` deep (24 in a debug build, 256 otherwise) fails the step naming the function. `Apply { f, args }` calls `f` with `args`; `ApplyOf(f, array)` calls it with the items of `array` as the arguments, `f(a, ...rest)`; an `array` that is not a `Seq` is `TypeError`.
+* `Lambda { params: Vec<String>, body: Box<Expr> }`; a parameter named `...x` takes every argument past the named ones as an array. Evaluating a lambda as a value is `Internal`. `Fix { name, f }` is `f`, a `Lambda`, as a function value that sees itself under `name` while it runs, so it may call itself; a call nested `interp::MAX_APPLIES` (256) deep fails the step naming the function. `Apply { f, args }` calls `f` with `args`; `ApplyOf(f, array)` calls it with the items of `array` as the arguments, `f(a, ...rest)`; an `array` that is not a `Seq` is `TypeError`.
 * `Block(Body)`: statements run in the enclosing scope, the value the first `Return` yields and null when none; a `Let` inside is dropped when the block ends and a `Set` to a name bound outside lands on it. A lambda whose body is a block may write what is around it, which an expression body cannot. `free_vars` counts the names its `Set`s write, so hoisting treats a block writing state as reading it. It runs on the sync path through `block_sync`, which refuses a guard, a session write and a dispatch; it runs on the async path when a service call sits inside. The s-expression form is `(block stmt ...)`.
 * `Map(over, f)`, `Filter(over, f)`, `Reduce(over, init, f)`, `Find(over, f)`, `FindIndex(over, f)`, `Some(over, f)`, `Every(over, f)`, `FlatMap(over, f)`, all `Box<Expr>`; `f` must be a `Lambda`. Each call passes the item and its index (`Reduce` the accumulator before them) plus the array last when the lambda names more than two parameters.
 * `Sort(over, f)`: a sorted copy, stable, by the comparator lambda `f` or, when `f` is `Lit::Null`, by `String(x)` in UTF-16 code units.
@@ -263,7 +268,7 @@ Runs a body. `Clone`; the default carries the system clock and the standard libr
 * `Interpreter::with_files(self, files: Option<Arc<FileRoots>>) -> Interpreter`: the roots every `Ambient` carries, which `file` resolves and confines through; none by default, as a terminal program has.
 * `Interpreter::render(&self, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: renders a lowered component with `props` bound as `$props`, byte for byte what the server renderer of the framework hydrating each component writes (see [Frameworks](#frameworks)), as `Rendered { html, islands, places, hoisted, whole }`. A `Tmpl::Island` renders its component apart, with the caller's children on the slot stack like a `Component` and leaves `ISLAND_MARK`, its index in `islands` and a NUL in `html` where it sits; `RenderedIsland { module, props, when, body }` holds the evaluated props and the island's own `Rendered`. A root `Slot` with no caller leaves `ROOT_SLOT`. Outside an island's body and outside a component that `hydrates`, a `Tmpl::Component` whose component hydrates renders as an island with no timing, since only its framework can render it again. A `Tmpl::Component` naming a module `library` does not hold is there an island whose body is empty. Inside one, a module `library` does not hold writes nothing and the island or root around it is not the server's: `whole` is false, the island holding it is written with an empty body and mounts fresh. `IrEvaluator` emits a root component whose render is not whole as a `Client` node with `rendered: false` and its slot regions as children; one whose render is whole has `rendered: true` and the rendered nodes as children. An island's children render inside `render::CHILDREN_OPEN`, `<sf-s data-sf-children>`, closed after them, wherever its component places its `children`, which the mounter hands the component as its `children` without rendering them; nothing they hoist is kept and an island among them keys under the caller that wrote them. A component the server has no body for, a `.vue` file the build could not read among them, has that region as its whole body; with no children its body is empty. A `React` or `Vue` island whose render did not place its children this render writes its children after its markup inside `render::CHILDREN_HELD_OPEN`, `<template data-sf-children>`, closed as a template: inert to the parser and the scan, read by the mounter. They render in the caller's scope, as placed children do. `bind::rendered_nodes(&Rendered) -> Vec<Node>` turns the markup into nodes: raw pieces, `Node::Slot("content")` at `ROOT_SLOT` and, at an island, `Node::raw("<sf-s data-sf-island[ data-sf-when=\"…\"]>")`, a `Node::Client` whose children are the island's body and whose `rendered` says whether the server rendered it, then `Node::raw("</sf-s>")`; at a `PLACE_MARK`, a `Node::Placed` holding the place's own nodes. A body `Let` named `RERUN_PREFIX` and a state binding that holds `[value]` asks for another pass: the body's `let`s run again with that binding at `value`, as React's server renders again a component that set its own state while rendering, until no such `let` holds one; the tree renders once, from the last pass. A body still asking after `RERUN_LIMIT` passes, 25, fails with React's "Too many re-renders" message. Synchronous: a component body holds no service call, so nothing here suspends. An expression with no `Call` in it is evaluated the same way wherever it appears; only an expression that calls a service goes through the async path.
 * `Interpreter::render_island(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: `render_module` for an island placed with no children, as a page places one: a `Slot` it renders writes an empty `render::CHILDREN_OPEN` region where a root component's leaves `ROOT_SLOT`. `fsr test`'s `render` takes this for a component that `hydrates`.
-* `Interpreter::render_module(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: `render` for the component under `module`, which keys its hoisted values; `render` is this with an empty module. A `Tmpl::Component` or `Tmpl::Island` is a call into `library` by module id, so a component may render itself; components nested deeper than `render::MAX_CALLS`, 64 in a debug build and 512 in a release build, fail the render with an internal `Fail` naming the module rather than overflowing the thread's stack. `Rendered.hoisted: ValueMap` holds every `Expr::Hoist` value the markup took, keyed `<module>|<id>` or `<module>|<id>@<i>.<j>` under `For` iterations, the callers' loops first, so a component placed from a loop keys below the iteration that placed it. A `Tmpl::Component` with `keyed` set adds `c<id>` to the path for what the component renders, so two placements of one component key apart; the caller's children render under the caller's module and path, where the browser builds them. `interp::Step` is one entry of the path, `Iteration(usize)` or `Placement(u32)`; a key recorded twice with different values is removed rather than left wrong. An island starts its own table: `RenderedIsland.body.hoisted` and `RenderedIsland::mount_props(&self) -> ValueMap` is its props plus that table under `HOISTED_PROP`, `"$h"`, when it is not empty; a prop named in the placement's `render::TYPES_PROP` object, `"$t"`, prop name to a tag in `render::typed`, is wrapped in a `Value::Variant` of that tag, a `$map` carrying the object's `[key, value]` pairs and the others the value as it is, so the browser makes the real `Map`, `Set`, `Date` or `BigInt`; `$t` itself is dropped and a null prop stays null. A prop named in the placement's `render::FUNCTIONS_PROP` object, `"$f"`, prop name to the module id `file#export` the browser imports that function from, as a string or an expression yielding one, mounts as a `Value::Ref` of `RefKind::Module` with that id while the server's render of the island reads the function value; `$f` itself is dropped. A function value left among an island's mounted props is an internal `Fail`. `IrEvaluator` adds the same key to the root node's props. `interp::Hoists { module, path, table }` is the recorder: `key(id)` spells the key and `record(id, &value)` applies the collision rule. An element whose attributes carry `render::CHUNK_ATTR`, `$chunk`, with an integer id renders its children into a buffer of their own and records that markup as a string under the id before writing it; one also carrying `render::UNTAKEN_ATTR`, `$untaken`, is rendered into the table alone when the `If` branch holding it is not taken, with the loops and bindings on the way evaluated as the render would, so the browser has its markup when its state takes the branch later; an island held back for a pending store key records every chunk of its component from its props alone, since a chunk reads nothing of the store; an island whose tree reached a component the build could not lower keeps the table it recorded; an attribute whose name starts with `$` is never printed, which also covers the lowerer's `$bound` mark. An element carrying `render::RAW_ATTR`, `$html`, writes that string to the document unescaped and renders no children, the way React refuses to have both; a null writes nothing.
+* `Interpreter::render_module(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail>`: `render` for the component under `module`, which keys its hoisted values; `render` is this with an empty module. A `Tmpl::Component` or `Tmpl::Island` is a call into `library` by module id, so a component may render itself; components nested deeper than `render::MAX_CALLS` (512) fail the render with an internal `Fail` naming the module rather than overflowing the thread's stack. `Rendered.hoisted: ValueMap` holds every `Expr::Hoist` value the markup took, keyed `<module>|<id>` or `<module>|<id>@<i>.<j>` under `For` iterations, the callers' loops first, so a component placed from a loop keys below the iteration that placed it. A `Tmpl::Component` with `keyed` set adds `c<id>` to the path for what the component renders, so two placements of one component key apart; the caller's children render under the caller's module and path, where the browser builds them. `interp::Step` is one entry of the path, `Iteration(usize)` or `Placement(u32)`; a key recorded twice with different values is removed rather than left wrong. An island starts its own table: `RenderedIsland.body.hoisted` and `RenderedIsland::mount_props(&self) -> ValueMap` is its props plus that table under `HOISTED_PROP`, `"$h"`, when it is not empty; a prop named in the placement's `render::TYPES_PROP` object, `"$t"`, prop name to a tag in `render::typed`, is wrapped in a `Value::Variant` of that tag, a `$map` carrying the object's `[key, value]` pairs and the others the value as it is, so the browser makes the real `Map`, `Set`, `Date` or `BigInt`; `$t` itself is dropped and a null prop stays null. A prop named in the placement's `render::FUNCTIONS_PROP` object, `"$f"`, prop name to the module id `file#export` the browser imports that function from, as a string or an expression yielding one, mounts as a `Value::Ref` of `RefKind::Module` with that id while the server's render of the island reads the function value; `$f` itself is dropped. A function value left among an island's mounted props is an internal `Fail`. `IrEvaluator` adds the same key to the root node's props. `interp::Hoists { module, path, table }` is the recorder: `key(id)` spells the key and `record(id, &value)` applies the collision rule. An element whose attributes carry `render::CHUNK_ATTR`, `$chunk`, with an integer id renders its children into a buffer of their own and records that markup as a string under the id before writing it; one also carrying `render::UNTAKEN_ATTR`, `$untaken`, is rendered into the table alone when the `If` branch holding it is not taken, with the loops and bindings on the way evaluated as the render would, so the browser has its markup when its state takes the branch later; an island held back for a pending store key records every chunk of its component from its props alone, since a chunk reads nothing of the store; an island whose tree reached a component the build could not lower keeps the table it recorded; an attribute whose name starts with `$` is never printed, which also covers the lowerer's `$bound` mark. An element carrying `render::RAW_ATTR`, `$html`, writes that string to the document unescaped and renders no children, the way React refuses to have both; a null writes nothing.
 * `HandlerRef { path: String, index: usize }` names the handler a step runs: `index` into the handlers of the component at `path`, which is empty for the island's own component (`HandlerRef::own(index)`) and otherwise the address a component rendered inside it carries, `c1` for a keyed placement or `0.c2` for one inside a loop, the `Hoists::path_key` of the render that reached it. `HandlerRef::parse` reads a token as an element binds it, `2` or `c1/2`; anything else is `None`.
 * `Interpreter::island_step(&self, module, component, props, state, handler: Option<HandlerRef>, event: &Value, library) -> Result<Stepped, Fail>`: one round trip of an island in server mode. The body's `let`s run with `state` standing in for the component's state bindings, the handler at `handler` runs with `$props`, `$state` and `$event` bound and the object it returns is merged into the state for the keys the component names, a key that is a store binding written to the render's store instead and answered in `Stepped.store`, then the component renders from that state in server mode: `$on:` markers print as `data-sf-on="click:0 change:1"` and `$key` as `data-sf-key`, neither of which prints in a browser-mode render. `None` for `handler` renders as is. A component rendered inside the island through a keyed placement has an address, its `path_key`: its state bindings ride in the same map as `<address>/<name>`, its markers print as `<address>/<index>`, the address of the component that owns the handler wherever inside it the element sits, so an element in one of its loops never takes the iteration's address and a `HandlerRef` naming it is found by rendering once to that path, which gives its handler the props the island's render gave it; `NotFound` when the render reaches no such path or the component there has no such index. The answered `state` is what the render consumed, so an instance the render no longer places leaves no entry behind. `Stepped { state, rendered, acts }`: `acts` is every `Act` the handler ran, in order, as `(action id, input)` with the input evaluated where the statement stood, so it reads the props and the state as they were at that point; the interpreter dispatches nothing itself. A missing handler index is `Internal`.
 * A `Tmpl::Island` in server mode renders its component the same way and `RenderedIsland { mode, state, reads, rendered_store, .. }` carries the mode, the values the state `let`s took, the store values the island was rendered from (the keys it reads that the store held, which `mount_props` writes as `$sv` on a browser-mode island that read one and on every server-mode island that reads a key, an empty map included) and the store keys the island reads, `render::store_keys(component, library)`: every `Expr::Store` in it and in the components it renders inline, sorted. `mount_props` adds the state under `render::STATE_PROP` (`$s`) and the keys under `render::READS_PROP` (`$sk`) and `rendered_nodes` writes `data-sf-mode="server"` on the region.
@@ -278,6 +283,27 @@ Runs a body. `Clone`; the default carries the system clock and the standard libr
 * `written` lists every session key set or deleted, in first-touch order, already committed.
 * `extended` is the seconds the last `SessionExtend` named, already applied to the cell through `SessionCell::extend`; `None` when the body ran none.
 * `redirected` is the `Location` of the redirect response the body returned, `RedirectTo` or `ResponseRedirect`; `None` for any other value. An action's host checks it is a path on this origin and sets it on the request.
+
+### Prepared
+
+How `Interpreter::run_with` runs a body. `Copy`.
+
+* `pub enum Prepared<'a> { No, Compiled(&'a compiled::Program), Native(native::NativeBody) }`, re-exported at the root. `No` interprets the body as written. The other two answer exactly what `No` answers, failures included; the top-level guard scan in [Guards](#guards) runs before any of them.
+* `Interpreter::run_with(&self, body: &Body, prepared: Prepared<'_>, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`: `run` with `body` run as `prepared` has it. `run` is `run_prepared` with `Program::of(body)`. `run_prepared(&self, body, program: Option<&Program>, ctx, input)` is `run_with` with `Compiled(program)`, `No` when `program` is `None`.
+* `Interpreter::evaluate_program(&self, program: &Program) -> Result<Value, Fail>` and `Interpreter::evaluate_native(&self, native: NativeBody) -> Result<Value, Fail>`: run with no request, as `evaluate` answers a block.
+* `compiled::Program::of(body: &Body) -> Option<Program>`: the body with every local at a fixed position, built once and run for every request. `None` for a body that waits: one holding a service `Call`, a `Next`, an `ApplyOf` or a `NativeCall` whose `sync` is false anywhere in it. `None` too for a body holding a `SessionSet`, `SessionDelete`, `SessionExtend` or `Act` statement. A `Guard` with a known kind is a step at the body's own level and inside its `If`, `ForOf` and `While`. A body with a guard inside a `Try` or with an unknown kind is `None`; inside a block expression a guard runs interpreted. An expression the program has no step for runs interpreted in place.
+
+### native
+
+Rust source for a body, which a production build compiles into the application. A body gets no source when it waits as `Program::of` defines it or when it holds an expression the generator does not write. It runs as a `Program` then.
+
+* `pub type NativeBody = fn(&mut Frame<'_>) -> Result<Value, Fail>`.
+* `pub struct Native { pub source: &'static str, pub plan: u64, pub body: NativeBody }`: one entry of the `BODIES` list a build writes, the row it was written for, the `plan_hash` it was written from and the function.
+* `native::plan_hash(body: &Body, consts: Option<&Consts>) -> u64`: xxh3 over the body and the module constants it can call. A body runs its compiled function only while the plan's hash matches, whichever row it answers.
+* `native::emit(name: &str, body: &Body, consts: Option<&Consts>) -> Option<String>`, `native::emit_or_why(name, body, consts) -> Result<String, String>` (the `Err` names the first statement or expression not written) and `native::emit_in(root: &str, name, body, consts) -> Result<String, String>`: the function `pub fn <name>(f: &mut <root>::Frame<'_>) -> Result<<root>::Value, <root>::Fail>`. `emit` and `emit_or_why` write against `snapfire_fsr_ir::native`; `emit_in` against a re-export of it at `root`, as `snapfire_fsr_host::bodies` is.
+* The generated code reaches the interpreter's runtime through `Frame`: the same arithmetic, comparison, text, field, index, write, builtin and constant rules, `Frame::request(&self, read: Read<'_>) -> Value` for a request read (the same answer as the expression in [Reads](#reads)), `Frame::native(&self, module, method, args)` for a `NativeCall` whose `sync` is true, `Frame::guard(&self, kind, message: &Value) -> Fail` for a guard that holds, `Frame::number`, `Frame::bigint` and `Frame::string` for `Number`, `BigInt` and `String`, `Frame::write_whole(&mut self, target, next)` for an `Overwrite` that replaces an object's or an array's contents in place and `Frame::order(&Value) -> f64` and `Frame::default_order(&Value, &Value)` for the order `sort` reads from a comparator's answer and the order it takes without one. A sort is written as the interpreter's stable bottom-up merge with the comparator inlined where two items are compared.
+* `pub enum Read<'a> { Param(&'a str), Query(&'a str), ParamsAll, QueryAll, Session(&'a str), Locale, Locales, Path, Document, Host, Origin, Address, Config(&'a str), Input, Now }`.
+* The module re-exports `Value`, `Fail`, `Builtin`, `Read`, `MAX_PASSES`, `ArithOp` as `Arith` and `CompareOp` as `Compare`, which is what the generated code names.
 
 ### Clock
 
@@ -319,7 +345,7 @@ Every member takes its arguments positionally and answers a `Value`; `std::regis
 | Member | Reach | Arguments | Answer |
 | --- | --- | --- | --- |
 | `intl.number` | render | `n`, `{ style?, minimumFractionDigits?, maximumFractionDigits?, minimumIntegerDigits?, useGrouping?, signDisplay?, locale? }?` | what `Intl.NumberFormat` writes: grouped for the locale, half away from zero to at most three fraction digits by default (none for `style: "percent"`, which multiplies by 100 and writes the locale's percent pattern), trailing zeros dropped past the minimum; `useGrouping` `true`, `false`, `auto`, `always` or `min2`; `signDisplay` `auto`, `always`, `exceptZero`, `negative` or `never`; `NaN`, `∞` and `-∞` as JavaScript prints them |
-| `intl.currency` | render | `n`, `code`, `{ display?, minimumFractionDigits?, maximumFractionDigits?, locale? }?` | the amount with the ISO code and the currency's own fraction digits, `USD 1,234.50`, `1.234,50 EUR`; `display` `symbol` or `narrowSymbol` writes the symbol CLDR gives the locale, `$1,234.50`, `1.234,50 €`; with fraction digits given the amount is rounded as `intl.number` rounds and takes the symbol's place from a zero formatted the currency's way; a code that is not three letters is `Internal` |
+| `intl.currency` | render | `n`, `code`, `{ display?, minimumFractionDigits?, maximumFractionDigits?, locale? }?` | the amount with the ISO code and the currency's own fraction digits, `USD 1,234.50`, `1.234,50 EUR`; `display` `symbol` or `narrowSymbol` writes the symbol CLDR gives the locale, `$1,234.50`, `1.234,50 €`; fraction digits default to the currency's own and one bound given moves the other only as far as it must, as the browser does; a code that is not three letters is `Internal` |
 | `intl.date` | render | `when` (milliseconds or an ISO 8601 string), `style?` (`short`, `medium` by default, `long`, `full`) or `{ style?, timeStyle?, weekday?, year?, month?, day?, locale? }` | the calendar date in UTC at that `dateStyle` or at the parts: a text `month` or `weekday` (`long`, `short`, `narrow`) sets the width and `year` and `day` are `numeric`; a numeric month is `Internal`, since no ICU4X field set writes the browser's digits. `timeStyle` `short` or `medium` writes the time of day in UTC, after the date when `style` is given, with an ordinary space before the day period as Chrome writes it |
 | `intl.plural` | render | `n`, `{ type?, locale? }?` | the category `Intl.PluralRules` selects, `zero`, `one`, `two`, `few`, `many` or `other`, cardinal unless `type` is `ordinal` |
 | `intl.relative` | render | `value`, `unit`, `{ numeric?, style?, locale? }?` | the phrase `Intl.RelativeTimeFormat` writes: `unit` `second` to `year`, singular or plural; `numeric` `always` or `auto`; `style` `long`, `short` or `narrow` |
@@ -514,7 +540,7 @@ The frameworks an application vendors, each at the major whose server markup the
 
 ### Guards
 
-* Before the body runs, top-level guards are scanned in order. A guard whose condition reads no `Var` and contains no `Call` is evaluated immediately. The scan stops at the first `If`, `ForOf`, `Try`, `SessionSet`, `SessionDelete`, `SessionExtend` or `Act`.
+* Before the body runs, top-level guards are scanned in order. A guard whose condition reads no `Var` and contains no `Call` is evaluated immediately. The scan stops at the first `If`, `ForOf`, `Break`, `Continue`, `Try`, `SessionSet`, `SessionDelete`, `SessionExtend` or `Act`.
 * Every guard also runs in sequence at its own position.
 * An unknown kind name is `Internal`.
 
@@ -525,11 +551,21 @@ The frameworks an application vendors, each at the major whose server markup the
 
 ## 6. Runtime Adapters
 
+### PreparedBody
+
+A lowered body as every adapter below runs it. `Clone`, cheap. `Deref<Target = Body>`; `From<Body>` reads it with no constants.
+
+* `PreparedBody::new(body: Body, consts: Option<&Consts>) -> PreparedBody`: builds the body's `Program` once and its `plan_hash` with the constants of the plan it came from.
+* `PreparedBody::compiled_from(self, compiled: &[&Native]) -> PreparedBody`: the body with the first entry whose `plan` equals its own attached. With none matching, the body is returned as it was.
+* `PreparedBody::with_native(self, native: NativeBody) -> PreparedBody`: attaches `native` without a plan check.
+* `PreparedBody::plan(&self) -> u64`, `PreparedBody::is_compiled(&self) -> bool`, `PreparedBody::body(&self) -> &Body`.
+* `PreparedBody::run(&self, interpreter: &Interpreter, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`: `run_with` as `Prepared::Native` when a compiled body is attached, as its `Program` when `Program::of` built one and as `Prepared::No` otherwise.
+
 ### IrSource
 
 A body answering a data source id. Implements `snapfire_fsr_runtime::DataSource`.
 
-* `IrSource::new(id: impl Into<String>, body: Body) -> IrSource`
+* `IrSource::new(id: impl Into<String>, body: impl Into<PreparedBody>) -> IrSource`
 * `IrSource::with_interpreter(self, interpreter: Interpreter) -> IrSource`
 * `load` runs the body with no input and returns the `Value::Map` it returned as `Data`. A non-map return or a `Fail` is a `LoadError` carrying the id and the message.
 
@@ -537,7 +573,7 @@ A body answering a data source id. Implements `snapfire_fsr_runtime::DataSource`
 
 A lowered `paths` naming the parameter sets a route prerenders. Implements `snapfire_fsr_runtime::Paths`.
 
-* `IrPaths::new(source_id: impl Into<String>, body: Body) -> IrPaths`
+* `IrPaths::new(source_id: impl Into<String>, body: impl Into<PreparedBody>) -> IrPaths`
 * `IrPaths::with_interpreter(self, interpreter: Interpreter) -> IrPaths`
 * `paths` runs the body with no input and reads the `Value::Seq` it returned as one `Params` per `Value::Map`, a string or a number per key. A non-list return, an entry that is not an object, a value of another kind or a `Fail` is a `LoadError` carrying the id and the message.
 
@@ -546,8 +582,8 @@ A lowered `paths` naming the parameter sets a route prerenders. Implements `snap
 A module's lowered `store` and `defaults` exports, either or both. Implements `snapfire_fsr_runtime::Seeds`.
 
 * `IrStore::new(source_id: impl Into<String>) -> IrStore`
-* `IrStore::with_store(self, store: Option<Body>) -> IrStore`
-* `IrStore::with_defaults(self, defaults: Option<Body>) -> IrStore`
+* `IrStore::with_store(self, store: Option<impl Into<PreparedBody>>) -> IrStore`
+* `IrStore::with_defaults(self, defaults: Option<impl Into<PreparedBody>>) -> IrStore`
 * `IrStore::with_interpreter(self, interpreter: Interpreter) -> IrStore`
 * `IrStore::with_keys(self, keys: Option<Vec<String>>) -> IrStore`: the plan's `store-keys`, which `keys` answers with when set.
 * `seed` runs the `store` body with the segment's data as `Input` and returns the `Value::Map` it returned. With no `store` it returns an empty map. `defaults` does the same with the `defaults` body. A non-map return or a `Fail` is a `LoadError`.
@@ -555,11 +591,19 @@ A module's lowered `store` and `defaults` exports, either or both. Implements `s
 
 ### IrAction
 
-A body answering an action id. Implements `snapfire_fsr_runtime::ActionHandler`.
+A body answering an action id, a route handler, the middleware or a theme. Implements `snapfire_fsr_runtime::ActionHandler`.
 
-* `IrAction::new(body: Body) -> IrAction`
+* `IrAction::new(body: impl Into<PreparedBody>) -> IrAction`
 * `IrAction::with_interpreter(self, interpreter: Interpreter) -> IrAction`
 * `call` runs the body with the submitted value as `Input` and returns what it returned. A `Fail` is an `ActionError` with the kind preserved.
+
+### IrMeta
+
+A lowered `meta` describing the document from its loader's data. Implements `snapfire_fsr_runtime::Metadata`.
+
+* `IrMeta::new(source_id: impl Into<String>, body: impl Into<PreparedBody>) -> IrMeta`
+* `IrMeta::with_interpreter(self, interpreter: Interpreter) -> IrMeta`
+* `describe` runs the body with the segment's data as `Input`. It must return an object; `title`, `absolute`, `description` and `head` are read from it.
 
 ## 7. The Host
 

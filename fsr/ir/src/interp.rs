@@ -3,7 +3,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use futures_util::future::{join_all, BoxFuture};
-use snapfire_fsr_core::{Value, ValueMap};
+use snapfire_fsr_core::{Collection, Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, RequestCtx, SessionCell};
 
 use crate::catalog::Catalogs;
@@ -52,6 +52,8 @@ pub struct Interpreter {
   files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>,
   consts: Option<Arc<Consts>>,
   held: Arc<Held>,
+  /// The module's functions prepared once, by constant key, [`crate::compiled::Function::of_consts`].
+  functions: Arc<HashMap<String, Arc<crate::compiled::Function>>>,
   frameworks: Frameworks,
   /// The store keys each island the server does not render reads, by module.
   island_reads: Arc<std::collections::BTreeMap<String, Vec<String>>>,
@@ -104,7 +106,7 @@ impl Held {
       return;
     }
     if let Some(cell) = self.cells.get(key) {
-      let _ = cell.set(value.clone());
+      let _ = cell.set(value.frozen());
     }
   }
 }
@@ -139,13 +141,13 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, files: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
+    Self { clock: Arc::new(SystemClock), store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, files: None, consts: None, held: Arc::default(), functions: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, files: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
+    Self { clock, store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, files: None, consts: None, held: Arc::default(), functions: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
   }
 
   /// The frameworks the application vendors. A component one of them
@@ -213,6 +215,7 @@ impl Interpreter {
   /// named none leaves this empty and no body refers to one.
   pub fn with_consts(mut self, consts: Option<Arc<Consts>>) -> Self {
     self.held = Arc::new(consts.as_deref().map(Held::new).unwrap_or_default());
+    self.functions = Arc::new(consts.as_deref().map(crate::compiled::Function::of_consts).unwrap_or_default());
     self.consts = consts;
     self
   }
@@ -234,8 +237,20 @@ impl Interpreter {
   /// Evaluates one expression over `scope` with no request: what a test's
   /// assertion or a rendered component reads.
   pub async fn evaluate(&self, expr: &Expr, scope: Vec<(String, Value)>) -> Result<Value, Fail> {
-    let mut env = Env::detached(self, scope);
+    let mut env = Env::detached(self, scope.into_iter().map(|(name, value)| (Name::new(name), value)).collect());
     env.eval(expr).await
+  }
+
+  /// A body compiled into the application run with no request, its value as [`Self::evaluate`] answers a block's.
+  pub fn evaluate_native(&self, native: crate::native::NativeBody) -> Result<Value, Fail> {
+    let mut env = Env::detached(self, Vec::new());
+    native(&mut crate::native::Frame::new(&mut env))
+  }
+
+  /// A prepared body run with no request, its value as [`Self::evaluate`] answers a block's.
+  pub fn evaluate_program(&self, program: &crate::compiled::Program) -> Result<Value, Fail> {
+    let mut env = Env::detached(self, Vec::new());
+    program.run(&mut env)?.value()
   }
 
   /// Applies a lambda to `args` with no request: what a mocked service method is.
@@ -249,6 +264,16 @@ impl Interpreter {
   /// that could write the session runs before anything else, so a call is
   /// never made for a request a guard would refuse.
   pub async fn run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> Result<Outcome, Fail> {
+    self.run_prepared(body, crate::compiled::Program::of(body).as_ref(), ctx, input).await
+  }
+
+  /// [`Self::run`] with `program`, [`crate::compiled::Program::of`] the body, prepared once for every request.
+  pub async fn run_prepared(&self, body: &Body, program: Option<&crate::compiled::Program>, ctx: &RequestCtx, input: Option<Value>) -> Result<Outcome, Fail> {
+    self.run_with(body, program.map_or(Prepared::No, Prepared::Compiled), ctx, input).await
+  }
+
+  /// [`Self::run`] running `body` as `prepared` has it: interpreted, prepared once or compiled into the application.
+  pub async fn run_with(&self, body: &Body, prepared: Prepared<'_>, ctx: &RequestCtx, input: Option<Value>) -> Result<Outcome, Fail> {
     let (data, identity) = ctx.session.snapshot();
     let mut env = Env {
       store_keys: self.store_keys.clone(),
@@ -284,12 +309,17 @@ impl Interpreter {
       made: Some(Vec::new()),
       closures: Some(Vec::new()),
       cells: Some(Vec::new()),
+      heap_live: false,
+      heap_copies: Vec::new(),
+      thawed: Default::default(),
+      object_keys: Vec::new(),
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
       written_back: None,
       backing: false,
       module_seed: snapfire_fsr_core::ValueMap::default(),
+      cycles: Cycles::default(),
       marks: Vec::new(),
       placed: Vec::new(),
       input: input.unwrap_or(Value::Null),
@@ -308,6 +338,7 @@ impl Interpreter {
       catalogs: self.catalogs.clone(),
       files: self.files.clone(),
       consts: self.consts.clone(),
+      functions: self.functions.clone(),
       held: self.held.clone(),
     };
 
@@ -328,13 +359,18 @@ impl Interpreter {
           }
         }
         Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
-        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::Try { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => break,
+        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::While { .. } | Stmt::Break | Stmt::Continue | Stmt::Try { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => break,
       }
     }
 
-    let value = match env.block(body).await? {
-      Flow::Return(value) => value,
+    let flow = match prepared {
+      Prepared::Compiled(program) => program.run(&mut env)?,
+      Prepared::Native(native) => Flow::Return(native(&mut crate::native::Frame::new(&mut env))?),
+      Prepared::No => env.block(body).await?,
+    };
+    let value = match flow {
       Flow::Next => Value::Null,
+      flow => leaves(env.settled(flow.value()?))?,
     };
     commit(&ctx.session, &env.session, &env.written);
     if let Some(seconds) = env.extend {
@@ -359,6 +395,19 @@ fn commit(cell: &SessionCell, draft: &ValueMap, written: &[String]) {
 pub(crate) enum Flow {
   Next,
   Return(Value),
+  Break,
+  Continue,
+}
+
+impl Flow {
+  /// What a function's or a block's body gave once it ended this way.
+  pub(crate) fn value(self) -> Result<Value, Fail> {
+    match self {
+      Flow::Return(value) => Ok(value),
+      Flow::Next => Ok(Value::Null),
+      Flow::Break | Flow::Continue => Err(Fail::internal("a `break` or `continue` outside a loop")),
+    }
+  }
 }
 
 pub(crate) struct Env {
@@ -370,7 +419,7 @@ pub(crate) struct Env {
   written: Vec<String>,
   /// The last `SessionExtend` the body ran, applied with the draft on success.
   extend: Option<u64>,
-  pub(crate) scope: Vec<(String, Value)>,
+  pub(crate) scope: Vec<(Name, Value)>,
   pub(crate) store: ValueMap,
   /// The store keys `WriteStore` wrote, which a step returns with its patch's.
   pub(crate) store_written: ValueMap,
@@ -387,6 +436,7 @@ pub(crate) struct Env {
   catalogs: Option<Arc<Catalogs>>,
   files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>,
   consts: Option<Arc<Consts>>,
+  functions: Arc<HashMap<String, Arc<crate::compiled::Function>>>,
   held: Arc<Held>,
   /// Where a render records hoisted values; `None` in a body, which hoists nothing.
   pub(crate) hoists: Option<Hoists>,
@@ -457,10 +507,70 @@ pub(crate) struct Env {
   pub(crate) closures: Option<Vec<Closure>>,
   /// The cells this render made, which a handle names by index. `None` in a copy for parallel evaluation.
   pub(crate) cells: Option<Vec<Value>>,
+  /// Whether this render or body writes objects, so that it reads its own copy of what requests share.
+  pub(crate) heap_live: bool,
+  pub(crate) heap_copies: Vec<(String, Value)>,
+  /// The frozen objects this body wrote, by address, with the copy each became for it.
+  pub(crate) thawed: std::collections::HashMap<usize, Value, snapfire_fsr_core::ValueHasher>,
+  /// The objects used as `Map` keys, by the text they are kept under.
+  pub(crate) object_keys: Vec<(String, Value)>,
   /// The render's named cells, `Expr::ModuleCell`, by key with their index in `cells`.
   pub(crate) module_cells: Vec<(String, usize)>,
   /// The value a named cell starts from instead of its `init`, by key: a host that keeps module state from one step to the next hands it in as [`crate::render::CELLS_PROP`].
   pub(crate) module_seed: snapfire_fsr_core::ValueMap,
+  /// The objects a write may have closed a cycle through. The last field, so it drops after everything else the body held.
+  cycles: Cycles,
+}
+
+/// What an in-place write makes of the object or array it writes, its parts evaluated: fields set, items pushed, one key or index set or the whole contents replaced.
+pub(crate) enum Write {
+  Field(Name, Value),
+  Fields(Vec<(Name, Value)>),
+  Item(Value),
+  Items(Vec<Value>),
+  At(Value, Value),
+  Whole(Value),
+}
+
+/// How many objects and arrays a write looks through for the object it writes into before it leaves the question to the end of the request.
+const CYCLE_SEARCH: usize = 64;
+
+/// What a request wrote that may sit on a cycle, freed by [`snapfire_fsr_core::collect_cycles`] once the request lets go of everything else.
+#[derive(Default)]
+struct Cycles(Vec<Value>);
+
+impl Drop for Cycles {
+  fn drop(&mut self) {
+    snapfire_fsr_core::collect_cycles(std::mem::take(&mut self.0));
+  }
+}
+
+/// A read of the request a body makes, the session draft and the clock included, answered by [`Env::read_request`].
+#[derive(Debug, Clone, Copy)]
+pub enum Read<'a> {
+  Param(&'a str),
+  Query(&'a str),
+  ParamsAll,
+  QueryAll,
+  Session(&'a str),
+  Locale,
+  Locales,
+  Path,
+  Document,
+  Host,
+  Origin,
+  Address,
+  Config(&'a str),
+  Input,
+  Now,
+}
+
+/// How a body runs: as written, prepared once as a [`crate::compiled::Program`] or compiled into the application as a [`crate::native::NativeBody`].
+#[derive(Clone, Copy)]
+pub enum Prepared<'a> {
+  No,
+  Compiled(&'a crate::compiled::Program),
+  Native(crate::native::NativeBody),
 }
 
 /// A function value: its parameters, its body and the names it reads with their values where it was written.
@@ -468,16 +578,40 @@ pub(crate) struct Env {
 pub(crate) struct Closure {
   params: Vec<String>,
   body: std::sync::Arc<Expr>,
-  scope: Vec<(String, Value)>,
+  scope: Vec<(Name, Value)>,
   /// The name the function sees itself under while it runs, for one that calls itself.
   name: Option<String>,
+  /// The body prepared, run in place of `body` when the scope was captured as it expects.
+  compiled: Option<Arc<crate::compiled::Function>>,
 }
 
 /// The tag of a function value: its payload indexes the render's closure table.
 pub const FUNCTION_VALUE: &str = "$fn";
 
-/// How deep function values may nest their calls before the step fails. A debug build's frames are many times larger, so the bound fits a 2 MB thread in each profile.
-pub const MAX_APPLIES: usize = if cfg!(debug_assertions) { 24 } else { 256 };
+/// How deep function values may nest their calls before the step fails. The stack grows to fit, [`on_enough_stack`].
+pub const MAX_APPLIES: usize = 256;
+
+/// How many passes one `Stmt::While` may run before the step fails, where JavaScript would loop on.
+pub const MAX_PASSES: usize = 10_000_000;
+
+fn past_passes() -> Fail {
+  Fail::internal(format!("a loop ran past {MAX_PASSES} passes"))
+}
+
+pub(crate) use snapfire_fsr_core::on_enough_stack;
+
+/// A local's name in a scope: a short one is held inline, so binding it allocates nothing.
+pub(crate) type Name = smol_str::SmolStr;
+
+/// How deep a value may nest when it leaves a body. What reads it past there walks it recursively.
+const MAX_NESTING: usize = 512;
+
+fn leaves(value: Value) -> Result<Value, Fail> {
+  if value.nested_past(MAX_NESTING) {
+    return Err(Fail::internal(format!("a value nested more than {MAX_NESTING} levels deep leaving a body")));
+  }
+  Ok(value)
+}
 
 /// The tag of a cell's handle, a `Value::Variant` whose payload is the cell's index in the render's table.
 pub const CELL_VALUE: &str = "$cell";
@@ -556,11 +690,12 @@ pub struct Hoists {
   pub path: Vec<Step>,
   pub table: ValueMap,
   dead: Vec<String>,
+  spelled: String,
 }
 
 impl Hoists {
   pub fn new(module: impl Into<String>) -> Self {
-    Self { module: module.into(), path: Vec::new(), table: ValueMap::default(), dead: Vec::new() }
+    Self { module: module.into(), path: Vec::new(), table: ValueMap::default(), dead: Vec::new(), spelled: String::new() }
   }
 
   /// The region key of an island placement, numbered apart from the hoist
@@ -593,14 +728,18 @@ impl Hoists {
 
   fn keyed(&self, id: &str) -> String {
     let mut key = String::with_capacity(self.module.len() + id.len() + 2 + self.path.len() * 3);
+    self.write_keyed(id, &mut key);
+    key
+  }
+
+  fn write_keyed(&self, id: &str, key: &mut String) {
     key.push_str(&self.module);
     key.push('|');
     key.push_str(id);
     if !self.path.is_empty() {
       key.push('@');
-      self.write_path(&mut key);
+      self.write_path(key);
     }
-    key
   }
 
   /// The path alone, which addresses a component rendered inside an island
@@ -630,27 +769,30 @@ impl Hoists {
   }
 
   pub fn record(&mut self, id: u32, value: Value) {
-    let key = self.key(id);
-    if self.dead.contains(&key) {
-      return;
-    }
-    match self.table.get(&key) {
-      Some(existing) if *existing == value => {}
-      Some(_) => {
-        self.table.shift_remove(&key);
-        self.dead.push(key);
+    let mut key = std::mem::take(&mut self.spelled);
+    key.clear();
+    let mut digits = itoa::Buffer::new();
+    self.write_keyed(digits.format(id), &mut key);
+    if !self.dead.iter().any(|dead| *dead == key) {
+      match self.table.get(key.as_str()) {
+        Some(existing) if *existing == value => {}
+        Some(_) => {
+          self.table.shift_remove(key.as_str());
+          self.dead.push(key.clone());
+        }
+        None => {
+          self.table.insert(key.as_str(), value);
+        }
       }
-      None => {
-        self.table.insert(key, value);
-      }
     }
+    self.spelled = key;
   }
 }
 
 impl Env {
   /// An environment for a render: no request, no session, no input; only
   /// the scope a component's props make.
-  pub(crate) fn detached(interpreter: &Interpreter, scope: Vec<(String, Value)>) -> Self {
+  pub(crate) fn detached(interpreter: &Interpreter, scope: Vec<(Name, Value)>) -> Self {
     Self {
       store_keys: interpreter.store_keys.clone(),
       ctx: RequestCtx::anonymous(Default::default()),
@@ -667,6 +809,7 @@ impl Env {
       catalogs: interpreter.catalogs.clone(),
       files: interpreter.files.clone(),
       consts: interpreter.consts.clone(),
+      functions: interpreter.functions.clone(),
       held: interpreter.held.clone(),
       hoists: None,
       state: None,
@@ -697,12 +840,17 @@ impl Env {
       made: Some(Vec::new()),
       closures: Some(Vec::new()),
       cells: Some(Vec::new()),
+      heap_live: false,
+      heap_copies: Vec::new(),
+      thawed: Default::default(),
+      object_keys: Vec::new(),
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
       written_back: None,
       backing: false,
       module_seed: snapfire_fsr_core::ValueMap::default(),
+      cycles: Cycles::default(),
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -729,6 +877,9 @@ impl Env {
   /// `None` is always safe: it means the caller must evaluate the expression,
   /// never that the expression has no value.
   pub(crate) fn place<'a>(&'a self, expr: &'a Expr) -> Option<&'a Value> {
+    if self.heap_live {
+      return self.place_live(expr);
+    }
     match expr {
       Expr::Var(name) => self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v),
       Expr::Folded(value) => Some(value),
@@ -751,6 +902,27 @@ impl Env {
   }
 
   /// The request's locale or null under a context that has none.
+  /// What the request, the session draft or the clock answer for `read`.
+  pub(crate) fn read_request(&self, read: Read<'_>) -> Value {
+    match read {
+      Read::Param(name) => self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined),
+      Read::Query(name) => self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined),
+      Read::ParamsAll => Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect()),
+      Read::QueryAll => Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect()),
+      Read::Session(key) => self.session.get(key).cloned().unwrap_or(Value::Null),
+      Read::Locale => self.locale(),
+      Read::Locales => Value::seq(self.ctx.locales.iter().map(|tag| Value::str(tag.clone())).collect::<Vec<_>>()),
+      Read::Path => Value::str(self.ctx.path.clone()),
+      Read::Document => Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone())),
+      Read::Host => self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null),
+      Read::Origin => self.ctx.origin.clone().map(Value::str).unwrap_or(Value::Null),
+      Read::Address => self.ctx.address.as_ref().map(snapfire_fsr_runtime::Address::value).unwrap_or(Value::Null),
+      Read::Config(key) => self.ctx.config.get(key).cloned().unwrap_or(Value::Null),
+      Read::Input => self.input.clone(),
+      Read::Now => Value::Int(self.clock.now()),
+    }
+  }
+
   fn locale(&self) -> Value {
     if self.ctx.locale.tag.is_empty() {
       Value::Null
@@ -760,9 +932,30 @@ impl Env {
   }
 
   fn touch(&mut self, key: &str) {
+    self.forget_copy('s', key);
     if !self.written.iter().any(|k| k == key) {
       self.written.push(key.to_owned());
     }
+  }
+
+  /// The store key `key` set to `value` or removed for `None`. A copy [`Self::own_read`] kept of it is dropped, so the next read sees the write.
+  pub(crate) fn set_store(&mut self, key: &str, value: Option<Value>) {
+    self.forget_copy('t', key);
+    match value {
+      Some(value) => {
+        self.store.insert(key, value);
+      }
+      None => {
+        self.store.shift_remove(key);
+      }
+    }
+  }
+
+  fn forget_copy(&mut self, tag: char, key: &str) {
+    if self.heap_copies.is_empty() {
+      return;
+    }
+    self.heap_copies.retain(|(held, _)| !(held.starts_with(tag) && held.get(1..2) == Some(":") && &held[2..] == key));
   }
 
   async fn guard(&mut self, cond: &Expr, kind: &str, message: &Expr) -> Result<(), Fail> {
@@ -775,15 +968,90 @@ impl Env {
   }
 
   /// `block` for a body with no service call in it: the statements a `Block` expression or a helper's body holds. A statement that reaches a service or the session is the async path's, so it fails here.
+  /// `name = { ...name, k: v }`, `name = [...name, v]` or `name = setAt(name, k, v)` changing the local's own object. It stays a copy when anything else holds that object, since `make_mut` copies a shared one.
+  fn set_in_place(&mut self, name: &str, expr: &Expr) -> Result<bool, Fail> {
+    enum Write {
+      Fields(Vec<(String, Value)>),
+      Items(Vec<Value>),
+      At(Value, Value),
+    }
+    let own = |e: &Expr| matches!(e, Expr::Var(n) if n == name);
+    let write = match expr {
+      Expr::Object(entries) => {
+        let Some((Entry::Spread(first), rest)) = entries.split_first() else { return Ok(false) };
+        if !own(first) || rest.is_empty() || !rest.iter().all(|e| matches!(e, Entry::Field(..) | Entry::Computed(..))) {
+          return Ok(false);
+        }
+        if !matches!(self.scope.iter().rev().find(|(n, _)| n == name), Some((_, Value::Map(_)))) {
+          return Ok(false);
+        }
+        let mut out = Vec::with_capacity(rest.len());
+        for entry in rest {
+          match entry {
+            Entry::Field(key, value) => out.push((key.clone(), self.eval_sync(value)?)),
+            Entry::Computed(key, value) => {
+              let key = stringify(&self.eval_sync(key)?)?;
+              out.push((key, self.eval_sync(value)?));
+            }
+            _ => unreachable!("checked"),
+          }
+        }
+        Write::Fields(out)
+      }
+      Expr::Array(entries) => {
+        let Some((Entry::Spread(first), rest)) = entries.split_first() else { return Ok(false) };
+        if !own(first) || rest.is_empty() || !rest.iter().all(|e| matches!(e, Entry::Item(_))) {
+          return Ok(false);
+        }
+        if !matches!(self.scope.iter().rev().find(|(n, _)| n == name), Some((_, Value::Seq(_)))) {
+          return Ok(false);
+        }
+        let mut out = Vec::with_capacity(rest.len());
+        for entry in rest {
+          let Entry::Item(value) = entry else { unreachable!("checked") };
+          out.push(self.eval_sync(value)?);
+        }
+        Write::Items(out)
+      }
+      Expr::Builtin { name: Builtin::SetAt, args } if args.len() == 3 && own(&args[0]) => Write::At(self.eval_sync(&args[1])?, self.eval_sync(&args[2])?),
+      _ => return Ok(false),
+    };
+    let Some(slot) = self.scope.iter_mut().rev().find(|(n, _)| n == name) else { return Ok(false) };
+    match (write, &mut slot.1) {
+      (Write::Fields(fields), Value::Map(map)) => {
+        for (key, value) in fields {
+          map.insert(key, value);
+        }
+      }
+      (Write::Items(items), Value::Seq(seq)) => seq.extend(items),
+      (Write::At(key, value), Value::Map(map)) => {
+        map.insert(stringify(&key)?, value);
+      }
+      (Write::At(key, value), target @ Value::Seq(_)) => {
+        let held = std::mem::replace(target, Value::Null);
+        *target = builtin(Builtin::SetAt, vec![held, key, value])?;
+      }
+      (Write::At(key, value), target) => {
+        let held = target.clone();
+        *target = builtin(Builtin::SetAt, vec![held, key, value])?;
+      }
+      _ => return Ok(false),
+    }
+    Ok(true)
+  }
+
   pub(crate) fn block_sync(&mut self, body: &Body) -> Result<Flow, Fail> {
     let depth = self.scope.len();
     for stmt in body {
       match stmt {
         Stmt::Let { name, expr } => {
           let value = self.eval_sync(expr)?;
-          self.scope.push((name.clone(), value));
+          self.scope.push((Name::new(name), value));
         }
         Stmt::Set { name, expr } => {
+          if self.set_in_place(name, expr)? {
+            continue;
+          }
           let value = self.eval_sync(expr)?;
           let Some(slot) = self.scope.iter_mut().rev().find(|(n, _)| n == name) else {
             return Err(Fail::internal(format!("`{name}` is set before it is bound")));
@@ -792,9 +1060,12 @@ impl Env {
         }
         Stmt::If { cond, then, r#else } => {
           let branch = if truthy(&self.eval_sync(cond)?) { then } else { r#else };
-          if let Flow::Return(v) = self.block_sync(branch)? {
-            self.scope.truncate(depth);
-            return Ok(Flow::Return(v));
+          match self.block_sync(branch)? {
+            Flow::Next => {}
+            flow => {
+              self.scope.truncate(depth);
+              return Ok(flow);
+            }
           }
         }
         Stmt::ForOf { name, over, body } => {
@@ -803,13 +1074,35 @@ impl Env {
             other => return Err(type_error("for...of", "an array", &other)),
           };
           for item in items {
-            self.scope.push((name.clone(), item));
+            self.scope.push((Name::new(name), item));
             let flow = self.block_sync(body);
             self.scope.pop();
-            if let Flow::Return(v) = flow? {
-              self.scope.truncate(depth);
-              return Ok(Flow::Return(v));
+            match flow? {
+              Flow::Next | Flow::Continue => {}
+              Flow::Break => break,
+              Flow::Return(v) => {
+                self.scope.truncate(depth);
+                return Ok(Flow::Return(v));
+              }
             }
+          }
+        }
+        Stmt::While { cond, body, step } => {
+          let mut passes = 0;
+          while truthy(&self.eval_sync(cond)?) {
+            passes += 1;
+            if passes > MAX_PASSES {
+              return Err(past_passes());
+            }
+            match self.block_sync(body)? {
+              Flow::Next | Flow::Continue => {}
+              Flow::Break => break,
+              Flow::Return(v) => {
+                self.scope.truncate(depth);
+                return Ok(Flow::Return(v));
+              }
+            }
+            self.block_sync(step)?;
           }
         }
         Stmt::Return(expr) => {
@@ -817,12 +1110,21 @@ impl Env {
           self.scope.truncate(depth);
           return Ok(Flow::Return(value));
         }
-        Stmt::Try { body, name, handler, finally } => {
-          if let Flow::Return(v) = self.try_sync(body, name.as_deref(), handler.as_ref(), finally)? {
-            self.scope.truncate(depth);
-            return Ok(Flow::Return(v));
-          }
+        Stmt::Break => {
+          self.scope.truncate(depth);
+          return Ok(Flow::Break);
         }
+        Stmt::Continue => {
+          self.scope.truncate(depth);
+          return Ok(Flow::Continue);
+        }
+        Stmt::Try { body, name, handler, finally } => match self.try_sync(body, name.as_deref(), handler.as_ref(), finally)? {
+          Flow::Next => {}
+          flow => {
+            self.scope.truncate(depth);
+            return Ok(flow);
+          }
+        },
         Stmt::Expr(expr) => {
           self.eval_sync(expr)?;
         }
@@ -852,7 +1154,7 @@ impl Env {
     self.scope.truncate(at);
     if let (Some(handler), Err(fail)) = (handler, &flow) {
       if let Some(caught) = caught(fail) {
-        self.scope.extend(name.map(|name| (name.to_owned(), caught)));
+        self.scope.extend(name.map(|name| (Name::new(name), caught)));
         flow = self.block_sync(handler);
         self.scope.truncate(at);
       }
@@ -870,18 +1172,21 @@ impl Env {
       let depth = self.scope.len();
       let mut i = 0;
       while i < body.len() {
-        let run = independent_lets(&body[i..]);
+        let mut run = independent_lets(&body[i..]);
+        if run > 1 && self.heap_live && !body[i..i + run].iter().all(|stmt| matches!(stmt, Stmt::Let { expr, .. } if writes_nothing(expr))) {
+          run = 1;
+        }
         if run > 1 {
           let names_and_values = self.parallel_lets(&body[i..i + run]).await?;
-          self.scope.extend(names_and_values);
+          self.scope.extend(names_and_values.into_iter().map(|(name, value)| (Name::new(name), value)));
           i += run;
           continue;
         }
         match self.stmt(&body[i]).await? {
           Flow::Next => {}
-          Flow::Return(v) => {
+          flow => {
             self.scope.truncate(depth);
-            return Ok(Flow::Return(v));
+            return Ok(flow);
           }
         }
         i += 1;
@@ -925,6 +1230,7 @@ impl Env {
       catalogs: self.catalogs.clone(),
       files: self.files.clone(),
       consts: self.consts.clone(),
+      functions: self.functions.clone(),
       held: self.held.clone(),
       hoists: None,
       state: None,
@@ -955,12 +1261,17 @@ impl Env {
       made: None,
       closures: None,
       cells: None,
+      heap_live: self.heap_live,
+      heap_copies: self.heap_copies.clone(),
+      thawed: self.thawed.clone(),
+      object_keys: self.object_keys.clone(),
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
       written_back: None,
       backing: false,
       module_seed: snapfire_fsr_core::ValueMap::default(),
+      cycles: Cycles::default(),
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -974,8 +1285,9 @@ impl Env {
     match stmt {
       Stmt::Let { name, expr } => {
         let value = self.eval(expr).await?;
-        self.scope.push((name.clone(), value));
+        self.scope.push((Name::new(name), value));
       }
+      Stmt::Set { name, expr } if !expr.has_call() && self.set_in_place(name, expr)? => {}
       Stmt::Set { name, expr } => {
         let value = self.eval(expr).await?;
         let Some(slot) = self.scope.iter_mut().rev().find(|(n, _)| n == name) else {
@@ -985,8 +1297,9 @@ impl Env {
       }
       Stmt::If { cond, then, r#else } => {
         let branch = if truthy(&self.eval(cond).await?) { then } else { r#else };
-        if let Flow::Return(v) = self.block(branch).await? {
-          return Ok(Flow::Return(v));
+        match self.block(branch).await? {
+          Flow::Next => {}
+          flow => return Ok(flow),
         }
       }
       Stmt::ForOf { name, over, body } => {
@@ -995,22 +1308,41 @@ impl Env {
           other => return Err(type_error("for...of", "an array", &other)),
         };
         for item in items {
-          self.scope.push((name.clone(), item));
+          self.scope.push((Name::new(name), item));
           let flow = self.block(body).await;
           self.scope.pop();
-          if let Flow::Return(v) = flow? {
-            return Ok(Flow::Return(v));
+          match flow? {
+            Flow::Next | Flow::Continue => {}
+            Flow::Break => break,
+            Flow::Return(v) => return Ok(Flow::Return(v)),
           }
         }
       }
+      Stmt::While { cond, body, step } => {
+        let mut passes = 0;
+        while truthy(&self.eval(cond).await?) {
+          passes += 1;
+          if passes > MAX_PASSES {
+            return Err(past_passes());
+          }
+          match self.block(body).await? {
+            Flow::Next | Flow::Continue => {}
+            Flow::Break => break,
+            Flow::Return(v) => return Ok(Flow::Return(v)),
+          }
+          self.block(step).await?;
+        }
+      }
       Stmt::Return(expr) => return Ok(Flow::Return(self.eval(expr).await?)),
+      Stmt::Break => return Ok(Flow::Break),
+      Stmt::Continue => return Ok(Flow::Continue),
       Stmt::Try { body, name, handler, finally } => {
         let at = self.scope.len();
         let mut flow = self.block(body).await;
         self.scope.truncate(at);
         if let (Some(handler), Err(fail)) = (handler, &flow) {
           if let Some(caught) = caught(fail) {
-            self.scope.extend(name.iter().map(|name| (name.clone(), caught.clone())));
+            self.scope.extend(name.iter().map(|name| (Name::new(name), caught.clone())));
             flow = self.block(handler).await;
             self.scope.truncate(at);
           }
@@ -1020,8 +1352,9 @@ impl Env {
           self.scope.truncate(at);
           flow = after_finally(flow, after);
         }
-        if let Flow::Return(v) = flow? {
-          return Ok(Flow::Return(v));
+        match flow? {
+          Flow::Next => {}
+          flow => return Ok(flow),
         }
       }
       Stmt::Guard { cond, kind, message } => self.guard(cond, kind, message).await?,
@@ -1072,7 +1405,256 @@ impl Env {
 
   /// `eval` for an expression with no service call in it: a component body,
   /// a render, a test's assertion. One plain recursion and no future per node.
+  /// `place` for a body that writes objects: only what is its own, so not what requests share.
+  fn place_live<'a>(&'a self, expr: &'a Expr) -> Option<&'a Value> {
+    match expr {
+      Expr::Var(name) => self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v).filter(|v| self.thawed.is_empty() || !is_frozen(v)),
+      Expr::Field(target, name) => match self.place_live(target)? {
+        Value::Map(map) => map.get(name.as_str()).filter(|v| self.thawed.is_empty() || !is_frozen(v)),
+        _ => None,
+      },
+      _ => None,
+    }
+  }
+
+  /// `value` as this body sees it: the copy it wrote, when it wrote this frozen object.
+  #[inline]
+  fn resolved(&self, value: Value) -> Value {
+    if self.thawed.is_empty() {
+      return value;
+    }
+    let addr = match &value {
+      Value::Map(map) if map.is_frozen() => map.addr(),
+      Value::Seq(items) if items.is_frozen() => items.addr(),
+      _ => return value,
+    };
+    self.thawed.get(&addr).cloned().unwrap_or(value)
+  }
+
+  /// A frozen object about to be written, as a copy of its own that this body sees from now on. The whole constant it is part of is copied with it, each object once, so every name that reaches a part of it reaches the same copy.
+  pub(crate) fn thawed_for_write(&mut self, value: Value) -> Value {
+    if !is_frozen(&value) {
+      return value;
+    }
+    let addr = value.address().expect("frozen is an object or an array");
+    if let Some(copy) = self.thawed.get(&addr) {
+      return copy.clone();
+    }
+    let root = value.frozen_root().unwrap_or_else(|| value.clone());
+    self.thaw(&root);
+    self.thawed.get(&addr).cloned().unwrap_or(value)
+  }
+
+  /// Notes `target` when `stored`, about to be written into it, reaches it: the write closes a cycle that counting alone never frees.
+  fn note_link(&mut self, target: &Value, stored: &Value) {
+    if !matches!(stored, Value::Map(_) | Value::Seq(_)) {
+      return;
+    }
+    let Some(at) = target.address() else { return };
+    if snapfire_fsr_core::reaches(stored, at, CYCLE_SEARCH) != Some(false) && !self.cycles.0.iter().any(|held| held.address() == Some(at)) {
+      self.cycles.0.push(target.clone());
+    }
+  }
+
+  fn thaw(&mut self, value: &Value) -> Value {
+    if !is_frozen(value) {
+      return value.clone();
+    }
+    let addr = value.address().expect("frozen is an object or an array");
+    if let Some(copy) = self.thawed.get(&addr) {
+      return copy.clone();
+    }
+    let copy = on_enough_stack(|| match value {
+      Value::Map(map) => {
+        let mut fields = snapfire_fsr_core::Fields::with_capacity(map.len());
+        for (k, v) in map.iter() {
+          fields.insert(k.clone(), self.thaw(v));
+        }
+        Value::Map(ValueMap::from(fields).with_kind(map.kind()))
+      }
+      Value::Seq(items) => Value::Seq(snapfire_fsr_core::ValueSeq::from(items.iter().map(|v| self.thaw(v)).collect::<Vec<_>>()).with_kind(items.kind())),
+      other => other.clone(),
+    });
+    self.thawed.insert(addr, copy.clone());
+    copy
+  }
+
+  /// `value` with every frozen object this body wrote replaced by its copy, for what leaves the body.
+  fn settled(&self, value: Value) -> Value {
+    if self.thawed.is_empty() {
+      return value;
+    }
+    match self.resolved(value) {
+      Value::Map(map) => {
+        let mut out = snapfire_fsr_core::Fields::with_capacity(map.len());
+        for (k, v) in map.iter() {
+          out.insert(k.clone(), self.settled(v.clone()));
+        }
+        Value::Map(ValueMap::from(out).with_kind(map.kind()))
+      }
+      Value::Seq(items) => Value::Seq(snapfire_fsr_core::ValueSeq::from(items.iter().map(|v| self.settled(v.clone())).collect::<Vec<_>>()).with_kind(items.kind())),
+      other => other,
+    }
+  }
+
+  /// What a body that writes objects reads from outside itself: its own copy, the same one each time.
+  #[inline(never)]
+  fn own_read(&mut self, expr: &Expr) -> Result<Option<Value>, Fail> {
+    let key = match expr {
+      Expr::Session(key) => format!("s:{key}"),
+      Expr::Store(key) => format!("t:{key}"),
+      Expr::Config(key) => format!("f:{key}"),
+      Expr::Context(key) => format!("x:{key}"),
+      Expr::Input => "i".to_owned(),
+      Expr::Identity(path) => format!("d:{path:?}"),
+      _ => return Ok(None),
+    };
+    if let Some((_, value)) = self.heap_copies.iter().find(|(k, _)| *k == key) {
+      return Ok(Some(value.clone()));
+    }
+    self.heap_live = false;
+    let value = self.eval_sync(expr);
+    self.heap_live = true;
+    let value = own_copy(&value?);
+    self.heap_copies.push((key, value.clone()));
+    Ok(Some(value))
+  }
+
+  fn overwrite(&mut self, target: &Expr, next: &Expr) -> Result<Value, Fail> {
+    let held = self.eval_sync(target)?;
+    let held = self.thawed_for_write(held);
+    let write = match (&held, next) {
+      (Value::Map(_), Expr::Object(entries)) if matches!(entries.first(), Some(Entry::Spread(first)) if first == target) && entries[1..].iter().all(|e| matches!(e, Entry::Field(..) | Entry::Computed(..))) => {
+        let mut fields = Vec::with_capacity(entries.len() - 1);
+        for entry in &entries[1..] {
+          fields.push(match entry {
+            Entry::Field(key, value) => (Name::new(key), self.eval_sync(value)?),
+            Entry::Computed(key, value) => {
+              let key = self.eval_sync(key)?;
+              (key_name(key)?, self.eval_sync(value)?)
+            }
+            _ => unreachable!("checked"),
+          });
+        }
+        Write::Fields(fields)
+      }
+      (Value::Seq(_), Expr::Array(entries)) if matches!(entries.first(), Some(Entry::Spread(first)) if first == target) && entries[1..].iter().all(|e| matches!(e, Entry::Item(_))) => {
+        let mut items = Vec::with_capacity(entries.len() - 1);
+        for entry in &entries[1..] {
+          let Entry::Item(value) = entry else { unreachable!("checked") };
+          items.push(self.eval_sync(value)?);
+        }
+        Write::Items(items)
+      }
+      (_, Expr::Builtin { name: Builtin::SetAt, args }) if args.len() == 3 && args[0] == *target => {
+        let key = self.eval_sync(&args[1])?;
+        Write::At(key, self.eval_sync(&args[2])?)
+      }
+      _ => Write::Whole(self.eval_sync(next)?),
+    };
+    self.write_into(held, write)
+  }
+
+  /// `write`, its parts already evaluated, made in place to `held`, an object or an array this body may write: its own copy of a frozen one, [`Self::thawed_for_write`].
+  pub(crate) fn write_into(&mut self, held: Value, write: Write) -> Result<Value, Fail> {
+    let frozen = || Fail::internal("a write to an object every request shares");
+    match (&held, write) {
+      (Value::Map(map), Write::Field(key, value)) => {
+        if !map.get(key.as_str()).is_some_and(|old| same_object(old, &value)) {
+          self.note_link(&held, &value);
+        }
+        map.through().ok_or_else(frozen)?.insert(key, value);
+      }
+      (Value::Seq(items), Write::Item(value)) => {
+        self.note_link(&held, &value);
+        items.through().ok_or_else(frozen)?.push(value);
+      }
+      (Value::Map(map), Write::Fields(fields)) => {
+        for (key, value) in fields {
+          if !map.get(key.as_str()).is_some_and(|old| same_object(old, &value)) {
+            self.note_link(&held, &value);
+          }
+          map.through().ok_or_else(frozen)?.insert(key, value);
+        }
+      }
+      (Value::Seq(items), Write::Items(values)) => {
+        for value in values {
+          self.note_link(&held, &value);
+          items.through().ok_or_else(frozen)?.push(value);
+        }
+      }
+      (Value::Map(map), Write::At(key, value)) => {
+        let key = self.map_key_of(key)?;
+        if !map.get(key.as_str()).is_some_and(|old| same_object(old, &value)) {
+          self.note_link(&held, &value);
+        }
+        map.through().ok_or_else(frozen)?.insert(key, value);
+      }
+      (Value::Seq(items), Write::At(key, value)) => {
+        let Some(at) = to_number(&key).filter(|at| at.fract() == 0.0 && *at >= 0.0) else { return Err(Fail::internal("a write at a key of an array that is not an index")) };
+        self.note_link(&held, &value);
+        let items = items.through().ok_or_else(frozen)?;
+        let at = at as usize;
+        while items.len() <= at {
+          items.push(Value::Undefined);
+        }
+        items[at] = value;
+      }
+      (_, Write::Whole(next)) => {
+        self.note_link(&held, &next);
+        match (&held, next) {
+          (Value::Map(map), Value::Map(next)) => *map.through().ok_or_else(frozen)? = next.into_fields(),
+          (Value::Seq(items), Value::Seq(next)) => *items.through().ok_or_else(frozen)? = next.into_items(),
+          (other, _) => return Err(type_error("a write", "an object or an array", other)),
+        }
+      }
+      (other, _) => return Err(type_error("a write", "an object or an array", other)),
+    }
+    Ok(held)
+  }
+
+
+  /// The text a `Map` or an object keeps `key` under: an object or an array by its identity.
+  fn map_key_of(&mut self, key: Value) -> Result<String, Fail> {
+    let addr = match &key {
+      Value::Map(map) => map.addr(),
+      Value::Seq(items) => items.addr(),
+      other => return stringify(other),
+    };
+    let text = format!("\u{0}obj:{addr}");
+    if !self.object_keys.iter().any(|(k, _)| *k == text) {
+      self.object_keys.push((text.clone(), key));
+    }
+    Ok(text)
+  }
+
+  fn key_value(&self, key: String) -> Value {
+    if key.starts_with('\u{0}') {
+      if let Some((_, value)) = self.object_keys.iter().find(|(k, _)| *k == key) {
+        return value.clone();
+      }
+    }
+    Value::str(key)
+  }
+
+  #[inline]
   pub(crate) fn eval_sync(&mut self, expr: &Expr) -> Result<Value, Fail> {
+    if !self.heap_live {
+      return self.eval_node(expr);
+    }
+    if matches!(expr, Expr::Session(_) | Expr::Store(_) | Expr::Config(_) | Expr::Context(_) | Expr::Input | Expr::Identity(_)) {
+      if let Some(value) = self.own_read(expr)? {
+        return Ok(value);
+      }
+    }
+    if self.thawed.is_empty() {
+      return self.eval_node(expr);
+    }
+    let value = self.eval_node(expr)?;
+    Ok(self.resolved(value))
+  }
+
+  pub(crate) fn eval_node(&mut self, expr: &Expr) -> Result<Value, Fail> {
     if matches!(expr, Expr::Field(..) | Expr::Index(..)) {
       if let Some(value) = self.place(expr) {
         return Ok(value.clone());
@@ -1110,31 +1692,22 @@ impl Env {
         let value = self.eval_sync(value)?;
         Ok(self.write_store(key, value))
       }
-      Expr::Const(key) => {
-        if let Some(value) = self.held.get(key) {
-          return Ok(value.clone());
-        }
-        let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };
-        let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };
-        let value = self.eval_sync(expr)?;
-        self.held.hold(key, &value);
-        Ok(value)
-      }
-      Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
-      Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
-      Expr::ParamsAll => Ok(Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
-      Expr::QueryAll => Ok(Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
-      Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
+      Expr::Const(key) => self.const_value(key),
+      Expr::Param(name) => Ok(self.read_request(Read::Param(name))),
+      Expr::Query(name) => Ok(self.read_request(Read::Query(name))),
+      Expr::ParamsAll => Ok(self.read_request(Read::ParamsAll)),
+      Expr::QueryAll => Ok(self.read_request(Read::QueryAll)),
+      Expr::Session(key) => Ok(self.read_request(Read::Session(key))),
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
-      Expr::Locale => Ok(self.locale()),
-      Expr::Locales => Ok(Value::seq(self.ctx.locales.iter().map(|tag| Value::str(tag.clone())).collect::<Vec<_>>())),
-      Expr::Path => Ok(Value::str(self.ctx.path.clone())),
-      Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),
-      Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),
-      Expr::Origin => Ok(self.ctx.origin.clone().map(Value::str).unwrap_or(Value::Null)),
-      Expr::Address => Ok(self.ctx.address.as_ref().map(snapfire_fsr_runtime::Address::value).unwrap_or(Value::Null)),
-      Expr::Config(key) => Ok(self.ctx.config.get(key).cloned().unwrap_or(Value::Null)),
+      Expr::Locale => Ok(self.read_request(Read::Locale)),
+      Expr::Locales => Ok(self.read_request(Read::Locales)),
+      Expr::Path => Ok(self.read_request(Read::Path)),
+      Expr::Document => Ok(self.read_request(Read::Document)),
+      Expr::Host => Ok(self.read_request(Read::Host)),
+      Expr::Origin => Ok(self.read_request(Read::Origin)),
+      Expr::Address => Ok(self.read_request(Read::Address)),
+      Expr::Config(key) => Ok(self.read_request(Read::Config(key))),
       Expr::Identity(path) => {
         let mut current = self.identity.clone().unwrap_or(Value::Null);
         for step in path {
@@ -1142,8 +1715,8 @@ impl Env {
         }
         Ok(current)
       }
-      Expr::Input => Ok(self.input.clone()),
-      Expr::Now => Ok(Value::Int(self.clock.now())),
+      Expr::Input => Ok(self.read_request(Read::Input)),
+      Expr::Now => Ok(self.read_request(Read::Now)),
       Expr::Var(name) => self.lookup(name),
       Expr::Folded(value) => Ok(value.clone()),
       Expr::Lit(lit) => Ok(match lit {
@@ -1171,14 +1744,25 @@ impl Env {
       Expr::Arith(op, l, r) => {
         let l = self.eval_sync(l)?;
         let r = self.eval_sync(r)?;
+        if converts_itself(&l) || converts_itself(&r) {
+          let (l, r) = self.operands(l, r)?;
+          return arith(*op, l, r);
+        }
         arith(*op, l, r)
       }
       Expr::Compare(op, l, r) => {
+        let relational = !matches!(op, CompareOp::Eq | CompareOp::Ne);
         if let (Some(lv), Some(rv)) = (self.place(l), self.place(r)) {
-          return compare(*op, lv, rv).map(Value::Bool);
+          if !relational || !(converts_itself(lv) || converts_itself(rv)) {
+            return compare(*op, lv, rv).map(Value::Bool);
+          }
         }
         let l = self.eval_sync(l)?;
         let r = self.eval_sync(r)?;
+        if relational && (converts_itself(&l) || converts_itself(&r)) {
+          let (l, r) = self.operands(l, r)?;
+          return compare(*op, &l, &r).map(Value::Bool);
+        }
         compare(*op, &l, &r).map(Value::Bool)
       }
       Expr::Logic(op, l, r) => {
@@ -1206,16 +1790,21 @@ impl Env {
           self.eval_sync(e)
         }
       }
-      Expr::Template(parts) => {
-        let mut out = String::new();
+      Expr::Template(parts) => spelled(|out| {
         for part in parts {
-          match self.place(part) {
-            Some(value) => out.push_str(&scalar_str(value)?),
-            None => out.push_str(&stringify(&self.eval_sync(part)?)?),
+          let mark = out.len();
+          let plain = match self.place(part) {
+            Some(value) => plain_text_into(value, out)?,
+            None => false,
+          };
+          if !plain {
+            out.truncate(mark);
+            let value = self.eval_sync(part)?;
+            self.text_into(&value, out)?;
           }
         }
-        Ok(Value::str(out))
-      }
+        Ok(())
+      }),
       Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
       Expr::Next(_) => Err(Fail::internal("`next` in an expression that cannot suspend")),
       Expr::After(work) => {
@@ -1241,10 +1830,7 @@ impl Env {
         let depth = self.scope.len();
         let flow = self.block_sync(body);
         self.scope.truncate(depth);
-        match flow? {
-          Flow::Return(value) => Ok(value),
-          Flow::Next => Ok(Value::Null),
-        }
+        flow?.value()
       }
       Expr::Handler(index) => Ok(crate::render::handler_value(&self.component_path, *index)),
       Expr::Hoist { id, expr } => {
@@ -1281,7 +1867,7 @@ impl Env {
         let items = self.seq_sync(over, "map")?; let whole = array_arg(f, &items);
         let mut out = Vec::with_capacity(items.len());
         for (i, item) in items.into_iter().enumerate() {
-          out.push(self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?);
+          out.push(self.apply_item(f, item, i, &whole)?);
         }
         Ok(Value::seq(out))
       }
@@ -1290,7 +1876,7 @@ impl Env {
         let items = self.seq_sync(over, "flatMap")?; let whole = array_arg(f, &items);
         let mut out = Vec::with_capacity(items.len());
         for (i, item) in items.into_iter().enumerate() {
-          match self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))? {
+          match self.apply_item(f, item, i, &whole)? {
             Value::Seq(inner) => out.extend(inner.into_items()),
             other => out.push(other),
           }
@@ -1302,7 +1888,7 @@ impl Env {
         let items = self.seq_sync(over, "filter")?; let whole = array_arg(f, &items);
         let mut out = Vec::new();
         for (i, item) in items.into_iter().enumerate() {
-          if truthy(&self.apply_sync(f, with_array(vec![item.clone(), Value::F64(i as f64)], &whole))?) {
+          if truthy(&self.apply_item(f, item.clone(), i, &whole)?) {
             out.push(item);
           }
         }
@@ -1319,7 +1905,7 @@ impl Env {
       Expr::Find(over, f) => {
         let items = self.seq_sync(over, "find")?; let whole = array_arg(f, &items);
         for (i, item) in items.into_iter().enumerate() {
-          if truthy(&self.apply_sync(f, with_array(vec![item.clone(), Value::F64(i as f64)], &whole))?) {
+          if truthy(&self.apply_item(f, item.clone(), i, &whole)?) {
             return Ok(item);
           }
         }
@@ -1328,7 +1914,7 @@ impl Env {
       Expr::FindIndex(over, f) => {
         let items = self.seq_sync(over, "findIndex")?; let whole = array_arg(f, &items);
         for (i, item) in items.into_iter().enumerate() {
-          if truthy(&self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?) {
+          if truthy(&self.apply_item(f, item, i, &whole)?) {
             return Ok(Value::F64(i as f64));
           }
         }
@@ -1337,7 +1923,7 @@ impl Env {
       Expr::Some(over, f) => {
         let items = self.seq_sync(over, "some")?; let whole = array_arg(f, &items);
         for (i, item) in items.into_iter().enumerate() {
-          if truthy(&self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?) {
+          if truthy(&self.apply_item(f, item, i, &whole)?) {
             return Ok(Value::Bool(true));
           }
         }
@@ -1346,7 +1932,7 @@ impl Env {
       Expr::Every(over, f) => {
         let items = self.seq_sync(over, "every")?; let whole = array_arg(f, &items);
         for (i, item) in items.into_iter().enumerate() {
-          if !truthy(&self.apply_sync(f, with_array(vec![item, Value::F64(i as f64)], &whole))?) {
+          if !truthy(&self.apply_item(f, item, i, &whole)?) {
             return Ok(Value::Bool(false));
           }
         }
@@ -1354,78 +1940,63 @@ impl Env {
       }
       Expr::Entries(e) => match self.eval_sync(e)? {
         Value::Map(map) => Ok(Value::Seq(
-          map.into_iter().map(|(k, v)| Value::seq(vec![Value::str(k), v])).collect(),
+          map.into_iter().map(|(k, v)| Value::seq(vec![self.key_value(k.to_string()), v])).collect(),
         )),
         other => Err(type_error("Object.entries", "an object", &other)),
       },
-      Expr::Keys(e) => match self.eval_sync(e)? {
-        Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::str).collect())),
-        other => Err(type_error("Object.keys", "an object", &other)),
-      },
-      Expr::Values(e) => match self.eval_sync(e)? {
-        Value::Map(map) => Ok(Value::Seq(map.into_fields().into_values().collect())),
-        other => Err(type_error("Object.values", "an object", &other)),
-      },
-      Expr::Length(e) => match self.eval_sync(e)? {
-        Value::Seq(items) => Ok(Value::F64(items.len() as f64)),
-        Value::Str(s) => Ok(Value::F64(s.encode_utf16().count() as f64)),
-        Value::Map(map) => Ok(Value::F64(map.len() as f64)),
-        other => Err(type_error("length", "an array, a string or an object", &other)),
-      },
-      Expr::Str(e) => stringify(&self.eval_sync(e)?).map(Value::str),
-      Expr::Num(e) => match self.eval_sync(e)? {
-        v @ Value::F32(_) => Ok(v),
-        v => to_number(&v).map(Value::F64).ok_or_else(|| type_error("Number", "a number, a string, a boolean or null", &v)),
-      },
-      Expr::BigInt(e) => match self.eval_sync(e)? {
-        v @ Value::Int(_) => Ok(v),
-        Value::UInt(n) => Ok(Value::Int(n as i128)),
-        Value::F64(f) if f.fract() == 0.0 && f.abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
-        Value::F32(f) if f.fract() == 0.0 && (f as f64).abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
-        Value::Bool(b) => Ok(Value::Int(i128::from(b))),
-        Value::Str(s) => s
-          .trim()
-          .parse::<i128>()
-          .map(Value::Int)
-          .map_err(|_| Fail::new(FailureKind::Invalid, format!("`{s}` is not an integer"))),
-        other => Err(type_error("BigInt", "an integer, an integral number or a string", &other)),
-      },
+      Expr::Keys(e) => {
+        let value = self.eval_sync(e)?;
+        self.keys_of(value)
+      }
+      Expr::Values(e) => values_of(self.eval_sync(e)?),
+      Expr::Length(e) => length_of(self.eval_sync(e)?),
+      Expr::Str(e) => {
+        let value = self.eval_sync(e)?;
+        spelled(|out| self.text_into(&value, out))
+      }
+      Expr::Num(e) => number_of(self.eval_sync(e)?),
+      Expr::BigInt(e) => bigint_of(self.eval_sync(e)?),
     }
   }
   /// A literal object under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
   #[inline(never)]
   fn object_sync(&mut self, entries: &[Entry]) -> Result<Value, Fail> {
-    let mut map = ValueMap::default();
-    for entry in entries {
+    let mut map = if matches!(entries.first(), Some(Entry::Spread(_))) { snapfire_fsr_core::Fields::new() } else { snapfire_fsr_core::Fields::with_capacity(entries.len()) };
+    for (at, entry) in entries.iter().enumerate() {
       match entry {
         Entry::Baked(_) => {}
         Entry::Field(name, e) => {
           let v = self.eval_sync(e)?;
-          map.insert(name.clone(), v);
+          map.insert(name.as_str(), v);
         }
         Entry::Computed(k, e) => {
           let key = match self.eval_sync(k)? {
             Value::Str(s) => s.to_string(),
-            other => return Err(type_error("a computed key", "a string", &other)),
+            other => stringify(&other)?,
           };
           let v = self.eval_sync(e)?;
           map.insert(key, v);
         }
+        // A first spread's keys are distinct already, so its fields are taken whole.
         Entry::Spread(e) => match self.eval_sync(e)? {
-          Value::Map(inner) => map.extend(inner),
+          Value::Map(inner) if map.is_empty() => map = inner.into_fields_with_room(entries.len() - at - 1),
+          Value::Map(inner) => {
+            map.reserve(inner.len());
+            map.extend(inner);
+          }
           Value::Null | Value::Undefined => {}
           other => return Err(type_error("spread into an object", "an object", &other)),
         },
         Entry::Item(_) => return Err(Fail::internal("an object literal has no positional entries")),
       }
     }
-    Ok(Value::Map(map))
+    Ok(Value::Map(map.into()))
   }
 
   /// A literal array under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
   #[inline(never)]
   fn array_sync(&mut self, entries: &[Entry]) -> Result<Value, Fail> {
-    let mut items = Vec::new();
+    let mut items = Vec::with_capacity(entries.len());
     for entry in entries {
       match entry {
         Entry::Baked(_) => {}
@@ -1453,7 +2024,7 @@ impl Env {
       match self.eval_sync(e)? {
         Value::Null | Value::Undefined => {}
         v => {
-          map.insert(name.clone(), v);
+          map.insert(name.as_str(), v);
         }
       }
     }
@@ -1466,10 +2037,31 @@ impl Env {
   /// A builtin call under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
   #[inline(never)]
   fn builtin_sync(&mut self, name: &Builtin, args: &[Expr]) -> Result<Value, Fail> {
+    match name {
+      Builtin::HeapOn => {
+        self.heap_live = true;
+        return Ok(Value::Null);
+      }
+      Builtin::Overwrite => return self.overwrite(&args[0], &args[1]),
+      Builtin::Json if self.heap_live => {
+        if let Some(arg) = args.first() {
+          let value = self.eval_sync(arg)?;
+          if value.nested_past(MAX_NESTING) {
+            return Err(Fail::new(FailureKind::Invalid, "Converting circular structure to JSON"));
+          }
+        }
+      }
+      _ => {}
+    }
     let mut values = Vec::with_capacity(args.len());
     for arg in args {
       values.push(self.eval_sync(arg)?);
     }
+    self.builtin_values(name, values)
+  }
+
+  /// A builtin applied to its arguments, evaluated already: what [`Self::builtin_sync`] does once it has them.
+  pub(crate) fn builtin_values(&mut self, name: &Builtin, values: Vec<Value>) -> Result<Value, Fail> {
     match name {
       Builtin::CloneElement => self.clone_element(values),
       Builtin::CallMethod | Builtin::GetMember => {
@@ -1491,8 +2083,186 @@ impl Env {
         }
         Ok(Value::Null)
       }
+      Builtin::MapKey | Builtin::MapOf => self.keyed(*name, values),
+      Builtin::Join => self.join(values),
+      Builtin::LooseEq if values.iter().any(converts_itself) => {
+        let mut values = values.into_iter();
+        let (l, r) = (values.next().unwrap_or(Value::Undefined), values.next().unwrap_or(Value::Undefined));
+        let (l, r) = if matches!(l, Value::Map(_)) && matches!(r, Value::Map(_)) { (l, r) } else { self.operands(l, r)? };
+        loose_equal(&l, &r).map(Value::Bool)
+      }
       _ => builtin(*name, values),
     }
+  }
+
+  /// `value` as a primitive, as JavaScript's `ToPrimitive` makes one: the `toString` and `valueOf` of an object or of its class, called in the order the hint gives, `toString` first for a string. Anything that is not an object which converts itself comes back as it is.
+  fn primitive(&mut self, value: Value, string_first: bool) -> Result<Value, Fail> {
+    if !converts_itself(&value) {
+      return Ok(value);
+    }
+    let order = if string_first { ["toString", "valueOf"] } else { ["valueOf", "toString"] };
+    for method in order {
+      let own = match &value {
+        Value::Map(map) => map.get(method).filter(|f| closure_index(f).is_some()).cloned(),
+        _ => None,
+      };
+      let result = match own {
+        Some(f) => self.apply_sync(&Expr::Folded(f), Vec::new())?,
+        None => match instance_class(&value).and_then(|class| class_member(self.consts.as_deref(), &class, method, false)) {
+          Some(key) => self.apply_sync(&Expr::Const(key), vec![value.clone()])?,
+          None => continue,
+        },
+      };
+      if !matches!(result, Value::Map(_) | Value::Seq(_)) {
+        return Ok(result);
+      }
+    }
+    Ok(Value::str("[object Object]"))
+  }
+
+  /// `String(value)` onto the end of `out`, through [`Self::primitive`] for an object that converts itself, inside an array too.
+  pub(crate) fn text_into(&mut self, value: &Value, out: &mut String) -> Result<(), Fail> {
+    let mark = out.len();
+    if plain_text_into(value, out)? {
+      return Ok(());
+    }
+    out.truncate(mark);
+    match value {
+      Value::Seq(items) => {
+        let items = items.clone();
+        on_enough_stack(|| {
+          for (at, item) in items.iter().enumerate() {
+            if at > 0 {
+              out.push(',');
+            }
+            if !matches!(item, Value::Null | Value::Undefined) {
+              self.text_into(item, out)?;
+            }
+          }
+          Ok(())
+        })
+      }
+      other => {
+        let primitive = self.primitive(other.clone(), true)?;
+        stringify_into(&primitive, out)
+      }
+    }
+  }
+
+  /// `l` and `r` as an operator that converts objects reads them: each object that converts itself through [`Self::primitive`].
+  fn operands(&mut self, l: Value, r: Value) -> Result<(Value, Value), Fail> {
+    Ok((self.primitive(l, false)?, self.primitive(r, false)?))
+  }
+
+  /// `Join`, each item read through [`Self::text_into`].
+  fn join(&mut self, values: Vec<Value>) -> Result<Value, Fail> {
+    let Some(Value::Seq(items)) = values.first() else { return builtin(Builtin::Join, values) };
+    let sep = match values.get(1) {
+      Some(v) => stringify(v)?,
+      None => ",".to_owned(),
+    };
+    let items = items.clone();
+    spelled(|out| {
+      for (at, item) in items.iter().enumerate() {
+        if at > 0 {
+          out.push_str(&sep);
+        }
+        if !matches!(item, Value::Null | Value::Undefined) {
+          self.text_into(item, out)?;
+        }
+      }
+      Ok(())
+    })
+  }
+
+  /// A module constant: held once for the process when it is pure, a function value of its prepared function, otherwise evaluated as written.
+  pub(crate) fn const_value(&mut self, key: &str) -> Result<Value, Fail> {
+    if let Some(value) = self.held.get(key) {
+      return Ok(value.clone());
+    }
+    if let Some(f) = self.functions.get(key).cloned() {
+      return self.close_compiled(&f);
+    }
+    let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };
+    let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };
+    let value = self.eval_sync(expr)?;
+    self.held.hold(key, &value);
+    Ok(self.held.get(key).cloned().unwrap_or(value))
+  }
+
+  /// `Object.keys(value)`, a `Map`'s object keys read back as the objects they are.
+  pub(crate) fn keys_of(&self, value: Value) -> Result<Value, Fail> {
+    match value {
+      Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(|k| self.key_value(k.to_string())).collect())),
+      other => Err(type_error("Object.keys", "an object", &other)),
+    }
+  }
+
+  pub(crate) fn heap_on(&mut self) {
+    self.heap_live = true;
+  }
+
+  pub(crate) fn thawed_is_empty(&self) -> bool {
+    self.thawed.is_empty()
+  }
+
+  pub(crate) fn resolved_value(&self, value: Value) -> Value {
+    self.resolved(value)
+  }
+
+  pub(crate) fn set_backing(&mut self) {
+    self.backing = true;
+  }
+
+  pub(crate) fn write_back_args(&mut self, args: &[Expr]) -> Result<(), Fail> {
+    self.write_back(args)
+  }
+
+  pub(crate) fn take_backing(&mut self) -> bool {
+    std::mem::take(&mut self.backing)
+  }
+
+  pub(crate) fn unwrap_written_value(&mut self, result: Result<Value, Fail>, backing: bool) -> Result<Value, Fail> {
+    self.unwrap_written(result, backing)
+  }
+
+  /// `l op r` as an `Arith` reads it, an object that converts itself read through [`Self::primitive`].
+  pub(crate) fn arith(&mut self, op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
+    if converts_itself(&l) || converts_itself(&r) {
+      let (l, r) = self.operands(l, r)?;
+      return arith(op, l, r);
+    }
+    arith(op, l, r)
+  }
+
+  /// `l op r` as a `Compare` reads it.
+  pub(crate) fn compare(&mut self, op: CompareOp, l: Value, r: Value) -> Result<bool, Fail> {
+    if !matches!(op, CompareOp::Eq | CompareOp::Ne) && (converts_itself(&l) || converts_itself(&r)) {
+      let (l, r) = self.operands(l, r)?;
+      return compare(op, &l, &r);
+    }
+    compare(op, &l, &r)
+  }
+
+  /// `MapKey` or `MapOf` on their arguments: an object or an array is kept under its identity, anything else under its text.
+  fn keyed(&mut self, name: Builtin, values: Vec<Value>) -> Result<Value, Fail> {
+    let mut values = values.into_iter();
+    let first = values.next().unwrap_or(Value::Undefined);
+    if name == Builtin::MapKey {
+      return self.map_key_of(first).map(Value::str);
+    }
+    let pairs = match first {
+      Value::Seq(pairs) => pairs,
+      Value::Null | Value::Undefined => return Ok(Value::Map(ValueMap::default())),
+      other => return Err(type_error("Map", "an array of [key, value] pairs", &other)),
+    };
+    let mut out = ValueMap::default();
+    for pair in pairs.iter() {
+      let Value::Seq(kv) = pair else { return Err(type_error("Map", "an array of [key, value] pairs", pair)) };
+      let key = self.map_key_of(kv.first().cloned().unwrap_or(Value::Undefined))?;
+      out.insert(key, kv.get(1).cloned().unwrap_or(Value::Undefined));
+    }
+    Ok(Value::Map(out))
   }
 
   /// `replace` with a function under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
@@ -1555,12 +2325,29 @@ impl Env {
     }
   }
 
+  /// A function value of a prepared function, what its body reads taken now. One whose captures are not all bound here is made by [`Self::close`], which leaves them out.
+  pub(crate) fn close_compiled(&mut self, f: &Arc<crate::compiled::Function>) -> Result<Value, Fail> {
+    let mut scope = Vec::with_capacity(f.captures.len());
+    for name in &f.captures {
+      match self.scope.iter().rev().find(|(n, _)| n == name) {
+        Some((_, value)) => scope.push((Name::new(name), value.clone())),
+        None => return self.close(&f.params, &f.body, f.name.clone()),
+      }
+    }
+    let closure = Closure { params: f.params.clone(), body: f.body.clone(), scope, name: f.name.clone(), compiled: Some(f.clone()) };
+    let Some(table) = &mut self.closures else {
+      return Err(Fail::internal("a function value made while the body's independent lets evaluate in parallel"));
+    };
+    table.push(closure);
+    Ok(Value::Variant { tag: FUNCTION_VALUE.to_owned(), payload: Some(Box::new(Value::Int((table.len() - 1) as i128))) })
+  }
+
   /// A lambda written where a value goes, as a function value: what its body reads is taken now.
   fn close(&mut self, params: &[String], body: &Expr, name: Option<String>) -> Result<Value, Fail> {
     let mut names = Vec::new();
     body.free_vars(&mut names);
-    let scope = names.into_iter().filter(|name| !params.contains(name)).filter_map(|name| self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| (name, v.clone()))).collect();
-    let closure = Closure { params: params.to_vec(), body: std::sync::Arc::new(body.clone()), scope, name };
+    let scope = names.into_iter().filter(|name| !params.contains(name)).filter_map(|name| self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| (Name::new(name), v.clone()))).collect();
+    let closure = Closure { params: params.to_vec(), body: std::sync::Arc::new(body.clone()), scope, name, compiled: None };
     let Some(table) = &mut self.closures else {
       return Err(Fail::internal("a function value made while the body's independent lets evaluate in parallel"));
     };
@@ -1570,7 +2357,7 @@ impl Env {
 
   /// `value` written to the store key for the rest of the step and kept for the step to return.
   fn write_store(&mut self, key: &str, value: Value) -> Value {
-    self.store.insert(key.to_owned(), value.clone());
+    self.set_store(key, Some(value.clone()));
     self.store_written.insert(key.to_owned(), value.clone());
     value
   }
@@ -1601,6 +2388,28 @@ impl Env {
     Ok((value, closure))
   }
 
+  /// A callback of an array method applied to an item and its index, with no list of arguments when it is a lambda written in place.
+  #[inline]
+  fn apply_item(&mut self, f: &Expr, item: Value, index: usize, whole: &Option<Value>) -> Result<Value, Fail> {
+    if let Expr::Lambda { params, body } = f {
+      if params.len() <= 2 && !params.iter().any(|p| p.starts_with("...")) {
+        let backing = std::mem::take(&mut self.backing);
+        let depth = self.scope.len();
+        let mut params = params.iter();
+        if let Some(first) = params.next() {
+          self.scope.push((Name::new(first), item));
+        }
+        if let Some(second) = params.next() {
+          self.scope.push((Name::new(second), Value::F64(index as f64)));
+        }
+        let result = self.eval_sync(body);
+        self.scope.truncate(depth);
+        return self.unwrap_written(result, backing);
+      }
+    }
+    self.apply_sync(f, with_array(vec![item, Value::F64(index as f64)], whole))
+  }
+
   pub(crate) fn apply_sync(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
     let backing = std::mem::take(&mut self.backing);
     if !matches!(f, Expr::Lambda { .. }) {
@@ -1624,12 +2433,15 @@ impl Env {
       }
       let mut scope = closure.scope;
       if let Some(name) = &closure.name {
-        scope.push((name.clone(), value));
+        scope.push((Name::new(name), value));
       }
       bind_params(&mut scope, &closure.params, args);
       let outer = std::mem::replace(&mut self.scope, scope);
       self.depth += 1;
-      let result = self.eval_sync(&closure.body);
+      let result = on_enough_stack(|| match &closure.compiled {
+        Some(f) => f.run(self),
+        None => self.eval_sync(&closure.body),
+      });
       self.depth -= 1;
       self.scope = outer;
       return self.unwrap_written(result, backing);
@@ -1761,25 +2573,28 @@ impl Env {
           Ok(self.write_store(key, value))
         }
         Expr::Const(key) => {
+          if let Some(f) = self.functions.get(key).cloned() {
+            return self.close_compiled(&f);
+          }
           let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };
           let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };
           self.eval(expr).await
         }
-        Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
-        Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
-      Expr::ParamsAll => Ok(Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
-      Expr::QueryAll => Ok(Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
-        Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
+        Expr::Param(name) => Ok(self.read_request(Read::Param(name))),
+        Expr::Query(name) => Ok(self.read_request(Read::Query(name))),
+      Expr::ParamsAll => Ok(self.read_request(Read::ParamsAll)),
+      Expr::QueryAll => Ok(self.read_request(Read::QueryAll)),
+        Expr::Session(key) => Ok(self.read_request(Read::Session(key))),
         Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
-        Expr::Locale => Ok(self.locale()),
-        Expr::Locales => Ok(Value::seq(self.ctx.locales.iter().map(|tag| Value::str(tag.clone())).collect::<Vec<_>>())),
-        Expr::Path => Ok(Value::str(self.ctx.path.clone())),
-        Expr::Document => Ok(Value::str(self.ctx.document.clone().unwrap_or_else(|| self.ctx.path.clone()))),
-        Expr::Host => Ok(self.ctx.host.clone().map(Value::str).unwrap_or(Value::Null)),
-        Expr::Origin => Ok(self.ctx.origin.clone().map(Value::str).unwrap_or(Value::Null)),
-        Expr::Address => Ok(self.ctx.address.as_ref().map(snapfire_fsr_runtime::Address::value).unwrap_or(Value::Null)),
-        Expr::Config(key) => Ok(self.ctx.config.get(key).cloned().unwrap_or(Value::Null)),
+        Expr::Locale => Ok(self.read_request(Read::Locale)),
+        Expr::Locales => Ok(self.read_request(Read::Locales)),
+        Expr::Path => Ok(self.read_request(Read::Path)),
+        Expr::Document => Ok(self.read_request(Read::Document)),
+        Expr::Host => Ok(self.read_request(Read::Host)),
+        Expr::Origin => Ok(self.read_request(Read::Origin)),
+        Expr::Address => Ok(self.read_request(Read::Address)),
+        Expr::Config(key) => Ok(self.read_request(Read::Config(key))),
         Expr::Identity(path) => {
           let mut current = self.identity.clone().unwrap_or(Value::Null);
           for step in path {
@@ -1787,8 +2602,8 @@ impl Env {
           }
           Ok(current)
         }
-        Expr::Input => Ok(self.input.clone()),
-        Expr::Now => Ok(Value::Int(self.clock.now())),
+        Expr::Input => Ok(self.read_request(Read::Input)),
+        Expr::Now => Ok(self.read_request(Read::Now)),
         Expr::Var(name) => self.lookup(name),
         Expr::Folded(value) => Ok(value.clone()),
         Expr::Lit(lit) => Ok(match lit {
@@ -1800,34 +2615,38 @@ impl Env {
           Lit::Str(s) => Value::str(s.clone()),
         }),
         Expr::Object(entries) => {
-          let mut map = ValueMap::default();
-          for entry in entries {
+          let mut map = if matches!(entries.first(), Some(Entry::Spread(_))) { snapfire_fsr_core::Fields::new() } else { snapfire_fsr_core::Fields::with_capacity(entries.len()) };
+          for (at, entry) in entries.iter().enumerate() {
             match entry {
               Entry::Baked(_) => {}
               Entry::Field(name, e) => {
                 let v = self.eval(e).await?;
-                map.insert(name.clone(), v);
+                map.insert(name.as_str(), v);
               }
               Entry::Computed(k, e) => {
                 let key = match self.eval(k).await? {
                   Value::Str(s) => s.to_string(),
-                  other => return Err(type_error("a computed key", "a string", &other)),
+                  other => stringify(&other)?,
                 };
                 let v = self.eval(e).await?;
                 map.insert(key, v);
               }
               Entry::Spread(e) => match self.eval(e).await? {
-                Value::Map(inner) => map.extend(inner),
+                Value::Map(inner) if map.is_empty() => map = inner.into_fields_with_room(entries.len() - at - 1),
+                Value::Map(inner) => {
+                  map.reserve(inner.len());
+                  map.extend(inner);
+                }
                 Value::Null | Value::Undefined => {}
                 other => return Err(type_error("spread into an object", "an object", &other)),
               },
               Entry::Item(_) => return Err(Fail::internal("an object literal has no positional entries")),
             }
           }
-          Ok(Value::Map(map))
+          Ok(Value::Map(map.into()))
         }
         Expr::Array(entries) => {
-          let mut items = Vec::new();
+          let mut items = Vec::with_capacity(entries.len());
           for entry in entries {
             match entry {
               Entry::Baked(_) => {}
@@ -1852,11 +2671,19 @@ impl Env {
         Expr::Arith(op, l, r) => {
           let l = self.eval(l).await?;
           let r = self.eval(r).await?;
+          if converts_itself(&l) || converts_itself(&r) {
+            let (l, r) = self.operands(l, r)?;
+            return arith(*op, l, r);
+          }
           arith(*op, l, r)
         }
         Expr::Compare(op, l, r) => {
           let l = self.eval(l).await?;
           let r = self.eval(r).await?;
+          if !matches!(op, CompareOp::Eq | CompareOp::Ne) && (converts_itself(&l) || converts_itself(&r)) {
+            let (l, r) = self.operands(l, r)?;
+            return compare(*op, &l, &r).map(Value::Bool);
+          }
           compare(*op, &l, &r).map(Value::Bool)
         }
         Expr::Logic(op, l, r) => {
@@ -1881,9 +2708,10 @@ impl Env {
         Expr::Template(parts) => {
           let mut out = String::new();
           for part in parts {
-            out.push_str(&stringify(&self.eval(part).await?)?);
+            let value = self.eval(part).await?;
+            self.text_into(&value, &mut out)?;
           }
-          Ok(Value::str(out))
+          Ok(Value::str(out.as_str()))
         }
         Expr::Call { service, method, args } => {
           let mut map = ValueMap::default();
@@ -1891,11 +2719,13 @@ impl Env {
             match self.eval(e).await? {
               Value::Null | Value::Undefined => {}
               v => {
-                map.insert(name.clone(), v);
+                map.insert(name.as_str(), leaves(self.settled(v))?);
               }
             }
           }
-          self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message).with_call(format!("{service}.{method}")))
+          let answer = self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message).with_call(format!("{service}.{method}")))?;
+          // A cached answer is shared with other requests.
+          Ok(if self.heap_live { own_copy(&answer) } else { answer })
         }
         Expr::Next(request) => {
           let request = self.eval(request).await?;
@@ -1910,7 +2740,7 @@ impl Env {
             match self.eval(e).await? {
               Value::Null | Value::Undefined => {}
               v => {
-                map.insert(name.clone(), v);
+                map.insert(name.as_str(), v);
               }
             }
           }
@@ -1928,10 +2758,7 @@ impl Env {
           let depth = self.scope.len();
           let flow = self.block(body).await;
           self.scope.truncate(depth);
-          match flow? {
-            Flow::Return(value) => Ok(value),
-            Flow::Next => Ok(Value::Null),
-          }
+          flow?.value()
         }
         Expr::Hoist { expr, .. } => self.eval(expr).await,
         Expr::HoistId(id) => self.hoist_id(*id),
@@ -1949,6 +2776,19 @@ impl Env {
         Expr::ApplyOf(f, args) => {
           let values = self.seq(args, "apply").await?;
           self.apply(f, values).await
+        }
+        Expr::Builtin { name: Builtin::Overwrite, args } if !args[1].has_call() => self.overwrite(&args[0], &args[1]),
+        Expr::Builtin { name: Builtin::Overwrite, args } => {
+          let held = self.eval(&args[0]).await?;
+          let held = self.thawed_for_write(held);
+          let next = self.eval(&args[1]).await?;
+          self.note_link(&held, &next);
+          match (&held, next) {
+            (Value::Map(map), Value::Map(next)) => *map.through().ok_or_else(|| Fail::internal("a write to an object every request shares"))? = next.into_fields(),
+            (Value::Seq(items), Value::Seq(next)) => *items.through().ok_or_else(|| Fail::internal("a write to an object every request shares"))? = next.into_items(),
+            (other, _) => return Err(type_error("a write", "an object or an array", other)),
+          }
+          Ok(held)
         }
         Expr::Builtin { name: name @ (Builtin::CallMethod | Builtin::GetMember), args } => {
           let mut values = Vec::with_capacity(args.len());
@@ -1972,7 +2812,17 @@ impl Env {
           for arg in args {
             values.push(self.eval(arg).await?);
           }
-          builtin(*name, values)
+          match name {
+            Builtin::MapKey | Builtin::MapOf => self.keyed(*name, values),
+            Builtin::Join => self.join(values),
+            Builtin::LooseEq if values.iter().any(converts_itself) => {
+              let mut values = values.into_iter();
+              let (l, r) = (values.next().unwrap_or(Value::Undefined), values.next().unwrap_or(Value::Undefined));
+              let (l, r) = if matches!(l, Value::Map(_)) && matches!(r, Value::Map(_)) { (l, r) } else { self.operands(l, r)? };
+              loose_equal(&l, &r).map(Value::Bool)
+            }
+            _ => builtin(*name, values),
+          }
         }
         Expr::Ext { module, name, args } => {
           let mut values = Vec::with_capacity(args.len());
@@ -2102,12 +2952,12 @@ impl Env {
         }
         Expr::Entries(e) => match self.eval(e).await? {
           Value::Map(map) => Ok(Value::Seq(
-            map.into_iter().map(|(k, v)| Value::seq(vec![Value::str(k), v])).collect(),
+            map.into_iter().map(|(k, v)| Value::seq(vec![self.key_value(k.to_string()), v])).collect(),
           )),
           other => Err(type_error("Object.entries", "an object", &other)),
         },
         Expr::Keys(e) => match self.eval(e).await? {
-          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(Value::str).collect())),
+          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(|k| self.key_value(k.to_string())).collect())),
           other => Err(type_error("Object.keys", "an object", &other)),
         },
         Expr::Values(e) => match self.eval(e).await? {
@@ -2120,24 +2970,12 @@ impl Env {
           Value::Map(map) => Ok(Value::F64(map.len() as f64)),
           other => Err(type_error("length", "an array, a string or an object", &other)),
         },
-        Expr::Str(e) => stringify(&self.eval(e).await?).map(Value::str),
-        Expr::Num(e) => match self.eval(e).await? {
-          v @ Value::F32(_) => Ok(v),
-          v => to_number(&v).map(Value::F64).ok_or_else(|| type_error("Number", "a number, a string, a boolean or null", &v)),
-        },
-        Expr::BigInt(e) => match self.eval(e).await? {
-          v @ Value::Int(_) => Ok(v),
-          Value::UInt(n) => Ok(Value::Int(n as i128)),
-          Value::F64(f) if f.fract() == 0.0 && f.abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
-          Value::F32(f) if f.fract() == 0.0 && (f as f64).abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
-          Value::Bool(b) => Ok(Value::Int(i128::from(b))),
-          Value::Str(s) => s
-            .trim()
-            .parse::<i128>()
-            .map(Value::Int)
-            .map_err(|_| Fail::new(FailureKind::Invalid, format!("`{s}` is not an integer"))),
-          other => Err(type_error("BigInt", "an integer, an integral number or a string", &other)),
-        },
+        Expr::Str(e) => {
+          let value = self.eval(e).await?;
+          spelled(|out| self.text_into(&value, out))
+        }
+        Expr::Num(e) => number_of(self.eval(e).await?),
+        Expr::BigInt(e) => bigint_of(self.eval(e).await?),
       }
     })
   }
@@ -2176,6 +3014,66 @@ fn makes_function_value(expr: &Expr) -> bool {
 
 /// How many statements from the front are `let`s that read none of each
 /// other's names and make no function value. Two or more are evaluated together.
+/// Whether a `let` can run beside others in a body that writes objects: nothing in it can reach a write.
+fn writes_nothing(expr: &Expr) -> bool {
+  let mut safe = true;
+  expr.visit(&mut |e| safe &= !matches!(e, Expr::Apply { .. } | Expr::ApplyOf(..) | Expr::Builtin { name: Builtin::Overwrite | Builtin::HeapOn, .. } | Expr::Lambda { .. }));
+  safe
+}
+
+/// `value` with every object and array in it a new one of its own.
+fn own_copy(value: &Value) -> Value {
+  match value {
+    Value::Map(map) => {
+      let mut out = snapfire_fsr_core::Fields::with_capacity(map.len());
+      for (k, v) in map.iter() {
+        out.insert(k.clone(), own_copy(v));
+      }
+      Value::Map(out.into())
+    }
+    Value::Seq(items) => Value::seq(items.iter().map(own_copy).collect::<Vec<_>>()),
+    other => other.clone(),
+  }
+}
+
+/// `Object.values(value)`.
+pub(crate) fn values_of(value: Value) -> Result<Value, Fail> {
+  match value {
+    Value::Map(map) => Ok(Value::Seq(map.into_fields().into_values().collect())),
+    other => Err(type_error("Object.values", "an object", &other)),
+  }
+}
+
+/// `value.length`: an array's items, a string's UTF-16 units or an object's fields.
+pub(crate) fn length_of(value: Value) -> Result<Value, Fail> {
+  match value {
+    Value::Seq(items) => Ok(Value::F64(items.len() as f64)),
+    Value::Str(s) => Ok(Value::F64(s.encode_utf16().count() as f64)),
+    Value::Map(map) => Ok(Value::F64(map.len() as f64)),
+    other => Err(type_error("length", "an array, a string or an object", &other)),
+  }
+}
+
+/// The field name a computed key writes: a string's own text, anything else as `String` makes it.
+pub(crate) fn key_name(key: Value) -> Result<Name, Fail> {
+  match key {
+    Value::Str(text) => Ok(text.into_text()),
+    other => Ok(Name::new(stringify(&other)?)),
+  }
+}
+
+pub(crate) fn frozen(value: &Value) -> bool {
+  is_frozen(value)
+}
+
+fn is_frozen(value: &Value) -> bool {
+  match value {
+    Value::Map(map) => map.is_frozen(),
+    Value::Seq(items) => items.is_frozen(),
+    _ => false,
+  }
+}
+
 fn independent_lets(stmts: &[Stmt]) -> usize {
   let mut bound: Vec<&str> = Vec::new();
   let mut count = 0;
@@ -2196,7 +3094,7 @@ fn independent_lets(stmts: &[Stmt]) -> usize {
   if calls < 2 { 1 } else { count }
 }
 
-fn parse_kind(name: &str) -> Option<FailureKind> {
+pub(crate) fn parse_kind(name: &str) -> Option<FailureKind> {
   FailureKind::from_name(name)
 }
 
@@ -2215,6 +3113,10 @@ pub(crate) fn truthy(value: &Value) -> bool {
   }
 }
 
+pub(crate) fn field_of(target: &Value, name: &str) -> Value {
+  get_field(target, name)
+}
+
 fn get_field(target: &Value, name: &str) -> Value {
   match target {
     Value::Map(map) => map.get(name).cloned().unwrap_or(Value::Undefined),
@@ -2223,6 +3125,10 @@ fn get_field(target: &Value, name: &str) -> Value {
     }
     _ => Value::Undefined,
   }
+}
+
+pub(crate) fn index_of(target: &Value, key: &Value) -> Result<Value, Fail> {
+  index(target, key)
 }
 
 fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
@@ -2322,17 +3228,25 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
     (Value::F64(a), Value::Int(b)) => Ok(Value::F64(float(op, a, b as f64))),
     (Value::UInt(a), Value::F64(b)) => Ok(Value::F64(float(op, a as f64, b))),
     (Value::F64(a), Value::UInt(b)) => Ok(Value::F64(float(op, a, b as f64))),
-    (Value::Str(a), Value::Str(b)) if op == ArithOp::Add => Ok(Value::str(format!("{a}{b}"))),
-    (l @ Value::Seq(_), r) | (l, r @ Value::Seq(_)) if op == ArithOp::Add && !matches!(l, Value::Map(_)) && !matches!(r, Value::Map(_)) => {
-      let text = |v: &Value| match v {
-        Value::Seq(items) => array_text(items),
-        other => stringify(other),
-      };
-      Ok(Value::str(format!("{}{}", text(&l)?, text(&r)?)))
-    }
+    (Value::Str(a), Value::Str(b)) if op == ArithOp::Add => spelled(|out| {
+      out.push_str(a.as_str());
+      out.push_str(b.as_str());
+      Ok(())
+    }),
+    (l, r) if op == ArithOp::Add && (matches!(l, Value::Seq(_) | Value::Map(_)) || matches!(r, Value::Seq(_) | Value::Map(_))) => spelled(|out| {
+      stringify_into(&l, out)?;
+      stringify_into(&r, out)
+    }),
     // `+` with a string on either side concatenates the other as `String(x)` does.
-    (Value::Str(a), other) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{a}{}", stringify(&other)?))),
-    (other, Value::Str(b)) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{}{b}", stringify(&other)?))),
+    (Value::Str(a), other) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => spelled(|out| {
+      out.push_str(a.as_str());
+      stringify_into(&other, out)
+    }),
+    (other, Value::Str(b)) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => spelled(|out| {
+      stringify_into(&other, out)?;
+      out.push_str(b.as_str());
+      Ok(())
+    }),
     (l, r) => match (to_number(&l), to_number(&r)) {
       (Some(a), Some(b)) => Ok(Value::F64(float(op, a, b))),
       _ => Err(Fail::internal(format!("{:?} wants numbers, strings, booleans or null, got {} and {}", op, kind_name(&l), kind_name(&r)))),
@@ -2344,7 +3258,7 @@ fn is_number(value: &Value) -> bool {
   matches!(value, Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_))
 }
 
-/// JavaScript's `ToNumber` of a scalar: null is 0, undefined NaN, a boolean 0 or 1 and a string its numeric literal or NaN. `None` for anything else.
+/// JavaScript's `ToNumber`, through [`stringify`] for an array or an object: null is 0, undefined NaN, a boolean 0 or 1 and a string its numeric literal or NaN. `None` for anything else.
 fn to_number(value: &Value) -> Option<f64> {
   match value {
     Value::Null => Some(0.0),
@@ -2355,7 +3269,33 @@ fn to_number(value: &Value) -> Option<f64> {
     Value::F32(f) => Some(*f as f64),
     Value::F64(f) => Some(*f),
     Value::Str(s) => Some(string_number(s)),
+    Value::Seq(_) | Value::Map(_) => stringify(value).ok().map(|text| string_number(&text)),
     _ => None,
+  }
+}
+
+fn map_key(key: &Value) -> Result<String, Fail> {
+  match key {
+    Value::Seq(_) | Value::Map(_) => Err(type_error("a `Map` key", "a scalar", key)),
+    other => stringify(other),
+  }
+}
+
+/// JavaScript's `==`. Two objects compare as `===` does.
+fn loose_equal(l: &Value, r: &Value) -> Result<bool, Fail> {
+  let object = |v: &Value| matches!(v, Value::Seq(_) | Value::Map(_));
+  match (l, r) {
+    (Value::Null | Value::Undefined, Value::Null | Value::Undefined) => Ok(true),
+    (Value::Null | Value::Undefined, _) | (_, Value::Null | Value::Undefined) => Ok(false),
+    (l, r) if object(l) && object(r) => compare(CompareOp::Eq, l, r),
+    (l, r) if object(l) => loose_equal(&Value::str(stringify(l)?), r),
+    (l, r) if object(r) => loose_equal(l, &Value::str(stringify(r)?)),
+    (Value::Str(a), Value::Str(b)) => Ok(a == b),
+    (l, r) if matches!(l, Value::Bool(_) | Value::Str(_)) || matches!(r, Value::Bool(_) | Value::Str(_)) => match (to_number(l), to_number(r)) {
+      (Some(a), Some(b)) => Ok(a == b),
+      _ => compare(CompareOp::Eq, l, r),
+    },
+    (l, r) => compare(CompareOp::Eq, l, r),
   }
 }
 
@@ -2479,6 +3419,23 @@ fn string_number(s: &str) -> f64 {
 
 fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
   use std::cmp::Ordering;
+  if !matches!(op, CompareOp::Eq | CompareOp::Ne) && (matches!(l, Value::Seq(_) | Value::Map(_)) || matches!(r, Value::Seq(_) | Value::Map(_))) {
+    let primitive = |v: &Value| match v {
+      Value::Seq(_) | Value::Map(_) => stringify(v).map(Value::str),
+      other => Ok(other.clone()),
+    };
+    return compare(op, &primitive(l)?, &primitive(r)?);
+  }
+  if matches!(op, CompareOp::Eq | CompareOp::Ne) {
+    let same = match (l, r) {
+      (Value::Map(a), Value::Map(b)) => Some(a.same(b)),
+      (Value::Seq(a), Value::Seq(b)) => Some(a.same(b)),
+      _ => None,
+    };
+    if let Some(same) = same {
+      return Ok(same == (op == CompareOp::Eq));
+    }
+  }
   let ordering = match (l, r) {
     (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
     (Value::F64(a), Value::F64(b)) => a.partial_cmp(b),
@@ -2584,6 +3541,23 @@ fn class_member(consts: Option<&Consts>, class: &str, name: &str, getter: bool) 
 }
 
 /// The class `value` was made by, when it is an instance of one the build lowered.
+/// Whether `a` and `b` are one object or one array.
+fn same_object(a: &Value, b: &Value) -> bool {
+  match (a, b) {
+    (Value::Map(a), Value::Map(b)) => a.same(b),
+    (Value::Seq(a), Value::Seq(b)) => a.same(b),
+    _ => false,
+  }
+}
+
+/// Whether `value` is an object that decides its own primitive: a class instance or an object with its own `toString` or `valueOf`.
+fn converts_itself(value: &Value) -> bool {
+  match value {
+    Value::Map(map) => map.kind() == Collection::Plain && (map.contains_key(CLASS_FIELD) || map.contains_key("toString") || map.contains_key("valueOf")),
+    _ => false,
+  }
+}
+
 fn instance_class(value: &Value) -> Option<String> {
   match value {
     Value::Map(fields) => match fields.get(CLASS_FIELD) {
@@ -2655,7 +3629,7 @@ fn response_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
       Some(Value::Map(headers)) => {
         for (header, value) in headers {
           response.headers.retain(|(name, _)| !name.eq_ignore_ascii_case(header));
-          response.headers.push((header.clone(), stringify(value)?));
+          response.headers.push((header.to_string(), stringify(value)?));
         }
       }
       Some(Value::Seq(pairs)) => {
@@ -2835,12 +3809,14 @@ fn strictly_equal(a: &Value, b: &Value) -> bool {
       };
       n(a) == n(b)
     }
+    (Value::Map(a), Value::Map(b)) => a.same(b),
+    (Value::Seq(a), Value::Seq(b)) => a.same(b),
     _ => a == b,
   }
 }
 
 /// A comparator's answer as a number, NaN and anything that is not one as 0.
-fn comparator_order(value: &Value) -> f64 {
+pub(crate) fn comparator_order(value: &Value) -> f64 {
   let n = match value {
     Value::Int(n) => *n as f64,
     Value::UInt(n) => *n as f64,
@@ -2853,7 +3829,7 @@ fn comparator_order(value: &Value) -> f64 {
 }
 
 /// `sort`'s order without a comparator: `String(x)` compared in UTF-16 code units.
-fn default_order(a: &Value, b: &Value) -> Result<f64, Fail> {
+pub(crate) fn default_order(a: &Value, b: &Value) -> Result<f64, Fail> {
   let (a, b) = (stringify(a)?, stringify(b)?);
   Ok(match a.encode_utf16().cmp(b.encode_utf16()) {
     std::cmp::Ordering::Less => -1.0,
@@ -2895,14 +3871,18 @@ fn json_value(parsed: serde_json::Value) -> Value {
 }
 
 /// Binds a lambda's parameters to `args` in order, `Undefined` past the end; a parameter named `...x` takes every argument left as an array, as a rest parameter does.
-fn bind_params(scope: &mut Vec<(String, Value)>, params: &[String], args: Vec<Value>) {
+pub(crate) fn bind(scope: &mut Vec<(Name, Value)>, params: &[String], args: Vec<Value>) {
+  bind_params(scope, params, args)
+}
+
+fn bind_params(scope: &mut Vec<(Name, Value)>, params: &[String], args: Vec<Value>) {
   let mut args = args.into_iter();
   for param in params {
     if param.starts_with("...") {
-      scope.push((param.clone(), Value::Seq(args.by_ref().collect())));
+      scope.push((Name::new(param), Value::Seq(args.by_ref().collect())));
       return;
     }
-    scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
+    scope.push((Name::new(param), args.next().unwrap_or(Value::Undefined)));
   }
 }
 
@@ -2961,6 +3941,13 @@ fn whole(f: f64) -> Value {
 /// half up, `toFixed` rounds half away from zero, `localeNumber` groups by
 /// thousands with a comma.
 fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
+  if matches!(name, Builtin::AsMap | Builtin::AsSet) {
+    return Ok(match (name, args.into_iter().next()) {
+      (Builtin::AsMap, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Map)),
+      (Builtin::AsSet, Some(Value::Seq(items))) => Value::Seq(items.with_kind(Collection::Set)),
+      (_, other) => other.unwrap_or(Value::Undefined),
+    });
+  }
   let arg = |i: usize| args.get(i).ok_or_else(|| Fail::internal(format!("{name:?} takes more arguments")));
   Ok(match name {
     Builtin::Round => whole((number(name, arg(0)?)? + 0.5).floor()),
@@ -3434,7 +4421,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Null | Value::Undefined => Value::seq(Vec::<Value>::new()),
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
-    Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
+    Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(items) if items.kind() == Collection::Plain)),
     Builtin::WriteBack => {
       let mut tagged = ValueMap::default();
       tagged.insert(crate::render::WRITE_BACK.to_owned(), Value::seq(vec![arg(0)?.clone(), arg(1)?.clone()]));
@@ -3678,6 +4665,23 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       other => Value::Bool(truthy(other)),
     },
+    Builtin::LooseEq => Value::Bool(loose_equal(arg(0)?, arg(1)?)?),
+    Builtin::MapKey => Value::str(map_key(arg(0)?)?),
+    Builtin::HeapOn | Builtin::Overwrite => Value::Null,
+    Builtin::AsMap | Builtin::AsSet => unreachable!("taken before the match"),
+    Builtin::CopyDeep => own_copy(arg(0)?),
+    Builtin::MapOf => match arg(0)? {
+      Value::Seq(pairs) => {
+        let mut out = ValueMap::default();
+        for pair in pairs.iter() {
+          let Value::Seq(kv) = pair else { return Err(type_error(&format!("{name:?}"), "an array of [key, value] pairs", pair)) };
+          out.insert(map_key(kv.first().unwrap_or(&Value::Undefined))?, kv.get(1).cloned().unwrap_or(Value::Undefined));
+        }
+        Value::Map(out)
+      }
+      Value::Null | Value::Undefined => Value::Map(ValueMap::default()),
+      other => return Err(type_error(&format!("{name:?}"), "an array of [key, value] pairs", other)),
+    },
     Builtin::IsNullish => Value::Bool(matches!(arg(0)?, Value::Null | Value::Undefined)),
     Builtin::IsNaN => Value::Bool(match arg(0)? {
       Value::Map(_) => true,
@@ -3895,34 +4899,98 @@ fn split_limit(args: &[Value]) -> usize {
 pub(crate) use snapfire_fsr_core::json::number_text;
 
 /// An array as JavaScript's `+` reads it, `Array.prototype.join(",")`: an item that is null or undefined is empty and a nested array is joined the same way.
-fn array_text(items: &[Value]) -> Result<String, Fail> {
-  let mut out = String::new();
+fn array_text_into(items: &[Value], out: &mut String) -> Result<bool, Fail> {
   for (at, item) in items.iter().enumerate() {
     if at > 0 {
       out.push(',');
     }
     match item {
       Value::Null | Value::Undefined => {}
-      Value::Seq(inner) => out.push_str(&array_text(inner)?),
-      other => out.push_str(&stringify(other)?),
+      other => {
+        if !plain_text_into(other, out)? {
+          return Ok(false);
+        }
+      }
     }
   }
-  Ok(out)
+  Ok(true)
 }
 
 pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
-  Ok(match value {
-    Value::Null => "null".to_owned(),
-    Value::Undefined => "undefined".to_owned(),
-    Value::Bool(b) => b.to_string(),
-    Value::Int(n) => n.to_string(),
-    Value::UInt(n) => n.to_string(),
-    Value::F64(f) => number_text(*f),
-    Value::F32(f) => number_text(f64::from(*f)),
-    Value::Str(s) => s.to_string(),
-    Value::Bytes(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-    other => return Err(type_error("String", "a scalar", other)),
-  })
+  let mut out = String::new();
+  stringify_into(value, &mut out)?;
+  Ok(out)
+}
+
+/// `String(value)` written onto the end of `out`.
+pub(crate) fn stringify_into(value: &Value, out: &mut String) -> Result<(), Fail> {
+  match plain_text_into(value, out)? {
+    true => Ok(()),
+    false => Err(type_error("String", "a scalar, an array or a plain object", value)),
+  }
+}
+
+/// `String(value)` onto the end of `out` or `false` once it meets an object that converts itself, which takes the interpreter to call.
+fn plain_text_into(value: &Value, out: &mut String) -> Result<bool, Fail> {
+  match value {
+    Value::Null => out.push_str("null"),
+    Value::Undefined => out.push_str("undefined"),
+    Value::Bool(true) => out.push_str("true"),
+    Value::Bool(false) => out.push_str("false"),
+    Value::Int(n) => out.push_str(itoa::Buffer::new().format(*n)),
+    Value::UInt(n) => out.push_str(itoa::Buffer::new().format(*n)),
+    Value::F64(f) => snapfire_fsr_core::json::write_number(out, *f),
+    Value::F32(f) => snapfire_fsr_core::json::write_number(out, f64::from(*f)),
+    Value::Str(s) => out.push_str(s.as_str()),
+    Value::Bytes(bytes) => out.push_str(&String::from_utf8_lossy(bytes)),
+    Value::Seq(items) if items.kind() == Collection::Set => out.push_str("[object Set]"),
+    Value::Map(map) if map.kind() == Collection::Map => out.push_str("[object Map]"),
+    Value::Seq(items) => return on_enough_stack(|| array_text_into(items, out)),
+    Value::Map(_) if converts_itself(value) => return Ok(false),
+    Value::Map(_) => out.push_str("[object Object]"),
+    other => return Err(type_error("String", "a scalar, an array or a plain object", other)),
+  }
+  Ok(true)
+}
+
+std::thread_local! {
+  static SPELLING: std::cell::Cell<String> = const { std::cell::Cell::new(String::new()) };
+}
+
+/// The string `write` spells, built in a buffer the thread reuses, so the result is the only allocation and a short one has none.
+/// `Number(value)`.
+pub(crate) fn number_of(value: Value) -> Result<Value, Fail> {
+  match value {
+    v @ Value::F32(_) => Ok(v),
+    v => to_number(&v).map(Value::F64).ok_or_else(|| type_error("Number", "a number, a string, a boolean or null", &v)),
+  }
+}
+
+/// `BigInt(value)`.
+pub(crate) fn bigint_of(value: Value) -> Result<Value, Fail> {
+  match value {
+    v @ Value::Int(_) => Ok(v),
+    Value::UInt(n) => Ok(Value::Int(n as i128)),
+    Value::F64(f) if f.fract() == 0.0 && f.abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
+    Value::F32(f) if f.fract() == 0.0 && (f as f64).abs() <= SAFE_INTEGER => Ok(Value::Int(f as i128)),
+    Value::Bool(b) => Ok(Value::Int(i128::from(b))),
+    Value::Str(s) => s
+      .trim()
+      .parse::<i128>()
+      .map(Value::Int)
+      .map_err(|_| Fail::new(FailureKind::Invalid, format!("`{s}` is not an integer"))),
+    other => Err(type_error("BigInt", "an integer, an integral number or a string", &other)),
+  }
+}
+
+pub(crate) fn spelled(write: impl FnOnce(&mut String) -> Result<(), Fail>) -> Result<Value, Fail> {
+  let mut out = SPELLING.take();
+  out.clear();
+  let spelled = write(&mut out).map(|()| Value::str(out.as_str()));
+  if out.capacity() <= 1 << 16 {
+    SPELLING.set(out);
+  }
+  spelled
 }
 
 /// Where a call writes back what a function changed of an argument.
@@ -4022,7 +5090,7 @@ mod held_tests {
   #[test]
   fn a_held_constant_is_indexed_in_place() {
     let interpreter = interpreter(vec![("a#CHAPTERS", chapters())]);
-    let mut env = Env::detached(&interpreter, vec![("i".to_owned(), Value::Int(2))]);
+    let mut env = Env::detached(&interpreter, vec![(Name::new_static("i"), Value::Int(2))]);
     let read = Expr::Const("a#CHAPTERS".to_owned()).index(Expr::var("i")).field("n");
     assert_eq!(env.eval_sync(&read).unwrap(), Value::F64(2.0));
     assert_eq!(env.eval_sync(&read).unwrap(), Value::F64(2.0));
@@ -4049,7 +5117,7 @@ mod held_tests {
   #[test]
   fn a_call_writes_what_the_function_changed_back_to_the_name_it_was_passed() {
     let interpreter = interpreter(Vec::new());
-    let mut env = Env::detached(&interpreter, vec![("f".to_owned(), Value::Null)]);
+    let mut env = Env::detached(&interpreter, vec![(Name::new_static("f"), Value::Null)]);
     let o = Expr::Object(vec![Entry::Field("x".to_owned(), int(1)), Entry::Field("y".to_owned(), int(5))]);
     let body = Expr::Block(vec![
       Stmt::Let { name: "o".to_owned(), expr: o.clone() },

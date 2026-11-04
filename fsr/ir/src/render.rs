@@ -10,11 +10,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use snapfire_fsr_core::{Value, ValueMap};
+use snapfire_fsr_core::{Value, ValueMap, ValueSeq};
 
 use snapfire_fsr_runtime::FailureKind;
 
 use crate::ast::{Component, Entry, ScopedStyle, ShadowMode, ShadowRoot, Stmt, Tmpl};
+use crate::interp::Name;
 use crate::interp::{Env, Fail, Hoists, Interpreter, Probe, Step, stringify, truthy};
 
 mod markup;
@@ -405,7 +406,7 @@ pub fn slot_mark(name: &str) -> String {
 /// A caller's children and the scope they read, rendered wherever the callee places its `Slot`.
 struct Slot<'a> {
   children: &'a [Tmpl],
-  scope: Rc<Vec<(String, Value)>>,
+  scope: Rc<Vec<(Name, Value)>>,
   /// The hoist module and path of the caller, which its children key under:
   /// the browser builds them in the caller's render.
   keys: Option<(String, Vec<Step>)>,
@@ -431,7 +432,7 @@ pub const MARKUP_VALUE: &str = "$markup";
 #[derive(Debug, Clone)]
 pub(crate) struct Made {
   tmpl: Arc<Tmpl>,
-  scope: Vec<(String, Value)>,
+  scope: Vec<(Name, Value)>,
   keys: Option<(String, Vec<Step>)>,
   owner_path: String,
   framework: bool,
@@ -443,7 +444,7 @@ impl Env {
   pub(crate) fn make(&mut self, tmpl: &Arc<Tmpl>) -> Result<Value, Fail> {
     let mut names = Vec::new();
     tmpl.visit(&mut |e| e.free_vars(&mut names));
-    let scope = names.into_iter().filter_map(|name| self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| (name, v.clone()))).collect();
+    let scope = names.into_iter().filter_map(|name| self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| (Name::new(name), v.clone()))).collect();
     let made = Made { tmpl: Arc::clone(tmpl), scope, keys: self.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone())), owner_path: self.component_path.clone(), framework: self.in_framework, scoped: self.scoped.clone() };
     let Some(table) = &mut self.made else {
       return Err(Fail::internal("markup made while the body's independent lets evaluate in parallel"));
@@ -567,7 +568,12 @@ impl Interpreter {
 
   /// `render` for the component under `module`, which keys its hoisted values.
   pub fn render_module(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
+    crate::interp::on_enough_stack(|| self.render_module_in(module, component, props, library))
+  }
+
+  fn render_module_in(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
     let mut env = self.env_for(module, props);
+    env.heap_live = library.values().any(|component| matches!(component.body.first(), Some(Stmt::Let { name, .. }) if name == "$heap"));
     let mut out = Out::default();
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
@@ -580,6 +586,7 @@ impl Interpreter {
   /// root component's writes `slot_mark`.
   pub fn render_island(&self, module: &str, component: &Component, props: &ValueMap, library: &Components) -> Result<Rendered, Fail> {
     let mut env = self.env_for(module, props);
+    env.heap_live = library.values().any(|component| matches!(component.body.first(), Some(Stmt::Let { name, .. }) if name == "$heap"));
     env.island = island_owner(module, library);
     let mut out = Out::default();
     let scope = Rc::new(env.scope.clone());
@@ -631,6 +638,7 @@ impl Interpreter {
   /// component the render no longer places leaves no state behind.
   pub fn island_step(&self, module: &str, component: &Component, props: &ValueMap, state: &ValueMap, handler: Option<HandlerRef>, event: &Value, library: &Components) -> Result<Stepped, Fail> {
     let mut env = self.env_for(module, props);
+    env.heap_live = library.values().any(|component| matches!(component.body.first(), Some(Stmt::Let { name, .. }) if name == "$heap"));
     env.server_mode = true;
     env.in_framework = true;
     let mut state = state.clone();
@@ -679,7 +687,7 @@ impl Interpreter {
             Err(fail) => return Err(fail),
           },
         };
-        env.scope.push((name.clone(), value));
+        env.scope.push((Name::new(name), value));
       }
       env.emitted.clear();
       let mut own_state: ValueMap = if path.is_empty() { state.clone() } else { target.state.iter().filter_map(|name| state.get(&state_key(&path, name)).map(|value| (name.clone(), value.clone()))).collect() };
@@ -688,15 +696,12 @@ impl Interpreter {
           own_state.insert(name.clone(), value.clone());
         }
       }
-      env.scope.push(("$state".to_owned(), Value::Map(own_state)));
-      env.scope.push(("$event".to_owned(), event.clone()));
+      env.scope.push((Name::new_static("$state"), Value::Map(own_state)));
+      env.scope.push((Name::new_static("$event"), event.clone()));
       env.store_written.clear();
       let outer_path = std::mem::replace(&mut env.component_path, path.clone());
       env.handling = true;
-      let patch = env.block_sync(&body.body).map(|flow| match flow {
-        crate::interp::Flow::Return(patch) => patch,
-        crate::interp::Flow::Next => Value::Null,
-      });
+      let patch = env.block_sync(&body.body).and_then(crate::interp::Flow::value);
       env.handling = false;
       env.component_path = outer_path;
       let patch = patch?;
@@ -705,9 +710,9 @@ impl Interpreter {
       if let Value::Map(patch) = patch {
         for (name, value) in patch {
           if let Some(key) = target.store_key(&name) {
-            env.store.insert(key.to_owned(), value.clone());
+            env.set_store(key, Some(value.clone()));
             written.insert(key.to_owned(), value);
-          } else if target.state.contains(&name) {
+          } else if target.state.iter().any(|held| held.as_str() == name.as_str()) {
             state.insert(state_key(&path, &name), value);
           }
         }
@@ -756,21 +761,15 @@ fn in_module<T>(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> T) -> T
   result
 }
 
-/// How deep components may nest in one render. Past it a component that
-/// renders itself without a case that stops would overflow the thread's
-/// stack, which takes the host down rather than failing the request. A small
-/// recursive component takes about 23 KB of stack per level in a debug build
-/// and about 3.7 KB in a release build, measured on 2026-10-22, so each limit
-/// fits a 2 MB thread. The limit follows the build profile rather than the
-/// host's dev setting, since the frames are the profile's.
-pub const MAX_CALLS: usize = if cfg!(debug_assertions) { 64 } else { 512 };
+/// How deep components may nest in one render: what stops a component that renders itself without a case that stops. The stack grows to fit, [`crate::interp::on_enough_stack`], so this holds on any machine and any thread.
+pub const MAX_CALLS: usize = 512;
 
 fn call(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> Result<(), Fail>) -> Result<(), Fail> {
   if env.calls == MAX_CALLS {
     return Err(Fail::internal(format!("`{module}` is nested {MAX_CALLS} components deep, which a render refuses: a component that renders itself needs a case that renders no further")));
   }
   env.calls += 1;
-  let result = f(env);
+  let result = crate::interp::on_enough_stack(|| f(env));
   env.calls -= 1;
   result
 }
@@ -861,7 +860,7 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
       if held_here {
         out.state.insert(state_key(path, name), value.clone());
       }
-      env.scope.push((name.clone(), value));
+      env.scope.push((Name::new(name), value));
     }
     if !asked {
       break;
@@ -879,7 +878,7 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
 /// reads. The map is the deduplication, so there is no intermediate vector and
 /// no linear scan for a name already written.
 fn props(env: &mut Env, entries: &[Entry]) -> Result<ValueMap, Fail> {
-  let mut map = snapfire_fsr_core::Fields::with_capacity_and_hasher(entries.len(), Default::default());
+  let mut map = snapfire_fsr_core::Fields::with_capacity(entries.len());
   for entry in entries {
     match entry {
       Entry::Baked(_) => {}
@@ -887,7 +886,7 @@ fn props(env: &mut Env, entries: &[Entry]) -> Result<ValueMap, Fail> {
       Entry::Field(name, expr) => {
         let value = env.eval_sync(expr)?;
         if name != "children" {
-          map.insert(name.clone(), value);
+          map.insert(name.as_str(), value);
         }
       }
       Entry::Spread(expr) => match env.eval_sync(expr)? {
@@ -944,7 +943,7 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<(Vec<
         Value::Map(map) => {
           for (name, value) in map {
             if !is_baked_name(&name) {
-              put(Cow::Owned(name), value, true);
+              put(Cow::Owned(name.to_string()), value, true);
             }
           }
         }
@@ -1017,7 +1016,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       if let Some(context) = name.strip_prefix(CONTEXT_PREFIX) {
         env.contexts.push((context.to_owned(), value.clone()));
       }
-      env.scope.push((name.clone(), value));
+      env.scope.push((Name::new(name), value));
       render(env, then, library, slots, out)?;
       env.scope.truncate(depth);
       env.contexts.truncate(provided);
@@ -1268,6 +1267,7 @@ fn shadow_open(shadow: ShadowRoot, out: &mut Out) {
 
 fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], body: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let items = match env.eval_sync(over)? {
+    Value::Seq(items) if env.heap_live => ValueSeq::from(items.to_vec()),
     Value::Seq(items) => items,
     other => return Err(crate::interp::type_error("map", "an array", &other)),
   };
@@ -1275,7 +1275,7 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
   for i in 0..items.len() {
     env.scope.truncate(depth);
     for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
-      env.scope.push((param.clone(), value));
+      env.scope.push((Name::new(param), value));
     }
     in_step(env, Step::Iteration(i), |env| render(env, body, library, slots, out))?;
   }
@@ -1336,11 +1336,12 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
         return Ok(());
       }
       let Value::Seq(items) = env.eval_sync(over)? else { return Ok(()) };
+      let items = if env.heap_live { ValueSeq::from(items.to_vec()) } else { items };
       let depth = env.scope.len();
       for i in 0..items.len() {
         env.scope.truncate(depth);
         for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
-          env.scope.push((param.clone(), value));
+          env.scope.push((Name::new(param), value));
         }
         let result = in_step(env, Step::Iteration(i), |env| walk_chunks(env, body, mark, library, slots));
         env.scope.truncate(depth);
@@ -1354,7 +1355,7 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
       }
       let value = env.eval_sync(expr)?;
       let depth = env.scope.len();
-      env.scope.push((name.clone(), value));
+      env.scope.push((Name::new(name), value));
       let result = walk_chunks(env, then, mark, library, slots);
       env.scope.truncate(depth);
       result
@@ -1393,7 +1394,7 @@ fn held_chunks<'a>(env: &mut Env, module: &str, component: &'a Component, props:
   for stmt in &component.body {
     let Stmt::Let { name, expr } = stmt else { break };
     if let Ok(value) = env.eval_sync(expr) {
-      env.scope.push((name.clone(), value));
+      env.scope.push((Name::new(name), value));
     }
   }
   let held = hold_cells(env);
@@ -1419,7 +1420,7 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
     return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
   }
   let mut map = self::props(env, props)?;
-  for stmt in component.body.iter().take(3) {
+  for stmt in component.body.iter().filter(|stmt| !matches!(stmt, Stmt::Let { name, .. } if name == "$heap")).take(3) {
     let Stmt::Let { name, .. } = stmt else { break };
     let empties = match name.as_str() {
       CHILD_COUNT => true,
@@ -1427,13 +1428,13 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
       CHILD_VALUES => {
         let mut values = Vec::new();
         child_values(env, children, slots, slots.len(), &mut values)?;
-        map.insert(name.clone(), Value::seq(values));
+        map.insert(name.as_str(), Value::seq(values));
         continue;
       }
       _ => break,
     };
     let count = count_children(env, children, slots, slots.len(), empties)?;
-    map.insert(name.clone(), Value::F64(count as f64));
+    map.insert(name.as_str(), Value::F64(count as f64));
   }
   let fallthrough = match map.shift_remove(FALLTHROUGH_PROP) {
     Some(Value::Map(attrs)) if component.owner == crate::ast::Owner::Vue => Some(attrs),
@@ -1506,7 +1507,7 @@ fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &
     },
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
-      env.scope.push((name.clone(), value));
+      env.scope.push((Name::new(name), value));
       let result = child_value(env, then, slots, frame, out);
       env.scope.pop();
       result?;
@@ -1521,6 +1522,7 @@ fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &
     },
     Tmpl::For { over, params, body } => {
       let items = match env.eval_sync(over)? {
+        Value::Seq(items) if env.heap_live => ValueSeq::from(items.to_vec()),
         Value::Seq(items) => items,
         other => return Err(crate::interp::type_error("map", "an array", &other)),
       };
@@ -1528,7 +1530,7 @@ fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &
       for (i, item) in items.iter().enumerate() {
         env.scope.truncate(depth);
         for (param, value) in params.iter().zip([item.clone(), Value::F64(i as f64)]) {
-          env.scope.push((param.clone(), value));
+          env.scope.push((Name::new(param), value));
         }
         child_value(env, body, slots, frame, out)?;
       }
@@ -1587,7 +1589,7 @@ impl Env {
     let Some(mut made) = self.made.as_ref().and_then(|table| table.get(index)).cloned() else {
       return Err(Fail::internal("a markup value from another render"));
     };
-    let extra: Vec<Entry> = props.iter().filter(|(name, _)| name.as_str() != "children").map(|(name, value)| Entry::Field(name.clone(), crate::ast::Expr::Folded(value.clone()))).collect();
+    let extra: Vec<Entry> = props.iter().filter(|(name, _)| name.as_str() != "children").map(|(name, value)| Entry::Field(name.to_string(), crate::ast::Expr::Folded(value.clone()))).collect();
     let Some(cloned) = with_props(&made.tmpl, &extra) else { return Ok(element) };
     made.tmpl = Arc::new(cloned);
     let table = self.made.as_mut().expect("read above");
@@ -1665,7 +1667,7 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, emptie
     },
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
-      env.scope.push((name.clone(), value));
+      env.scope.push((Name::new(name), value));
       let n = count_child(env, then, slots, frame, empties);
       env.scope.pop();
       n?
@@ -1679,6 +1681,7 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, emptie
     },
     Tmpl::For { over, params, body } => {
       let items = match env.eval_sync(over)? {
+        Value::Seq(items) if env.heap_live => ValueSeq::from(items.to_vec()),
         Value::Seq(items) => items,
         other => return Err(crate::interp::type_error("map", "an array", &other)),
       };
@@ -1687,7 +1690,7 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, emptie
       for (i, item) in items.iter().enumerate() {
         env.scope.truncate(depth);
         for (param, value) in params.iter().zip([item.clone(), Value::F64(i as f64)]) {
-          env.scope.push((param.clone(), value));
+          env.scope.push((Name::new(param), value));
         }
         n += count_child(env, body, slots, frame, empties)?;
       }
@@ -1855,14 +1858,14 @@ fn fall_onto(attrs: &[Entry], fallen: ValueMap) -> Result<Vec<Entry>, Fail> {
         }
         _ => {}
       },
-      Some(at) => pieces[at] = Entry::Field(name, Expr::Folded(value)),
+      Some(at) => pieces[at] = Entry::Field(name.to_string(), Expr::Folded(value)),
       None => {
         let at = pieces.iter().position(|entry| match entry {
           Entry::Field(own, _) => own.starts_with("data-v-"),
           Entry::Baked(text) => text.starts_with(" data-v-"),
           _ => false,
         });
-        pieces.insert(at.unwrap_or(pieces.len()), Entry::Field(name, Expr::Folded(value)));
+        pieces.insert(at.unwrap_or(pieces.len()), Entry::Field(name.to_string(), Expr::Folded(value)));
       }
     }
   }
@@ -2161,12 +2164,8 @@ fn recompute_derived(env: &mut Env, written: &ValueMap) {
   for derived in derives.iter() {
     let Some(body) = derived.body.as_ref().filter(|_| !written.contains_key(&derived.key)) else { continue };
     match env.eval_sync(body) {
-      Ok(value) => {
-        env.store.insert(derived.key.clone(), value);
-      }
-      Err(_) => {
-        env.store.shift_remove(&derived.key);
-      }
+      Ok(value) => env.set_store(&derived.key, Some(value)),
+      Err(_) => env.set_store(&derived.key, None),
     }
   }
 }
@@ -2303,7 +2302,7 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
     (Some(content), Some(mut slot)) => {
       slot.placed = true;
       let mut scope = (*slot.scope).clone();
-      scope.push((SLOT_PROPS.to_owned(), given));
+      scope.push((Name::new(SLOT_PROPS), given));
       let inner = std::mem::replace(&mut env.scope, scope);
       let outer_framework = std::mem::replace(&mut env.in_framework, slot.framework);
       let outer_path = std::mem::replace(&mut env.component_path, slot.owner_path.clone());
@@ -2623,7 +2622,7 @@ fn lit_value(lit: &crate::ast::Lit) -> Value {
 fn fold_expr(expr: &mut crate::ast::Expr) {
   use crate::ast::Expr;
   match expr {
-    Expr::Lit(lit) => *expr = Expr::Folded(lit_value(lit)),
+    Expr::Lit(lit) => *expr = Expr::Folded(lit_value(lit).frozen()),
     Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Locales | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
     Expr::Markup(tmpl) => *tmpl = Arc::new(prepare_tmpl(tmpl)),
     Expr::Lambda { body, .. } => body.visit_mut(&mut |e| {
@@ -2642,17 +2641,17 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
         let mut map = ValueMap::default();
         for entry in entries.iter() {
           if let Entry::Field(name, Expr::Folded(value)) = entry {
-            map.insert(name.clone(), value.clone());
+            map.insert(name.as_str(), value.clone());
           }
         }
-        *expr = Expr::Folded(Value::Map(map));
+        *expr = Expr::Folded(Value::Map(map).frozen());
       }
     }
     Expr::Array(entries) => {
       fold_entries(entries);
       if entries.iter().all(|entry| matches!(entry, Entry::Item(Expr::Folded(_)))) {
         let items: Vec<Value> = entries.iter().filter_map(|entry| match entry { Entry::Item(Expr::Folded(value)) => Some(value.clone()), _ => None }).collect();
-        *expr = Expr::Folded(Value::seq(items));
+        *expr = Expr::Folded(Value::seq(items).frozen());
       }
     }
     Expr::Template(parts) => {
@@ -2667,7 +2666,7 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
             }
           }
         }
-        *expr = Expr::Folded(Value::str(text));
+        *expr = Expr::Folded(Value::str(text).frozen());
       }
     }
     Expr::Fix { f: e, .. } | Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } | Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => fold_expr(e),
@@ -2879,8 +2878,8 @@ pub fn handler_token(value: &Value) -> Option<&str> {
 /// as that value.
 pub const SLOTS_GIVEN: &str = "$given";
 
-fn component_scope(props: Value, given: Value) -> Vec<(String, Value)> {
-  vec![("$props".to_owned(), props), (SLOTS_GIVEN.to_owned(), given)]
+fn component_scope(props: Value, given: Value) -> Vec<(Name, Value)> {
+  vec![(Name::new_static("$props"), props), (Name::new(SLOTS_GIVEN), given)]
 }
 
 /// The `SLOTS_GIVEN` object for a placement's children, each wrapper's value
@@ -3587,7 +3586,7 @@ mod hoist_tests {
     props.insert("taxes".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(1.5)]));
     let rendered = Interpreter::default().render_module("src/ui/Bill.tsx#Bill", &component, &props, &Components::new()).unwrap();
     assert_eq!(rendered.html, "2.51.01.52.03.0");
-    let keys: Vec<&String> = rendered.hoisted.keys().collect();
+    let keys: Vec<&_> = rendered.hoisted.keys().collect();
     assert_eq!(keys, ["src/ui/Bill.tsx#Bill|0", "src/ui/Bill.tsx#Bill|1@0.0", "src/ui/Bill.tsx#Bill|1@0.1", "src/ui/Bill.tsx#Bill|1@1.0", "src/ui/Bill.tsx#Bill|1@1.1"]);
     assert_eq!(rendered.hoisted["src/ui/Bill.tsx#Bill|1@1.1"], Value::str("3.0"));
     assert!(Interpreter::default().render(&component, &props, &Components::new()).unwrap().hoisted.contains_key("|0"), "the plain render keys under an empty module");
@@ -3613,7 +3612,7 @@ mod hoist_tests {
     props.insert("items".to_owned(), Value::seq(vec![Value::F64(2.0), Value::F64(3.0)]));
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &props, &library).unwrap();
     assert_eq!(rendered.html, "1.02.03.09.0");
-    let keys: Vec<&String> = rendered.hoisted.keys().collect();
+    let keys: Vec<&_> = rendered.hoisted.keys().collect();
     assert_eq!(keys, ["src/ui/Price.tsx#Price|0", "src/ui/Price.tsx#Price|0@0", "src/ui/Price.tsx#Price|0@1", "routes/index/page.tsx#default|0"]);
     assert_eq!(rendered.hoisted["src/ui/Price.tsx#Price|0@1"], Value::str("3.0"));
 
@@ -3689,7 +3688,7 @@ mod hoist_tests {
     props.insert("image".to_owned(), Value::Null);
     let rendered = Interpreter::default().render_module("src/ui/Feedback.tsx#Feedback", &prepare(&component), &props, &Components::new()).unwrap();
     assert_eq!(rendered.html, "buttons", "{rendered:?}");
-    let keys: Vec<&String> = rendered.hoisted.keys().collect();
+    let keys: Vec<&_> = rendered.hoisted.keys().collect();
     assert_eq!(keys, ["src/ui/Feedback.tsx#Feedback|3", "src/ui/Feedback.tsx#Feedback|4@0", "src/ui/Feedback.tsx#Feedback|4@1", "src/ui/Feedback.tsx#Feedback|5"], "the untaken branches' chunks, the loop's by iteration: {:?}", rendered.hoisted);
     assert_eq!(rendered.hoisted["src/ui/Feedback.tsx#Feedback|3"], Value::str("Pace"));
     assert_eq!(rendered.hoisted["src/ui/Feedback.tsx#Feedback|4@1"], Value::str("2"));
@@ -3711,7 +3710,7 @@ mod hoist_tests {
       ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let rendered = Interpreter::default().render_module("routes/index/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
-    let keys: Vec<&String> = rendered.hoisted.keys().collect();
+    let keys: Vec<&_> = rendered.hoisted.keys().collect();
     assert_eq!(keys, ["routes/index/page.tsx#default|0"], "the island's values are not the page's");
     assert_eq!(rendered.islands[0].body.hoisted.keys().collect::<Vec<_>>(), ["src/ui/Help.tsx#Help|0"]);
     let mount = rendered.islands[0].mount_props();

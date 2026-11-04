@@ -149,7 +149,7 @@ fn to_yaml(what: &str, value: &Value) -> Result<Yaml, Fail> {
     Value::Map(fields) => {
       let mut hash = Hash::new();
       for (key, field) in fields.iter().filter(|(_, v)| !matches!(v, Value::Undefined)) {
-        hash.insert(Yaml::String(key.clone()), to_yaml(what, field)?);
+        hash.insert(Yaml::String(key.to_string()), to_yaml(what, field)?);
       }
       Yaml::Hash(hash)
     }
