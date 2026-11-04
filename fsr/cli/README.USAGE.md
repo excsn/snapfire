@@ -30,6 +30,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Fetching Declarations](#fetching-declarations)
 - [Checking a Deployment](#checking-a-deployment)
 - [Writing the Deploy Tree](#writing-the-deploy-tree)
+  - [Deploying an application with no crate](#deploying-an-application-with-no-crate)
 * [Reading the Generated tsconfig](#reading-the-generated-tsconfig)
 * [Using xwpm Instead](#using-xwpm-instead)
 * [Building](#building)
@@ -63,7 +64,8 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Naming the Shell](#naming-the-shell)
 * [Answering a Residue Diagnostic](#answering-a-residue-diagnostic)
 * [Counting What Does Not Lower](#counting-what-does-not-lower)
-* [Building From Rust](#building-from-rust)
+* [Building an Application With a Crate](#building-an-application-with-a-crate)
+  * [Running the build from a program](#running-the-build-from-a-program)
 * [Running Programs Before and After the Build](#running-programs-before-and-after-the-build)
 * [Error Handling](#error-handling)
 
@@ -88,7 +90,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
 * **Client** is a document under `clients/`, `<name>.openapi.json`, `<name>.proto` or `<name>.graphql`, imported as the service `<name>`; the host reaches the first over HTTP, the second over gRPC and the third by posting each operation to the endpoint.
 * **Schema** is a TypeScript module under `schemas/` whose exported interfaces become contract types; one named `Session` types `ctx.session`.
-* **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `host.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
+* **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `host.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by `fsr build` and `fsr dev`. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
 * **Vendor** is `vendor/`, committed: the runtime modules the browser loads, one directory per package, written by `fsr add` from esm.sh and named in `importmap.json`.
 * **Types** is `types/`, gitignored: the declarations of every package the import map names, one directory per package, written by `fsr types` and path-mapped by the generated tsconfig. Never served, never load-bearing.
 * **Layout** is where those live: `vendor/`, `types/`, `importmap.json` and `/static/js/vendor` by default; a site serves its vendor tree under its own prefix and an `xwpm.wmf` in the app names its own.
@@ -675,14 +677,15 @@ boot();
 enableNavigation();
 ```
 
-The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`. A module's owner picks its mounter: a Vue component is registered with `vueMounter`, `vuePatcher` and `vueUnmounter` from `@snapfire/fsr/client/vue`. A React component, a component that did not lower among them, is registered with `reactMounter`, `reactPatcher` and `reactUnmounter` from `@snapfire/fsr/client/react`. FSR is no JSX framework: in an application without React a component that does not lower stops the build, with the ways out. A component placed in server mode is not registered, since no adapter mounts it; placing one module both in server mode and as a browser island stops the build. A mounter is imported only when a registered module wants it, so a page with no React component loads no React.
+The file must be in the browser build, so `tsconfig.build.json` lists `generated/islands.ts`. A module's owner picks its adapter: a Vue component is registered with `@snapfire/fsr/client/vue` and a React component, a component that did not lower among them, with `@snapfire/fsr/client/react`. Each island is registered with `registerDeferredIsland` and a loader for its adapter, one per framework, which the browser imports when a scan first finds one of that framework's islands. FSR is no JSX framework: in an application without React a component that does not lower stops the build, with the ways out. A component placed in server mode is not registered, since no adapter mounts it; placing one module both in server mode and as a browser island stops the build. An adapter is imported only when the page holds one of its islands, so a page with no React island loads no React and a page with no island loads no framework.
 
 ```ts
-import { registerIsland } from "@snapfire/fsr/client";
-import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr/client/vue";
+import { registerDeferredIsland } from "@snapfire/fsr/client";
+
+const vue = () => import("@snapfire/fsr/client/vue").then((m) => ({ mount: m.vueMounter, patch: m.vuePatcher, unmount: m.vueUnmounter }));
 
 export function registerIslands(): void {
-  registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
+  registerDeferredIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), adapter: vue });
 }
 ```
 
@@ -965,6 +968,26 @@ Because destinations are derived, bundling a tree reproduces it byte for byte, w
 fsr bundle app --out dist
 cp target/release/snapfire_www dist/
 cp fibre_logging.production.yaml dist/fibre_logging.yaml
+```
+
+### Deploying an application with no crate
+
+With no `Cargo.toml` beside the app, the bundle puts `fsr-server` in the tree: the stock host alone, built once per FSR version into `~/.cache/snapfire/server/` and copied from there. `FSR_SERVER` names a binary to use instead.
+
+```
+$ fsr build app
+$ fsr prerender app
+$ fsr bundle app --out dist
+74 files, 402911 bytes under dist
+dist/fsr-server runs it
+place beside it: the logging configuration
+```
+
+On the server, run it from the tree. It serves `app/` beside it, reads `RELEASE_ENV` as `production` when nothing sets it and refuses `server.dev`:
+
+```sh
+C5_SESSION__KEY=... ./fsr-server
+./fsr-server --listen 0.0.0.0:8080
 ```
 
 ## Reading the Generated tsconfig
@@ -1346,7 +1369,7 @@ Once a shell is running somewhere, `fsr sites list <shell> --host <url>` puts th
 
 ## Serving Without a Rust Project
 
-`serve` builds the stock host over the app and listens until stopped. The configuration is `config/app.toml` beside the app or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`. A change under the app regenerates and rebundles, then the running server reloads its tables in place, so open sessions survive a page edit; it restarts only when the reload is refused, as a changed `[session]` is.
+`serve` builds the stock host over the app and listens until stopped. It is for development. A deployment runs `fsr-server`, which `fsr bundle` puts in the tree; [Deploying an application with no crate](#deploying-an-application-with-no-crate) has the steps. The configuration is `config/app.toml` beside the app or an `app.toml` inside it with `[app] dir = "."`; `--listen` overrides `server.listen`. `dev` runs the same host when no `Cargo.toml` wraps the app, watching `config/` in place of `src/`. A change under the app regenerates and rebundles, then the running server reloads its tables in place, so open sessions survive a page edit; it restarts only when the reload is refused, as a changed `[session]` is.
 
 The host's own events go to the project's `fibre_logging.yaml`, beside `config/`, when there is one, else warnings and errors to stderr: a card property the renderer leaves out, a card that did not draw. A file that does not load is named on stderr and the fallback takes over. `dev` runs `serve`, so it logs the same way.
 
@@ -2203,40 +2226,26 @@ for (cause, seen) in &census.refused {
 }
 ```
 
-## Building From Rust
+## Building an Application With a Crate
 
-The library half runs the same build without the binary. A crate that serves the app calls it from `build.rs`, so the generated files never need checking in and `cargo build` on a fresh checkout is enough.
+An application with its own Rust crate is built in two steps: `fsr build` writes `generated/` and the browser bundle, then cargo compiles the binary that serves them. The crate has no build script for this and no `snapfire_fsr_cli` build-dependency, so cargo never compiles the CLI.
 
-```rust
-// build.rs
-fn main() {
-  let app = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("app");
-  for watched in ["routes", "src", "schemas", "clients", "importmap.json"] {
-    println!("cargo:rerun-if-changed={}", app.join(watched).display());
-  }
-  println!("cargo:rerun-if-env-changed={}", snapfire_fsr_cli::dev::OWNS_BUILD);
-  if snapfire_fsr_cli::dev::owns_build() {
-    return;
-  }
-  let options = snapfire_fsr_cli::DevOptions::beside(&app);
-  snapfire_fsr_cli::emit(&app, options).unwrap_or_else(|e| panic!("fsr build app: {e}"));
-}
+```sh
+fsr build app
+cargo build --release
 ```
 
-Under `fsr dev` the loop has already generated and bundled every application before it runs `cargo build` and sets `FSR_DEV_OWNS_BUILD` in cargo's environment to say so. A build script that calls `emit` regardless builds each application a second time per change and writes over what the loop wrote, so check `dev::owns_build()` first and do only what the loop does not, such as turning markdown into a module. Declaring the variable with `rerun-if-env-changed` makes a plain `cargo build` after a `dev` session run the script again and emit.
+A shell with sites builds the shell first, since each site reads the shell's `generated/shell.json`:
 
-A build script never declares a directory it writes into. `types/` is left out of the list above because `emit` refreshes the declarations `fsr` carries there; a script that rewrites one of its own inputs is stale the moment it finishes, so cargo runs it on every build and a watcher of those inputs rebuilds on every run.
-
-`emit` is generation and then the bundle. `build` and `write` are the generation alone and a build script that calls only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract and for `emit` otherwise.
-
-`src` belongs in the watched list whenever a component outside `routes/` is placed with `<Island>`, since a change there has to reach `dist/`. `emit` finds the compiler at `$SNAPFIREC`, else beside the running binary, else on `PATH`; set `options.snapfirec` when it is somewhere else, as the examples in this repository do. A compiler older than the release this fsr builds with is refused before it runs, naming both releases and `cargo install snapfire_compiler`.
-
-A build script is not beside either binary, so name the typechecker the same way; without one the build script finds none and emits without checking. `emit` returns what the checker said in `Emitted::checked` and fails with `BuildError::Typecheck` when a diagnostic is an error.
-
-```rust
-options.typecheck.checker = std::env::var_os("SNAPFIRETC").map(std::path::PathBuf::from);
-options.typecheck.enabled = false; // or skip it outright
+```sh
+fsr build app
+fsr build sites/docs/app
+cargo build --release
 ```
+
+`fsr dev` does both on every change. Content an application compiles from, such as markdown turned into a module, is written by a `[build] before` program, which `fsr build` and `fsr dev` run ahead of the build.
+
+Everything the build writes is ignored by git:
 
 ```
 # .gitignore
@@ -2246,6 +2255,10 @@ app/tsconfig.build.json
 app/types/
 app/dist/
 ```
+
+### Running the build from a program
+
+The library half runs the same build in-process, for a tool or a test that generates an application.
 
 ```rust
 use std::path::Path;
@@ -2258,6 +2271,16 @@ for path in emitted.written {
 }
 ```
 
+`emit` is generation and then the bundle. `build` and `write` are the generation alone and a caller that runs only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract and for `emit` otherwise.
+
+`emit` finds the compiler at `$SNAPFIREC`, else beside the running binary, else on `PATH`; set `options.snapfirec` when it is somewhere else. A compiler older than the release this fsr builds with is refused before it runs, naming both releases and `cargo install snapfire_compiler`.
+
+A program that is not beside either binary names the typechecker the same way; without one it finds none and emits without checking. `emit` returns what the checker said in `Emitted::checked` and fails with `BuildError::Typecheck` when a diagnostic is an error.
+
+```rust
+options.typecheck.checker = std::env::var_os("SNAPFIRETC").map(std::path::PathBuf::from);
+options.typecheck.enabled = false; // or skip it outright
+```
 
 ## Running Programs Before and After the Build
 

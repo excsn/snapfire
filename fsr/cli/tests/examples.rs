@@ -18,7 +18,7 @@ fn examples() -> PathBuf {
 fn checkout(from: &Path, to: &Path) {
   let listed = std::process::Command::new("git").current_dir(from).args(["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).output().unwrap();
   assert!(listed.status.success(), "git ls-files in {}: {}", from.display(), String::from_utf8_lossy(&listed.stderr));
-  for file in String::from_utf8(listed.stdout).unwrap().split('\0').filter(|f| !f.is_empty()) {
+  for file in String::from_utf8(listed.stdout).unwrap().split('\0').filter(|f| !f.is_empty() && from.join(f).exists()) {
     let target = to.join(file);
     std::fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::fs::copy(from.join(file), &target).unwrap();

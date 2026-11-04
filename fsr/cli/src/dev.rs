@@ -1250,6 +1250,9 @@ pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Resu
   let mut built = crate::build_with(&app.dir, &app.options.build, &mut plugins)?;
   let rest = (|| -> Result<(Vec<PathBuf>, Option<Checked>), BuildError> {
     let mut written = write(&app.dir, &built)?;
+    if let Some((_, plan)) = built.files.iter().find(|(rel, _)| rel == crate::PLAN_FILE) {
+      written.extend(crate::bodies::write(&app.dir, plan, app.production)?);
+    }
     let missing = built.missing_declarations.clone();
     if !missing.is_empty() {
       let failure = match &fetched {

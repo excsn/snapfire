@@ -28,9 +28,9 @@ fn a_census_counts_every_residue_by_cause_where_a_build_stops_at_the_first() {
   let dir = app(&[
     ("routes/page.tsx", "export default function Page() {\n  return <p>home</p>;\n}\n"),
     ("routes/a/page.tsx", "export default function Page() {\n  return <p>a</p>;\n}\n"),
-    ("routes/a/page.loader.ts", "export async function load({ params }) {\n  let total = 0;\n  for (let i = 0; i < 3; i++) total += i;\n  return { total };\n}\n"),
+    ("routes/a/page.loader.ts", "export async function load({ params }) {\n  let total = 0;\n  while (total < 3) total += 1;\n  return { total };\n}\n"),
     ("routes/b/page.tsx", "export default function Page() {\n  return <p>b</p>;\n}\n"),
-    ("routes/b/page.loader.ts", "export async function load({ params }) {\n  let sum = 0;\n  for (let j = 0; j < 9; j++) sum += j;\n  return { sum };\n}\n"),
+    ("routes/b/page.loader.ts", "export async function load({ params }) {\n  let sum = 0;\n  while (sum < 9) sum += 1;\n  return { sum };\n}\n"),
   ]);
   assert!(build(&dir, &Options::default()).is_err(), "a build stops at the residue");
 

@@ -196,3 +196,27 @@ fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
   }
   out
 }
+
+#[test]
+fn the_tree_of_an_application_with_no_crate_holds_the_server_binary() {
+  let dir = app("");
+  let out = dir.join("dist");
+  bundle::run_checked(&dir, &out, false).expect("bundles");
+  let server = dir.join("fsr-server-stand-in");
+  std::fs::write(&server, "#!/bin/sh\n").unwrap();
+  // SAFETY: nextest runs each test in a process of its own.
+  unsafe { std::env::set_var(snapfire_fsr_cli::server::SERVER_ENV, &server) };
+  let placed = bundle::place_server(&dir, &out).expect("places the server");
+  assert_eq!(placed.as_deref(), Some(out.join(snapfire_fsr_cli::server::SERVER_BIN).as_path()));
+  assert_eq!(std::fs::read(out.join(snapfire_fsr_cli::server::SERVER_BIN)).unwrap(), b"#!/bin/sh\n");
+}
+
+#[test]
+fn the_tree_of_an_application_with_its_own_crate_holds_no_server_binary() {
+  let dir = app("");
+  std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"own\"\nversion = \"0.1.0\"\n").unwrap();
+  let out = dir.join("dist");
+  bundle::run_checked(&dir, &out, false).expect("bundles");
+  assert_eq!(bundle::place_server(&dir, &out).expect("answers"), None);
+  assert!(!out.join(snapfire_fsr_cli::server::SERVER_BIN).exists());
+}

@@ -94,7 +94,7 @@ fn a_bare_application_given_vue_builds_a_vue_island() {
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.44","entries":{"vue":"vue/vue.bundle.mjs"}}}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "{islands}");
+  assert!(islands.contains("registerDeferredIsland(\"src/ui/Chart.vue#default\""), "{islands}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -220,7 +220,7 @@ fn a_bare_application_given_svelte_builds_a_svelte_island() {
   std::fs::write(dir.join(format!(".fsr/compilers/svelte/{svelte}/index.js")), "globalThis.svelte = {};\n").unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("registerIsland(\"src/ui/Counter.svelte#default\""), "{islands}");
+  assert!(islands.contains("registerDeferredIsland(\"src/ui/Counter.svelte#default\""), "{islands}");
   assert!(islands.contains("svelteMounter"), "mounted by the Svelte adapter: {islands}");
   let shim = snapfire_fsr_cli::types::foreign_shim(&dir, &[]).expect("a shim");
   assert!(shim.contains("declare module \"*.svelte\""), "{shim}");

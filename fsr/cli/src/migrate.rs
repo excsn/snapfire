@@ -189,7 +189,7 @@ pub fn relayout(project: &Path, dry_run: bool) -> Result<Vec<Relaid>, BuildError
   if !is_old_layout(&tree) {
     return Ok(Vec::new());
   }
-  let (out, _) = relayout_tree(&tree);
+  let (out, _) = relayout_tree(&tree, &snapfire_fsr_host::client::import_entries());
   let mut changed = Vec::new();
   for (path, bytes) in out.iter() {
     if tree.get(path) == Some(bytes) {

@@ -1,12 +1,15 @@
-//! `fsr serve`: the stock host over an application, for the project with no
-//! Rust beside it. `Host::from` on the project root is all of it.
+//! `fsr serve`: the stock host over an application with no Rust beside it, in
+//! development. It runs `snapfire_fsr_sites::serve`, the code the production
+//! binary `fsr-server` runs. The desktop window is the CLI's own.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use snapfire_fsr_host::config::{Config, MountConfig};
+use snapfire_fsr_host::config::Config;
 use snapfire_fsr_host::trace::Traces;
 use snapfire_fsr_host::{Host, HostBuilder};
+
+pub use snapfire_fsr_sites::serve::project_root;
 
 use crate::BuildError;
 
@@ -56,16 +59,6 @@ impl ServeOptions {
       return crate::desktop::LOOPBACK.to_owned();
     }
     self.listen.clone().unwrap_or_else(|| configured.to_owned())
-  }
-}
-
-/// Where the host reads its configuration from: the directory beside the app
-/// when it holds `config/` or an `app.toml`, else the app directory itself.
-pub fn project_root(app: &Path) -> PathBuf {
-  let app = app.canonicalize().unwrap_or_else(|_| app.to_path_buf());
-  match app.parent() {
-    Some(parent) if parent.join("config").is_dir() || parent.join("app.toml").is_file() || parent.join("app.yaml").is_file() => parent.to_path_buf(),
-    _ => app,
   }
 }
 
@@ -144,22 +137,18 @@ fn serving(app: &Path, options: ServeOptions, bound: impl FnOnce(&str, bool) -> 
     false => "http",
   };
   let root = project_root(app);
-  let config = Config::load(&root).ok();
-  let dev = config.as_ref().is_some_and(Config::dev);
-  let poll = config.as_ref().and_then(snapfire_fsr_sites::poll_of);
+  let dev = Config::load(&root).ok().as_ref().is_some_and(Config::dev);
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(format!("runtime: {e}")))?;
-  runtime.block_on(async {
-    let listener = tokio::net::TcpListener::bind(&listen).await?;
-    let listen = listener.local_addr().map_or_else(|_| listen.clone(), |addr| addr.to_string());
-    bound(&listen, tls).map_err(|e| std::io::Error::other(e.to_string()))?;
-    println!("fsr server on {scheme}://{listen}/");
-    if traces.is_some() && dev {
-      println!("fsr traces on {scheme}://{listen}/__fsr/traces");
-    }
-    snapfire_fsr_sites::watch(host.clone(), root, poll);
-    host.serve_listener(listener).await
-  })
-  .map_err(|e| BuildError::Serve(format!("serve {listen}: {e}")))
+  runtime
+    .block_on(snapfire_fsr_sites::serve::listen(host, root, &listen, |at| {
+      bound(at, tls).map_err(|e| std::io::Error::other(e.to_string()))?;
+      println!("fsr server on {scheme}://{at}/");
+      if traces.is_some() && dev {
+        println!("fsr traces on {scheme}://{at}/__fsr/traces");
+      }
+      Ok(())
+    }))
+    .map_err(|e| BuildError::Serve(format!("serve {listen}: {e}")))
 }
 
 /// The stock host over `app`, refusing a configuration that names a different app directory.
@@ -181,55 +170,12 @@ pub fn host_for(app: &Path) -> Result<Host, BuildError> {
 }
 
 /// The builder `fsr serve` would build from, with `mounts` laid over the
-/// configuration's `[sites]` table: a row per name, naming the path, the
-/// table's own row of that name replaced. The builder reloads the same way.
+/// configuration's `[sites]` table; see `snapfire_fsr_sites::serve::builder_with_mounts`.
 pub fn builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<HostBuilder, BuildError> {
-  let build = {
-    let root = root.to_path_buf();
-    let mounts = mounts.to_vec();
-    move || -> Result<HostBuilder, snapfire_fsr_host::HostError> {
-      let mut config = Config::load(&root)?;
-      let section = config.sites.get_or_insert_with(Default::default);
-      for (name, path) in &mounts {
-        section.mounts.insert(name.clone(), MountConfig::new(Some(path.display().to_string()), None, false));
-      }
-      Host::from_config(config)
-    }
-  };
-  let builder = build().map_err(|e| BuildError::Serve(e.to_string()))?;
-  Ok(builder.reloader(move || build().map(snapfire_fsr_sites::mountable).and_then(|b| snapfire_fsr_sites::mount_all(b).map_err(|e| snapfire_fsr_host::HostError::Mount("sites".to_owned(), e.to_string())))))
+  snapfire_fsr_sites::serve::builder_with_mounts(root, mounts).map_err(|e| BuildError::Serve(e.to_string()))
 }
 
-/// `host_for`, with the handle to the collector when one was installed and
-/// the logging guard to hold while it serves. `serve` sets the process's
-/// logging: the project's `fibre_logging.yaml`, else warnings and errors to
-/// stderr. Only a development host collects. A span costs an atomic load and
-/// a branch while nothing keeps it; the endpoint that serves them back is not
-/// registered outside development.
+/// `host_for`, with the trace collector and the logging guard; see `snapfire_fsr_sites::serve::host_of`.
 fn host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>, Option<snapfire_fsr_host::trace::LoggingGuard>), BuildError> {
-  let given = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
-  let root = project_root(&given);
-  let builder = match mounts.is_empty() {
-    true => Host::from(&root).map_err(|e| BuildError::Serve(e.to_string()))?,
-    false => builder_with_mounts(&root, mounts)?,
-  };
-  let config = builder.config();
-  let configured = config.app.canonicalize().unwrap_or_else(|_| config.app.clone());
-  if configured != given {
-    return Err(BuildError::Serve(format!("{} names {} as the app directory, not {}", root.display(), config.app.display(), given.display())));
-  }
-  let (traces, logging) = match serve {
-    true => {
-      let (traces, logging, why) = snapfire_fsr_host::trace::observe_project(&root, config.dev() || config.trace.as_ref().is_some_and(|t| !t.expose.is_empty() || !t.inline.is_empty()));
-      if let Some(why) = why {
-        eprintln!("logging: {why}; warnings and errors go to stderr");
-      }
-      (traces, logging)
-    }
-    false => (None, None),
-  };
-  let builder = snapfire_fsr_sites::mountable(builder);
-  let builder = snapfire_fsr_sites::mount_all(builder).map_err(|e| BuildError::Serve(e.to_string()))?;
-  let host = builder.traces(traces.clone()).build().map_err(|e| BuildError::Serve(e.to_string()))?;
-  Ok((host, traces, logging))
+  snapfire_fsr_sites::serve::host_of(app, serve, mounts).map_err(|e| BuildError::Serve(e.to_string()))
 }

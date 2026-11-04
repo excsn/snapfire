@@ -16,15 +16,20 @@ cargo install --path fsr/cli --no-default-features --features terminal
 
 | Feature | Default | Adds |
 | --- | --- | --- |
-| `web` | on | The web half: `fsr test` and its QuickJS runner, `fsr prerender`, `bundle`, `sites`, `census`, `use`, `add`, `types` and `fonts`. Off, `fsr` still builds, serves and checks an app but has none of these commands |
+| `test` | on | `fsr test` and the QuickJS engine it runs specs in. It turns `web` on. Off, the binary links no JavaScript engine |
+| `web` | on | The web half: `fsr prerender`, `bundle`, `sites`, `census`, `use`, `add`, `types` and `fonts`. Off, `fsr` still builds, serves and checks an app but has none of these commands |
 | `tera` | on | `page.tera` and `layout.tera` routes, rendered by the stock host |
 | `mdx` | on | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
 | `mdx-highlight` | on | `mdx`, plus fenced code highlighted at build and `styles/code.css` from the direction |
 | `mdx-frontmatter` | on | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
+| `share_cards` | on | Card images drawn by the stock host |
+| `grpc` | on | `clients/<name>.proto` contracts, imported at build and called over gRPC |
+| `graphql` | on | `clients/<name>.graphql` contracts |
+| `http` | on | OpenAPI contracts called over HTTP by the stock host |
 | `tls` | off | TLS in the stock host |
 | `client-source-maps` | off | The browser client's source maps, with its TypeScript, served beside it so devtools show the client's source; about 1.3 MB |
 | `desktop` | off | Experimental. It turns `web` on. `fsr dev --desktop` and `fsr serve --desktop`: the application in a native window over the system webview, through wry, tao and muda |
-| `terminal` | off | Experimental. `fsr dev --terminal`: the root page run in the terminal with Ink's elements and `useInput`, through `snapfire_fsr_terminal` and crossterm. Needs no `web`, so `--no-default-features --features terminal` is an `fsr` without QuickJS, Tera or MDX |
+| `terminal` | off | Experimental. `fsr dev --terminal`: the root page run in the terminal with Ink's elements and `useInput`, through `snapfire_fsr_terminal` and crossterm. Needs no `web`, so `--no-default-features --features terminal` is an `fsr` without Tera or MDX |
 
 It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the bodies, `snapfire_fsr_plan` for the file it writes and `reqwest` with rustls for esm.sh and the npm registry.
 
@@ -55,7 +60,8 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Type a page's props or call an action from a page | `generated/client.ts` |
 | Mount an island written for another framework | nothing to set: the extension picks the adapter, `@snapfire/fsr/client/vue` for `.vue`; one no adapter mounts fails the build |
 | Place a Vue component from a template | `import Card from "@src/ui/Card.vue"` inside `<Island>`, with `snapfirec-vue` on `PATH` |
-| Run an application with no Rust beside it | `fsr serve <app>` or `fsr dev <app>` with no `Cargo.toml` beside it |
+| Run an application with no Rust beside it in development | `fsr serve <app>` or `fsr dev <app>` with no `Cargo.toml` beside it |
+| Deploy an application with no Rust beside it | `fsr bundle <app>`, which puts the `fsr-server` binary in the tree |
 | Build one team's application as a site another mounts under a path | a `[site]` section beside the app; `fsr serve` on the shell mounts its `[sites]` table |
 | Hold a mounted site to the bytes you meant to ship | `fsr sites install` pins what it installed; `fsr sites pin <shell>` repins |
 | See what a running shell is serving, against its table | `fsr sites list <shell> --host <url>` |

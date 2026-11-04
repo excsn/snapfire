@@ -105,6 +105,16 @@ pub fn run_checked(app: &Path, out: &Path, check: bool) -> Result<Bundled, Build
   })
 }
 
+/// Copies the `fsr-server` binary into the tree at `out` when the project beside `app` has no crate of its own, answering where it went. A project with a crate ships its own binary and gets none.
+pub fn place_server(app: &Path, out: &Path) -> Result<Option<PathBuf>, BuildError> {
+  if crate::server::has_crate(&project_root(app)) {
+    return Ok(None);
+  }
+  let to = out.join(crate::server::SERVER_BIN);
+  copy_file(&crate::server::binary()?, &to)?;
+  Ok(Some(to))
+}
+
 fn write_file(bytes: &[u8], to: &Path) -> Result<(), BuildError> {
   if let Some(parent) = to.parent() {
     std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;

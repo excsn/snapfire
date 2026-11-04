@@ -18,12 +18,23 @@ name = "fsr"
 path = "src/main.rs"
 
 [features]
-default = ["web", "tera", "mdx-highlight", "mdx-frontmatter"]
-# The web half: `fsr test` and its QuickJS runner, `prerender`, `bundle`, `sites`,
-# `census`, `use`, `add`, `types` and `fonts`. Off, the CLI builds and serves an
-# app but carries none of these, which a terminal app does not need.
-web = ["dep:snapfire_fsr_engine"]
+default = ["test", "web", "tera", "mdx-highlight", "mdx-frontmatter", "grpc", "graphql", "http", "share_cards"]
+# `fsr test` and the QuickJS engine it runs specs in. Off, the binary links no
+# JavaScript engine, which is the build to serve a deployment with.
+test = ["web", "dep:snapfire_fsr_engine"]
+# The web half: `prerender`, `bundle`, `sites`, `census`, `use`, `add`, `types`
+# and `fonts`. Off, the CLI builds and serves an app but carries none of these,
+# which a terminal app does not need.
+web = []
 tls = ["snapfire_fsr_host/tls"]
+# Card images drawn by the stock host.
+share_cards = ["snapfire_fsr_host/share_cards"]
+# `clients/<name>.proto` contracts, imported at build and called over gRPC.
+grpc = ["snapfire_fsr_service/grpc", "snapfire_fsr_host/grpc"]
+# `clients/<name>.graphql` contracts.
+graphql = ["snapfire_fsr_service/graphql", "snapfire_fsr_host/graphql"]
+# An OpenAPI contract called over HTTP by `fsr dev` and `fsr serve`.
+http = ["snapfire_fsr_service/http", "snapfire_fsr_host/http"]
 # Serves the browser client's source maps, its TypeScript inlined.
 client-source-maps = ["snapfire_fsr_host/client_source_maps"]
 # A `page.tera` or `layout.tera` under `routes/`, served by the stock host.
@@ -64,11 +75,10 @@ snapfire_fsr_ir.workspace = true
 snapfire_fsr_lower.workspace = true
 snapfire_fsr_migrate.workspace = true
 snapfire_fsr_mdx = { workspace = true, optional = true }
-snapfire_fsr_ogimage.workspace = true
 snapfire_fsr_payload.workspace = true
 snapfire_fsr_plan.workspace = true
 snapfire_fsr_runtime.workspace = true
-snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
+snapfire_fsr_service.workspace = true
 snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.4.0" }
 snapfire_lint = { path = "../../lint", version = "0.1.0" }
 snapfire_fsr_lint.workspace = true
@@ -110,6 +120,10 @@ name = "mdx"
 required-features = ["mdx-highlight", "mdx-frontmatter"]
 
 [[test]]
+name = "import_layout"
+required-features = ["test"]
+
+[[test]]
 name = "desktop"
 required-features = ["desktop"]
 
@@ -143,11 +157,11 @@ required-features = ["web"]
 
 [[test]]
 name = "test_command"
-required-features = ["web"]
+required-features = ["test"]
 
 [[test]]
 name = "examples"
-required-features = ["web"]
+required-features = ["test"]
 
 [[test]]
 name = "public"
@@ -155,11 +169,11 @@ required-features = ["web"]
 
 [[test]]
 name = "store_crosscheck"
-required-features = ["web"]
+required-features = ["test"]
 
 [[test]]
 name = "runner"
-required-features = ["web"]
+required-features = ["test"]
 
 [[test]]
 name = "sites"

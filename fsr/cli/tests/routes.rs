@@ -415,9 +415,9 @@ fn a_vue_island_registers_through_the_vue_adapter_without_react_in_the_map() {
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.44"}}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("import { vueMounter, vuePatcher, vueUnmounter } from \"@snapfire/fsr/client/vue\";"), "{islands}");
-  assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "{islands}");
-  assert!(!islands.contains("reactMounter"), "a page with no React island imports no React adapter: {islands}");
+  assert!(islands.contains("const vue = () => import(\"@snapfire/fsr/client/vue\").then((m) => ({ mount: m.vueMounter, patch: m.vuePatcher, unmount: m.vueUnmounter }));"), "{islands}");
+  assert!(islands.contains("registerDeferredIsland(\"src/ui/Chart.vue#default\""), "{islands}");
+  assert!(!islands.contains("@snapfire/fsr/client/react"), "a page with no React island imports no React adapter: {islands}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -679,8 +679,8 @@ fn a_handler_in_a_page_moves_into_an_island_and_a_component_placed_as_an_island_
   ]);
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("registerIsland(\"routes/index/page.island0.tsx#default\""), "a handler the lowerer cannot lower is still the browser's to run: {islands}");
-  assert!(islands.contains("registerIsland(\"src/ui/Tips.tsx#Tips\""), "the page placed it as an island, so it mounts though it holds nothing: {islands}");
+  assert!(islands.contains("registerDeferredIsland(\"routes/index/page.island0.tsx#default\""), "a handler the lowerer cannot lower is still the browser's to run: {islands}");
+  assert!(islands.contains("registerDeferredIsland(\"src/ui/Tips.tsx#Tips\""), "the page placed it as an island, so it mounts though it holds nothing: {islands}");
   assert!(built.report.components.iter().any(|(module, _, detail)| module == "routes/index/page.tsx#default" && detail == "static"), "the page is composition: {}", built.report);
   assert!(!built.report.components.iter().any(|(module, _, detail)| module == "src/ui/Tips.tsx#Tips" && detail == "static"), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
@@ -821,7 +821,7 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   assert!(built.contract.services.contains_key("billing:ledger") && built.contract.types.contains_key("billing:Invoice"), "{:?}", built.contract.services.keys().collect::<Vec<_>>());
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
   let islands = file("generated/islands.ts");
-  assert!(islands.contains("registerIsland(\"billing:routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\")"), "{islands}");
+  assert!(islands.contains("registerDeferredIsland(\"billing:routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\")"), "{islands}");
   let client = file("generated/client.ts");
   assert!(client.contains("call(\"billing:$root.add\")") && client.contains("  $root: {"), "{client}");
   let declarations = file("generated/services.d.ts");
@@ -967,7 +967,7 @@ fn an_island_in_server_mode_needs_no_framework_in_the_map_and_has_no_registry_en
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(!islands.contains("src/Widget.tsx#Widget"), "the server renders every step, so nothing mounts it: {islands}");
-  assert!(!islands.contains("reactMounter"), "{islands}");
+  assert!(!islands.contains("@snapfire/fsr/client/react"), "{islands}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1257,7 +1257,7 @@ fn an_island_takes_the_dialects_placements_from_its_own_framework() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
-  assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\"") && islands.contains("reactMounter"), "{islands}");
+  assert!(islands.contains("registerDeferredIsland(\"routes/page.island0.tsx#default\"") && islands.contains("adapter: react }"), "{islands}");
   let island = built.files.iter().find(|(name, _)| name == ".fsr/bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
   assert!(island.contains("import { Link } from \"@snapfire/fsr/client/react\";"), "{island}");
   assert!(!island.contains("@snapfire/fsr/template"), "the map need not serve the dialect for an island: {island}");
@@ -1495,9 +1495,28 @@ fn a_component_that_does_not_lower_is_a_component_of_the_apps_jsx_framework() {
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/page.tsx#default" && owner == "lowered" && detail == "static"), "the page lowers around them: {}", built.report);
   let islands = generated(&built, "generated/islands.ts").unwrap();
-  assert!(islands.contains("registerIsland(\"src/ui/Clock.tsx#Clock\", { loader: () => import(\"../src/ui/Clock.js\").then((m) => m.Clock), mount: reactMounter"), "JSX that imports nothing is the app's framework's: {islands}");
-  assert!(islands.contains("registerIsland(\"src/ui/Ticker.tsx#Ticker\", { loader: () => import(\"../src/ui/Ticker.js\").then((m) => m.Ticker), mount: reactMounter"), "{islands}");
+  assert!(islands.contains("registerDeferredIsland(\"src/ui/Clock.tsx#Clock\", { loader: () => import(\"../src/ui/Clock.js\").then((m) => m.Clock), adapter: react }"), "JSX that imports nothing is the app's framework's: {islands}");
+  assert!(islands.contains("registerDeferredIsland(\"src/ui/Ticker.tsx#Ticker\", { loader: () => import(\"../src/ui/Ticker.js\").then((m) => m.Ticker), adapter: react }"), "{islands}");
   assert!(generated(&built, "tsconfig.build.json").unwrap().contains("\"jsxImportSource\": \"react\""));
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_island_registry_imports_no_framework_adapter_until_a_page_shows_an_island() {
+  let statically = |islands: &str, module: &str| islands.lines().any(|line| line.starts_with("import ") && line.contains(&format!("\"{module}\"")));
+  let page = "import { Clock } from \"../src/ui/Clock\";\nexport default function Page() {\n  return <main><Clock /></main>;\n}\n";
+  let dir = app(&[("routes/page.tsx", page), ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{window.location.host}</p>;\n}\n")]);
+  let islands = generated(&build(&dir, &Options::default()).unwrap(), "generated/islands.ts").unwrap();
+  assert!(!statically(&islands, "@snapfire/fsr/client/react"), "{islands}");
+  assert!(islands.contains("import(\"@snapfire/fsr/client/react\")"), "{islands}");
+  std::fs::remove_dir_all(&dir).unwrap();
+
+  let dir = app(&[("routes/page.tsx", &placing("Chart.vue")), ("src/ui/Chart.vue", "<template><p /></template>\n")]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr/client/vue":"/v","vue":"/v"}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.44"}}}"#).unwrap();
+  let islands = generated(&build(&dir, &Options::default()).unwrap(), "generated/islands.ts").unwrap();
+  assert!(!statically(&islands, "@snapfire/fsr/client/vue"), "{islands}");
+  assert!(islands.contains("import(\"@snapfire/fsr/client/vue\")"), "{islands}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1519,7 +1538,7 @@ fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_react_islan
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/page.tsx#default" && owner == "lowered" && detail == "static"), "{}", built.report);
   assert!(built.report.extracted.iter().any(|(module, island, _)| module == "routes/page.tsx#default" && island == "routes/page.island0.tsx#default"), "{}", built.report);
   let islands = generated(&built, "generated/islands.ts").unwrap();
-  assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\").then((m) => m.default), mount: reactMounter"), "{islands}");
+  assert!(islands.contains("registerDeferredIsland(\"routes/page.island0.tsx#default\", { loader: () => import(\"../routes/page.island0.js\").then((m) => m.default), adapter: react }"), "{islands}");
   std::fs::write(dir.join("importmap.json"), NO_REACT).unwrap();
   std::fs::remove_file(dir.join("vendor/.fsr-vendor.json")).unwrap();
   let error = fails(&dir).to_string();
@@ -1567,7 +1586,7 @@ fn a_react_island_places_a_component_another_framework_mounts_through_foreign() 
   let dir = panel_app("<Chart label=\"x\" />");
   let built = build(&dir, &Options::default()).unwrap();
   let islands = generated(&built, "generated/islands.ts").unwrap();
-  assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "the build registers what the island mounts by id: {islands}");
+  assert!(islands.contains("registerDeferredIsland(\"src/ui/Chart.vue#default\""), "the build registers what the island mounts by id: {islands}");
   let copy = generated(&built, ".fsr/bundle/src/ui/Panel.tsx").expect("the island's bundle copy");
   assert!(copy.contains("const Chart = __sfForeign(\"src/ui/Chart.vue#default\");") && !copy.contains("import Chart"), "{copy}");
   let plan = serde_json::from_str::<serde_json::Value>(&built.manifest.to_json()).unwrap();
@@ -1602,6 +1621,35 @@ fn a_pages_props_type_a_native_result_as_the_rust_returns_it() {
   let built = build(&dir, &Options::default()).unwrap();
   let client = built.files.iter().find(|(n, _)| n == "generated/client.ts").map(|(_, t)| t.clone()).unwrap();
   assert!(client.contains("export type RootProps = Wire<Awaited<ReturnType<typeof import(\"../routes/page.loader\")[\"load\"]>>> & HostProps;"), "the loader's own type, the native call's result included: {client}");
+  std::fs::remove_dir_all(&project).unwrap();
+}
+
+const CLOCK: &str = "use snapfire_fsr_macros::native;\n\npub struct Clock;\n\n#[native]\nimpl Clock {\n  pub fn year(&self) -> i64 {\n    2026\n  }\n\n  pub async fn zone(&self) -> String {\n    String::new()\n  }\n}\n";
+
+const CLOCK_LOADER: &str = "import type { Ctx } from \"@snapfire/fsr/host\";\n\nexport async function load({ native }: Ctx<\"/\">) {\n  return { year: native.clock.year(), zone: await native.clock.zone() };\n}\n";
+
+#[test]
+fn a_native_method_written_as_fn_is_called_without_a_future() {
+  let project = app(&[]);
+  let dir = project.join("app");
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::rename(project.join("importmap.json"), dir.join("importmap.json")).unwrap();
+  std::fs::rename(project.join("vendor"), dir.join("vendor")).unwrap();
+  for (name, source) in [("app/routes/page.tsx", PAGE), ("app/routes/page.loader.ts", CLOCK_LOADER), ("src/native.rs", CLOCK)] {
+    std::fs::create_dir_all(project.join(name).parent().unwrap()).unwrap();
+    std::fs::write(project.join(name), source).unwrap();
+  }
+  let built = build(&dir, &Options::default()).unwrap();
+  let mut calls = Vec::new();
+  for row in &built.manifest.sources {
+    snapfire_fsr_ir::ast::body_visit(row.body.as_ref().unwrap(), &mut |e| {
+      if let snapfire_fsr_ir::Expr::NativeCall { method, sync, .. } = e {
+        calls.push((method.clone(), *sync));
+      }
+    });
+  }
+  calls.sort();
+  assert_eq!(calls, vec![("year".to_owned(), true), ("zone".to_owned(), false)]);
   std::fs::remove_dir_all(&project).unwrap();
 }
 

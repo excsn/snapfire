@@ -163,7 +163,7 @@ fn ruled_out(cond: &Expr, out: &mut Vec<String>) {
 
 /// Whether a block always leaves the body: its last statement returns or fails unconditionally.
 fn never_falls_through(body: &Body) -> bool {
-  matches!(body.last(), Some(Stmt::Return(_)) | Some(Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), .. }))
+  matches!(body.last(), Some(Stmt::Return(_) | Stmt::Break | Stmt::Continue) | Some(Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), .. }))
 }
 
 fn non_null(t: Ts) -> Ts {
@@ -225,6 +225,10 @@ impl<'a> Inferer<'a> {
           self.block(body, env, returns);
           env.pop();
         }
+        Stmt::While { body, step, .. } => {
+          self.block(body, env, returns);
+          self.block(step, env, returns);
+        }
         Stmt::Return(e) => returns.push(self.expr(e, env)),
         Stmt::Try { body, name, handler, finally } => {
           self.block(body, env, returns);
@@ -233,7 +237,7 @@ impl<'a> Inferer<'a> {
           env.truncate(env.len() - name.iter().count());
           self.block(finally, env, returns);
         }
-        Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } | Stmt::Expr(_) => {}
+        Stmt::Set { .. } | Stmt::Break | Stmt::Continue | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } | Stmt::Expr(_) => {}
       }
     }
     env.truncate(depth);

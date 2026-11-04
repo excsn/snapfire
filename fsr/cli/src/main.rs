@@ -16,7 +16,9 @@ use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::direction::{self, UseOptions};
 use snapfire_fsr_cli::{check, dev, emit, ir, new, serve, Options};
 #[cfg(feature = "web")]
-use snapfire_fsr_cli::{sites, test, types};
+use snapfire_fsr_cli::{sites, types};
+#[cfg(feature = "test")]
+use snapfire_fsr_cli::test;
 
 #[derive(Parser)]
 #[command(
@@ -42,7 +44,7 @@ enum Command {
   Migrate(Migrate),
   /// Builds and serves an application, rebuilding what changed as it changes.
   Dev(Dev),
-  #[cfg(feature = "web")]
+  #[cfg(feature = "test")]
   /// Runs the application's tests.
   Test(Test),
   /// Serves an application that is already built.
@@ -252,7 +254,7 @@ struct TypecheckFlags {
   snapfiretc: Option<PathBuf>,
 }
 
-#[cfg(feature = "web")]
+#[cfg(feature = "test")]
 #[derive(Args)]
 struct Test {
   /// The application directory.
@@ -553,7 +555,7 @@ impl Remote {
   }
 }
 
-#[cfg(feature = "web")]
+#[cfg(feature = "test")]
 impl Test {
   fn typechecked(&self) -> Typecheck {
     let mut typecheck = Typecheck::beside(&self.app_dir);
@@ -673,7 +675,7 @@ fn refused(message: &str) -> ExitCode {
   ExitCode::from(2)
 }
 
-#[cfg(feature = "web")]
+#[cfg(feature = "test")]
 fn run_test(args: Test) -> ExitCode {
   let project = test::rust_project(&args.app_dir);
   if args.rust_only && project.is_none() {
@@ -716,7 +718,7 @@ fn main() -> ExitCode {
       Ok(()) => ExitCode::SUCCESS,
       Err(e) => failed(e),
     },
-    #[cfg(feature = "web")]
+    #[cfg(feature = "test")]
     Command::Test(args) => run_test(args),
     Command::Serve(args) => {
       let mut mounts = Vec::new();
@@ -995,7 +997,14 @@ fn run_bundle(args: Bundle) -> ExitCode {
         println!();
       }
       println!("{} files, {} bytes under {}", bundled.files, bundled.bytes, bundled.out.display());
-      println!("place beside it: {}", bundled.beside.join(", "));
+      match snapfire_fsr_cli::bundle::place_server(&args.app_dir, &out) {
+        Ok(Some(server)) => {
+          println!("{} runs it", server.display());
+          println!("place beside it: the logging configuration");
+        }
+        Ok(None) => println!("place beside it: {}", bundled.beside.join(", ")),
+        Err(e) => return failed(e),
+      }
       ExitCode::SUCCESS
     }
     Err(e) => failed(e),

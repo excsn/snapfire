@@ -153,8 +153,10 @@ fn a_bundle_lists_its_files_under_verbose() {
   assert!(fsr_build(&root, None).status.success());
   let snapfire = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug");
   let path = format!("{}:{}", snapfire.display(), std::env::var("PATH").unwrap_or_default());
+  let server = root.join("fsr-server-stand-in");
+  std::fs::write(&server, "#!/bin/sh\n").unwrap();
   let bundle = |out: &str, args: &[&str]| {
-    let output = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("bundle").arg(root.join("app")).arg("--out").arg(root.join(out)).args(args).env("PATH", &path).env("CARGO_TARGET_DIR", root.join("target")).output().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("bundle").arg(root.join("app")).arg("--out").arg(root.join(out)).args(args).env("PATH", &path).env("CARGO_TARGET_DIR", root.join("target")).env(snapfire_fsr_cli::server::SERVER_ENV, &server).output().unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
     stdout
