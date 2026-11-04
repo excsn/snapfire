@@ -35,7 +35,13 @@ impl fmt::Display for SessionId {
 }
 
 pub(crate) fn to_hex(bytes: &[u8]) -> String {
-  bytes.iter().map(|b| format!("{b:02x}")).collect()
+  const DIGITS: &[u8; 16] = b"0123456789abcdef";
+  let mut out = String::with_capacity(bytes.len() * 2);
+  for b in bytes {
+    out.push(DIGITS[usize::from(b >> 4)] as char);
+    out.push(DIGITS[usize::from(b & 0x0f)] as char);
+  }
+  out
 }
 
 pub(crate) fn from_hex(s: &str) -> Option<Vec<u8>> {
@@ -54,4 +60,17 @@ pub(crate) fn from_hex(s: &str) -> Option<Vec<u8>> {
       Some((hi * 16 + lo) as u8)
     })
     .collect()
+}
+
+#[cfg(test)]
+mod hex_tests {
+  use super::{from_hex, to_hex};
+
+  #[test]
+  fn bytes_are_written_as_lowercase_hex_two_digits_each_and_read_back() {
+    let bytes = [0x00, 0x0f, 0xa5, 0xff, 0x10];
+    assert_eq!(to_hex(&bytes), "000fa5ff10");
+    assert_eq!(from_hex(&to_hex(&bytes)).as_deref(), Some(&bytes[..]));
+    assert_eq!(to_hex(&[]), "");
+  }
 }
