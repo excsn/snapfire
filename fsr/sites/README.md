@@ -25,3 +25,5 @@ snapfire_fsr_sites = "0"
 | Fetch a version the cache lacks from a directory of archives or an HTTP server | `[sites] store`, `TarStore`, `HttpStore` (feature `http`), `fetch_missing` |
 | Fetch from a registry of your own | a `Store` handed to `mount_all_with` and `mountable_with` |
 | Reread the table on `SIGHUP` or a poll and reload the host when it moved | `watch`, `poll_of` |
+| Serve an application with no crate of its own in production | the `fsr-server` binary, feature `server`, which `fsr bundle` puts in the deploy tree |
+| Build and serve the stock host the way `fsr serve` does | `serve::host_of`, `serve::listen` |

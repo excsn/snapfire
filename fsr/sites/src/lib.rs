@@ -13,12 +13,16 @@ use snapfire_fsr_host::{Host, HostBuilder, HostError, Loader, Mount};
 pub mod artifact;
 pub mod install;
 pub mod layout;
+pub mod serve;
 
 pub use artifact::{pack, parts, unpack, ArtifactError, Entry, Listing, Manifest};
 pub use layout::{layout, Layout, LayoutError, Placement, Row, Source};
 pub use install::{ArchiveStore, Cache, InstallError, Installed, Store, TarStore};
 #[cfg(feature = "http")]
 pub use install::HttpStore;
+
+/// This crate's version, which the `fsr-server` binary is built and cached at.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// The environment variable a configured HTTP store reads one `Name: Value`
 /// header from, which keeps a token out of the configuration.

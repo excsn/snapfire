@@ -38,8 +38,15 @@
 * [6. Watching](#6-watching)
   * [`watch`](#watch)
   * [`poll_of`](#poll_of)
-* [7. Error Handling](#7-error-handling)
+* [7. Serving](#7-serving)
+  * [`serve::project_root`](#serveproject_root)
+  * [`serve::host_of`](#servehost_of)
+  * [`serve::builder_with_mounts`](#servebuilder_with_mounts)
+  * [`serve::listen`](#servelisten)
+  * [`fsr-server`](#fsr-server)
+* [8. Error Handling](#8-error-handling)
   * [`SitesError`](#siteserror)
+  * [`ServeError`](#serveerror)
   * [`InstallError`](#installerror)
   * [`LayoutError`](#layouterror)
   * [`ArtifactError`](#artifacterror)
@@ -194,7 +201,31 @@ Feature `http` adds `HttpStore`. Module constant `STAGING` is `".staging"`, the 
 
 * `poll_of(config: &Config) -> Option<Duration>`: `sites.poll` parsed.
 
-## 7. Error Handling
+## 7. Serving
+
+The stock host over an application with no crate of its own. `fsr serve` runs it in development and the `fsr-server` binary in production. `VERSION` is this crate's version, which `fsr bundle` builds and caches `fsr-server` at.
+
+### serve::project_root
+
+* `project_root(app: &Path) -> PathBuf`: the directory beside `app` when it holds `config/`, an `app.toml` or an `app.yaml`, else `app` itself.
+
+### serve::host_of
+
+* `host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>, Option<LoggingGuard>), ServeError>`: the host over `app` with its `[sites]` table mounted. Refuses a configuration whose `[app] dir` names another directory. With `serve`, it sets the process's logging and collects traces under `server.dev` or when the configuration exposes or inlines them.
+
+### serve::builder_with_mounts
+
+* `builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<HostBuilder, ServeError>`: the builder with `mounts` replacing or adding rows of the `[sites]` table, reloading the same way.
+
+### serve::listen
+
+* `async listen(host: Arc<Host>, root: PathBuf, listen: &str, bound: impl FnOnce(&str) -> io::Result<()>) -> io::Result<()>`: binds `listen`, tells `bound` the address taken, watches the `[sites]` table under `root` and serves until the process ends.
+
+### fsr-server
+
+* `fsr-server [<app dir>] [--listen <addr>]`, a binary behind feature `server`, which also turns on the host's `auth`, `oidc`, `passkey`, `tera` and `tls` features and `http`. The app directory defaults to `app` beside the binary. `RELEASE_ENV` defaults to `production`. A configuration with `server.dev` on is refused with exit code 2.
+
+## 8. Error Handling
 
 ### SitesError
 
@@ -217,3 +248,7 @@ Feature `http` adds `HttpStore`. Module constant `STAGING` is `".staging"`, the 
 
 * `Io`, `Config(HostError)`, `NotASite(PathBuf)`, `Manifest { path, message }`, `Format(PathBuf, u32)`, `Archive(PathBuf, String)`, `Layout(LayoutError)`.
 * From `verify`: `Hash { found, declared }`, `Digest { path, found, declared }`, `Missing { path }`, `Extra { path }`.
+
+### ServeError
+
+* `pub struct ServeError(pub String)`: why `serve::host_of` or `serve::builder_with_mounts` could not build the host.
