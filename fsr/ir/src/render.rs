@@ -3548,6 +3548,22 @@ mod tests {
       assert_eq!(html, expected, "{expr:?}");
     }
   }
+
+  fn decoded(text: &str) -> Result<String, String> {
+    let expr = Expr::Builtin { name: Builtin::DecodeUriComponent, args: vec![Expr::lit_str(text)] };
+    let component = Component { body: Vec::new(), render: Tmpl::Expr(expr), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None };
+    Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).map(|out| out.html).map_err(|e| e.to_string())
+  }
+
+  #[test]
+  fn decode_uri_component_reverses_encode_and_throws_a_uri_error_on_a_malformed_escape() {
+    assert_eq!(decoded("%2Fservices%2Fa%20b%C3%A9%f0%9f%98%80").unwrap(), "/services/a bé😀");
+    assert_eq!(decoded("plain").unwrap(), "plain");
+    for malformed in ["%", "%4", "%zz", "%+F", "%C3", "%E0%A4%A", "%ED%A0%80", "%C0%AF"] {
+      let err = decoded(malformed).unwrap_err();
+      assert!(err.contains("URI malformed"), "{malformed}: {err}");
+    }
+  }
 }
 
 #[cfg(test)]

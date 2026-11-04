@@ -205,6 +205,8 @@ pub enum Builtin {
   /// carrying JavaScript's substitutions.
   Replace,
   EncodeUriComponent,
+  /// `decodeURIComponent(s)`, throwing a `URIError` on an escape that is not two hex digits or bytes that are not UTF-8.
+  DecodeUriComponent,
   LocaleNumber,
   /// `Array.from({ length: n })`: the integers `0..n`.
   Range,

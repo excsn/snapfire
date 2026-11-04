@@ -223,6 +223,17 @@ fn sort_and_reverse_lower_over_a_new_array_and_are_residue_over_one_another_hold
 }
 
 #[test]
+fn sort_lowers_over_the_new_array_flat_returns() {
+  let body = lowered("sort_flat", "params.tags.flat().sort()").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Sort(..), .. }), "{body:?}");
+}
+
+#[test]
+fn decode_uri_component_lowers_beside_encode() {
+  assert_eq!(format!("{:?}", builtin_of(&lowered("decode_uri", "decodeURIComponent(params.slug)").unwrap())), "DecodeUriComponent");
+}
+
+#[test]
 fn an_optional_call_of_a_method_lowers_and_one_of_a_function_value_is_residue() {
   let body = lowered("opt_method", "params.tags?.map((t) => t.length)").unwrap();
   assert!(matches!(&body[0], Stmt::Let { expr: Expr::Ternary(..), .. }), "{body:?}");

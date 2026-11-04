@@ -3916,6 +3916,7 @@ impl<'a> Lowerer<'a> {
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
           "Boolean" => Ok(Expr::Not(Box::new(Expr::Not(one(self)?)))),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
+          "decodeURIComponent" => Ok(Expr::Builtin { name: Builtin::DecodeUriComponent, args: vec![*one(self)?] }),
           "isNaN" => Ok(Expr::Builtin { name: Builtin::IsNaN, args: vec![*one(self)?] }),
           "btoa" | "atob" => Ok(Expr::Ext { module: "encoding".to_owned(), name: name.to_owned(), args: vec![*one(self)?] }),
           "structuredClone" if call.args.len() <= 1 => { let value = *one(self)?; Ok(if heap_pass() { Expr::Builtin { name: Builtin::CopyDeep, args: vec![value] } } else { value }) }
@@ -5573,7 +5574,7 @@ fn fresh_array(e: &js::Expr) -> bool {
     js::Expr::Paren(p) => fresh_array(&p.expr),
     js::Expr::Call(call) => match &call.callee {
       js::Callee::Expr(callee) => match &**callee {
-        js::Expr::Member(m) => matches!(&m.prop, js::MemberProp::Ident(p) if matches!(p.sym.as_ref(), "slice" | "map" | "filter" | "concat" | "toSorted" | "toReversed" | "flatMap" | "split" | "keys" | "values" | "entries" | "from")),
+        js::Expr::Member(m) => matches!(&m.prop, js::MemberProp::Ident(p) if matches!(p.sym.as_ref(), "slice" | "map" | "filter" | "concat" | "toSorted" | "toReversed" | "flat" | "flatMap" | "split" | "keys" | "values" | "entries" | "from")),
         _ => false,
       },
       _ => false,

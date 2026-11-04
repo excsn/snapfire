@@ -4200,6 +4200,30 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       Value::str(out)
     }
+    Builtin::DecodeUriComponent => {
+      let s = stringify(arg(0)?)?;
+      let malformed = || {
+        let mut thrown = ValueMap::default();
+        thrown.insert("name".to_owned(), Value::str("URIError"));
+        thrown.insert("message".to_owned(), Value::str("URI malformed"));
+        Fail::internal("decodeURIComponent: URI malformed").with_thrown(Value::Map(thrown))
+      };
+      let digit = |byte: Option<&u8>| byte.and_then(|b| (*b as char).to_digit(16));
+      let bytes = s.as_bytes();
+      let mut out = Vec::with_capacity(bytes.len());
+      let mut i = 0;
+      while i < bytes.len() {
+        if bytes[i] == b'%' {
+          let (Some(high), Some(low)) = (digit(bytes.get(i + 1)), digit(bytes.get(i + 2))) else { return Err(malformed()) };
+          out.push((high * 16 + low) as u8);
+          i += 3;
+        } else {
+          out.push(bytes[i]);
+          i += 1;
+        }
+      }
+      Value::str(String::from_utf8(out).map_err(|_| malformed())?)
+    }
     Builtin::LocaleNumber => {
       let n = number(name, arg(0)?)?;
       let text = stringify(&whole(n))?;

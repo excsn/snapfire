@@ -184,7 +184,7 @@ fn builtin() -> BoxedStrategy<Builtin> {
     Just(Builtin::Join), Just(Builtin::Trim), Just(Builtin::Upper), Just(Builtin::Lower),
     Just(Builtin::Includes), Just(Builtin::StartsWith), Just(Builtin::EndsWith),
     Just(Builtin::Split), Just(Builtin::Replace),
-    Just(Builtin::EncodeUriComponent), Just(Builtin::LocaleNumber),
+    Just(Builtin::EncodeUriComponent), Just(Builtin::DecodeUriComponent), Just(Builtin::LocaleNumber),
     Just(Builtin::Range), Just(Builtin::Omit),
     Just(Builtin::Slice), Just(Builtin::At), Just(Builtin::IndexOf), Just(Builtin::Concat), Just(Builtin::Reverse),
     Just(Builtin::PadStart), Just(Builtin::PadEnd), Just(Builtin::Substring), Just(Builtin::Json),
