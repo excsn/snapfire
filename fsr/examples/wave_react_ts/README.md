@@ -7,6 +7,7 @@ It is the example that needs a WebSocket and it is the one that shows exactly ho
 ## Running it
 
 ```sh
+fsr build wave_react_ts/app
 cargo run -p wave_react_ts
 ```
 

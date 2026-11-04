@@ -33,10 +33,12 @@ Each site shows a different side of mounting:
 
 ## Run it
 
-From this directory, build the three sites. Each writes its plan and its bundle under its own prefix, billing's through its `build.rs`:
+From this directory, build the portal and then its four sites, since each site reads the portal's `generated/shell.json`. Each writes its plan and its bundle under its own prefix:
 
 ```sh
-cargo build -p billing_site_react_ts
+fsr build app
+fsr build sites/billing/app
+fsr build sites/reports/app
 fsr build sites/blog/app
 fsr build sites/status/app
 ```

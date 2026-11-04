@@ -15,9 +15,6 @@ snapfire_fsr_payload = { path = "../../payload" }
 snapfire_fsr_service = { path = "../../service" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
-[build-dependencies]
-snapfire_fsr_cli = { path = "../../cli" }
-
 [dev-dependencies]
 futures = "0.3"
 snapfire_fsr_runtime = { path = "../../runtime" }

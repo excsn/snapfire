@@ -80,13 +80,13 @@ cargo install snapfire_compiler snapfire_fsr_cli
 cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
-After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `blog_site_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `shelf_svelte_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` and `shelf_svelte_ts` need `snapfirec-svelte`, from `cargo install snapfire_svelte`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
+After that each example is `fsr build <name>/app`, which writes the plan, the generated TypeScript and the browser bundle, then `cargo run -p <name>` from this directory. `conference_react_ts`, `blog_site_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `shelf_svelte_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` runs them in development and `fsr bundle app` puts `fsr-server` in a deploy tree for production. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` and `shelf_svelte_ts` need `snapfirec-svelte`, from `cargo install snapfire_svelte`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
 
 ```sh
 cd shopping_react_ts && fsr dev app
 ```
 
-`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests, which is every example but the conference, the blog, the recipes, the tool shed and the noticeboard.
+`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests once `fsr build` has written each one's app, which is every example but the conference, the blog, the recipes, the tool shed and the noticeboard.
 
 The cli's `examples` test, `cargo test -p snapfire_fsr_cli --test examples` from `fsr/`, copies every example with only the files a checkout holds, then builds it, runs its specs, bundles it and boots the host from its sources and from its deploy tree. An output an earlier run left in `dist/`, `generated/` or `.fsr/test/` never reaches that copy, so what passes there passes for a new clone.
 

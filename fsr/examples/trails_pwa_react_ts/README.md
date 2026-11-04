@@ -5,6 +5,7 @@ Four walking trails to read on the way. The example exists for `[pwa]`: the page
 ## Running it
 
 ```sh
+fsr build trails_pwa_react_ts/app
 cargo run -p trails_pwa_react_ts
 ```
 

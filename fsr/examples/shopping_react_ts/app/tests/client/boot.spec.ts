@@ -1,4 +1,4 @@
-import { registerIsland, scan } from "@snapfire/fsr/client";
+import { registerDeferredIsland, registerIsland, scan, type Adapter } from "@snapfire/fsr/client";
 import { expect, settle, test } from "@snapfire/fsr/client/testing";
 
 test("scan mounts each registered marker once, with its props and whether it has markup", async () => {
@@ -36,4 +36,25 @@ test("a marker no registry knows yet is not reported until every entry has run",
   } finally {
     console.warn = warn;
   }
+});
+
+test("a deferred island's adapter is imported once a scan finds one of its islands and once for all of them", async () => {
+  let imports = 0;
+  const mounted: string[] = [];
+  const adapter = async (): Promise<Adapter> => {
+    imports += 1;
+    return { mount: (mod, _props, el) => void mounted.push(`${mod} ${el.id}`) };
+  };
+  registerDeferredIsland("tests/client/chart", { loader: async () => "chart", adapter });
+  registerDeferredIsland("tests/client/table", { loader: async () => "table", adapter });
+  document.body.innerHTML = "<p>no island here</p>";
+  scan(document);
+  await settle();
+  expect(imports, "a page holding none of its islands loads no adapter").toEqual(0);
+  document.body.innerHTML = '<sf-i id="c1" data-sf-module="tests/client/chart"></sf-i><sf-i id="t1" data-sf-module="tests/client/table"></sf-i>';
+  scan(document);
+  scan(document);
+  await settle();
+  expect(imports).toEqual(1);
+  expect(mounted).toEqual(["chart c1", "table t1"]);
 });

@@ -5,6 +5,7 @@ An arrivals board on a field whose clock runs fast. Flights land, depart, run la
 ## Running it
 
 ```sh
+fsr build arrivals_react_ts/app
 cargo run -p arrivals_react_ts
 ```
 

@@ -8,11 +8,8 @@ authors = { workspace = true }
 license = { workspace = true }
 
 [dependencies]
-snapfire_fsr_host = { path = "../../host" }
+snapfire_fsr_host = { path = "../../host", features = ["share_cards"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-
-[build-dependencies]
-snapfire_fsr_cli = { path = "../../cli" }
 
 [dev-dependencies]
 bytes = "1"

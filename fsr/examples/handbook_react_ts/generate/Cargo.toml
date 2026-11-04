@@ -11,9 +11,6 @@ license = { workspace = true }
 snapfire_fsr_host = { path = "../../../host" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
-[build-dependencies]
-snapfire_fsr_cli = { path = "../../../cli" }
-
 [dev-dependencies]
 snapfire_fsr_test_internal = { path = "../../../test_internal" }
 futures = "0.3"

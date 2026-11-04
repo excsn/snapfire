@@ -1,6 +1,6 @@
 # noticeboard_tera
 
-A building's noticeboard: a list of notices and a page per notice, every page a Tera template under `routes/` and no TypeScript component anywhere. The loaders are TypeScript, lowered as they are beside a `page.tsx`; the templates are what renders, read by the stock host from the files themselves. There is no Rust project and no `main.rs`: `fsr serve app` is the server.
+A building's noticeboard: a list of notices and a page per notice, every page a Tera template under `routes/` and no TypeScript component anywhere. The loaders are TypeScript, lowered as they are beside a `page.tsx`; the templates are what renders, read by the stock host from the files themselves. There is no Rust project and no `main.rs`: `fsr serve app` serves it in development and `fsr-server` in production.
 
 It exists to show that a template is one more thing a route directory can hold. `routes/page.tera` is `/`, `routes/notice/[id]/page.tera` is `/notice/{id}`, `routes/layout.tera` wraps both and places the page with `{{ slot(name="content") }}`. A template's context is what its loader returned, so `notices` in the index and `notice` on a page are the loader's fields. A partial is a template anywhere under `app/`, named by its path: `{% include "templates/nav.tera" %}`.
 
@@ -8,6 +8,14 @@ It exists to show that a template is one more thing a route directory can hold. 
 
 ```sh
 fsr serve app
+```
+
+To deploy it, bundle the tree and run the `fsr-server` it holds on the server:
+
+```sh
+fsr prerender app
+fsr bundle app --out dist
+C5_SESSION__KEY=... dist/fsr-server
 ```
 
 `fsr prerender app` writes the index and, since the notice page's loader exports `paths`, one file per notice. A production host answers those from the files and renders any other id live. `fsr serve app` in development renders every page live; `/notice/bins?__prerendered` shows the page as a prerender writes it. The same `paths` fills `/sitemap.xml`, which `[crawl]` turns on beside `/robots.txt`. Each notice's `meta` names its posting date with `modified`, which the sitemap writes as its `lastmod`.

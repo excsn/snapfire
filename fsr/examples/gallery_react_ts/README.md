@@ -5,6 +5,7 @@ Four evenings of phone photos on a wall. The example exists for its images and f
 ## Running it
 
 ```sh
+fsr build gallery_react_ts/app
 cargo run -p gallery_react_ts
 ```
 

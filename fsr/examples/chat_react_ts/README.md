@@ -5,6 +5,7 @@ Rooms, messages and the message someone else sent arriving on your screen. It is
 ## Running it
 
 ```sh
+fsr build chat_react_ts/app
 cargo run -p chat_react_ts
 ```
 

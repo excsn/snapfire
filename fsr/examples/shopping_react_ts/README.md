@@ -31,10 +31,11 @@ Step 2 is the browser build of the client library, which git does not carry. Ste
 Step 4 is what the loop redoes as files change. By hand it is:
 
 ```sh
-cargo run                       # build.rs emits the plan, the contracts, the generated TypeScript and the browser bundle
+fsr build app                   # the plan, the contracts, the generated TypeScript and the browser bundle
+cargo run                       # the server
 ```
 
-`build.rs` calls `snapfire_fsr_cli::emit`, which generates and then bundles, in that order because the bundle compiles the island registry the generation writes. It finds the compiler at `$SNAPFIREC`, else in this repository's `target/`, so step 1 has to have happened.
+`fsr build` generates and then bundles, in that order because the bundle compiles the island registry the generation writes. It finds the compiler at `$SNAPFIREC`, else beside `fsr`, else on `PATH`, so step 1 has to have happened.
 
 ## Three servers, one binary
 
@@ -69,12 +70,12 @@ app/                    the TypeScript application
 config/app.toml         listen address, session key, each service's base URL
 src/backend/            the two services this example pretends not to own
 src/routes.rs           the one route added in Rust
-build.rs                runs the fsr build, so cargo build is enough
+build.rs                compiles inventory.proto for the gRPC backend
 ```
 
 The pages are rendered on the server without a JavaScript engine: the build lowers each `page.tsx` and the components under `src/ui/` to a render tree in the plan file, the host renders it in Rust and React hydrates the islands inside the markup in the browser. The `rendered` rows at boot say which modules that covers; a module the build cannot lower is listed as `client` with the line that decided it and mounts in the browser only.
 
-Generated output is not committed. `build.rs` writes `app/generated/` on every `cargo build`: the plan file, one contract per document, the TypeScript a body is written against and both tsconfigs.
+Generated output is not committed. `fsr build` writes `app/generated/`: the plan file, one contract per document, the TypeScript a body is written against and both tsconfigs.
 
 ## Changing it
 
