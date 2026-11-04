@@ -8,7 +8,7 @@ fn rewritten(files: &[(&str, &str)]) -> Tree {
     tree.insert(*path, text.as_bytes().to_vec());
   }
   assert!(is_old_layout(&tree));
-  relayout(&tree).0
+  relayout(&tree, &[]).0
 }
 
 fn text<'a>(tree: &'a Tree, path: &str) -> &'a str {
@@ -81,3 +81,22 @@ fn the_import_map_renames_its_keys_and_lists_each_client_module() {
   assert_eq!(imports["@snapfire/fsr"], "/static/js/fsr/native.js");
   assert!(!imports.keys().any(|k| k.contains("fsr-client")), "{map}");
 }
+
+#[test]
+fn the_import_map_drops_the_entries_the_host_supplies_and_keeps_its_own() {
+  let mut tree = Tree::new();
+  tree.insert(
+    "app/importmap.json",
+    b"{\n  \"imports\": {\n    \"react\": \"/v/react.js\",\n    \"@snapfire/fsr-client\": \"/static/js/fsr/index.js\",\n    \"@snapfire/fsr-client/std\": \"/static/js/fsr/std.js\",\n    \"@snapfire/fsr-client/react\": \"/mine/react.js\"\n  }\n}\n".to_vec(),
+  );
+  let mut supplied: Vec<(String, String)> = vec![("@snapfire/fsr/client".to_owned(), "/static/js/fsr/index.js".to_owned()), ("@snapfire/fsr".to_owned(), "/static/js/fsr/native.js".to_owned())];
+  for module in ["intl", "text", "time", "crypto", "i18n", "log", "path", "react"] {
+    supplied.push((format!("@snapfire/fsr/client/{module}"), format!("/static/js/fsr/{module}.js")));
+  }
+  let (tree, _) = relayout(&tree, &supplied);
+  let map: serde_json::Value = serde_json::from_str(text(&tree, "app/importmap.json")).unwrap();
+  let imports = map["imports"].as_object().unwrap();
+  assert_eq!(imports.keys().collect::<Vec<_>>(), ["react", "@snapfire/fsr/client/react"], "{map}");
+  assert_eq!(imports["@snapfire/fsr/client/react"], "/mine/react.js", "an entry pointing elsewhere is the app's own");
+}
+

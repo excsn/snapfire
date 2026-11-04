@@ -67,8 +67,8 @@ pub fn is_old_layout(tree: &Tree) -> bool {
   })
 }
 
-/// `tree` with every old specifier under `app/` rewritten and its import map renamed.
-pub fn relayout(tree: &Tree) -> (Tree, Report) {
+/// `tree` with every old specifier under `app/` rewritten and its import map renamed, leaving out each entry `supplied`, what the host adds to every import map, already maps to the same place.
+pub fn relayout(tree: &Tree, supplied: &[(String, String)]) -> (Tree, Report) {
   let mut report = Report::default();
   let mut out = tree.clone();
   let terminal = is_terminal(tree);
@@ -76,7 +76,7 @@ pub fn relayout(tree: &Tree) -> (Tree, Report) {
   for path in paths {
     let Some(text) = tree.text(&path) else { continue };
     let rewritten = if path.ends_with("importmap.json") {
-      import_map(text)
+      import_map(text, supplied)
     } else if is_script(&path) {
       match parse(&path, text) {
         Ok(parsed) => script(&parsed, text, terminal || is_body(&path)),
@@ -239,8 +239,43 @@ fn script(parsed: &Parsed, text: &str, host: bool) -> String {
   edits.apply(text)
 }
 
-/// The import map with each old key renamed; the standard module's one entry becomes one per module the browser loads beside `native`'s.
-fn import_map(text: &str) -> String {
+/// The import map with each old key renamed and without each entry `supplied` maps the same way. The standard module's one entry becomes one per module the browser loads beside `native`'s. Text that is not a JSON object with `imports` is renamed line by line.
+fn import_map(text: &str, supplied: &[(String, String)]) -> String {
+  let Ok(serde_json::Value::Object(mut map)) = serde_json::from_str::<serde_json::Value>(text) else { return import_map_lines(text) };
+  let Some(serde_json::Value::Object(imports)) = map.get("imports") else { return import_map_lines(text) };
+  let mut kept = serde_json::Map::new();
+  let mut changed = false;
+  for (key, value) in imports {
+    let entries: Vec<(String, serde_json::Value)> = if key == OLD_STD {
+      let dir = value.as_str().and_then(|url| url.strip_suffix("std.js")).unwrap_or_default();
+      let mut entries: Vec<(String, serde_json::Value)> = CLIENT_MEMBERS.iter().map(|(module, _)| (format!("{CLIENT}/{module}"), serde_json::Value::String(format!("{dir}{module}.js")))).collect();
+      entries.push((ROOT.to_owned(), serde_json::Value::String(format!("{dir}native.js"))));
+      entries
+    } else {
+      vec![(renamed(key).unwrap_or_else(|| key.clone()), value.clone())]
+    };
+    for (name, url) in entries {
+      if name != *key {
+        changed = true;
+      }
+      if supplied.iter().any(|(specifier, at)| *specifier == name && url.as_str() == Some(at.as_str())) {
+        changed = true;
+        continue;
+      }
+      kept.entry(name).or_insert(url);
+    }
+  }
+  if !changed {
+    return text.to_owned();
+  }
+  map.insert("imports".to_owned(), serde_json::Value::Object(kept));
+  let mut out = serde_json::to_string_pretty(&serde_json::Value::Object(map)).unwrap_or_else(|_| text.to_owned());
+  out.push('\n');
+  out
+}
+
+/// [`import_map`] for text that does not read as JSON: each old key renamed where it stands.
+fn import_map_lines(text: &str) -> String {
   let mut out = String::with_capacity(text.len());
   for line in text.split_inclusive('\n') {
     let trimmed = line.trim_start();
