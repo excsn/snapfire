@@ -483,6 +483,7 @@ What a hit restores. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one
 * `fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>>`: `key` is the composed key from [`assemble`](#assemble).
 * `fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()>`
 * `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>`: takes the plan's `cache_key`, not a composed key. It must remove every composed key derived from it, across all params and identities and return how many it removed.
+* `fn keeps(&self) -> bool`: whether a `put` can answer a later `get`, `true` unless overridden. A render asks a cache that keeps nothing for no entry and computes no key for it. `NoCache` answers `false`; `WarmRenders` answers `true` while it records, while it holds an entry and whenever its live cache keeps.
 
 ### `NoCache`
 

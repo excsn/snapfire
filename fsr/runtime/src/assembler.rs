@@ -85,11 +85,12 @@ pub struct Runtime {
   /// memo below rather than run.
   pub load_keyer: Arc<dyn LoadKeyer>,
   pub loads: Arc<dyn LoadCache>,
-  /// Plan nodes whose markup was seen to place the head slot. Such a subtree
+  /// Modules whose markup was seen to place the head slot. Such a subtree
   /// is never written to the cache and whether it places the head is a
   /// property of its module rather than of the request, so once one build has
-  /// seen it the lookup is known to be dead and is skipped.
-  head_users: parking_lot::Mutex<std::collections::HashSet<u32>>,
+  /// seen it the lookup is known to be dead and is skipped. Node ids are
+  /// numbered per route, so they cannot stand for the module.
+  head_users: parking_lot::Mutex<std::collections::HashSet<ModuleId>>,
   /// By data source id: how a segment describes the document from its data.
   pub metas: HashMap<String, Arc<dyn Metadata>>,
   /// The application's say over which parallel slot wins a store key both
@@ -1104,10 +1105,9 @@ impl Session {
       let shape = subtree_shape(node);
       let reads = self.runtime.reads.get(&shape);
       let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
-      let cache_key = match self.runtime.head_users.lock().contains(&node.id.0) {
-        true => None,
-        false => self.cache_key_for(node, loaded, seeded, shape, reads),
-      };
+      let keeps = self.runtime.cache.keeps();
+      let places_head = keeps && self.runtime.head_users.lock().contains(&node.module);
+      let cache_key = if keeps && !places_head { self.cache_key_for(node, loaded, seeded, shape, reads) } else { None };
       let render = tracing::info_span!(target: "fsr::trace", "render", module = %node.module, cache = tracing::field::Empty);
       let _rendering = render.enter();
       if let Some(key) = &cache_key {
@@ -1243,8 +1243,8 @@ impl Session {
         })
         .collect();
       let digest = own.digest();
-      if used_head {
-        self.runtime.head_users.lock().insert(node.id.0);
+      if used_head && keeps {
+        self.runtime.head_users.lock().insert(node.module.clone());
       }
       if let Some(key) = cache_key {
         if !used_head {

@@ -37,11 +37,19 @@ pub trait NodeCache: Send + Sync {
   /// Removes every entry whose plan `cache_key` matches and says how many
   /// went. Tags are keys, revalidation is invalidation.
   fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>;
+  /// Whether a `put` can answer a later `get`. A cache that keeps nothing is never given a key, so a render computes none.
+  fn keeps(&self) -> bool {
+    true
+  }
 }
 
 pub struct NoCache;
 
 impl NodeCache for NoCache {
+  fn keeps(&self) -> bool {
+    false
+  }
+
   fn get(&self, _key: &str) -> BoxFuture<'_, Option<CacheEntry>> {
     Box::pin(ready(None))
   }
@@ -346,15 +354,20 @@ pub struct WarmRenders {
   entries: parking_lot::RwLock<HashMap<String, CacheEntry>>,
   live: Arc<dyn NodeCache>,
   recording: std::sync::atomic::AtomicBool,
+  /// Whether `entries` holds anything, so `keeps` reads no lock.
+  held: std::sync::atomic::AtomicBool,
 }
 
 impl WarmRenders {
   pub fn new(entries: HashMap<String, CacheEntry>, live: Arc<dyn NodeCache>) -> Self {
-    Self { entries: parking_lot::RwLock::new(entries), live, recording: std::sync::atomic::AtomicBool::new(false) }
+    let held = std::sync::atomic::AtomicBool::new(!entries.is_empty());
+    Self { entries: parking_lot::RwLock::new(entries), live, recording: std::sync::atomic::AtomicBool::new(false), held }
   }
 
   pub fn replace(&self, entries: HashMap<String, CacheEntry>) {
-    *self.entries.write() = entries;
+    let mut held = self.entries.write();
+    *held = entries;
+    self.held.store(!held.is_empty(), std::sync::atomic::Ordering::SeqCst);
   }
 
   /// While on, every `put` lands here and every `get` misses.
@@ -393,6 +406,7 @@ impl NodeCache for WarmRenders {
   fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()> {
     if self.recording() {
       self.entries.write().insert(key, entry);
+      self.held.store(true, std::sync::atomic::Ordering::SeqCst);
       return Box::pin(ready(()));
     }
     self.live.put(key, entry)
@@ -400,6 +414,10 @@ impl NodeCache for WarmRenders {
 
   fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize> {
     self.live.invalidate(cache_key)
+  }
+
+  fn keeps(&self) -> bool {
+    self.recording() || self.held.load(std::sync::atomic::Ordering::Acquire) || self.live.keeps()
   }
 }
 

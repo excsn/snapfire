@@ -216,7 +216,7 @@ fn runtime_titled(absolute: bool) -> Arc<Runtime> {
   let mut sources = DataSources::new();
   sources.insert_fn("product", |_p| async move {
     let mut data = ValueMap::default();
-    data.insert("name".into(), Value::str("Nozzle {title}"));
+    data.insert("name", Value::str("Nozzle {title}"));
     Ok(data)
   });
   let mut evaluators = Evaluators::new();

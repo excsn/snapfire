@@ -208,6 +208,73 @@ fn a_subtree_that_used_the_head_slot_is_never_cached() {
 }
 
 #[test]
+fn a_module_that_placed_the_head_leaves_another_module_under_the_same_node_id_cached() {
+  let evals = Arc::new(AtomicU32::new(0));
+  let shell_evals = Arc::new(AtomicU32::new(0));
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(CountingEval(Arc::clone(&evals))));
+  evaluators.register(|m: &ModuleId| m.path == "shell.tera", Arc::new(HeadShell(Arc::clone(&shell_evals))));
+  let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).build();
+
+  let mut shell = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
+  shell.cache_key = Some(CacheKey("shell".into()));
+  let page = cached_leaf(None);
+
+  block_on(assemble(&rt, &shell, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  block_on(assemble(&rt, &page, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  block_on(assemble(&rt, &page, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+
+  assert_eq!(evals.load(Ordering::Relaxed), 1, "the page's second render is a hit, whatever another route's node 0 placed");
+}
+
+struct KeepsNothing;
+
+impl NodeCache for KeepsNothing {
+  fn get(&self, key: &str) -> futures_util::future::BoxFuture<'_, Option<CacheEntry>> {
+    panic!("a cache that keeps nothing was asked for {key}")
+  }
+
+  fn put(&self, key: String, _entry: CacheEntry) -> futures_util::future::BoxFuture<'_, ()> {
+    panic!("a cache that keeps nothing was given {key}")
+  }
+
+  fn invalidate(&self, _cache_key: &str) -> futures_util::future::BoxFuture<'_, usize> {
+    Box::pin(async { 0 })
+  }
+
+  fn keeps(&self) -> bool {
+    false
+  }
+}
+
+#[test]
+fn a_cache_that_keeps_nothing_is_never_asked() {
+  let evals = Arc::new(AtomicU32::new(0));
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(CountingEval(Arc::clone(&evals))));
+  let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(KeepsNothing)).build();
+  let page = cached_leaf(None);
+  for _ in 0..2 {
+    block_on(assemble(&rt, &page, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  }
+  assert_eq!(evals.load(Ordering::Relaxed), 2);
+}
+
+#[test]
+fn warm_renders_keep_while_recording_or_holding_entries_over_a_live_cache_that_keeps_nothing() {
+  let empty = snapfire_fsr_runtime::WarmRenders::new(Default::default(), Arc::new(snapfire_fsr_runtime::NoCache));
+  assert!(!empty.keeps());
+  empty.record(true);
+  assert!(empty.keeps());
+  block_on(empty.put("k".to_owned(), CacheEntry::new(Node::raw("<p>"), Vec::new(), 0)));
+  empty.record(false);
+  assert!(empty.keeps(), "an entry recorded is still answered");
+  empty.replace(Default::default());
+  assert!(!empty.keeps());
+  assert!(MemoryCache::new().keeps());
+}
+
+#[test]
 fn a_deferred_descendant_bypasses_the_cache() {
   let evals = Arc::new(AtomicU32::new(0));
   struct SlotShell(Arc<AtomicU32>);
