@@ -82,7 +82,7 @@ fn value_json(value: &Value) -> Json {
     Value::F64(f) => serde_json::Number::from_f64(*f).map(Json::Number).unwrap_or(Json::Null),
     Value::Str(s) => Json::String(s.to_string()),
     Value::Seq(items) => Json::Array(items.iter().map(value_json).collect()),
-    Value::Map(map) => Json::Object(map.iter().map(|(k, v)| (k.clone(), value_json(v))).collect()),
+    Value::Map(map) => Json::Object(map.iter().map(|(k, v)| (k.to_string(), value_json(v))).collect()),
     _ => Json::Null,
   }
 }

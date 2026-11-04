@@ -1,4 +1,3 @@
-use indexmap::IndexMap;
 
 use crate::fingerprint::{canonical_f32_bits, canonical_f64_bits};
 
@@ -7,11 +6,11 @@ use crate::fingerprint::{canonical_f32_bits, canonical_f64_bits};
 /// and a caller must not swap in a fixed-state one.
 pub type ValueHasher = foldhash::fast::RandomState;
 
-pub type Fields = IndexMap<String, Value, ValueHasher>;
+pub use crate::fields::{Fields, Key};
 
 /// What a `ValueStr` holds. Changing this changes the representation of every
 /// string in the value model in one line, without reaching any consumer.
-pub type Text = String;
+pub type Text = smol_str::SmolStr;
 
 /// The string of the value model, behind a name so its representation is one
 /// crate's business. Reads go through `Deref<Target = str>`, so a consumer
@@ -26,6 +25,15 @@ impl ValueStr {
 
   pub fn into_text(self) -> Text {
     self.0
+  }
+
+  /// This string for the life of the process: a clone copies a pointer and writes nothing shared.
+  pub fn frozen(&self) -> ValueStr {
+    if self.0.is_heap_allocated() {
+      ValueStr(Text::new_static(Box::leak(self.0.as_str().into())))
+    } else {
+      self.clone()
+    }
   }
 }
 
@@ -120,75 +128,488 @@ impl PartialEq<ValueStr> for &str {
   }
 }
 
+/// How deep dropping a value recurses before what it releases waits on a list.
+const DROP_DEPTH: usize = 64;
+
+std::thread_local! {
+  static DROPPING: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+  static WAITING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+  static RELEASED: std::cell::RefCell<Vec<Released>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The last reference to an object or an array, which a drop lets go of.
+enum Released {
+  Map { _held: std::sync::Arc<Place<Fields>> },
+  Seq { _held: std::sync::Arc<Place<Items>> },
+}
+
+/// Where an object lives. Holders read it directly. [`ValueMap::through`] and [`ValueSeq::through`] change it for all of them: the interpreter calls those on one thread with no reference into the object alive across the write. Independent `let`s that run on other threads never write.
+struct Place<T> {
+  value: std::cell::UnsafeCell<T>,
+  kind: std::cell::Cell<Collection>,
+}
+
+unsafe impl<T: Send> Send for Place<T> {}
+unsafe impl<T: Send + Sync> Sync for Place<T> {}
+
+/// Which JavaScript collection an object or an array is: a plain one, a `Map` kept as an object of its keys or a `Set` kept as an array of its items. Equality, the fingerprint and the wire ignore it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Collection {
+  #[default]
+  Plain,
+  Map,
+  Set,
+}
+
+impl<T> Place<T> {
+  fn new(value: T, kind: Collection) -> Self {
+    Place { value: std::cell::UnsafeCell::new(value), kind: std::cell::Cell::new(kind) }
+  }
+
+  #[inline]
+  fn get(&self) -> &T {
+    unsafe { &*self.value.get() }
+  }
+}
+
+fn release(value: Released) {
+  let depth = DROPPING.get();
+  if depth >= DROP_DEPTH {
+    let _ = RELEASED.try_with(|list| list.borrow_mut().push(value));
+    WAITING.set(true);
+    return;
+  }
+  DROPPING.set(depth + 1);
+  drop(value);
+  if depth == 0 {
+    while WAITING.get() {
+      match RELEASED.try_with(|list| list.borrow_mut().pop()) {
+        Ok(Some(next)) => drop(next),
+        _ => WAITING.set(false),
+      }
+    }
+  }
+  DROPPING.set(depth);
+}
+
+/// What an object or an array keeps behind its reference.
+trait Part: Clone + Default + 'static {
+  fn released(held: std::sync::Arc<Place<Self>>) -> Released;
+}
+
+impl Part for Fields {
+  fn released(held: std::sync::Arc<Place<Self>>) -> Released {
+    Released::Map { _held: held }
+  }
+}
+
+impl Part for Items {
+  fn released(held: std::sync::Arc<Place<Self>>) -> Released {
+    Released::Seq { _held: held }
+  }
+}
+
+/// An object's or an array's storage. A shared one is counted and its drop cannot recurse as deep as the value is nested. A frozen one lives as long as the process and is read by every thread with no write to a shared word: cloning it copies a pointer and dropping it does nothing.
+enum Held<T: Part> {
+  Shared(std::mem::ManuallyDrop<std::sync::Arc<Place<T>>>),
+  Frozen(&'static Place<T>),
+}
+
+impl<T: Part> Held<T> {
+  fn new(value: T) -> Self {
+    Self::of_kind(value, Collection::Plain)
+  }
+
+  fn of_kind(value: T, kind: Collection) -> Self {
+    Held::Shared(std::mem::ManuallyDrop::new(std::sync::Arc::new(Place::new(value, kind))))
+  }
+
+  #[inline]
+  fn place(&self) -> &Place<T> {
+    match self {
+      Held::Shared(held) => held,
+      Held::Frozen(held) => held,
+    }
+  }
+
+  #[inline]
+  fn get(&self) -> &T {
+    self.place().get()
+  }
+
+  #[inline]
+  fn kind(&self) -> Collection {
+    self.place().kind.get()
+  }
+
+  /// This storage as a collection of `kind`: marked where it stands when nothing else holds it, a copy otherwise.
+  fn with_kind(self, kind: Collection) -> Self {
+    match &self {
+      Held::Shared(held) if std::sync::Arc::strong_count(held) == 1 => {
+        held.kind.set(kind);
+        self
+      }
+      _ => Self::of_kind(self.get().clone(), kind),
+    }
+  }
+
+  fn make_mut(&mut self) -> &mut T {
+    let sole = matches!(self, Held::Shared(held) if std::sync::Arc::strong_count(held) == 1);
+    if !sole {
+      *self = Self::of_kind(self.get().clone(), self.kind());
+    }
+    match self {
+      Held::Shared(held) => unsafe { &mut *held.value.get() },
+      Held::Frozen(_) => unreachable!("just copied"),
+    }
+  }
+
+  fn is_frozen(&self) -> bool {
+    matches!(self, Held::Frozen(_))
+  }
+
+  /// How many holders share a counted object. A frozen one has no count.
+  fn holders(&self) -> usize {
+    match self {
+      Held::Shared(held) => std::sync::Arc::strong_count(held),
+      Held::Frozen(_) => usize::MAX,
+    }
+  }
+
+  /// The object itself for every holder. `None` for a frozen one, which requests share.
+  #[allow(clippy::mut_from_ref)]
+  fn through(&self) -> Option<&mut T> {
+    match self {
+      Held::Shared(held) => Some(unsafe { &mut *held.value.get() }),
+      Held::Frozen(_) => None,
+    }
+  }
+
+  fn same(&self, other: &Self) -> bool {
+    std::ptr::eq(self.get(), other.get())
+  }
+
+  fn into_inner(self) -> T {
+    let mut this = std::mem::ManuallyDrop::new(self);
+    match &mut *this {
+      Held::Shared(held) => {
+        let held = unsafe { std::mem::ManuallyDrop::take(held) };
+        match std::sync::Arc::try_unwrap(held) {
+          Ok(place) => place.value.into_inner(),
+          Err(held) => held.get().clone(),
+        }
+      }
+      Held::Frozen(held) => held.get().clone(),
+    }
+  }
+}
+
+impl<T: Part> Clone for Held<T> {
+  #[inline]
+  fn clone(&self) -> Self {
+    match self {
+      Held::Shared(held) => Held::Shared(held.clone()),
+      Held::Frozen(held) => Held::Frozen(held),
+    }
+  }
+}
+
+impl<T: Part> Default for Held<T> {
+  fn default() -> Self {
+    Held::new(T::default())
+  }
+}
+
+impl<T: Part> Drop for Held<T> {
+  #[inline]
+  fn drop(&mut self) {
+    if let Held::Shared(held) = self {
+      let held = unsafe { std::mem::ManuallyDrop::take(held) };
+      if std::sync::Arc::strong_count(&held) == 1 {
+        release(T::released(held));
+      }
+    }
+  }
+}
+
+impl Value {
+  /// This value and all it holds frozen for the life of the process. For what a plan keeps: a constant every request reads. Each object and array in it is noted against the whole, which [`Value::frozen_root`] answers.
+  pub fn frozen(&self) -> Value {
+    let mut nodes = Vec::new();
+    let root = self.freeze_into(&mut nodes);
+    if !nodes.is_empty() {
+      let mut roots = FROZEN_ROOTS.write();
+      for node in nodes {
+        roots.insert(node, root.clone());
+      }
+    }
+    root
+  }
+
+  fn freeze_into(&self, nodes: &mut Vec<usize>) -> Value {
+    let frozen = match self {
+      Value::Map(map) => {
+        let fields: Fields = map.iter().map(|(k, v)| (if k.is_heap_allocated() { Key::new_static(Box::leak(k.as_str().into())) } else { k.clone() }, crate::on_enough_stack(|| v.freeze_into(nodes)))).collect();
+        Value::Map(ValueMap(Held::Frozen(Box::leak(Box::new(Place::new(fields, map.kind()))))))
+      }
+      Value::Seq(items) => {
+        let frozen: Items = items.iter().map(|v| crate::on_enough_stack(|| v.freeze_into(nodes))).collect();
+        Value::Seq(ValueSeq(Held::Frozen(Box::leak(Box::new(Place::new(frozen, items.kind()))))))
+      }
+      Value::Str(text) => return Value::Str(text.frozen()),
+      other => return other.clone(),
+    };
+    nodes.push(frozen.address().expect("an object or an array"));
+    frozen
+  }
+
+  /// The frozen value a frozen object or array was made part of, so a body about to write one can make its own copy of the whole.
+  pub fn frozen_root(&self) -> Option<Value> {
+    match self {
+      Value::Map(map) if map.is_frozen() => FROZEN_ROOTS.read().get(&map.addr()).cloned(),
+      Value::Seq(items) if items.is_frozen() => FROZEN_ROOTS.read().get(&items.addr()).cloned(),
+      _ => None,
+    }
+  }
+
+  /// The address of an object or an array, its identity while it lives.
+  pub fn address(&self) -> Option<usize> {
+    match self {
+      Value::Map(map) => Some(map.addr()),
+      Value::Seq(items) => Some(items.addr()),
+      _ => None,
+    }
+  }
+}
+
+/// Whether `value` reaches the object or array at `target` through what it holds, looking at no more than `budget` objects and arrays or 16 levels down. `None` when it gave up first. A frozen value holds nothing a request made, so the search stops there.
+pub fn reaches(value: &Value, target: usize, budget: usize) -> Option<bool> {
+  let mut left = budget;
+  reach(value, target, &mut left, 0)
+}
+
+fn reach(value: &Value, target: usize, left: &mut usize, depth: usize) -> Option<bool> {
+  let children: &mut dyn Iterator<Item = &Value> = match value {
+    Value::Map(map) if !map.is_frozen() => &mut map.values(),
+    Value::Seq(items) if !items.is_frozen() => &mut items.iter(),
+    _ => return Some(false),
+  };
+  if value.address() == Some(target) {
+    return Some(true);
+  }
+  if *left == 0 || depth == 16 {
+    return None;
+  }
+  *left -= 1;
+  let mut gave_up = false;
+  let own = value.address();
+  for child in children {
+    if child.address().is_some() && child.address() == own {
+      continue;
+    }
+    match reach(child, target, left, depth + 1) {
+      Some(true) => return Some(true),
+      Some(false) => {}
+      None => gave_up = true,
+    }
+  }
+  if gave_up { None } else { Some(false) }
+}
+
+/// Frees the objects and arrays reachable from `candidates` that nothing holds but each other: a cycle a write made and the request no longer reaches. Each object reached is counted against the references the others hold to it; one held from outside lives with all it reaches. The rest are emptied so their counts fall to zero. Call it where nothing borrows a value reached from `candidates`, at the end of a request, after everything else the request held is gone.
+pub fn collect_cycles(candidates: Vec<Value>) {
+  if candidates.is_empty() {
+    return;
+  }
+  let counted = |value: &Value| match value {
+    Value::Map(map) => !map.is_frozen(),
+    Value::Seq(items) => !items.is_frozen(),
+    _ => false,
+  };
+  let mut slot: std::collections::HashMap<usize, usize, ValueHasher> = std::collections::HashMap::with_capacity_and_hasher(candidates.len() * 4, Default::default());
+  let mut nodes: Vec<Value> = Vec::with_capacity(candidates.len() * 4);
+  let mut edges: Vec<(usize, usize)> = Vec::with_capacity(candidates.len() * 4);
+  for candidate in candidates {
+    if counted(&candidate) {
+      let addr = candidate.address().expect("an object or an array");
+      if let std::collections::hash_map::Entry::Vacant(free) = slot.entry(addr) {
+        free.insert(nodes.len());
+        nodes.push(candidate);
+      }
+    }
+  }
+  let mut at = 0;
+  while at < nodes.len() {
+    let node = nodes[at].clone();
+    let children: &mut dyn Iterator<Item = &Value> = match &node {
+      Value::Map(map) => &mut map.values(),
+      Value::Seq(items) => &mut items.iter(),
+      _ => unreachable!("only counted objects and arrays are taken"),
+    };
+    for child in children.filter(|v| counted(v)) {
+      let addr = child.address().expect("an object or an array");
+      let to = *slot.entry(addr).or_insert_with(|| {
+        nodes.push(child.clone());
+        nodes.len() - 1
+      });
+      edges.push((at, to));
+    }
+    at += 1;
+  }
+  drop(slot);
+  let mut inside = vec![0usize; nodes.len()];
+  let mut start = vec![0usize; nodes.len() + 1];
+  for (from, to) in &edges {
+    inside[*to] += 1;
+    start[*from + 1] += 1;
+  }
+  for at in 0..nodes.len() {
+    start[at + 1] += start[at];
+  }
+  let mut fill = start.clone();
+  let mut targets = vec![0usize; edges.len()];
+  for (from, to) in &edges {
+    targets[fill[*from]] = *to;
+    fill[*from] += 1;
+  }
+  let holders = |value: &Value| match value {
+    Value::Map(map) => map.0.holders(),
+    Value::Seq(items) => items.0.holders(),
+    _ => usize::MAX,
+  };
+  let mut live = vec![false; nodes.len()];
+  let mut marking: Vec<usize> = (0..nodes.len()).filter(|at| holders(&nodes[*at]) > inside[*at] + 1).collect();
+  while let Some(at) = marking.pop() {
+    if std::mem::replace(&mut live[at], true) {
+      continue;
+    }
+    marking.extend(targets[start[at]..start[at + 1]].iter().copied().filter(|to| !live[*to]));
+  }
+  let mut emptied: Vec<Value> = Vec::new();
+  for (at, node) in nodes.iter().enumerate() {
+    if live[at] {
+      continue;
+    }
+    match node {
+      Value::Map(map) => {
+        if let Some(fields) = map.through() {
+          emptied.extend(std::mem::take(fields).into_values());
+        }
+      }
+      Value::Seq(items) => {
+        if let Some(held) = items.through() {
+          emptied.append(held);
+        }
+      }
+      _ => {}
+    }
+  }
+  drop(emptied);
+  drop(nodes);
+}
+
+/// Every frozen object and array, by address, with the frozen value it was made part of. Written when a value is frozen and read only when a body writes one.
+static FROZEN_ROOTS: std::sync::LazyLock<parking_lot::RwLock<std::collections::HashMap<usize, Value, ValueHasher>>> = std::sync::LazyLock::new(Default::default);
+
 /// Copy on write: cloning shares and the first `&mut` after a share copies.
 /// A render clones a props map at every component and every loop iteration
 /// without reading it back, which is what the sharing is for.
 #[derive(Clone, Default)]
-pub struct ValueMap(std::sync::Arc<Fields>);
+pub struct ValueMap(Held<Fields>);
 
 pub type Props = ValueMap;
 
 pub type Items = Vec<Value>;
 
 /// The sequence of the value model, behind a name so its representation is one
-/// crate's business, the way [`ValueStr`] is. A refcount was measured here and
-/// bought nothing at any list length from one to a thousand, so the plain
-/// vector stands until something measures otherwise.
+/// crate's business, the way [`ValueStr`] is. Copy on write as [`ValueMap`] is,
+/// so cloning an array does not recurse into what it holds.
 #[derive(Clone, Default)]
-pub struct ValueSeq(Items);
+pub struct ValueSeq(Held<Items>);
 
 impl ValueSeq {
+  pub fn kind(&self) -> Collection {
+    self.0.kind()
+  }
+
+  /// How many holders share this array; `usize::MAX` for a frozen one.
+  pub fn holders(&self) -> usize {
+    self.0.holders()
+  }
+
+  /// This array as a collection of `kind`, a `Set` for one.
+  pub fn with_kind(self, kind: Collection) -> Self {
+    ValueSeq(self.0.with_kind(kind))
+  }
+
+  pub fn is_frozen(&self) -> bool {
+    self.0.is_frozen()
+  }
+
+  #[allow(clippy::mut_from_ref)]
+  pub fn through(&self) -> Option<&mut Items> {
+    self.0.through()
+  }
+
+  pub fn same(&self, other: &Self) -> bool {
+    self.0.same(&other.0)
+  }
+
+  pub fn addr(&self) -> usize {
+    self.0.get() as *const Items as usize
+  }
+
   pub fn into_items(self) -> Items {
-    self.0
+    self.0.into_inner()
   }
 }
 
 impl std::ops::Deref for ValueSeq {
   type Target = Items;
   fn deref(&self) -> &Items {
-    &self.0
+    self.0.get()
   }
 }
 
 impl std::ops::DerefMut for ValueSeq {
   fn deref_mut(&mut self) -> &mut Items {
-    &mut self.0
+    self.0.make_mut()
   }
 }
 
 impl std::fmt::Debug for ValueSeq {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.fmt(f)
+    self.0.get().fmt(f)
   }
 }
 
 impl PartialEq for ValueSeq {
   fn eq(&self, other: &Self) -> bool {
-    self.0 == other.0
+    *self.0.get() == *other.0.get()
   }
 }
 
 impl PartialEq<Items> for ValueSeq {
   fn eq(&self, other: &Items) -> bool {
-    *self.0 == *other
+    *self.0.get() == *other
   }
 }
 
 impl PartialEq<Fields> for ValueMap {
   fn eq(&self, other: &Fields) -> bool {
-    *self.0 == *other
+    *self.0.get() == *other
   }
 }
 
 impl From<Items> for ValueSeq {
   fn from(items: Items) -> Self {
-    ValueSeq(items)
+    ValueSeq(Held::new(items))
   }
 }
 
 impl FromIterator<Value> for ValueSeq {
   fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
-    ValueSeq(Items::from_iter(iter))
+    ValueSeq(Held::new(Items::from_iter(iter)))
   }
 }
 
@@ -204,7 +625,7 @@ impl<'a> IntoIterator for &'a ValueSeq {
   type Item = &'a Value;
   type IntoIter = std::slice::Iter<'a, Value>;
   fn into_iter(self) -> Self::IntoIter {
-    self.0.iter()
+    self.0.get().iter()
   }
 }
 
@@ -212,78 +633,119 @@ impl<'a> IntoIterator for &'a mut ValueSeq {
   type Item = &'a mut Value;
   type IntoIter = std::slice::IterMut<'a, Value>;
   fn into_iter(self) -> Self::IntoIter {
-    self.0.iter_mut()
+    self.0.make_mut().iter_mut()
   }
 }
 
 impl Extend<Value> for ValueSeq {
   fn extend<T: IntoIterator<Item = Value>>(&mut self, iter: T) {
-    self.0.extend(iter);
+    self.0.make_mut().extend(iter);
   }
 }
 
 impl ValueMap {
+  pub fn kind(&self) -> Collection {
+    self.0.kind()
+  }
+
+  /// How many holders share this object; `usize::MAX` for a frozen one.
+  pub fn holders(&self) -> usize {
+    self.0.holders()
+  }
+
+  /// This object as a collection of `kind`, a `Map` for one.
+  pub fn with_kind(self, kind: Collection) -> Self {
+    ValueMap(self.0.with_kind(kind))
+  }
+
+  pub fn is_frozen(&self) -> bool {
+    self.0.is_frozen()
+  }
+
+  #[allow(clippy::mut_from_ref)]
+  pub fn through(&self) -> Option<&mut Fields> {
+    self.0.through()
+  }
+
+  pub fn same(&self, other: &Self) -> bool {
+    self.0.same(&other.0)
+  }
+
+  pub fn addr(&self) -> usize {
+    self.0.get() as *const Fields as usize
+  }
+
   pub fn into_fields(self) -> Fields {
-    std::sync::Arc::try_unwrap(self.0).unwrap_or_else(|held| (*held).clone())
+    self.0.into_inner()
+  }
+
+  /// [`Self::into_fields`] with room for `room` more fields: taken where it stands when nothing else holds it, copied once at that size otherwise.
+  pub fn into_fields_with_room(self, room: usize) -> Fields {
+    if self.holders() == 1 {
+      let mut fields = self.into_fields();
+      fields.reserve(room);
+      return fields;
+    }
+    self.0.get().copy_with_room(room)
   }
 }
 
 impl std::ops::Deref for ValueMap {
   type Target = Fields;
   fn deref(&self) -> &Fields {
-    &self.0
+    self.0.get()
   }
 }
 
 impl std::ops::DerefMut for ValueMap {
   fn deref_mut(&mut self) -> &mut Fields {
-    std::sync::Arc::make_mut(&mut self.0)
+    self.0.make_mut()
   }
 }
 
 impl std::fmt::Debug for ValueMap {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    self.0.fmt(f)
+    self.0.get().fmt(f)
   }
 }
 
 impl PartialEq for ValueMap {
   fn eq(&self, other: &Self) -> bool {
-    std::sync::Arc::ptr_eq(&self.0, &other.0) || *self.0 == *other.0
+    self.0.same(&other.0) || *self.0.get() == *other.0.get()
   }
 }
 
 impl From<Fields> for ValueMap {
   fn from(fields: Fields) -> Self {
-    ValueMap(std::sync::Arc::new(fields))
+    ValueMap(Held::new(fields))
   }
 }
 
-impl FromIterator<(String, Value)> for ValueMap {
-  fn from_iter<T: IntoIterator<Item = (String, Value)>>(iter: T) -> Self {
-    ValueMap(std::sync::Arc::new(Fields::from_iter(iter)))
+impl<K: Into<Key>> FromIterator<(K, Value)> for ValueMap {
+  fn from_iter<T: IntoIterator<Item = (K, Value)>>(iter: T) -> Self {
+    ValueMap(Held::new(Fields::from_iter(iter)))
   }
 }
 
 impl IntoIterator for ValueMap {
-  type Item = (String, Value);
-  type IntoIter = indexmap::map::IntoIter<String, Value>;
+  type Item = (Key, Value);
+  type IntoIter = std::vec::IntoIter<(Key, Value)>;
   fn into_iter(self) -> Self::IntoIter {
     self.into_fields().into_iter()
   }
 }
 
 impl<'a> IntoIterator for &'a ValueMap {
-  type Item = (&'a String, &'a Value);
-  type IntoIter = indexmap::map::Iter<'a, String, Value>;
+  type Item = (&'a Key, &'a Value);
+  type IntoIter = <&'a Fields as IntoIterator>::IntoIter;
   fn into_iter(self) -> Self::IntoIter {
-    self.0.iter()
+    (&**self).into_iter()
   }
 }
 
-impl Extend<(String, Value)> for ValueMap {
-  fn extend<T: IntoIterator<Item = (String, Value)>>(&mut self, iter: T) {
-    std::sync::Arc::make_mut(&mut self.0).extend(iter);
+impl<K: Into<Key>> Extend<(K, Value)> for ValueMap {
+  fn extend<T: IntoIterator<Item = (K, Value)>>(&mut self, iter: T) {
+    self.0.make_mut().extend(iter);
   }
 }
 
@@ -321,6 +783,27 @@ pub enum Value {
   Map(ValueMap),
   Variant { tag: String, payload: Option<Box<Value>> },
   Ref { kind: RefKind, id: String },
+}
+
+impl Value {
+  /// Whether this holds an object or an array nested more than `limit` levels down.
+  pub fn nested_past(&self, limit: usize) -> bool {
+    let mut waiting = vec![(self, 0)];
+    while let Some((value, depth)) = waiting.pop() {
+      let inner: &mut dyn Iterator<Item = &Value> = match value {
+        Value::Map(map) => &mut map.values(),
+        Value::Seq(items) => &mut items.iter(),
+        _ => continue,
+      };
+      if depth == limit {
+        return true;
+      }
+      for held in inner {
+        waiting.push((held, depth + 1));
+      }
+    }
+    false
+  }
 }
 
 impl PartialEq for Value {
@@ -441,5 +924,17 @@ impl From<u64> for Value {
 impl From<f64> for Value {
   fn from(v: f64) -> Self {
     Value::F64(v)
+  }
+}
+
+impl From<Key> for ValueStr {
+  fn from(v: Key) -> Self {
+    ValueStr(v)
+  }
+}
+
+impl From<&Key> for ValueStr {
+  fn from(v: &Key) -> Self {
+    ValueStr(v.clone())
   }
 }

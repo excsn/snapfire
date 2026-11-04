@@ -33,7 +33,7 @@ This guide covers building values in the FSR value model, assembling a payload `
 
 * **Value model** - The closed roster of types that may cross the server/browser boundary. `Value` is the Rust half of it.
 * **Sovereign** - The model decides what can exist and encodings are ranked projections of it. An encoding is lossless over the model or a declared degradation, never a silent one, so the model never shrinks to suit a format.
-* **`ValueMap`** - An `IndexMap<String, Value>`, insertion-ordered for serialization. Aliased as `Props` for what goes into an island and as `Data` for what a loader returns.
+* **`ValueMap`** - An object: its `Fields` in insertion order, shared by every clone. Aliased as `Props` for what goes into an island and as `Data` for what a loader returns.
 * **`Params`** - An `IndexMap<String, String>`, the matched route parameters. Strings, not values.
 * **Normalization** - An unsigned integer that fits `i128` belongs in `Value::Int`. `Value::uint` enforces it; `UInt` exists only for magnitudes above `i128::MAX`.
 * **Typed array** - `Value::TypedArray`, a numeric series held as one Rust `Vec` rather than one `Value` per element, mirroring the JavaScript `TypedArray` element set.
@@ -162,15 +162,15 @@ let f: Value = 0.5f64.into();
 
 ### Building a Map
 
-A map is an `IndexMap<String, Value>`. Insertion order is preserved for serialization and ignored by equality and the fingerprint.
+A map holds its fields in insertion order. The order is preserved for serialization and ignored by equality and the fingerprint. A clone shares the object. A write through `insert` copies it first when another holder shares it.
 
 ```rust
 use snapfire_fsr_core::{Value, ValueMap};
 
-let mut row = ValueMap::new();
-row.insert("id".to_owned(), Value::int(7));
-row.insert("hostname".to_owned(), Value::str("edge-01"));
-row.insert("healthy".to_owned(), Value::Bool(true));
+let mut row = ValueMap::default();
+row.insert("id", Value::int(7));
+row.insert("hostname", Value::str("edge-01"));
+row.insert("healthy", Value::Bool(true));
 
 let record = Value::Map(row);
 ```

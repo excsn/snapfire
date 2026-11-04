@@ -195,7 +195,7 @@ impl TeraEvaluator {
     let data = snapfire_fsr_runtime::island_data(props, &state);
     let mut context = tera::Context::new();
     for (key, value) in &data {
-      context.insert(key.clone(), &context_json(value));
+      context.insert(key.to_string(), &context_json(value));
     }
     let rendered = self
       .tera
@@ -254,7 +254,7 @@ fn context_json(value: &Value) -> Json {
     Value::Str(s) => Json::String(s.to_string()),
     Value::Bytes(bytes) => Json::String(B64.encode(bytes)),
     Value::Seq(items) => Json::Array(items.iter().map(context_json).collect()),
-    Value::Map(map) => Json::Object(map.iter().filter(|(_, v)| !matches!(v, Value::Undefined)).map(|(k, v)| (k.clone(), context_json(v))).collect()),
+    Value::Map(map) => Json::Object(map.iter().filter(|(_, v)| !matches!(v, Value::Undefined)).map(|(k, v)| (k.to_string(), context_json(v))).collect()),
     Value::TypedArray(_) | Value::Variant { .. } | Value::Ref { .. } => value_to_json(value),
   }
 }
@@ -273,7 +273,7 @@ impl Evaluator for TeraEvaluator {
   fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks {
     let mut context = tera::Context::new();
     for (key, value) in props {
-      context.insert(key.clone(), &context_json(value));
+      context.insert(key.to_string(), &context_json(value));
     }
     let result = self
       .tera

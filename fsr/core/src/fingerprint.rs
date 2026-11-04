@@ -36,11 +36,11 @@ pub(crate) fn canonical_f32_bits(v: f32) -> u32 {
 
 fn write_map(h: &mut Xxh3, map: &crate::value::ValueMap) {
   write_len(h, map.len());
-  let mut keys: Vec<&String> = map.keys().collect();
+  let mut keys: Vec<&crate::value::Key> = map.keys().collect();
   keys.sort_unstable();
   for key in keys {
     write_str(h, key);
-    map[key.as_str()].write_canonical(h);
+    map.get(key.as_str()).expect("a key of this map").write_canonical(h);
   }
 }
 

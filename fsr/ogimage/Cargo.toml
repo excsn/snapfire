@@ -14,6 +14,7 @@ repository = { workspace = true }
 readme = "README.md"
 
 [dependencies]
+snapfire_fsr_core.workspace = true
 taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
 rustybuzz = "0.20"
 tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd", "png-format"] }

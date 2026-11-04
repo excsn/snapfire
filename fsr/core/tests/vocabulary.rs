@@ -1,4 +1,3 @@
-use indexmap::IndexMap;
 use snapfire_fsr_core::{Fingerprint, ModuleId, TypedArray, Value};
 
 #[test]
@@ -41,8 +40,8 @@ fn map_fingerprint_ignores_insertion_order() {
   ba.insert("b".to_owned(), Value::int(2));
   ba.insert("a".to_owned(), Value::int(1));
 
-  let ab_order: Vec<&String> = ab.keys().collect();
-  let ba_order: Vec<&String> = ba.keys().collect();
+  let ab_order: Vec<&str> = ab.keys().map(|k| k.as_str()).collect();
+  let ba_order: Vec<&str> = ba.keys().map(|k| k.as_str()).collect();
   assert_ne!(ab_order, ba_order, "insertion order is preserved for serialization");
 
   assert_eq!(Value::Map(ab.clone()), Value::Map(ba.clone()), "equality ignores order, agreeing with the fingerprint");

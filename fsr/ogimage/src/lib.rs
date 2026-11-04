@@ -17,7 +17,7 @@ pub use fonts::{FaceInfo, FontError, Fonts};
 pub use images::Images;
 
 /// The largest side a card may have, in pixels.
-pub const MAX_SIDE: u32 = 8192;
+pub const MAX_SIDE: u32 = snapfire_fsr_core::CARD_MAX_SIDE;
 
 /// The encoding [`render`] writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

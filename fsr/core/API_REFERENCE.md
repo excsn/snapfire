@@ -5,12 +5,18 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
 ## Contents
 
 1. [Type Aliases](#1-type-aliases)
-   * [ValueMap](#valuemap)
    * [Props](#props)
    * [Data](#data)
    * [Params](#params)
+   * [Text](#text)
+   * [Key](#key)
+   * [Items](#items)
 2. [The Value Model](#2-the-value-model)
    * [Value](#value)
+   * [ValueStr](#valuestr)
+   * [ValueSeq](#valueseq)
+   * [ValueMap](#valuemap)
+   * [Fields](#fields)
    * [RefKind](#refkind)
    * [TypedArray](#typedarray)
    * [Dynamic](#dynamic)
@@ -56,14 +62,7 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
 
 ## 1. Type Aliases
 
-Declared in `lib.rs` and `value.rs`. All four are re-exported from the crate root.
-
-### ValueMap
-
-A string-keyed map of values, insertion-ordered.
-
-* `pub type ValueMap = indexmap::IndexMap<String, Value>`
-* Insertion order is preserved and is what serialization emits. Equality and the fingerprint ignore it.
+Declared in `lib.rs`, `value.rs` and `fields.rs`.
 
 ### Props
 
@@ -85,6 +84,25 @@ Matched route parameters.
 * `pub type Params = indexmap::IndexMap<String, String>`
 * Values are strings, never `Value`. Nothing in the crate parses them.
 
+### Text
+
+What a `ValueStr` holds.
+
+* `pub type Text = smol_str::SmolStr`
+* Up to 23 bytes inline; longer text is shared behind one reference count.
+
+### Key
+
+A field name of an object.
+
+* `pub type Key = smol_str::SmolStr`
+
+### Items
+
+What a `ValueSeq` holds.
+
+* `pub type Items = Vec<Value>`
+
 ## 2. The Value Model
 
 The closed roster of types that may cross the server/browser boundary. Adding a variant is a format change.
@@ -94,21 +112,25 @@ The closed roster of types that may cross the server/browser boundary. Adding a 
 One value in the model.
 
 * `Null`
+* `Undefined` - JavaScript's `undefined`, apart from `Null`.
 * `Bool(bool)`
 * `Int(i128)` - every signed integer and every unsigned one that fits.
 * `UInt(u128)` - only for magnitudes above `i128::MAX`. Constructing it below that bound produces a value that is `!=` its `Int` form while fingerprinting identically to it.
 * `F32(f32)`
 * `F64(f64)` - a distinct variant from `F32`, with a distinct fingerprint. Nothing widens `F32` to `F64`.
-* `Str(String)`
+* `Str(ValueStr)`
 * `Bytes(Vec<u8>)` - never collides with `Str` of the same bytes.
 * `TypedArray(TypedArray)`
-* `Seq(Vec<Value>)`
+* `Seq(ValueSeq)`
 * `Map(ValueMap)`
 * `Variant { tag: String, payload: Option<Box<Value>> }` - `payload: None` and `payload: Some(Value::Null)` are different values.
 * `Ref { kind: RefKind, id: String }`
 * `pub fn int(v: impl Into<i128>) -> Value`
 * `pub fn uint(v: u128) -> Value` - returns `Int` when the value fits `i128`, `UInt` otherwise.
-* `pub fn str(v: impl Into<String>) -> Value`
+* `pub fn str(v: impl Into<ValueStr>) -> Value`
+* `pub fn seq(items: impl Into<ValueSeq>) -> Value`
+* `pub fn frozen(&self) -> Value` - this value and all it holds, kept for the life of the process: a clone copies a pointer and a drop does nothing. For a constant every request reads. The memory is never released.
+* `pub fn nested_past(&self, limit: usize) -> bool` - whether objects and arrays nest deeper than `limit`, found without recursion.
 * `pub fn action_ref(id: impl Into<String>) -> Value` - `Ref` with `RefKind::Action`. There is no matching constructor for `RefKind::Module`.
 * `impl From<bool> for Value` - `Bool`.
 * `impl From<&str> for Value` - `Str`.
@@ -118,6 +140,47 @@ One value in the model.
 * `impl From<f64> for Value` - `F64`. There is no `From<f32>`.
 * Derives `Debug`, `Clone` and `PartialEq`. It implements neither `Eq` nor `Hash`, so it cannot be a `HashMap` key or a `HashSet` member.
 * `PartialEq` is derived and inherits IEEE float semantics: two `F64(NAN)` values are unequal while their fingerprints are equal. Compare fingerprints when the question is content identity.
+
+### ValueStr
+
+A string of the value model.
+
+* `pub struct ValueStr(Text)`, read as a `str` through `Deref`.
+* `pub fn as_str(&self) -> &str`
+* `pub fn into_text(self) -> Text`
+* `pub fn frozen(&self) -> ValueStr` - a long string kept for the life of the process, so a clone writes no shared count.
+* `impl From<&str>`, `From<String>` and `From<&String>`.
+
+### ValueSeq
+
+An array. Every holder of a clone holds the same array.
+
+* `pub struct ValueSeq`, read as `Items` through `Deref`.
+* `DerefMut` copies the array first when another holder shares it, so a write through it reaches this holder alone.
+* `pub fn through(&self) -> Option<&mut Items>` - the array itself, which a write through reaches every holder. `None` for a frozen array. Nothing else may hold a reference into the array across the write.
+* `pub fn is_frozen(&self) -> bool`
+* `pub fn same(&self, other: &Self) -> bool` - whether both hold one array.
+* `pub fn addr(&self) -> usize` - the array's address, its identity while it lives.
+* `pub fn into_items(self) -> Items`
+* Dropping the last holder releases nested arrays and objects without recursing as deep as they nest.
+
+### ValueMap
+
+An object, insertion-ordered. Every holder of a clone holds the same object.
+
+* `pub struct ValueMap`, read as `Fields` through `Deref`; `DerefMut` copies first when the object is shared, as `ValueSeq` does.
+* `pub fn through(&self) -> Option<&mut Fields>`, `is_frozen`, `same`, `addr` and `into_fields(self) -> Fields`, as on `ValueSeq`.
+* Insertion order is preserved and is what serialization emits. Equality and the fingerprint ignore it.
+
+### Fields
+
+What an object holds: its fields in insertion order in one vector. Up to 8 are scanned; past that a table of positions finds a key.
+
+* `pub fn get<Q: AsRef<str> + ?Sized>(&self, key: &Q) -> Option<&Value>`, with `get_mut`, `get_key_value`, `get_index` and `contains_key`.
+* `pub fn insert(&mut self, key: impl Into<Key>, value: Value) -> Option<Value>` - replaces in place or appends.
+* `shift_remove` keeps the order of the rest; `swap_remove` moves the last field into the gap; `remove` is `shift_remove`.
+* `iter`, `iter_mut`, `keys`, `values`, `values_mut`, `into_keys`, `into_values`, `retain`, `clear`, `sort_keys` and `entry(key).or_insert(..)`, `or_insert_with(..)` and `or_default()`.
+* `impl Index<&str>`, `FromIterator<(impl Into<Key>, Value)>` and `Extend`.
 
 ### RefKind
 
@@ -374,6 +437,7 @@ Read an extension's arguments. A wrong kind fails as `Internal` with `what wants
 ### number_text
 
 * `pub fn number_text(n: f64) -> String`: `Number.prototype.toString()`, the shortest digits that read back as the double, fixed between 1e-7 and 1e21 and exponential outside.
+* `pub fn write_number(out: &mut String, n: f64)`: `number_text` appended to `out`, with no allocation of its own.
 
 ## 9. Dates
 

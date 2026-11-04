@@ -151,7 +151,7 @@ pub fn value_to_json(value: &Value) -> Json {
         let mut out = JsonMap::new();
         for (k, v) in map {
           if !matches!(v, Value::Undefined) {
-            out.insert(k.clone(), value_to_json(v));
+            out.insert(k.to_string(), value_to_json(v));
           }
         }
         Json::Object(out)
