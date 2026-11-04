@@ -11,6 +11,7 @@ pub mod proto;
 pub mod grpc;
 #[cfg(feature = "graphql")]
 pub mod graphql;
+mod absent;
 pub mod registry;
 pub mod rust;
 pub mod transport;
@@ -20,7 +21,9 @@ pub use call::{Call, Credentials, NoCredentials};
 pub use check::ContractError;
 pub use cache::{DataCache, DataCacheError};
 pub use contract::{Contract, Field, Freshness, Method, ScalarKind, Scope, Service, Type, TypeDef, Variant};
-pub use http::{kind_for_status, HttpTransport, Route};
+pub use http::{kind_for_status, Route};
+#[cfg(feature = "http")]
+pub use http::HttpTransport;
 pub use openapi::{import, ImportError, Imported};
 #[cfg(feature = "grpc")]
 pub use proto::{fsr_proto_include, import_proto, import_proto_source, GrpcMethod, ImportedProto, FSR_PROTO, FSR_PROTO_NAME};
@@ -28,6 +31,10 @@ pub use proto::{fsr_proto_include, import_proto, import_proto_source, GrpcMethod
 pub use grpc::GrpcTransport;
 #[cfg(feature = "graphql")]
 pub use graphql::{import_graphql, GraphqlOperation, GraphqlTransport, ImportedGraphql};
+#[cfg(not(feature = "grpc"))]
+pub use absent::{import_proto, GrpcTransport, ImportedProto};
+#[cfg(not(feature = "graphql"))]
+pub use absent::{import_graphql, GraphqlTransport, ImportedGraphql};
 pub use interceptor::{
   CredentialInterceptor, IdentityInterceptor, Interceptor, Next, Refresher, TraceInterceptor, EXPIRY_MARGIN_SECS,
 };

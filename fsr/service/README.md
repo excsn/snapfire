@@ -18,7 +18,8 @@ snapfire_fsr_service = "0"
 | Feature | Adds |
 | --- | --- |
 | `grpc` | `import_proto` and `GrpcTransport`, with protox, prost-reflect and tonic |
-| `graphql` | `import_graphql` and `GraphqlTransport`, with apollo-compiler |
+| `graphql` | `import_graphql` and `GraphqlTransport`, with apollo-compiler and reqwest |
+| `http` | `HttpTransport`, with reqwest. `openapi::import` and `Route` need no feature |
 
 Everything else is always compiled. The crate depends on `snapfire_fsr_core` for the value model, `snapfire_fsr_payload` for the JSON pair, `snapfire_fsr_runtime` for the `ServiceHandle` seam it fills and `snapfire_fsr_session` for `TokenCell`.
 
@@ -37,7 +38,7 @@ Everything else is always compiled. The crate depends on `snapfire_fsr_core` for
 | Stop a call before it leaves | an `Interceptor` that does not call `Next::run` |
 | Reuse a backend's answer for a while | `Method::cached(Freshness)`, `Method::writes`, `ServicesBuilder::data_cache`, `Services::invalidate_tags` |
 | Implement a method in the same process | `LocalTransport` |
-| Reach a backend over HTTP | `HttpTransport`, `Route` |
+| Reach a backend over HTTP | `HttpTransport`, `Route`, feature `http` |
 | Import an OpenAPI document | `import` |
 | Import a `.proto` and reach its server over gRPC | `import_proto`, `GrpcTransport`, feature `grpc` |
 | Import a GraphQL schema and its operations and post them | `import_graphql`, `GraphqlTransport`, feature `graphql` |

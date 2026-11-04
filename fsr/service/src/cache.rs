@@ -96,7 +96,7 @@ pub fn canonical(value: &Value, out: &mut String) {
       out.push(']');
     }
     Value::Map(map) => {
-      let mut keys: Vec<&String> = map.keys().collect();
+      let mut keys: Vec<&_> = map.keys().collect();
       keys.sort();
       out.push('{');
       for (i, key) in keys.iter().enumerate() {
@@ -105,7 +105,7 @@ pub fn canonical(value: &Value, out: &mut String) {
         }
         out.push_str(key);
         out.push(':');
-        canonical(&map[*key], out);
+        canonical(map.get(key.as_str()).expect("a key of this map"), out);
       }
       out.push('}');
     }

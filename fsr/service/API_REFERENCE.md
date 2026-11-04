@@ -399,7 +399,7 @@ A `{name}` segment in the path takes the argument of that name and that argument
 
 ### HttpTransport
 
-The base URL has any trailing slashes trimmed.
+Behind the `http` feature. The base URL has any trailing slashes trimmed.
 
 * `fn new(base: impl Into<String>) -> Self` uses a default `reqwest::Client`
 * `fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self`

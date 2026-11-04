@@ -537,7 +537,7 @@ A path with no closure registered fails with `FailureKind::NotFound`.
 
 ## Calling a Backend over HTTP
 
-`HttpTransport::new` takes the base URL, trims any trailing slash and posts each method to `{base}/{service}/{method}` with the arguments as a JSON body. That is the whole default; nothing else has to be configured for a plain gateway.
+`HttpTransport` is behind the `http` feature. `HttpTransport::new` takes the base URL, trims any trailing slash and posts each method to `{base}/{service}/{method}` with the arguments as a JSON body. That is the whole default; nothing else has to be configured for a plain gateway.
 
 ```rust
 use std::time::Duration;

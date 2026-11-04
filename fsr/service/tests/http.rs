@@ -1,3 +1,5 @@
+#![cfg(feature = "http")]
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::Arc;

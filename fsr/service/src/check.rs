@@ -194,10 +194,10 @@ impl Contract {
               }
             }
             for key in map.keys() {
-              if !fields.iter().any(|f| &f.name == key) {
+              if !fields.iter().any(|f| *f.name == **key) {
                 return Err(ContractError::UnknownField {
                   path: path.to_owned(),
-                  field: key.clone(),
+                  field: key.to_string(),
                 });
               }
             }
@@ -262,8 +262,8 @@ impl Contract {
       }
     }
     for key in args.keys() {
-      if !signature.params.iter().any(|p| &p.name == key) {
-        return Err(ContractError::UnknownField { path: path.clone(), field: key.clone() });
+      if !signature.params.iter().any(|p| *p.name == **key) {
+        return Err(ContractError::UnknownField { path: path.clone(), field: key.to_string() });
       }
     }
     Ok(())

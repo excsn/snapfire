@@ -22,7 +22,7 @@ fibre_cache = { version = "0.4", features = ["tokio"] }
 futures-util = "0.3"
 indexmap = { version = "2", features = ["serde"] }
 parking_lot = "0.12"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"
@@ -48,4 +48,5 @@ tracing-subscriber = "0.3"
 [features]
 default = []
 grpc = ["dep:protox", "dep:prost", "dep:prost-types", "dep:prost-reflect", "dep:tonic", "dep:bytes", "dep:http"]
-graphql = ["dep:apollo-compiler"]
+graphql = ["dep:apollo-compiler", "dep:reqwest"]
+http = ["dep:reqwest"]

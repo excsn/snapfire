@@ -314,7 +314,7 @@ fn variable_json(value: &Value) -> serde_json::Value {
     Value::Variant { tag, payload: None } => serde_json::Value::String(tag.clone()),
     Value::Variant { payload: Some(payload), .. } => variable_json(payload),
     Value::Seq(items) => serde_json::Value::Array(items.iter().map(variable_json).collect()),
-    Value::Map(map) => serde_json::Value::Object(map.iter().map(|(k, v)| (k.clone(), variable_json(v))).collect()),
+    Value::Map(map) => serde_json::Value::Object(map.iter().map(|(k, v)| (k.to_string(), variable_json(v))).collect()),
     other => snapfire_fsr_core::json::to_json(other).unwrap_or(serde_json::Value::Null),
   }
 }
@@ -340,7 +340,7 @@ impl Transport for GraphqlTransport {
       let why = format!("no operation answers `{}.{}`", call.service, call.method);
       return Box::pin(async move { Err(fail(FailureKind::Internal, why)) });
     };
-    let variables: serde_json::Map<String, serde_json::Value> = call.args.iter().map(|(k, v)| (k.clone(), variable_json(v))).collect();
+    let variables: serde_json::Map<String, serde_json::Value> = call.args.iter().map(|(k, v)| (k.to_string(), variable_json(v))).collect();
     let body = serde_json::json!({ "query": operation.document, "variables": variables, "operationName": operation.name });
     let mut request = self.client.post(&self.endpoint).json(&body);
     for (key, value) in &self.headers {

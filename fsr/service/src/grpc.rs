@@ -155,7 +155,7 @@ fn to_reflect(field: &FieldDescriptor, value: &Value, at: &str) -> Result<Option
     let mut out = HashMap::new();
     for (k, v) in entries {
       if let Some(v) = scalar_to_reflect(&value_field.kind(), v, &format!("{at}.{k}"))? {
-        out.insert(MapKey::String(k.clone()), v);
+        out.insert(MapKey::String(k.to_string()), v);
       }
     }
     return Ok(Some(Reflect::Map(out)));

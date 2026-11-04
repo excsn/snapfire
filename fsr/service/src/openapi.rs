@@ -11,6 +11,9 @@ pub enum ImportError {
   Malformed { at: String, what: String },
   #[error("{at}: {what} is not supported")]
   Unsupported { at: String, what: String },
+  /// A contract whose importer this build leaves out.
+  #[error("{at}: a {contract} contract needs the `{feature}` feature of snapfire_fsr_service, which this build does not turn on")]
+  Feature { at: String, contract: &'static str, feature: &'static str },
 }
 
 fn malformed(at: impl Into<String>, what: impl Into<String>) -> ImportError {
