@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
   "compiler",
+  "i18n",
+  "i18n/datagen",
   "media",
   "sitemap",
   "tailwind",

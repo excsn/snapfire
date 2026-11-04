@@ -1,0 +1,16 @@
+[package]
+name = "snapfire_i18n"
+version = "0.1.0"
+description = "Currency, percent and relative-time formatting from CLDR data, with no dependencies"
+keywords = ["snapfire", "i18n", "cldr", "currency", "intl"]
+categories = ["internationalization", "localization"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = "MPL-2.0 AND Unicode-3.0"
+repository = "https://github.com/excsn/snapfire"
+homepage = "https://github.com/excsn/snapfire/tree/main/i18n"
+readme = "README.md"
+exclude = ["datagen"]
+
+[dependencies]

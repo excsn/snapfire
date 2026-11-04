@@ -4419,6 +4419,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "snapfire_i18n"
+version = "0.1.0"
+
+[[package]]
+name = "snapfire_i18n_datagen"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "snapfire_lint"
 version = "0.1.0"
 dependencies = [

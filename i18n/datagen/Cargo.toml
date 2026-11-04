@@ -1,0 +1,12 @@
+[package]
+name = "snapfire_i18n_datagen"
+version = "0.1.0"
+description = "Writes snapfire_i18n's data file from a cldr-json release"
+publish = false
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+serde_json = "1"
