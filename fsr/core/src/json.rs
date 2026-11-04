@@ -54,39 +54,104 @@ pub fn to_value(json: &serde_json::Value) -> Value {
 
 /// `Number.prototype.toString()` of a double: the shortest digits that read back as it, fixed between 1e-7 and 1e21 and exponential outside.
 pub fn number_text(n: f64) -> String {
+  let mut out = String::new();
+  write_number(&mut out, n);
+  out
+}
+
+/// [`number_text`] appended to `out`.
+pub fn write_number(out: &mut String, n: f64) {
+  use std::fmt::Write as _;
   if n.is_nan() {
-    return "NaN".to_owned();
+    return out.push_str("NaN");
   }
   if n == 0.0 {
-    return "0".to_owned();
+    return out.push('0');
   }
   if n.is_infinite() {
-    return if n > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
+    return out.push_str(if n > 0.0 { "Infinity" } else { "-Infinity" });
   }
-  let sign = if n < 0.0 { "-" } else { "" };
-  let shortest = format!("{:e}", n.abs());
-  let length = shortest.split_once('e').expect("`{:e}` writes an exponent").0.replace('.', "").len();
-  let closest = format!("{:.*e}", length - 1, n.abs());
-  let scientific = if closest.parse::<f64>() == Ok(n.abs()) { closest } else { shortest };
-  let (mantissa, exponent) = scientific.split_once('e').expect("`{:e}` writes an exponent");
-  let digits = mantissa.replace('.', "");
+  // Below 2^53 every whole double is exact and its shortest digits are its own.
+  if n.fract() == 0.0 && n.abs() < 9_007_199_254_740_992.0 {
+    let _ = write!(out, "{}", n as i64);
+    return;
+  }
+  if n < 0.0 {
+    out.push('-');
+  }
+  let a = n.abs();
+  let mut shortest = Digits::default();
+  let _ = write!(shortest, "{a:e}");
+  let length = shortest.mantissa().bytes().filter(|b| *b != b'.').count();
+  let mut closest = Digits::default();
+  let _ = write!(closest, "{:.*e}", length - 1, a);
+  let scientific = if closest.as_str().parse::<f64>() == Ok(a) { &closest } else { &shortest };
+  let mut digits = Digits::default();
+  for c in scientific.mantissa().chars().filter(|c| *c != '.') {
+    let _ = digits.write_char(c);
+  }
+  let digits = digits.as_str();
   let k = digits.len() as i64;
-  let point = exponent.parse::<i64>().expect("an integer exponent") + 1;
-  let body = if k <= point && point <= 21 {
-    format!("{digits}{}", "0".repeat((point - k) as usize))
+  let point = scientific.exponent() + 1;
+  let zeros = |out: &mut String, count: i64| out.extend(std::iter::repeat_n('0', count as usize));
+  if k <= point && point <= 21 {
+    out.push_str(digits);
+    zeros(out, point - k);
   } else if 0 < point && point <= 21 {
-    format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+    out.push_str(&digits[..point as usize]);
+    out.push('.');
+    out.push_str(&digits[point as usize..]);
   } else if -6 < point && point <= 0 {
-    format!("0.{}{digits}", "0".repeat((-point) as usize))
+    out.push_str("0.");
+    zeros(out, -point);
+    out.push_str(digits);
   } else {
-    let e = point - 1;
-    let e = if e < 0 { format!("-{}", -e) } else { format!("+{e}") };
-    match digits.split_at(1) {
-      (first, "") => format!("{first}e{e}"),
-      (first, rest) => format!("{first}.{rest}e{e}"),
+    out.push_str(&digits[..1]);
+    if k > 1 {
+      out.push('.');
+      out.push_str(&digits[1..]);
     }
-  };
-  format!("{sign}{body}")
+    let e = point - 1;
+    let _ = write!(out, "e{}{}", if e < 0 { '-' } else { '+' }, e.abs());
+  }
+}
+
+/// A double's `{:e}` text on the stack: at most 17 digits, a point, a sign and a four-digit exponent.
+struct Digits {
+  bytes: [u8; 40],
+  len: usize,
+}
+
+impl Default for Digits {
+  fn default() -> Self {
+    Self { bytes: [0; 40], len: 0 }
+  }
+}
+
+impl Digits {
+  fn as_str(&self) -> &str {
+    std::str::from_utf8(&self.bytes[..self.len]).expect("formatting writes UTF-8")
+  }
+
+  fn mantissa(&self) -> &str {
+    self.as_str().split_once('e').expect("`{:e}` writes an exponent").0
+  }
+
+  fn exponent(&self) -> i64 {
+    self.as_str().split_once('e').expect("`{:e}` writes an exponent").1.parse().expect("an integer exponent")
+  }
+}
+
+impl std::fmt::Write for Digits {
+  fn write_str(&mut self, s: &str) -> std::fmt::Result {
+    let end = self.len + s.len();
+    if end > self.bytes.len() {
+      return Err(std::fmt::Error);
+    }
+    self.bytes[self.len..end].copy_from_slice(s.as_bytes());
+    self.len = end;
+    Ok(())
+  }
 }
 
 /// Whether a value is left out of an object, as `undefined` and a function are.
@@ -100,17 +165,13 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
     Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
     Value::F64(f) => float(out, *f),
     Value::F32(f) => float(out, f64::from(*f)),
-    Value::Int(n) => integer(out, &n.to_string(), integers)?,
-    Value::UInt(n) => integer(out, &n.to_string(), integers)?,
+    Value::Int(n) => integer(out, n, integers)?,
+    Value::UInt(n) => integer(out, n, integers)?,
     Value::Str(s) => string(out, s),
-    Value::Seq(items) => {
-      let items: Vec<&Value> = items.iter().collect();
-      array(out, &items, indent, depth, integers)?;
-    }
-    Value::Map(map) => {
-      let fields: Vec<(String, &Value)> = map.iter().filter(|(_, v)| !skipped(v)).map(|(k, v)| (k.clone(), v)).collect();
-      object(out, &fields, indent, depth, integers)?;
-    }
+    Value::Seq(items) if items.kind() == crate::value::Collection::Set => out.push_str("{}"),
+    Value::Map(map) if map.kind() == crate::value::Collection::Map => out.push_str("{}"),
+    Value::Seq(items) => crate::on_enough_stack(|| array(out, items.iter(), indent, depth, integers))?,
+    Value::Map(map) => crate::on_enough_stack(|| object(out, map.iter().map(|(k, v)| (k.as_str(), v)), indent, depth, integers))?,
     Value::Bytes(bytes) => indexed(out, bytes.iter().map(|b| Value::Int((*b).into())).collect(), indent, depth, integers)?,
     Value::TypedArray(array) => indexed(out, elements(array), indent, depth, integers)?,
     Value::Variant { tag, payload } => match (tag.as_str(), payload.as_deref()) {
@@ -121,16 +182,12 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
       (typed::MAP | typed::SET, _) => out.push_str("{}"),
       (typed::URL, Some(href)) => write(out, href, indent, depth, integers)?,
       (typed::BIGINT, Some(n)) => match n {
-        Value::Str(digits) => integer(out, digits, integers)?,
+        Value::Str(digits) => integer(out, digits.as_str(), integers)?,
         other => write(out, other, indent, depth, integers)?,
       },
       (_, payload) => {
         let tag_value = Value::str(tag.as_str());
-        let mut fields: Vec<(String, &Value)> = vec![("tag".to_owned(), &tag_value)];
-        if let Some(payload) = payload.filter(|p| !skipped(p)) {
-          fields.push(("payload".to_owned(), payload));
-        }
-        object(out, &fields, indent, depth, integers)?;
+        object(out, std::iter::once(("tag", &tag_value)).chain(payload.map(|payload| ("payload", payload))), indent, depth, integers)?;
       }
     },
   }
@@ -139,16 +196,17 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
 
 fn float(out: &mut String, f: f64) {
   if f.is_finite() {
-    out.push_str(&number_text(f));
+    write_number(out, f);
   } else {
     out.push_str("null");
   }
 }
 
-fn integer(out: &mut String, digits: &str, integers: Integers) -> Result<(), Unwritable> {
+fn integer(out: &mut String, digits: impl std::fmt::Display, integers: Integers) -> Result<(), Unwritable> {
+  use std::fmt::Write as _;
   match integers {
     Integers::Digits => {
-      out.push_str(digits);
+      let _ = write!(out, "{digits}");
       Ok(())
     }
     Integers::Refuse => Err(Unwritable("JSON.stringify of a BigInt, which JavaScript throws on".to_owned())),
@@ -181,8 +239,8 @@ fn elements(array: &TypedArray) -> Vec<Value> {
 }
 
 fn indexed(out: &mut String, items: Vec<Value>, indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
-  let fields: Vec<(String, &Value)> = items.iter().enumerate().map(|(i, v)| (i.to_string(), v)).collect();
-  object(out, &fields, indent, depth, integers)
+  let keys: Vec<String> = (0..items.len()).map(|i| i.to_string()).collect();
+  object(out, keys.iter().map(String::as_str).zip(&items), indent, depth, integers)
 }
 
 fn newline(out: &mut String, indent: &str, depth: usize) {
@@ -194,13 +252,13 @@ fn newline(out: &mut String, indent: &str, depth: usize) {
   }
 }
 
-fn array(out: &mut String, items: &[&Value], indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
-  if items.is_empty() {
+fn array<'v>(out: &mut String, items: impl ExactSizeIterator<Item = &'v Value>, indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
+  if items.len() == 0 {
     out.push_str("[]");
     return Ok(());
   }
   out.push('[');
-  for (i, item) in items.iter().enumerate() {
+  for (i, item) in items.enumerate() {
     if i > 0 {
       out.push(',');
     }
@@ -212,16 +270,12 @@ fn array(out: &mut String, items: &[&Value], indent: &str, depth: usize, integer
   Ok(())
 }
 
-fn object(out: &mut String, fields: &[(String, &Value)], indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
-  if fields.is_empty() {
-    out.push_str("{}");
-    return Ok(());
-  }
-  out.push('{');
-  for (i, (key, item)) in fields.iter().enumerate() {
-    if i > 0 {
-      out.push(',');
-    }
+/// The fields `skipped` leaves in, as `{}` when none is.
+fn object<'v>(out: &mut String, fields: impl Iterator<Item = (&'v str, &'v Value)>, indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
+  let mut written = 0;
+  for (key, item) in fields.filter(|(_, v)| !skipped(v)) {
+    out.push(if written == 0 { '{' } else { ',' });
+    written += 1;
     newline(out, indent, depth + 1);
     string(out, key);
     out.push(':');
@@ -230,6 +284,10 @@ fn object(out: &mut String, fields: &[(String, &Value)], indent: &str, depth: us
     }
     write(out, item, indent, depth + 1, integers)?;
   }
+  if written == 0 {
+    out.push_str("{}");
+    return Ok(());
+  }
   newline(out, indent, depth);
   out.push('}');
   Ok(())
@@ -237,6 +295,11 @@ fn object(out: &mut String, fields: &[(String, &Value)], indent: &str, depth: us
 
 fn string(out: &mut String, s: &str) {
   out.push('"');
+  if !s.bytes().any(|b| b < 0x20 || b == b'"' || b == b'\\') {
+    out.push_str(s);
+    out.push('"');
+    return;
+  }
   for c in s.chars() {
     match c {
       '"' => out.push_str("\\\""),

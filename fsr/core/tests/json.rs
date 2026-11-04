@@ -1,7 +1,7 @@
 //! Plain JSON as `JSON.stringify` writes it and as a service's JSON reads.
 
 use proptest::prelude::*;
-use snapfire_fsr_core::json::{stringify, to_value, Integers};
+use snapfire_fsr_core::json::{number_text, stringify, to_value, Integers};
 use snapfire_fsr_core::value::typed;
 use snapfire_fsr_core::{Value, ValueMap};
 
@@ -85,5 +85,89 @@ proptest! {
     let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| TestCaseError::fail(format!("{e}: {text}")))?;
     let back = to_value(&json);
     prop_assert_eq!(plain(&back), text);
+  }
+}
+
+/// `number_text` as it was written before it wrote into a buffer, kept as the oracle the faster one must agree with on every double.
+fn number_text_by_formatting(n: f64) -> String {
+  if n.is_nan() {
+    return "NaN".to_owned();
+  }
+  if n == 0.0 {
+    return "0".to_owned();
+  }
+  if n.is_infinite() {
+    return if n > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
+  }
+  let sign = if n < 0.0 { "-" } else { "" };
+  let shortest = format!("{:e}", n.abs());
+  let length = shortest.split_once('e').unwrap().0.replace('.', "").len();
+  let closest = format!("{:.*e}", length - 1, n.abs());
+  let scientific = if closest.parse::<f64>() == Ok(n.abs()) { closest } else { shortest };
+  let (mantissa, exponent) = scientific.split_once('e').unwrap();
+  let digits = mantissa.replace('.', "");
+  let k = digits.len() as i64;
+  let point = exponent.parse::<i64>().unwrap() + 1;
+  let body = if k <= point && point <= 21 {
+    format!("{digits}{}", "0".repeat((point - k) as usize))
+  } else if 0 < point && point <= 21 {
+    format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+  } else if -6 < point && point <= 0 {
+    format!("0.{}{digits}", "0".repeat((-point) as usize))
+  } else {
+    let e = point - 1;
+    let e = if e < 0 { format!("-{}", -e) } else { format!("+{e}") };
+    match digits.split_at(1) {
+      (first, "") => format!("{first}e{e}"),
+      (first, rest) => format!("{first}.{rest}e{e}"),
+    }
+  };
+  format!("{sign}{body}")
+}
+
+#[test]
+fn a_double_is_written_as_number_prototype_to_string_writes_it() {
+  let cases: &[(f64, &str)] = &[
+    (1999.0, "1999"),
+    (-0.0, "0"),
+    (4.4, "4.4"),
+    (0.1 + 0.2, "0.30000000000000004"),
+    (-1234.5, "-1234.5"),
+    (100.0, "100"),
+    (1e20, "100000000000000000000"),
+    (1.2345678901234568e20, "123456789012345680000"),
+    (1e21, "1e+21"),
+    (9007199254740992.0, "9007199254740992"),
+    (9007199254740994.0, "9007199254740994"),
+    (1e-6, "0.000001"),
+    (0.000001234, "0.000001234"),
+    (1e-7, "1e-7"),
+    (1.5e-7, "1.5e-7"),
+    (5e-324, "5e-324"),
+    (f64::MAX, "1.7976931348623157e+308"),
+    (f64::NAN, "NaN"),
+    (f64::INFINITY, "Infinity"),
+    (f64::NEG_INFINITY, "-Infinity"),
+  ];
+  for (n, text) in cases {
+    assert_eq!(number_text(*n), *text, "{n:e}");
+  }
+}
+
+#[test]
+fn objects_and_arrays_are_written_in_order_with_their_keys_escaped() {
+  let value = map(&[("a\"b", Value::seq(vec![Value::F64(1999.0), Value::F64(4.4), Value::Undefined])), ("c\n", map(&[("d", Value::str("e\u{1}"))]))]);
+  assert_eq!(plain(&value), r#"{"a\"b":[1999,4.4,null],"c\n":{"d":"e\u0001"}}"#);
+}
+
+proptest! {
+  /// The writer agrees with the formatting oracle on every double, integral ones included.
+  #[test]
+  fn every_double_is_written_as_the_formatting_oracle_writes_it(n in any::<f64>(), whole in any::<i64>()) {
+    prop_assert_eq!(number_text(n), number_text_by_formatting(n));
+    let whole = whole as f64;
+    prop_assert_eq!(number_text(whole), number_text_by_formatting(whole));
+    let small = (whole % 1e16).trunc();
+    prop_assert_eq!(number_text(small), number_text_by_formatting(small));
   }
 }
