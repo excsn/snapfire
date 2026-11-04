@@ -19,13 +19,18 @@ pub fn scratch_root() -> PathBuf {
   ROOT
     .get_or_init(|| {
       let system = std::env::temp_dir();
-      sweep_roots_of_dead_processes(&system);
+      // Miri cannot signal a process or register an exit hook.
+      if !cfg!(miri) {
+        sweep_roots_of_dead_processes(&system);
+      }
       let root = system.join(format!("{ROOT_PREFIX}{}", std::process::id()));
       let _ = std::fs::remove_dir_all(&root);
       std::fs::create_dir_all(&root).unwrap_or_else(|e| panic!("creating {}: {e}", root.display()));
       // SAFETY: registers a function with C linkage that takes nothing, once.
-      unsafe {
-        libc::atexit(remove_root);
+      if !cfg!(miri) {
+        unsafe {
+          libc::atexit(remove_root);
+        }
       }
       root
     })
