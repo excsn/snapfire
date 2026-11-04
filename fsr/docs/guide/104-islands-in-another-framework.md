@@ -111,15 +111,16 @@ That is not the `foreign` fallback. A component goes foreign when the plugin rea
 What comes back is a module and a stylesheet: `dist/src/ui/Tonight.vue`, the compiled module under the component's own name, whose imports the build resolves like any other module's, plus `dist/src/ui/Tonight.vue.css`, the component's `<style scoped>` with its `data-v-` attribute. The template's `import Tonight from "@src/ui/Tonight.vue"` stays as written and the host serves the module as JavaScript. The island registry the build writes registers the module with the Vue mounter:
 
 ```ts
-import { registerIsland } from "@snapfire/fsr/client";
-import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr/client/vue";
+import { registerDeferredIsland } from "@snapfire/fsr/client";
+
+const vue = () => import("@snapfire/fsr/client/vue").then((m) => ({ mount: m.vueMounter, patch: m.vuePatcher, unmount: m.vueUnmounter }));
 
 export function registerIslands(): void {
-  registerIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), mount: vueMounter, patch: vuePatcher, unmount: vueUnmounter });
+  registerDeferredIsland("src/ui/Tonight.vue#default", { loader: () => import("../src/ui/Tonight.vue").then((m) => m.default), adapter: vue });
 }
 ```
 
-A mounter is imported only when a registered module wants it, which is what keeps React off a page that has no React component on it.
+The Vue adapter is imported when a scan first finds one of these islands, which is what keeps a framework off a page that holds none of its islands.
 
 The stylesheets reach the head before the first island mounts. `fsr build` names, under each route's layouts and page, the sheet of every Vue or Svelte component the module reaches through its imports. The host links on a document the ones its route names, after the application's own `styles/*.css`, so a component's rules come later in the cascade than the document's. A navigation adds the next route's sheets before it swaps the page and removes the ones it no longer names. A sheet no route names, a component placed only by its module's name, is linked on every document; the compiler lists every component sheet in `dist/.snapfire-build.json` under `styles`.
 
@@ -148,7 +149,7 @@ Navigation still keeps a static layout's DOM. A segment carries a digest of its 
 
 ## The lab
 
-Run `fsr build --verbose app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one mounter import. Read the report: every route module is `static` and the three components are `lowered` with `vue` in the detail column. View the source of a recipe page before the scripts run: the plan control is a `<sf-i>` holding the button Vue will hydrate, followed by its props. The three component stylesheets are linked in the head after `box.css`.
+Run `fsr build --verbose app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one adapter loader. Read the report: every route module is `static` and the three components are `lowered` with `vue` in the detail column. View the source of a recipe page before the scripts run: the plan control is a `<sf-i>` holding the button Vue will hydrate, followed by its props. The three component stylesheets are linked in the head after `box.css`.
 
 Take `snapfirec-vue` off `PATH` and build again. The bundle stops on the modules the registry imports and the report still prints, with a `plugins` row naming the binary and the install command. The three components are missing from `rendered` altogether rather than listed foreign, since nothing read them.
 

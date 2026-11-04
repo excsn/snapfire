@@ -101,14 +101,47 @@ The list on the right is derived the same way, from what the host reads at boot 
 
 A static root is copied whole, so whatever the directory holds is served. A vendored package that ships its `.d.ts` beside its `.js` puts those declarations under the route too. The browser never asks for them and the host would have served them in development just the same, but everything in a static root's directory is public.
 
-## What the tree leaves out
+## The binary
 
-The tree does not hold the binary or the logging configuration. Those are the two things that differ per deployment and per tool: which binary and which logging file becomes `fibre_logging.yaml`. The command names them rather than guessing and the build script that calls it places them:
+Every deployment runs a binary. Which one depends on whether the project has a crate.
+
+An application with no crate, TypeScript only, gets `fsr-server` in the tree. It is the stock host and nothing else: no build tools, no dev loop, no test engine, no debug information. `fsr bundle` builds it once per FSR version into `~/.cache/snapfire/server/` and copies it into every tree after that. The first bundle needs a Rust toolchain; the rest copy from the cache.
 
 ```sh
+fsr build app
+fsr prerender app
+fsr bundle app --out dist
+```
+
+```text
+dist/fsr-server runs it
+place beside it: the logging configuration
+```
+
+Copy `dist/` to the server and run the binary. It serves the `app/` directory beside it and reads `RELEASE_ENV` as `production` when nothing sets it. It refuses a configuration with `server.dev` on.
+
+```sh
+C5_SESSION__KEY=... ./fsr-server
+./fsr-server --listen 0.0.0.0:8080
+```
+
+`FSR_SERVER` names a binary to use instead of the cached one.
+
+An application with its own crate ships its own binary, built with `fsr build app` and then `cargo build --release`. The tree holds no `fsr-server` and the deploy script places the binary:
+
+```sh
+fsr build app
+cargo build --release
 fsr bundle app --out dist
 
 cp target/release/snapfire_www dist/
+```
+
+## What the tree leaves out
+
+The tree does not hold the logging configuration, which differs per deployment. The deploy script places it:
+
+```sh
 cp fibre_logging.production.yaml dist/fibre_logging.yaml
 ```
 
@@ -117,7 +150,7 @@ cp fibre_logging.production.yaml dist/fibre_logging.yaml
 ## Pointing a web server at it
 
 > [!WARNING]
-> **Whatever answers `serve/` must send `.svelte` and `.vue` files as JavaScript.** A compiled component keeps its source extension in the tree, hashed or not. It holds JavaScript. The host answers these files with `text/javascript`. A web server types a file by its extension and knows neither, so nginx answers `application/octet-stream` and the browser refuses the module. `generated/islands.js` imports every component, so one refused module stops every island on the page, React ones included. Development and `fsr serve` never show it, since the host answers there. Map both extensions to `text/javascript` in the server in front: the nested `location` in each nginx block below does it. Apache takes `AddType text/javascript .svelte .vue`. A CDN or bucket needs the content type set when the files are uploaded.
+> **Whatever answers `serve/` must send `.svelte` and `.vue` files as JavaScript.** A compiled component keeps its source extension in the tree, hashed or not. It holds JavaScript. The host answers these files with `text/javascript`. A web server types a file by its extension and knows neither, so nginx answers `application/octet-stream` and the browser refuses the module. `generated/islands.js` imports every component, so one refused module stops every island on the page, React ones included. Development never shows it, since the host answers there. Map both extensions to `text/javascript` in the server in front: the nested `location` in each nginx block below does it. Apache takes `AddType text/javascript .svelte .vue`. A CDN or bucket needs the content type set when the files are uploaded.
 
 nginx serves `serve/` off disk and proxies everything else to the process:
 
@@ -158,7 +191,7 @@ location @fsr {
 
 `try_files $uri` without `$uri/` matters: a directory is not a file, so `/` and `/docs/` reach the process and its pages rather than an index nginx would look for. `fsr build` refuses a file in `public/` whose path a route, a card image, `robots.txt` or the sitemap from `[crawl]` or the root icon also answers, since nginx would answer the file and development the other one.
 
-The process still knows those routes, so it answers them when nothing is in front of it, which is what `fsr serve` does and what a container without a web server does. The two agree because both read the same configuration.
+The process still knows those routes, so it answers them when nothing is in front of it, as in a container without a web server. The two agree because both read the same configuration.
 
 ## The lab
 

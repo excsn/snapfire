@@ -30,9 +30,9 @@ The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads
 
 They also share a second directory. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr/bundle/` with those calls turned into reads of what the server delivered and `fsr dev` passes `--overlay .fsr/bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
 
-## A Cargo project runs the build for you
+## A Cargo project builds after `fsr build`
 
-An application with a Rust project puts three lines in `build.rs` that call `build` and then `write`. `cargo build` then regenerates `generated/` whenever `routes/`, `schemas/` or `clients/` change, so the host never boots against a stale plan. The storefront does this, which is why its README's manual steps are `cargo build`, the bundle, `cargo run`, in that order.
+An application with a Rust project is built in two steps: `fsr build app` writes `generated/` and the bundle, then `cargo build` compiles the binary that serves them. The crate has no build script for the application and does not depend on `snapfire_fsr_cli`, so cargo never compiles the CLI; the `fsr` on the machine does the generation. A shell with sites runs `fsr build` on the shell first and then on each site, since a site reads the shell's `generated/shell.json`. The storefront's README's manual steps are `fsr build app`, then `cargo run`.
 
 ## `fsr dev`
 
@@ -59,7 +59,7 @@ The same script lists each Content-Security-Policy violation the page meets in a
 
 When the generated files actually differ the loop asks the running server to reload its tables in place (`POST /__fsr/reload`) and restarts only when the reload is refused (a changed `[session]`, for one) or when the Rust project changed. Editing a page never restarts, because the bundle's output names are stable and the host reads it from disk; a reload keeps every session, which chapter 204 explains. A step that fails leaves the running server up and waits, so a typo never takes the page down. Stopping the loop stops the server with it.
 
-Without a Cargo project beside the app, the loop runs `fsr serve` on the app instead: the stock host over `config/app.toml`, restarted on the same rule, with `config/` watched in place of `src/`. `fsr serve <app> [--listen <addr>]` is that host on its own, for production, the way `cargo run` is for a project that has one; it refuses a configuration whose `[app] dir` names a different directory. It prints the boot report's rows that need attention and `--verbose` prints the whole report, which `fsr dev --verbose` passes on. An `fsr` built with the `desktop` feature takes `--desktop` on both: the loop or the host runs beside a native window over the system webview, which loads the host over loopback and keeps its window across the loop's restarts.
+Without a Cargo project beside the app, the loop runs `fsr serve` on the app instead: the stock host over `config/app.toml`, restarted on the same rule, with `config/` watched in place of `src/`. `fsr serve <app> [--listen <addr>]` is that host on its own, for development. A deployment runs a binary: `fsr-server` for an application with no crate, its own binary for one with a crate. [Chapter 303](303-the-deploy-tree.md#the-binary) covers both. `fsr serve` refuses a configuration whose `[app] dir` names a different directory. It prints the boot report's rows that need attention and `--verbose` prints the whole report, which `fsr dev --verbose` passes on. An `fsr` built with the `desktop` feature takes `--desktop` on both: the loop or the host runs beside a native window over the system webview, which loads the host over loopback and keeps its window across the loop's restarts.
 
 ## Prerendering
 

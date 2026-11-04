@@ -267,7 +267,7 @@ export async function load({ services }: Ctx<"/">) {
 }
 ```
 
-A type imported from `@prisma/client` is imported from `@generated/client`, which `fsr build` writes from the records. The schema, the client module and `prisma.config.ts` are removed. `src/main.rs` and `Cargo.toml` start the host with the service; write each query with sqlx or the database crate of your choice, then `cargo run`.
+A type imported from `@prisma/client` is imported from `@generated/client`, which `fsr build` writes from the records. The schema, the client module and `prisma.config.ts` are removed. `src/main.rs` and `Cargo.toml` start the host with the service; write each query with sqlx or the database crate of your choice, then run `fsr build app` and `cargo run`.
 
 ## Public environment variables
 

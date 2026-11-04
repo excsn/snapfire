@@ -8,7 +8,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 
 - **`snapfire_fsr_plan::Manifest`**, the plan file: routes with their plan nodes, source rows, action rows and component rows, with the owner of each. Read at boot, written by the build.
 - **`snapfire_fsr_service::Contract`**, the merged description of every service and type, with `check_call` and `check_value` for arguments and responses.
-- **`snapfire_fsr_cli::build`** and **`write`**, the build as a library, which is what a `build.rs` calls.
+- **`snapfire_fsr_cli::build`** and **`write`**, the build as a library, for a tool or a test that generates an application in-process.
 - **`snapfire_fsr_cli::Report`** and **`snapfire_fsr::Report`**, the table the build and the host print.
 - **`snapfire_fsr_plan::Manifest::namespaced`** and **`snapfire_fsr_service::Contract::namespaced`**, the plan file and the contract as a site's, every id prefixed with its name.
 - **`snapfire_fsr_cli::ShellContract`**, `generated/shell.json`, what a site is built against.

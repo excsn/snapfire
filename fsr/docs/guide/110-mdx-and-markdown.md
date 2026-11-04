@@ -7,7 +7,7 @@
 The parser, the highlighter and frontmatter are Cargo features of the CLI, on by default. An install that wants none of them turns the defaults off and keeps what it needs:
 
 ```sh
-cargo install snapfire_fsr_cli --no-default-features --features web,tera
+cargo install snapfire_fsr_cli --no-default-features --features test,tera
 ```
 
 | Feature | Reads |
@@ -16,7 +16,7 @@ cargo install snapfire_fsr_cli --no-default-features --features web,tera
 | `mdx-highlight` | `mdx`, plus fenced code highlighted at build |
 | `mdx-frontmatter` | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
 
-An fsr built without `mdx` refuses an `.mdx` page or import by name rather than leaving it out. A `build.rs` that builds an application gets the features with the build dependency's defaults.
+An fsr built without `mdx` refuses an `.mdx` page or import by name rather than leaving it out.
 
 `fsr use app mdx` writes a starter `mdx-components.tsx` and, with highlighting built in, `styles/code.css`. `fsr new shop --with mdx` starts an application with them.
 

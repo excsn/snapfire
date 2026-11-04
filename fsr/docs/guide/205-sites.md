@@ -19,7 +19,7 @@ Nothing in the site's TypeScript changes. Routes are still `routes/invoice/[id]/
 
 ## Running a site on its own
 
-A site runs alone with `fsr dev` or `cargo run`, under its own prefix with its own layout as the page, so a team develops and tests it without the shell. Alone it keeps what a mount drops: its own `[session]`, `[auth]`, `[cache]` and `not-found.tsx`. It has no sign-in but its own `[auth]`, so a guard that redirects to the shell's login lands on a page that is not there.
+A site runs alone with `fsr dev`, or with `fsr build` and then `cargo run`, under its own prefix with its own layout as the page, so a team develops and tests it without the shell. Alone it keeps what a mount drops: its own `[session]`, `[auth]`, `[cache]` and `not-found.tsx`. It has no sign-in but its own `[auth]`, so a guard that redirects to the shell's login lands on a page that is not there.
 
 Its frameworks still come from the shell. The site's import map names React at the shell's URL, so when the `generated/shell.json` that `[site] shell` names sits in the shell's `app/` beside a `vendor/` directory, the host serves that directory at `/static/js/vendor` and the report lists it under `inferred`. That root is only for the site running alone. A mount never reads it and a deploy tree never carries it, so the site's artifact and its hash are the same either way.
 
