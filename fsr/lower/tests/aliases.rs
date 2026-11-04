@@ -76,17 +76,17 @@ fn a_field_written_through_an_element_is_written_in_the_array() {
 }
 
 #[test]
-fn a_write_through_an_element_after_its_array_was_written_is_residue() {
+fn a_write_through_an_element_after_its_array_was_written_reaches_the_element() {
   let page = r#"export default function Page() {
   const rows = [{ n: 1 }];
   const first = rows[0];
   rows.unshift({ n: 0 });
   first.n = 9;
-  return <p>{rows.length}</p>;
+  return <p>{rows.length} {rows.map((r) => r.n).join(",")}</p>;
 }
 "#;
-  let err = html("stale", page).unwrap_err();
-  assert!(err.contains("a write through `first`, an element of `rows`, after `rows` was written"), "{err}");
+  let html = html("stale", page).unwrap();
+  assert!(html.contains("<p>2 0,9</p>"), "{html}");
 }
 
 #[test]
@@ -125,17 +125,17 @@ export default function Page() {
 }
 
 #[test]
-fn a_write_through_a_field_alias_after_its_root_was_written_is_residue() {
+fn a_write_through_a_field_alias_after_its_root_was_written_reaches_the_old_object() {
   let page = r#"export default function Page() {
   const config = { settings: { theme: "dark" } };
   const settings = config.settings;
   config.settings = { theme: "light" };
   settings.theme = "blue";
-  return <p>{config.settings.theme}</p>;
+  return <p>{config.settings.theme} {settings.theme}</p>;
 }
 "#;
-  let err = html("field_stale", page).unwrap_err();
-  assert!(err.contains("a write through `settings`, a field of `config`, after `config` was written"), "{err}");
+  let html = html("field_stale", page).unwrap();
+  assert!(html.contains("<p>light blue</p>"), "{html}");
 }
 
 #[test]

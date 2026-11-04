@@ -3,6 +3,29 @@ use std::path::PathBuf;
 use snapfire_fsr_ir::{Expr, Stmt};
 use snapfire_fsr_lower::component::ComponentSet;
 
+fn let_at(body: &[Stmt], local: &str) -> Option<usize> {
+  body.iter().position(|s| matches!(s, Stmt::Let { name, .. } if name == local))
+}
+
+fn loop_body(body: &[Stmt]) -> &[Stmt] {
+  body.iter().find_map(|s| match s {
+    Stmt::ForOf { body, .. } => Some(body.as_slice()),
+    _ => None,
+  }).unwrap_or_else(|| panic!("no loop: {body:?}"))
+}
+
+/// `stmt` writes the local `name`: a `Set` of it or a write in place through it.
+fn writes(stmt: &Stmt, name: &str) -> bool {
+  match stmt {
+    Stmt::Set { name: set, .. } => set == name,
+    Stmt::Expr(expr) => {
+      let text = format!("{expr:?}");
+      text.contains("Overwrite") && text.contains(&format!("Var(\"{name}\")"))
+    }
+    _ => false,
+  }
+}
+
 fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
   let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_builtins_{}_{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
@@ -231,9 +254,10 @@ fn a_body_destructures_a_value_once_and_reads_its_parts() {
     )],
   );
   let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap();
-  assert!(matches!(&body[0], Stmt::Let { name, expr: Expr::Param(_) } if name.starts_with("$d")), "the value is bound once: {body:?}");
-  assert!(matches!(&body[1], Stmt::Let { name, .. } if name == "a"), "{body:?}");
-  assert!(matches!(&body[2], Stmt::Let { name, .. } if name == "b"), "{body:?}");
+  assert!(matches!(&body[0], Stmt::Let { name, expr: Expr::Param(_) } if name.starts_with("$d")), "{body:?}");
+  assert_eq!(format!("{body:?}").matches("Param(\"page\")").count(), 1, "the value is bound once: {body:?}");
+  let (a, b) = (let_at(&body, "a"), let_at(&body, "b"));
+  assert!(a.is_some() && a < b, "{body:?}");
   assert!(body.iter().any(|s| matches!(s, Stmt::ForOf { name, .. } if name.starts_with("$d"))), "{body:?}");
 }
 
@@ -247,11 +271,11 @@ fn a_body_writes_its_locals_and_switches() {
     )],
   );
   let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap();
-  let Stmt::ForOf { body: inner, .. } = &body[2] else { panic!("{body:?}") };
+  let inner = loop_body(&body);
   assert!(matches!(&inner[0], Stmt::Set { name, expr: Expr::Arith(..) } if name == "total"), "{inner:?}");
-  assert!(matches!(&inner[1], Stmt::Set { name, expr: Expr::Array(_) } if name == "seen"), "{inner:?}");
-  assert!(matches!(&inner[2], Stmt::Let { name, .. } if name.starts_with("$d")), "the discriminant is held once: {inner:?}");
-  assert!(matches!(&inner[3], Stmt::If { then, r#else, .. } if matches!(&then[0], Stmt::Set { .. }) && matches!(&r#else[0], Stmt::Set { .. })), "{inner:?}");
+  assert!(writes(&inner[1], "seen"), "{inner:?}");
+  assert_eq!(inner.iter().filter(|s| matches!(s, Stmt::Let { name, expr: Expr::Field(_, field) } if name.starts_with("$d") && field == "kind")).count(), 1, "the discriminant is held once: {inner:?}");
+  assert!(inner.iter().any(|s| matches!(s, Stmt::If { then, r#else, .. } if writes(&then[0], "total") && writes(&r#else[0], "total"))), "{inner:?}");
 }
 
 #[test]
@@ -314,9 +338,9 @@ fn a_body_writes_its_local_map_and_set() {
     )],
   );
   let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap();
-  let Stmt::ForOf { body: inner, .. } = &body[2] else { panic!("{body:?}") };
-  assert!(matches!(&inner[0], Stmt::Set { name, .. } if name == "seen"), "{inner:?}");
-  assert!(matches!(&inner[1], Stmt::Set { name, expr: Expr::Object(_) } if name == "totals"), "{inner:?}");
+  let inner = loop_body(&body);
+  assert!(writes(&inner[0], "seen"), "{inner:?}");
+  assert!(writes(&inner[1], "totals"), "{inner:?}");
 }
 
 #[test]

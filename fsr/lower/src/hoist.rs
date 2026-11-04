@@ -384,6 +384,7 @@ fn strip_body(body: &mut [Stmt], tainted: &[String], kept: &mut Vec<u32>, in_hoi
   for stmt in body {
     match stmt {
       Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => strip(expr, tainted, kept, true, in_hoist),
+      Stmt::Break | Stmt::Continue => {}
       Stmt::If { cond, then, r#else } => {
         strip(cond, tainted, kept, true, in_hoist);
         strip_body(then, tainted, kept, in_hoist);
@@ -392,6 +393,11 @@ fn strip_body(body: &mut [Stmt], tainted: &[String], kept: &mut Vec<u32>, in_hoi
       Stmt::ForOf { over, body, .. } => {
         strip(over, tainted, kept, true, in_hoist);
         strip_body(body, tainted, kept, in_hoist);
+      }
+      Stmt::While { cond, body, step } => {
+        strip(cond, tainted, kept, true, in_hoist);
+        strip_body(body, tainted, kept, in_hoist);
+        strip_body(step, tainted, kept, in_hoist);
       }
       Stmt::Guard { cond, message, .. } => {
         strip(cond, tainted, kept, true, in_hoist);

@@ -38,6 +38,40 @@ pub struct ForeignImport {
 
 /// The cursor over one application: parsed files, finished components and the
 /// resolution stack that turns recursion into a diagnostic.
+pub(crate) trait HeapMarked {
+  fn mark(&mut self);
+}
+
+impl HeapMarked for Body {
+  fn mark(&mut self) {
+    self.insert(0, crate::heap_marker());
+  }
+}
+
+impl HeapMarked for Option<Body> {
+  fn mark(&mut self) {
+    if let Some(body) = self {
+      body.mark();
+    }
+  }
+}
+
+impl HeapMarked for Vec<crate::LoweredAction> {
+  fn mark(&mut self) {
+    self.iter_mut().for_each(|action| action.body.mark());
+  }
+}
+
+impl HeapMarked for Vec<crate::LoweredHandler> {
+  fn mark(&mut self) {
+    self.iter_mut().for_each(|handler| handler.body.mark());
+  }
+}
+
+impl HeapMarked for Vec<String> {
+  fn mark(&mut self) {}
+}
+
 #[non_exhaustive]
 pub struct ComponentSet {
   app: PathBuf,
@@ -518,7 +552,11 @@ impl ComponentSet {
   /// Runs `lower` over `file`, binding each module-level name it could not
   /// resolve through this set and trying again, until it lowers or a name
   /// cannot be bound.
-  fn resolving_loop<T>(&mut self, file: &str, lower: impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
+  fn resolving_loop<T: HeapMarked>(&mut self, file: &str, lower: impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
+    crate::with_heap(|| self.resolving_once(file, &lower), HeapMarked::mark)
+  }
+
+  fn resolving_once<T>(&mut self, file: &str, lower: &impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
     self.load(file)?;
     self.load_class_graph(file);
     self.meanings(file);
@@ -1317,7 +1355,8 @@ impl ComponentSet {
 
   fn lower_loaded(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     let outer = std::mem::replace(&mut self.lowering_component, true);
-    let result = self.lower_loaded_in(file, export);
+    let (rewrites, continuations) = (self.rewrites.len(), self.continuations.len());
+    let result = crate::with_heap_fresh(|| { self.rewrites.truncate(rewrites); self.continuations.truncate(continuations); self.lower_loaded_in(file, export) }, |component: &mut Component| component.body.insert(0, crate::heap_marker()));
     self.lowering_component = outer;
     result
   }
@@ -2596,9 +2635,6 @@ impl ComponentSet {
     })
   }
 
-  /// A constant the plan names once or the expression itself when naming it
-  /// would cost more than copying it. `CONST_WEIGHT` is where a copy per
-  /// reference starts to dominate the plan.
   /// Lowers every member of the class `id`, and of each class it extends, into `consts`. A member that does not lower is a constant that fails with its residue when it runs.
   fn lower_class(&mut self, id: &str) -> Result<(), LowerError> {
     if !self.classes_lowered.insert(id.to_owned()) {
@@ -2645,10 +2681,13 @@ impl ComponentSet {
     Ok(())
   }
 
+  /// A constant the plan names once or the expression itself when naming it would cost more than copying it. `CONST_WEIGHT` is where a copy per reference starts to dominate the plan. A program that writes objects names every constant that builds one, so all its readers in a request hold one object.
   fn name_if_large(&mut self, key: String, expr: Expr) -> Expr {
-    if weight(&expr) < CONST_WEIGHT || matches!(expr, Expr::Lambda { .. } | Expr::Fix { .. } | Expr::Ext { .. }) || is_asset_record(&expr) {
+    let shared = crate::heap_pass() && matches!(&expr, Expr::Object(_) | Expr::Array(_)) && !plain(&expr);
+    if weight(&expr) < CONST_WEIGHT && !shared || matches!(expr, Expr::Lambda { .. } | Expr::Fix { .. } | Expr::Ext { .. }) || is_asset_record(&expr) {
       return expr;
     }
+    let key = if crate::heap_pass() { format!("{key}$heap") } else { key };
     self.consts.entry(key.clone()).or_insert(expr);
     Expr::Const(key)
   }
@@ -3858,6 +3897,18 @@ pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], 
 
 /// [`function_to_lambda`] once its parameters `names` are bound above `depth`.
 fn lambda_of(lowerer: &mut Lowerer<'_>, names: Vec<String>, depth: usize, body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
+  let outer = std::mem::take(&mut lowerer.breakable);
+  let lambda = lambda_in(lowerer, names, depth, body, is_async);
+  lowerer.breakable = outer;
+  lambda
+}
+
+fn lambda_in(lowerer: &mut Lowerer<'_>, names: Vec<String>, depth: usize, body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
+  let defaults = if !(is_async && lowerer.reaches(Reach::Later)) {
+    held_frame(lowerer, |lowerer| settle(lowerer, depth)).0
+  } else {
+    Vec::new()
+  };
   if is_async && lowerer.reaches(Reach::Later) {
     let done = lowerer.temp();
     let stmts = match body {
@@ -3871,33 +3922,34 @@ fn lambda_of(lowerer: &mut Lowerer<'_>, names: Vec<String>, depth: usize, body: 
   }
   let result = match body {
     FunctionBody::Expr(e) => lowerer.expr(e),
-    FunctionBody::Block(stmts) => {
-      // A body that writes a name it neither takes nor declares, a module-level `let` or a collection it changes in place, keeps its statements: a block lambda can write what is around it where an expression lambda cannot.
-      let declared = declared_names(stmts);
-      let held = |name: &String| lowerer.cells.iter().any(|(cell, _)| cell == name);
-      let writes_outer = written_names(stmts, false).into_iter().chain(mutated_names(stmts)).any(|name| !names.contains(&name) && !declared.contains(&name)) || passed_names(stmts).iter().any(|name| !names.contains(name) && !declared.contains(name) && held(name));
-      if writes_outer {
-        lowerer.block(stmts).map(Expr::Block)
-      } else {
-        // A parameter is the function's own local, so the body may write it.
-        let refs: Vec<&js::Stmt> = stmts.iter().collect();
-        block_to_expr_inner(lowerer, &refs, depth)
-      }
-    }
+    FunctionBody::Block(stmts) => lowerer.block(stmts).map(Expr::Block),
   };
   lowerer.scope.truncate(depth);
-  Ok(Expr::Lambda { params: names, body: Box::new(result?) })
+  Ok(Expr::Lambda { params: names, body: Box::new(sequenced(defaults, result?)) })
 }
 
 /// The locals declared outside a function that an arrow or a function inside `stmts` writes, by name and syntax context: a bare name, a path into one or an update.
 /// The locals `stmts` write from inside a function or a `try`, whose writes outlive the path that makes them.
 fn function_writes(stmts: &[&js::Stmt]) -> Vec<(String, swc_core::common::SyntaxContext)> {
+  shared_writes(stmts, false)
+}
+
+pub(crate) fn closure_shared(stmts: &[js::Stmt]) -> Vec<(String, swc_core::common::SyntaxContext)> {
+  let refs: Vec<&js::Stmt> = stmts.iter().collect();
+  shared_writes(&refs, true)
+}
+
+fn shared_writes(stmts: &[&js::Stmt], closures_only: bool) -> Vec<(String, swc_core::common::SyntaxContext)> {
   struct Writes {
     depth: usize,
     found: Vec<(String, swc_core::common::SyntaxContext)>,
+    closures: usize,
+    read: Vec<(String, swc_core::common::SyntaxContext)>,
+    all: Vec<(String, swc_core::common::SyntaxContext)>,
   }
   impl Writes {
     fn note(&mut self, id: &js::Ident) {
+      self.all.push((id.sym.to_string(), id.ctxt));
       if self.depth > 0 && !self.found.iter().any(|(name, ctxt)| *name == *id.sym && *ctxt == id.ctxt) {
         self.found.push((id.sym.to_string(), id.ctxt));
       }
@@ -3907,7 +3959,7 @@ fn function_writes(stmts: &[&js::Stmt]) -> Vec<(String, swc_core::common::Syntax
     fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
       match &assign.left {
         js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.note(&id.id),
-        js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) => {
+        js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) if !crate::heap_pass() => {
           if let Some((id, _)) = crate::write_root(member) {
             self.note(id);
           }
@@ -3924,12 +3976,16 @@ fn function_writes(stmts: &[&js::Stmt]) -> Vec<(String, swc_core::common::Syntax
     }
     fn visit_arrow_expr(&mut self, arrow: &js::ArrowExpr) {
       self.depth += 1;
+      self.closures += 1;
       arrow.visit_children_with(self);
+      self.closures -= 1;
       self.depth -= 1;
     }
     fn visit_function(&mut self, function: &js::Function) {
       self.depth += 1;
+      self.closures += 1;
       function.visit_children_with(self);
+      self.closures -= 1;
       self.depth -= 1;
     }
     fn visit_try_stmt(&mut self, t: &js::TryStmt) {
@@ -3937,9 +3993,27 @@ fn function_writes(stmts: &[&js::Stmt]) -> Vec<(String, swc_core::common::Syntax
       t.visit_children_with(self);
       self.depth -= 1;
     }
+    fn visit_ident(&mut self, id: &js::Ident) {
+      if self.closures > 0 {
+        self.read.push((id.sym.to_string(), id.ctxt));
+      }
+    }
   }
-  let mut writes = Writes { depth: 0, found: Vec::new() };
+  let mut writes = Writes { depth: 0, found: Vec::new(), closures: 0, read: Vec::new(), all: Vec::new() };
   stmts.iter().for_each(|stmt| stmt.visit_with(&mut writes));
+  struct Bound(Vec<(String, swc_core::common::SyntaxContext)>);
+  impl Visit for Bound {
+    fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
+      self.0.push((id.id.sym.to_string(), id.id.ctxt));
+    }
+  }
+  let mut bound = Bound(Vec::new());
+  stmts.iter().for_each(|stmt| stmt.visit_with(&mut bound));
+  let shared: Vec<_> = writes.read.iter().filter(|name| writes.all.contains(name) && bound.0.contains(name)).cloned().collect();
+  if closures_only {
+    return shared;
+  }
+  writes.found.extend(shared);
   writes.found
 }
 
@@ -4002,30 +4076,11 @@ fn module_mutations(module: &js::Module) -> Vec<String> {
   found.0
 }
 
-/// The names `stmts` hand bare to a call, which may write them back ([`Builtin::WriteBack`]).
-fn passed_names(stmts: &[js::Stmt]) -> Vec<String> {
-  struct Passed(Vec<String>);
-  impl Visit for Passed {
-    fn visit_call_expr(&mut self, call: &js::CallExpr) {
-      for arg in &call.args {
-        if let (None, js::Expr::Ident(id)) = (arg.spread, &*arg.expr) {
-          if !self.0.iter().any(|n| *n == *id.sym) {
-            self.0.push(id.sym.to_string());
-          }
-        }
-      }
-      call.visit_children_with(self);
-    }
-  }
-  let mut found = Passed(Vec::new());
-  for stmt in stmts {
-    stmt.visit_with(&mut found);
-  }
-  found.0
-}
-
 /// The parameters, by position, whose fields `stmts` write: what a call writes back to the arguments it passed, as JavaScript's caller sees the objects it passed changed.
 pub(crate) fn written_params(params: &[js::Pat], stmts: &[js::Stmt]) -> Vec<(usize, js::Ident)> {
+  if crate::heap_pass() {
+    return Vec::new();
+  }
   params
     .iter()
     .enumerate()
@@ -4088,15 +4143,6 @@ pub(crate) fn write_back(packed: Expr, written: &[(usize, js::Ident)]) -> Expr {
 /// Whether `expr` applies a function written in place that writes back to its arguments.
 fn writes_back(expr: &Expr) -> bool {
   matches!(expr, Expr::Apply { f, .. } if matches!(&**f, Expr::Lambda { body, .. } if matches!(&**body, Expr::Builtin { name: Builtin::WriteBack, .. })))
-}
-
-/// The names `stmts` call `set`, `delete`, `add` or `clear` on (a collection changed in place, or a `Scope` set) or `run` on (a `Scope` set around a call).
-fn mutated_names(stmts: &[js::Stmt]) -> Vec<String> {
-  let mut found = Mutations(Vec::new());
-  for stmt in stmts {
-    stmt.visit_with(&mut found);
-  }
-  found.0
 }
 
 struct Mutations(Vec<String>);
@@ -4223,26 +4269,6 @@ fn functions_only(e: &js::Expr) -> bool {
       js::PropOrSpread::Prop(p) => matches!(&**p, js::Prop::KeyValue(kv) if matches!(crate::meaning::bare(&kv.value), js::Expr::Arrow(_) | js::Expr::Fn(_))),
       js::PropOrSpread::Spread(_) => false,
     })
-}
-
-/// The names `stmts` declare at any depth outside nested functions.
-pub(crate) fn declared_names(stmts: &[js::Stmt]) -> Vec<String> {
-  struct Declared(Vec<String>);
-  impl Visit for Declared {
-    fn visit_var_declarator(&mut self, decl: &js::VarDeclarator) {
-      if let js::Pat::Ident(id) = &decl.name {
-        self.0.push(id.id.sym.to_string());
-      }
-      decl.visit_children_with(self);
-    }
-    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
-    fn visit_function(&mut self, _: &js::Function) {}
-  }
-  let mut declared = Declared(Vec::new());
-  for stmt in stmts {
-    stmt.visit_with(&mut declared);
-  }
-  declared.0
 }
 
 /// Each `x++`, `x--`, `++x` or `--x` on a bare name that `stmt` reaches unconditionally, in source order: its span, the name, whether it is a prefix and whether it adds. One under a condition, a short-circuit or inside a function is left out, since lifting it would run it too soon.
@@ -4564,6 +4590,7 @@ pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStmt) -> 
     let body: &[js::Stmt] = match cons.last() {
       Some(js::Stmt::Break(b)) if b.label.is_none() => &cons[..cons.len() - 1],
       Some(js::Stmt::Return(_) | js::Stmt::Throw(_)) => cons,
+      Some(js::Stmt::Continue(c)) if c.label.is_none() && lowerer.breakable.contains(&crate::Breakable::Loop) => cons,
       _ if i == last => cons,
       _ => return Err(lowerer.residue_with(case.span, "a `case` that falls through into the next", "end it with `break` or `return`")),
     };
@@ -4675,7 +4702,7 @@ fn returns_in(t: &js::TryStmt) -> Vec<&js::ReturnStmt> {
 }
 
 /// `run` inside a frame of its own for the `let`s a statement holds, which it answers with what `run` answered.
-fn held_frame<T>(lowerer: &mut Lowerer<'_>, run: impl FnOnce(&mut Lowerer<'_>) -> T) -> (Vec<Stmt>, T) {
+pub(crate) fn held_frame<T>(lowerer: &mut Lowerer<'_>, run: impl FnOnce(&mut Lowerer<'_>) -> T) -> (Vec<Stmt>, T) {
   lowerer.held.push(Vec::new());
   lowerer.held_reach.push(lowerer.rebind_reach.len());
   let result = run(lowerer);
@@ -4688,7 +4715,7 @@ fn try_run(lowerer: &mut Lowerer<'_>, t: &js::TryStmt, writable: &Writable<'_>) 
   let mut writes = Writes::default();
   t.visit_with(&mut writes);
   let Writes { written, declared } = writes;
-  let written: Vec<String> = written.into_iter().filter(|name| !declared.contains(name)).collect();
+  let written: Vec<String> = written.into_iter().filter(|name| !declared.contains(name) && !lowerer.cells.iter().any(|(cell, _)| cell == name)).collect();
   let mut run = Vec::new();
   for name in &written {
     if !writable.local(lowerer, name) {
@@ -4835,6 +4862,9 @@ fn timer_call(e: &js::Expr) -> Option<(bool, &js::Expr, &js::Expr)> {
 /// the array's name, the index as it was then and where the array was bound,
 /// so a write through `name` reaches the element JavaScript shares.
 fn note_alias(lowerer: &mut Lowerer<'_>, name: &str, init: &js::Expr, writable: &Writable<'_>) -> Lowered<()> {
+  if crate::heap_pass() {
+    return Ok(());
+  }
   let (array, index, from_end) = match init {
     js::Expr::Member(member) => match (&member.prop, &*member.obj) {
       (js::MemberProp::Computed(prop), js::Expr::Ident(array)) => (array, &*prop.expr, false),
@@ -5075,6 +5105,48 @@ fn write_field(lowerer: &mut Lowerer<'_>, span: Span, name: &str, value: Expr, a
 
 /// Statements with no `return` that bind and assign, run at build time over the scope: a write rebinds its name to the new value, an `if` rebinds each name a branch wrote to the branch's value under the condition. `assigned` collects the names written, first write first.
 pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
+  if let js::Stmt::Expr(e) = stmt {
+    if lowerer.object_write(&e.expr) {
+      if crate::heap_pass() {
+        let effect = lowerer.heap_write(&e.expr)?;
+        if lowerer.held.is_empty() {
+          let held = lowerer.temp();
+          lowerer.scope.push((held.clone(), effect));
+          if !assigned.iter().any(|a| *a == held) {
+            assigned.push(held);
+          }
+        } else {
+          hold_in_reach(lowerer, effect);
+        }
+        return Ok(());
+      }
+      crate::want_heap();
+    }
+  }
+  if !lowerer.held.is_empty() {
+    if let js::Stmt::Expr(e) = stmt {
+      let to_cell = match &*e.expr {
+        js::Expr::Assign(assign) => lowerer.cell_of_target(&assign.left).is_some(),
+        js::Expr::Update(update) => matches!(&*update.arg, js::Expr::Ident(id) if lowerer.cells.iter().any(|(name, _)| *name == *id.sym)),
+        js::Expr::Call(call) => matches!(&call.callee, js::Callee::Expr(callee) if matches!(&**callee, js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if lowerer.cells.iter().any(|(name, _)| *name == *id.sym)))),
+        _ => false,
+      };
+      if to_cell {
+        let effect = lowerer.expr(&e.expr)?;
+        hold_in_reach(lowerer, effect);
+        return Ok(());
+      }
+    }
+  }
+  let from = lowerer.scope.len();
+  rebind_stmt_inner(lowerer, stmt, writable, assigned)?;
+  if !lowerer.held.is_empty() {
+    settle(lowerer, from);
+  }
+  Ok(())
+}
+
+fn rebind_stmt_inner(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
   let note = |assigned: &mut Vec<String>, name: &str| {
     if !assigned.iter().any(|a| a == name) {
       assigned.push(name.to_owned());
@@ -5091,6 +5163,8 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
           let name = lowerer.temp();
           lowerer.held.last_mut().expect("a frame").push(Stmt::Let { name: name.clone(), expr });
           expr = Expr::Var(name);
+        } else if !lowerer.held.is_empty() && !plain(&expr) {
+          expr = hold_in_reach(lowerer, expr);
         }
         bind_pattern(lowerer, &decl.name, expr)?;
         if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
@@ -5247,6 +5321,17 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
             return Ok(());
           }
         }
+        if target.is_none() && crate::heap_pass() {
+          let effect = lowerer.expr(&e.expr)?;
+          if lowerer.held.is_empty() {
+            let held = lowerer.temp();
+            lowerer.scope.push((held.clone(), effect));
+            note(assigned, &held);
+          } else {
+            hold_in_reach(lowerer, effect);
+          }
+          return Ok(());
+        }
         let Some((name, field, at_end)) = target else { return Err(lowerer.residue(call.span, "a call for its effect, which a straight-line body cannot hold")) };
         let mut items = Vec::with_capacity(call.args.len() + 1);
         for arg in &call.args {
@@ -5277,12 +5362,18 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
       other => Err(lowerer.residue(other.span(), "an expression statement other than a write to a local")),
     },
     js::Stmt::If(branch) => {
-      let cond = lowerer.expr(&branch.test)?;
+      let mut cond = lowerer.expr(&branch.test)?;
+      if !lowerer.held.is_empty() && !plain(&cond) {
+        cond = hold_in_reach(lowerer, cond);
+      }
       let arms = [Some(&*branch.cons), branch.alt.as_deref()];
       rebind_arms(lowerer, vec![(Some(cond), arms[0].map(std::slice::from_ref).unwrap_or(&[]))], arms[1].map(std::slice::from_ref).unwrap_or(&[]), writable, assigned)
     }
     js::Stmt::Switch(sw) => {
-      let disc = lowerer.expr(&sw.discriminant)?;
+      let mut disc = lowerer.expr(&sw.discriminant)?;
+      if !lowerer.held.is_empty() && !plain(&disc) {
+        disc = hold_in_reach(lowerer, disc);
+      }
       let (arms, default) = switch_arms(lowerer, sw)?;
       let mut lowered = Vec::with_capacity(arms.len());
       for (tests, body) in arms {
@@ -5335,7 +5426,7 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
       }
       Ok(())
     }
-    other => Err(lowerer.residue(other.span(), "a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of`, `for (let i = a; i < b; i++)` and `try`")),
+    other => Err(lowerer.residue(other.span(), "a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of`, `for (let i = a; i < b; i += s)` and `try`")),
   }
 }
 
@@ -5449,17 +5540,19 @@ fn rebind_for_of(lowerer: &mut Lowerer<'_>, for_of: &js::ForOfStmt, writable: &W
   fold(lowerer, for_of.span, &names, over, &for_of.body, None, |lowerer| bind_pattern(lowerer, head, item), writable, assigned)
 }
 
-/// `for (let i = a; i < b; i++)` (also `<=`, `++i` and `i += 1`) whose body does not write `i` and whose bound reads nothing the body writes.
+/// `for (let i = a; i < b; i++)` (also `<=`, `++i` and `i += s`) whose body does not write `i` and whose bound and step read nothing the body writes.
 pub(crate) struct Counted {
   pub(crate) name: String,
   from: js::Expr,
   to: js::Expr,
   inclusive: bool,
+  /// What `i += s` adds each pass; `None` for one.
+  step: Option<js::Expr>,
 }
 
 impl Counted {
   pub(crate) fn of(lowerer: &Lowerer<'_>, f: &js::ForStmt) -> Lowered<Self> {
-    let shape = |why: &str| lowerer.residue_with(f.span, format!("a `for` loop {why}"), "a loop the build reads is `for (const x of items)` or `for (let i = a; i < b; i++)`");
+    let shape = |why: &str| lowerer.residue_with(f.span, format!("a `for` loop {why}"), "a loop the build reads is `for (const x of items)` or `for (let i = a; i < b; i += s)`");
     let Some(js::VarDeclOrExpr::VarDecl(var)) = f.init.as_ref() else { return Err(shape("that does not declare its counter")) };
     let [decl] = var.decls.as_slice() else { return Err(shape("that declares more than one counter")) };
     let (js::Pat::Ident(id), Some(from)) = (&decl.name, decl.init.as_deref()) else { return Err(shape("whose counter has no starting value")) };
@@ -5470,14 +5563,14 @@ impl Counted {
       Some(js::Expr::Bin(b)) if is_counter(&b.left) && b.op == js::BinaryOp::LtEq => (&*b.right, true),
       _ => return Err(shape("whose test is not `i < b` or `i <= b`")),
     };
-    let steps = match f.update.as_deref() {
-      Some(js::Expr::Update(u)) => u.op == js::UpdateOp::PlusPlus && is_counter(&u.arg),
-      Some(js::Expr::Assign(a)) => a.op == js::AssignOp::AddAssign && matches!(&a.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(i)) if i.id.sym.as_ref() == name) && matches!(&*a.right, js::Expr::Lit(js::Lit::Num(n)) if n.value == 1.0),
-      _ => false,
+    let step = match f.update.as_deref() {
+      Some(js::Expr::Update(u)) if u.op == js::UpdateOp::PlusPlus && is_counter(&u.arg) => None,
+      Some(js::Expr::Assign(a)) if a.op == js::AssignOp::AddAssign && matches!(&a.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(i)) if i.id.sym.as_ref() == name) => match &*a.right {
+        js::Expr::Lit(js::Lit::Num(n)) if n.value == 1.0 => None,
+        step => Some(step.clone()),
+      },
+      _ => return Err(shape("that does not step up with `i++` or `i += s`")),
     };
-    if !steps {
-      return Err(shape("that does not step by one with `i++`"));
-    }
     let mut writes = Writes::default();
     f.body.visit_with(&mut writes);
     if writes.written.contains(&name) {
@@ -5494,19 +5587,67 @@ impl Counted {
     if let Some(read) = reads.0.iter().find(|r| writes.written.contains(r)) {
       return Err(shape(&format!("whose bound reads `{read}`, which its body writes")));
     }
-    Ok(Self { name, from: from.clone(), to: to.clone(), inclusive })
+    if let Some(step) = &step {
+      let mut reads = Reads(Vec::new());
+      step.visit_with(&mut reads);
+      if let Some(read) = reads.0.iter().find(|r| writes.written.contains(r) || **r == name) {
+        return Err(shape(&format!("whose step reads `{read}`, which the loop writes")));
+      }
+    }
+    Ok(Self { name, from: from.clone(), to: to.clone(), inclusive, step })
+  }
+
+  /// What one pass adds to the counter.
+  pub(crate) fn step_expr(&self, lowerer: &mut Lowerer<'_>) -> Lowered<Expr> {
+    match &self.step {
+      Some(step) => lowerer.expr(step),
+      None => Ok(Expr::Lit(Lit::Float(1.0))),
+    }
+  }
+
+  /// How many passes the loop makes from `from` to `to`. A step that is not a positive number counts without end, which `Range` refuses, since JavaScript would loop for ever.
+  pub(crate) fn count(&self, lowerer: &mut Lowerer<'_>, from: Expr, to: Expr) -> Lowered<Expr> {
+    use snapfire_fsr_ir::ast::ArithOp;
+    let diff = Expr::Arith(ArithOp::Sub, Box::new(to), Box::new(from));
+    let Some(step) = &self.step else {
+      let count = if self.inclusive { Expr::Arith(ArithOp::Add, Box::new(diff), Box::new(Expr::Lit(Lit::Float(1.0)))) } else { diff };
+      return Ok(Expr::Builtin { name: Builtin::Ceil, args: vec![count] });
+    };
+    let positive = matches!(step, js::Expr::Lit(js::Lit::Num(n)) if n.value > 0.0);
+    let step = lowerer.expr(step)?;
+    let passes = Expr::Arith(ArithOp::Div, Box::new(diff), Box::new(step.clone()));
+    let count = match self.inclusive {
+      true => Expr::Arith(ArithOp::Add, Box::new(Expr::Builtin { name: Builtin::Floor, args: vec![passes] }), Box::new(Expr::Lit(Lit::Float(1.0)))),
+      false => Expr::Builtin { name: Builtin::Ceil, args: vec![passes] },
+    };
+    if positive {
+      return Ok(count);
+    }
+    let without_end = Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(1.0))), Box::new(Expr::Lit(Lit::Float(0.0))));
+    Ok(Expr::Ternary(Box::new(Expr::Compare(snapfire_fsr_ir::ast::CompareOp::Gt, Box::new(step), Box::new(Expr::Lit(Lit::Float(0.0))))), Box::new(count), Box::new(without_end)))
+  }
+
+  /// The counter on the pass `item` counts, from the loop's start `start`.
+  pub(crate) fn counter(&self, lowerer: &mut Lowerer<'_>, start: Expr, item: Expr) -> Lowered<Expr> {
+    use snapfire_fsr_ir::ast::ArithOp;
+    let offset = match &self.step {
+      None => item,
+      Some(step) => Expr::Arith(ArithOp::Mul, Box::new(item), Box::new(lowerer.expr(step)?)),
+    };
+    Ok(Expr::Arith(ArithOp::Add, Box::new(start), Box::new(offset)))
+  }
+
+  /// The counter's start, its bound and whether the bound is inclusive.
+  pub(crate) fn bounds(&self) -> (&js::Expr, &js::Expr, bool) {
+    (&self.from, &self.to, self.inclusive)
   }
 
   /// The items the loop runs over (`0..count`) with what the counter is for the item `k`.
   pub(crate) fn lowered(&self, lowerer: &mut Lowerer<'_>, item: &str) -> Lowered<(Expr, Expr)> {
     let from = lowerer.expr(&self.from)?;
     let to = lowerer.expr(&self.to)?;
-    let mut count = Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Sub, Box::new(to), Box::new(from.clone()));
-    if self.inclusive {
-      count = Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Add, Box::new(count), Box::new(Expr::Lit(Lit::Float(1.0))));
-    }
-    let over = Expr::Builtin { name: Builtin::Range, args: vec![Expr::Builtin { name: Builtin::Ceil, args: vec![count] }] };
-    let counter = Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Add, Box::new(from), Box::new(Expr::Var(item.to_owned())));
+    let over = Expr::Builtin { name: Builtin::Range, args: vec![self.count(lowerer, from.clone(), to)?] };
+    let counter = self.counter(lowerer, from, Expr::Var(item.to_owned()))?;
     Ok((over, counter))
   }
 }
@@ -5523,7 +5664,7 @@ fn rebind_counted(lowerer: &mut Lowerer<'_>, f: &js::ForStmt, writable: &Writabl
 }
 
 /// How many times a terminal's `while` runs its body at most.
-const WHILE_CAP: f64 = 10_000.0;
+pub(crate) const WHILE_CAP: f64 = 10_000.0;
 
 /// A terminal's `while (test) body` as a fold over [`WHILE_CAP`] items whose
 /// step runs only while `test` holds, so an item past the first false test
@@ -5542,7 +5683,7 @@ fn rebind_while(lowerer: &mut Lowerer<'_>, looped: &js::WhileStmt, writable: &Wr
 #[allow(clippy::too_many_arguments)]
 fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, body: &js::Stmt, gate: Option<&js::Expr>, bind: impl FnOnce(&mut Lowerer<'_>) -> Lowered<()>, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
   for name in &names.written {
-    if !writable.local(lowerer, name) {
+    if !crate::heap_pass() && !writable.local(lowerer, name) {
       return Err(lowerer.residue_with(span, format!("a write to `{name}` inside a loop, which this body did not declare"), "declare a local with `let` before the loop and write that"));
     }
   }
@@ -5551,6 +5692,37 @@ fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, bo
     other => vec![other.clone()],
   };
   let body = iteration(lowerer, &body)?;
+  let cell_written = names.written.iter().any(|name| lowerer.cells.iter().any(|(cell, _)| cell == name));
+  let kept;
+  let names = if cell_written {
+    kept = LoopNames { item: names.item.clone(), acc: names.acc.clone(), written: names.written.iter().filter(|name| !lowerer.cells.iter().any(|(cell, _)| cell == *name)).cloned().collect() };
+    &kept
+  } else {
+    names
+  };
+  if (cell_written || crate::heap_pass()) && names.written.is_empty() && !lowerer.held.is_empty() {
+    let depth = lowerer.scope.len();
+    let mut inner = Vec::new();
+    lowerer.held.push(Vec::new());
+    lowerer.held_reach.push(lowerer.rebind_reach.len());
+    let mut test = None;
+    let run = bind(lowerer).and_then(|_| {
+      test = gate.map(|g| lowerer.expr(g)).transpose()?;
+      body.iter().try_for_each(|s| rebind_stmt(lowerer, s, writable, &mut inner))
+    });
+    let held = lowerer.held.pop().expect("the fold's frame");
+    lowerer.held_reach.pop();
+    lowerer.scope.truncate(depth);
+    run?;
+    let stepped = sequenced(held, Expr::Var(names.acc.clone()));
+    let stepped = match test {
+      Some(test) => Expr::Ternary(Box::new(test), Box::new(stepped), Box::new(Expr::Var(names.acc.clone()))),
+      None => stepped,
+    };
+    let step = Expr::Lambda { params: vec![names.acc.clone(), names.item.clone()], body: Box::new(stepped) };
+    hold_in_reach(lowerer, Expr::Reduce(Box::new(over), Box::new(Expr::Lit(Lit::Null)), Box::new(step)));
+    return Ok(());
+  }
   if names.written.is_empty() {
     // Nothing outlives the loop, though a statement the build cannot run is still refused.
     let depth = lowerer.scope.len();
@@ -5598,6 +5770,7 @@ fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, bo
   };
   let step = Expr::Lambda { params: vec![names.acc.clone(), names.item.clone()], body: Box::new(stepped) };
   let folded = Expr::Reduce(Box::new(over), Box::new(gather(before)), Box::new(step));
+  let folded = if !lowerer.held.is_empty() { hold_in_reach(lowerer, folded) } else { folded };
   for (name, kind) in names.written.iter().zip(kinds) {
     let value = match single {
       true => folded.clone(),
@@ -5917,7 +6090,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
             }
           }
           pattern => {
-            if computed_once(lowerer, &expr) {
+            if computed_once(lowerer, &expr) || !plain(&expr) {
               let held = lowerer.temp();
               lets.push(Stmt::Let { name: held.clone(), expr });
               expr = Expr::Var(held);
@@ -5941,7 +6114,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
             lowerer.spawned.push(id.id.sym.to_string());
           }
         }
-        if computed_once(lowerer, &expr) {
+        if computed_once(lowerer, &expr) || !plain(&expr) {
           let held = lowerer.temp();
           lets.push(Stmt::Let { name: held.clone(), expr });
           expr = Expr::Var(held);
@@ -5963,7 +6136,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
             lowerer.spawned.push(id.id.sym.to_string());
           }
         }
-        if computed_once(lowerer, &expr) {
+        if computed_once(lowerer, &expr) || !plain(&expr) {
           let held = lowerer.temp();
           lets.push(Stmt::Let { name: held.clone(), expr });
           expr = Expr::Var(held);
@@ -5983,12 +6156,15 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
           Some(init) => lowerer.expr(init)?,
           None => Expr::Lit(Lit::Undefined),
         };
-        if loops(&expr) {
+        if !plain(&expr) {
           let held = lowerer.temp();
           lets.push(Stmt::Let { name: held.clone(), expr });
           expr = Expr::Var(held);
         }
+        let from = lowerer.scope.len();
         bind_pattern(lowerer, &decl.name, expr)?;
+        let (held, ()) = held_frame(lowerer, |lowerer| settle(lowerer, from));
+        lets.extend(held);
         if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
           lowerer.note_kind(id.id.sym.as_ref(), init);
           note_alias(lowerer, id.id.sym.as_ref(), init, &Writable { floor, frozen: &[], setters: &[] })?;
@@ -6033,6 +6209,19 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
         None => path(lowerer, rest.iter().map(|s| (*s).clone()).collect())?,
       };
       Ok(Expr::Ternary(Box::new(cond), Box::new(then), Box::new(otherwise)))
+    }
+    js::Stmt::Switch(sw) if holds_return(first) && { let d = lowerer.expr(&sw.discriminant)?; !plain(&d) } => {
+      let disc = lowerer.expr(&sw.discriminant)?;
+      let held = lowerer.temp();
+      let name = format!("$sw{}", sw.span.lo.0);
+      lowerer.scope.push((name.clone(), Expr::Var(held.clone())));
+      let mut replaced = sw.clone();
+      replaced.discriminant = Box::new(js::Expr::Ident(js::Ident::new(name.as_str().into(), sw.span, Default::default())));
+      let stmt = js::Stmt::Switch(replaced);
+      let mut all: Vec<&js::Stmt> = vec![&stmt];
+      all.extend(rest.iter().copied());
+      let value = block_to_expr_inner(lowerer, &all, floor)?;
+      Ok(sequenced(vec![Stmt::Let { name: held, expr: disc }], value))
     }
     js::Stmt::Switch(sw) if holds_return(first) => {
       let disc = lowerer.expr(&sw.discriminant)?;
@@ -6186,18 +6375,56 @@ fn touches_cells(expr: &Expr) -> bool {
   found
 }
 
-/// Whether a value passes a function to something, as `xs.map(f)` does. A `const` holding one runs where it is declared, since pasting it at each read runs its loop at each read and a `const` built from it multiplies that. A function value on its own runs nothing.
-fn loops(expr: &Expr) -> bool {
-  if matches!(expr, Expr::Lambda { .. } | Expr::Fix { .. }) {
-    return false;
+pub(crate) fn plain(expr: &Expr) -> bool {
+  match expr {
+    Expr::Object(entries) | Expr::Array(entries) if !entries.iter().any(|entry| matches!(entry, Entry::Field(_, Expr::Lambda { .. } | Expr::Fix { .. }) | Entry::Item(Expr::Lambda { .. } | Expr::Fix { .. }))) => false,
+    Expr::Lit(_) | Expr::Var(_) | Expr::Const(_) | Expr::Lambda { .. } | Expr::Fix { .. } | Expr::Handler(_) | Expr::HoistId(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Locales | Expr::Path | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Document => true,
+    Expr::Field(e, _) => plain(e),
+    Expr::Index(a, b) => plain(a) && plain(b),
+    Expr::Object(entries) | Expr::Array(entries) => entries.iter().all(|entry| match entry {
+      Entry::Field(_, e) | Entry::Item(e) => plain(e),
+      Entry::Baked(_) => true,
+      _ => false,
+    }),
+    _ => false,
   }
-  let mut found = false;
-  expr.visit(&mut |e| found |= matches!(e, Expr::Lambda { .. }));
-  found
+}
+
+pub(crate) fn settle(lowerer: &mut Lowerer<'_>, from: usize) {
+  for at in from..lowerer.scope.len() {
+    let (name, value) = lowerer.scope[at].clone();
+    if name.starts_with('$') || plain(&value) || lowerer.cells.iter().any(|(cell, _)| *cell == name) {
+      continue;
+    }
+    let kind = lowerer.kinds.iter().rev().find(|(n, held, _)| *n == name && *held == value).map(|(_, _, kind)| *kind);
+    let held = hold_in_reach(lowerer, value);
+    lowerer.scope[at].1 = held.clone();
+    if let Some(kind) = kind {
+      lowerer.kinds.push((name, held, kind));
+    }
+  }
+}
+
+fn hold_in_reach(lowerer: &mut Lowerer<'_>, expr: Expr) -> Expr {
+  let base = *lowerer.held_reach.last().expect("a frame");
+  let reach = lowerer.rebind_reach[base..].iter().cloned().reduce(|a, b| Expr::Logic(LogicOp::And, Box::new(a), Box::new(b)));
+  let ran = match reach {
+    Some(reach) => Expr::Ternary(Box::new(reach), Box::new(expr), Box::new(Expr::Lit(Lit::Null))),
+    None => expr,
+  };
+  let held = lowerer.temp();
+  lowerer.held.last_mut().expect("a frame").push(Stmt::Let { name: held.clone(), expr: ran });
+  Expr::Var(held)
 }
 
 /// `lets` run in order before `value` is computed.
-fn sequenced(mut lets: Vec<Stmt>, value: Expr) -> Expr {
+pub(crate) fn sequenced(mut lets: Vec<Stmt>, value: Expr) -> Expr {
+  if let Expr::Block(stmts) = &value {
+    if !lets.is_empty() {
+      lets.extend(stmts.iter().cloned());
+      return Expr::Block(lets);
+    }
+  }
   if lets.is_empty() {
     return value;
   }
@@ -6541,7 +6768,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   fn hook_body(&mut self, prefix: &str, params: &[js::Pat], body: FunctionBody<'p>, args: Vec<Expr>) -> Lowered<Returned> {
     for (i, param) in params.iter().enumerate() {
-      let arg = args.get(i).cloned().unwrap_or(Expr::Lit(Lit::Null));
+      let mut arg = args.get(i).cloned().unwrap_or(Expr::Lit(Lit::Null));
+      if !plain(&arg) {
+        let held = self.lowerer.temp();
+        self.pending_lets.push(Stmt::Let { name: held.clone(), expr: arg });
+        arg = Expr::Var(held);
+      }
       bind_pattern(&mut self.lowerer, param, arg)?;
     }
     let stmts = match body {
@@ -12845,6 +13077,9 @@ mod fills {
 
   /// Places every `Expr::Markup` the component holds where the tree can take it; the rest stay values, rendered where they are interpolated. `Err` says why one cannot be either.
   pub(super) fn place_markup(component: &mut Component) -> Result<(), &'static str> {
+    if crate::heap_pass() {
+      return Ok(());
+    }
     let original = component.body.clone();
     let mut held: HashMap<String, Tmpl> = HashMap::new();
     let mut kept = Vec::new();

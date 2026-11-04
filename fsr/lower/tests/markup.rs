@@ -251,7 +251,7 @@ fn a_counted_for_loop_folds_over_its_range() {
   assert_eq!(html("counted_values", &[("routes/page.tsx", values)]), html("counted_values_inline", &[("routes/page.tsx", "export default function Page() {\n  return <p>{6} {0}</p>;\n}\n")]));
   for (tag, head, says) in [
     ("down", "let i = 3; i > 0; i--", "whose test is not `i < b` or `i <= b`"),
-    ("step", "let i = 0; i < 3; i += 2", "that does not step by one"),
+    ("step_moves", "let i = 0; i < 3; i += total", "whose step reads `total`, which the loop writes"),
     ("writes_counter", "let i = 0; i < 3; i++) { i++; } for (let j = 0; j < 1; j++", "whose body writes `i`"),
     ("bound_moves", "let i = 0; i < total; i++", "whose bound reads `total`, which its body writes"),
   ] {

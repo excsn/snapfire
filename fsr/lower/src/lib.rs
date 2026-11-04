@@ -261,7 +261,68 @@ pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -
   component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_loader(file)
 }
 
+std::thread_local! {
+  static HEAP_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+  static HEAP_WANTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+  static HEAP_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+pub(crate) fn heap_pass() -> bool {
+  HEAP_PASS.get()
+}
+
+pub(crate) fn want_heap() {
+  HEAP_WANTED.set(true);
+}
+
+/// `run`, then `run` again with the heap when the first pass wrote an object or could not lower the body.
+pub(crate) fn with_heap<T, E: std::fmt::Debug>(mut run: impl FnMut() -> Result<T, E>, mark: impl FnOnce(&mut T)) -> Result<T, E> {
+  if HEAP_ACTIVE.get() {
+    return run();
+  }
+  with_heap_fresh(run, mark)
+}
+
+/// [`with_heap`] for a program of its own inside another's lowering.
+pub(crate) fn with_heap_fresh<T, E: std::fmt::Debug>(mut run: impl FnMut() -> Result<T, E>, mark: impl FnOnce(&mut T)) -> Result<T, E> {
+  let (outer_pass, outer_wanted, outer_active) = (HEAP_PASS.replace(false), HEAP_WANTED.replace(false), HEAP_ACTIVE.replace(true));
+  let first = run();
+  let out = if first.is_ok() && !HEAP_WANTED.get() {
+    first
+  } else {
+    let first_ok = first.is_ok();
+    HEAP_PASS.set(true);
+    let second = run();
+    HEAP_PASS.set(false);
+    match second {
+      Ok(mut value) => {
+        mark(&mut value);
+        Ok(value)
+      }
+      Err(error) if first_ok => Err(error),
+      Err(second) => {
+        if std::env::var("FSR_HEAP_LOG").is_ok() {
+          eprintln!("heap pass refused too: {second:?}");
+        }
+        first
+      }
+    }
+  };
+  HEAP_PASS.set(outer_pass);
+  HEAP_WANTED.set(outer_wanted);
+  HEAP_ACTIVE.set(outer_active);
+  out
+}
+
+pub(crate) fn heap_marker() -> Stmt {
+  Stmt::Let { name: "$heap".to_owned(), expr: Expr::Builtin { name: Builtin::HeapOn, args: Vec::new() } }
+}
+
 pub(crate) fn lower_loader_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
+  with_heap(|| lower_loader_once(parsed, defaults, resolved), |body: &mut Body| body.insert(0, heap_marker()))
+}
+
+fn lower_loader_once(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
   let file = &parsed.file;
   let Some(function) = parsed.exports().find_map(|(name, decl)| (name == "load").then_some(decl)) else {
     if parsed.exports().any(|(name, _)| ["meta", "store", "defaults", "paths"].contains(&name)) {
@@ -435,7 +496,8 @@ pub(crate) fn lower_actions_in(parsed: &Parsed, defaults: &SessionDefaults, reso
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
     lowerer.extends = true;
     lowerer.redirects = true;
-    let body = lower_function(&mut lowerer, first, body).map_err(|r| (r.into(), lowerer.unbound.take()))?;
+    let body = with_heap(|| { let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved); lowerer.extends = true; lowerer.redirects = true; lower_function(&mut lowerer, first, body.clone()).map_err(|r| -> Unresolved { (r.into(), lowerer.unbound.take()) }) }, |body: &mut Body| body.insert(0, heap_marker()))?;
+    let _ = &mut lowerer;
     out.push(LoweredAction { export: name.to_owned(), input, body });
   }
   Ok(out)
@@ -1097,6 +1159,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) temps: usize,
   /// Names bound to a value of a known [`Kind`], with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
   pub(crate) kinds: Vec<(String, Expr, Kind)>,
+  /// Names a `const` binds to an object literal, with the binding they were noted against and the fields written as functions, so `name.field(...)` applies the field where the name still holds that object.
+  pub(crate) methods: Vec<(String, Expr, Vec<String>)>,
   /// The kinds of a component's props, from the props parameter's type or from the placements that pass them, by prop name.
   pub(crate) prop_kinds: Vec<(String, Kind)>,
   /// The props whose kind the lowering read, so a placement passing another kind for one is a conflict rather than a silent wrong constant.
@@ -1131,6 +1195,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) held: Vec<Vec<Stmt>>,
   /// For each frame in `held`, where its conditions start in `rebind_reach`.
   pub(crate) held_reach: Vec<usize>,
+  pub(crate) shared: Vec<(String, swc_core::common::SyntaxContext)>,
+  pub(crate) extra_lets: Vec<Stmt>,
   /// The conditions of the branches a rebinding is inside, outermost first: a `let` held for a statement inside them runs only where they all hold.
   pub(crate) rebind_reach: Vec<Expr>,
   /// The names a terminal promise's executor binds its `resolve` and `reject` to, while it lowers.
@@ -1143,6 +1209,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) async_floor: Option<usize>,
   /// While a pass of a loop that awaits lowers: the loop head's event and the carry of the live locals it is run with, which the pass issues when it ends; also the function's promise a `return` in the pass settles.
   pub(crate) loop_tail: Option<LoopTail>,
+  /// The loops and `switch`es around the statement being lowered, innermost last, which a `break` or `continue` leaves. A function starts with none.
+  pub(crate) breakable: Vec<Breakable>,
   /// Set while render statements inside a `try` lower: a `return` there is `[value]` and a path that ends without one is `null`, so what follows the `try` can tell the two apart.
   pub(crate) wrapped_returns: bool,
   /// Set while a component's `try` that returns markup runs as statements: where its scope starts. A `return` there ends the run with which `return` it was as `$path` and each name in scope from there as `$0`, `$1` and on. `markup_returns` records each by its position in the source with the names.
@@ -1193,6 +1261,15 @@ impl Kind {
       Kind::Response => "Response",
       Kind::Browser => "value only the browser knows",
       Kind::Scope => "Scope",
+    }
+  }
+
+  /// `built` marked as the collection it makes, for a `Map` or a `Set`, so it converts and serializes as one wherever it goes.
+  pub(crate) fn made(self, built: Expr) -> Expr {
+    match self {
+      Kind::Map => Expr::Builtin { name: Builtin::AsMap, args: vec![built] },
+      Kind::Set => Expr::Builtin { name: Builtin::AsSet, args: vec![built] },
+      _ => built,
     }
   }
 
@@ -1258,7 +1335,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), declared_below: Vec::new(), after_body: false, read_below: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, loop_tail: None, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
+    Self { shared: Vec::new(), extra_lets: Vec::new(), parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), methods: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), declared_below: Vec::new(), after_body: false, read_below: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, loop_tail: None, breakable: Vec::new(), markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1500,10 +1577,20 @@ impl<'a> Lowerer<'a> {
 
   pub(crate) fn block(&mut self, stmts: &[js::Stmt]) -> Lowered<Body> {
     let depth = self.scope.len();
+    let _ = self.shared.len();
+    let shared = crate::component::closure_shared(stmts);
+    self.shared.extend(shared);
     let mut out = Vec::with_capacity(stmts.len());
+    if let Err(residue) = self.hoist_functions(stmts, &mut out) {
+      self.scope.truncate(depth);
+      return Err(residue);
+    }
     for stmt in stmts {
       self.lift_updates(stmt, &mut out)?;
       match stmt {
+        js::Stmt::Decl(js::Decl::Fn(_)) => {}
+        js::Stmt::For(counted) => out.extend(self.counted_for(counted)?),
+        js::Stmt::While(looped) if self.reaches(Reach::Terminal) => out.push(self.capped_while(looped)?),
         js::Stmt::Decl(js::Decl::Var(var)) => {
           for decl in &var.decls {
             if self.is_ctx(decl.init.as_deref()) {
@@ -1515,6 +1602,10 @@ impl<'a> Lowerer<'a> {
               continue;
             }
             out.push(self.declare(decl)?);
+            out.append(&mut self.extra_lets);
+            if var.kind == js::VarDeclKind::Const {
+              self.note_methods(decl);
+            }
           }
         }
         js::Stmt::Switch(sw) => out.extend(self.switch(sw)?),
@@ -1525,8 +1616,99 @@ impl<'a> Lowerer<'a> {
     Ok(out)
   }
 
+  /// The functions `stmts` declare, each bound before the first statement as JavaScript hoists them: a `Fix` when it calls itself.
+  fn hoist_functions(&mut self, stmts: &[js::Stmt], out: &mut Vec<Stmt>) -> Lowered<()> {
+    let declared: Vec<&js::FnDecl> = stmts.iter().filter_map(|stmt| match stmt {
+      js::Stmt::Decl(js::Decl::Fn(f)) => Some(f),
+      _ => None,
+    }).collect();
+    for f in &declared {
+      let name = f.ident.sym.to_string();
+      self.scope.push((name.clone(), Expr::Var(name)));
+    }
+    for (at, f) in declared.iter().enumerate() {
+      if f.function.is_generator {
+        return Err(self.residue(f.function.span, "a generator function"));
+      }
+      let name = f.ident.sym.to_string();
+      let pats = crate::component::patterns(&f.function);
+      let body = f.function.body.as_ref().map(|body| body.stmts.as_slice()).unwrap_or(&[]);
+      let outer = std::mem::take(&mut self.breakable);
+      let lambda = crate::component::function_to_lambda(self, &pats, crate::component::FunctionBody::Block(body), f.function.is_async);
+      self.breakable = outer;
+      let lambda = lambda?;
+      let mut free = Vec::new();
+      lambda.free_vars(&mut free);
+      if let Some(later) = declared[at + 1..].iter().find(|later| free.iter().any(|name| *name == *later.ident.sym)) {
+        return Err(self.residue_with(f.function.span, format!("`{name}` calls `{}`, a function declared after it in the same body", later.ident.sym), "declare the function it calls first"));
+      }
+      let expr = if free.contains(&name) { Expr::Fix { name: name.clone(), f: Box::new(lambda) } } else { lambda };
+      out.push(Stmt::Let { name, expr });
+    }
+    Ok(())
+  }
+
+  /// `for (let i = a; i < b; i += s)` as its start under a temporary and a `for...of` over the count, the counter read as the start plus the item times the step. A bound that may change between passes, one that calls something, is tested every pass as JavaScript tests it.
+  fn counted_for(&mut self, f: &js::ForStmt) -> Lowered<Vec<Stmt>> {
+    let counted = crate::component::Counted::of(self, f)?;
+    let (from, to, inclusive) = counted.bounds();
+    let start = self.temp();
+    let item = self.temp();
+    let bound = to;
+    let from = self.expr(from)?;
+    let to = self.expr(bound)?;
+    if !crate::component::plain(&to) {
+      return self.tested_for(f, &counted, from, bound, inclusive);
+    }
+    let over = Expr::Builtin { name: Builtin::Range, args: vec![counted.count(self, Expr::Var(start.clone()), to)?] };
+    let counter = counted.counter(self, Expr::Var(start.clone()), Expr::Var(item.clone()))?;
+    let depth = self.scope.len();
+    self.scope.push((counted.name.clone(), counter));
+    self.breakable.push(Breakable::Loop);
+    let body = self.branch(&f.body);
+    self.breakable.pop();
+    self.scope.truncate(depth);
+    Ok(vec![Stmt::Let { name: start, expr: from }, Stmt::ForOf { name: item, over, body: body? }])
+  }
+
+  /// A counted loop whose bound is read again every pass: the counter a local, the test and the step after every pass as written.
+  fn tested_for(&mut self, f: &js::ForStmt, counted: &crate::component::Counted, from: Expr, bound: &js::Expr, inclusive: bool) -> Lowered<Vec<Stmt>> {
+    let counter = counted.name.as_str();
+    let step = counted.step_expr(self)?;
+    let depth = self.scope.len();
+    self.scope.push((counter.to_owned(), Expr::Var(counter.to_owned())));
+    let to = self.expr(bound);
+    let body = to.and_then(|to| {
+      let op = if inclusive { CompareOp::Le } else { CompareOp::Lt };
+      let cond = Expr::Compare(op, Box::new(Expr::Var(counter.to_owned())), Box::new(to));
+      self.breakable.push(Breakable::Loop);
+      let body = self.branch(&f.body);
+      self.breakable.pop();
+      let step = Stmt::Set { name: counter.to_owned(), expr: Expr::Arith(ArithOp::Add, Box::new(Expr::Var(counter.to_owned())), Box::new(step)) };
+      Ok(Stmt::While { cond, body: body?, step: vec![step] })
+    });
+    self.scope.truncate(depth);
+    Ok(vec![Stmt::Let { name: counter.to_owned(), expr: from }, body?])
+  }
+
+  /// A terminal's `while (test) body`, the test read before every pass.
+  fn capped_while(&mut self, looped: &js::WhileStmt) -> Lowered<Stmt> {
+    let test = self.expr(&looped.test)?;
+    self.breakable.push(Breakable::Loop);
+    let body = self.branch(&looped.body);
+    self.breakable.pop();
+    Ok(Stmt::While { cond: test, body: body?, step: Vec::new() })
+  }
+
   /// `switch` as its discriminant under a temporary and an `if` chain over the arms, each compared with `===`.
   fn switch(&mut self, sw: &js::SwitchStmt) -> Lowered<Vec<Stmt>> {
+    self.breakable.push(Breakable::Switch);
+    let lowered = self.switch_arms(sw);
+    self.breakable.pop();
+    lowered
+  }
+
+  fn switch_arms(&mut self, sw: &js::SwitchStmt) -> Lowered<Vec<Stmt>> {
     let disc = self.expr(&sw.discriminant)?;
     let held = self.temp();
     let (arms, default) = crate::component::switch_arms(self, sw)?;
@@ -1664,6 +1846,32 @@ impl<'a> Lowerer<'a> {
     true
   }
 
+  /// Notes the fields of the object literal `decl` binds that are written as functions.
+  fn note_methods(&mut self, decl: &js::VarDeclarator) {
+    let (js::Pat::Ident(name), Some(js::Expr::Object(object))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) else { return };
+    let fields: Vec<String> = object.props.iter().filter_map(|prop| match prop {
+      js::PropOrSpread::Prop(prop) => match &**prop {
+        js::Prop::KeyValue(kv) if matches!(crate::meaning::bare(&kv.value), js::Expr::Arrow(_) | js::Expr::Fn(_)) => prop_name(&kv.key),
+        js::Prop::Method(method) => prop_name(&method.key),
+        _ => None,
+      },
+      js::PropOrSpread::Spread(_) => None,
+    }).collect();
+    let name = name.id.sym.to_string();
+    let Some(bound) = self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, e)| e.clone()) else { return };
+    if !fields.is_empty() {
+      self.methods.push((name, bound, fields));
+    }
+  }
+
+  /// Whether `obj` is a name noted by [`Self::note_methods`] as holding an object whose field `field` is a function.
+  fn holds_method(&self, obj: &js::Expr, field: &str) -> bool {
+    let js::Expr::Ident(id) = crate::meaning::bare(obj) else { return false };
+    let name = id.sym.as_ref();
+    let Some(bound) = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e) else { return false };
+    self.methods.iter().rev().any(|(n, at, fields)| n == name && at == bound && fields.iter().any(|f| f == field))
+  }
+
   /// Notes `name`, just bound to `init`, as a collection when `init` is one.
   pub(crate) fn note_kind(&mut self, name: &str, init: &js::Expr) {
     let Some(kind) = self.kind_of(init) else { return };
@@ -1683,6 +1891,14 @@ impl<'a> Lowerer<'a> {
     }
     let expr = self.expr(init)?;
     let name = match &decl.name {
+      js::Pat::Ident(name) if self.shared.iter().any(|(n, c)| *n == *name.id.sym && *c == name.id.ctxt) => {
+        let handle = self.temp();
+        let local = name.id.sym.to_string();
+        self.cells.push((local.clone(), Expr::Var(handle.clone())));
+        self.scope.push((local.clone(), Expr::ReadCell(Box::new(Expr::Var(handle.clone())))));
+        self.note_kind(&local, init);
+        return Ok(Stmt::Let { name: handle, expr: Expr::Cell(Box::new(expr)) });
+      }
       js::Pat::Ident(name) => {
         let name = name.id.sym.to_string();
         self.scope.push((name.clone(), Expr::Var(name.clone())));
@@ -1691,7 +1907,19 @@ impl<'a> Lowerer<'a> {
       }
       pattern => {
         let name = self.temp();
+        let from = self.scope.len();
         crate::component::bind_pattern(self, pattern, Expr::Var(name.clone()))?;
+        {
+          for at in from..self.scope.len() {
+            let (bound, value) = self.scope[at].clone();
+            if bound.starts_with('$') || crate::component::plain(&value) {
+              continue;
+            }
+            let held = self.temp();
+            self.extra_lets.push(Stmt::Let { name: held.clone(), expr: value });
+            self.scope[at].1 = Expr::Var(held);
+          }
+        }
         name
       }
     };
@@ -1747,7 +1975,9 @@ impl<'a> Lowerer<'a> {
             name
           }
         };
+        self.breakable.push(Breakable::Loop);
         let body = self.branch(&for_of.body);
+        self.breakable.pop();
         self.scope.truncate(depth);
         Ok(Stmt::ForOf { name, over, body: body? })
       }
@@ -1767,6 +1997,8 @@ impl<'a> Lowerer<'a> {
       js::Stmt::Expr(expr_stmt) => self.effect(&expr_stmt.expr),
       js::Stmt::Throw(thrown) => Ok(Stmt::Expr(crate::component::throw_expr(self, thrown)?)),
       js::Stmt::Try(t) => self.try_stmt(t),
+      js::Stmt::Break(b) if b.label.is_none() && self.breakable.last() == Some(&Breakable::Loop) => Ok(Stmt::Break),
+      js::Stmt::Continue(c) if c.label.is_none() && self.breakable.contains(&Breakable::Loop) => Ok(Stmt::Continue),
       js::Stmt::Block(block) => Err(self.residue(block.span, "a bare block")),
       other => {
         let (what, hint) = describe_stmt(other);
@@ -1865,6 +2097,12 @@ impl<'a> Lowerer<'a> {
   /// A statement that is an expression: a session write, a delete, a bare
   /// `fail` or an awaited call for its effect.
   pub(crate) fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
+    if self.object_write(expr) {
+      if heap_pass() {
+        return Ok(Stmt::Expr(self.heap_write(expr)?));
+      }
+      want_heap();
+    }
     // A `console` call in a helper's block logs on the server as one in a component's body does.
     if let js::Expr::Call(call) = expr {
       if let Some((response, op, args)) = self.response_headers_call(call) {
@@ -2614,9 +2852,9 @@ impl<'a> Lowerer<'a> {
       let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
       this.expr(&a.expr)
     };
-    Ok(match (kind, method) {
-      (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
-      (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
+    let written = match (kind, method) {
+      (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Builtin { name: Builtin::MapKey, args: vec![arg(self, 0)?] }, arg(self, 1)?)]),
+      (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Builtin { name: Builtin::MapKey, args: vec![arg(self, 0)?] }] },
       (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
       (Kind::Set, "delete") => {
         let item = self.temp();
@@ -2628,7 +2866,8 @@ impl<'a> Lowerer<'a> {
       (Kind::Query, "set" | "append") => Expr::Builtin { name: if method == "set" { Builtin::FormSet } else { Builtin::FormAppend }, args: vec![held, Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?] },
       (Kind::Query, "delete") => Expr::Builtin { name: Builtin::FormDelete, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
       (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
-    })
+    };
+    Ok(kind.made(written))
   }
 
   /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` held in a cell: the cell's handle, the collection's kind and the method.
@@ -2803,11 +3042,219 @@ impl<'a> Lowerer<'a> {
     self.roots.iter().rev().find(|(n, _)| n == name).map(|(_, r)| r.clone())
   }
 
+  /// `expr` as a value JavaScript's conversion to a primitive reads the same. A `Map` or a `Set` holds an object or an array at run time, which would convert as one, so its text is decided here where its kind is known.
+  fn as_primitive(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+    let text = match self.kind_of(expr) {
+      Some(Kind::Map) => "[object Map]",
+      Some(Kind::Set) => "[object Set]",
+      _ => return self.expr(expr),
+    };
+    if matches!(crate::meaning::bare(expr), js::Expr::Ident(_)) {
+      return Ok(Expr::lit_str(text));
+    }
+    let held = self.expr(expr)?;
+    let name = self.temp();
+    Ok(Expr::Block(vec![Stmt::Let { name, expr: held }, Stmt::Return(Expr::lit_str(text))]))
+  }
+
+  /// Whether `expr` changes an object or an array a name reaches: a field written, a mutating method or `Object.assign`.
+  pub(crate) fn object_write(&self, expr: &js::Expr) -> bool {
+    if self.reaches(Reach::Terminal) {
+      return false;
+    }
+    let reached = |target: &js::Expr| -> bool {
+      let root = match crate::meaning::bare(target) {
+        js::Expr::Ident(id) => id,
+        js::Expr::Member(member) => match write_root(member) {
+          Some((id, _)) => id,
+          None => return false,
+        },
+        _ => return false,
+      };
+      // A module constant, not module state: that one lowers to a cell or a store key.
+      let global = || self.globals.iter().any(|(name, value)| *name == *root.sym && matches!(value, Expr::Const(_) | Expr::Object(_) | Expr::Array(_)));
+      let bound = self.scope.iter().any(|(name, _)| *name == *root.sym) || global();
+      bound && self.root_of(root).is_none() && !matches!(self.kind_of(target), Some(Kind::Url | Kind::Query | Kind::Response | Kind::Date | Kind::Scope))
+    };
+    // A write into what an expression answers, `f()[0].n = 2`, has no name to check.
+    let written = |target: &js::Expr| -> bool {
+      let mut at = crate::meaning::bare(target);
+      while let js::Expr::Member(member) = at {
+        at = crate::meaning::bare(&member.obj);
+      }
+      match at {
+        js::Expr::This(_) => false,
+        js::Expr::Ident(id) if id.sym.as_ref() == crate::classes::THIS => false,
+        js::Expr::Ident(_) => reached(target),
+        _ => true,
+      }
+    };
+    match crate::meaning::bare(expr) {
+      js::Expr::Assign(assign) => matches!(&assign.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) if written(&m.obj)),
+      js::Expr::Update(update) => matches!(crate::meaning::bare(&update.arg), js::Expr::Member(m) if written(&m.obj)),
+      js::Expr::Unary(unary) if unary.op == js::UnaryOp::Delete => matches!(crate::meaning::bare(&unary.arg), js::Expr::Member(m) if written(&m.obj)),
+      js::Expr::Call(call) => {
+        let js::Callee::Expr(callee) = &call.callee else { return false };
+        let js::Expr::Member(m) = crate::meaning::bare(callee) else { return false };
+        match self.member_name(m).as_deref() {
+          Some("push" | "unshift" | "pop" | "shift" | "reverse" | "sort") => reached(&m.obj) && !matches!(self.kind_of(&m.obj), Some(Kind::Map | Kind::Set)),
+          Some("set" | "add" | "delete" | "clear") => reached(&m.obj) && matches!(self.kind_of(&m.obj), Some(Kind::Map | Kind::Set)),
+          Some("assign") => matches!(crate::meaning::bare(&m.obj), js::Expr::Ident(id) if id.sym.as_ref() == "Object") && call.args.first().is_some_and(|first| first.spread.is_none() && reached(&first.expr)),
+          _ => false,
+        }
+      }
+      _ => false,
+    }
+  }
+
+  /// [`Lowerer::object_write`]'s `expr` as what it answers, its object held once and overwritten through the handle.
+  pub(crate) fn heap_write(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+    let overwrite = |target: &str, next: Expr| Stmt::Expr(Expr::Builtin { name: Builtin::Overwrite, args: vec![Expr::Var(target.to_owned()), next] });
+    let held = |this: &mut Self, target: &js::Expr, lets: &mut Body| -> Lowered<String> {
+      let value = this.expr(target)?;
+      let name = this.temp();
+      lets.push(Stmt::Let { name: name.clone(), expr: value });
+      Ok(name)
+    };
+    let mut lets = Vec::new();
+    let answer = match crate::meaning::bare(expr) {
+      js::Expr::Assign(assign) => {
+        let js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) = &assign.left else { unreachable!() };
+        let target = held(self, &m.obj, &mut lets)?;
+        let value = match assign.op.to_update() {
+          None => self.expr(&assign.right)?,
+          Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(js::Expr::Member(m.clone())), right: assign.right.clone() }))?,
+        };
+        let name = self.temp();
+        lets.push(Stmt::Let { name: name.clone(), expr: value });
+        let next = self.heap_set(&target, m, Expr::Var(name.clone()), &mut lets)?;
+        lets.push(overwrite(&target, next));
+        Expr::Var(name)
+      }
+      js::Expr::Update(update) => {
+        let js::Expr::Member(m) = crate::meaning::bare(&update.arg) else { unreachable!() };
+        let target = held(self, &m.obj, &mut lets)?;
+        let before = self.expr(&js::Expr::Unary(js::UnaryExpr { span: update.span, op: js::UnaryOp::Plus, arg: update.arg.clone() }))?;
+        let old = self.temp();
+        lets.push(Stmt::Let { name: old.clone(), expr: before });
+        let op = if update.op == js::UpdateOp::PlusPlus { ArithOp::Add } else { ArithOp::Sub };
+        let after = Expr::Arith(op, Box::new(Expr::Var(old.clone())), Box::new(Expr::Lit(Lit::Float(1.0))));
+        let name = self.temp();
+        lets.push(Stmt::Let { name: name.clone(), expr: after });
+        let next = self.heap_set(&target, m, Expr::Var(name.clone()), &mut lets)?;
+        lets.push(overwrite(&target, next));
+        Expr::Var(if update.prefix { name } else { old })
+      }
+      js::Expr::Unary(unary) => {
+        let js::Expr::Member(m) = crate::meaning::bare(&unary.arg) else { unreachable!() };
+        let target = held(self, &m.obj, &mut lets)?;
+        let key = match self.member_name(m) {
+          Some(field) => Expr::lit_str(&field),
+          None => {
+            let js::MemberProp::Computed(key) = &m.prop else { return Err(self.residue(m.span, "`delete` of a private field")) };
+            self.expr(&key.expr)?
+          }
+        };
+        lets.push(overwrite(&target, Expr::Builtin { name: Builtin::Omit, args: vec![Expr::Var(target.clone()), key] }));
+        Expr::Lit(Lit::Bool(true))
+      }
+      js::Expr::Call(call) => {
+        let js::Callee::Expr(callee) = &call.callee else { unreachable!() };
+        let js::Expr::Member(m) = crate::meaning::bare(callee) else { unreachable!() };
+        let method = self.member_name(m).expect("object_write read the name");
+        if method == "assign" {
+          let target = held(self, &call.args[0].expr, &mut lets)?;
+          let mut entries = vec![Entry::Spread(Expr::Var(target.clone()))];
+          for source in &call.args[1..] {
+            entries.push(Entry::Spread(self.expr(&source.expr)?));
+          }
+          lets.push(overwrite(&target, Expr::Object(entries)));
+          Expr::Var(target)
+        } else {
+          let kind = self.kind_of(&m.obj);
+          let target = held(self, &m.obj, &mut lets)?;
+          let read = Expr::Var(target.clone());
+          match (kind, method.as_str()) {
+            (Some(kind @ (Kind::Map | Kind::Set)), _) => {
+              let next = self.collection_written(call, kind, &method, read.clone())?;
+              lets.push(overwrite(&target, next));
+              if method == "delete" { Expr::Lit(Lit::Bool(true)) } else { read }
+            }
+            (_, "push" | "unshift") => {
+              let mut items = Vec::with_capacity(call.args.len() + 1);
+              for arg in &call.args {
+                let value = self.expr(&arg.expr)?;
+                items.push(if arg.spread.is_some() { Entry::Spread(value) } else { Entry::Item(value) });
+              }
+              if method == "push" { items.insert(0, Entry::Spread(read.clone())) } else { items.push(Entry::Spread(read.clone())) }
+              lets.push(overwrite(&target, Expr::Array(items)));
+              Expr::Length(Box::new(read))
+            }
+            (_, "pop" | "shift") => {
+              let (at, kept) = if method == "pop" { (-1, vec![read.clone(), Expr::Lit(Lit::Int(0)), Expr::Lit(Lit::Int(-1))]) } else { (0, vec![read.clone(), Expr::Lit(Lit::Int(1))]) };
+              let name = self.temp();
+              lets.push(Stmt::Let { name: name.clone(), expr: Expr::Builtin { name: Builtin::At, args: vec![read.clone(), Expr::Lit(Lit::Int(at))] } });
+              lets.push(overwrite(&target, Expr::Builtin { name: Builtin::Slice, args: kept }));
+              Expr::Var(name)
+            }
+            (_, "reverse") => {
+              lets.push(overwrite(&target, Expr::Builtin { name: Builtin::Reverse, args: vec![read.clone()] }));
+              read
+            }
+            _ => {
+              let by = match call.args.first().map(|a| &*a.expr) {
+                None => Expr::Lit(Lit::Null),
+                Some(js::Expr::Arrow(arrow)) => self.lambda(arrow)?,
+                Some(other) => self.expr(other)?,
+              };
+              lets.push(overwrite(&target, Expr::Sort(Box::new(read.clone()), Box::new(by))));
+              read
+            }
+          }
+        }
+      }
+      _ => unreachable!("object_write answers for these"),
+    };
+    lets.push(Stmt::Return(answer));
+    Ok(Expr::Block(lets))
+  }
+
+  fn heap_set(&mut self, target: &str, member: &js::MemberExpr, value: Expr, lets: &mut Body) -> Lowered<Expr> {
+    if let Some(field) = self.member_name(member) {
+      return Ok(Expr::Object(vec![Entry::Spread(Expr::Var(target.to_owned())), Entry::Field(field, value)]));
+    }
+    let js::MemberProp::Computed(key) = &member.prop else { return Err(self.residue(member.span, "a write through a private field")) };
+    let key = self.expr(&key.expr)?;
+    let name = self.temp();
+    lets.push(Stmt::Let { name: name.clone(), expr: key });
+    Ok(Expr::Builtin { name: Builtin::SetAt, args: vec![Expr::Var(target.to_owned()), Expr::Var(name), value] })
+  }
+
   pub(crate) fn expr(&mut self, expr: &js::Expr) -> Lowered<Expr> {
     if !self.premade.is_empty() {
       let span = expr.span();
       if let Some(made) = self.premade.get(&(span.lo.0, span.hi.0)) {
         return Ok(made.clone());
+      }
+    }
+    if self.object_write(expr) {
+      if heap_pass() {
+        return self.heap_write(expr);
+      }
+      want_heap();
+    }
+    if heap_pass() {
+      if let js::Expr::Call(call) = crate::meaning::bare(expr) {
+        if let js::Callee::Expr(callee) = &call.callee {
+          if let js::Expr::Member(m) = crate::meaning::bare(callee) {
+            if self.member_name(m).as_deref() == Some("forEach") && call.args.len() == 1 {
+              let over = self.expr(&m.obj)?;
+              let f = self.expr(&call.args[0].expr)?;
+              let ran = self.temp();
+              return Ok(Expr::Block(vec![Stmt::Let { name: ran, expr: Expr::Map(Box::new(over), Box::new(f)) }, Stmt::Return(Expr::Lit(Lit::Undefined))]));
+            }
+          }
+        }
       }
     }
     match expr {
@@ -2850,7 +3297,7 @@ impl<'a> Lowerer<'a> {
             parts.push(Expr::Lit(Lit::Str(text)));
           }
           if let Some(e) = tpl.exprs.get(i) {
-            parts.push(self.expr(e)?);
+            parts.push(self.as_primitive(e)?);
           }
         }
         Ok(Expr::Template(parts))
@@ -2863,7 +3310,7 @@ impl<'a> Lowerer<'a> {
             js::PropOrSpread::Prop(p) => match &**p {
               js::Prop::Shorthand(id) => Entry::Field(id.sym.to_string(), self.ident(id)?),
               js::Prop::KeyValue(kv) => match &kv.key {
-                js::PropName::Computed(c) => Entry::Computed(self.expr(&c.expr)?, self.expr(&kv.value)?),
+                js::PropName::Computed(c) => Entry::Computed(self.as_primitive(&c.expr)?, self.expr(&kv.value)?),
                 key => {
                   let key = prop_name(key).ok_or_else(|| self.residue(key.span(), "a numeric property name"))?;
                   Entry::Field(key, self.expr(&kv.value)?)
@@ -2899,7 +3346,7 @@ impl<'a> Lowerer<'a> {
           js::Expr::Lit(js::Lit::BigInt(b)) => Ok(Expr::Lit(Lit::Int(-self.bigint(b)?))),
           other => Ok(Expr::Arith(ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(self.expr(other)?))),
         },
-        js::UnaryOp::Plus => Ok(Expr::Num(Box::new(self.expr(&u.arg)?))),
+        js::UnaryOp::Plus => Ok(Expr::Num(Box::new(self.as_primitive(&u.arg)?))),
         js::UnaryOp::Tilde if self.kind_of(&u.arg) == Some(Kind::BigInt) => Err(self.residue(u.span, "the `~` operator on a `bigint`")),
         js::UnaryOp::Tilde => Ok(Expr::Arith(ArithOp::BitXor, Box::new(self.expr(&u.arg)?), Box::new(Expr::Lit(Lit::Float(-1.0))))),
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
@@ -2913,8 +3360,11 @@ impl<'a> Lowerer<'a> {
       js::Expr::Bin(bin) if bin.op == js::BinaryOp::InstanceOf => self.instance_of(bin),
       js::Expr::Bin(bin) if is_bitwise(bin.op) && (self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt)) => Err(self.residue(bin.span, format!("the `{}` operator on a `bigint`", bin.op))),
       js::Expr::Bin(bin) => {
-        let l = Box::new(self.expr(&bin.left)?);
-        let r = Box::new(self.expr(&bin.right)?);
+        let collection = |this: &Self, e: &js::Expr| matches!(this.kind_of(e), Some(Kind::Map | Kind::Set));
+        let two_objects = matches!(bin.op, js::BinaryOp::EqEq | js::BinaryOp::NotEq) && collection(self, &bin.left) && collection(self, &bin.right);
+        let converts = !two_objects && matches!(bin.op, js::BinaryOp::Add | js::BinaryOp::Sub | js::BinaryOp::Mul | js::BinaryOp::Div | js::BinaryOp::Mod | js::BinaryOp::Exp | js::BinaryOp::EqEq | js::BinaryOp::NotEq | js::BinaryOp::Lt | js::BinaryOp::LtEq | js::BinaryOp::Gt | js::BinaryOp::GtEq);
+        let l = Box::new(if converts { self.as_primitive(&bin.left)? } else { self.expr(&bin.left)? });
+        let r = Box::new(if converts { self.as_primitive(&bin.right)? } else { self.expr(&bin.right)? });
         Ok(match bin.op {
           js::BinaryOp::Add => Expr::Arith(ArithOp::Add, l, r),
           js::BinaryOp::Sub => Expr::Arith(ArithOp::Sub, l, r),
@@ -2928,8 +3378,10 @@ impl<'a> Lowerer<'a> {
             let nullish = Expr::Builtin { name: Builtin::IsNullish, args: vec![*other] };
             if bin.op == js::BinaryOp::EqEq { nullish } else { Expr::Not(Box::new(nullish)) }
           }
-          js::BinaryOp::EqEqEq | js::BinaryOp::EqEq => Expr::Compare(CompareOp::Eq, l, r),
-          js::BinaryOp::NotEqEq | js::BinaryOp::NotEq => Expr::Compare(CompareOp::Ne, l, r),
+          js::BinaryOp::EqEq => Expr::Builtin { name: Builtin::LooseEq, args: vec![*l, *r] },
+          js::BinaryOp::NotEq => Expr::Not(Box::new(Expr::Builtin { name: Builtin::LooseEq, args: vec![*l, *r] })),
+          js::BinaryOp::EqEqEq => Expr::Compare(CompareOp::Eq, l, r),
+          js::BinaryOp::NotEqEq => Expr::Compare(CompareOp::Ne, l, r),
           js::BinaryOp::Lt => Expr::Compare(CompareOp::Lt, l, r),
           js::BinaryOp::LtEq => Expr::Compare(CompareOp::Le, l, r),
           js::BinaryOp::Gt => Expr::Compare(CompareOp::Gt, l, r),
@@ -3457,14 +3909,16 @@ impl<'a> Lowerer<'a> {
           Ok(Box::new(this.expr(&a.expr)?))
         };
         return match name {
+          "String" if matches!(call.args.as_slice(), [only] if only.spread.is_none()) => Ok(Expr::Str(Box::new(self.as_primitive(&call.args[0].expr)?))),
           "String" => Ok(Expr::Str(one(self)?)),
+          "Number" if matches!(call.args.as_slice(), [only] if only.spread.is_none()) => Ok(Expr::Num(Box::new(self.as_primitive(&call.args[0].expr)?))),
           "Number" => Ok(Expr::Num(one(self)?)),
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
           "Boolean" => Ok(Expr::Not(Box::new(Expr::Not(one(self)?)))),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
           "isNaN" => Ok(Expr::Builtin { name: Builtin::IsNaN, args: vec![*one(self)?] }),
           "btoa" | "atob" => Ok(Expr::Ext { module: "encoding".to_owned(), name: name.to_owned(), args: vec![*one(self)?] }),
-          "structuredClone" if call.args.len() <= 1 => Ok(*one(self)?),
+          "structuredClone" if call.args.len() <= 1 => { let value = *one(self)?; Ok(if heap_pass() { Expr::Builtin { name: Builtin::CopyDeep, args: vec![value] } } else { value }) }
           "parseInt" => {
             let mut args = vec![*one(self)?];
             if let Some(radix) = call.args.get(1) {
@@ -3703,9 +4157,7 @@ impl<'a> Lowerer<'a> {
 
     if let Some((module, _via_ctx)) = self.native_of(&member.obj) {
       let args = self.object_args(call, "native")?;
-      // `sync` is set by the build from the Rust signature, which this reader
-      // cannot see; the interpreter answers a sync method without a future
-      // either way.
+      // `sync` is set by the build from the Rust signature, which this reader cannot see.
       return Ok(Expr::NativeCall { module, method, args, sync: false });
     }
 
@@ -3791,7 +4243,7 @@ impl<'a> Lowerer<'a> {
         let target = self.expr(&member.obj)?;
         let key = |this: &mut Self| -> Lowered<Expr> {
           let arg = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{method}` without a key")))?;
-          Ok(Expr::Str(Box::new(this.expr(&arg.expr)?)))
+          Ok(Expr::Builtin { name: Builtin::MapKey, args: vec![this.expr(&arg.expr)?] })
         };
         return match method.as_str() {
           "get" => Ok(Expr::Index(Box::new(target), Box::new(key(self)?))),
@@ -4278,10 +4730,10 @@ impl<'a> Lowerer<'a> {
       ("Date", None) => self.date_now(n.span),
       ("Date", Some(x)) if args.len() == 1 => Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![x] }),
       ("Date", Some(_)) => Err(self.residue_with(n.span, "`new Date(year, month, ...)`, which reads the viewer's time zone", "an ISO 8601 string ending in `Z` names the same instant everywhere, `new Date(\"2026-10-05T00:00:00Z\")`")),
-      ("Map", None) => Ok(Expr::Object(Vec::new())),
-      ("Map", Some(pairs)) => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![pairs] }),
-      ("Set", None) => Ok(Expr::Array(Vec::new())),
-      ("Set", Some(items)) => Ok(Expr::Builtin { name: Builtin::Unique, args: vec![items] }),
+      ("Map", None) => Ok(Kind::Map.made(Expr::Object(Vec::new()))),
+      ("Map", Some(pairs)) => Ok(Kind::Map.made(Expr::Builtin { name: Builtin::MapOf, args: vec![pairs] })),
+      ("Set", None) => Ok(Kind::Set.made(Expr::Array(Vec::new()))),
+      ("Set", Some(items)) => Ok(Kind::Set.made(Expr::Builtin { name: Builtin::Unique, args: vec![items] })),
       ("Response", body) => {
         let mut args = vec![body.unwrap_or(Expr::Lit(Lit::Undefined))];
         if let Some(init) = n.args.as_deref().and_then(|a| a.get(1)) {
@@ -4613,6 +5065,11 @@ impl<'a> Lowerer<'a> {
     let object = self.expr(&member.obj);
     self.scope.truncate(depth);
     let Ok(object) = object else { return Ok(None) };
+    if let js::MemberProp::Ident(name) = &member.prop {
+      if self.holds_method(&member.obj, name.sym.as_ref()) {
+        return self.applied(Box::new(object.field(name.sym.to_string())), call).map(Some);
+      }
+    }
     let Expr::Object(entries) = &object else {
       // A computed key on a value of no known kind: whatever the key names is applied, as JavaScript applies it.
       if let (js::MemberProp::Computed(key), None) = (&member.prop, self.kind_of(&member.obj)) {
@@ -4661,6 +5118,13 @@ impl<'a> Lowerer<'a> {
       return Err(self.residue(f.span, "a generator function"));
     }
     let depth = self.scope.len();
+    let outer = std::mem::take(&mut self.breakable);
+    let lowered = self.function_body(f, depth);
+    self.breakable = outer;
+    lowered
+  }
+
+  fn function_body(&mut self, f: &js::Function, depth: usize) -> Lowered<Expr> {
     let pats: Vec<js::Pat> = f.params.iter().map(|p| p.pat.clone()).collect();
     let params = match crate::component::bind_params(self, &pats) {
       Ok(params) => params,
@@ -4686,6 +5150,7 @@ impl<'a> Lowerer<'a> {
         return Err(residue);
       }
     };
+    let defaults = crate::component::held_frame(self, |this| crate::component::settle(this, depth)).0;
     let body = match &*arrow.body {
       js::ArrowFunctionBody::Expr(e) => self.expr(e),
       js::ArrowFunctionBody::FunctionBody(b) if !writes_a_member_of(&b.stmts, &params) => crate::component::block_to_expr_from(self, &b.stmts, depth),
@@ -4695,7 +5160,7 @@ impl<'a> Lowerer<'a> {
       }
     };
     self.scope.truncate(depth);
-    Ok(Expr::Lambda { params, body: Box::new(body?) })
+    Ok(Expr::Lambda { params, body: Box::new(crate::component::sequenced(defaults, body?)) })
   }
 }
 
@@ -4815,8 +5280,9 @@ fn writes_session(body: &[Stmt]) -> bool {
     Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } => true,
     Stmt::If { then, r#else, .. } => writes_session(then) || writes_session(r#else),
     Stmt::ForOf { body, .. } => writes_session(body),
+    Stmt::While { body, step, .. } => writes_session(body) || writes_session(step),
     Stmt::Try { body, handler, finally, .. } => writes_session(body) || handler.as_deref().is_some_and(writes_session) || writes_session(finally),
-    Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Guard { .. } | Stmt::Act { .. } | Stmt::Expr(_) => false,
+    Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Break | Stmt::Continue | Stmt::Guard { .. } | Stmt::Act { .. } | Stmt::Expr(_) => false,
   })
 }
 
@@ -5142,6 +5608,9 @@ pub(crate) const JS_MATH: [&str; 19] = ["sin", "cos", "tan", "asin", "acos", "at
 
 /// Whether `stmts` write a field of one of `params`, an object the caller holds too, so the parameters stay unwritable; rebinding a parameter itself is a local write.
 pub(crate) fn writes_a_member_of(stmts: &[js::Stmt], params: &[String]) -> bool {
+  if heap_pass() {
+    return false;
+  }
   use swc_core::ecma::visit::{Visit, VisitWith};
   struct Writes<'a>(&'a [String], bool);
   impl Visit for Writes<'_> {
@@ -5238,6 +5707,13 @@ pub(crate) fn prop_name(name: &js::PropName) -> Option<String> {
     js::PropName::Num(n) => Some(snapfire_fsr_ir::interp::number_key(n.value)),
     _ => None,
   }
+}
+
+/// What a `break` leaves: a loop or a `switch` arm the statement path reads as an `if`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Breakable {
+  Loop,
+  Switch,
 }
 
 /// What the construct is and the rewrite that does the same thing in the IR.
