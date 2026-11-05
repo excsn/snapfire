@@ -50,7 +50,7 @@ http = ["snapfire_fsr_service/http"]
 [dependencies]
 fibre = "0.6"
 fibre_logging = "0.5.7"
-fibre_tracing = "0.5"
+fibre_tracing = "0.6"
 tracing-subscriber = { version = "0.3", features = ["registry", "std", "fmt"] }
 parking_lot = "0.12"
 snapfire_fsr.workspace = true
