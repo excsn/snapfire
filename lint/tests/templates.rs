@@ -104,7 +104,9 @@ impl Compilers for Uncoded {
   }
 
   fn compile(&self, _ext: &str, _unit: Unit) -> Result<Outcome, String> {
-    let warning = snapfire_compiler_wire::Diagnostic { line: Some(1), column: Some(1), ..snapfire_compiler_wire::Diagnostic::warning("`<img>` element should have an alt attribute") };
+    let mut warning = snapfire_compiler_wire::Diagnostic::warning("`<img>` element should have an alt attribute");
+    warning.line = Some(1);
+    warning.column = Some(1);
     Ok(Outcome::Ok(snapfire_compiler_wire::Compiled { js: String::new(), lang: Default::default(), css: None, source_map: None, deps: Vec::new(), diagnostics: vec![warning] }))
   }
 }

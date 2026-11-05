@@ -252,6 +252,7 @@ pub struct Script {
 /// Structured rather than formatted, so build output does not read like three
 /// tools stapled together.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Diagnostic {
   pub severity: Severity,
   pub message: String,

@@ -182,6 +182,7 @@ pub enum Expr {
 /// method or global with the same semantics for the value model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Builtin {
   Round,
   Floor,
