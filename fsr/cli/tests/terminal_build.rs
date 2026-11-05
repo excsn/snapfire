@@ -121,7 +121,7 @@ fn the_key_a_handler_gets_is_declared_from_the_fields_the_terminal_sets() {
   for code in codes {
     let Some(snapfire_fsr_cli::terminal::Press::Input(snapfire_fsr_core::Value::Map(press))) = snapfire_fsr_cli::terminal::key_event(KeyEvent::new(code, KeyModifiers::all())) else { panic!("{code:?} is input") };
     let Some(snapfire_fsr_core::Value::Map(key)) = press.get("key") else { panic!("a key") };
-    let set: Vec<&String> = key.iter().filter(|(_, on)| **on == snapfire_fsr_core::Value::Bool(true)).map(|(name, _)| name).collect();
+    let set: Vec<&str> = key.iter().filter(|(_, on)| **on == snapfire_fsr_core::Value::Bool(true)).map(|(name, _)| name.as_str()).collect();
     let own = if matches!(code, KeyCode::Char(_)) { 0 } else { 1 };
     assert_eq!(set.len(), 3 + own, "{code:?} sets ctrl, shift and meta and a field of its own in KEYS: {set:?}");
     assert_eq!(key.len(), snapfire_fsr_cli::terminal::KEYS.len(), "{code:?}");
