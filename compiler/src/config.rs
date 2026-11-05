@@ -134,17 +134,6 @@ impl Jsx {
       Some(mode) => bail!("'jsx': {:?} is not a recognised mode.", mode),
     }
   }
-
-  /// The module the runtime is imported from, which an import map has to name.
-  pub fn runtime_specifier(&self) -> Option<String> {
-    match self {
-      Jsx::Preserve => None,
-      Jsx::Automatic { import_source, development } => Some(format!(
-        "{import_source}/jsx-{}runtime",
-        if *development { "dev-" } else { "" }
-      )),
-    }
-  }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

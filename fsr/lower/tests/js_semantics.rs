@@ -1372,12 +1372,12 @@ mod one_identity {
   }
 
   #[test]
-  fn indexOf_same_shape_in_a_helper() {
+  fn index_of_same_shape_in_a_helper() {
     in_a_helper(r#"const l = [{ x: 1 }]; return l.indexOf({ x: 1 });"#, 0, r#"-1"#, Refusal::Never);
   }
 
   #[test]
-  fn indexOf_same_shape_in_a_loader() {
+  fn index_of_same_shape_in_a_loader() {
     in_a_loader(r#"const l = [{ x: 1 }]; return l.indexOf({ x: 1 });"#, 0, r#"-1"#, Refusal::Never);
   }
 

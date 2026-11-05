@@ -269,14 +269,3 @@ fn a_part_is_where_a_file_lands_rather_than_where_it_came_from() {
     .any(|p| e.path == *p || e.path.starts_with(&format!("{p}/")))));
   assert_eq!(listing.hash(), hash_dir(&at).unwrap());
 }
-
-fn copy(from: &Path, to: &Path) {
-  if from.is_dir() {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap().flatten() {
-      copy(&entry.path(), &to.join(entry.file_name()));
-    }
-  } else {
-    std::fs::copy(from, to).unwrap();
-  }
-}

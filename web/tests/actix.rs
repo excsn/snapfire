@@ -15,57 +15,6 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungsten
 
 use crate::common::test_handler;
 
-async fn setup_dev_server() -> (
-  impl actix_web::dev::Service<actix_http::Request, Response = actix_web::dev::ServiceResponse, Error = actix_web::Error>,
-  String,            // base_url
-  tempfile::TempDir, // temp_dir to keep it alive
-) {
-  let temp_dir = tempdir().unwrap();
-  let template_path = temp_dir.path().join("index.html");
-  fs::write(&template_path, "<html><body>Hello</body></html>").unwrap();
-  let glob_path = temp_dir.path().join("*.html").to_str().unwrap().to_string();
-
-  let static_dir = temp_dir.path().join("static");
-  fs::create_dir(&static_dir).unwrap();
-  fs::write(static_dir.join("style.css"), "body {}").unwrap();
-
-  let snapfire_app = TeraWeb::builder(&glob_path)
-    .watch_static(static_dir.to_str().unwrap())
-    .build()
-    .unwrap();
-
-  // Note: We use a real listener to get a port for WS connection
-  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-  let addr = listener.local_addr().unwrap();
-  let base_url = format!("http://{}", addr);
-
-  let app_state_clone = snapfire_app.clone();
-  let server = test::init_service(
-    App::new()
-      .app_data(web::Data::new(snapfire_app))
-      .wrap(InjectSnapFireScript::default())
-      .configure(move |cfg| app_state_clone.configure_routes(cfg))
-      .route("/", web::get().to(test_handler)),
-  )
-  .await;
-
-  (server, base_url, temp_dir)
-}
-
-async fn get_next_text_message(ws_stream: &mut WebSocketStream<MaybeTlsStream<TcpStream>>) -> String {
-  loop {
-    let msg = timeout(Duration::from_secs(2), ws_stream.next())
-      .await
-      .expect("Timeout waiting for WS message")
-      .expect("Stream ended unexpectedly")
-      .expect("WS message error");
-
-    if let Message::Text(text) = msg {
-      return text.to_string();
-    }
-    // Ignore Ping, Pong, Binary, etc. and continue looping
-  }
-}
 async fn simple_html_handler() -> HttpResponse {
   HttpResponse::Ok()
     .content_type("text/html")
