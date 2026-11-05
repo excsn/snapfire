@@ -3173,6 +3173,12 @@ const MAX_SPLIT: usize = 1_000_000;
 const MAX_REPEAT: usize = 64 * 1024 * 1024;
 
 fn float(op: ArithOp, a: f64, b: f64) -> f64 {
+  float_inlined(op, a, b)
+}
+
+/// [`float`] for a generated body, which inlines it. The interpreter calls [`float`]: inlining this into [`arith`] slows its every call.
+#[inline]
+pub(crate) fn float_inlined(op: ArithOp, a: f64, b: f64) -> f64 {
   match op {
     ArithOp::Add => a + b,
     ArithOp::Sub => a - b,
@@ -3890,6 +3896,22 @@ fn bind_params(scope: &mut Vec<(Name, Value)>, params: &[String], args: Vec<Valu
 /// integer to promote to.
 const SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
+/// How many items `Range(n)` makes: none below zero. A count past [`MAX_RANGE`] or without end fails.
+pub(crate) fn range_len(n: f64) -> Result<usize, Fail> {
+  let n = n.max(0.0);
+  // A length from data would otherwise ask for an allocation the process
+  // does not survive, which aborts rather than failing the request.
+  if !n.is_finite() || n > MAX_RANGE as f64 {
+    return Err(Fail::internal(format!("{:?} would build {n:.0} items", Builtin::Range)));
+  }
+  Ok(n as i64 as usize)
+}
+
+/// [`range_len`] of a value, read as `Range` reads its argument.
+pub(crate) fn range_len_of(value: &Value) -> Result<usize, Fail> {
+  range_len(number(Builtin::Range, value)?)
+}
+
 fn number(what: Builtin, value: &Value) -> Result<f64, Fail> {
   match value {
     Value::Int(n) => Ok(*n as f64),
@@ -4242,13 +4264,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       })
     }
     Builtin::Range => {
-      let n = number(name, arg(0)?)?.max(0.0);
-      // A length from data would otherwise ask for an allocation the process
-      // does not survive, which aborts rather than failing the request.
-      if !n.is_finite() || n > MAX_RANGE as f64 {
-        return Err(Fail::internal(format!("{name:?} would build {n:.0} items")));
-      }
-      let n = n as i64;
+      let n = range_len(number(name, arg(0)?)?)?;
       Value::Seq((0..n).map(|i| Value::F64(i as f64)).collect())
     }
     Builtin::Slice => match arg(0)? {

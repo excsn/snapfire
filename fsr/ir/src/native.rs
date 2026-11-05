@@ -1,5 +1,6 @@
 //! Rust source for a body, for a production build to compile into the application: each local a Rust variable, each loop a Rust loop, over the same values and the same runtime the interpreter uses. A body with anything this does not write gets no source and runs prepared instead, [`crate::compiled`].
 
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use snapfire_fsr_core::{Fields, ValueSeq};
@@ -113,6 +114,32 @@ impl<'a> Frame<'a> {
   #[inline]
   pub fn arith(&mut self, op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
     self.env.arith(op, l, r)
+  }
+
+  /// `a op b` on two numbers, as [`Self::arith`] answers it for two `F64`s.
+  #[inline]
+  pub fn float(op: ArithOp, a: f64, b: f64) -> f64 {
+    crate::interp::float_inlined(op, a, b)
+  }
+
+  /// The number a value known to be an `F64` holds: what `length` and the rounding, `min` and `max` builtins answer.
+  #[inline]
+  pub fn as_number(value: Value) -> Result<f64, Fail> {
+    match value {
+      Value::F64(n) => Ok(n),
+      other => Err(crate::interp::type_error("a number local", "a number", &other)),
+    }
+  }
+
+  /// How many passes a `for...of` over `Range(n)` makes, refused as `Range` refuses it.
+  #[inline]
+  pub fn range_len(n: f64) -> Result<usize, Fail> {
+    crate::interp::range_len(n)
+  }
+
+  /// [`Self::range_len`] of a count that is not known to be a number.
+  pub fn range_len_of(value: Value) -> Result<usize, Fail> {
+    crate::interp::range_len_of(&value)
   }
 
   #[inline]
@@ -310,7 +337,7 @@ pub fn emit_in(root: &str, name: &str, body: &Body, consts: Option<&Consts>) -> 
   if !crate::compiled::runs_through_body(body) {
     return Err("a call or a statement only a request's body holds".to_owned());
   }
-  let mut writer = Gen { vars: Vec::new(), next: 0, consts, loops: Vec::new(), returns: Vec::new(), why: None };
+  let mut writer = Gen { vars: Vec::new(), numbers: numbers(body), next: 0, consts, loops: Vec::new(), returns: Vec::new(), why: None };
   match writer.block(body) {
     Some(source) => {
       let mut out = String::new();
@@ -336,7 +363,10 @@ enum Loop {
 }
 
 struct Gen<'c> {
-  vars: Vec<(String, String)>,
+  /// Each local in scope: its name, its Rust identifier and whether it is an `f64`.
+  vars: Vec<(String, String, bool)>,
+  /// [`numbers`] of the body.
+  numbers: HashSet<String>,
   next: usize,
   consts: Option<&'c Consts>,
   loops: Vec<Loop>,
@@ -354,12 +384,75 @@ impl Gen<'_> {
 
   fn bind(&mut self, name: &str) -> String {
     let ident = self.fresh("l");
-    self.vars.push((name.to_owned(), ident.clone()));
+    self.vars.push((name.to_owned(), ident.clone(), self.numbers.contains(name)));
     ident
   }
 
   fn local(&self, name: &str) -> Option<&str> {
-    self.vars.iter().rev().find(|(n, _)| n == name).map(|(_, ident)| ident.as_str())
+    self.vars.iter().rev().find(|(n, ..)| n == name).map(|(_, ident, _)| ident.as_str())
+  }
+
+  /// The identifier of a local that is an `f64`.
+  fn number_local(&self, name: &str) -> Option<&str> {
+    self.vars.iter().rev().find(|(n, ..)| n == name).filter(|(.., number)| *number).map(|(_, ident, _)| ident.as_str())
+  }
+
+  /// Whether `expr` is a number, written as an `f64` by [`Self::num`].
+  fn is_num(&self, expr: &Expr) -> bool {
+    match expr {
+      Expr::Var(name) => self.number_local(name).is_some(),
+      other => numeric(other, &self.numbers),
+    }
+  }
+
+  /// `expr` as an `f64`, for an expression [`Self::is_num`] holds is a number.
+  fn num(&mut self, expr: &Expr) -> Option<String> {
+    Some(match expr {
+      Expr::Var(name) => self.number_local(name)?.to_owned(),
+      Expr::Lit(Lit::Float(n)) | Expr::Folded(Value::F64(n)) => float(*n),
+      Expr::Arith(op, l, r) if float_op(*op) => {
+        let (l, r) = (self.num(l)?, self.num(r)?);
+        format!("{F}::float(A_::{op:?}, {l}, {r})")
+      }
+      Expr::Ternary(c, t, e) => {
+        let (c, t, e) = (self.test(c)?, self.num(t)?, self.num(e)?);
+        format!("if {c} {{ {t} }} else {{ {e} }}")
+      }
+      Expr::Length(_) | Expr::Builtin { .. } if numeric(expr, &self.numbers) => format!("{F}::as_number({})?", self.expr(expr)?),
+      _ => return None,
+    })
+  }
+
+  /// `expr` as a Rust `bool` read as JavaScript reads a condition: a comparison of two numbers compared in place.
+  fn test(&mut self, expr: &Expr) -> Option<String> {
+    match expr {
+      Expr::Compare(op, l, r) if self.is_num(l) && self.is_num(r) => self.compared(*op, l, r),
+      Expr::Not(e) => self.fails(e),
+      other => Some(format!("{F}::truthy(&{})", self.expr(other)?)),
+    }
+  }
+
+  /// [`Self::test`] negated, for a loop that stops when its condition does not hold.
+  fn fails(&mut self, expr: &Expr) -> Option<String> {
+    match expr {
+      Expr::Compare(op, l, r) if self.is_num(l) && self.is_num(r) => Some(format!("!({})", self.compared(*op, l, r)?)),
+      Expr::Not(e) => self.test(e),
+      other => Some(format!("!{F}::truthy(&{})", self.expr(other)?)),
+    }
+  }
+
+  fn compared(&mut self, op: CompareOp, l: &Expr, r: &Expr) -> Option<String> {
+    let operand = |code: String| if code.starts_with("if ") { format!("({code})") } else { code };
+    let (l, r) = (operand(self.num(l)?), operand(self.num(r)?));
+    let op = match op {
+      CompareOp::Eq => "==",
+      CompareOp::Ne => "!=",
+      CompareOp::Lt => "<",
+      CompareOp::Le => "<=",
+      CompareOp::Gt => ">",
+      CompareOp::Ge => ">=",
+    };
+    Some(format!("{l} {op} {r}"))
   }
 
   fn block(&mut self, body: &Body) -> Option<String> {
@@ -382,10 +475,20 @@ impl Gen<'_> {
 
   fn stmt_inner(&mut self, stmt: &Stmt) -> Option<String> {
     Some(match stmt {
+      Stmt::Let { name, expr } if self.numbers.contains(name) => {
+        let value = self.num(expr)?;
+        let ident = self.bind(name);
+        format!("let mut {ident}: f64 = {value};\n")
+      }
       Stmt::Let { name, expr } => {
         let value = self.expr(expr)?;
         let ident = self.bind(name);
         format!("let mut {ident}: {V} = {value};\n")
+      }
+      Stmt::Set { name, expr } if self.number_local(name).is_some() => {
+        let value = self.num(expr)?;
+        let ident = self.local(name)?.to_owned();
+        format!("{ident} = {value};\n")
       }
       Stmt::Set { name, expr } => {
         let value = self.expr(expr)?;
@@ -393,10 +496,27 @@ impl Gen<'_> {
         format!("{ident} = {value};\n")
       }
       Stmt::If { cond, then, r#else } => {
-        let cond = self.expr(cond)?;
+        let cond = self.test(cond)?;
         let then = self.block(then)?;
         let otherwise = self.block(r#else)?;
-        format!("if {F}::truthy(&{cond}) {{\n{then}}} else {{\n{otherwise}}}\n")
+        format!("if {cond} {{\n{then}}} else {{\n{otherwise}}}\n")
+      }
+      Stmt::ForOf { name, over: Expr::Builtin { name: Builtin::Range, args }, body } if self.numbers.contains(name) && args.len() == 1 => {
+        let count = match self.is_num(&args[0]) {
+          true => format!("{F}::range_len({})?", self.num(&args[0])?),
+          false => format!("{F}::range_len_of({})?", self.expr(&args[0])?),
+        };
+        let label = self.fresh("'l");
+        let passes = self.fresh("s");
+        let at = self.fresh("i");
+        let depth = self.vars.len();
+        let ident = self.bind(name);
+        self.loops.push(Loop::For(label.clone()));
+        let body = self.block(body);
+        self.loops.pop();
+        self.vars.truncate(depth);
+        let body = body?;
+        format!("{{\nlet {passes}: usize = {count};\n{label}: for {at} in 0..{passes} {{\nlet mut {ident}: f64 = {at} as f64;\n{body}}}\n}}\n")
       }
       Stmt::ForOf { name, over, body } => {
         let over = self.expr(over)?;
@@ -416,14 +536,14 @@ impl Gen<'_> {
         let outer = self.fresh("'w");
         let inner = self.fresh("'p");
         let passes = self.fresh("n");
-        let cond = self.expr(cond)?;
+        let stop = self.fails(cond)?;
         self.loops.push(Loop::While { outer: outer.clone(), body: inner.clone() });
         let body = self.block(body);
         self.loops.pop();
         let body = body?;
         let step = self.block(step)?;
         format!(
-          "{{\nlet mut {passes}: usize = 0;\n{outer}: loop {{\nif !{F}::truthy(&{cond}) {{ break; }}\n{passes} += 1;\nif {passes} > P_ {{ return Err({F}::past_passes()); }}\n{inner}: {{\n{body}}}\n{step}}}\n}}\n"
+          "{{\nlet mut {passes}: usize = 0;\n{outer}: loop {{\nif {stop} {{ break; }}\n{passes} += 1;\nif {passes} > P_ {{ return Err({F}::past_passes()); }}\n{inner}: {{\n{body}}}\n{step}}}\n}}\n"
         )
       }
       Stmt::Return(expr) => {
@@ -448,8 +568,8 @@ impl Gen<'_> {
       }
       Stmt::Guard { cond, kind, message } if self.returns.is_empty() => {
         crate::interp::parse_kind(kind)?;
-        let (cond, message) = (self.expr(cond)?, self.expr(message)?);
-        format!("if {F}::truthy(&{cond}) {{ let m = {message}; return Err(f.guard({kind:?}, &m)); }}\n")
+        let (cond, message) = (self.test(cond)?, self.expr(message)?);
+        format!("if {cond} {{ let m = {message}; return Err(f.guard({kind:?}, &m)); }}\n")
       }
       _ => return None,
     })
@@ -465,7 +585,10 @@ impl Gen<'_> {
 
   fn expr_inner(&mut self, expr: &Expr) -> Option<String> {
     Some(match expr {
+      Expr::Var(name) if self.number_local(name).is_some() => format!("{V}::F64({})", self.number_local(name)?),
       Expr::Var(name) => format!("f.read(&{})", self.local(name)?),
+      Expr::Arith(op, l, r) if float_op(*op) && self.is_num(l) && self.is_num(r) => format!("{V}::F64({})", self.num(expr)?),
+      Expr::Compare(op, l, r) if self.is_num(l) && self.is_num(r) => format!("{V}::Bool({})", self.compared(*op, l, r)?),
       Expr::Lit(lit) => literal(lit)?,
       Expr::Folded(value) => folded(value)?,
       Expr::Const(key) => format!("f.constant({key:?})?"),
@@ -497,7 +620,7 @@ impl Gen<'_> {
       Expr::Input => "f.request(R_::Input)".to_owned(),
       Expr::Now => "f.request(R_::Now)".to_owned(),
       Expr::Field(target, name) => match &**target {
-        Expr::Var(var) if self.local(var).is_some() => format!("f.field(&{}, {name:?})", self.local(var)?),
+        Expr::Var(var) if self.local(var).is_some() && self.number_local(var).is_none() => format!("f.field(&{}, {name:?})", self.local(var)?),
         target => {
           let target = self.expr(target)?;
           format!("{{ let t = {target}; f.field(&t, {name:?}) }}")
@@ -529,8 +652,8 @@ impl Gen<'_> {
         format!("{{ match {l} {{ {V}::Null | {V}::Undefined => {r}, other => other }} }}")
       }
       Expr::Ternary(c, t, e) => {
-        let (c, t, e) = (self.expr(c)?, self.expr(t)?, self.expr(e)?);
-        format!("{{ if {F}::truthy(&{c}) {{ {t} }} else {{ {e} }} }}")
+        let (c, t, e) = (self.test(c)?, self.expr(t)?, self.expr(e)?);
+        format!("{{ if {c} {{ {t} }} else {{ {e} }} }}")
       }
       Expr::Template(parts) => {
         let parts = parts.iter().map(|p| self.expr(p)).collect::<Option<Vec<_>>>()?;
@@ -725,6 +848,9 @@ impl Gen<'_> {
   /// `Overwrite` of a local: fields set on an object spread first, items pushed on an array spread first or an item set, each in place as the interpreter makes it, and otherwise the whole of the object or array replaced in place.
   fn overwrite(&mut self, target: &Expr, next: &Expr) -> Option<String> {
     let Expr::Var(name) = target else { return None };
+    if self.number_local(name).is_some() {
+      return None;
+    }
     let ident = self.local(name)?.to_owned();
     if let Some(part) = self.overwrite_part(&ident, target, next) {
       return Some(part);
@@ -800,6 +926,87 @@ enum Each {
   Every,
 }
 
+/// The locals the body keeps as `f64`: the item of a `for...of` over `Range` and each name every binding and write of which is a number by [`numeric`]. A name also bound as a parameter, by another `for...of` or as the target of an in-place write is not one.
+fn numbers(body: &Body) -> HashSet<String> {
+  #[derive(Default)]
+  struct Found {
+    written: HashMap<String, Vec<Expr>>,
+    counted: HashSet<String>,
+    other: HashSet<String>,
+  }
+  impl Found {
+    fn stmts(&mut self, body: &Body) {
+      for stmt in body {
+        match stmt {
+          Stmt::Let { name, expr } | Stmt::Set { name, expr } => self.written.entry(name.clone()).or_default().push(expr.clone()),
+          Stmt::ForOf { name, over: Expr::Builtin { name: Builtin::Range, args }, body } if args.len() == 1 => {
+            self.counted.insert(name.clone());
+            self.stmts(body);
+          }
+          Stmt::ForOf { name, body, .. } => {
+            self.other.insert(name.clone());
+            self.stmts(body);
+          }
+          Stmt::If { then, r#else, .. } => {
+            self.stmts(then);
+            self.stmts(r#else);
+          }
+          Stmt::While { body, step, .. } => {
+            self.stmts(body);
+            self.stmts(step);
+          }
+          _ => {}
+        }
+      }
+    }
+
+    fn exprs(&mut self, body: &Body) {
+      crate::ast::body_visit(body, &mut |e| match e {
+        Expr::Lambda { params, .. } => self.other.extend(params.iter().map(|p| p.trim_start_matches("...").to_owned())),
+        Expr::Fix { name, .. } => {
+          self.other.insert(name.clone());
+        }
+        Expr::Builtin { name: Builtin::Overwrite | Builtin::WriteBack, args } => {
+          if let Some(Expr::Var(target)) = args.first() {
+            self.other.insert(target.clone());
+          }
+        }
+        Expr::Block(inner) => self.stmts(inner),
+        _ => {}
+      });
+    }
+  }
+  let mut found = Found::default();
+  found.stmts(body);
+  found.exprs(body);
+  let mut numbers: HashSet<String> = found.written.keys().chain(&found.counted).filter(|name| !found.other.contains(*name)).cloned().collect();
+  loop {
+    let now = numbers.clone();
+    numbers.retain(|name| found.written.get(name).is_none_or(|writes| writes.iter().all(|e| numeric(e, &now))));
+    if numbers.len() == now.len() {
+      return numbers;
+    }
+  }
+}
+
+/// Whether `expr` is a number when every name in `numbers` is: what the interpreter answers as an `F64` whatever it is given.
+fn numeric(expr: &Expr, numbers: &HashSet<String>) -> bool {
+  match expr {
+    Expr::Var(name) => numbers.contains(name),
+    Expr::Lit(Lit::Float(_)) | Expr::Folded(Value::F64(_)) => true,
+    Expr::Arith(op, l, r) => float_op(*op) && numeric(l, numbers) && numeric(r, numbers),
+    Expr::Ternary(_, t, e) => numeric(t, numbers) && numeric(e, numbers),
+    Expr::Length(e) => !matches!(&**e, Expr::Keys(_)),
+    Expr::Builtin { name, .. } => matches!(name, Builtin::Round | Builtin::Floor | Builtin::Ceil | Builtin::Abs | Builtin::Min | Builtin::Max),
+    _ => false,
+  }
+}
+
+/// Whether `op` on two `F64`s answers an `F64`: every operator but the bitwise ones, which answer an integer.
+fn float_op(op: ArithOp) -> bool {
+  !matches!(op, ArithOp::BitAnd | ArithOp::BitOr | ArithOp::BitXor | ArithOp::Shl | ArithOp::Shr | ArithOp::UShr)
+}
+
 /// Whether `body` hands back what it wrote of its parameters, which a call made from native code has no place to write back to.
 fn writes_back(body: &Expr) -> bool {
   let mut found = false;
@@ -824,8 +1031,9 @@ fn literal(lit: &Lit) -> Option<String> {
 }
 
 fn float(f: f64) -> String {
+  // `f64::NAN` compared in place trips rustc's `invalid_nan_comparisons` lint.
   if f.is_nan() {
-    "f64::NAN".to_owned()
+    format!("f64::from_bits({:#x})", f64::NAN.to_bits())
   } else if f == f64::INFINITY {
     "f64::INFINITY".to_owned()
   } else if f == f64::NEG_INFINITY {
