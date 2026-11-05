@@ -2,7 +2,7 @@
 //! their hashed originals and written into the head of every route under the
 //! directory's layout or page, a nearer one replacing them.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use snapfire_fsr_cli::new::{create, NewOptions};
 use snapfire_fsr_cli::{build, write, Options};

@@ -1630,8 +1630,8 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
   let mut keys = Vec::new();
   let mut path = false;
   let mut csrf = false;
-  let mut nonce = false;
-  let mut failure = false;
+  let mut nonce;
+  let mut failure;
   match components.iter().find(|(name, _)| *name == module) {
     None => {
       class = Static::Dynamic;

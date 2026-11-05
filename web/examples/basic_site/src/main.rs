@@ -1,6 +1,6 @@
 use actix_files::Files;
 use actix_web::{web, App, HttpServer, Responder};
-use snapfire::{Template, TeraWeb};
+use snapfire::TeraWeb;
 use tera::Context;
 
 #[derive(serde::Serialize)]

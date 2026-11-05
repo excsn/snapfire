@@ -1,8 +1,6 @@
 //! The names `generated/client.ts` derives from route directories are names
 //! TypeScript accepts, whatever characters the directory starts with.
 
-use std::path::PathBuf;
-
 use snapfire_fsr_cli::new::{create, NewOptions};
 use snapfire_fsr_cli::{build, Options};
 

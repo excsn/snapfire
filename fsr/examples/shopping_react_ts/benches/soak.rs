@@ -18,7 +18,7 @@ use snapfire_fsr_cli::vendor::{ESM_HOST, VendorManifest};
 use snapfire_fsr_cli::xwpm::Layout;
 use snapfire_fsr_cli::{Options, build};
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
+use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls};
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_payload::value_to_json;
