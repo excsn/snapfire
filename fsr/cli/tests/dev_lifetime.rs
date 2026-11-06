@@ -46,10 +46,10 @@ impl Drop for Dev {
   }
 }
 
-fn fsr_dev(root: &Path, envs: &[(&str, &str)]) -> Dev {
+fn fsr_dev(root: &Path) -> Dev {
   let snapfire = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug");
   let path = format!("{}:{}", snapfire.display(), std::env::var("PATH").unwrap_or_default());
-  let child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("dev").arg("--no-typecheck").arg(root.join("app")).env("PATH", path).envs(envs.iter().copied()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+  let child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("dev").arg("--no-typecheck").arg(root.join("app")).env("PATH", path).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
   Dev { child, started: Vec::new() }
 }
 
@@ -115,7 +115,7 @@ fn stopped_by(signal: &str) {
   let scratch = Scratch::new("cli-dev-lifetime");
   let port = free_port();
   let root = project(&scratch, port);
-  let mut dev = fsr_dev(&root, &[]);
+  let mut dev = fsr_dev(&root);
   await_success(port, Duration::from_secs(120));
   assert_stops_everything(&mut dev, signal, port);
 }
@@ -140,23 +140,23 @@ fn a_hard_kill_stops_everything_fsr_dev_started() {
   stopped_by("KILL");
 }
 
-/// A crate of the application's own, whose `main` is `body` under a host built from the project. `fsr dev` builds and runs it. Nothing in `body` listens for a signal or calls the host's `serve`, as an application with a server of its own does not.
-fn own_server(root: &Path, body: &str) {
-  let fsr = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-  let workspace = std::fs::read_to_string(fsr.join("Cargo.toml")).unwrap();
-  let patches = workspace.split("[patch.crates-io]").nth(1).and_then(|rest| rest.split("\n[").next()).unwrap();
-  std::fs::write(root.join("Cargo.toml"), format!("[package]\nname = \"own_server\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nsnapfire_fsr_host = {{ path = \"{}\" }}\n\n[workspace]\n\n[patch.crates-io]{patches}\n", fsr.join("host").display())).unwrap();
-  std::fs::copy(fsr.join("Cargo.lock"), root.join("Cargo.lock")).unwrap();
+/// A crate of the application's own, whose `main` serves `port` and stops when its lifeline's write end closes, as a host built under `FSR_HOST_LIFELINE` does. It depends on nothing, so it builds in a second. `fsr dev` builds and runs it.
+fn own_server(root: &Path, port: u16) {
+  std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"own_server\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n").unwrap();
   std::fs::create_dir_all(root.join("src")).unwrap();
-  std::fs::write(root.join("src/main.rs"), body).unwrap();
+  std::fs::write(root.join("src/main.rs"), OWN_SERVER.replace("PORT", &port.to_string())).unwrap();
 }
 
 const OWN_SERVER: &str = r#"use std::io::{Read, Write};
 
 fn main() {
-  let root = env!("CARGO_MANIFEST_DIR");
-  let host = snapfire_fsr_host::Host::from(root).and_then(|builder| builder.build()).unwrap();
-  let listener = std::net::TcpListener::bind(host.listen()).unwrap();
+  if std::env::var_os("FSR_HOST_LIFELINE").is_some_and(|value| !value.is_empty()) {
+    std::thread::spawn(|| {
+      let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+      std::process::exit(0);
+    });
+  }
+  let listener = std::net::TcpListener::bind("127.0.0.1:PORT").unwrap();
   for stream in listener.incoming() {
     let mut stream = stream.unwrap();
     let mut request = [0u8; 1024];
@@ -171,9 +171,8 @@ fn a_hard_kill_stops_a_server_the_application_runs_itself() {
   let scratch = Scratch::new("cli-dev-lifetime");
   let port = free_port();
   let root = project(&scratch, port);
-  own_server(&root, OWN_SERVER);
-  let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target");
-  let mut dev = fsr_dev(&root, &[("CARGO_TARGET_DIR", target.to_str().unwrap())]);
-  await_success(port, Duration::from_secs(400));
+  own_server(&root, port);
+  let mut dev = fsr_dev(&root);
+  await_success(port, Duration::from_secs(120));
   assert_stops_everything(&mut dev, "KILL", port);
 }
