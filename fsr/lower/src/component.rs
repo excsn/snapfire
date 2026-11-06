@@ -2683,11 +2683,11 @@ impl ComponentSet {
 
   /// A constant the plan names once or the expression itself when naming it would cost more than copying it. `CONST_WEIGHT` is where a copy per reference starts to dominate the plan. A program that writes objects names every constant that builds one, so all its readers in a request hold one object.
   fn name_if_large(&mut self, key: String, expr: Expr) -> Expr {
-    let shared = crate::heap_pass() && matches!(&expr, Expr::Object(_) | Expr::Array(_)) && !plain(&expr);
+    let shared = data_only(&expr) && asset_facts(&expr).is_none() && !is_asset_record(&expr);
     if weight(&expr) < CONST_WEIGHT && !shared || matches!(expr, Expr::Lambda { .. } | Expr::Fix { .. } | Expr::Ext { .. }) || is_asset_record(&expr) {
       return expr;
     }
-    let key = if crate::heap_pass() { format!("{key}$heap") } else { key };
+    let key = if crate::heap_pass() && !shared { format!("{key}$heap") } else { key };
     self.consts.entry(key.clone()).or_insert(expr);
     Expr::Const(key)
   }
@@ -6375,6 +6375,18 @@ fn touches_cells(expr: &Expr) -> bool {
   found
 }
 
+/// An object or array literal holding only literals and other such literals: data a body can compare and write by identity, so every read of a module constant holding it must reach the one object. A `$` field is a record the lowerer reads in place, a class or a marker, and is not data.
+fn data_only(expr: &Expr) -> bool {
+  match expr {
+    Expr::Object(entries) | Expr::Array(entries) => entries.iter().all(|entry| match entry {
+      Entry::Field(name, _) if name.starts_with('$') => false,
+      Entry::Field(_, value) | Entry::Item(value) => matches!(value, Expr::Lit(_)) || data_only(value),
+      _ => false,
+    }),
+    _ => false,
+  }
+}
+
 pub(crate) fn plain(expr: &Expr) -> bool {
   match expr {
     Expr::Object(entries) | Expr::Array(entries) if !entries.iter().any(|entry| matches!(entry, Entry::Field(_, Expr::Lambda { .. } | Expr::Fix { .. }) | Entry::Item(Expr::Lambda { .. } | Expr::Fix { .. }))) => false,
@@ -9242,8 +9254,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         "defaultValue" if name == "textarea" => text_default = Some(value),
         "value" if name == "option" => {
           attrs.push(Entry::Field("value".to_owned(), value.clone()));
-          if let Some(selected) = &self.select_value {
-            attrs.push(Entry::Field("selected".to_owned(), Expr::Compare(snapfire_fsr_ir::CompareOp::Eq, Box::new(Expr::Str(Box::new(value))), Box::new(Expr::Str(Box::new(selected.clone()))))));
+          if let Some(selected) = self.select_value.clone() {
+            let option = Expr::Str(Box::new(value));
+            let listed = self.lowerer.temp();
+            let lists = Expr::Some(Box::new(selected.clone()), Box::new(Expr::Lambda { params: vec![listed.clone()], body: Box::new(Expr::Compare(CompareOp::Eq, Box::new(Expr::Str(Box::new(Expr::Var(listed)))), Box::new(option.clone()))) }));
+            let names = Expr::Compare(CompareOp::Eq, Box::new(option), Box::new(Expr::Str(Box::new(selected.clone()))));
+            attrs.push(Entry::Field("selected".to_owned(), Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsArray, args: vec![selected] }), Box::new(lists), Box::new(names))));
           }
         }
         _ => attrs.push(Entry::Field(html_attr_name(&raw).to_owned(), value)),

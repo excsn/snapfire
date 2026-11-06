@@ -702,7 +702,7 @@ fn a_step_that_fails_inside_the_interpreter_does_not_name_the_failure_outside_de
     let app = Host::from_config(config).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap();
     let request = http::Request::post("/_sf/island/src/ui/OrderHelp.tsx%23OrderHelp")
       .header("content-type", "application/json")
-      .body(bytes::Bytes::from(r#"{"props":{"orderId":5001},"state":{"open":false,"asked":{"many":true}},"handler":0,"event":null}"#))
+      .body(bytes::Bytes::from(r#"{"props":{"orderId":5001},"state":{"open":false,"asked":{"$":"var","t":"many"}},"handler":0,"event":null}"#))
       .unwrap();
     let (status, text) = body_text(block_on(app.handle(request)));
     assert_eq!(status, 500, "{text}");

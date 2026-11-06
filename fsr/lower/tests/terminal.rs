@@ -19,6 +19,10 @@ fn counter(from: &str) -> String {
 }
 
 fn library(source: &str) -> Components {
+  library_and_consts(source).0
+}
+
+fn library_and_consts(source: &str) -> (Components, Arc<snapfire_fsr_ir::ast::Consts>) {
   let n = NEXT.fetch_add(1, Ordering::Relaxed);
   let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr_terminal_{}_{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
@@ -26,7 +30,7 @@ fn library(source: &str) -> Components {
   std::fs::write(dir.join("routes/page.tsx"), source).unwrap();
   let mut set = ComponentSet::new(&dir).for_terminal();
   set.lower(MODULE).unwrap_or_else(|e| panic!("{e}"));
-  set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect()
+  (set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect(), Arc::new(set.consts.clone()))
 }
 
 /// A timer a `mount` handler of the root page starts: its delay, whether it repeats, the handler it runs and what it carries in.
@@ -278,9 +282,9 @@ fn a_terminal_updater_writes_a_copy_at_a_computed_index() {
 #[test]
 fn use_box_metrics_reads_what_the_terminal_measured_for_the_box_its_ref_is_on() {
   let page = "import { useRef } from \"react\";\nimport { Box, Text, useBoxMetrics } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Measured() {\n  const ref = useRef(null);\n  const { width, clientHeight, hasMeasured } = useBoxMetrics(ref);\n  const all = useBoxMetrics(ref);\n  return <Box ref={ref} borderStyle=\"round\"><Text>{hasMeasured ? \"m\" : \"-\"} {width} {clientHeight} {all.top}</Text></Box>;\n}\n";
-  let library = library(page);
+  let (library, consts) = library_and_consts(page);
   let component = &library[MODULE];
-  let interpreter = Interpreter::default();
+  let interpreter = Interpreter::default().with_consts(Some(consts));
   let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   let html = &first.rendered.html;
   assert!(html.contains("<ink-text>- 0 0 0</ink-text>"), "zeros until measured: {html}");
@@ -443,4 +447,12 @@ fn a_handler_writes_and_reads_the_clipboard_through_its_standard_members() {
   let input = library[MODULE].handlers.iter().find(|handler| handler.event == "input").expect("an input handler");
   let body = format!("{:?}", input.body);
   assert!(body.contains("module: \"clipboard\", name: \"write\"") && body.contains("module: \"clipboard\", name: \"read\""), "{body}");
+}
+
+#[test]
+fn a_terminal_helper_pops_the_local_array_it_built() {
+  let snake = "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nfunction step(snake: number[], grow: boolean): number[] {\n  const next = [9, ...snake];\n  if (!grow) {\n    next.pop();\n  }\n  return next;\n}\n\nexport default function Snake() {\n  return <Text>{step([1, 2, 3], false).join(\",\")}</Text>;\n}\n";
+  let library = library(snake);
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>9,1,2</ink-text>");
 }

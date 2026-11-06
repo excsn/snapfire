@@ -10,7 +10,6 @@ learn-rsc-sandbox-test-3	lowered	notes 1
 learn-rsc-sandbox-test-4	lowered	notes 1
 learn-rsc-sandbox-test-6	unchanged	notes 2
 learn-rsc-sandbox-test-7	refused: src/actions.js:3:5: `results`, a module-level `let` a function writes; a body reads module state through the store	notes 0
-learn-rsc-sandbox-test-8	unchanged	notes 0
 learn-writing-markup-with-jsx-1	unchanged	notes 0
 learn-writing-markup-with-jsx-3	unchanged	notes 0
 learn-your-first-component-10	unchanged	notes 0

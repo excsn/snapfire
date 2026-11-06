@@ -50,7 +50,7 @@ fn set(files: &[(&str, &str)], mapped: Vec<Mapped>) -> ComponentSet {
 fn render(set: &ComponentSet, module: &str, props: &[(&str, Value)]) -> String {
   let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
   let props: ValueMap = props.iter().map(|(name, value)| ((*name).to_owned(), value.clone())).collect();
-  Interpreter::default().render_module(module, &library[module], &props, &library).map(|rendered| rendered.html).unwrap_or_else(|fail| panic!("{module}: {}", fail.message))
+  Interpreter::default().with_consts(Some(Arc::new(set.consts.clone()))).render_module(module, &library[module], &props, &library).map(|rendered| rendered.html).unwrap_or_else(|fail| panic!("{module}: {}", fail.message))
 }
 
 const CARD: &str = "export function Card({ tone, children }: { tone: string; children?: unknown }) {\n  return <section className={`card card-${tone}`}>{children}</section>;\n}\n";

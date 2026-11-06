@@ -86,7 +86,7 @@ fn a_residue_names_the_rewrite_that_does_the_same_thing() {
 }
 
 /// Weight enough to be worth a name: ten rows of two fields.
-const BIG: &str = "export const ROWS = [\n  { slug: \"a\", n: 1, on: true },\n  { slug: \"b\", n: 2, on: true },\n  { slug: \"c\", n: 3, on: true },\n  { slug: \"d\", n: 4, on: true },\n  { slug: \"e\", n: 5, on: true },\n  { slug: \"f\", n: 6, on: true },\n  { slug: \"g\", n: 7, on: true },\n  { slug: \"h\", n: 8, on: true },\n  { slug: \"i\", n: 9, on: true },\n  { slug: \"j\", n: 10, on: true },\n  { slug: \"k\", n: 11, on: true },\n  { slug: \"l\", n: 12, on: true },\n  { slug: \"m\", n: 13, on: true },\n  { slug: \"n\", n: 14, on: true },\n  { slug: \"o\", n: 15, on: true },\n  { slug: \"p\", n: 16, on: true },\n];\nexport const ONE = { slug: \"a\" };\n";
+const BIG: &str = "export const ROWS = [\n  { slug: \"a\", n: 1, on: true },\n  { slug: \"b\", n: 2, on: true },\n  { slug: \"c\", n: 3, on: true },\n  { slug: \"d\", n: 4, on: true },\n  { slug: \"e\", n: 5, on: true },\n  { slug: \"f\", n: 6, on: true },\n  { slug: \"g\", n: 7, on: true },\n  { slug: \"h\", n: 8, on: true },\n  { slug: \"i\", n: 9, on: true },\n  { slug: \"j\", n: 10, on: true },\n  { slug: \"k\", n: 11, on: true },\n  { slug: \"l\", n: 12, on: true },\n  { slug: \"m\", n: 13, on: true },\n  { slug: \"n\", n: 14, on: true },\n  { slug: \"o\", n: 15, on: true },\n  { slug: \"p\", n: 16, on: true },\n];\nexport const ONE = { slug: \"a\" };\nexport const LIMIT = 3;\n";
 
 #[test]
 fn a_large_module_constant_is_named_once_however_many_bodies_read_it() {
@@ -126,7 +126,7 @@ fn a_small_constant_stays_inline() {
     "consts_small",
     &[
       ("src/rows.ts", BIG),
-      ("routes/a/page.loader.ts", "import { ONE } from \"@src/rows\";\nexport async function load() {\n  return { one: ONE };\n}\n"),
+      ("routes/a/page.loader.ts", "import { LIMIT } from \"@src/rows\";\nexport async function load() {\n  return { limit: LIMIT };\n}\n"),
     ],
   );
   let mut set = ComponentSet::new(&dir);
@@ -136,6 +136,24 @@ fn a_small_constant_stays_inline() {
   let mut named = false;
   expr.visit(&mut |e| named |= matches!(e, Expr::Const(_)));
   assert!(!named, "{expr:?}");
+}
+
+#[test]
+fn a_small_data_object_is_named_so_every_read_is_the_one_object() {
+  let dir = app(
+    "consts_small_object",
+    &[
+      ("src/rows.ts", BIG),
+      ("routes/a/page.loader.ts", "import { ONE } from \"@src/rows\";\nexport async function load() {\n  return { one: ONE, again: ONE };\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  let body = set.lower_loader("routes/a/page.loader.ts").unwrap();
+  assert_eq!(set.consts.keys().collect::<Vec<_>>(), ["src/rows.ts#ONE"]);
+  let Stmt::Return(expr) = &body[0] else { panic!("{body:?}") };
+  let mut reads = 0;
+  expr.visit(&mut |e| reads += usize::from(matches!(e, Expr::Const(key) if key == "src/rows.ts#ONE")));
+  assert_eq!(reads, 2, "{expr:?}");
 }
 
 /// The four string builtins, each in a loader body so the assertion reads the

@@ -3059,9 +3059,6 @@ impl<'a> Lowerer<'a> {
 
   /// Whether `expr` changes an object or an array a name reaches: a field written, a mutating method or `Object.assign`.
   pub(crate) fn object_write(&self, expr: &js::Expr) -> bool {
-    if self.reaches(Reach::Terminal) {
-      return false;
-    }
     let reached = |target: &js::Expr| -> bool {
       let root = match crate::meaning::bare(target) {
         js::Expr::Ident(id) => id,

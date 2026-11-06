@@ -100,7 +100,7 @@ learn-javascript-in-jsx-with-curly-braces-3	same
 learn-javascript-in-jsx-with-curly-braces-4	same
 learn-javascript-in-jsx-with-curly-braces-5	same
 learn-javascript-in-jsx-with-curly-braces-6	same
-learn-javascript-in-jsx-with-curly-braces-7	ir fails: String wants a scalar, got object
+learn-javascript-in-jsx-with-curly-braces-7	ir fails: Objects are not valid as a React child (found: object with keys {name, theme})
 learn-javascript-in-jsx-with-curly-braces-8	same
 learn-javascript-in-jsx-with-curly-braces-9	same
 learn-keeping-components-pure-1	same
@@ -201,8 +201,8 @@ learn-queueing-a-series-of-state-updates-3	same
 learn-queueing-a-series-of-state-updates-4	same
 learn-queueing-a-series-of-state-updates-5	same
 learn-queueing-a-series-of-state-updates-6	same
-learn-queueing-a-series-of-state-updates-7	ir fails: String wants a scalar, got variant
-learn-queueing-a-series-of-state-updates-8	ir fails: String wants a scalar, got variant
+learn-queueing-a-series-of-state-updates-7	ir fails: String wants a scalar, an array or a plain object, got variant
+learn-queueing-a-series-of-state-updates-8	ir fails: String wants a scalar, an array or a plain object, got variant
 learn-reacting-to-input-with-state-10	same
 learn-reacting-to-input-with-state-11	same
 learn-reacting-to-input-with-state-2	same
@@ -292,7 +292,7 @@ learn-rsc-sandbox-test-4	refused
 learn-rsc-sandbox-test-5	same
 learn-rsc-sandbox-test-6	differs
 learn-rsc-sandbox-test-7	refused
-learn-rsc-sandbox-test-8	differs
+learn-rsc-sandbox-test-8	same
 learn-rsc-sandbox-test-9	differs
 learn-scaling-up-with-reducer-and-context-1	same
 learn-scaling-up-with-reducer-and-context-2	same
@@ -436,7 +436,7 @@ reference-react-children-9	equivalent
 reference-react-cloneelement-1	ir fails: map wants an array, got undefined
 reference-react-cloneelement-2	same
 reference-react-cloneelement-3	same
-reference-react-cloneelement-4	ir fails: comparing object with object is not defined
+reference-react-cloneelement-4	same
 reference-react-component-1	same
 reference-react-component-10	differs
 reference-react-component-11	same
@@ -492,9 +492,9 @@ reference-react-dom-components-script-2	react fails: prepare: compiling the spec
 reference-react-dom-components-select-1	same
 reference-react-dom-components-select-2	differs
 reference-react-dom-components-select-3	same
-reference-react-dom-components-select-4	ir fails: String wants a scalar, got array
-reference-react-dom-components-select-5	ir fails: String wants a scalar, got array
-reference-react-dom-components-select-6	ir fails: String wants a scalar, got array
+reference-react-dom-components-select-4	same
+reference-react-dom-components-select-5	same
+reference-react-dom-components-select-6	same
 reference-react-dom-components-style-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-style-1/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-textarea-1	same
 reference-react-dom-components-textarea-2	differs

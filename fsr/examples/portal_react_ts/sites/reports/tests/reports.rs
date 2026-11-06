@@ -28,7 +28,9 @@ async fn the_site_runs_alone_under_its_prefix() {
 
   let response = host.handle(Request::get("/reports/1").body(Bytes::new()).unwrap()).await;
   let html = body_of(response).await;
-  assert!(html.contains("<title>Reports</title>") && html.contains("Adding up the rows") && html.contains("21100.00") && html.contains("__sfHead({\"title\":\"Revenue by region · Reports\","), "the rows and the title stream in after the loading segment: {html}");
+  assert!(html.contains("<title>Reports</title>") && html.contains("Adding up the rows") && html.contains("21100.00") && html.contains("{\"head\":{\"title\":\"Revenue by region · Reports\","), "the rows and the title stream in after the loading segment: {html}");
+  let fill = html.split("data-sf-fill-data=\"1\">").nth(1).and_then(|rest| rest.split("</script>").next()).unwrap_or_default();
+  assert_eq!(fill.matches("twitter-image/rows?v=").count(), 1, "each card image is listed once in the streamed head: {fill}");
 
   let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::NOT_FOUND, "nothing lives outside the prefix");

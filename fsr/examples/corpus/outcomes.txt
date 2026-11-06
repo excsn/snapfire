@@ -290,9 +290,9 @@ learn-rsc-sandbox-test-2	lowered
 learn-rsc-sandbox-test-3	refused: src/Albums.js:6:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-4	refused: src/SlowData.js:8:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-5	lowered
-learn-rsc-sandbox-test-6	client: src/App.js:6:3 an expression statement other than a write to a local
+learn-rsc-sandbox-test-6	client: src/App.js:6:32 a call to `setTimeout`, which the build cannot follow
 learn-rsc-sandbox-test-7	refused: src/App.js:4:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
-learn-rsc-sandbox-test-8	client: src/db.js:8:3 a call for its effect, which a straight-line body cannot hold
+learn-rsc-sandbox-test-8	lowered
 learn-rsc-sandbox-test-9	lowered
 learn-scaling-up-with-reducer-and-context-1	lowered
 learn-scaling-up-with-reducer-and-context-2	lowered
@@ -468,7 +468,7 @@ reference-react-dom-components-common-6	lowered
 reference-react-dom-components-common-7	lowered
 reference-react-dom-components-form-1	lowered
 reference-react-dom-components-form-2	lowered
-reference-react-dom-components-form-3	client: src/actions.js:2:5 an expression statement other than a write to a local
+reference-react-dom-components-form-3	client: src/actions.js:2:32 a call to `setTimeout`, which the build cannot follow
 reference-react-dom-components-form-4	lowered
 reference-react-dom-components-form-6	lowered
 reference-react-dom-components-form-7	lowered
@@ -505,7 +505,7 @@ reference-react-dom-createportal-1	client: src/App.js:7:8 a call to `createPorta
 reference-react-dom-createportal-2	client: src/PortalExample.js:12:21 a call to `createPortal`, which the build cannot follow
 reference-react-dom-createportal-3	client: src/App.js:9:8 a call to `createPortal`, which the build cannot follow
 reference-react-dom-flushsync-1	lowered
-reference-react-dom-hooks-useformstatus-1	client: src/actions.js:2:5 an expression statement other than a write to a local
+reference-react-dom-hooks-useformstatus-1	client: src/actions.js:2:32 a call to `setTimeout`, which the build cannot follow
 reference-react-dom-hooks-useformstatus-2	lowered
 reference-react-dom-server-resume-1	refused: src/App.js: no exported `default`
 reference-react-forwardref-1	lowered
@@ -533,7 +533,7 @@ reference-react-strictmode-8	lowered
 reference-react-strictmode-9	lowered
 reference-react-suspense-1	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-suspense-10	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-suspense-11	client: src/data.js:6:3 an expression statement other than a write to a local
+reference-react-suspense-11	client: src/data.js:7:5 a call for its effect, which a straight-line body cannot hold
 reference-react-suspense-13	lowered
 reference-react-suspense-2	lowered
 reference-react-suspense-3	refused: src/App.js: no exported `default`
@@ -546,7 +546,7 @@ reference-react-suspense-9	client: src/Albums.js:5:18 `use` of something other t
 reference-react-use-1	lowered
 reference-react-use-3	lowered
 reference-react-use-4	client: src/App.js:20:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-use-5	client: src/data.js:29:3 an expression statement other than a write to a local
+reference-react-use-5	client: src/data.js:30:5 a call for its effect, which a straight-line body cannot hold
 reference-react-use-6	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-7	client: src/message.js:6:26 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-useactionstate-1	lowered

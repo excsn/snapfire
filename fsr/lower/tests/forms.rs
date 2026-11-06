@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_ir::ast::{Entry, Expr, Lit, Stmt};
+use snapfire_fsr_ir::ast::{Consts, Entry, Expr, Lit, Stmt};
 use snapfire_fsr_ir::render::{prepare, Components, MAX_CALLS};
 use snapfire_fsr_ir::{Interpreter, Tmpl};
 use snapfire_fsr_lower::component::ComponentSet;
@@ -40,9 +40,13 @@ fn library(set: &ComponentSet) -> Components {
   set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect()
 }
 
-fn render(library: &Components, module: &str, props: &[(&str, Value)]) -> Result<String, String> {
+fn render(set: &ComponentSet, module: &str, props: &[(&str, Value)]) -> Result<String, String> {
+  render_in(&library(set), &Arc::new(set.consts.clone()), module, props)
+}
+
+fn render_in(library: &Components, consts: &Arc<Consts>, module: &str, props: &[(&str, Value)]) -> Result<String, String> {
   let props: ValueMap = props.iter().map(|(name, value)| ((*name).to_owned(), value.clone())).collect();
-  Interpreter::default().render_module(module, &library[module], &props, library).map(|rendered| rendered.html).map_err(|fail| fail.message)
+  Interpreter::default().with_consts(Some(consts.clone())).render_module(module, &library[module], &props, library).map(|rendered| rendered.html).map_err(|fail| fail.message)
 }
 
 fn verdicts<'a>(set: &'a ComponentSet, module: &str) -> (bool, Option<&'a bool>) {
@@ -61,7 +65,7 @@ fn island_in(tmpl: &Tmpl) -> Option<(&str, Option<&str>, Option<&str>)> {
 fn a_component_that_renders_itself_is_a_call_the_renderer_makes() {
   let set = lower(&[("routes/page.tsx", "export function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")], "routes/page.tsx#Tree");
   assert_eq!(set.components.len(), 1, "lowered once");
-  assert_eq!(render(&library(&set), "routes/page.tsx#Tree", &[("depth", Value::F64(2.0))]).unwrap(), "<ul><ul><ul></ul></ul></ul>");
+  assert_eq!(render(&set, "routes/page.tsx#Tree", &[("depth", Value::F64(2.0))]).unwrap(), "<ul><ul><ul></ul></ul></ul>");
   assert_eq!(verdicts(&set, "routes/page.tsx#Tree"), (false, Some(&true)), "a call to itself neither hydrates it nor makes it impure");
 }
 
@@ -74,7 +78,7 @@ fn two_components_that_render_each_other_are_calls_the_renderer_makes() {
     ],
     "routes/page.tsx#default",
   );
-  assert_eq!(render(&library(&set), "routes/page.tsx#default", &[("n", Value::F64(3.0))]).unwrap(), "<div><span><div><span></span></div></span></div>");
+  assert_eq!(render(&set, "routes/page.tsx#default", &[("n", Value::F64(3.0))]).unwrap(), "<div><span><div><span></span></div></span></div>");
   assert_eq!(verdicts(&set, "routes/page.tsx#default"), (false, Some(&true)), "Even read Odd while Odd was provisional");
   assert_eq!(verdicts(&set, "routes/odd.tsx#default"), (false, Some(&true)), "and Odd read Even while Even was still being lowered");
 }
@@ -101,6 +105,7 @@ fn a_render_nested_past_the_limit_fails_rather_than_overflowing_the_stack() {
     "routes/page.tsx#Node",
   );
   let library = library(&set);
+  let consts = Arc::new(set.consts.clone());
   let nested = |levels: usize| {
     let mut node = Value::seq(Vec::new());
     for _ in 0..levels {
@@ -113,7 +118,7 @@ fn a_render_nested_past_the_limit_fails_rather_than_overflowing_the_stack() {
   let (within, past) = (nested(MAX_CALLS + 1), nested(MAX_CALLS + 2));
   let (within, past) = std::thread::Builder::new()
     .stack_size(2 << 20)
-    .spawn(move || (render(&library, "routes/page.tsx#Node", &[("node", within)]), render(&library, "routes/page.tsx#Node", &[("node", past)])))
+    .spawn(move || (render_in(&library, &consts, "routes/page.tsx#Node", &[("node", within)]), render_in(&library, &consts, "routes/page.tsx#Node", &[("node", past)])))
     .unwrap()
     .join()
     .unwrap();
@@ -142,7 +147,7 @@ fn a_default_exported_function_is_a_value_under_its_own_name() {
 #[test]
 fn a_default_exported_component_that_renders_itself_calls_itself_by_its_default_id() {
   let set = lower(&[("routes/page.tsx", "export default function Tree({ depth }: { depth: number }) {\n  return <ul>{depth > 0 ? <Tree depth={depth - 1} /> : null}</ul>;\n}\n")], "routes/page.tsx#default");
-  assert_eq!(render(&library(&set), "routes/page.tsx#default", &[("depth", Value::F64(1.0))]).unwrap(), "<ul><ul></ul></ul>");
+  assert_eq!(render(&set, "routes/page.tsx#default", &[("depth", Value::F64(1.0))]).unwrap(), "<ul><ul></ul></ul>");
 }
 
 const BODY: &str = "async ({ input }: ActionCtx<AddInput>) => ({ n: input.n })";
@@ -312,7 +317,7 @@ fn a_hook_reached_through_a_namespace_import_is_still_that_hook() {
 #[test]
 fn a_method_call_on_a_local_object_is_not_mistaken_for_a_hook() {
   let set = lower(&[("routes/a/page.tsx", "const box = { useThing: () => 1 };\nexport default function P() {\n  const n = box.useThing();\n  return <p>{n}</p>;\n}\n")], "routes/a/page.tsx#default");
-  assert_eq!(render(&library(&set), "routes/a/page.tsx#default", &[]).as_deref(), Ok("<p>1</p>"), "the hook rule only follows a namespace import, so this is a call of the function the object holds");
+  assert_eq!(render(&set, "routes/a/page.tsx#default", &[]).as_deref(), Ok("<p>1</p>"), "the hook rule only follows a namespace import, so this is a call of the function the object holds");
 }
 
 #[test]
@@ -424,7 +429,7 @@ fn a_map_callback_writes_its_locals_before_it_returns_markup() {
   let page = "export default function Page({ items }: { items: { sku: string; left: number }[] }) {\n  return (\n    <ul>\n      {items.map((item) => {\n        let label = item.sku;\n        if (item.left === 0) {\n          label = `${item.sku} (out)`;\n        } else if (item.left < 3) {\n          label += \" (low)\";\n        }\n        let n = 0;\n        n += item.left;\n        return <li key={item.sku}>{label} {n}</li>;\n      })}\n    </ul>\n  );\n}\n";
   let set = lower(&[("routes/page.tsx", page)], "routes/page.tsx#default");
   let item = |sku: &str, left: i64| Value::Map([("sku".to_owned(), Value::str(sku)), ("left".to_owned(), Value::F64(left as f64))].into_iter().collect());
-  let html = render(&library(&set), "routes/page.tsx#default", &[("items", Value::seq(vec![item("pear", 0), item("fig", 2), item("leek", 9)]))]).unwrap();
+  let html = render(&set, "routes/page.tsx#default", &[("items", Value::seq(vec![item("pear", 0), item("fig", 2), item("leek", 9)]))]).unwrap();
   assert_eq!(html, "<ul><li>pear (out) 0</li><li>fig (low) 2</li><li>leek 9</li></ul>");
 }
 
@@ -433,7 +438,7 @@ fn an_inner_function_returning_markup_renders_where_it_is_called() {
   let page = "export default function Page({ rows, total }: { rows: { name: string; ms: number }[]; total: number }) {\n  const bar = (start: number, ms: number, hot: boolean) => (\n    <span className=\"track\">\n      <span className={hot ? \"bar hot\" : \"bar\"} data-at={start} data-w={Math.round((ms / total) * 100)} />\n    </span>\n  );\n  function label(name: string) {\n    if (name === \"\") return <i>none</i>;\n    const upper = name.toUpperCase();\n    return <b>{upper}</b>;\n  }\n  return (\n    <ol>\n      {bar(0, total, true)}\n      {rows.map((row, i) => (\n        <li key={i}>\n          {label(row.name)}\n          {bar(i, row.ms, false)}\n        </li>\n      ))}\n    </ol>\n  );\n}\n";
   let set = lower(&[("routes/page.tsx", page)], "routes/page.tsx#default");
   let row = |name: &str, ms: i64| Value::Map([("name".to_owned(), Value::str(name)), ("ms".to_owned(), Value::F64(ms as f64))].into_iter().collect());
-  let html = render(&library(&set), "routes/page.tsx#default", &[("rows", Value::seq(vec![row("load", 30), row("", 70)])), ("total", Value::F64(100.0))]).unwrap();
+  let html = render(&set, "routes/page.tsx#default", &[("rows", Value::seq(vec![row("load", 30), row("", 70)])), ("total", Value::F64(100.0))]).unwrap();
   assert_eq!(html, "<ol><span class=\"track\"><span class=\"bar hot\" data-at=\"0\" data-w=\"100\"></span></span><li><b>LOAD</b><span class=\"track\"><span class=\"bar\" data-at=\"0\" data-w=\"30\"></span></span></li><li><i>none</i><span class=\"track\"><span class=\"bar\" data-at=\"1\" data-w=\"70\"></span></span></li></ol>");
 }
 
@@ -502,7 +507,7 @@ fn a_style_held_in_a_const_a_prop_or_a_branch_renders_on_the_server() {
     "routes/page.tsx#default",
   );
   assert!(island_in(render_of(&set, "routes/page.tsx#default")).is_none(), "nothing is left to the browser");
-  let html = render(&library(&set), "routes/page.tsx#default", &[]).unwrap();
+  let html = render(&set, "routes/page.tsx#default", &[]).unwrap();
   assert!(html.contains(r#"<div style="color:red;padding-top:4px">a</div>"#), "{html}");
   assert!(html.contains(r#"<p style="font-weight:700;margin-left:2px">"#), "{html}");
   assert!(html.contains(r#"<span style="z-index:2">b</span>"#), "{html}");
@@ -514,7 +519,7 @@ fn a_spread_into_a_style_takes_css_names_like_the_fields_beside_it() {
     &[("routes/page.tsx", "const base = { fontSize: 12, WebkitLineClamp: 2, \"--gap\": \"1rem\" };\nexport default function Page() {\n  return <div style={{ ...base, backgroundColor: \"red\" }}>a</div>;\n}\n")],
     "routes/page.tsx#default",
   );
-  let html = render(&library(&set), "routes/page.tsx#default", &[]).unwrap();
+  let html = render(&set, "routes/page.tsx#default", &[]).unwrap();
   assert!(html.contains(r#"style="font-size:12px;-webkit-line-clamp:2;--gap:1rem;background-color:red""#), "{html}");
 }
 

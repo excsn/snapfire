@@ -244,8 +244,9 @@ impl Meta {
   }
 
   /// Folds an inner segment over this one: a title or description it sets
-  /// wins and each of its head elements replaces the one of the same
-  /// identity in place. An element matching nothing is appended. Outermost is
+  /// wins and each identity it names replaces every row of that identity: its
+  /// first row in place of the first and the rest appended in order. An element
+  /// matching nothing is appended. Outermost is
   /// folded first, so the innermost segment has the last word.
   pub fn merge(&mut self, inner: Meta) {
     if inner.title.is_some() {
@@ -262,6 +263,12 @@ impl Meta {
         Some(_) if added.contains(&identity) => self.head.push(element),
         Some(at) => {
           self.head[at] = element;
+          let mut index = 0;
+          self.head.retain(|held| {
+            let kept = index == at || held.identity() != identity;
+            index += 1;
+            kept
+          });
           added.push(identity);
         }
         None => {
@@ -663,6 +670,15 @@ mod tests {
     assert_eq!(head.len(), 2, "media still qualifies");
     let head = merged(outer, vec![el("link", &[("rel", "stylesheet"), ("href", "/a.css")])]);
     assert_eq!(head.len(), 1);
+  }
+
+  #[test]
+  fn a_field_an_inner_segment_names_again_keeps_only_its_rows() {
+    let image = |id: &str| vec![el("meta", &[("name", "twitter:image"), ("content", id)]), el("meta", &[("name", "twitter:image:alt"), ("content", id)])];
+    let outer = [image("/outer/total"), image("/outer/rows")].concat();
+    let contents = |head: &[HeadEl]| head.iter().map(|e| e.attr("content").unwrap_or_default().to_owned()).collect::<Vec<_>>();
+    assert_eq!(contents(&merged(outer.clone(), [image("/inner/total"), image("/inner/rows")].concat())), ["/inner/total", "/inner/total", "/inner/rows", "/inner/rows"]);
+    assert_eq!(contents(&merged(outer, image("/inner/total"))), ["/inner/total", "/inner/total"]);
   }
 
   #[test]

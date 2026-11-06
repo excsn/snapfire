@@ -87,3 +87,53 @@ fn a_store_write_in_a_step_reaches_the_render_that_follows() {
   assert_eq!(stepped.store.get("probe/count"), Some(&Value::F64(1.0)), "{:?}", stepped.store);
   assert!(stepped.rendered.html.contains("<p>1</p>"), "{}", stepped.rendered.html);
 }
+
+#[test]
+fn a_local_array_a_component_pushes_into_is_a_new_array_on_each_call() {
+  let (one, _) = twice("function Section() {\n  const items = [];\n  for (let i = 0; i < 2; i++) {\n    items.push(<li key={i}>{i}</li>);\n  }\n  return <ul>{items}</ul>;\n}\nexport default function P() {\n  return <div><Section /><Section /><Section /></div>;\n}\n");
+  assert_eq!(one, "<div><ul><li>0</li><li>1</li></ul><ul><li>0</li><li>1</li></ul><ul><li>0</li><li>1</li></ul></div>");
+}
+
+#[test]
+fn a_local_object_a_component_writes_is_a_new_object_on_each_call() {
+  let (one, _) = twice("function Tally() {\n  const o = { n: 0 };\n  o.n += 1;\n  return <i>{o.n}</i>;\n}\nexport default function P() {\n  return <div><Tally /><Tally /></div>;\n}\n");
+  assert_eq!(one, "<div><i>1</i><i>1</i></div>");
+}
+
+#[test]
+fn two_evaluations_of_one_object_literal_are_two_objects() {
+  let (one, _) = twice("const make = () => ({ n: 1 });\nexport default function P() {\n  return <p>{String(make() === make())}</p>;\n}\n");
+  assert_eq!(one, "<p>false</p>");
+}
+
+#[test]
+fn every_read_of_a_module_constant_is_the_same_object() {
+  let (one, _) = twice("const C = [{ id: 1 }, { id: 2 }];\nexport default function P() {\n  const s = C[0];\n  return <p>{String(s === C[0])}{C.map((c) => (c === s ? \"y\" : \"n\")).join(\"\")}</p>;\n}\n");
+  assert_eq!(one, "<p>trueyn</p>");
+}
+
+#[test]
+fn a_module_constant_reached_through_a_helper_is_the_same_object() {
+  let (one, _) = twice("const C = [{ id: 1 }, { id: 2 }];\nconst pick = (items, i) => items[i];\nexport default function P() {\n  return <p>{String(pick(C, 0) === C[0])}</p>;\n}\n");
+  assert_eq!(one, "<p>true</p>");
+}
+
+#[test]
+fn a_multiple_select_marks_every_option_its_value_lists() {
+  let (one, _) = twice("export default function P() {\n  return <select multiple defaultValue={[\"b\", \"c\"]}><option value=\"a\">A</option><option value=\"b\">B</option><option value=\"c\">C</option></select>;\n}\n");
+  assert_eq!(one.matches("selected").count(), 2, "{one}");
+  assert!(one.contains("<option value=\"b\" selected=\"\">") && one.contains("<option value=\"c\" selected=\"\">"), "{one}");
+}
+
+#[test]
+fn a_single_select_marks_the_option_its_value_names() {
+  let (one, _) = twice("export default function P() {\n  return <select defaultValue=\"b\"><option value=\"a\">A</option><option value=\"b\">B</option></select>;\n}\n");
+  assert_eq!(one.matches("selected").count(), 1, "{one}");
+  assert!(one.contains("<option value=\"b\" selected=\"\">"), "{one}");
+}
+
+#[test]
+fn an_object_placed_as_a_child_fails_as_react_does() {
+  let (one, _) = twice("const person = { name: \"G\", theme: \"dark\" };\nexport default function P() {\n  return <h1>{person}</h1>;\n}\n");
+  assert!(one.starts_with("FAIL") && one.contains("not valid as a React child") && one.contains("{name, theme}"), "{one}");
+}

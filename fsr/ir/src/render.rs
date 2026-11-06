@@ -2635,25 +2635,8 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
         *tmpl = Arc::new(prepare_tmpl(tmpl));
       }
     }),
-    Expr::Object(entries) => {
-      fold_entries(entries);
-      if entries.iter().all(|entry| matches!(entry, Entry::Field(_, Expr::Folded(_)))) {
-        let mut map = ValueMap::default();
-        for entry in entries.iter() {
-          if let Entry::Field(name, Expr::Folded(value)) = entry {
-            map.insert(name.as_str(), value.clone());
-          }
-        }
-        *expr = Expr::Folded(Value::Map(map).frozen());
-      }
-    }
-    Expr::Array(entries) => {
-      fold_entries(entries);
-      if entries.iter().all(|entry| matches!(entry, Entry::Item(Expr::Folded(_)))) {
-        let items: Vec<Value> = entries.iter().filter_map(|entry| match entry { Entry::Item(Expr::Folded(value)) => Some(value.clone()), _ => None }).collect();
-        *expr = Expr::Folded(Value::seq(items).frozen());
-      }
-    }
+    // An object or array literal is a new object each time it is evaluated, so only what it holds folds.
+    Expr::Object(entries) | Expr::Array(entries) => fold_entries(entries),
     Expr::Template(parts) => {
       parts.iter_mut().for_each(fold_expr);
       if parts.iter().all(|part| matches!(part, Expr::Folded(_))) {
@@ -3034,6 +3017,10 @@ fn interpolate(value: &Value, out: &mut Out, markup: Markup) -> Result<(), Fail>
       }
       Ok(())
     }
+    Value::Map(map) if map.kind() == snapfire_fsr_core::Collection::Plain => {
+      let keys: Vec<&str> = map.keys().map(|k| k.as_str()).collect();
+      Err(Fail::internal(format!("Objects are not valid as a React child (found: object with keys {{{}}})", keys.join(", "))))
+    }
     other => {
       out.text(&crate::interp::scalar_str(other)?, markup);
       Ok(())
@@ -3249,10 +3236,7 @@ mod tests {
     };
     let prepared = prepare(&component);
     let Tmpl::Let { expr, then, .. } = &prepared.render else { panic!() };
-    let mut folded = ValueMap::default();
-    folded.insert("a".to_owned(), Value::str("x"));
-    folded.insert("n".to_owned(), Value::Int(1));
-    assert_eq!(*expr, Expr::Folded(Value::Map(folded)));
+    assert_eq!(*expr, Expr::Object(vec![Entry::Field("a".to_owned(), Expr::Folded(Value::str("x"))), Entry::Field("n".to_owned(), Expr::Folded(Value::Int(1)))]), "an object literal stays a new object and what it holds folds");
     let Tmpl::Fragment(children) = &**then else { panic!() };
     assert_eq!(children[0], Tmpl::Expr(Expr::Folded(Value::str("p-q"))));
     assert_eq!(children[1], Tmpl::Expr(read), "a read of the scope keeps its shape");

@@ -95,7 +95,7 @@ fn both(tag: &str, files: &[(&str, &str)], props: &ValueMap, children: Option<&s
     panic!("{tag}: does not lower: {e}");
   }
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
-  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(set.consts.clone()))).with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
   let child_tree = children.map(|c| vec![Tmpl::Text(c.to_owned())]).unwrap_or_default();
   let rendered = interpreter.render(&host(&module, child_tree), props, &library).expect("renders");
   assert_eq!(rendered.islands.len(), 1, "{rendered:?}");
@@ -469,7 +469,7 @@ fn ours(tag: &str, source: &str, props: &ValueMap) -> String {
     panic!("{tag}: does not lower: {e}");
   }
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
-  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(set.consts.clone()))).with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
   let rendered = interpreter.render(&host(module, Vec::new()), props, &library).expect("renders");
   let _ = std::fs::remove_dir_all(&dir);
   rendered.islands[0].body.html.clone()
@@ -740,7 +740,7 @@ fn repo_with(app: &str, file: &str, others: &[&str], stubbed: &[(&str, &str)], p
     panic!("{file}: does not lower: {e}");
   }
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
-  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(set.consts.clone()))).with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
   let child_tree = children.map(|c| vec![Tmpl::Text(c.to_owned())]).unwrap_or_default();
   let rendered = interpreter.render(&host(&module, child_tree), props, &library).expect("renders");
   let rust = rendered.islands[0].body.html.clone();
@@ -1116,7 +1116,7 @@ fn fsr_components_in_svelte_write_what_their_svelte_components_write() {
   });
   set.lower("src/P.svelte#default").unwrap_or_else(|e| panic!("does not lower: {e}"));
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
-  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(set.consts.clone()))).with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
   let given = props(&[("to", s("/d.png"))]);
   let rendered = interpreter.render(&host("src/P.svelte#default", Vec::new()), &given, &library).expect("renders");
   let rust = rendered.islands[0].body.html.clone();
