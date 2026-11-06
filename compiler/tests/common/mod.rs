@@ -13,21 +13,21 @@ pub fn get_snapfirec_cmd() -> Command {
   Command::new(cargo_bin!("snapfirec"))
 }
 
+/// The one build every plugin test runs, whichever plugin it asks for. Tests run in parallel processes, and a build of one plugin's package alone resolves the dependencies the plugins share with other features, relinking the other plugin while a test runs it.
+const BUILD_PLUGINS: [&str; 9] = ["build", "-p", "snapfire_vue", "--bin", "snapfirec-vue", "-p", "snapfire_svelte", "--bin", "snapfirec-svelte"];
+
 /// Puts a plugin's directory first on `cmd`'s PATH, building the plugin first.
 /// A dev-dependency does not build its binaries, so without the build a
 /// plugin test passes or fails on whether another crate's tests ran before it.
 pub fn with_plugin_on_path(cmd: &mut Command, package: &str, bin: &str) {
-  static BUILT: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+  static BUILT: std::sync::Once = std::sync::Once::new();
+  assert!(BUILD_PLUGINS.windows(2).any(|pair| pair == ["-p", package]) && BUILD_PLUGINS.contains(&bin), "{bin} is one of the plugins BUILD_PLUGINS builds");
   let snapfirec = std::path::PathBuf::from(cargo_bin!("snapfirec"));
   let dir = snapfirec.parent().expect("a target directory").to_path_buf();
-  {
-    let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
-    if !built.iter().any(|b| b == bin) {
-      let status = Command::new(env!("CARGO")).args(["build", "-p", package, "--bin", bin]).status().expect("cargo runs");
-      assert!(status.success(), "{bin} built");
-      built.push(bin.to_owned());
-    }
-  }
+  BUILT.call_once(|| {
+    let status = Command::new(env!("CARGO")).args(BUILD_PLUGINS).status().expect("cargo runs");
+    assert!(status.success(), "the plugins built");
+  });
   assert!(dir.join(bin).exists(), "{bin} is beside snapfirec in {}", dir.display());
   let path = std::env::var_os("PATH").unwrap_or_default();
   let mut entries = vec![dir];
