@@ -1,6 +1,7 @@
 [package]
 name = "snapfire_lint"
 version = "0.1.0"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE", "/LICENSE-oxc"]
 description = "Lint TypeScript and JavaScript with ESLint's rules and ESLint's configuration shape. No NodeJS required."
 
 keywords = ["lint", "eslint", "typescript", "javascript", "build-tools"]

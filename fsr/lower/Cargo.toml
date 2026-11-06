@@ -1,10 +1,10 @@
 [package]
 name = "snapfire_fsr_lower"
 version = "0.20.0"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/terminal/**"]
 description = "The recogniser for SnapFire FSR: reads a TypeScript loader or actions module and lowers each body to the IR, naming the line that stops it."
 keywords = ["snapfire", "fsr", "typescript", "parser", "lowering"]
 categories = ["web-programming", "compilers"]
-exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }

@@ -1,6 +1,7 @@
 [package]
 name = "snapfire_compiler"
 version = "0.18.1"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "Compile TypeScript for the browser. No NodeJS required. Fast, native, opinionated."
 
 keywords = ["typescript", "compiler", "swc", "css", "browser"]

@@ -1,10 +1,10 @@
 [package]
 name = "snapfire_fsr_cli"
 version = "0.23.0"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/embedded/**", "/templates/**"]
 description = "fsr: discovers an application's routes, lowers its loaders and actions and emits the plan file."
 keywords = ["snapfire", "fsr", "build-tool", "typescript", "cli"]
 categories = ["web-programming", "development-tools::build-utils", "command-line-utilities"]
-exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }

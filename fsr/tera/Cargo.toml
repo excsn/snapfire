@@ -1,10 +1,10 @@
 [package]
 name = "snapfire_fsr_tera"
 version = "0.13.0"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
 description = "Tera evaluator for SnapFire FSR: string rendering with marker-and-split islands and slots."
 keywords = ["snapfire", "fsr", "tera", "template", "ssr"]
 categories = ["web-programming", "template-engine"]
-exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }

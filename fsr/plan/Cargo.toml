@@ -1,10 +1,10 @@
 [package]
 name = "snapfire_fsr_plan"
 version = "0.19.0"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
 description = "The plan file for SnapFire FSR: routes and their plans as a build artifact."
 keywords = ["snapfire", "fsr", "routing", "manifest", "plan"]
 categories = ["web-programming"]
-exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }
