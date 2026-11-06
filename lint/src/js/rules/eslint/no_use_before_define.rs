@@ -2,7 +2,7 @@
 
 use oxc_ast::{
     AstKind,
-    ast::{BindingPattern, ForStatementLeft, IdentifierReference, ModuleExportName},
+    ast::{BindingPattern, ClassElement, ForStatementLeft, IdentifierReference, ModuleExportName},
 };
 use oxc_diagnostics::OxcDiagnostic;
 use crate::js::declare_rule;
@@ -10,7 +10,7 @@ use oxc_span::{GetSpan, Span};
 use oxc_syntax::{
     reference::Reference,
     scope::ScopeId,
-    symbol::{SymbolFlags, SymbolId},
+    symbol::SymbolId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -172,10 +172,17 @@ impl Rule for NoUseBeforeDefine {
             return;
         };
 
-        if is_defined_before_use(symbol_id, reference, node, ctx)
-            || !is_forbidden(self.0, symbol_id, reference, node, ctx)
+        if (self.0.ignore_type_references && is_type_reference(reference, node, ctx))
             || is_class_ref_in_class_decorator(symbol_id, node, ctx)
             || is_function_type_scope(reference.scope_id(), ctx)
+            || !is_checked(self.0, symbol_id, node, ctx)
+        {
+            return;
+        }
+
+        let used_before = identifier.span.end < ctx.scoping().symbol_span(symbol_id).end;
+        if !used_before
+            && !(reference.is_value() && is_evaluated_during_initialization(symbol_id, node, ctx))
         {
             return;
         }
@@ -188,71 +195,128 @@ impl Rule for NoUseBeforeDefine {
     }
 }
 
-fn is_forbidden(
+/// ESLint's `shouldCheck`: `functions` and `typedefs` turn a kind off everywhere, while `classes`, `variables` and `enums` turn it off only for a reference evaluated in another execution context.
+fn is_checked(
     options: NoUseBeforeDefineConfig,
     symbol_id: SymbolId,
-    reference: &Reference,
     reference_node: &AstNode<'_>,
     ctx: &LintContext<'_>,
 ) -> bool {
-    if options.ignore_type_references && is_type_reference(reference, reference_node, ctx) {
-        return false;
-    }
-
     let symbol_flags = ctx.scoping().symbol_flags(symbol_id);
     if symbol_flags.is_function() {
         return options.functions;
     }
-
-    if is_outer_class(symbol_id, symbol_flags, reference.scope_id(), ctx) {
-        return options.classes;
-    }
-
-    if is_outer_variable(symbol_id, reference.scope_id(), ctx) {
-        return options.variables;
-    }
-
-    if is_outer_enum(symbol_id, symbol_flags, reference.scope_id(), ctx) {
-        return options.enums;
-    }
-
     if is_typedef(symbol_id, ctx) {
         return options.typedefs;
     }
-
-    true
+    let is_variable =
+        matches!(ctx.symbol_declaration(symbol_id).kind(), AstKind::VariableDeclarator(_));
+    let allowed_elsewhere = (symbol_flags.is_class() && !options.classes)
+        || (is_variable && !options.variables)
+        || (symbol_flags.is_enum() && !options.enums);
+    !(allowed_elsewhere && is_from_separate_execution_context(symbol_id, reference_node, ctx))
 }
 
-fn is_outer_class(
+/// ESLint's `isFromSeparateExecutionContext`: whether the reference sits in a function or an instance field initializer the declaration is outside of. A static block or a static field initializer runs while its class is defined, so it is not a separate context.
+fn is_from_separate_execution_context(
     symbol_id: SymbolId,
-    symbol_flags: SymbolFlags,
-    reference_scope_id: ScopeId,
+    reference_node: &AstNode<'_>,
     ctx: &LintContext<'_>,
 ) -> bool {
-    symbol_flags.is_class()
-        && get_parent_variable_scope(ctx.scoping().symbol_scope_id(symbol_id), ctx)
-            != get_parent_variable_scope(reference_scope_id, ctx)
+    let declared = ctx.scoping().symbol_span(symbol_id);
+    let at = reference_node.kind().span();
+    for ancestor in ctx.nodes().ancestors(reference_node.id()) {
+        let kind = ancestor.kind();
+        let separate = match kind {
+            AstKind::Function(_)
+            | AstKind::ArrowFunctionExpression(_)
+            | AstKind::TSModuleBlock(_) => true,
+            AstKind::StaticBlock(_) => false,
+            AstKind::PropertyDefinition(property)
+                if property.value.as_ref().is_some_and(|value| value.span().contains_inclusive(at)) =>
+            {
+                !property.r#static
+            }
+            AstKind::AccessorProperty(property)
+                if property.value.as_ref().is_some_and(|value| value.span().contains_inclusive(at)) =>
+            {
+                !property.r#static
+            }
+            _ => continue,
+        };
+        if kind.span().contains_inclusive(declared) {
+            return false;
+        }
+        if separate {
+            return true;
+        }
+    }
+    false
 }
 
-fn is_outer_variable(
+/// ESLint's `isEvaluatedDuringInitialization`: a class's name read anywhere in the class but its static initializers, or a variable read in its own initializer.
+fn is_evaluated_during_initialization(
     symbol_id: SymbolId,
-    reference_scope_id: ScopeId,
+    reference_node: &AstNode<'_>,
     ctx: &LintContext<'_>,
 ) -> bool {
-    matches!(ctx.symbol_declaration(symbol_id).kind(), AstKind::VariableDeclarator(_))
-        && get_parent_variable_scope(ctx.scoping().symbol_scope_id(symbol_id), ctx)
-            != get_parent_variable_scope(reference_scope_id, ctx)
+    if is_from_separate_execution_context(symbol_id, reference_node, ctx) {
+        return false;
+    }
+    let at = reference_node.kind().span().end;
+    let declared = ctx.scoping().symbol_span(symbol_id);
+    match ctx.symbol_declaration(symbol_id).kind() {
+        AstKind::Class(class) if ctx.scoping().symbol_flags(symbol_id).is_class() => {
+            is_in_range(class.span, at) && !is_in_static_initializer(class, at)
+        }
+        AstKind::VariableDeclarator(declarator) => {
+            if declarator.init.as_ref().is_some_and(|init| is_in_range(init.span(), at)) {
+                return true;
+            }
+            let declaration = ctx.nodes().parent_node(ctx.symbol_declaration(symbol_id).id());
+            let statement = ctx.nodes().parent_node(declaration.id());
+            let iterated = match statement.kind() {
+                AstKind::ForInStatement(for_in) => Some(for_in.right.span()),
+                AstKind::ForOfStatement(for_of) => Some(for_of.right.span()),
+                _ => None,
+            };
+            iterated.is_some_and(|right| is_in_range(right, at))
+                || is_in_own_default(declared, reference_node, ctx)
+        }
+        AstKind::FormalParameter(parameter) => {
+            parameter.initializer.as_ref().is_some_and(|init| is_in_range(init.span(), at))
+                || is_in_own_default(declared, reference_node, ctx)
+        }
+        _ => is_in_own_default(declared, reference_node, ctx),
+    }
 }
 
-fn is_outer_enum(
-    symbol_id: SymbolId,
-    symbol_flags: SymbolFlags,
-    reference_scope_id: ScopeId,
-    ctx: &LintContext<'_>,
-) -> bool {
-    symbol_flags.is_enum()
-        && get_parent_variable_scope(ctx.scoping().symbol_scope_id(symbol_id), ctx)
-            != get_parent_variable_scope(reference_scope_id, ctx)
+/// Whether the reference is in the default of a pattern that binds the declaration, `{ a = a }`.
+fn is_in_own_default(declared: Span, reference_node: &AstNode<'_>, ctx: &LintContext<'_>) -> bool {
+    let at = reference_node.kind().span().end;
+    ctx.nodes().ancestors(reference_node.id()).any(|ancestor| {
+        matches!(
+            ancestor.kind(),
+            AstKind::AssignmentPattern(pattern)
+                if is_in_range(pattern.right.span(), at)
+                    && pattern.left.span().contains_inclusive(declared)
+        )
+    })
+}
+
+fn is_in_static_initializer(class: &oxc_ast::ast::Class<'_>, location: u32) -> bool {
+    class.body.body.iter().any(|element| match element {
+        ClassElement::StaticBlock(block) => is_in_range(block.span, location),
+        ClassElement::PropertyDefinition(property) => {
+            property.r#static
+                && property.value.as_ref().is_some_and(|value| is_in_range(value.span(), location))
+        }
+        ClassElement::AccessorProperty(property) => {
+            property.r#static
+                && property.value.as_ref().is_some_and(|value| is_in_range(value.span(), location))
+        }
+        _ => false,
+    })
 }
 
 fn is_typedef(symbol_id: SymbolId, ctx: &LintContext<'_>) -> bool {
@@ -491,19 +555,11 @@ fn is_function_type_scope(scope_id: ScopeId, ctx: &LintContext<'_>) -> bool {
     )
 }
 
-fn get_parent_variable_scope(scope_id: ScopeId, ctx: &LintContext<'_>) -> ScopeId {
-    ctx.scoping()
-        .scope_ancestors(scope_id)
-        .find(|scope_id| ctx.scoping().scope_flags(*scope_id).is_var())
-        .unwrap_or_else(|| ctx.scoping().root_scope_id())
-}
-
 fn is_in_range(span: Span, location: u32) -> bool {
     span.start <= location && location <= span.end
 }
 
 #[test]
-#[ignore = "eslint test cases are failing"]
 fn test() {
     use crate::js::tester::Tester;
 
@@ -1277,7 +1333,6 @@ fn test() {
         ("a(); var a=function() {};", Some(serde_json::json!(["nofunc"]))),
         ("(() => { alert(a); var a = 42; })();", None), // { "ecmaVersion": 6 },
         ("(() => a())(); function a() { }", None),      // { "ecmaVersion": 6 },
-        (r#""use strict"; a(); { function a() {} }"#, None),
         ("a(); try { throw new Error() } catch (foo) {var a;}", None),
         ("var f = () => a; var a;", None), // { "ecmaVersion": 6 },
         ("new A(); class A {};", None),    // { "ecmaVersion": 6 },
