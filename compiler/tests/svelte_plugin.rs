@@ -5,7 +5,7 @@ mod common;
 use common::{get_snapfirec_cmd, Fixture};
 
 fn with_plugin_on_path(cmd: &mut std::process::Command) {
-  common::with_plugin_on_path(cmd, "snapfire_svelte", "snapfirec-svelte");
+  common::with_plugin_on_path(cmd, "snapfirec-svelte");
 }
 
 fn build() -> Fixture {
