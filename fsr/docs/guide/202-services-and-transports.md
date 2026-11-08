@@ -6,9 +6,18 @@ The question this chapter answers: what happens between a body saying `services.
 
 ## The registry
 
-Every call a body makes goes through one registry, `Services`. It holds the contract and, per service, a chain: an ordered list of interceptors ending in a transport. The registry checks the call's arguments against the contract before the chain sees them and the response after it comes back, then hands the value to the body. Every data request takes this path, whether the body is TypeScript the interpreter runs or Rust that took the name over.
+Every call a body makes goes through one registry, `Services`. It holds the contract and, per service, a chain: an ordered list of interceptors ending in a transport. The registry checks the call's arguments against the contract before the chain sees them. The response is checked as soon as the transport answers, as the innermost step of the chain, so every interceptor and the data cache see a response that broke the contract as the failure it is. Then the value goes to the body. Every data request takes this path, whether the body is TypeScript the interpreter runs or Rust that took the name over.
 
-The host builds the registry from configuration. Each `[clients.<name>]` names a document and a base URL; the document's extension picks the transport: an OpenAPI document becomes `HttpTransport`, with one route per operation mapping the method's arguments into the path, the query and the body the document describes; a `.proto` becomes `GrpcTransport`, which compiles the file with no protoc, keeps the descriptors and encodes each unary call from the value model directly, so a 64-bit integer keeps its width and bytes stay bytes; a `.graphql` becomes `GraphqlTransport`, which posts the method's operation with the arguments as its variables to the base URL and answers the body's `data`. The report lists each service with its kind and base URL.
+A record imported from an OpenAPI document or a `.proto` accepts fields it does not declare and drops them before the body sees the value. JSON Schema allows an undeclared property unless the object says `additionalProperties: false`. A protobuf parser accepts unknown fields. So a contract can name only the part of a large response the application reads. An OpenAPI object that says `additionalProperties: false` refuses an undeclared field, as does a record a Rust service declares.
+
+The host builds the registry from configuration. Each `[clients.<name>]` names a document and a base URL; the document's extension picks the transport: an OpenAPI document becomes `HttpTransport`, with one route per operation mapping the method's arguments into the path, the query and the body the document describes; a `.proto` becomes `GrpcTransport`, which compiles the file with no protoc, keeps the descriptors and encodes each unary call from the value model directly, so a 64-bit integer keeps its width and bytes stay bytes; a `.graphql` becomes `GraphqlTransport`, which posts the method's operation with the arguments as its variables to the base URL and answers the body's `data`. The report lists each service with its kind and base URL. An HTTP client sends `User-Agent: snapfire_fsr_service/<version>` and gives up on a call after 30 seconds; `user_agent` and `timeout` on the client change either. Some APIs, GitHub's among them, refuse a request that carries no `User-Agent`.
+
+```toml
+[clients.github]
+base_url = "https://api.github.com"
+user_agent = "my-site"
+timeout = "5s"
+```
 
 Two more transports exist for the cases where the network is not there. `LocalTransport` answers a service in process, method by method, which is how a Rust function can stand behind a name a body calls; an `impl` block marked `#[service]` is the same thing written once, the attribute deriving both the transport and the contract from the signatures. `MockTransport` answers with canned values and records every call, which the storefront's route tests run against, so an application can be tested with no backend at all. The registry treats all four transports the same way.
 
@@ -21,6 +30,28 @@ An interceptor sees the outbound call and decides to continue it, alter it or st
 - **`CredentialInterceptor`** reads one credential out of custody and attaches it. This step keeps tokens out of application code by construction, so nothing depends on a convention.
 
 A chain is tower-style: a list of functions. A cache or a circuit breaker sits here by not calling the rest of the chain.
+
+## Caching a method's answers
+
+How long an answer stays good is the data owner's knowledge, so it is declared on the contract, per method. An OpenAPI operation says it with `x-sf-cache`:
+
+```json
+"get": {
+  "operationId": "getRepo",
+  "x-sf-cache": { "ttl": "24h", "scope": "shared", "stale": "7d" }
+}
+```
+
+`ttl` is how long an answer is reused. `scope` says who may share it: `private`, the default, caches only an anonymous caller's answer; `subject` keeps one per signed-in user; `shared` serves everyone the same answer. `stale` opens a window after `ttl` in which the last answer is served while a refresh runs behind it. It needs `shared` scope.
+
+The contract only declares the policy. The host answers from the cache when the configuration turns it on:
+
+```toml
+[cache.data]
+enabled = true
+```
+
+The section needs at least one key, so an empty `[cache.data]` is refused at boot. The report lists every cached method with its policy, `cached github.getRepo ttl 24h shared, stale 7d`. A call's trace span says `cache: hit` or `cache: miss`. A failure is never cached and a failed refresh keeps the last answer. So a backend that goes down keeps serving what it said last until the stale window ends.
 
 ## Custody
 

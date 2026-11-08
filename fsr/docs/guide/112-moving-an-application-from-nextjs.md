@@ -297,7 +297,7 @@ Each of these is a note naming the line:
 
 - a fetch from a loader to a backend, a database client or a server-only `process.env` variable: FSR reaches a backend through a contract (chapter 001) and a secret only as a client's credential (chapter 202)
 - `draftMode()`, `cookies()` and `headers()`: a loader reads `session`, `identity` and `query` instead
-- `revalidate`: the data cache sets its time to live under `[cache]`
+- `revalidate`: a contract method's `x-sf-cache` sets how long its answer is reused and `[cache.data]` with `enabled = true` turns the data cache on (chapter 202)
 - a redirect from a data function: `middleware.ts` answers `Response.redirect(to, 307)`
 - `useRouter`, `usePathname` and `useSearchParams`: a page receives its params and query from its loader; `navigate` from `@snapfire/fsr/client` moves to another page
 - Next's API routes, which take `(req, res)`: a `route.ts` exports `GET`, `POST` and the rest, each taking the request context
