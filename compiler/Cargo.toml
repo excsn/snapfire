@@ -52,7 +52,7 @@ oxc_codegen = "0.155"
 oxc_isolated_declarations = "0.155"
 
 [dependencies.swc_core]
-version = "82"
+version = "84"
 features = [
   "common",
   "common_sourcemap",

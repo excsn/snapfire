@@ -101,7 +101,7 @@ wry = { version = "0.57", optional = true }
 toml = "1"
 
 [dependencies.swc_core]
-version = "82"
+version = "84"
 features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
 
 [target.'cfg(unix)'.dependencies]
