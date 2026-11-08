@@ -422,7 +422,7 @@ The bundle's own facts, read from `dist/.snapfire-build.json`.
 
 `[clients.<name>]`. The table key is the service name.
 
-* `pub struct config::ClientConfig { pub document: Option<String>, pub base_url: Option<String>, pub transport: Option<String>, pub responses: Option<String>, pub bearer: Option<BearerKey>, pub credential: Option<CredentialConfig> }`.
+* `pub struct config::ClientConfig { pub document: Option<String>, pub base_url: Option<String>, pub transport: Option<String>, pub responses: Option<String>, pub bearer: Option<BearerKey>, pub credential: Option<CredentialConfig>, pub user_agent: Option<String>, pub timeout: Option<String> }`.
 * `document`: inferred as `clients/<name>.openapi.json` when absent, else `clients/<name>.proto` or `clients/<name>.graphql` when only that file exists.
 * A `.proto` document is reached with `GrpcTransport`, a `.graphql` one with `GraphqlTransport` posting to `base_url` and any other with `HttpTransport`.
 * `base_url`: required unless the transport is `mock`.
@@ -430,6 +430,9 @@ The bundle's own facts, read from `dist/.snapfire-build.json`.
 * `responses`: the mock's file relative to the app directory, `clients/<name>.mock.json` when absent. It is an object of method name to a response in the payload's JSON encoding. A response may instead be `{"$fail": {"kind": "<FailureKind>", "message": "..."}}`.
 * `bearer`: which custody entry the client's calls carry as a bearer token. Absent, none.
 * `credential`: an application credential sent on every call. A mock client sends nothing.
+* `user_agent`: the `User-Agent` an HTTP client's calls send. Absent, `snapfire_fsr_service::HTTP_USER_AGENT`.
+* `timeout`: how long an HTTP client's call waits for the whole answer, a duration string. Absent, 30 seconds. One that is not a duration is `HostError::Config` naming `clients.<name>.timeout`.
+* `user_agent` or `timeout` on a `.proto` or `.graphql` client is `HostError::Config`.
 * `pub struct config::CredentialConfig { pub secret: String, pub header: Option<String>, pub query: Option<String> }`.
   * `secret` names a `[secrets.<name>]`.
   * Without `header` or `query` the value is sent as `authorization: Bearer <value>`. With `header` it is that header's value. With `query` it is that query parameter.

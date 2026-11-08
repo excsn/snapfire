@@ -22,20 +22,43 @@ pub struct HttpTransport {
   /// credential, which no interceptor or trace sees since it is not metadata.
   headers: Vec<(String, String)>,
   query: Vec<(String, String)>,
+  /// `None` leaves the client's own: a transport built [`HttpTransport::with_client`].
+  user_agent: Option<String>,
+  timeout: Option<Duration>,
 }
 
+/// What [`HttpTransport::new`] and [`HttpTransport::with_timeout`] send as `User-Agent`. Some services, GitHub's API among them, refuse a request without one.
+pub const HTTP_USER_AGENT: &str = concat!("snapfire_fsr_service/", env!("CARGO_PKG_VERSION"));
+
+/// How long [`HttpTransport::new`] waits for a backend's whole answer.
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+
 impl HttpTransport {
+  /// Sends [`HTTP_USER_AGENT`] and waits [`HTTP_TIMEOUT`] for an answer.
   pub fn new(base: impl Into<String>) -> Self {
-    Self::with_client(base, reqwest::Client::new())
+    Self::with_timeout(base, HTTP_TIMEOUT)
   }
 
+  /// Sends [`HTTP_USER_AGENT`] and waits `timeout` for an answer.
   pub fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self {
-    let client = reqwest::Client::builder().timeout(timeout).build().expect("http client builds");
-    Self::with_client(base, client)
+    Self::with_client(base, reqwest::Client::new()).user_agent(HTTP_USER_AGENT).timeout(timeout)
   }
 
+  /// Over `client` as it was built: its own user agent and timeout, if any.
   pub fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self {
-    Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client, headers: Vec::new(), query: Vec::new() }
+    Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client, headers: Vec::new(), query: Vec::new(), user_agent: None, timeout: None }
+  }
+
+  /// The `User-Agent` every call sends.
+  pub fn user_agent(mut self, agent: impl Into<String>) -> Self {
+    self.user_agent = Some(agent.into());
+    self
+  }
+
+  /// How long a call waits for the backend's whole answer before it fails as [`FailureKind::Timeout`].
+  pub fn timeout(mut self, timeout: Duration) -> Self {
+    self.timeout = Some(timeout);
+    self
   }
 
   /// A header every call carries.
@@ -93,6 +116,12 @@ impl Transport for HttpTransport {
       return Box::pin(async move { Err(fail(FailureKind::Internal, format!("bad method `{method}`"))) });
     };
     let mut request = self.client.request(verb.clone(), &url);
+    if let Some(agent) = &self.user_agent {
+      request = request.header(reqwest::header::USER_AGENT, agent.as_str());
+    }
+    if let Some(timeout) = self.timeout {
+      request = request.timeout(timeout);
+    }
     for (key, value) in &self.headers {
       request = request.header(key.as_str(), value.as_str());
     }

@@ -23,7 +23,7 @@ pub use cache::{DataCache, DataCacheError};
 pub use contract::{Contract, Field, Freshness, Method, ScalarKind, Scope, Service, Type, TypeDef, Variant};
 pub use http::{kind_for_status, Route};
 #[cfg(feature = "http")]
-pub use http::HttpTransport;
+pub use http::{HttpTransport, HTTP_TIMEOUT, HTTP_USER_AGENT};
 pub use openapi::{import, ImportError, Imported};
 #[cfg(feature = "grpc")]
 pub use proto::{fsr_proto_include, import_proto, import_proto_source, GrpcMethod, ImportedProto, FSR_PROTO, FSR_PROTO_NAME};

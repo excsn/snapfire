@@ -4,7 +4,7 @@ use snapfire_fsr_runtime::FailureKind;
 #[cfg(feature = "http")]
 mod transport;
 #[cfg(feature = "http")]
-pub use transport::HttpTransport;
+pub use transport::{HttpTransport, HTTP_TIMEOUT, HTTP_USER_AGENT};
 
 /// How one contract method reaches the wire. Defaults to
 /// `POST {base}/{service}/{method}` with the arguments as a JSON body, which

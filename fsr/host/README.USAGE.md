@@ -217,6 +217,8 @@ analytics_id = ""                 # a scalar under an identifier; an overlay set
 [clients.shopping]
 base_url = "http://127.0.0.1:8081"
 bearer = true                     # send custody's access_token as a bearer; a string names another key
+user_agent = "shop-web"           # optional: snapfire_fsr_service/<version> when absent
+timeout = "5s"                    # optional: 30s when absent
 
 [clients.inventory]
 transport = "mock"                # answer from clients/inventory.mock.json and reach nothing

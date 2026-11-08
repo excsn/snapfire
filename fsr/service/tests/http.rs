@@ -316,3 +316,35 @@ async fn a_backend_reads_and_writes_plain_json() {
   let got = bound.call("labels", "of", ValueMap::default()).await.unwrap();
   assert_eq!(got, Value::Map(args(vec![("$", Value::str("x")), ("v", Value::str("y"))])));
 }
+
+#[tokio::test]
+async fn a_call_carries_the_transport_s_user_agent_and_one_the_transport_names_replaces_it() {
+  let body = r#"{"name":"web-1","load":0.5}"#;
+  let (base, seen) = serve(vec![(200, body), (200, body)]);
+  let default = Services::builder().contract(contract()).default_transport(Arc::new(HttpTransport::new(&base))).build();
+  default.bind_anonymous().call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap();
+  let named = Services::builder().contract(contract()).default_transport(Arc::new(HttpTransport::new(&base).user_agent("snapfire-www"))).build();
+  named.bind_anonymous().call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap();
+
+  let seen = seen.lock();
+  let agents: Vec<_> = seen.iter().map(|r| header_of(r, "user-agent").map(str::to_owned)).collect();
+  assert_eq!(agents, vec![Some(format!("snapfire_fsr_service/{}", env!("CARGO_PKG_VERSION"))), Some("snapfire-www".to_owned())]);
+}
+
+#[tokio::test]
+async fn a_backend_that_answers_slower_than_the_transport_s_timeout_fails_as_a_timeout() {
+  let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+  let base = format!("http://{}", listener.local_addr().unwrap());
+  std::thread::spawn(move || {
+    let held: Vec<_> = listener.incoming().take(1).collect();
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    drop(held);
+  });
+  let transport = HttpTransport::new(&base).timeout(std::time::Duration::from_millis(300));
+  let services = Services::builder().contract(contract()).default_transport(Arc::new(transport)).build();
+
+  let started = std::time::Instant::now();
+  let failed = services.bind_anonymous().call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap_err();
+  assert_eq!(failed.kind, FailureKind::Timeout, "{failed:?}");
+  assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+}

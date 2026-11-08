@@ -250,6 +250,12 @@ pub(crate) fn clients_of(
     {
       let base_url = client.base_url.clone().unwrap_or_default();
       let mut transport = HttpTransport::new(&base_url);
+      if let Some(agent) = &client.user_agent {
+        transport = transport.user_agent(agent.as_str());
+      }
+      if let Some(timeout) = client.timeout.as_deref().and_then(crate::config::parse_duration) {
+        transport = transport.timeout(timeout);
+      }
       for (path, route) in &imported.routes {
         transport = transport.route(path.clone(), route.clone());
       }

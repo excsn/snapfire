@@ -458,9 +458,13 @@ How one contract method reaches HTTP. `Debug`, `Clone`. `#[non_exhaustive]`.
 
 A transport over `reqwest` with rustls. Feature `http`.
 
-* `pub fn new(base: impl Into<String>) -> Self`: a default `reqwest::Client`. Trailing slashes are trimmed from `base`.
-* `pub fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self`
-* `pub fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self`
+* `pub const HTTP_USER_AGENT: &str`: `snapfire_fsr_service/<crate version>`.
+* `pub const HTTP_TIMEOUT: Duration`: 30 seconds.
+* `pub fn new(base: impl Into<String>) -> Self`: a default `reqwest::Client`, user agent `HTTP_USER_AGENT`, timeout `HTTP_TIMEOUT`. Trailing slashes are trimmed from `base`.
+* `pub fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self`: as `new` with `timeout`.
+* `pub fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self`: no user agent or timeout of its own; `client`'s apply.
+* `pub fn user_agent(self, agent: impl Into<String>) -> Self`: the `User-Agent` header every call sends.
+* `pub fn timeout(self, timeout: Duration) -> Self`: how long a call waits for the whole answer. Past it the call fails as `FailureKind::Timeout`.
 * `pub fn route(self, path: impl Into<String>, route: Route) -> Self`: the route for one `service.method`.
 * `pub fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a header every call carries, set before the call's metadata. It is not metadata, so no interceptor sees it.
 * `pub fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a query parameter every call carries, after any the arguments become.

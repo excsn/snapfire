@@ -1067,6 +1067,12 @@ pub struct ClientConfig {
   /// bearer token, a named header or a query parameter.
   #[serde(default)]
   pub credential: Option<CredentialConfig>,
+  /// The `User-Agent` an HTTP client's calls send; `snapfire_fsr_service/<version>` when absent.
+  #[serde(default)]
+  pub user_agent: Option<String>,
+  /// How long an HTTP client's call waits for the whole answer, a duration such as `5s`; 30 seconds when absent.
+  #[serde(default)]
+  pub timeout: Option<String>,
 }
 
 /// `credential = { secret = "cms" }`: the secret `[secrets.cms]` holds, sent
@@ -3020,6 +3026,17 @@ impl Config {
           _ => openapi,
         });
         inferred.push(format!("clients.{name}.document from clients/"));
+      }
+    }
+    for (name, client) in &clients {
+      if let Some(timeout) = &client.timeout {
+        if parse_duration(timeout).is_none() {
+          return Err(HostError::Config(at.clone(), format!("clients.{name}.timeout `{timeout}` is not a duration")));
+        }
+      }
+      let over_http = client.document.as_deref().is_none_or(|d| !d.ends_with(".proto") && !d.ends_with(".graphql"));
+      if !over_http && (client.user_agent.is_some() || client.timeout.is_some()) {
+        return Err(HostError::Config(at.clone(), format!("clients.{name}: `user_agent` and `timeout` apply only to an OpenAPI client")));
       }
     }
     for (name, client) in &clients {
