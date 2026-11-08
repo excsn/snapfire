@@ -16,7 +16,7 @@ readme = "README.md"
 [dependencies]
 snapfire_fsr_core.workspace = true
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
-base64 = "0.22"
+base64 = "0.23"
 
 [dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }
