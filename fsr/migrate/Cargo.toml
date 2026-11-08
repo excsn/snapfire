@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_migrate"
-version = "0.2.0"
+version = "0.2.1"
 include = ["/src/**", "/Cargo.toml"]
 description = "Rewrites an application written for Next.js, SvelteKit or Nuxt into a SnapFire FSR application, naming each line it left for a person."
 keywords = ["snapfire", "fsr", "migration", "codemod", "nextjs"]

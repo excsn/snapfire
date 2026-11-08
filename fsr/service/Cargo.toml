@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_service"
-version = "0.13.0"
+version = "0.14.0"
 include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/proto/**"]
 description = "The typed service boundary for SnapFire FSR: the contract artifact, the registry and transports."
 keywords = ["snapfire", "fsr", "openapi", "grpc", "contract"]
