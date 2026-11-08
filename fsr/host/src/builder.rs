@@ -813,7 +813,7 @@ impl HostBuilder {
           .intercept(Arc::new(TraceInterceptor::new()))
           .intercept(Arc::new(IdentityInterceptor::new()));
         if let Some(cache) = &config.cache {
-          if let Some(data) = &cache.data {
+          if let Some(data) = cache.data_cache() {
             builder = builder.data_cache(data.capacity.unwrap_or(cache.capacity));
           }
         }

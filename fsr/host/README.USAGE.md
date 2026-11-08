@@ -159,13 +159,14 @@ store = "memory"                  # or "cookie" (sealed into the cookie) or "ser
 
 [cache]                           # optional: the render memo, nothing is cached without it
 capacity = 1000                   # entries, the default
+ttl = "1m"                        # the default
 
 [store]                           # optional: which parallel slot wins a store key two of them seed
 slot_order = ["modal", "content"] # later wins; `content` is the page; unlisted slots lose to listed ones and stand in name order
 
 [cache.data]                      # optional: answer cached methods from memory
+enabled = true                    # turns it on; an empty [cache.data] is refused
 capacity = 500                    # entries per policy; cache.capacity when absent
-ttl = "1m"                        # the default
 
 [locales]                         # optional: without it every request is `en`
 supported = ["en_US", "fr_FR"]
@@ -1128,7 +1129,7 @@ A loader's call to a cached method is answered from memory for the policy's `ttl
 host.invalidate_tags(["catalog"]);
 ```
 
-Without `[cache.data]` no method is cached whatever the contract says. `fsr test` renders with it off, since a spec's mocks are the calls it counts.
+No method is cached without `[cache.data]` or when it says `enabled = false`, whatever the contract says. The section needs at least one key, because a table with none is dropped before the host reads it. `enabled = true` is the shortest way to turn it on. An empty `[cache.data]` is refused at boot. `fsr test` renders with it off, since a spec's mocks are the calls it counts.
 
 ## Registering a Native Pair
 

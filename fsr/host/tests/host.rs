@@ -7650,11 +7650,28 @@ async fn a_public_directory_a_written_root_already_serves_is_not_served_again_at
 }
 
 #[test]
-fn an_empty_data_cache_table_turns_the_data_cache_on() {
+fn an_empty_data_cache_table_is_refused_with_how_to_turn_it_on() {
   let dir = app_dir_with("\n[cache]\nttl = \"1m\"\n\n[cache.data]\n");
-  let config = snapfire_fsr_host::config::Config::load(&dir.join("app.toml")).unwrap();
-  let cache = config.cache.expect("the cache section is read");
-  assert!(cache.data.is_some(), "an empty [cache.data] asks for the data cache at its defaults");
+  let error = snapfire_fsr_host::config::Config::load(&dir.join("app.toml")).unwrap_err().to_string();
+  assert!(error.contains("[cache.data]") && error.contains("enabled = true"), "{error}");
+}
+
+#[test]
+fn the_data_cache_is_on_with_enabled_true_and_off_with_enabled_false() {
+  let on = app_dir_with("\n[cache]\nttl = \"1m\"\n\n[cache.data]\nenabled = true\n");
+  let config = snapfire_fsr_host::config::Config::load(&on.join("app.toml")).unwrap();
+  assert!(config.cache.expect("the cache section is read").data_cache().is_some());
+  let off = app_dir_with("\n[cache]\nttl = \"1m\"\n\n[cache.data]\nenabled = false\ncapacity = 50\n");
+  let config = snapfire_fsr_host::config::Config::load(&off.join("app.toml")).unwrap();
+  assert!(config.cache.expect("the cache section is read").data_cache().is_none());
+}
+
+#[test]
+fn a_store_the_application_loaded_itself_turns_the_data_cache_on_with_enabled() {
+  let dir = app_dir_with("\n[cache]\nttl = \"1m\"\n\n[cache.data]\nenabled = true\n");
+  let (store, _mgr) = c5store::create_c5store(vec![dir.join("app.toml")], None).unwrap();
+  let config = snapfire_fsr_host::config::Config::from_store_at(&store, &dir).unwrap();
+  assert!(config.cache.expect("the cache section is read").data_cache().is_some());
 }
 
 #[tokio::test]

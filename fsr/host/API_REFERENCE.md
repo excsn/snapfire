@@ -399,13 +399,17 @@ The bundle's own facts, read from `dist/.snapfire-build.json`.
 
 * `pub struct config::CacheSection { pub capacity: u64, pub ttl: String, pub data: Option<DataCacheSection> }`.
 * `capacity` (default 1000) and `ttl` (default `1m`). When the section is present, `build` installs `FibreCache::bounded(capacity, ttl)` on the app.
-* `data`: present, `build` installs the service layer's `DataCache` over every method whose contract declares `cache`. Absent, no method is cached.
+* `data`: present and not `enabled = false`, `build` installs the service layer's `DataCache` over every method whose contract declares `cache`. Absent, no method is cached.
+* `pub fn data_cache(&self) -> Option<&DataCacheSection>`: `data` when it turns the data cache on.
 
 ### DataCacheSection
 
 `[cache.data]`.
 
-* `pub struct config::DataCacheSection { pub capacity: Option<u64> }`: entries per policy, `cache.capacity` when absent.
+* `pub struct config::DataCacheSection { pub enabled: Option<bool>, pub capacity: Option<u64> }`.
+* `enabled`: `false` keeps the data cache off with the section written. Any key turns it on.
+* `capacity`: entries per policy, `cache.capacity` when absent.
+* A `[cache.data]` with no keys is `HostError::Config` from `Config::load` and `Config::from_store`. `Config::from_store_at` cannot see it and reads it as absent.
 
 ### StoreSection
 

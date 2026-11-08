@@ -15,6 +15,7 @@ capacity = 200
 ttl = "5m"
 
 [cache.data]
+enabled = true
 
 [clients.program]
 transport = "mock"

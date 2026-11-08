@@ -16,6 +16,7 @@ capacity = 500
 ttl = "1m"
 
 [cache.data]
+enabled = true
 
 [locales]
 supported = ["en_US", "fr_FR"]

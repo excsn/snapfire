@@ -988,9 +988,17 @@ pub struct CacheSection {
   #[serde(default = "default_cache_ttl")]
   pub ttl: String,
   /// The data cache over every method whose contract declares `cache`;
-  /// absent, no method is cached whatever the contract says.
+  /// absent, no method is cached whatever the contract says. Read it through
+  /// [`CacheSection::data_cache`], which honours `enabled = false`.
   #[serde(default)]
   pub data: Option<DataCacheSection>,
+}
+
+impl CacheSection {
+  /// `[cache.data]` when it turns the data cache on: present and not `enabled = false`.
+  pub fn data_cache(&self) -> Option<&DataCacheSection> {
+    self.data.as_ref().filter(|data| data.enabled != Some(false))
+  }
 }
 
 /// `[store]`: how the browser store settles a key two parallel slots both
@@ -1009,12 +1017,15 @@ pub struct StoreSection {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DataCacheSection {
+  /// `true` turns the data cache on; any other key does too. `false` keeps it off with the section written.
+  #[serde(default)]
+  pub enabled: Option<bool>,
   /// Entries per policy; `cache.capacity` when absent.
   #[serde(default)]
   pub capacity: Option<u64>,
 }
 
-/// Whether the TOML file at `file` writes the table at `path`, which c5store drops from the store when it holds no keys.
+/// Whether the TOML file at `file` writes the table at `path` with no keys, which c5store drops from the store, so a store alone cannot tell it from an absent one.
 fn declares_empty_table(file: &Path, path: &[&str]) -> bool {
   let Some(text) = file.extension().filter(|e| *e == "toml").and_then(|_| std::fs::read_to_string(file).ok()) else { return false };
   let Ok(value) = text.parse::<toml::Table>() else { return false };
@@ -2135,9 +2146,9 @@ impl Config {
   fn from_store_keeping<S: C5Store>(store: &S, located: Located, keep_undecrypted: bool) -> Result<Self, HostError> {
     let at = located.sources.first().cloned().unwrap_or_else(|| located.root.clone());
     let mut config = Self::sections(store, &located.root, at, keep_undecrypted, &located.sources)?;
-    if let Some(cache) = config.cache.as_mut() {
-      if cache.data.is_none() && located.sources.iter().any(|file| declares_empty_table(file, &["cache", "data"])) {
-        cache.data = Some(DataCacheSection::default());
+    if config.cache.as_ref().is_none_or(|cache| cache.data.is_none()) {
+      if let Some(file) = located.sources.iter().find(|file| declares_empty_table(file, &["cache", "data"])) {
+        return Err(HostError::Config(file.clone(), "[cache.data] has no keys, which turns nothing on; write `enabled = true` under it to answer cached methods from memory".to_owned()));
       }
     }
     config.sources = located.sources;
