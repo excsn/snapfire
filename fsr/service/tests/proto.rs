@@ -50,7 +50,7 @@ fn a_proto_lowers_to_a_contract_and_keeps_its_descriptors() {
   assert!(ping.params.is_empty(), "Empty in is no arguments");
   assert_eq!(ping.returns, Type::Null, "Empty out is null");
 
-  let Some(TypeDef::Record { fields }) = contract.types.get("StockLevel") else { panic!("StockLevel") };
+  let Some(TypeDef::Record { fields, .. }) = contract.types.get("StockLevel") else { panic!("StockLevel") };
   let field = |name: &str| fields.iter().find(|f| f.name == name).map(|f| f.ty.clone()).unwrap_or_else(|| panic!("{name}"));
   assert_eq!(field("product_id"), Type::I64);
   assert_eq!(field("on_hand"), Type::I32);

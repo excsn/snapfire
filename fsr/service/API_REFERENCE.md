@@ -149,8 +149,11 @@ One arm of a union. The payload serialises under the key `type` and is omitted w
 
 What a `Type::Named` resolves to.
 
-* `Record { fields: Vec<Field> }`
+* `Record { fields: Vec<Field>, open: bool }`
 * `Union { variants: Vec<Variant> }`
+* `pub fn record(fields: Vec<Field>) -> Self`: a closed record.
+* `pub fn open_record(fields: Vec<Field>) -> Self`: an open record.
+* `open` is left out of JSON when `false`. An OpenAPI object is open unless it says `additionalProperties: false`. An `allOf` record and a protobuf message are open. A GraphQL selection, `Contract::record` and `#[derive(ContractType)]` are closed.
 
 ### `Method`
 
@@ -231,13 +234,14 @@ Checking:
 * `pub fn check_value(&self, ty: &Type, value: &Value, path: &str) -> Result<(), ContractError>`: checks one value at `path`. Descending appends `[i]` for a list index and `.<key>` for a record field, a map key or a variant payload.
 * `pub fn check_call(&self, service: &str, method: &str, args: &ValueMap) -> Result<(), ContractError>`: checks arguments against the parameters at path `service.method`. An `Optional` parameter may be absent. Any other absent parameter is `MissingField` and an undeclared argument is `UnknownField`.
 * `pub fn check_return(&self, service: &str, method: &str, value: &Value) -> Result<(), ContractError>`: checks a value against the return type at path `service.method()`.
-* A record is checked strictly. An absent non-optional field is `MissingField` and an undeclared field is `UnknownField`.
+* A record is checked strictly. An absent non-optional field is `MissingField` and an undeclared field is `UnknownField`. `conform` has already dropped an open record's undeclared fields from an answer.
 * A union value must carry a declared tag. A unit arm carries no payload and a payload arm carries one.
 
 Conforming:
 
 * `pub fn conform(&self, ty: &Type, value: &mut Value)`: rewrites `value` in place where JSON's single number type left a shape the contract names exactly. It descends optionals, lists, maps, record fields and variant payloads.
   * An `Int` or `UInt` declared `F64` or `F32` becomes that float.
+  * An open record's undeclared fields are dropped.
   * An `F64` or `F32` declared as an integer type becomes `Int` when it is whole, finite and below 2^53 in magnitude.
   * A `Str` declared as a union becomes the unit variant of that tag when there is one.
   * Any other non-variant value declared as a union is wrapped in the one payload variant it fits, when exactly one fits.
@@ -270,7 +274,7 @@ A call through a bound handle runs in this order:
 * `check_call`. `UnknownService` and `UnknownMethod` fail as `FailureKind::NotFound` and every other error as `FailureKind::Invalid`.
 * The transport is chosen: the service's own, else the default. With neither, the call fails as `FailureKind::Unavailable`.
 * The interceptor chain, then the transport.
-* With response checking on, `conform_return` then `check_return`. A failed check is `FailureKind::Internal`.
+* With response checking on, the innermost step of the chain runs `conform_return` then `check_return` on the transport's answer. A failed check is `FailureKind::Internal`. Every interceptor sees the failure. The data cache never keeps it.
 
 ### `ServicesBuilder`
 

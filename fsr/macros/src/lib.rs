@@ -527,9 +527,9 @@ pub fn record(item: TokenStream) -> TokenStream {
         }
         contract.types.insert(
           ::std::string::String::from(#name),
-          ::snapfire_fsr_service::TypeDef::Record {
-            fields: ::std::vec![#(::snapfire_fsr_service::Field::new(#keys, <#types as ::snapfire_fsr_service::ContractType>::contract_type()).present(!#optionals)),*],
-          },
+          ::snapfire_fsr_service::TypeDef::record(
+            ::std::vec![#(::snapfire_fsr_service::Field::new(#keys, <#types as ::snapfire_fsr_service::ContractType>::contract_type()).present(!#optionals)),*],
+          ),
         );
         #( <#types as ::snapfire_fsr_service::ContractType>::define(contract); )*
       }

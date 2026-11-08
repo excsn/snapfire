@@ -82,9 +82,9 @@ fn the_contract_is_read_off_the_signatures() {
   assert_eq!(add.params[1].ty, Type::optional(Type::Str));
   assert_eq!(add.writes, vec!["servers".to_owned()]);
   assert_eq!(service.methods["touch"].returns, Type::Null);
-  let TypeDef::Record { fields } = &contract.types["Server"] else { panic!("a record") };
+  let TypeDef::Record { fields, .. } = &contract.types["Server"] else { panic!("a record") };
   assert_eq!(fields.iter().map(|f| (f.name.as_str(), f.ty.clone())).collect::<Vec<_>>(), vec![("name", Type::Str), ("loadAvg", Type::F64)]);
-  let TypeDef::Record { fields } = &contract.types["Added"] else { panic!("a record") };
+  let TypeDef::Record { fields, .. } = &contract.types["Added"] else { panic!("a record") };
   assert_eq!(fields[1].ty, Type::optional(Type::named("Server")));
 }
 

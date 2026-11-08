@@ -149,8 +149,25 @@ impl Variant {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TypeDef {
-  Record { fields: Vec<Field> },
+  /// `open` lets an answer carry fields the record does not declare; they are dropped before a body sees it. A closed record refuses them.
+  Record {
+    fields: Vec<Field>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    open: bool,
+  },
   Union { variants: Vec<Variant> },
+}
+
+impl TypeDef {
+  /// A record that refuses a field it does not declare.
+  pub fn record(fields: Vec<Field>) -> Self {
+    Self::Record { fields, open: false }
+  }
+
+  /// A record whose answers may carry fields it does not declare, as an OpenAPI object without `additionalProperties: false` and a protobuf message allow.
+  pub fn open_record(fields: Vec<Field>) -> Self {
+    Self::Record { fields, open: true }
+  }
 }
 
 /// Who a cached answer may be served to. `Private` bypasses the cache for
@@ -302,7 +319,7 @@ impl Contract {
   }
 
   pub fn record(self, name: impl Into<String>, fields: Vec<Field>) -> Self {
-    self.define(name, TypeDef::Record { fields })
+    self.define(name, TypeDef::record(fields))
   }
 
   pub fn union(self, name: impl Into<String>, variants: Vec<Variant>) -> Self {

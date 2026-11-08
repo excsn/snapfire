@@ -45,7 +45,7 @@ pub fn type_declarations(contract: &Contract, flavour: Flavour) -> String {
   let mut out = String::new();
   for (name, def) in &contract.types {
     match def {
-      TypeDef::Record { fields } => {
+      TypeDef::Record { fields, .. } => {
         let _ = writeln!(out, "export interface {name} {{");
         for field in fields {
           let _ = writeln!(out, "  {}", field_line_for(field, flavour));

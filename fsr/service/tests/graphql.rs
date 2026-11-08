@@ -77,7 +77,7 @@ mutation Publish($id: ID!) {
 
 fn record(contract: &snapfire_fsr_service::Contract, name: &str) -> Vec<Field> {
   match contract.types.get(name) {
-    Some(TypeDef::Record { fields }) => fields.clone(),
+    Some(TypeDef::Record { fields, .. }) => fields.clone(),
     other => panic!("{name} is {other:?}"),
   }
 }

@@ -17,7 +17,6 @@ pub struct Services {
   contract: Arc<Contract>,
   chains: IndexMap<String, Arc<Chain>>,
   default_chain: Option<Arc<Chain>>,
-  check_responses: bool,
   data_cache: Option<DataCache>,
 }
 
@@ -137,9 +136,10 @@ impl ServicesBuilder {
 
   /// `build`, failing on a cache policy the contract's `validate` would refuse.
   pub fn try_build(mut self) -> Result<Arc<Services>, DataCacheError> {
+    let contract = Arc::new(self.contract);
     let data_cache = match self.data_capacity {
       Some(capacity) => {
-        let cache = DataCache::from_contract(&self.contract, capacity)?;
+        let cache = DataCache::from_contract(&contract, capacity)?;
         if cache.is_empty() {
           None
         } else {
@@ -150,6 +150,9 @@ impl ServicesBuilder {
       None => None,
     };
     let index = self.interceptors.len().saturating_sub(1);
+    if self.check_responses {
+      self.interceptors.push(Arc::new(CheckAnswer { contract: contract.clone() }));
+    }
     let chain_over = |transport: Arc<dyn Transport>| {
       Arc::new(Chain { interceptors: self.interceptors.clone(), transport })
     };
@@ -159,10 +162,9 @@ impl ServicesBuilder {
       cache.attach(Continuation { chains: chains.clone(), default_chain: default_chain.clone(), index: index + 1 });
     }
     Ok(Arc::new(Services {
-      contract: Arc::new(self.contract),
+      contract,
       chains,
       default_chain,
-      check_responses: self.check_responses,
       data_cache,
     }))
   }
@@ -207,18 +209,24 @@ impl ServiceCaller for BoundServices {
       .with_identity(self.identity.clone())
       .with_credentials(self.credentials.clone())
       .with_request(self.request);
-    let running = Next::start(chain.clone()).run(call);
-    let check = self.services.check_responses;
-    let service = service.to_owned();
-    let method = method.to_owned();
+    Next::start(chain.clone()).run(call)
+  }
+}
+
+/// The innermost step of every chain: the transport's answer conformed to the method's return type and checked against it. Every interceptor outside it, the trace and the data cache among them, sees an answer that failed the contract as the failure it is, so the cache keeps only checked answers.
+struct CheckAnswer {
+  contract: Arc<Contract>,
+}
+
+impl Interceptor for CheckAnswer {
+  fn call(&self, call: Call, next: Next) -> BoxFuture<'static, Result<Value, ServiceError>> {
+    let contract = self.contract.clone();
+    let (service, method) = (call.service.clone(), call.method.clone());
+    let running = next.run(call);
     Box::pin(async move {
       let mut value = running.await?;
-      if check {
-        contract.conform_return(&service, &method, &mut value);
-        contract.check_return(&service, &method, &value).map_err(|e| {
-          ServiceError::new(FailureKind::Internal, &service, &method, e.to_string())
-        })?;
-      }
+      contract.conform_return(&service, &method, &mut value);
+      contract.check_return(&service, &method, &value).map_err(|e| ServiceError::new(FailureKind::Internal, &service, &method, e.to_string()))?;
       Ok(value)
     })
   }

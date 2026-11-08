@@ -123,7 +123,7 @@ service Demo {
   #[test]
   fn the_protobuf_json_types_import_as_dynamic() {
     let imported = import_proto_source("demo.proto", SOURCE, "demo").unwrap();
-    let Some(snapfire_fsr_service::TypeDef::Record { fields }) = imported.contract.types.get("Holder").or_else(|| imported.contract.types.get("demo.Holder")) else { panic!("{:?}", imported.contract.types.keys()) };
+    let Some(snapfire_fsr_service::TypeDef::Record { fields, .. }) = imported.contract.types.get("Holder").or_else(|| imported.contract.types.get("demo.Holder")) else { panic!("{:?}", imported.contract.types.keys()) };
     for field in fields {
       assert!(matches!(&field.ty, Type::Dynamic) || matches!(&field.ty, Type::Optional(inner) if **inner == Type::Dynamic), "{field:?}");
     }

@@ -31,7 +31,7 @@ fn a_real_document_lowers_to_a_contract_and_its_routes() {
   assert_eq!(place.params[0].ty, Type::list(Type::named("OrderLine")));
   assert_eq!(place.returns, Type::named("Order"));
 
-  let Some(TypeDef::Record { fields }) = contract.types.get("Product") else { panic!("Product") };
+  let Some(TypeDef::Record { fields, .. }) = contract.types.get("Product") else { panic!("Product") };
   assert_eq!(fields[0].ty, Type::I64, "int64 keeps its width");
   assert_eq!(fields[5].ty, Type::optional(Type::I64), "a property outside `required` is optional");
   assert_eq!(fields[6].ty, Type::I32, "int32 keeps its width");
@@ -64,7 +64,7 @@ fn scalar_formats_map_onto_the_value_model_widths() {
       "h":{"type":"string"}}}"##,
   );
   let contract = import(&d, "s").unwrap().contract;
-  let Some(TypeDef::Record { fields }) = contract.types.get("S") else { panic!() };
+  let Some(TypeDef::Record { fields, .. }) = contract.types.get("S") else { panic!() };
   let types: Vec<Type> = fields.iter().map(|f| f.ty.clone()).collect();
   assert_eq!(
     types,
@@ -81,7 +81,7 @@ fn nullable_becomes_optional_in_both_dialects() {
       "b":{"type":["integer","null"],"format":"int32"}}}"##,
   );
   let contract = import(&d, "s").unwrap().contract;
-  let Some(TypeDef::Record { fields }) = contract.types.get("S") else { panic!() };
+  let Some(TypeDef::Record { fields, .. }) = contract.types.get("S") else { panic!() };
   assert_eq!(fields[0].ty, Type::optional(Type::Str), "3.0 nullable");
   assert_eq!(fields[1].ty, Type::optional(Type::I32), "3.1 type array");
 }
@@ -122,7 +122,7 @@ fn all_of_merges_its_branches_into_one_record() {
       "Employee":{"allOf":[{"$ref":"#/components/schemas/Person"},{"type":"object","required":["desk"],"properties":{"desk":{"type":"integer","format":"int32"}}}]}"##,
   );
   let contract = import(&d, "s").unwrap().contract;
-  let Some(TypeDef::Record { fields }) = contract.types.get("Employee") else { panic!() };
+  let Some(TypeDef::Record { fields, .. }) = contract.types.get("Employee") else { panic!() };
   let names: Vec<&str> = fields.iter().map(|f| f.name.as_str()).collect();
   assert_eq!(names, vec!["name", "desk"]);
 }
@@ -134,7 +134,7 @@ fn a_self_referential_schema_resolves() {
     r##""Node":{"type":"object","required":["name"],"properties":{"name":{"type":"string"},"children":{"type":"array","items":{"$ref":"#/components/schemas/Node"}}}}"##,
   );
   let contract = import(&d, "s").unwrap().contract;
-  let Some(TypeDef::Record { fields }) = contract.types.get("Node") else { panic!() };
+  let Some(TypeDef::Record { fields, .. }) = contract.types.get("Node") else { panic!() };
   assert_eq!(fields[1].ty, Type::optional(Type::list(Type::named("Node"))));
   contract.validate().unwrap();
 }

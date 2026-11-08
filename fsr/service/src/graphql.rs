@@ -111,14 +111,14 @@ impl Import<'_> {
       }
       Some(ExtendedType::InputObject(input)) => {
         if !self.types.contains_key(name) {
-          self.types.insert(name.to_owned(), TypeDef::Record { fields: Vec::new() });
+          self.types.insert(name.to_owned(), TypeDef::record(Vec::new()));
           let mut fields = Vec::new();
           for (field, def) in &input.fields {
             let ty = self.input(&def.ty, at)?;
             let ty = if def.default_value.is_some() && !matches!(ty, Type::Optional(_)) { Type::optional(ty) } else { ty };
             fields.push(Field::new(field.as_str(), ty));
           }
-          self.types.insert(name.to_owned(), TypeDef::Record { fields });
+          self.types.insert(name.to_owned(), TypeDef::record(fields));
         }
         Ok(Type::named(name))
       }
@@ -148,7 +148,7 @@ impl Import<'_> {
   fn selection(&mut self, name: &str, selection: &SelectionSet, at: &str) -> Result<(), ImportError> {
     let mut fields: Vec<Field> = Vec::new();
     self.fields_into(name, selection, &mut fields, &mut Vec::new(), at)?;
-    self.types.insert(name.to_owned(), TypeDef::Record { fields });
+    self.types.insert(name.to_owned(), TypeDef::record(fields));
     Ok(())
   }
 

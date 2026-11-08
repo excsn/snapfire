@@ -79,7 +79,7 @@ impl Contract {
   pub fn validate(&self) -> Result<(), ContractError> {
     for (name, def) in &self.types {
       match def {
-        TypeDef::Record { fields } => {
+        TypeDef::Record { fields, .. } => {
           for field in fields {
             self.check_type(&field.ty, &field_path(name, &field.name))?;
           }
@@ -179,7 +179,7 @@ impl Contract {
           return Err(ContractError::UnknownType { path: path.to_owned(), name: name.clone() });
         };
         return match def {
-          TypeDef::Record { fields } => {
+          TypeDef::Record { fields, .. } => {
             let Value::Map(map) = value else { return Err(mismatch(name.clone())) };
             for field in fields {
               match map.get(&field.name) {
@@ -322,8 +322,11 @@ impl Contract {
         }
       }
       Type::Named(name) => match self.types.get(name) {
-        Some(TypeDef::Record { fields }) => {
+        Some(TypeDef::Record { fields, open }) => {
           if let Value::Map(map) = value {
+            if *open {
+              map.retain(|key, _| fields.iter().any(|field| *field.name == **key));
+            }
             for field in fields {
               if let Some(item) = map.get_mut(&field.name) {
                 self.conform(&field.ty, item);
@@ -384,7 +387,7 @@ impl Contract {
         }
       }
       Type::Named(name) => {
-        if let (Some(TypeDef::Record { fields }), Value::Map(map)) = (self.types.get(name), &mut *value) {
+        if let (Some(TypeDef::Record { fields, .. }), Value::Map(map)) = (self.types.get(name), &mut *value) {
           for field in fields {
             if let Some(item) = map.get_mut(&field.name) {
               self.conform_text(&field.ty, item);

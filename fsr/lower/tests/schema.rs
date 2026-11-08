@@ -17,10 +17,10 @@ fn a_session_schema_and_an_input_type_become_contract_records() {
   assert_eq!(types[0].name, "Session");
   assert_eq!(
     types[0].def,
-    TypeDef::Record { fields: vec![
+    TypeDef::record(vec![
       Field::new("cart", Type::optional(Type::map(Type::I64))),
       Field::new("theme", Type::optional(Type::named("Theme"))),
-    ]}
+    ])
   );
   assert_eq!(types[2].def, TypeDef::Union { variants: vec![Variant::unit("dark"), Variant::unit("light")] });
 }
@@ -34,7 +34,7 @@ fn scalars_and_containers_map_onto_the_value_model() {
       r: Other; o: Other | null; lo: (Other | undefined)[];
     }
   "#).unwrap();
-  let TypeDef::Record { fields } = &types[0].def else { panic!() };
+  let TypeDef::Record { fields, .. } = &types[0].def else { panic!() };
   let of = |name: &str| fields.iter().find(|f| f.name == name).unwrap().ty.clone();
   assert_eq!(of("s"), Type::Str);
   assert_eq!(of("n"), Type::F64);

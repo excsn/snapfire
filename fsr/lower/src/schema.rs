@@ -24,14 +24,12 @@ pub const UPLOAD: &str = "Upload";
 pub fn builtin_types() -> Vec<SchemaType> {
   vec![SchemaType {
     name: UPLOAD.to_owned(),
-    def: TypeDef::Record {
-      fields: vec![
-        Field::new("filename".to_owned(), Type::Str),
-        Field::new("content_type".to_owned(), Type::Str),
-        Field::new("size".to_owned(), Type::I64),
-        Field::new("bytes".to_owned(), Type::Bytes),
-      ],
-    },
+    def: TypeDef::record(vec![
+      Field::new("filename".to_owned(), Type::Str),
+      Field::new("content_type".to_owned(), Type::Str),
+      Field::new("size".to_owned(), Type::I64),
+      Field::new("bytes".to_owned(), Type::Bytes),
+    ]),
   }]
 }
 
@@ -69,7 +67,7 @@ pub fn read_schema(file: &str, source: &str) -> Result<Vec<SchemaType>, LowerErr
           }
           fields.push(Field::new(key.sym.to_string(), ty));
         }
-        out.push(SchemaType { name: interface.id.sym.to_string(), def: TypeDef::Record { fields } });
+        out.push(SchemaType { name: interface.id.sym.to_string(), def: TypeDef::record(fields) });
       }
       js::Decl::TsTypeAlias(alias) => {
         let js::TsType::TsUnionOrIntersectionType(js::TsUnionOrIntersectionType::TsUnionType(union)) = &*alias.type_ann else {

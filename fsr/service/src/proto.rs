@@ -251,12 +251,12 @@ impl Lower {
     }
     let name = self.type_name(message);
     if !self.types.contains_key(&name) {
-      self.types.insert(name.clone(), TypeDef::Record { fields: Vec::new() });
+      self.types.insert(name.clone(), TypeDef::open_record(Vec::new()));
       let mut fields = Vec::new();
       for field in message.fields() {
         fields.push(Field::new(field.name(), self.field_type(&field, &format!("{}.{}", message.full_name(), field.name()))?));
       }
-      self.types.insert(name.clone(), TypeDef::Record { fields });
+      self.types.insert(name.clone(), TypeDef::open_record(fields));
     }
     Ok(Type::named(name))
   }

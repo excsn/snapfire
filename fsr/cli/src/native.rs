@@ -261,7 +261,7 @@ fn read_service(
       let ty = contract_type(&field.ty, &mut wanted).map_err(|t| refused(format!("`{record}.{key}` is `{t}`, which is outside the value model")))?;
       fields.push(Field::new(key, ty).present(!record_attrs(field).1));
     }
-    contract.types.insert(record, TypeDef::Record { fields });
+    contract.types.insert(record, TypeDef::record(fields));
   }
   Ok(contract)
 }

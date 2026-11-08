@@ -246,7 +246,7 @@ impl<'a> Inferer<'a> {
   fn field_of(&self, target: &Ts, name: &str) -> Ts {
     match target {
       Ts::Named(n) => match self.contract.types.get(n) {
-        Some(TypeDef::Record { fields }) => fields
+        Some(TypeDef::Record { fields, .. }) => fields
           .iter()
           .find(|f| f.name == name)
           .map(|f| Ts::from_contract(&f.ty))

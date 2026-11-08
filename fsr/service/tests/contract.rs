@@ -261,7 +261,7 @@ fn a_union_of_records_covers_openapi_oneof() {
 fn a_typedef_is_data_the_build_can_read_back() {
   let json = users().to_json();
   let back = Contract::from_json(&json).unwrap();
-  let Some(TypeDef::Record { fields }) = back.types.get("User") else { panic!("User is a record") };
+  let Some(TypeDef::Record { fields, .. }) = back.types.get("User") else { panic!("User is a record") };
   assert_eq!(fields[0], Field::new("id", Type::U64));
   assert_eq!(back.method("users", "get").unwrap().returns, Type::named("User"));
 }

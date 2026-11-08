@@ -257,9 +257,9 @@ impl<'d> Import<'d> {
     }
 
     if let Some(branches) = schema.get("allOf").and_then(Json::as_array) {
-      self.types.insert(name.to_owned(), TypeDef::Record { fields: Vec::new() });
+      self.types.insert(name.to_owned(), TypeDef::open_record(Vec::new()));
       let fields = self.all_of(branches, at, name)?;
-      self.types.insert(name.to_owned(), TypeDef::Record { fields });
+      self.types.insert(name.to_owned(), TypeDef::open_record(fields));
       return Ok(Type::named(name));
     }
 
@@ -280,9 +280,11 @@ impl<'d> Import<'d> {
         }
       }
       // Reserved before the fields, so a self-referential schema resolves.
-      self.types.insert(name.to_owned(), TypeDef::Record { fields: Vec::new() });
+      // JSON Schema allows an undeclared property unless the object says `additionalProperties: false`.
+      let open = schema.get("additionalProperties") != Some(&Json::Bool(false));
+      self.types.insert(name.to_owned(), TypeDef::Record { fields: Vec::new(), open });
       let fields = self.object(schema, at)?;
-      self.types.insert(name.to_owned(), TypeDef::Record { fields });
+      self.types.insert(name.to_owned(), TypeDef::Record { fields, open });
       return Ok(Type::named(name));
     }
 
