@@ -48,7 +48,7 @@ const OLDEST_READABLE: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
-  #[error("the plan file is not JSON: {0}")]
+  #[error("the plan file does not parse: {0}")]
   Malformed(String),
   #[error("plan file version {found}, expected {OLDEST_READABLE} to {FORMAT_VERSION}")]
   Version { found: u32 },

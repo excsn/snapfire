@@ -396,6 +396,15 @@ fn a_plan_without_a_version_is_refused() {
 }
 
 #[test]
+fn a_plan_that_does_not_parse_names_no_format_it_was_not_written_in() {
+  let sexpr = Manifest::from_sexpr("(plan 7)\n(route /").unwrap_err().to_string();
+  assert!(sexpr.starts_with("the plan file does not parse: "), "{sexpr}");
+  assert!(!sexpr.contains("JSON"), "{sexpr}");
+  let json = Manifest::from_json("{ \"version\": ").unwrap_err().to_string();
+  assert!(json.starts_with("the plan file does not parse: "), "{json}");
+}
+
+#[test]
 fn a_json_plan_still_reads_through_from_text() {
   let mut manifest = every_manifest();
   manifest.consts.retain(|_, expr| !matches!(expr, Expr::Lit(Lit::Float(f)) if !f.is_finite()));
