@@ -15,7 +15,7 @@ readme = "README.md"
 
 [dependencies]
 foldhash = "0.2"
-parking_lot = "0.12"
+parking_lot = "0.13"
 hashbrown = { version = "0.17", default-features = false }
 indexmap = "2"
 serde = "1"

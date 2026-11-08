@@ -22,7 +22,7 @@ futures-channel = "0.3"
 fibre_cache = "0.4"
 indexmap = "2"
 matchit = "0.9"
-parking_lot = "0.12"
+parking_lot = "0.13"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"
 tracing = "0.1"

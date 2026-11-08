@@ -21,7 +21,7 @@ all-features = true
 actix-web = { version = "4", default-features = false }
 futures-util = { version = "0.3" }
 log = "0.4"
-parking_lot = "0.12"
+parking_lot = "0.13"
 serde = { version = "1", features = ["derive"] }
 tera = { version = "2", features = ["glob_fs", "fast"] }
 thiserror = "2.0"

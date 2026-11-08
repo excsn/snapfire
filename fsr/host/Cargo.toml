@@ -52,7 +52,7 @@ fibre = "0.6"
 fibre_logging = "0.5.7"
 fibre_tracing = "0.6"
 tracing-subscriber = { version = "0.3", features = ["registry", "std", "fmt"] }
-parking_lot = "0.12"
+parking_lot = "0.13"
 snapfire_fsr.workspace = true
 snapfire_fsr_ir.workspace = true
 snapfire_fsr_auth = { workspace = true, optional = true }

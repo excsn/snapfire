@@ -41,7 +41,7 @@ oxc_semantic = { version = "0.155", features = ["cfg", "linter"] }
 oxc_span = "0.155"
 oxc_str = { version = "0.155", features = ["serialize"] }
 oxc_syntax = "0.155"
-parking_lot = "0.12"
+parking_lot = "0.13"
 phf = { version = "0.14", features = ["macros"] }
 rustc-hash = "2"
 serde = { version = "1", features = ["derive"] }
