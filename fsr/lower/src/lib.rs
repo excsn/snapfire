@@ -5102,7 +5102,9 @@ impl<'a> Lowerer<'a> {
   fn applied(&mut self, f: Box<Expr>, call: &js::CallExpr) -> Lowered<Expr> {
     let mut args = Vec::with_capacity(call.args.len());
     for a in &call.args {
-      args.push((a.spread.is_some(), self.expr(&a.expr)?));
+      // A helper's `Ctx["services"]` parameter is the services root inside it, so its slot carries nothing.
+      let arg = if a.spread.is_none() && self.is_services_root(&a.expr) { Expr::Lit(Lit::Null) } else { self.expr(&a.expr)? };
+      args.push((a.spread.is_some(), arg));
     }
     if args.iter().all(|(spread, _)| !spread) {
       return Ok(Expr::Apply { f, args: args.into_iter().map(|(_, e)| e).collect() });
@@ -5131,12 +5133,45 @@ impl<'a> Lowerer<'a> {
         return Err(residue);
       }
     };
+    let roots = self.bind_services_params(&pats, depth);
     let body = match &f.body {
       Some(body) => crate::component::block_to_expr(self, &body.stmts),
       None => Ok(Expr::Lit(Lit::Null)),
     };
+    self.roots.truncate(roots);
     self.scope.truncate(depth);
     Ok(Expr::Lambda { params, body: Box::new(body?) })
+  }
+
+  /// Each parameter typed `Ctx["services"]` leaves the scope and becomes the services root, so `services.<name>.<method>(...)` inside the function is the same static call a loader makes. Returns the roots' depth to restore.
+  pub(crate) fn bind_services_params(&mut self, pats: &[js::Pat], depth: usize) -> usize {
+    let roots = self.roots.len();
+    for name in pats.iter().filter_map(services_param) {
+      let mut at = depth;
+      while at < self.scope.len() {
+        if self.scope[at].0 == name {
+          self.scope.remove(at);
+        } else {
+          at += 1;
+        }
+      }
+      self.roots.push((name, Root::Services));
+    }
+    roots
+  }
+
+  /// `services` or `ctx.services` naming the root rather than a local.
+  fn is_services_root(&self, e: &js::Expr) -> bool {
+    match crate::meaning::bare(e) {
+      js::Expr::Ident(id) => !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.root_of(id) == Some(Root::Services),
+      js::Expr::Member(m) => match &*m.obj {
+        js::Expr::Ident(id) => {
+          !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.root_of(id) == Some(Root::Ctx) && self.member_name(m).as_deref() == Some("services")
+        }
+        _ => false,
+      },
+      _ => false,
+    }
   }
 
   pub(crate) fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {
@@ -5148,6 +5183,7 @@ impl<'a> Lowerer<'a> {
         return Err(residue);
       }
     };
+    let roots = self.bind_services_params(&arrow.params, depth);
     let defaults = crate::component::held_frame(self, |this| crate::component::settle(this, depth)).0;
     let body = match &*arrow.body {
       js::ArrowFunctionBody::Expr(e) => self.expr(e),
@@ -5157,9 +5193,21 @@ impl<'a> Lowerer<'a> {
         crate::component::packing_returns(self, &b.stmts, &written).and_then(|packed| crate::component::block_to_expr_from(self, &packed, depth)).map(|packed| crate::component::write_back(packed, &written))
       }
     };
+    self.roots.truncate(roots);
     self.scope.truncate(depth);
     Ok(Expr::Lambda { params, body: Box::new(crate::component::sequenced(defaults, body?)) })
   }
+}
+
+/// The name of a parameter typed `Ctx["services"]`, with or without `Ctx`'s type arguments.
+fn services_param(pat: &js::Pat) -> Option<String> {
+  let js::Pat::Ident(binding) = pat else { return None };
+  let js::TsType::TsIndexedAccessType(indexed) = &*binding.type_ann.as_ref()?.type_ann else { return None };
+  let js::TsType::TsTypeRef(object) = &*indexed.obj_type else { return None };
+  let js::TsEntityName::Ident(ctx) = &object.type_name else { return None };
+  let js::TsType::TsLitType(index) = &*indexed.index_type else { return None };
+  let js::TsLit::Str(key) = &index.lit else { return None };
+  (ctx.sym == "Ctx" && key.value == "services").then(|| binding.id.sym.to_string())
 }
 
 /// A regular expression literal as the value the regex builtins read, refused here when the interpreter could not match it as JavaScript does.

@@ -52,6 +52,8 @@ export async function load({ params, session, services }: Ctx<"/product/{id}">) 
 
 The two awaits do not depend on each other, so the interpreter runs them together: the loader is written in sequence but runs in parallel, because the plan can see that the calls are independent. `params.id` is a string, since every parameter is, so the body converts it before the contract sees it; a wrong conversion is a build-time type error rather than a runtime surprise. `params`, `query`, `session` and `config` are read by key, so `const { id, tab = "info" } = params` reads `params.id` and `params.tab` the same way; a rest pattern over one of them is refused, since it would read the value as a whole.
 
+A loader may move calls into a helper of its own, module-level or imported, by handing it `services` or `ctx.services`. The helper's parameter is typed `Ctx["services"]`. Inside the helper it is `services` again, so each call it makes is named in the plan like a call the loader makes itself. `services` is never a value a body keeps, so a parameter typed any other way can't call through it.
+
 The generated `Ctx<"/product/{id}">` knows the route's parameters, so a loader cannot read a parameter its pattern does not have. `query` is a plain record of strings, one value per key; it is how the catalog's search and category filter reach the loader: `query.q` and `query.category` are read like any other field and the recogniser treats them as request reads.
 
 ## Metadata

@@ -3895,6 +3895,14 @@ pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, Strin
 pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
   let names = bind_params(lowerer, params)?;
+  let roots = lowerer.bind_services_params(params, depth);
+  let lowered = function_to_lambda_bound(lowerer, params, names, depth, body, is_async);
+  lowerer.roots.truncate(roots);
+  lowered
+}
+
+/// [`function_to_lambda`] once its parameters `names` are bound above `depth`, `Ctx["services"]` ones as the services root.
+fn function_to_lambda_bound(lowerer: &mut Lowerer<'_>, params: &[js::Pat], names: Vec<String>, depth: usize, body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
   let written = match body {
     FunctionBody::Block(stmts) => written_params(params, stmts),
     FunctionBody::Expr(_) => Vec::new(),

@@ -106,6 +106,23 @@ await services.shopping.getProduct({ id: BigInt(params.id) })
 await services.shopping.placeOrder({ lines })
 ```
 
+`services` is not a value. A body may hand it to a helper whose parameter is typed `Ctx["services"]`. Inside that helper the parameter is `services` again, so its calls are named in the plan like the loader's own. A helper whose parameter has another type can't call through it.
+
+```ts
+export async function repoStars(services: Ctx["services"]): Promise<number | null> {
+  try {
+    const repo = await services.github.getRepo({ owner: "excsn", repo: "snapfire" });
+    return Number(repo.stargazers_count);
+  } catch {
+    return null;
+  }
+}
+
+export async function load({ services }: Ctx<"/">) {
+  return { stars: await repoStars(services) };
+}
+```
+
 ## Writing the Session
 
 Assignments and deletes under `session` lower to session statements. Anything under another root is residue.
