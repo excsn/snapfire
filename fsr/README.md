@@ -1,80 +1,81 @@
 # SnapFire FSR (Full Stack Runtime)
 
-SnapFire FSR provides a full-stack application model built from composable primitives.
-
 ***Write the UI in whatever you want. FSR runs the application.***
 
-TypeScript is the application language; Rust is the runtime. 
+You write the application in TypeScript and Rust runs it. Routes, data loading, actions, services, identity, caching, rendering and client navigation belong to the runtime, not to a UI framework. React, Vue, Svelte and Tera can all render in the same application.
 
-Routes, data loading, actions, services, identity, caching, rendering and client navigation are runtime primitives rather than features owned by a particular UI framework.
+FSR keeps the declarative style of frameworks like Next.js and runs it on a Rust core.
+
+```sh
+cargo install snapfire_compiler snapfire_fsr_cli
+cd examples/shopping_react_ts
+cargo build
+fsr dev app
+```
 
 ## Why FSR?
 
-FSR is a native, systems-level engine built from the ground up, preserving the declarative ergonomics found in frameworks like Next.js but implementing them directly on a high-performance Rust core.
+* **Server rendering without JavaScript.** Rust renders your TypeScript components directly. A page that needs no JavaScript never starts a JavaScript engine.
 
-* **Native SSR.** TypeScript components compile to an intermediate representation rendered directly by Rust. Pages that do not need JavaScript do not start a JavaScript runtime.
+* **Many teams, one site.** Teams build and version their own sites and mount them into one shell. Navigation, session and application state are shared. See [the sites chapter](docs/guide/205-sites.md).
 
-* **Many teams, one site, one render.** Multiple teams can build independently versioned sites and mount them into one shell while sharing navigation, session and application state. See [the sites chapter](docs/guide/205-sites.md).
+* **Typed backend services.** OpenAPI and protobuf contracts generate typed service clients. HTTP, gRPC and mock transports sit behind the same interface.
 
-* **Backend services are first-class.** OpenAPI and protobuf contracts generate typed service clients. HTTP, gRPC and mock transports share the same application boundary.
+* **A failing backend doesn't take the page down.** Loaders run in parallel. When one fails, only the part of the page that asked for it shows an error.
 
-* **One application model.** Routes, loaders, actions, services, identity, caching, rendering and navigation are runtime primitives. React, Svelte, Vue and Tera can participate in the same application. The UI layer is replaceable.
+* **Islands that hydrate cleanly.** React hydrates over the server's markup, per island: on load, when visible or when idle. `fsr test` fails on a hydration mismatch before it reaches a browser.
 
-* **Resilient parallel loaders.**  A failing backend degrades its segment instead of taking down the entire page. The plan assembler resolves segments concurrently and isolates a backend failure to the segment that asked.
+* **Type-safe server actions.** Actions work from JavaScript and from plain HTML forms. Each one gets a typed call site. The runtime validates input against the schema and checks CSRF before the action runs.
 
-* **Island hydration without mismatches.** React hydrates over the server's own markup, timed per island: on load, when visible or when idle. The storefront renders every page with zero console errors and a hydration mismatch fails a test under `fsr test` before it reaches a browser.
+* **Streaming.** Put a `loading.tsx` beside a page. The document ships with the fallback and the page streams in when its loader finishes.
 
-* **Type-safe server actions.** Typed actions work from JavaScript or ordinary HTML forms, with schema validation and CSRF protection handled by the runtime. Every action gets a typed, generated call site; input is checked against the schema before the body runs; the session is mutated from a page click and the route revalidates in place.
+* **Parallel and intercepted routes from folder names.** There is no special routing syntax.
 
-* **Streaming and Islands.** A `loading.tsx` beside a page defers it: the document ships with the fallback and the page streams into its slot when the loader finishes. Pages can stream deferred content and hydrate interactive islands on load, visibility or idle.
-
-* **Slots without sigils.** Parallel and intercepted routes use ordinary filesystem conventions instead of special routing syntax.
-
-* **Tests without Node.** The runtime can test loaders, actions, rendering, hydration, navigation and page behavior inside the same application environment.
+* **Tests without Node.** `fsr test` tests loaders, actions, rendering, hydration, navigation and page behaviour inside the application.
 
 ## Rendering modes
 
-FSR does not make you pick a mode per route. Each route gets whatever mix the build and its loader allow.
+You don't pick a mode per route. Each route gets whatever mix the build and its loader allow.
 
 | Mode | Supported | How |
 |---|---|---|
 | SSR | Yes, the default | Pages and layouts always render on the server, in Rust, without a JavaScript engine. See [003](docs/guide/003-rendered-where-it-is-cheapest.md). |
-| SSG / prerender | Yes | `fsr prerender` writes a file for every route whose loader reads no params, query, session, identity, host or clock. Nothing is declared; a `paths` export lists the pages of a route with a parameter. See [300](docs/guide/300-the-build-and-the-dev-loop.md#prerendering). |
+| SSG / prerender | Yes | `fsr prerender` writes a file for every route whose loader reads no params, query, session, identity, host or clock. Nothing is declared. A `paths` export lists the pages of a route with a parameter. See [300](docs/guide/300-the-build-and-the-dev-loop.md#prerendering). |
 | ISR | Yes, on your schedule | `Host::prerender` rewrites the prerendered files while the host serves, from the application's own timer. Files are swapped atomically and a failed loader keeps the last file. See [300](docs/guide/300-the-build-and-the-dev-loop.md#prerendering-again-while-the-host-serves). |
 | Streaming | Yes | A `loading.tsx` ships the fallback and streams the page in when its loader finishes. Parallel slots stream with their own loading and error boundaries. See [100](docs/guide/100-routes-loaders-and-pages.md#errors-and-loading). |
-| SWR | Yes, on service data | A method's contract declares `ttl`, `stale`, `scope` and `tags`; `stale` serves the last answer while a refresh runs and a method that `writes` a tag drops it. See [service](service/README.USAGE.md#caching-a-methods-answers). |
+| SWR | Yes, on service data | A method's contract declares `ttl`, `stale`, `scope` and `tags`. `stale` serves the last answer while a refresh runs. A method that `writes` a tag drops it. See [service](service/README.USAGE.md#caching-a-methods-answers). |
 | Islands | Yes | React, Vue and Svelte islands hydrate on load, when visible or when idle, several frameworks on one page. See [104](docs/guide/104-islands-in-another-framework.md). |
-| Server-mode islands | Yes | An island with no JavaScript half: its events run on the server and the browser patches the markup that comes back. See [102](docs/guide/102-components-the-server-renders.md#server-mode-islands). |
+| Server-mode islands | Yes | An island with no JavaScript half. Its events run on the server and the browser patches in the markup that comes back. See [102](docs/guide/102-components-the-server-renders.md#server-mode-islands). |
 | Server islands (deferred fragments) | Yes, as streaming | A segment behind `loading.tsx` or a parallel slot renders after the document and streams into its place. |
-| SPA navigation | Yes | Client navigation fetches a payload and swaps the page region, keeping the layout and its islands; a link's payload is fetched on hover, focus or touch. See [100](docs/guide/100-routes-loaders-and-pages.md#client-navigation). |
-| Client-only SPA | No | Pages always render on the server; only islands render in the browser. |
-| Static export | Partly | There is no export command. The handbook example builds a static site from the prerender output, the client modules it writes and the static roots the boot report lists, then serves it from a plain file server. |
+| SPA navigation | Yes | Client navigation fetches a payload and swaps the page region, keeping the layout and its islands. A link's payload is fetched on hover, focus or touch. See [100](docs/guide/100-routes-loaders-and-pages.md#client-navigation). |
+| Client-only SPA | No | Pages always render on the server. Only islands render in the browser. |
+| Static export | Partly | There is no export command. The handbook example builds a static site from the prerender output, the client modules and the static roots, then serves it from a plain file server. |
 
 ## How much renders on the server
 
-Each corpus builds a framework's own published examples through FSR as one application per example and checks every component the server renders against that framework's own server renderer. A component the build cannot render yet still works: it renders in the browser and is missing from the first response.
+We build each framework's own published examples as FSR applications and compare what FSR renders against the framework's own server renderer. A component FSR can't render on the server still works. It renders in the browser and is missing from the first response.
 
-| Corpus | Examples | Rendered on the server | Rendered on the server after migration | Left to the browser by design | Browser rendered, SSR pending |
+| Corpus | Examples | Rendered on the server | After migration | Left to the browser by design | SSR pending |
 |---|---|---|---|---|---|
 | [react.dev](docs/corpus/react-dev.md) | 634 | 575 (90.7%) | 582 (91.8%) | 59 | 0 |
 | [svelte.dev](docs/corpus/svelte-dev.md) | 167 | 151 (90.4%) | 152 (91.0%) | 16 | 0 |
 | [vuejs.org](docs/corpus/vuejs-org.md) | 70 | 58 (82.9%) | 58 (82.9%) | 12 | 0 |
 
-The "by design" column counts examples that use something the server can't reproduce exactly: the current time, `Math.random`, a `fetch` during render or an npm package the build doesn't follow. Not counting those, the server renders 100% of the rest on all three.
+"By design" means the example uses something a server can't reproduce exactly: the current time, `Math.random`, a `fetch` during render or an npm package the build doesn't follow. Leaving those out, the server renders 100% of the rest for all three frameworks.
 
-The migration column counts the by-design examples that render on the server once the rewrite a migration makes is applied: an awaited read moved into the route's loader and seeded into the store, a `<svelte:head>` moved into the loader's `meta`. For react.dev `fsr migrate` makes the rewrite and `examples/corpus/migrated_outcomes.txt` holds what each example then builds to, leaving out a read only a later render makes; the svelte.dev one was applied by hand. The rest load their data after a click, a navigation or typing, read the clock or need a contract for a remote API.
+"After migration" counts by-design examples that render on the server once their data read moves into the route's loader. `fsr migrate` makes that change for react.dev. The svelte.dev one was made by hand. Each corpus page lists the examples and why.
 
-Next.js's own examples go through `fsr migrate` first, then build as FSR applications ([held outcomes](examples/corpus/next_outcomes.txt)). They are whole applications with backends, CSS modules and component libraries rather than one-component samples, so most stop at the build:
+Next.js's own examples go through `fsr migrate` and then build as FSR applications ([outcomes](examples/corpus/next_outcomes.txt)). They are whole applications with backends, CSS modules and component libraries, so most stop at the build:
 
 | Corpus | Examples | Rendered on the server after migration | Some components in the browser | Refused at build | Not migrated, CommonJS |
 |---|---|---|---|---|---|
 | Next.js | 223 | 44 (19.7%) | 65 | 111 | 3 |
 
-Each refused line names the construct it stopped at. `fsr migrate` reads ES modules only, so an application whose pages reach a CommonJS file is not migrated and the file is named. Three more examples are not Next.js applications and five directories hold no application.
+A refused build names the line it stopped at. `fsr migrate` reads ES modules only, so an application that reaches a CommonJS file isn't migrated and the file is named.
 
 ## Desktop apps (experimental)
 
-The same application runs as a desktop app, a high-performance replacement for Electron. Electron ships a Chromium and a Node runtime inside every app. FSR opens the operating system's own webview (WebKit on macOS and Linux, WebView2 on Windows) and runs the Rust host in the same process, so the app carries no browser and no JavaScript runtime of its own. The pages, loaders, actions and islands are the ones the website serves.
+The same application runs as a desktop app, as a lighter replacement for Electron. An Electron app ships its own Chromium and Node. An FSR app opens the operating system's webview (WebKit on macOS and Linux, WebView2 on Windows) and runs the Rust server in the same process. The pages, loaders, actions and islands are the ones the website serves.
 
 ```sh
 cargo install snapfire_fsr_cli --features desktop
@@ -82,11 +83,11 @@ fsr dev app --desktop
 fsr serve app --desktop
 ```
 
-Desktop mode is tried on macOS only; the Windows and Linux code is written but has not been built or run. Packaging and signing do not exist yet. [Opening the App in a Window](cli/README.USAGE.md#opening-the-app-in-a-window) covers the window, its menu, cookies and `@snapfire/fsr/desktop`, the bridge that opens the system file dialog and hands links to the system browser.
+Desktop mode has been tried on macOS only. The Windows and Linux code is written but hasn't been built or run. Packaging and signing don't exist yet. [Opening the App in a Window](cli/README.USAGE.md#opening-the-app-in-a-window) covers the window, its menu, cookies and the `@snapfire/fsr/desktop` bridge to the system file dialog and browser.
 
 ## Terminal apps (experimental)
 
-FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal. `Box`, `Text`, `Spacer`, `Newline` and `useInput` are imported from `@snapfire/fsr/terminal/ink`, FSR's own Ink. `fsr migrate` rewrites an Ink file's `ink` imports to it. Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with Ink on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the changed cells rewritten.
+FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal with no Node and no React. Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with Ink. FSR runs the same components inside its Rust binary.
 
 ```tsx
 import { useState } from "react";
@@ -111,21 +112,17 @@ fsr new mytool --terminal
 fsr dev mytool/app
 ```
 
-`fsr new --terminal` writes `runs = "terminal"` under `[app]` in `config/app.toml`, which is what makes an app a terminal app. `fsr dev` redraws it on every edit; `fsr run mytool/app` runs it once, as a user would.
+`fsr dev` redraws the app on every edit and keeps its state. `fsr run mytool/app` runs it once, as a user would. `fsr migrate` rewrites an existing Ink file's `ink` imports. [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) lists what runs and what doesn't yet. The [counter example](examples/counter_terminal_ts/README.md) is the page above.
 
-Terminal mode runs the app's root page with every component it places and redraws it with its state kept when the page is edited. [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) lists what it runs and what it does not yet; the [counter example](examples/counter_terminal_ts/README.md) is the page above.
-
-The corpus runs Ink's own examples through terminal mode as one application each:
+Ink's own examples run through terminal mode as one application each:
 
 | Corpus | Examples | Runs in the terminal | Not run by design | Refused |
 |---|---|---|---|---|
 | [Ink](docs/corpus/ink.md) | 29 | 26 (89.7%) | 3 | 0 |
 
-The "by design" column counts examples built on `react-router`, which FSR's own routes stand in for, or on an npm package the build does not follow. The [corpus page](docs/corpus/ink.md) lists each one.
+The three not run use `react-router` or an npm package the build doesn't follow. FSR's own routes replace `react-router`.
 
 ## Architecture
-
-FSR treats backend logic and client presentation as one set of composable blocks. 
 
 ```text
                 FSR Application
@@ -141,51 +138,34 @@ FSR treats backend logic and client presentation as one set of composable blocks
                 Rust Runtime
 ```
 
-The goal is simple:
+Application developers write TypeScript and never need to touch Rust. Platform developers can use Rust to add extensions, custom hosts, transports and renderers. They can also replace any part of the runtime.
 
-> **Application developers write the application. Platform developers can replace the machinery underneath it.**
+[Chapter 000](docs/guide/000-what-fsr-is-made-of.md) of the guide explains the parts. [Chapter 900](docs/guide/900-the-parts-bin.md) lists each one by the problem it solves.
 
-Rust is normally invisible. It is the escape hatch for extensions, custom hosts, transports, renderers or replacement building blocks.
+## Learn more
 
-Chapter [000 of the guide](docs/guide/000-what-fsr-is-made-of.md) lays out the vocabulary and [900](docs/guide/900-the-parts-bin.md) lists every block by the itch it scratches.
-
-## Try it
-
-```sh
-cargo install snapfire_compiler snapfire_fsr_cli
-cd examples/shopping_react_ts
-cargo build
-fsr dev app
-```
-
-`fsr lint app` lints it with ESLint's rules and FSR's own, with no Node; [guide chapter 307](docs/guide/307-linting.md) covers it.
-
-[examples/](examples/README.md) is the index: twenty-seven applications in reading order, what each one shows and the ports they take.
-
-## Education
-
-The [guide](docs/guide/README.md) is the learning layer, one question per chapter with a lab on the running example.
-
-Each crate under this directory carries a `README.md`, a `README.USAGE.md` and an `API_REFERENCE.md`.
+* [The guide](docs/guide/README.md) teaches FSR one question per chapter, with a lab on the running example.
+* [The examples](examples/README.md) are complete applications in reading order, with what each one shows and the ports it uses.
+* [The `fsr` CLI](cli/README.md) lists every command. `fsr lint app` runs ESLint's rules and FSR's own with no Node, covered in [chapter 307](docs/guide/307-linting.md).
 
 ## Special thanks
 
 FSR stands on the work of these projects and the people who maintain them:
 
-- [swc](https://swc.rs) parses, transforms and minifies TypeScript and JavaScript in `snapfirec`, the lowerer and `fsr migrate`.
+- [swc](https://swc.rs) parses, transforms and minifies TypeScript and JavaScript in `snapfirec`, the build and `fsr migrate`.
 - [Oxc](https://oxc.rs) writes the `.d.ts` declarations `snapfirec` emits.
 - [Lightning CSS](https://lightningcss.dev) parses, transforms and minifies every stylesheet.
 - [Tailwind CSS](https://tailwindcss.com): `snapfire_tailwind` follows its v4 specification and carries its sources and tests.
 - [markdown-rs](https://github.com/wooorm/markdown-rs) and the [MDX](https://mdxjs.com) team: FSR reads MDX through markdown-rs.
-- [Taffy](https://github.com/DioxusLabs/taffy) lays out the terminal half with flexbox.
-- [Ink](https://github.com/vadimdemedes/ink) defines the components and hooks the terminal half runs.
+- [Taffy](https://github.com/DioxusLabs/taffy) lays out terminal apps with flexbox.
+- [Ink](https://github.com/vadimdemedes/ink) defines the components and hooks terminal apps run.
 - [TypeScript](https://www.typescriptlang.org): `snapfiretc` runs its native compiler.
 - [QuickJS](https://bellard.org/quickjs/) and [rquickjs](https://github.com/DelSkayn/rquickjs) run the Vue and Svelte compilers and the test engine.
 - [Vue](https://vuejs.org), [Svelte](https://svelte.dev) and [React](https://react.dev), whose compilers and server output FSR matches.
 - [ICU4X](https://github.com/unicode-org/icu4x) formats dates, numbers, lists and plurals.
 - [syntect](https://github.com/trishume/syntect) highlights code blocks.
 - [Tokio](https://tokio.rs), [hyper](https://hyper.rs), [axum](https://github.com/tokio-rs/axum) and [tower](https://github.com/tower-rs/tower) serve every request.
-- [Tera](https://keats.github.io/tera/) renders the Tera evaluator's templates.
+- [Tera](https://keats.github.io/tera/) renders Tera templates.
 
 *Designed to be your unstoppable, high-performance daily driver*
 

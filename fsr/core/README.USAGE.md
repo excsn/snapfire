@@ -58,7 +58,7 @@ Build a page as a payload tree, with one island carrying a typed array, then tak
 use snapfire_fsr_core::{Fingerprint, ModuleId, Node, TypedArray, Value, ValueMap};
 
 fn chart_island(series: Vec<f64>) -> Node {
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(series)));
   props.insert("title".to_owned(), Value::str("servers"));
 
@@ -213,7 +213,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 
 let down = Value::Variant { tag: "Down".to_owned(), payload: None };
 
-let mut detail = ValueMap::new();
+let mut detail = ValueMap::default();
 detail.insert("since".to_owned(), Value::int(1_725_000_000));
 let degraded = Value::Variant {
   tag: "Degraded".to_owned(),
@@ -294,7 +294,7 @@ let both = Node::Seq(vec![markup, text]);
 ```rust
 use snapfire_fsr_core::{ModuleId, Node, TypedArray, Value, ValueMap};
 
-let mut props = ValueMap::new();
+let mut props = ValueMap::default();
 props.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(vec![1.0, 2.5, 3.0])));
 
 let island = Node::Client {
@@ -376,11 +376,11 @@ page.cache_key = Some(CacheKey("servers_page".into()));
 ```rust
 use snapfire_fsr_core::{Fingerprint, Value, ValueMap};
 
-let mut ab = ValueMap::new();
+let mut ab = ValueMap::default();
 ab.insert("a".to_owned(), Value::int(1));
 ab.insert("b".to_owned(), Value::int(2));
 
-let mut ba = ValueMap::new();
+let mut ba = ValueMap::default();
 ba.insert("b".to_owned(), Value::int(2));
 ba.insert("a".to_owned(), Value::int(1));
 

@@ -74,6 +74,8 @@ Each is reported at the item that breaks the rule:
 * `` a service is an `impl` of a named type ``
 * `` a cache or writes policy sits on a `pub` method; a private one is not in the contract ``
 * `a cache without a ttl`, `a tag is a string literal`
+* `` a scope of `<scope>`; it is `private`, `shared` or `subject` ``, `` `cache` takes `ttl`, `tags`, `scope` and `stale` ``
+* `` a record field takes `name = "..."` and `optional` ``
 * `a record is a struct`, `a record's fields are named`, `` a record's fields are all `pub`; a private field cannot cross ``, `a record has no type parameters`
 * `` `optional` is for an `Option` field, whose key it leaves out on `None` ``
 * A type that is not `Clone`, `Send`, `Sync` and `'static` is refused at the impl. A type outside the value model is refused where `ContractType` or `FromNativeValue` is not implemented.

@@ -4,7 +4,14 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_ir/badge.svg)](https://docs.rs/snapfire_fsr_ir)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The lowered form of a loader or action body for SnapFire FSR plus the interpreter that runs it. A body is a small typed tree over the value model: reads from the request context, literals, field access, arithmetic and comparison, lambdas over typed arrays, service calls, session writes and guards. The runtime executes it directly over `Value`, through the same service handle and session cell a Rust data source uses, so a TypeScript loader lowered to this form runs with no JavaScript engine in the path. The build produces the tree; this crate carries its JSON form, its interpreter and the two adapters that make a body answer a data source id or an action id. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+Runs an FSR application's server TypeScript in Rust, with no JavaScript engine.
+
+`fsr build` translates each loader, action, route handler, middleware and component into a small typed tree. This crate holds that tree and runs it. A translated loader reads the request, calls services and writes the session through the same handles a Rust data source uses. A translated component renders the same markup React, Vue or Svelte would write on the server, so the browser hydrates over it.
+
+Most applications never depend on this crate. `fsr` and the FSR host use it for you. Use it directly when you build tooling around FSR, run translated bodies in your own host or write a body by hand in Rust.
+
+* The task guide is [README.USAGE.md](README.USAGE.md).
+* The call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -13,19 +20,46 @@ The lowered form of a loader or action body for SnapFire FSR plus the interprete
 snapfire_fsr_ir = "0"
 ```
 
-It depends on `snapfire_fsr_core` for the value model and on `snapfire_fsr_runtime` for `RequestCtx`, `ServiceHandle`, `SessionCell`, `FailureKind` and the `DataSource` and `ActionHandler` traits; it brings in `serde` and `serde_json` for the JSON form and `futures-util` for the parallel issue of independent calls.
+## Quick start
+
+The loader `return { products: await services.shopping.listProducts({ tag: query.tag }) }`, written in Rust and run against a request:
+
+```rust
+use snapfire_fsr_core::Value;
+use snapfire_fsr_ir::{Expr, Interpreter, Stmt};
+
+let body = vec![Stmt::Return(Expr::object(vec![(
+  "products",
+  Expr::call("shopping", "listProducts", vec![("tag", Expr::Query("tag".into()))]),
+)]))];
+
+let outcome = Interpreter::default().run(&body, &ctx, None).await?;
+let Value::Map(data) = outcome.value else { unreachable!("a loader returns an object") };
+```
+
+`ctx` is the `snapfire_fsr_runtime::RequestCtx` the host builds for the request.
+
+## What it covers
+
+* **Bodies.** Loaders, actions, route handlers, middleware and themes, with service calls, session writes, guards, loops, `try` and closures.
+* **Components.** Server rendering byte for byte as React 18 and 19, Vue 3 and Svelte 5 write it, plus islands that round-trip their events to the server.
+* **A standard library.** `intl`, `text`, `time`, `crypto`, `encoding`, `path`, `file`, `i18n` and `log`, each answering the same on the server and in the browser where it runs in both.
+* **JavaScript semantics.** Numbers, strings in UTF-16 code units, sorting, regular expressions and `Math` follow what V8 does.
+* **Ahead-of-time compilation.** A production build can compile a body to Rust and run it in place of the interpreter.
 
 ## What to reach for
 
 | Problem | Piece |
 | --- | --- |
 | Build a body in Rust | `Stmt`, `Expr` and the `Expr` constructors |
-| Read a body out of a plan file | `ast::from_json` |
-| Write a body into a plan file | `ast::to_json` |
+| Read or write a body as JSON | `ast::from_json`, `ast::to_json` |
+| Read or write a body as s-expressions | `sexpr::parse`, `sexpr::print`, `sexpr::stmt_from_sx` |
 | Run a body against a request | `Interpreter::run` |
 | Pin the clock a body reads | `Interpreter::with_clock` and `Clock` |
+| Render a translated component | `Interpreter::render`, `IrEvaluator` |
 | Make a body answer a data source id | `IrSource` |
 | Make a body answer an action id | `IrAction` |
+| Add a function bodies can call | `Extensions::register`, `Interpreter::with_extensions` |
 | See which session keys a body wrote | `Outcome::written` |
 | Map a failed body onto a status | `Fail::kind`, a `FailureKind` |
 | Find what a body reads or whether it calls | `Expr::free_vars`, `Expr::has_call` |

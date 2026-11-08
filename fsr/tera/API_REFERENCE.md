@@ -5,191 +5,211 @@ The Tera evaluator for SnapFire FSR: it renders a template to a string and split
 ## Contents
 
 * [1. Markers](#1-markers)
-  * [MARKER](#marker)
+  * [`MARKER`](#marker)
 * [2. Template Functions](#2-template-functions)
-  * [island](#island)
-  * [on](#on)
-  * [slot](#slot)
-  * [head](#head)
+  * [`island`](#island)
+  * [`on`](#on)
+  * [`slot`](#slot)
+  * [`head`](#head)
 * [3. Registration](#3-registration)
-  * [register_markers](#register_markers)
-* [4. TeraEvaluator](#4-teraevaluator)
-  * [TeraEvaluator](#teraevaluator)
+  * [`register_markers`](#register_markers)
+* [4. The Evaluator](#4-the-evaluator)
+  * [`TeraEvaluator`](#teraevaluator)
 * [5. Marker Grammar and Chunk Mapping](#5-marker-grammar-and-chunk-mapping)
+  * [Segments](#segments)
+  * [Island payload](#island-payload)
 * [6. Template Context](#6-template-context)
-* [7. Constraints](#7-constraints)
-* [8. Error Handling](#8-error-handling)
-  * [EvalError](#evalerror)
+  * [Variables](#variables)
+  * [Value conversion](#value-conversion)
+* [7. Error Handling](#7-error-handling)
+  * [`EvalError`](#evalerror)
+  * [Render-phase messages](#render-phase-messages)
+  * [Split-phase messages](#split-phase-messages)
 
 ## 1. Markers
 
-### MARKER
+### `MARKER`
 
 The codepoint that delimits a marker token in rendered output.
 
 * `pub const MARKER: char = '\u{F8FF}'`
-
-A token in the output is `MARKER`, the token text, `MARKER`. The token text is `island:<base64>` or `slot:<name>`. Splitting is on the character, so a rendered string containing an odd count of `MARKER` is rejected.
+* A token is `MARKER`, the token text, `MARKER`. The token text is `island:<base64>` or `slot:<name>`.
+* A rendered string with an odd count of `MARKER` is rejected.
 
 ## 2. Template Functions
 
-The three functions `register_markers` installs. Each returns a string, so a template calls them in an output expression, `{{ island(...) }}`.
+The four functions `register_markers` installs. Each is called in an output expression, `{{ island(...) }}`.
 
-### island
+### `island`
 
 Emits a client node at this position.
 
 * `island(module: String, props: any = {}, state: any?, key: String?, when: String?, mode: String?) -> String`
-* `module` is required, a module id in `path#export` form. Absence or a non-string is a render error.
-* `props` is optional and defaults to an empty object. It must serialise to JSON and must decode to a map or null; anything else fails the split.
-* `key` names the region a revalidation patches rather than replaces. It is written into the markup as `data-sf-region` and into the props as `$k`, which is what the browser matches on; without it an island is kept exactly as it stands or replaced whole.
-* `when` is `"load"`, `"visible"` or `"idle"`, the timing that schedules the mount; anything else is a render error naming what was written.
-* `mode` is `"browser"`, the default or `"server"`, whose events round-trip to the host; anything else is a render error. The module is either a lowered component the plan carries or a template this instance holds, whose handlers the host carries by name.
-* `state` is the island's initial state in server mode, written into the props under `$s`, which is where the browser reads a server-mode island's state. Props that are not a map are a render error when state is given.
+* `module` is required and must parse as `path#export`.
+* `props` must serialise to JSON and decode to a map or null.
+* `key` is written into the markup as `data-sf-region` and into the props as `$k`.
+* `when` is `"load"`, `"visible"` or `"idle"`. Any other value is a render error.
+* `mode` is `"browser"` or `"server"`. `"browser"` is the default and is not written into the payload. Any other value is a render error.
+* `state` is written into the props under `$s`. It needs `props` to be a map.
 * Emits the token `island:<base64 of {"m": module, "p": props, "w": when, "d": mode, "k": key}>`.
-* Produces `Chunk::Node(Node::Client { module, props, children, rendered })`, wrapped in raw `<sf-s data-sf-island …>` and `</sf-s>` chunks when any of `key`, `when` or `mode` is given. `children` is empty and `rendered` false except for a server-mode placement whose module is a template this instance holds, which is rendered here from `snapfire_fsr_runtime::island_data(props, props["$s"])` so the first paint carries the island's markup; a slot inside such a template is an error; an island inside one is left unrendered for the browser to ask for.
+* Produces `Chunk::Node(Node::Client { module, props, children, rendered })`.
+* When `key`, `when` or `mode = "server"` is given, the client node is wrapped in raw `<sf-s data-sf-island ...>` and `</sf-s>` chunks carrying `data-sf-region`, `data-sf-when` and `data-sf-mode`.
+* `children` is empty and `rendered` is `false`, except for a server-mode island whose `module.path` names a template this instance holds.
+* That template is rendered in place with `snapfire_fsr_runtime::island_data(props, props["$s"])` as its context. `children` holds the result and `rendered` is `true`.
+* A slot inside such a template is an error. A server-mode island inside one is not rendered.
 
-### on
+### `on`
 
-Writes the attribute that binds an island's handlers, for markup a template renders.
+Writes the `data-sf-on` attribute that binds an island's handlers.
 
-* `on(<event>: String, ...) -> String`
-* Each keyword is an event type and its value the handler's name: `on(click="filter", input="search")` becomes `data-sf-on="click:filter input:search"`. At least one is required.
-* A name must be non-empty and made of ASCII alphanumerics, `_`, `-` or `.`; anything else is a render error naming it. A value that is not a string is a render error naming its event.
-* The result is a safe string, so the attribute's quotes survive escaping. Nothing here checks that a handler by that name is registered: the host answers `404` at the step if it is not.
+* `on(<event>=<handler>, ...) -> String`
+* `on(click="filter", input="search")` returns `data-sf-on="click:filter input:search"`.
+* At least one event is required.
+* A handler name is non-empty ASCII alphanumerics, `_`, `-` or `.`. A value that is not a string is a render error naming its event.
+* The result is a safe string and is not escaped.
+* No check is made that a handler of that name exists.
 
-### slot
+### `slot`
 
 Emits a hole for the plan child registered under this name.
 
 * `slot(name: String) -> String`
-* `name` is required. It must be non-empty and every character must be an ASCII alphanumeric, `_` or `-`; otherwise the render fails with ``invalid slot name `{name}` ``.
+* `name` is required, non-empty and made of ASCII alphanumerics, `_` or `-`.
 * Emits the token `slot:<name>`, which becomes `Chunk::Slot(SlotName(name))`.
-* `head` is reserved: `slot(name="head")` is accepted by the validator and resolves like [`head`](#head).
+* `slot(name="head")` is the same as `head()`.
 
-### head
+### `head`
 
 Emits the reserved head slot.
 
 * `head() -> String`
-* Takes no arguments. Any supplied are ignored.
-* Emits the token `slot:head`, which becomes `Chunk::Slot(SlotName("head"))`. The assembler substitutes the head node passed to `assemble`.
+* Arguments are ignored.
+* Emits the token `slot:head`, which becomes `Chunk::Slot(SlotName("head"))`. The assembler fills it with the head node passed to `assemble`.
 
 ## 3. Registration
 
-### register_markers
+### `register_markers`
 
-Installs `island`, `slot` and `head` on a Tera instance, overwriting any function already registered under those names.
+Installs `island`, `on`, `slot` and `head` on a Tera instance, replacing any function already registered under those names.
 
 * `pub fn register_markers(tera: &mut Tera)`
-* Must run before any template using those names is added to the instance. Tera 2 resolves function names when a template is parsed, so `add_raw_templates` on a template calling `island`, `slot` or `head` fails if this has not run yet.
+* Must run before any template that calls those functions is added. Tera 2 resolves function names when a template is parsed, so `add_raw_templates` fails otherwise.
 
-## 4. TeraEvaluator
+## 4. The Evaluator
 
-### TeraEvaluator
+### `TeraEvaluator`
 
-An `Evaluator` backed by an owned Tera instance.
+An `Evaluator` backed by an owned Tera instance. `Send + Sync`.
 
-* `pub fn new(tera: Tera) -> Self` takes ownership and calls `register_markers` on the instance. That registration reaches only templates added afterwards; templates already loaded were parsed before it.
-* `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks` renders the template named `module.path` and splits the result. `module.export` takes no part in template lookup; it is carried only inside island module ids.
-* The returned stream is built from a fully rendered string: the template completes before the first chunk is yielded and the stream never blocks. On failure the stream holds exactly one `Err(EvalError)`.
-* Every chunk is `Chunk::Node` or `Chunk::Slot`. This evaluator never produces `Node::Pending`; deferral belongs to the assembler.
-* `TeraEvaluator: Send + Sync` through the `Evaluator` bound, so one instance serves concurrent requests behind an `Arc`.
+* `pub fn new(tera: Tera) -> Self`: takes ownership and calls `register_markers`. Templates already added to `tera` are not affected.
+* `pub fn has(&self, name: &str) -> bool`: whether a template of that name was added.
+* `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: renders the template named `module.path` and splits the result.
+  * `module.export` is not used for template lookup.
+  * The whole template renders before the first chunk is yielded.
+  * On failure the stream holds exactly one `Err(EvalError)`.
+  * Every chunk is `Chunk::Node` or `Chunk::Slot`. `Node::Pending` is never produced.
 
 ## 5. Marker Grammar and Chunk Mapping
 
-Rendered output splits on `MARKER` into alternating segments. Even-indexed segments are literal output, odd-indexed segments are tokens.
+### Segments
+
+Rendered output splits on `MARKER`. Even-indexed segments are literal output and odd-indexed segments are tokens.
 
 | Rendered segment | Chunk |
 | --- | --- |
 | literal text, non-empty | `Chunk::Node(Node::raw(text))` |
-| literal text, empty | dropped, no chunk |
-| `island:<base64>` | `Chunk::Node(Node::Client { .. })` |
+| literal text, empty | none |
+| `island:<base64>` | `Chunk::Node(Node::Client { .. })`, wrapped as described under [`island`](#island) |
 | `slot:<name>` | `Chunk::Slot(SlotName(name))` |
-| `slot:head` | `Chunk::Slot(SlotName("head"))` |
 | anything else | error, ``unknown marker token `{token}` `` |
 
-An even number of segments means an odd count of `MARKER` in the output, which is rejected as unbalanced before any token is interpreted.
+An even number of segments is rejected as unbalanced before any token is read.
 
-The island payload is JSON with five keys: `m` is the module id string, `p` is the props, `k` the region key, `w` the timing and `d` the mode, the last three null unless the placement asked for them. `p` decodes through `snapfire_fsr_payload::json_to_value`; a `Value::Map` becomes the props, `Value::Null` becomes an empty map, any other kind is an error.
+### Island payload
+
+JSON with five keys.
+
+* `m`: the module id string.
+* `p`: the props, decoded with `snapfire_fsr_payload::json_to_value`. `Value::Map` becomes the props, `Value::Null` becomes an empty map and anything else is an error.
+* `k`: the region key or null.
+* `w`: the timing or null.
+* `d`: `"server"` or null.
 
 ## 6. Template Context
 
-Every key of the `Data` map passed to `evaluate` becomes a top-level Tera variable of the same name, converted for the template rather than for the wire: a number is a number whatever it came as, a byte string is base64 and a map is an object whatever its keys.
+### Variables
 
-An island a template renders is given `state`, the state the placement declared or the last step produced, beside the props the placement passed less `$s` and `$k`.
+* Every key of the `Data` passed to `evaluate` becomes a top-level Tera variable of the same name.
+* The assembler adds request props such as `params`, `identity` and `csrf_token` before calling the evaluator. The Evaluation section of the [runtime reference](../runtime/API_REFERENCE.md) lists each one with the condition for it.
+* A server-mode island template rendered in place gets the placement's props without `$s` and `$k`. It also gets `state`.
+* Map keys keep insertion order. The crate enables Tera's `preserve_order` feature.
 
-The assembler injects three before calling the evaluator; they are present in fallback and error modules too:
-
-| Variable | Type | Present when |
-| --- | --- | --- |
-| `params` | map of string to string | always, empty when the route has no parameters |
-| `identity` | map with `subject` (string) and `claims` (map) | the request's session carries an identity |
-| `csrf_token` | string | the request context has a CSRF token |
-
-Error modules additionally receive `error`, the failure message as a string. Fallback and error modules receive no data source output.
-
-A map's keys keep the order they were inserted in, through the template and out the other side into an island's props, which is why a placement may hand a component a record and a list of its keys that agree. This crate takes Tera with `preserve_order` for it; without that feature Tera's own map is a hash map and the order is arbitrary per run.
-
-The payload encoder, `snapfire_fsr_payload::value_to_json`, is lossless rather than idiomatic: it tags a whole-number float and a large integer so the browser can tell them apart again. A template has no round trip, so the context uses a conversion of its own.
+### Value conversion
 
 | Value | Seen by the template |
 | --- | --- |
-| `Bool`, `Str`, `Null` | a plain JSON scalar |
-| `Int` or `UInt` within an `i64` or a `u64` | a plain JSON number |
+| `Bool`, `Str` | a JSON scalar |
+| `Null`, `Undefined` | `null` |
+| `Int` or `UInt` within `i64` or `u64` | a JSON number |
 | `Int` or `UInt` beyond that | a decimal string |
-| `F64` or `F32` that is a whole number below 2^53 | a plain JSON integer, `2` for `2.0` |
-| `F64` or `F32` with a fractional part | a plain JSON number |
-| `F64` or `F32` that is infinite or NaN | `null` |
-| `Seq`, `Map` | a JSON array or object, whatever the keys |
+| `F64` or `F32`, whole and below 2^53 in magnitude | a JSON integer, `2` for `2.0` |
+| `F64` or `F32`, any other finite value | a JSON number |
+| `F64` or `F32`, infinite or NaN | `null` |
+| `Seq` | a JSON array |
+| `Map` | a JSON object, with `Undefined` entries left out |
 | `Bytes` | a base64 string |
-| `TypedArray` | `{"$": "ta", "k": "<kind>", "v": "<base64, little-endian>"}` where kind is one of `i8` `u8` `i16` `u16` `i32` `u32` `i64` `u64` `f32` `f64` |
-| `Variant` | `{"$": "var", "t": "<tag>"}` plus `p` when the variant carries a payload |
+| `TypedArray` | `{"$": "ta", "k": "<kind>", "v": "<base64, little-endian>"}`, kind one of `i8` `u8` `i16` `u16` `i32` `u32` `i64` `u64` `f32` `f64` |
+| `Variant` | `{"$": "var", "t": "<tag>"}`, plus `p` when the variant carries a payload |
 | `Ref` | `{"$": "ref", "k": "action" or "module", "id": "<id>"}` |
 
-The three tagged forms are the payload encoder's, since a template has no other spelling for them; passing one as `props` to `island` decodes it back to the original `Value`. A number passed to `island` arrives as a number.
+* The three tagged forms are the payload encoder's. Passed back as `props` to `island`, one decodes to the original `Value`.
 
-## 7. Constraints
+## 7. Error Handling
 
-Each of these is silent or late unless the caller knows about it.
+### `EvalError`
 
-* `register_markers` must run before `add_raw_templates` on the same instance. `TeraEvaluator::new` registering them is not a substitute for templates that are already loaded.
-* Every `slot(name=...)` in a template must have a plan child registered under that exact name, otherwise assembly fails with `AssembleError::MissingSlot`. The template side is not checked at parse time.
-* Fallback and error modules may not emit any slot, `head()` included. A slot chunk from one fails assembly with `AssembleError::SlotInFallback`.
-* A segment whose subtree emitted the `head` slot is never written to the node cache, even when its plan node carries a cache key.
-* `evaluate` renders the whole template before yielding, so template work is not interleaved with downstream consumption of the stream.
-* Slot names are restricted to `[A-Za-z0-9_-]+`. Island module ids are not restricted by this crate beyond parsing as `path#export`.
-
-## 8. Error Handling
-
-Failures divide by phase. Tera raises the first group while rendering; `evaluate` forwards the message unchanged inside an `EvalError`. The split raises the second group after rendering succeeded.
-
-### EvalError
-
-The error type of the chunk stream, re-exported from `snapfire_fsr_runtime`.
+The error type of the chunk stream, re-exported from `snapfire_fsr_runtime`. `Debug`, `Clone`, `std::error::Error`. `#[non_exhaustive]`.
 
 * `pub struct EvalError { pub module: String, pub message: String }`
-* `impl Display` renders as `evaluate {module}: {message}`.
-* `module` is the failing module's `path#export` form, not the template name alone.
-* There are no variants. Callers log or propagate; the assembler wraps it as `AssembleError::Eval`.
+* `pub fn new(module: String, message: String) -> Self`
+* `Display`: `evaluate {module}: {message}`.
+* `module` is the failing module in `path#export` form. For an island template rendered in place, it is the island's module.
+* The assembler wraps it as `AssembleError::Eval`.
 
-Render-phase messages, raised by the template functions:
+Related assembly errors:
+
+* A `slot(name=...)` with no plan child under that name fails assembly with `AssembleError::MissingSlot`. Templates are not checked when parsed.
+* A slot, `head()` included, in a fallback or error module fails assembly with `AssembleError::SlotInFallback`.
+
+### Render-phase messages
+
+Raised while Tera renders. `EvalError::message` holds Tera's error text, which contains the message.
 
 | Message | Cause |
 | --- | --- |
-| Tera's own error text | unknown template, missing required argument, bad type, any template failure |
-| ``invalid slot name `{name}` `` | `slot` argument empty or outside `[A-Za-z0-9_-]+` |
-| `island props are not serializable: {e}` | the `props` expression will not convert to JSON |
+| Tera's own text | unknown template, missing required argument, wrong type, any other template failure |
+| ``invalid slot name `{name}` `` | `slot` name empty or outside `[A-Za-z0-9_-]+` |
+| `island props are not serializable: {e}` | `props` does not convert to JSON |
+| `island state is not serializable: {e}` | `state` does not convert to JSON |
+| `island props must be an object to carry state` | `state` given with `props` that is not a map |
+| ``` `when` is "load", "visible" or "idle", not `{when}` ``` | `when` out of range |
+| ``` `mode` is "browser" or "server", not `{mode}` ``` | `mode` out of range |
+| ``invalid handler name `{name}` `` | `on` handler name empty or outside `[A-Za-z0-9_.-]+` |
+| ``the handler for `{event}` is a name, written out`` | `on` handler value is not a string |
+| ``` `on` takes an event, `on(click="increment")` ``` | `on()` with no arguments |
 
-Split-phase messages, all raised with the module in `EvalError::module`:
+### Split-phase messages
+
+Raised after rendering succeeded.
 
 | Message | Cause |
 | --- | --- |
-| `unbalanced marker delimiters in rendered output` | odd count of `MARKER` in the rendered string |
-| ``unknown marker token `{token}` `` | a token with neither the `island:` nor the `slot:` prefix |
-| `island marker holds invalid base64` | the token body is not valid base64 |
+| `unbalanced marker delimiters in rendered output` | odd count of `MARKER` |
+| ``unknown marker token `{token}` `` | a token without the `island:` or `slot:` prefix |
+| `island marker holds invalid base64` | the token body is not base64 |
 | `island marker holds invalid json: {e}` | the decoded bytes are not JSON |
-| `island marker missing module` | the payload has no string `m` key |
+| `island marker missing module` | no string `m` key |
 | `island module id: {e}` | `m` does not parse as `path#export` |
-| `island props: {e}` | `p` fails to decode from the lossless JSON form |
+| `island props: {e}` | `p` does not decode |
 | `island props must be a map` | `p` decodes to something other than a map or null |
+| ``the slot `{name}` inside an island, which has no child to fill`` | a slot in an island template rendered in place |

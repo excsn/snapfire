@@ -1,6 +1,6 @@
-# snapfire_fsr_sites API reference
+# API Reference: snapfire_fsr_sites
 
-`snapfire_fsr_sites`: the `[sites]` table of a shell's configuration resolved, hashed and mounted on `snapfire_fsr_host` and watched.
+Resolves, hashes, installs, mounts and watches the `[sites]` table of a shell's configuration on `snapfire_fsr_host`.
 
 ## Contents
 
@@ -9,12 +9,10 @@
   * [`resolve`](#resolve)
   * [`hash_dir`](#hash_dir)
 * [2. The Deploy Tree](#2-the-deploy-tree)
-  * [`layout`](#layout)
-  * [`Layout`](#layout-1)
+  * [`Layout`](#layout)
   * [`Placement`](#placement)
   * [`Source`](#source)
   * [`Row`](#row)
-  * [`parts`](#parts)
 * [3. Artifacts](#3-artifacts)
   * [`Listing`](#listing)
   * [`Entry`](#entry)
@@ -46,146 +44,201 @@
   * [`fsr-server`](#fsr-server)
 * [8. Error Handling](#8-error-handling)
   * [`SitesError`](#siteserror)
-  * [`ServeError`](#serveerror)
   * [`InstallError`](#installerror)
   * [`LayoutError`](#layouterror)
   * [`ArtifactError`](#artifacterror)
+  * [`ServeError`](#serveerror)
 
 ## 1. Resolving
 
 ### Resolved
 
-* `pub struct Resolved { pub name: String, pub artifact: PathBuf, pub version: String, pub hash: String, pub allow_engine: bool }`: one row of the table resolved. `Debug`, `Clone`, `PartialEq`, `Eq`.
+One row of the `[sites]` table, resolved.
+
+* `pub struct Resolved { pub name: String, pub artifact: PathBuf, pub version: String, pub hash: String, pub allow_engine: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
 ### resolve
 
-* `resolve(config: &Config) -> Result<Vec<Resolved>, SitesError>`: every `[sites.<name>]` row in name order; `name@version` under `sites.root` with that version, anything else a path against `config.root` with version `path`; each directory hashed and refused with `Artifact` when it is not a directory or its hash differs from a pinned `hash`. Empty without a `[sites]` section.
+* `resolve(config: &Config) -> Result<Vec<Resolved>, SitesError>`: every `[sites.<name>]` row that names an `artifact`, in name order. Empty when there is no `[sites]` section.
+* An `artifact` holding `@` and no `/` is `name@version` and resolves to `<sites.root>/<name>/<version>`. Any other is a path against `config.root`, with version `path`.
+* `Artifact` when a row is not a directory, cannot be hashed or hashes differently from a pinned `hash`.
 
 ### hash_dir
 
-* `hash_dir(dir: &Path) -> Result<String, ArtifactError>`: `Listing::of(dir)?.hash()`, the artifact hash of the tree at `dir`; sixteen hex digits.
+* `hash_dir(dir: &Path) -> Result<String, ArtifactError>`: `Listing::of(dir)?.hash()`. Sixteen hex digits.
 
 ## 2. The Deploy Tree
 
-Where a deploy tree puts what it ships. A destination is derived from what a file is rather than from where it sat in the project, so no configured path is ever joined onto the tree root and no setting can place a file outside it. Applying a layout to a tree yields the tree, which is what lets one function serve a project about to be bundled and an artifact being verified.
-
-Module constants: `CONFIG` is `"config"`, `APP` is `"app"`, `SERVE` is `"serve"`, `GENERATED` is `"generated"` and `LAYER` is `"bundle.toml"`.
-
-### layout
-
-* `layout(root: &Path, config: &Config) -> Result<Layout, LayoutError>`: the placements `config` implies, in destination order.
-* Configuration: the whole `config/` directory when the project keeps one, else each of `config.sources` by file name, both under `config/`.
-* Under `app/`: the plan as `generated/<file name>`; the contracts as `generated/contracts`; `server.prerender` as `generated/prerender`; the import map by its file name; `locales/` and `dist/.snapfire-build.json` when present.
-* Under `app/clients/`, per `[clients.<name>]`: its document as `<name>.openapi.json` or `<name>.proto`, keeping the suffix the host reads to choose a transport, plus `<name>.mock.json` for a mock's recorded responses.
-* Under `serve/`: each `[[static]]` root at its route with the slashes trimmed.
-* `config/bundle.toml` as generated text. It names `[app] dir`, the moved `[server]` and `[document]` paths, each client's document and responses and every `[[static]]` route against `../serve/<route>`. It also carries the resolved `document.entry`, `styles` and `head`, since a tree has no `dist/`, `icons/` or `styles/` under its application directory for inference to read a second time.
-* The layer is written only when the configuration directory holds no `bundle.toml` already, so a tree keeps the one it has.
-* `Escapes` when a destination is not a plain relative path, which is how a route that climbs is refused; `Collides` when two sources want one destination; `NoConfig` when the configuration came from no file.
+Constants in `layout`: `CONFIG = "config"`, `APP = "app"`, `SERVE = "serve"`, `GENERATED = "generated"`, `LAYER = "bundle.toml"`.
 
 ### Layout
 
-* `pub struct Layout { pub places: Vec<Placement> }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
-* `rows(&self) -> Result<Vec<Row>, LayoutError>`: every file the tree holds, in path order, directories walked and duplicates dropped. A placement whose source is absent contributes nothing.
-* `parts(&self) -> Vec<String>`: the destinations.
+Where a deploy tree puts each file it ships.
+
+* `pub struct Layout { pub places: Vec<Placement> }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+* `layout(root: &Path, config: &Config) -> Result<Layout, LayoutError>`: the placements `config` implies, in destination order. `NoConfig` when `config.sources` is empty.
+* `parts(root: &Path, config: &Config) -> Result<Vec<String>, ArtifactError>`: `layout(root, config)?.parts()`.
+* `rows(&self) -> Result<Vec<Row>, LayoutError>`: every file the tree holds, in path order. A placement whose source is absent contributes nothing.
+* `parts(&self) -> Vec<String>`: the destinations, as paths in the tree.
+
+Destinations:
+
+* `config/`: the whole configuration directory when the project has one apart from `root`, else each of `config.sources` by file name.
+* Overlays: with the whole directory, every other `.toml` or `.yaml` in it except `app` and `bundle` is read as an overlay and the files it names are placed too. `Overlay` when one does not load.
+* `config/bundle.toml`: generated, unless the configuration directory already holds one. It sets `[app] dir = "app"`, `[server] plan`, `contracts`, `prerender` and `dev = false`, `[document] import_map`, `entry` and `styles`, each `[clients.<name>] document` and `responses` and every `[[static]]` route against `../serve/<route>`.
+* `app/generated/<file name>`: the plan, `plan.sexp` when `server.plan` has no file name.
+* `app/generated/contracts`: the contracts.
+* `app/generated/prerender`: `server.prerender`.
+* `app/<file name>`: the import map.
+* `app/generated/assets.json`, `app/generated/tailwind.cards.json`, `app/dist/.snapfire-build.json` and `app/locales/`: when present.
+* `app/<path>`: every `.tera` template under the application directory.
+* `app/clients/<name>.openapi.json` or `app/clients/<name>.proto`: each `[clients.<name>]` document. `<name>.mock.json` beside it for a mock's recorded responses.
+* `serve/<route>`: each `[[static]]` root, slashes trimmed.
+* `serve/<bundle route>/<hashed name>`: each `[bundle]` output under its content-hashed name.
+* `serve/static/js/fsr/<file>`: the FSR client modules, when `config` has no `[site]` and no `[[static]]` root on `/static/js/fsr`. Minified files are included when `document.client` asks for them.
 
 ### Placement
 
-* `pub struct Placement { pub to: String, pub from: Source, pub required: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
-* `required` is whether the host refuses to start without it: the configuration, the plan, the import map and a client's document and responses. A contracts directory, a prerender cache and a message catalog are each read as whatever is there.
-* `path(&self) -> Option<&Path>` is the source when it comes from the project; `exists(&self) -> bool` is whether it is there to be placed, always true for generated text.
+One file or directory of a layout.
+
+* `pub struct Placement { pub to: String, pub from: Source, pub required: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+* `required` is true for the configuration, the plan, the import map, each template and each client's document and responses. The host refuses to start without them.
+* `path(&self) -> Option<&Path>`: the source, when it comes from the project.
+* `exists(&self) -> bool`: whether the source is there. Always true for `Source::Text`.
 
 ### Source
 
-* `pub enum Source { Path(PathBuf), Text(String) }`: something in the project or something the layout writes itself. `Debug`, `Clone`, `PartialEq`, `Eq`.
+* `pub enum Source { Path(PathBuf), Text(String) }`: a file in the project or text the layout generates. `Debug`, `Clone`, `PartialEq`, `Eq`.
 
 ### Row
 
-* `pub struct Row { pub path: String, pub from: Source }`: one file of a tree. `Debug`, `Clone`, `PartialEq`, `Eq`.
-* `bytes(&self) -> Result<Vec<u8>, LayoutError>`: its content, read or generated.
+One file of a tree.
 
-### parts
-
-* `parts(root: &Path, config: &Config) -> Result<Vec<String>, ArtifactError>`: `layout(root, config)?.parts()`. Paths in the tree rather than in the project; for an artifact, which is a tree, they are also paths in the directory itself.
+* `pub struct Row { pub path: String, pub from: Source }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+* `bytes(&self) -> Result<Vec<u8>, LayoutError>`: the file's content.
 
 ## 3. Artifacts
 
 ### Listing
 
-* `pub struct Listing { pub entries: Vec<Entry> }`, every file an artifact ships in path order. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`.
-* `Listing::of(dir)` and `Listing::of_config(root, config)` lay the directory out and list the rows; `Listing::of_rows(&[Row])` lists rows a caller already has, so a bundle hashes what it is about to write rather than walking it afterwards.
-* `hash(&self) -> String`: xxh3 over each entry's path, size and digest in path order, sixteen hex digits. Over the listing rather than the bytes, so a manifest alone yields it and a pin can be checked before a download.
-* `bytes(&self) -> u64`: the total.
+Every file an artifact ships, in path order.
+
+* `pub struct Listing { pub entries: Vec<Entry> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+* `Listing::of(dir: &Path) -> Result<Listing, ArtifactError>`
+* `Listing::of_config(root: &Path, config: &Config) -> Result<Listing, ArtifactError>`
+* `Listing::of_rows(rows: &[Row]) -> Result<Listing, ArtifactError>`
+* `hash(&self) -> String`: xxh3 over each entry's path, size and digest, in path order. Sixteen hex digits. It covers the listing, not the bytes.
+* `bytes(&self) -> u64`: the total size.
 
 ### Entry
 
-* `pub struct Entry { pub path: String, pub size: u64, pub sha256: String }`. `Serialize`, `Deserialize`.
+* `pub struct Entry { pub path: String, pub size: u64, pub sha256: String }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`, `#[non_exhaustive]`.
 
 ### Manifest
 
-* `pub struct Manifest { pub format: u32, pub name: String, pub version: String, pub at: String, pub hash: String, pub files: Vec<Entry> }`, written as `.snapfire-site.json` at an artifact's root. `MANIFEST` is that name and `FORMAT` is `2`.
-* `Manifest::of(dir, version)` lays the tree out and hashes it; `Manifest::of_rows(dir, version, config, rows)` does it from rows a caller has. `read`, `read_archive`, `write`, `path`.
-* `verify(&self, dir) -> Result<(), ArtifactError>`: every listed file present with the digest listed, nothing present and unlisted and the whole listing hashing to what the manifest declares. What an install checks before a staged directory is renamed into place.
+The `.snapfire-site.json` at an artifact's root. Constants in `artifact`: `MANIFEST = ".snapfire-site.json"`, `FORMAT = 2`.
+
+* `pub struct Manifest { pub format: u32, pub name: String, pub version: String, pub at: String, pub hash: String, pub files: Vec<Entry> }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`, `#[non_exhaustive]`.
+* `name` is the site's `[site] name` and `at` is its `[site] at`.
+* `Manifest::of(dir: &Path, version: &str) -> Result<Manifest, ArtifactError>`
+* `Manifest::of_rows(dir: &Path, version: &str, config: &Config, rows: &[Row]) -> Result<Manifest, ArtifactError>`: `NotASite` when `config` has no `[site]`.
+* `Manifest::path(dir: &Path) -> PathBuf`
+* `Manifest::read(dir: &Path) -> Result<Option<Manifest>, ArtifactError>`: `None` when `dir` has no manifest.
+* `Manifest::read_archive(archive: &Path) -> Result<Manifest, ArtifactError>`: reads the manifest from a gzipped tar without unpacking it.
+* `write(&self, dir: &Path) -> Result<(), ArtifactError>`
+* `verify(&self, dir: &Path) -> Result<(), ArtifactError>`: every listed file is present with its listed digest, no unlisted file is present and the listing hashes to `hash`.
 
 ### pack
 
-* `pack(dir: &Path, version: &str, out: &Path) -> Result<Manifest, ArtifactError>`: the artifact at `dir` as a gzipped tar at `out`, laid out as a deploy tree, its manifest at the archive root. Entries carry no timestamp and no owner, so packing the same tree twice produces the same bytes.
+* `pack(dir: &Path, version: &str, out: &Path) -> Result<Manifest, ArtifactError>`: writes the artifact at `dir` to `out` as a gzipped tar laid out as a deploy tree, with its manifest at the archive root. Entries carry no timestamp and no owner. Packing the same tree twice gives the same bytes.
 
 ### unpack
 
-* `unpack(archive: &Path, into: &Path) -> Result<Manifest, ArtifactError>`: into a directory that must not exist, returning the manifest without verifying it. An entry that is absolute, that climbs out with `..` or that is not a regular file is refused before anything is written.
+* `unpack(archive: &Path, into: &Path) -> Result<Manifest, ArtifactError>`: `into` must not exist. The manifest is returned unverified.
+* Refuses an absolute entry, an entry containing `..` and an entry that is not a regular file, before writing anything.
 
 ## 4. Installing
 
-Feature `http` adds `HttpStore`. Module constant `STAGING` is `".staging"`, the directory under the cache root a fetch stages in; `STORE_HEADER_ENV` is `"FSR_SITES_STORE_HEADER"`.
+Feature `http` adds `HttpStore`. Constants in `install`: `STAGING = ".staging"` is the staging directory under a cache root. `LOCK = ".lock"` is the cache's lock file. At the crate root: `STORE_HEADER_ENV = "FSR_SITES_STORE_HEADER"`.
 
 ### Store
 
-* `pub trait Store: Send + Sync { fn describe(&self) -> String; fn fetch(&self, package: &str, version: &str, into: &Path) -> Result<Manifest, InstallError>; }`: where a version's bytes come from. `fetch` writes the artifact into `into`, an empty directory the cache owns, with its manifest at the root; the cache verifies what lands.
+Where a version's bytes come from.
+
+* `pub trait Store: Send + Sync`
+* `fn describe(&self) -> String`: the store's name in reports and errors.
+* `fn fetch(&self, package: &str, version: &str, into: &Path) -> Result<Manifest, InstallError>`: writes the artifact into `into`, an empty directory, with its manifest at the root. The cache verifies the result.
 
 ### TarStore
 
-* `pub struct TarStore { pub dir: PathBuf }`: a directory of `<package>-<version>.tar.gz`. `new(dir)`, `archive(package, version) -> PathBuf`. `Absent` when the file is not there.
+A directory of `<package>-<version>.tar.gz` files.
+
+* `pub struct TarStore { pub dir: PathBuf }`. `Debug`, `Clone`, `#[non_exhaustive]`.
+* `TarStore::new(dir: impl Into<PathBuf>) -> TarStore`
+* `archive(&self, package: &str, version: &str) -> PathBuf`
+* `archive` is `<dir>/<package>-<version>.tar.gz`.
+* `fetch` returns `Absent` when the file is not there.
 
 ### ArchiveStore
 
-* `pub struct ArchiveStore { pub archive: PathBuf }`, `#[non_exhaustive]`: one archive as a store of a single version, whatever version is asked for. `new(archive: PathBuf)`.
+One archive, answered for whatever version is asked.
+
+* `pub struct ArchiveStore { pub archive: PathBuf }`. `Debug`, `Clone`, `#[non_exhaustive]`.
+* `ArchiveStore::new(archive: PathBuf) -> ArchiveStore`
 
 ### HttpStore
 
-* `pub struct HttpStore { pub base: String, pub headers: Vec<(String, String)> }`, feature `http`: `GET <base>/<package>-<version>.tar.gz` with every header. `new(base)` trims a trailing slash, `header(name, value)` adds one, `url(package, version)` is the URL fetched. A 404 is `Absent`; any other failure is `Fetch`. The body streams to a file beside `into` that is removed after it is unpacked.
+`GET <base>/<package>-<version>.tar.gz` with every header. Feature `http`.
+
+* `pub struct HttpStore { pub base: String, pub headers: Vec<(String, String)> }`. `Debug`, `Clone`, `#[non_exhaustive]`.
+* `HttpStore::new(base: impl Into<String>) -> HttpStore`: trims a trailing slash.
+* `header(self, name: impl Into<String>, value: impl Into<String>) -> HttpStore`
+* `url(&self, package: &str, version: &str) -> String`
+* `fetch` returns `Absent` on a 404 and `Fetch` on any other failure.
 
 ### Cache
 
-* `pub struct Cache { pub root: PathBuf }`: `<root>/<name>/<version>` per installed version, where `name@version` resolves.
-* `path(name, version)`, `holds(name, version)`, `versions(name)` oldest install first.
-* `install(&self, store: &dyn Store, name, package, version, keep: Option<usize>) -> Result<Installed, InstallError>`: a held version is reported with `held: true` and not fetched; otherwise the store fills a staging directory, the manifest is verified and the directory renamed into place, then `keep` sweeps. `Mismatch` when the archive's manifest names another version.
-* `sweep(name, keep, hold: &[String])` removes the oldest versions beyond `keep`, never one in `hold`; `sweep_staging()` removes what a dead fetch left. `install`, `sweep` and `sweep_staging` each hold an exclusive lock on `<root>/.lock` (`LOCK`), so hosts and commands sharing a cache never act on each other's half-finished install: the second installer of a version finds it held.
+Installed versions at `<root>/<name>/<version>`.
+
+* `pub struct Cache { pub root: PathBuf }`. `Debug`, `Clone`, `#[non_exhaustive]`.
+* `Cache::new(root: impl Into<PathBuf>) -> Cache`
+* `path(&self, name: &str, version: &str) -> PathBuf`
+* `holds(&self, name: &str, version: &str) -> bool`
+* `versions(&self, name: &str) -> Vec<String>`: oldest install first.
+* `install(&self, store: &dyn Store, name: &str, package: &str, version: &str, keep: Option<usize>) -> Result<Installed, InstallError>`: installs `package` at `version` from `store` as `name`. A held version returns with `held: true` and is not fetched. Otherwise the store fills a staging directory, the manifest is verified, the directory is renamed into place and `keep` sweeps. `Mismatch` when the manifest names another version.
+* `sweep(&self, name: &str, keep: usize, hold: &[String]) -> Result<Vec<String>, InstallError>`: removes versions past the `keep` most recent, never one in `hold`. Returns what it removed.
+* `sweep_staging(&self) -> Result<usize, InstallError>`: removes every staging directory. Only safe when nothing else is installing.
+* `install`, `sweep` and `sweep_staging` each hold an exclusive lock on `<root>/.lock`.
 
 ### Installed
 
-* `pub struct Installed { pub name: String, pub version: String, pub hash: String, pub path: PathBuf, pub held: bool, pub swept: Vec<String> }`.
+* `pub struct Installed { pub name: String, pub version: String, pub hash: String, pub path: PathBuf, pub held: bool, pub swept: Vec<String> }`. `Debug`, `Clone`, `#[non_exhaustive]`.
+* `name` is the name the cache holds it under. `held` is true when nothing was fetched. `swept` lists the versions the sweep removed.
 
 ### store_of
 
-* `store_of(config: &Config) -> Result<Option<Box<dyn Store>>, SitesError>`: `sites.store` as a store. An `http://` or `https://` URL is an `HttpStore` carrying the `Name: Value` header in `FSR_SITES_STORE_HEADER` when it is set; anything else a `TarStore` against `config.root`. A URL without the `http` feature is `Artifact` naming `store`. `None` without a `sites.store`.
+* `store_of(config: &Config) -> Result<Option<Box<dyn Store>>, SitesError>`: `sites.store` as a store. `None` without a `sites.store`.
+* An `http://` or `https://` URL is an `HttpStore`. It carries the `Name: Value` header in `FSR_SITES_STORE_HEADER` when that is set. A URL without the `http` feature is `Artifact` naming `store`. A header that is not `Name: Value` is also `Artifact` naming `store`.
+* Anything else is a `TarStore` against `config.root`.
 
 ### fetch_missing
 
-* `fetch_missing(config: &Config, store: &dyn Store) -> Result<Vec<Installed>, SitesError>`: every `name@version` row whose version the cache under `sites.root` lacks, installed from `store` as `name`. Path rows and held versions are skipped; a pinned hash is left for `resolve`. A failure is `Artifact` naming the row.
+* `fetch_missing(config: &Config, store: &dyn Store) -> Result<Vec<Installed>, SitesError>`: installs every `name@version` row the cache under `sites.root` lacks, with no sweep. Skips path rows and held versions. Empty without a `sites.root`. Does not check a pinned hash. A failure is `Artifact` naming the row.
 
 ## 5. Mounting
 
 ### mount_all
 
-* `mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError>`: `fetch_missing` from `store_of` when the configuration names a store, then `resolve` over the builder's configuration and for each site `Loader::mount` on the builder's loader (`Loader::at` when it has none), `load` and `HostBuilder::mount`.
+* `mount_all(builder: HostBuilder) -> Result<HostBuilder, SitesError>`: runs `fetch_missing` against `store_of` when the configuration names a store, then `resolve`. Mounts each site with `Loader::mount` on the builder's loader (`Loader::at` when it has none), `load` and `HostBuilder::mount`.
 
 ### mount_all_with
 
-* `mount_all_with(builder: HostBuilder, store: &dyn Store) -> Result<HostBuilder, SitesError>`: the same, fetching from `store` instead of the configured one.
+* `mount_all_with(builder: HostBuilder, store: &dyn Store) -> Result<HostBuilder, SitesError>`: `mount_all`, fetching from `store`.
 
 ### mountable
 
-* `mountable(builder: HostBuilder) -> HostBuilder`: installs `mount_all` as the builder's sites mounter, so `Host::reload`, `Host::reload_sites` and `POST /__fsr/sites/reload` mount again.
+* `mountable(builder: HostBuilder) -> HostBuilder`: installs `mount_all` as the builder's sites mounter. `Host::reload`, `Host::reload_sites` and `POST /__fsr/sites/reload` then mount again.
+* `POST /__fsr/sites/reload` needs feature `reload_route`.
 
 ### mountable_with
 
@@ -195,60 +248,90 @@ Feature `http` adds `HttpStore`. Module constant `STAGING` is `".staging"`, the 
 
 ### watch
 
-* `watch(host: Arc<Host>, root: PathBuf, poll: Option<Duration>)`: spawns onto the current tokio runtime a task that calls `Host::reload` on every `SIGHUP` (unix) and, with `poll`, a task that every `poll` rereads the configuration at `root`, resolves it and calls `Host::reload` when the rows' names, paths, versions or hashes changed since the last look. Results are logged under `fsr::sites`; a refused reload leaves the host as it was.
+* `watch(host: Arc<Host>, root: PathBuf, poll: Option<Duration>)`: spawns onto the current tokio runtime. Calls `Host::reload_checked` on every `SIGHUP` (unix).
+* With `poll`, also rereads the configuration at `root` every `poll` and calls `Host::reload_checked` when a row's name, path, version or hash changed.
+* Logs under `fsr::sites`. A refused reload leaves the host unchanged.
 
 ### poll_of
 
-* `poll_of(config: &Config) -> Option<Duration>`: `sites.poll` parsed.
+* `poll_of(config: &Config) -> Option<Duration>`: `sites.poll`, parsed.
 
 ## 7. Serving
 
-The stock host over an application with no crate of its own. `fsr serve` runs it in development and the `fsr-server` binary in production. `VERSION` is this crate's version, which `fsr bundle` builds and caches `fsr-server` at.
+The stock host over an application with no crate of its own, in module `serve`. The crate root's `VERSION` is this crate's version.
 
 ### serve::project_root
 
-* `project_root(app: &Path) -> PathBuf`: the directory beside `app` when it holds `config/`, an `app.toml` or an `app.yaml`, else `app` itself.
+* `project_root(app: &Path) -> PathBuf`: the directory beside `app` when it holds `config/`, `app.toml` or `app.yaml`, else `app`.
 
 ### serve::host_of
 
-* `host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>, Option<LoggingGuard>), ServeError>`: the host over `app` with its `[sites]` table mounted. Refuses a configuration whose `[app] dir` names another directory. With `serve`, it sets the process's logging and collects traces under `server.dev` or when the configuration exposes or inlines them.
+* `host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>, Option<LoggingGuard>), ServeError>`: the host over `app` with its `[sites]` table mounted.
+* Refuses a configuration whose `[app] dir` names another directory.
+* With `serve`, sets the process's logging from the project's `fibre_logging.yaml`, else warnings and errors to stderr.
+* With `serve`, collects traces under `server.dev` or when the configuration exposes or inlines them. Without it, both `Option`s are `None`.
 
 ### serve::builder_with_mounts
 
-* `builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<HostBuilder, ServeError>`: the builder with `mounts` replacing or adding rows of the `[sites]` table, reloading the same way.
+* `builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<HostBuilder, ServeError>`: the builder, with `mounts` replacing or adding `[sites]` rows on every reload.
 
 ### serve::listen
 
-* `async listen(host: Arc<Host>, root: PathBuf, listen: &str, bound: impl FnOnce(&str) -> io::Result<()>) -> io::Result<()>`: binds `listen`, tells `bound` the address taken, watches the `[sites]` table under `root` and serves until the process ends.
+* `async listen(host: Arc<Host>, root: PathBuf, listen: &str, bound: impl FnOnce(&str) -> io::Result<()>) -> io::Result<()>`: binds `listen`, passes the bound address to `bound`, watches the `[sites]` table under `root` and serves until the process ends.
 
 ### fsr-server
 
-* `fsr-server [<app dir>] [--listen <addr>]`, a binary behind feature `server`, which also turns on the host's `auth`, `oidc`, `passkey`, `tera` and `tls` features and `http`. The app directory defaults to `app` beside the binary. `RELEASE_ENV` defaults to `production`. A configuration with `server.dev` on is refused with exit code 2.
+* `fsr-server [<app dir>] [--listen <addr>]`. Feature `server`, which also enables `http` and the host's `auth`, `oidc`, `passkey`, `tera`, `tls`, `grpc`, `graphql`, `http` and `share_cards`.
+* `<app dir>` defaults to `app` beside the binary. `--listen` defaults to the configured listen address. `RELEASE_ENV` defaults to `production`.
+* `--help` or `-h` prints the usage line.
+* Exits with code 2 when `server.dev` is on, on an unknown flag or a second app directory and when the host fails to build or serve.
 
 ## 8. Error Handling
 
 ### SitesError
 
-* `Host(HostError)`, transparent.
-* `Artifact { name: String, message: String }`, displayed as `sites.<name>: <message>`.
-* `Content(ArtifactError)`, transparent.
+`#[non_exhaustive]`.
+
+* `Host(HostError)`: transparent.
+* `Artifact { name: String, message: String }`: displays as `sites.<name>: <message>`.
+* `Content(ArtifactError)`: transparent.
 
 ### InstallError
 
-* `#[non_exhaustive]`. `Artifact(ArtifactError)`, transparent; `Io(PathBuf, std::io::Error)`; `Held { name, version, path }`; `Absent { store, package, version }`, displayed as `<store> holds no <package> at <version>`; `Fetch(url, message)`; `Mismatch { name, version, package, wanted }`.
+`#[non_exhaustive]`.
+
+* `Artifact(ArtifactError)`: transparent.
+* `Io(PathBuf, std::io::Error)`
+* `Held { name: String, version: String, path: PathBuf }`: `<name>@<version> is already installed at <path>`.
+* `Absent { store: String, package: String, version: String }`: `<store> holds no <package> at <version>`.
+* `Fetch(String, String)`: the URL and the failure.
+* `Mismatch { name: String, version: String, package: String, wanted: String }`: the artifact is `name@version` and `package@wanted` was asked for.
 
 ### LayoutError
 
-* `Escapes(String)`, a destination that would place a file outside the tree.
-* `Collides(String)`, one destination wanted by two sources.
-* `NoConfig`, a configuration read from no file, so a tree has nothing to carry.
-* `Io(PathBuf, std::io::Error)` and `Layer(String)`, the generated configuration failing to serialize.
+`#[non_exhaustive]`.
+
+* `Escapes(String)`: a destination that is not a plain relative path.
+* `Collides(String)`: a destination one configuration file places from two sources.
+* `NoConfig`: the configuration was read from no file.
+* `Io(PathBuf, std::io::Error)`
+* `Layer(String)`: the generated `bundle.toml` failed to serialize.
+* `Disagree(String, String, String)`: a destination two configuration files place from different sources, with both file names.
+* `Overlay(String, String)`: an overlay under `config/` that does not load, with the reason.
 
 ### ArtifactError
 
-* `Io`, `Config(HostError)`, `NotASite(PathBuf)`, `Manifest { path, message }`, `Format(PathBuf, u32)`, `Archive(PathBuf, String)`, `Layout(LayoutError)`.
-* From `verify`: `Hash { found, declared }`, `Digest { path, found, declared }`, `Missing { path }`, `Extra { path }`.
+`#[non_exhaustive]`.
+
+* `Io(PathBuf, std::io::Error)`
+* `Config(HostError)`: transparent.
+* `NotASite(PathBuf)`: the configuration has no `[site]`.
+* `Manifest { path: PathBuf, message: String }`
+* `Format(PathBuf, u32)`: a manifest format this build does not read.
+* `Archive(PathBuf, String)`
+* `Layout(LayoutError)`: transparent.
+* From `verify`: `Hash { found: String, declared: String }`, `Digest { path: String, found: String, declared: String }`, `Missing { path: String }`, `Extra { path: String }`.
 
 ### ServeError
 
-* `pub struct ServeError(pub String)`: why `serve::host_of` or `serve::builder_with_mounts` could not build the host.
+* `pub struct ServeError(pub String)`: why `serve::host_of` or `serve::builder_with_mounts` could not build the host. `Debug`. Displays as the string.

@@ -72,7 +72,9 @@ fn main() {
   assert!(opened.fresh);
   opened.cell.insert("visits", Value::int(1i64));
 
-  let set_cookie = block_on(sessions.persist(&opened)).expect("a fresh dirty session sets a cookie");
+  let set_cookie = block_on(sessions.persist(&opened))
+    .expect("the memory store accepts the write")
+    .expect("a fresh dirty session sets a cookie");
   let header = set_cookie.split(';').next().unwrap().to_owned();
 
   let back = block_on(sessions.open(Some(&header)));
@@ -86,7 +88,7 @@ The same three calls in an async adapter, which is where they actually belong.
 ```rust
 let opened = sessions.open(cookie_header.as_deref()).await;
 let mut response = route(&request, &opened).await;
-if let Some(set_cookie) = sessions.persist(&opened).await {
+if let Some(set_cookie) = sessions.persist(&opened).await? {
   response.set_header("set-cookie", set_cookie);
 }
 ```
@@ -195,10 +197,10 @@ What comes back from `bind` only calls, so handing it to application code hands 
 
 ## Persisting at the Response
 
-A written session also moves `sf_state`, a cookie script can read, when the host appends `sessions.state_cookie()` beside the session cookie; the client's router cache keys what it holds on it, so a payload fetched before a write is never applied after one. `persist` saves the record when either cell is dirty. It returns a `Set-Cookie` value only when the session is also fresh.
+A written session also moves `sf_state`, a cookie script can read, when the host appends `sessions.state_cookie()` beside the session cookie; the client's router cache keys what it holds on it, so a payload fetched before a write is never applied after one. `persist` saves the record when either cell is dirty. It returns `Ok(Some(set_cookie))` when the session is also fresh, stale or extended. A session sealed in the cookie gets one on every save. It returns `Err(StoreError)` when the store refuses the write or the session is over `max_bytes`.
 
 ```rust
-if let Some(set_cookie) = sessions.persist(&opened).await {
+if let Some(set_cookie) = sessions.persist(&opened).await? {
   response.headers_mut().append(header::SET_COOKIE, HeaderValue::from_str(&set_cookie)?);
 }
 ```
@@ -207,17 +209,17 @@ A token-only write is enough to save and to set the cookie when the session is a
 
 ```rust
 opened.tokens.set("access_token", Value::Str("secret-abc".to_owned()));
-let set_cookie = sessions.persist(&opened).await.expect("a token-only write persists");
+let set_cookie = sessions.persist(&opened).await?.expect("a token-only write persists");
 ```
 
 A fresh session that stored nothing writes nothing and sets no cookie, which is why a crawler never mints a session.
 
 ```rust
 let opened = sessions.open(None).await;
-assert_eq!(sessions.persist(&opened).await, None);
+assert_eq!(sessions.persist(&opened).await, Ok(None));
 ```
 
-An existing session that is dirty saves and returns `None`, because the browser already holds the right cookie.
+An existing session that is dirty saves and returns `Ok(None)`, because the browser already holds the right cookie.
 
 ## Extending a Session
 
@@ -228,17 +230,17 @@ let opened = block_on(sessions.open(Some(&cookie_header)));
 if opened.cell.expires() < unix_now() + 2 * 3600 {
   opened.cell.extend(Duration::from_secs(8 * 3600));
 }
-let set_cookie = block_on(sessions.persist(&opened)).unwrap();
+let set_cookie = block_on(sessions.persist(&opened))?.expect("an extended session sets its cookie again");
 ```
 
 Extend where it is cheap: on sign-in, on a write the application makes anyway or once the remaining time drops under a threshold as above, so a busy session costs one store write a day rather than one a request. `unix_now` is `snapfire_fsr_runtime::unix_now`, the clock every end is read against.
 
 ## Destroying a Session on Logout
 
-`destroy` deletes the record and returns the expiring cookie. It always returns a value, so the header is always worth setting.
+`destroy` deletes the record and returns the expiring cookie. It returns `Err(StoreError)` only when the store fails to delete the record.
 
 ```rust
-let expire = sessions.destroy(&opened).await;
+let expire = sessions.destroy(&opened).await?;
 response.headers_mut().append(header::SET_COOKIE, HeaderValue::from_str(&expire)?);
 ```
 
@@ -254,7 +256,7 @@ Clearing the cells first, then destroying, is what the auth crate and the adapte
 
 ```rust
 auth.logout(&opened);
-let expire = sessions.destroy(&opened).await;
+let expire = sessions.destroy(&opened).await?;
 ```
 
 ## Issuing and Verifying CSRF Tokens
@@ -344,10 +346,14 @@ async fn handle(req: HttpRequest, app: Data<Arc<AppCore>>, body: Bytes) -> HttpR
   }
 
   let mut response = route(&req, &app, &opened, body).await;
-  if let Some(set_cookie) = app.sessions.persist(&opened).await {
-    if let Ok(value) = header::HeaderValue::from_str(&set_cookie) {
-      response.headers_mut().append(header::SET_COOKIE, value);
+  match app.sessions.persist(&opened).await {
+    Ok(Some(set_cookie)) => {
+      if let Ok(value) = header::HeaderValue::from_str(&set_cookie) {
+        response.headers_mut().append(header::SET_COOKIE, value);
+      }
     }
+    Ok(None) => {}
+    Err(error) => tracing::error!(%error, "the session was not saved"),
   }
   response
 }
@@ -356,7 +362,7 @@ async fn handle(req: HttpRequest, app: Data<Arc<AppCore>>, body: Bytes) -> HttpR
 Inside the route, the cell and the CSRF token go into the render; the tokens go only to the service binding.
 
 ```rust
-let csrf = app.sessions.csrf_token(&opened.id);
+let csrf = app.sessions.csrf_token(&opened);
 let incoming = Incoming::new(opened.cell.clone(), Some(csrf), Arc::new(opened.tokens.clone()));
 ```
 
@@ -367,7 +373,7 @@ let token = match params.shift_remove("_csrf") {
   Some(Value::Str(token)) => token,
   _ => String::new(),
 };
-if !app.sessions.verify_csrf(&opened.id, &token) {
+if !app.sessions.verify_csrf(&opened, &token) {
   return HttpResponse::Forbidden().body("csrf verification failed");
 }
 ```
@@ -579,15 +585,16 @@ Both cells are `Arc`-backed and independently dirty-tracked, which is what lets 
 
 ## Error Handling
 
-The crate defines no error type. Every fallible path is expressed as an `Option`, a `bool` or a fresh session, because a bad cookie is an ordinary request rather than a fault.
+The crate's one error type is `StoreError`, a message naming why a session could not be written. `persist`, `establish`, `destroy` and `renew` return it. A bad cookie is not an error: `open` yields a fresh session and `verify_csrf` returns `false`.
 
 ```rust
 match sessions.persist(&opened).await {
-  Some(set_cookie) => response.set_header("set-cookie", set_cookie),
-  None => {}
+  Ok(Some(set_cookie)) => response.set_header("set-cookie", set_cookie),
+  Ok(None) => {}
+  Err(error) => tracing::error!(%error, "the session was not saved"),
 }
 
-if !sessions.verify_csrf(&opened.id, &submitted) {
+if !sessions.verify_csrf(&opened, &submitted) {
   return forbidden();
 }
 
@@ -597,9 +604,10 @@ match codec.decode(value) {
 }
 ```
 
-Three things behave in ways worth knowing before they surprise you.
+Four things behave in ways worth knowing before they surprise you.
 
-* `Sessions::open`, `persist` and `destroy` never fail. A tampered or foreign cookie yields a fresh session; a valid cookie with no record yields the same id with empty cells and `fresh` false, so no new cookie is sent.
+* `Sessions::open` never fails. A tampered or foreign cookie yields a fresh session; a valid cookie with no record yields the same id with empty cells and `fresh` false, so no new cookie is sent.
+* `persist` and `establish` return `StoreError` when the session holds more than `SessionConfig::max_bytes`, when a sealed cookie would pass `COOKIE_LIMIT` or when the store's `save` fails. `destroy` and `renew` return it when the store's `delete` fails. `MemorySessionStore` never fails a `save` or a `delete`.
 * `MemorySessionStore::new` and `sharded` panic if `fibre_cache` refuses the builder. Build the cache yourself and pass it to `with_cache` when you want to handle that.
 * `HmacCodec::new` accepts any key length without complaint, so a short key is a silent weakness rather than an error. Use thirty-two bytes or more.
 

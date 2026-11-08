@@ -6,7 +6,7 @@ license.workspace = true
 homepage = { workspace = true }
 repository = { workspace = true }
 readme = "README.md"
-description = "Derives for SnapFire FSR: the native module attribute."
+description = "Attributes and a derive that let the TypeScript an FSR application runs on the server call Rust: #[native], #[service] and #[derive(Record)]."
 keywords = ["snapfire", "fsr", "macro", "derive", "typescript"]
 categories = ["web-programming", "development-tools::procedural-macro-helpers"]
 

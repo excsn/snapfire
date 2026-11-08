@@ -67,7 +67,7 @@ fn main() {
   let step = block_on(auth.begin(&opened, Start::sign_in("/dash/servers"))).unwrap();
   assert!(matches!(step, Step::Present { ref kind, .. } if kind == "form"));
 
-  let mut params = ValueMap::new();
+  let mut params = ValueMap::default();
   params.insert("user".to_owned(), Value::str("alice"));
   params.insert("password".to_owned(), Value::str("wonder"));
 
@@ -282,7 +282,7 @@ Answer the first step plus whatever has to come back with it. The state stays se
 ```rust
 fn begin(&self, _start: Start) -> BoxFuture<'_, Result<Next, AuthError>> {
   let nonce = generate_nonce();
-  let mut state = ValueMap::new();
+  let mut state = ValueMap::default();
   state.insert("nonce".to_owned(), Value::str(nonce.clone()));
   Box::pin(ready(Ok(Next::redirect(format!("{}?state={nonce}", self.authorize_url), state))))
 }
@@ -308,9 +308,9 @@ fn advance(&self, params: ValueMap, state: ValueMap) -> BoxFuture<'_, Result<Nex
     if state.get("nonce") != Some(&Value::str(returned)) {
       return Err(AuthError::Invalid("state mismatch".to_owned()));
     }
-    let mut tokens = ValueMap::new();
+    let mut tokens = ValueMap::default();
     tokens.insert("access_token".to_owned(), Value::str(exchange(&params)?));
-    Ok(Next::Complete(AuthOutcome::new(Identity::new(subject_of(&params), ValueMap::new()), tokens)))
+    Ok(Next::Complete(AuthOutcome::new(Identity::new(subject_of(&params), ValueMap::default()), tokens)))
   })();
   Box::pin(ready(result))
 }
@@ -366,7 +366,7 @@ let provider = DevProvider::new().user("alice", "wonder").user("bob", "builder")
 For a user whose claims a template or an interceptor needs, use `user_with_claims`.
 
 ```rust
-let mut claims = ValueMap::new();
+let mut claims = ValueMap::default();
 claims.insert("role".to_owned(), Value::str("operator"));
 let provider = DevProvider::new().user_with_claims("alice", "wonder", claims);
 ```

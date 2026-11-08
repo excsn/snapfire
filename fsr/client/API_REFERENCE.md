@@ -1,6 +1,6 @@
 # API Reference: @snapfire/fsr/client
 
-The browser half of SnapFire FSR: payload decoding, island hydration, streamed slot filling, segment navigation and the action client.
+The browser half of SnapFire FSR: value decoding, payload reading, island hydration, streamed slot filling, navigation, actions and the store.
 
 ## Contents
 
@@ -9,6 +9,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [SfValue](#sfvalue)
   * [RefValue](#refvalue)
   * [VariantValue](#variantvalue)
+  * [DoubleValue](#doublevalue)
   * [Constructors and Guards](#constructors-and-guards)
   * [decodeValue](#decodevalue)
   * [encodeValue](#encodevalue)
@@ -16,75 +17,82 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
 * [3. Payload Reading](#3-payload-reading)
   * [SfNode](#sfnode)
   * [Segment](#segment)
-  * [Payload](#payload)
   * [Head](#head)
-  * [decodeNode](#decodenode)
-  * [parsePayload](#parsepayload)
+  * [Payload](#payload)
   * [Row](#row)
+  * [decodeNode](#decodenode)
   * [parseRow](#parserow)
+  * [parsePayload](#parsepayload)
   * [linesOf](#linesof)
   * [Row Grammar](#row-grammar)
 * [4. Rendering](#4-rendering)
+  * [IdAlloc](#idalloc)
   * [nodeToHtml](#nodetohtml)
   * [renderSegment](#rendersegment)
   * [regionSources](#regionsources)
 * [5. Islands](#5-islands)
   * [Props](#props)
   * [Mounter](#mounter)
+  * [Patcher](#patcher)
+  * [Unmounter](#unmounter)
+  * [Pauser](#pauser)
+  * [MountTiming](#mounttiming)
+  * [IslandEntry](#islandentry)
+  * [Adapter](#adapter)
+  * [DeferredIsland](#deferredisland)
   * [Piece](#piece)
+  * [registerIsland](#registerisland)
+  * [registerDeferredIsland](#registerdeferredisland)
+  * [registerModule](#registermodule)
+  * [registeredIslands](#registeredislands)
+  * [deferredIslands](#deferredislands)
   * [rendersNested](#rendersnested)
+  * [boot](#boot)
+  * [scan](#scan)
+  * [loadEntry](#loadentry)
+  * [timingFired](#timingfired)
+  * [patchIsland](#patchisland)
+  * [islandState](#islandstate)
+  * [markerProps](#markerprops)
+  * [serverRendered](#serverrendered)
   * [childrenRegion and islandChildren](#childrenregion-and-islandchildren)
   * [adoptNodes](#adoptnodes)
   * [readPieces and piecesOf](#readpieces-and-piecesof)
   * [loadedModule and loadModule](#loadedmodule-and-loadmodule)
   * [markRendered and unmarked](#markrendered-and-unmarked)
-  * [timingFired](#timingfired)
-  * [MountTiming](#mounttiming)
   * [defineMounter](#definemounter)
-  * [Unmounter](#unmounter)
-  * [Pauser](#pauser)
-  * [IslandEntry](#islandentry)
-  * [registerIsland](#registerisland)
-  * [Adapter](#adapter)
-  * [DeferredIsland](#deferredisland)
-  * [registerDeferredIsland](#registerdeferredisland)
-  * [registerModule](#registermodule)
-  * [registeredIslands](#registeredislands)
-  * [deferredIslands](#deferredislands)
-  * [scan](#scan)
-  * [loadEntry](#loadentry)
-  * [boot](#boot)
-  * [patchIsland](#patchisland)
-  * [islandState](#islandstate)
-  * [markerProps](#markerprops)
-  * [serverRendered](#serverrendered)
   * [hydrationMismatch](#hydrationmismatch)
   * [discard](#discard)
-  * [DOM Contract](#dom-contract)
+  * [applyStyles](#applystyles)
+  * [mountServer](#mountserver)
   * [isServerIsland](#isserverisland)
   * [morph](#morph)
-  * [mountServer](#mountserver)
+  * [DOM Contract](#dom-contract)
 * [6. Navigation](#6-navigation)
+  * [NavigateOptions](#navigateoptions)
+  * [NavigationOptions and PrefetchTiming](#navigationoptions-and-prefetchtiming)
   * [enableNavigation](#enablenavigation)
-  * [enableTelemetry](#enabletelemetry)
-  * [prefetch](#prefetch)
-  * [clearRouterCache](#clearroutercache)
   * [navigate](#navigate)
   * [refresh](#refresh)
+  * [prefetch](#prefetch)
+  * [clearRouterCache](#clearroutercache)
   * [pendingLink and subscribePendingLink](#pendinglink-and-subscribependinglink)
-  * [live](#live)
-  * [socket](#socket)
-  * [enablePwa](#enablepwa)
   * [applyHead](#applyhead)
   * [loadScript](#loadscript)
   * [loadDeclaredScripts](#loaddeclaredscripts)
+  * [live](#live)
+  * [socket](#socket)
+  * [enablePwa](#enablepwa)
+  * [enableTelemetry](#enabletelemetry)
 * [7. Actions and Sign-In](#7-actions-and-sign-in)
   * [action](#action)
+  * [upload](#upload)
   * [signIn](#signin)
   * [enrol](#enrol)
   * [answer](#answer)
   * [AuthStep and AuthOptions](#authstep-and-authoptions)
 * [8. The Store](#8-the-store)
+  * [Contribution](#contribution)
   * [StoreKey](#storekey)
   * [key](#key)
   * [get](#get)
@@ -94,48 +102,54 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [transaction](#transaction)
   * [derive](#derive)
   * [optimistic](#optimistic)
-  * [isPending and whenSettled](#ispending-and-whensettled)
   * [seed](#seed)
   * [adopt](#adopt)
   * [reset](#reset)
   * [snapshot](#snapshot)
+  * [contribute](#contribute)
+  * [retain](#retain)
+  * [take and restore](#take-and-restore)
+  * [setSlotOrder](#setslotorder)
+  * [isPending and whenSettled](#ispending-and-whensettled)
 * [9. The Locale](#9-the-locale)
   * [currentLocale](#currentlocale)
   * [subscribeLocale](#subscribelocale)
   * [subscribeMessages](#subscribemessages)
   * [setLocale](#setlocale)
-  * [catalog, setCatalog and adoptCatalog](#catalog-setcatalog-and-adoptcatalog)
   * [adoptLocale](#adoptlocale)
+  * [catalog, setCatalog and adoptCatalog](#catalog-setcatalog-and-adoptcatalog)
+  * [localePath](#localepath)
   * [markLinks](#marklinks)
   * [currentDocumentPath](#currentdocumentpath)
   * [currentAddressPath](#currentaddresspath)
-  * [localePath](#localepath)
 * [10. The React Mounter](#10-the-react-mounter)
   * [reactMounter](#reactmounter)
-  * [useHoisted](#usehoisted)
-  * [useBrowser](#usebrowser)
-  * [withHoisted](#withhoisted)
-  * [Island](#island)
-  * [island(component, options)](#islandcomponent-options)
+  * [reactPatcher](#reactpatcher)
+  * [reactUnmounter](#reactunmounter)
+  * [reactPauser](#reactpauser)
+  * [Island and island](#island-and-island)
   * [Slot](#slot)
-  * [useStore](#usestore)
-  * [useLocale](#uselocale)
-  * [useLinkStatus](#uselinkstatus)
+  * [Mount](#mount)
+  * [foreign](#foreign)
   * [Link](#link)
   * [Picture](#picture)
   * [Embed](#embed)
   * [Place](#place)
-  * [Mount](#mount)
-  * [foreign](#foreign)
-  * [reactPatcher](#reactpatcher)
-  * [reactUnmounter](#reactunmounter)
-  * [reactPauser](#reactpauser)
+  * [useStore](#usestore)
+  * [useLocale](#uselocale)
+  * [useLinkStatus](#uselinkstatus)
+  * [useHoisted](#usehoisted)
+  * [useBrowser](#usebrowser)
+  * [withHoisted](#withhoisted)
+  * [createContext and use](#createcontext-and-use)
 * [11. The Vue Mounter](#11-the-vue-mounter)
   * [vueMounter](#vuemounter)
   * [vuePatcher](#vuepatcher)
   * [vueUnmounter](#vueunmounter)
   * [Mount (Vue)](#mount-vue)
+  * [Link, Picture, Embed and Place (Vue)](#link-picture-embed-and-place-vue)
   * [useStore (Vue)](#usestore-vue)
+  * [useLocale (Vue)](#uselocale-vue)
   * [useLinkStatus (Vue)](#uselinkstatus-vue)
 * [12. The Svelte Mounter](#12-the-svelte-mounter)
   * [svelteMounter](#sveltemounter)
@@ -151,6 +165,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [island (Svelte)](#island-svelte)
   * [mount (Svelte)](#mount-svelte)
 * [13. The JSX Element Builder](#13-the-jsx-element-builder)
+  * [JSX](#jsx)
   * [jsx and jsxs](#jsx-and-jsxs)
   * [Placements](#placements)
 * [14. Custom Elements and htmx](#14-custom-elements-and-htmx)
@@ -158,18 +173,18 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [HtmxProcessor](#htmxprocessor)
   * [bindHtmx](#bindhtmx)
 * [15. The Standard Library](#15-the-standard-library)
-  * [localeTag](#localetag)
   * [intl](#intl)
   * [text](#text)
-  * [file](#file)
-  * [path](#path)
-  * [system](#system)
-  * [clipboard](#clipboard)
   * [time](#time)
   * [crypto](#crypto)
-  * [Scope](#scope)
+  * [path](#path)
+  * [log](#log)
+  * [i18n and t](#i18n-and-t)
+  * [file](#file)
   * [id](#id)
-  * [t](#t)
+  * [system](#system)
+  * [clipboard](#clipboard)
+  * [Scope](#scope)
   * [native](#native)
 * [16. Testing](#16-testing)
   * [test and it](#test-and-it)
@@ -194,64 +209,67 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [FileFilter and OpenFileOptions](#filefilter-and-openfileoptions)
 * [18. Error Handling](#18-error-handling)
   * [ActionFailure](#actionfailure)
+  * [AuthFailure](#authfailure)
+  * [AssertionError](#assertionerror)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
 
 ## 1. Entry Points
 
-The ES module entry points, resolved through an import map. There is no package manifest and no default export.
+ES module entry points, resolved through an import map. There is no package manifest and no default export. Every module under `dist/` is also addressable as `@snapfire/fsr/client/<name>`.
 
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
-| `@snapfire/fsr/client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure`, `upload`, `signIn`, `enrol`, `answer` and `AuthFailure` | none |
-| `@snapfire/fsr/client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale`, `useLinkStatus` and the placement elements | `react`, `react-dom/client` |
-| `@snapfire/fsr/client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
-| `@snapfire/fsr/client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore`, `useLinkStatus` | `vue` |
-| `@snapfire/fsr/client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `registerTree`, `held`, `opaque`, `nested`, `useStore`, `useLocale`, `useLinkStatus`, `holdLink`, `link`, `picture`, `embed`, `island` | `svelte`, `svelte/reactivity` |
-| `@snapfire/fsr/client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
+| `@snapfire/fsr/client` | `dist/index.js` | sections 2, 3 and 5 to 9, plus `nodeToHtml` and `renderSegment`, less the members marked as from another module | none |
+| `@snapfire/fsr/client/store` | `dist/store.js` | all of section 8 | none |
+| `@snapfire/fsr/client/render` | `dist/render.js` | section 4 | none |
+| `@snapfire/fsr/client/react` | `dist/react.js` | section 10 | `react`, `react-dom/client` |
+| `@snapfire/fsr/client/vue` | `dist/vue.js` | section 11 | `vue` |
+| `@snapfire/fsr/client/svelte` | `dist/svelte.js` | section 12 | `svelte`, `svelte/reactivity` |
+| `@snapfire/fsr/client/jsx-runtime` | `dist/jsx-runtime.js` | section 13 | none |
+| `@snapfire/fsr/template` | `dist/template.js` | `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot`, `createContext` and `use` from the JSX runtime, types `ImageAsset`, `PictureProps` and `LinkProps` | none |
 | `@snapfire/fsr/client/elements` | `dist/elements.js` | `shadowOf` | none |
-| `@snapfire/fsr/client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
-| `@snapfire/fsr/template` | `dist/template.js` | `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the JSX runtime | none |
-| `@snapfire/fsr/desktop` | `dist/desktop.js` | `openFile`, `openExternal`, `FileFilter`, `OpenFileOptions`; mapped when the bundle imports it | none |
+| `@snapfire/fsr/client/htmx` | `dist/htmx.js` | `bindHtmx`, `HtmxProcessor` | none |
+| `@snapfire/fsr/client/testing` | `dist/testing.js` | section 16 | none |
+| `@snapfire/fsr` | `dist/native.js` | `native` | none |
+| `@snapfire/fsr/desktop` | `dist/desktop.js` | section 17 | none |
 
-The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is the dialect's placements as plain elements and loads no framework. The build rewrites a React or Vue island's import of the dialect to that framework's entry, so the template entry is reached only by a file nothing mounts. `Link` and `Picture` in the React, Vue and JSX runtime entries build their elements from the same attributes, computed in `dist/link.js` and `dist/picture.js`, which no specifier names.
-
-`dist/` is produced by `snapfirec` from `tsconfig.json` (`target: es2022`, `rootDir: src`, `outDir: dist`, `sourceMap`, `declaration`). `importmap.json` in the package root is the map `--import-map` checks the bare imports against.
-
-Not re-exported from either entry, though the modules define them: `IdAlloc`, `escapeKey` and `subtreeAt` in `render.ts`. A caller of `nodeToHtml` or `renderSegment` passes an object literal for the allocator.
+* `@snapfire/fsr/host` and `@snapfire/fsr/terminal` are read by the build and are never in the import map.
+* `importmap.json` in the package root is the map `snapfirec --import-map` checks the bare imports against.
 
 ## 2. Values
 
-The value model as JavaScript sees it and the pair of functions that move it across the boundary.
-
 ### SfValue
 
-The union a decoded value inhabits.
+The union a value decodes into and encodes from.
 
-* `null | boolean | number | bigint | string`
+* `null | undefined | boolean | number | bigint | string`
 * `Uint8Array | Int8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | BigInt64Array | BigUint64Array | Float32Array | Float64Array`
 * `SfValue[]`
-* `Date | Map<SfValue, SfValue> | Set<SfValue>`
-* `RefValue | VariantValue`
+* `Date | URL | Map<SfValue, SfValue> | Set<SfValue>`
+* `RefValue | VariantValue | DoubleValue`
 * `{ [key: string]: SfValue }`
 
 ### RefValue
 
 A reference to a server action or a client module.
 
-* `readonly kind: "action" | "module"`
-* `readonly id: string`
-
-Frozen and branded with `Symbol.for("sf.ref")`. Test with `isRef`, not by shape.
+* `type RefValue = { readonly kind: "action" | "module"; readonly id: string }`
+* Frozen and branded with `Symbol.for("sf.ref")`. `isRef` tests the brand, not the shape.
 
 ### VariantValue
 
-A tagged union arm, with an optional payload.
+A tagged union arm with an optional payload.
 
-* `readonly tag: string`
-* `readonly payload?: SfValue`
+* `type VariantValue = { readonly tag: string; readonly payload?: SfValue }`
+* Frozen and branded with `Symbol.for("sf.variant")`. The `payload` key is absent, not `undefined`, on a variant without one.
 
-Frozen and branded with `Symbol.for("sf.variant")`. The `payload` key is absent, not `undefined`, for a payload-free variant.
+### DoubleValue
+
+A number the server reads as a double whatever its value.
+
+* `type DoubleValue = { readonly value: number }`
+* Frozen and branded with `Symbol.for("sf.double")`. `decodeValue` never returns one: a double decodes to a plain `number`.
 
 ### Constructors and Guards
 
@@ -259,51 +277,57 @@ Frozen and branded with `Symbol.for("sf.variant")`. The `payload` key is absent,
 * `actionRef(id: string): RefValue`
 * `moduleRef(id: string): RefValue`
 * `variant(tag: string, payload?: SfValue): VariantValue`
+* `f64(value: number): DoubleValue`
 * `isRef(v: unknown): v is RefValue`
 * `isVariant(v: unknown): v is VariantValue`
+* `isDouble(v: unknown): v is DoubleValue`
 
 ### decodeValue
 
-* `decodeValue(json: unknown): SfValue`
-
-Turns the server's JSON into JavaScript values. Untagged JSON passes through untouched, recursing into arrays and objects. An object whose `$` key holds a string is read as a tag; an object whose `$` holds anything else is a plain object.
-
-A tagged integer (`i`, `u`) becomes a `number` when it lies within `Number.MIN_SAFE_INTEGER` to `Number.MAX_SAFE_INTEGER` inclusive, otherwise a `bigint`. Base64 payloads (`b`, `ta`) decode through `atob`. Throws on an unknown tag or an unknown typed array kind.
+* `decodeValue(json: unknown): SfValue`: the server's tagged JSON as JavaScript values.
+* Untagged JSON passes through, recursing into arrays and objects.
+* An object whose `$` key holds a string is a tag. An object whose `$` holds anything else is a plain object.
+* An `i` or `u` integer within `Number.MIN_SAFE_INTEGER` to `Number.MAX_SAFE_INTEGER` inclusive is a `number`, otherwise a `bigint`.
+* A `u8` typed array decodes to a `Uint8Array` marked to encode back as `ta`.
+* Throws on an unknown tag or an unknown typed array kind.
 
 ### encodeValue
 
-* `encodeValue(v: SfValue): unknown`
-
-Produces the tagged JSON the server decodes. The mapping is not symmetric with `decodeValue`, because JavaScript has one number type:
-
-* A finite `number` is emitted bare; the server reads an integral one as an integer and a fractional one as an `f64`.
-* `NaN`, `Infinity` and `-Infinity` are emitted as `{ $: "f", v: "nan" | "inf" | "-inf" }`.
-* A `bigint` in the `i128` range is emitted as `i`, one above it and within `u128` as `u`. Outside both it throws `bigint outside the value model's integer range`.
-* `Uint8Array` is emitted as bytes (`b`), unless it came out of `decodeValue` as a `u8` typed array, which is marked with a symbol and goes back as `ta` with kind `u8`. `Uint8ClampedArray` is not part of the model and falls through to object encoding.
-* Other typed arrays are emitted as `ta` with their kind, honouring `byteOffset` and `byteLength`, so a view over a larger buffer encodes only its own window.
-* A plain object owning a `$` key is escaped into the `m` tag's pair list.
+* `encodeValue(v: SfValue): unknown`: the tagged JSON the server decodes.
+* A finite `number` is bare. The server reads an integral one as an integer and a fractional one as an `f64`.
+* `NaN`, `Infinity` and `-Infinity` are `{ $: "f", v: "nan" | "inf" | "-inf" }`.
+* A `DoubleValue` is `{ $: "f", v }`.
+* `undefined` is `{ $: "undef" }`. An object property holding `undefined` is left out.
+* A `bigint` in the `i128` range is `i`. One above it and within `u128` is `u`. Outside both it throws `bigint outside the value model's integer range`.
+* A `Uint8Array` is bytes (`b`), unless `decodeValue` produced it from a `u8` typed array, which goes back as `ta` with kind `u8`.
+* Another typed array is `ta` with its kind, covering only its own `byteOffset` and `byteLength` window.
+* `Uint8ClampedArray` is not part of the model and encodes as an object.
+* A `Date`, `Map`, `Set` and `URL` are `var` with tag `$date`, `$map`, `$set` and `$url`.
+* A plain object owning a `$` key is the `m` tag's pair list.
 
 ### Tag Encoding
 
-Tags are objects with a `$` discriminant. Both halves of the pair agree on these:
+Tags are objects with a `$` discriminant.
 
 | Tag | Fields | JavaScript |
 | --- | --- | --- |
 | `i` | `v`, decimal string | `number` inside the safe range, else `bigint` |
 | `u` | `v`, decimal string | `number` inside the safe range, else `bigint` |
 | `f` | `v`, number or `"nan"`, `"inf"`, `"-inf"` | `number` |
-| `f32` | `v`, number or symbol | `number` |
+| `f32` | `v`, number or one of the same strings | `number` |
 | `b` | `v`, base64 | `Uint8Array` |
 | `ta` | `k`, kind; `v`, base64 little-endian | matching typed array |
 | `m` | `v`, array of `[key, value]` pairs | plain object |
-| `var` | `t`, tag; `p`, optional payload | `VariantValue`; a `Date`, `Map`, `Set` or `bigint` when `t` is `$date`, `$map`, `$set` or `$bigint` |
+| `var` | `t`, tag; `p`, optional payload | a `Date`, `Map`, `Set`, `bigint` or `URL` when `t` is `$date`, `$map`, `$set`, `$bigint` or `$url` |
 | `ref` | `k`, `"action"` or `"module"`; `id` | `RefValue` |
+| `undef` | none | `undefined` |
 
-Typed array kinds: `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f32`, `f64`, mapping to `Int8Array`, `Uint8Array`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, `BigInt64Array`, `BigUint64Array`, `Float32Array`, `Float64Array`. Element counts must divide the decoded byte length evenly; the typed array constructor throws otherwise.
+* Typed array kinds `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f32` and `f64` map to `Int8Array`, `Uint8Array`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, `BigInt64Array`, `BigUint64Array`, `Float32Array` and `Float64Array`.
+* The decoded byte length must be a multiple of the element size. The typed array constructor throws otherwise.
 
 ## 3. Payload Reading
 
-The wire format the server emits when a route is requested with `__payload` in its query string.
+The format the server answers with when a route is requested with `__payload` in its query string.
 
 ### SfNode
 
@@ -312,121 +336,130 @@ One node of the payload tree, discriminated by `kind`.
 * `{ kind: "text"; text: string }`
 * `{ kind: "raw"; html: string }`
 * `{ kind: "seq"; children: SfNode[] }`
-* `{ kind: "client"; module: string; props: { [key: string]: SfValue }; encoded?: unknown; children: SfNode[]; rendered: boolean }`, where `encoded` is the props as the payload carried them, before decoding, `children` is the island's markup and `rendered` says whether the server rendered it
+* `{ kind: "client"; module: string; props: { [key: string]: SfValue }; encoded?: unknown; children: SfNode[]; rendered: boolean }`: an island. `encoded` is the props as the payload carried them. `children` is its markup. `rendered` is whether the server rendered it.
 * `{ kind: "pending"; slot: number; fallback: SfNode }`
-* `{ kind: "placed"; target: string; children: SfNode[] }`: content written at `target`, `body` for the end of the body, rather than in place
+* `{ kind: "placed"; target: string; children: SfNode[] }`: content written at `target`. `body` is the end of the body and `#name` is the element a `Place` of that name writes.
+* `{ kind: "outlet"; name: string }`: where content placed at `#name` goes.
 
 ### Segment
 
 One node of the segment sidecar tree.
 
-* `k: string`, the segment key. It says which old segment a new one is; the module half of it, before any `?`, is what pairs them.
-* `d?: string`, the segment's digest: 16 hex digits fingerprinting what it rendered, its child segments elided. Equal digests across two responses mean the region is kept whatever the keys say. Absent for a deferred segment, which arrives as its own fill.
-* `n?: string`, the slot this segment fills in its parent; absent at the root.
-* `p?: number[]`, the path to the subtree relative to the parent segment's node. `[]` means the whole node, `[i]` means child `i` of a `seq`.
-* `s?: number`, the slot id for a deferred segment. A segment carries `p` or `s`, never both.
-* `c: Segment[]`, child segments.
-* `keep?: string[]`, slots of this segment the payload left unfilled and the browser keeps as they stand.
+* `k: string`: the segment key. The part before any `?` names the module that pairs an old segment with a new one.
+* `d?: string`: 16 hex digits fingerprinting what the segment rendered, its child segments elided. Absent for a deferred segment.
+* `n?: string`: the slot this segment fills in its parent. Absent at the root.
+* `p?: number[]`: the path to the subtree from the parent segment's node. `[]` is the whole node and `[i]` is child `i` of a `seq`.
+* `s?: number`: the slot id of a deferred segment. A segment carries `p` or `s`, never both.
+* `c: Segment[]`: child segments.
+* `keep?: string[]`: slots of this segment the payload left unfilled and the browser keeps as they stand.
+
+### Head
+
+What a route says about the document. A field left out keeps what the document has.
+
+* `interface Head { title?: string; description?: string; head?: HeadRow[]; scripts?: Record<string, string>[]; theme?: string | null; scheme?: string | null; forced?: boolean }`
+* `interface HeadRow { tag: string; attrs: [string, string][]; children?: string }`: one head element, its attributes in order and the text of a tag that takes content. From `@snapfire/fsr/client/reader`.
+* `head`: every head element besides script rows, replacing the ones the document holds.
+* `scripts`: the attributes of each script row the route's `meta` declared.
+* `theme`: `<html data-sf-theme>`, `null` for the root theme. Absent when the application has no themes.
+* `scheme`: `<html data-sf-scheme>`, `null` leaving it off.
+* `forced`: `<html data-sf-theme-forced>`.
 
 ### Payload
 
 A parsed response.
 
-* `format: number`, the `fmt` field of the `V` row.
-* `encoding: string`, the `enc` field of the `V` row.
-* `tree: SfNode`, the `N` row.
-* `segments: Segment | null`, the `G` row when the response carried one.
-* `heads: Head[]`, the `H` rows in arrival order: the eager wave's, then one per resolution that described the document.
-* `seeds: Contribution[][]`, the `T` rows in arrival order, each a list of contributions already decoded.
-* `locale: string | null`, the `L` row, the locale the response was rendered in as the application spells it; `null` when the server sent none.
-* `entry: string | null`, the `E` row, a module to load before the response's islands can mount, a mounted site's entry; `null` when the document's own entry covers them.
-* `catalog: { [key: string]: string } | null`, the `D` row; `null` when the server sent none.
-* `resolutions: { slot: number; node: SfNode }[]`, the `S` rows in arrival order.
-
-### Head
-
-* `title?: string`, `description?: string`. A field left out keeps what the document has.
-
-### decodeNode
-
-* `decodeNode(row: unknown): SfNode`
-
-Reads one node row: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m, p, ch, s }]` or `["p", slot, fallback]`. `p` is run through `decodeValue` and must decode to a map; `ch` defaults to empty; `s` is `null` when absent. Throws on an unknown row kind.
-
-### parsePayload
-
-* `parsePayload(text: string): Payload`
-
-Reads a whole response body, one row per line, skipping empty lines, through `parseRow`. Throws when no `N` row was present.
+* `format: number`: the `fmt` field of the `V` row.
+* `encoding: string`: the `enc` field of the `V` row.
+* `tree: SfNode`: the `N` row.
+* `segments: Segment | null`: the `G` row.
+* `heads: Head[]`: the `H` rows in arrival order.
+* `seeds: Contribution[][]`: the `T` rows in arrival order, decoded.
+* `locale: string | null`: the `L` row.
+* `catalog: { [key: string]: string } | null`: the `D` row.
+* `entry: string | null`: the `E` row.
+* `styles: string[]`: the last `C` row, empty when there is none.
+* `resolutions: { slot: number; node: SfNode }[]`: the `S` rows in arrival order.
 
 ### Row
 
-* `type Row = { tag: "V"; format: number; encoding: string } | { tag: "N"; tree: SfNode } | { tag: "G"; segments: Segment } | { tag: "H"; head: Head } | { tag: "T"; contributions: Contribution[] } | { tag: "L"; locale: string } | { tag: "E"; entry: string } | { tag: "D"; catalog: { [key: string]: string } } | { tag: "S"; slot: number; node: SfNode; segments: Segment[] }`
+* `type Row = { tag: "V"; format: number; encoding: string } | { tag: "N"; tree: SfNode } | { tag: "G"; segments: Segment } | { tag: "H"; head: Head } | { tag: "T"; contributions: Contribution[] } | { tag: "L"; locale: string } | { tag: "E"; entry: string } | { tag: "C"; styles: string[] } | { tag: "D"; catalog: { [key: string]: string } } | { tag: "S"; slot: number; node: SfNode; segments: Segment[] }`
 
-One row of a payload, discriminated by its tag.
+### decodeNode
+
+* `decodeNode(row: unknown): SfNode`: reads one node row.
+* Rows: `["t", text]`, `["r", html]`, `["q", children]`, `["c", { m, p, ch, r }]`, `["p", slot, fallback]`, `["l", target, children]` and `["o", name]`.
+* In a `c` row, `p` goes through `decodeValue`, `ch` defaults to empty and `r: true` sets `rendered`.
+* Throws `unknown node row kind: <kind>`.
 
 ### parseRow
 
-* `parseRow(line: string): Row`
+* `parseRow(line: string): Row`: one row, its tag, a space, then its body.
+* Throws `unknown payload row tag: <tag>` for a tag outside `V`, `N`, `G`, `H`, `T`, `L`, `E`, `C`, `D` and `S`.
 
-Reads one row: its tag, a space, then its body, decoded as the tag says. Throws when the tag is not `V`, `N`, `G`, `H`, `T`, `L`, `E`, `D` or `S`.
+### parsePayload
+
+* `parsePayload(text: string): Payload`: a whole response body, one row per line through `parseRow`, empty lines skipped.
+* Throws `payload has no N row`.
 
 ### linesOf
 
-* `linesOf(res: Response): AsyncGenerator<string>`
-
-The rows of a response body as they arrive: the byte stream read through `res.body.getReader()`, decoded as UTF-8 and cut at newlines, empty lines skipped, an unterminated last line yielded when the stream ends. A response without a body stream yields the rows of `res.text()` at once, which is what the `fsr test` runner's `fetch` returns.
+* `linesOf(res: Response): AsyncGenerator<string>`: the rows of a response body as they arrive, decoded as UTF-8 and cut at newlines.
+* Empty lines are skipped and an unterminated last line is yielded when the stream ends.
+* A response without a body stream yields the rows of `res.text()` at once.
 
 ### Row Grammar
 
-Each row is a tag character, a space, then its body, terminated by a newline. The eager wave is `V`, `N`, then whichever of `H`, `T`, `L`, `E` and `D` the render produced, then `G`, which closes it; every row after `G` is a resolution or what one carried.
+Each row is a tag character, a space, then its body, ended by a newline. The eager wave is `V`, `N`, any of `H`, `T`, `L`, `E`, `C` and `D`, then `G`, which closes it. Every row after `G` belongs to a resolution.
 
 | Row | Body | Meaning |
 | --- | --- | --- |
 | `V` | `{"fmt":1,"enc":"json"}` | Format version and encoding |
 | `N` | one node row | The initial tree |
 | `G` | one segment object | The segment sidecar |
-| `H` | `{"title":…,"description":…}` | What the route says about the document |
-| `T` | a list of `{k, p, v}` objects | What the route's segments seeded, one entry per segment, ahead of the `S` row it rendered |
+| `H` | a `Head` object | What the route says about the document |
+| `T` | a list of `{k, p, v}` objects | What the route's segments seeded, ahead of the `S` row it belongs to |
 | `L` | a JSON string | The locale the response was rendered in |
-| `E` | a JSON string | A module to import before the response's islands can mount, a mounted site's entry |
-| `D` | a JSON object of strings | The locale's message catalog, dotted keys to messages, sent unless the request's `x-sf-catalog` named that locale |
-| `S` | slot id, a space, then a node row | One resolved slot |
+| `E` | a JSON string | A module to import before the response's islands can mount |
+| `C` | a JSON array of strings | Stylesheets the response needs beyond the document's own |
+| `D` | a JSON object of strings | The locale's message catalog, omitted when the request's `x-sf-catalog` named that locale |
+| `S` | slot id, a space, then `{"n": node row, "g": [segments]}` | One resolved slot |
 
-`S` rows arrive in completion order, not slot order; a resolution may introduce further slots that arrive later in the same stream.
+* `S` rows arrive in completion order, not slot order. A resolution may open further slots that arrive later in the same stream.
 
 ## 4. Rendering
 
-Turning decoded nodes back into the markup the boot runtime and the navigator expect.
+From `@snapfire/fsr/client/render`. `nodeToHtml` and `renderSegment` are also on the core entry.
+
+### IdAlloc
+
+* `interface IdAlloc { next: number; segment?: string; island?: string }`: the id counter shared by every call contributing to one document. `segment` and `island` name the placed content being written.
 
 ### nodeToHtml
 
-* `nodeToHtml(node: SfNode, ids: { next: number }): string`
-
-Serialises a node tree. Text has `&`, `<` and `>` escaped; `raw` is emitted verbatim; a `client` node becomes an `<sf-i>` marker, with `data-sf-ssr` when `rendered`, around its `children` plus a sibling `<script type="application/json" data-sf-props="…">`; a `pending` node becomes `<div data-sf-slot="N">` around its fallback; a `placed` node becomes `<template data-sf-placed="KEY" data-sf-island="NAME">` around its children, naming the segment and the island being rendered, which the navigator moves to the end of the body when it writes the markup.
-
-The allocator is mutated in place, one increment per island. Ids are `sf-c0`, `sf-c1` and upward, a prefix that cannot collide with the server's `sf-i` sequence, so one allocator must be shared by every call contributing to the same document. Props JSON has every `<` escaped to the JSON escape `\u003c`, so the payload can never terminate the script tag.
+* `nodeToHtml(node: SfNode, ids: IdAlloc): string`: a node tree as markup.
+* `text` has `&`, `<` and `>` escaped. `raw` is written verbatim.
+* `client` is an `<sf-i>` marker around its children, with `data-sf-ssr` when `rendered`, then `<script type="application/json" data-sf-props="…">`. Every `<` in the props JSON is written `<`.
+* `pending` is `<div data-sf-slot="N">` around its fallback.
+* `placed` is `<template data-sf-placed="KEY" data-sf-island="NAME">` around its children.
+* Each island takes the next id from `ids`: `sf-c0`, `sf-c1` and upward.
 
 ### renderSegment
 
-* `renderSegment(node: SfNode, seg: Segment, ids: { next: number }): string`
-
-Serialises a segment's subtree wrapped in `<!--sf-g:key-->` and `<!--/sf-g-->`, recursing into child segments at their sidecar positions and calling `nodeToHtml` for everything else. Slot-addressed children are skipped, since their DOM region is the `data-sf-slot` element. `%` becomes `%25` and `-` becomes `%2D` in the key, so a key can never contain `--` and close the comment. Throws when a segment path walks through a node that is not a `seq`.
+* `renderSegment(node: SfNode, seg: Segment, ids: IdAlloc): string`: a segment's subtree between `<!--sf-g:key-->` and `<!--/sf-g-->`, child segments at their sidecar positions.
+* Slot-addressed children are skipped.
+* In the key, `%` is written `%25` and `-` is written `%2D`.
+* Throws `segment path walks through a non-seq node`.
 
 ### regionSources
 
-* `regionSources(node: SfNode, ids: { next: number }): Map<string, RegionSource>`
-* `interface RegionSource { props: { [key: string]: SfValue }; encoded?: unknown; html: string; nested: Map<string, RegionSource>; children: string | null }`
-* `childrenOf(node: SfNode, ids: { next: number }): string | null`
-* `const CHILDREN_ATTR: "data-sf-children"`
-
-What a payload says about the island regions inside `node`, keyed by the `$k` each client node carries, which is the string the server wrote as `data-sf-region`. A client node is descended into rather than collected, since an island's regions live in its own body and each entry carries the regions inside itself under `nested`. `html` is that island's own markup from `nodeToHtml`, for a region that does not exist in the DOM yet. `children` is the markup of the island's children region, the `<sf-s data-sf-children>` in its own markup outside any island nested in it, from `childrenOf`, which answers null for a node that is not an island or holds no such region.
-
-The navigator builds this from the segment's node and hands it to `patchIsland`, which is how the islands nested under a patched one are reached.
+* `regionSources(node: SfNode, ids: IdAlloc): Map<string, RegionSource>`: the island regions inside `node`, keyed by the `$k` prop each client node carries.
+* `interface RegionSource { props: { [key: string]: SfValue }; encoded?: unknown; html: string; nested: Map<string, RegionSource>; children: string | null; markup: { [n: string]: string } | null }`
+* `childrenOf(node: SfNode, ids: IdAlloc): string | null`: the markup of an island's `<sf-s data-sf-children>` region outside any nested island. `null` for a node that is not an island or has none.
+* `markupOf(node: SfNode, ids: IdAlloc): { [n: string]: string } | null`: the markup of each `data-sf-m` markup prop region, by region number.
+* Constants: `CHILDREN_ATTR = "data-sf-children"`, `SSR_ATTR = "data-sf-ssr"`, `MARKUP_ATTR = "data-sf-m"`, `REGION_KEY = "$k"`, `PLACED_ATTR = "data-sf-placed"`, `PLACED_OPEN = "data-sf-l"`, `PLACED_END = "data-sf-l-end"`, `PLACED_ISLAND = "data-sf-island"`, `PLACED_TO = "data-sf-to"`.
 
 ## 5. Islands
-
-Registration, timing and the scan that mounts markers.
 
 ### Props
 
@@ -434,211 +467,214 @@ Registration, timing and the scan that mounts markers.
 
 ### Mounter
 
-* `type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean, children: Piece[] | null) => unknown`
+* `type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean, children: Piece[] | null) => unknown`: mounts an island at `el`.
+* `module` is what the entry's `loader` resolved to.
+* `hydrate` is true when the marker carries `data-sf-ssr`.
+* `children` is what the server placed as the island's children, `null` when it placed none.
+* The return value is the handle passed to the entry's `Patcher`, `Unmounter` and `Pauser`.
 
-`module` is whatever the island's `loader` resolved to. `hydrate` is true when the server rendered the island's own markup, which the marker says with `data-sf-ssr`. `children` is what the server placed as the island's children, read once by the boot runtime from its children region, null when it placed none. An adapter renders them in its own tree with any island of its own framework among them. It leaves an island of another framework to a scan. A scan skips an island whose nearest island above it was not server-rendered and has not mounted, since mounting that one rebuilds its regions from markup it copies out; the parent's own mount scans them instead. The return value is ignored by the caller, so it is free for the framework's handle.
+### Patcher
 
-### Piece
+* `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`: re-renders the island at `el` with `props`, keeping its DOM and state.
 
-* `type Piece = TextPiece | CommentPiece | ElementPiece | IslandPiece`
-* `interface TextPiece { kind: "text"; text: string }`
-* `interface CommentPiece { kind: "comment"; text: string }`
-* `interface ElementPiece { kind: "element"; node: Element; tag: string; attrs: { [name: string]: string }; children: Piece[] }`
-* `interface IslandPiece { kind: "island"; marker: Element; script: Element | null; moduleId: string; entry: IslandEntry | undefined; props: Props; encoded: unknown; when: MountTiming; ssr: boolean; children: Piece[] | null }`
+### Unmounter
 
-One node of an island's children as the server wrote it. An element piece keeps its node, for an adapter to take over whole when no island of its framework is under it. An island piece is a marker with the props script after it: `props` decoded, `encoded` as the server wrote them, `entry` undefined while no registry has named the module, `when` the timing its placement or its entry asks for, `ssr` whether the server rendered its markup and `children` its own children. Module references in the props of an island its parent's adapter renders are resolved before the parent mounts.
+* `type Unmounter = (handle: unknown, el: Element) => void`: ends the island mounted at `el`. Called by `discard`.
 
-### rendersNested
+### Pauser
 
-* `function rendersNested(mount: Mounter, takes?: (el: Element) => boolean): void`
-* `function nestsIn(outer: IslandEntry | undefined, inner: IslandEntry | undefined): boolean`
-
-Says that `mount`'s adapter renders an island of its own framework nested in one it mounts inside that island's tree: placed in its body, among its children or in a markup prop region. A scan leaves those islands to the parent's adapter. `takes`, when given, says which of them the adapter renders; the scan mounts the rest as roots of their own. An island in a layout's segment or named slot is a root of its own whatever the adapter says, as is one in or under a server-mode region. While no registry has named the island above, a scan leaves the island for a later scan to decide. `nestsIn` answers whether `outer`'s adapter renders `inner` in its tree. The React, Vue and Svelte entries call `rendersNested` for their mounters; Svelte's `takes` leaves a server-rendered island timed `visible` or `idle` to a root of its own, since Svelte cannot hydrate part of a tree later.
-
-### childrenRegion and islandChildren
-
-* `function childrenRegion(el: Element): Element | null`
-* `function islandChildren(el: Element): Piece[] | null`
-
-The region holding the children of the island at `el`: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after the markup when its render did not place them. Never one inside an island nested in `el`. `islandChildren` reads that region as pieces, null when there is none.
-
-### adoptNodes
-
-* `function adoptNodes(to: Element, from: ParentNode | null): void`
-
-Moves the nodes inside `from` into `to`, in place of what `to` held, so whatever a script bound to them before a mount stays bound. A template gives its content. Nothing moves when `to` is `from`, as it is while hydrating. Nothing moves either when `from` holds nothing. The React, Vue and Svelte mounters call it for every region and every element they keep as the server wrote it, so an island mounted over the server's markup keeps the server's nodes, as does one whose hydration fell back to a mount.
-
-### readPieces and piecesOf
-
-* `function readPieces(nodes: ArrayLike<Node>): Piece[]`
-* `function piecesOf(html: string): Piece[]`
-
-`readPieces` reads DOM nodes as pieces, an `sf-i` marker and the props script after it as one island piece. `piecesOf` reads the children markup a patch carries.
-
-### loadedModule and loadModule
-
-* `function loadedModule(entry: IslandEntry): unknown`
-* `function loadModule(entry: IslandEntry): Promise<unknown>`
-
-`loadedModule` is the module an entry names once something has loaded it, else undefined. `loadModule` loads it and holds it for `loadedModule`. Before an island mounts, the boot runtime loads the module of every island its adapter renders in its tree whose timing is `load`, so the first render of the tree finds them without waiting.
-
-### markRendered and unmarked
-
-* `function markRendered(el: Element): void`
-* `function unmarked(html: string): string`
-
-`markRendered` stamps `data-sf-scheduled` and `data-sf-mounted` on a marker an adapter rendered in its parent's tree, so a scan leaves it as one of its own. `unmarked` strips both from copied markup, so a scan mounts the copy afresh.
-
-### timingFired
-
-* `function timingFired(when: MountTiming, find: () => Element | null): Promise<void>`
-
-Settles when a timing fires: at once for `load`, in `requestIdleCallback` for `idle` (a `setTimeout` where there is none) and on the first intersection of the element `find` returns for `visible`. When `find` answers null it is asked again on the next task. Where there is no `IntersectionObserver` a `visible` timing settles at once.
+* `type Pauser = (handle: unknown, el: Element, paused: boolean) => boolean | Promise<void>`: with `paused` true, hides the island at `el` in place with its state kept and its effects stopped. With `paused` false, shows it again.
+* Showing may return a promise that settles once the island is shown.
+* `false` means the framework cannot pause. The navigator then ends the island and mounts it again later.
 
 ### MountTiming
 
 * `type MountTiming = "load" | "visible" | "idle"`
-
-`"load"` mounts as soon as the marker is scanned. `"visible"` observes the element with an `IntersectionObserver` and mounts on the first intersection, disconnecting immediately. `"idle"` mounts in `requestIdleCallback` where the browser provides it and in a 1ms `setTimeout` where it does not.
-
-### defineMounter
-
-* `const defineMounter: Mounter`
-
-The mounter for an island whose module defines a custom element rather than exporting a component: it does nothing. Importing the module is the whole mount, since the element the server already wrote upgrades itself the moment its definition runs, so what the island's timing schedules is the import. `fsr build` registers a module an `<Island define>` names with it, carrying no `patch`, since nothing is mounted to re-render.
-
-### Unmounter
-
-* `type Unmounter = (handle: unknown, el: Element) => void`
-
-Ends the island mounted at `el`; `handle` is what the mounter returned. Called by `discard`, so an entry without one has its root dropped as it stands when the marker leaves the document.
-
-### Pauser
-
-* `type Pauser = (handle: unknown, el: Element, paused: boolean) => boolean | Promise<void>`
-
-With `paused` true it hides the island mounted at `el` in place, its state kept and its effects stopped. With `paused` false it shows the island again and may return a promise that settles once the island is shown, which a step back through history waits for before it scrolls. Called when navigation activity holds the island's page and again when the page comes back. False when the framework cannot pause, which leaves the navigator to end the island with its `unmount` and mount it again later.
+* `"load"` mounts as soon as the marker is scanned.
+* `"visible"` mounts on the first intersection seen by an `IntersectionObserver`, at once where there is none.
+* `"idle"` mounts in `requestIdleCallback`. Where there is none it mounts in a 1 ms `setTimeout`.
 
 ### IslandEntry
 
 What a module id is registered with.
 
-* `loader: () => Promise<unknown>`, resolving to the value passed to `mount`.
-* `mount: Mounter`
-* `when?: MountTiming`, defaulting to `"load"`. Per island, not per page.
-* `patch?: Patcher`
-* `unmount?: Unmounter`
-* `pause?: Pauser`. `fsr build` registers React islands with `reactPauser`; a Vue island has none and is unmounted while its page is held.
-
-### registerIsland
-
-* `registerIsland(moduleId: string, entry: IslandEntry): void`
-
-An island registered without `patch` cannot take new props, so a soft navigation that keeps its place replaces it with a new marker, which mounts afresh and loses the island's state.
-
-Registers or replaces the entry for a module id in the process-wide registry. `moduleId` must equal the marker's `data-sf-module` exactly. Registration only affects markers scanned afterwards.
+* `interface IslandEntry { loader: () => Promise<unknown>; mount: Mounter; when?: MountTiming; patch?: Patcher; unmount?: Unmounter; pause?: Pauser }`
+* `when` defaults to `"load"`.
+* Without `patch`, a navigation that keeps the island's place replaces it with a new marker, losing its state.
+* Without `unmount`, `discard` drops the root as it stands.
+* Without `pause`, a held page ends the island.
 
 ### Adapter
 
-* `interface Adapter { mount: Mounter; patch?: Patcher; unmount?: Unmounter; pause?: Pauser }`
-
-What an island mounts with: an adapter module's mounter and the hooks beside it, the fields of [IslandEntry](#islandentry) an adapter supplies.
+* `interface Adapter { mount: Mounter; patch?: Patcher; unmount?: Unmounter; pause?: Pauser }`: the fields of an `IslandEntry` an adapter module supplies.
 
 ### DeferredIsland
 
-* `interface DeferredIsland { loader: () => Promise<unknown>; adapter: () => Promise<Adapter>; when?: MountTiming }`
+* `interface DeferredIsland { loader: () => Promise<unknown>; adapter: () => Promise<Adapter>; when?: MountTiming }`: an island registered before its adapter is loaded.
 
-An island registered before its adapter is loaded. `adapter` imports the adapter module and answers its hooks.
+### Piece
+
+One node of an island's children as the server wrote it.
+
+* `type Piece = TextPiece | CommentPiece | ElementPiece | IslandPiece`
+* `interface TextPiece { kind: "text"; text: string }`
+* `interface CommentPiece { kind: "comment"; text: string }`
+* `interface ElementPiece { kind: "element"; node: Element; tag: string; attrs: { [name: string]: string }; children: Piece[] }`
+* `interface IslandPiece { kind: "island"; marker: Element; script: Element | null; moduleId: string; entry: IslandEntry | undefined; props: Props; encoded: unknown; when: MountTiming; ssr: boolean; children: Piece[] | null }`: `entry` is undefined while no registry names the module.
+
+### registerIsland
+
+* `registerIsland(moduleId: string, entry: IslandEntry): void`: registers or replaces the entry for a module id in the page-wide registry.
+* `moduleId` must equal the marker's `data-sf-module` exactly. Only markers scanned afterwards are affected.
 
 ### registerDeferredIsland
 
-* `registerDeferredIsland(moduleId: string, island: DeferredIsland): void`
-
-Registers or replaces an island whose adapter is imported when a scan first finds a marker for it. The import happens once for every island registered with the same `adapter` function, then each of them is registered as `registerIsland` would register it and the document is scanned again. A page with no marker for any of them never imports the adapter. A miss is not reported while an adapter import is in flight. When the `adapter` function has already answered, the island is registered with its hooks at once. `fsr build` writes the registry this way, one `adapter` function per framework.
-
-### deferredIslands
-
-* `function deferredIslands(): ReadonlyMap<string, DeferredIsland>`
-
-Every island registered with an adapter no scan has loaded yet, by module id.
+* `registerDeferredIsland(moduleId: string, island: DeferredIsland): void`: registers or replaces an island whose adapter is imported when a scan first finds its marker.
+* The adapter is imported once for every island registered with the same `adapter` function. Each is then registered as `registerIsland` would and the document is scanned again.
+* An adapter already loaded is used at once.
+* A missing island is not reported while an adapter import is in flight.
 
 ### registerModule
 
-* `registerModule(file: string, loader: () => Promise<unknown>): void`
-
-Registers the loader of a module the browser imports a function prop from, by the file's path as the build names it, `src/App.js`. A module reference among an island's props, `moduleRef("src/App.js#header")`, resolves to that export through the loader before the island mounts or is patched, so the component receives the function. A reference to a file no registry knew stays a reference and is warned about. `fsr build` writes one call per file the lowerer referenced.
+* `registerModule(file: string, loader: () => Promise<unknown>): void`: the loader for a file a function prop is imported from, by its build path such as `src/App.js`.
+* A `moduleRef("src/App.js#header")` among an island's props resolves to that export before the island mounts or is patched.
+* A reference to an unregistered file stays a reference and warns `sf: no module registered for <file>`.
 
 ### registeredIslands
 
-* `function registeredIslands(): ReadonlyMap<string, IslandEntry>`
+* `registeredIslands(): ReadonlyMap<string, IslandEntry>`: every registered island, by module id.
 
-Every island registered so far, by module id.
+### deferredIslands
 
-### scan
+* `deferredIslands(): ReadonlyMap<string, DeferredIsland>`: every deferred island whose adapter has not loaded yet, by module id.
 
-* `scan(root: ParentNode): void`
+### rendersNested
 
-Mounts every unscheduled island marker under `root`. Selects `sf-i:not([data-sf-scheduled])`, skips a marker with no `data-sf-module`, stamps `data-sf-scheduled`, then schedules according to the `data-sf-when` of the `sf-s` region the marker sits in, when a page or layout placed it with one, else the entry's timing. Idempotent, so rescanning a root a scan has taken does nothing. `data-sf-mounted` is stamped separately, when the mounter has actually run, so the two say different things for an island still waiting on `visible` or `idle`. Modules load in parallel but islands mount in the order they were scheduled (document order within a scan), so module state a framework keeps advances across a page's islands in the order the server rendered them.
-
-Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root` first and then across the document. A missing or empty script yields `{}`.
-
-A marker whose module id no registry knows is left as rendered and remembered, not reported. Every id still unregistered is warned about once the document settles: on `DOMContentLoaded`, after which every deferred module script has run or on a microtask when the state is already `complete` and never while an entry named by `loadEntry` is still loading. A mounted site's islands are missing on every scan that precedes its entry, so a first miss is the healthy path rather than a defect.
-
-### loadEntry
-
-* `loadEntry(src: string): void`
-
-Imports `src` once, however many times it is asked for, then rescans the document so the islands it registered mount. A failure warns `sf: loading <src> failed` and forgets `src`, so a later payload naming it tries again. Call it before the scan that will miss those islands: while it is in flight no miss is reported.
-
-The navigator calls it with a payload's `E` row, which is how a mounted site's entry reaches the browser on the first navigation into that site.
+* `rendersNested(mount: Mounter, takes?: (el: Element) => boolean): void`: declares that `mount`'s adapter renders islands of its own framework nested inside the islands it mounts. A scan leaves those to the parent's adapter.
+* `takes` picks which of them the adapter renders. The scan mounts the rest as roots of their own.
+* An island in a layout's segment, a named slot or a server-mode region is always a root of its own.
+* `nestsIn(outer: IslandEntry | undefined, inner: IslandEntry | undefined): boolean`: whether `outer`'s adapter renders `inner` in its tree.
 
 ### boot
 
-* `boot(): void`
+* `boot(): void`: scans the whole document and scans again on every `sf:fill` event on `document`.
+* Scans at once when the DOM is past `loading`, otherwise on `DOMContentLoaded`.
+* Also calls `adopt`, `adoptLocale`, `adoptCatalog`, `enableEmbeds`, `enablePwa` and `loadDeclaredScripts`. It sets `window.__sf.script` to `loadMarkedScript`.
+* A second call scans again and adds no second listener.
 
-Scans the whole document, immediately when the DOM is past `loading` and on `DOMContentLoaded` otherwise, then scans again on every `sf:fill` event on `document`. That event is dispatched by the server's inline fill script after it moves a resolved template into its slot, which is what mounts islands inside streamed chunks. Calling `boot` again scans again and adds no second listener; the listener is registered once per document.
+### scan
+
+* `scan(root: ParentNode): void`: mounts every `sf-i:not([data-sf-scheduled])` under `root`. Idempotent.
+* Skips a marker with no `data-sf-module`. Stamps `data-sf-scheduled` on the rest.
+* Timing comes from the `data-sf-when` of the enclosing `sf-s` region, else the entry's `when`.
+* `data-sf-mounted` is stamped once the mounter has run.
+* Modules load in parallel. Islands mount in the order they were scheduled, which is document order within a scan.
+* Props come from `script[data-sf-props="<marker id>"]`, searched under `root` and then the whole document. A missing or empty script gives `{}`.
+* A marker inside `<sf-s data-sf-mode="server">` mounts through `mountServer`.
+* A marker whose module id no registry knows is left as rendered. Each id still unregistered once the document settles warns `sf: no island registered for <id>`, never while an entry named by `loadEntry` is loading.
+
+### loadEntry
+
+* `loadEntry(src: string): void`: imports `src` once, then rescans the document.
+* No missing island is reported while it is in flight.
+* A failure warns `sf: loading <src> failed` and forgets `src`. A later call imports it again.
+
+### timingFired
+
+* `timingFired(when: MountTiming, find: () => Element | null): Promise<void>`: settles when a timing fires, by the rules of `MountTiming`.
+* `find` returns the element `visible` observes. When it returns `null` it is asked again on the next task.
 
 ### patchIsland
 
-* `patchIsland(el: Element, props: Props, regions?: unknown, children?: string | null, encoded?: unknown): Promise<boolean>`
-
-Re-renders the island mounted at `el` with `props`, in place, through the entry's `patch`; the DOM and the island's state survive. A server island is stepped again instead, with `encoded` as its props when given: the props as the server encoded them, since a whole-valued double decoded and encoded again would reach the server as an integer. Without `encoded` its props are encoded from `props`. Resolves false when nothing is mounted there, the mount failed or the entry has no patcher.
-
-`regions` is what the payload behind this patch says about the islands inside this one, opaque here and read back by the adapter through `islandState`. Without it the islands nested under a patched one keep the props their own props scripts carried. `children` is the new markup of the island's children region; the adapter writes it into the region when it differs from what the region holds, which remounts any island inside it.
+* `patchIsland(el: Element, props: Props, regions?: unknown, children?: string | null, encoded?: unknown, markup?: { [n: string]: string } | null): Promise<boolean>`: re-renders the island at `el` with `props` through its entry's `patch`, keeping its DOM and state.
+* `regions`, `children` and `markup` are read back by the adapter through `islandState`.
+* `children` is the new markup of the island's children region. The adapter writes it when it differs, remounting any island inside it.
+* A server island renders again on the server, with `encoded` as its props when given.
+* `false` when nothing is mounted at `el`, the mount failed or the entry has no `patch`.
 
 ### islandState
 
-* `function islandState(el: Element): { props: Props; regions: unknown; children: string | null } | null`
-
-The props the island at `el` last mounted or patched with, the regions the last patch carried, the markup it gave the island's children region. Null when nothing is mounted there.
+* `islandState(el: Element): { props: Props; regions: unknown; children: string | null; markup: { [n: string]: string } | null } | null`: what the island at `el` last mounted or patched with. `null` when nothing is mounted there. From `@snapfire/fsr/client/boot`.
 
 ### markerProps
 
-* `function markerProps(marker: Element): { script: Element | null; props: Props; encoded: unknown }`
-
-The props script beside an island marker, `script[data-sf-props="<marker id>"]` as its next element sibling, with the props it holds decoded and as written. An absent or empty script gives `{}`.
+* `markerProps(marker: Element): { script: Element | null; props: Props; encoded: unknown }`: the props script that is the marker's next element sibling, decoded and as written. An absent or empty script gives `{}`.
 
 ### serverRendered
 
-* `function serverRendered(el: Element): boolean`
+* `serverRendered(el: Element): boolean`: whether the marker carries `data-sf-ssr`.
 
-Whether the server rendered the island's own markup, which is what decides hydrating over mounting: true when the marker carries `data-sf-ssr`.
+### childrenRegion and islandChildren
 
-* `type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void`; `IslandEntry.patch?: Patcher`. `handle` is what the mounter returned.
+* `childrenRegion(el: Element): Element | null`: the island's `<sf-s data-sf-children>`, else the inert `<template data-sf-children>` after its markup. Never one inside a nested island.
+* `islandChildren(el: Element): Piece[] | null`: that region as pieces, `null` when there is none.
+
+### adoptNodes
+
+* `adoptNodes(to: Element, from: ParentNode | null): void`: moves the nodes inside `from` into `to`, replacing what `to` held. A template gives its content.
+* Moves nothing when `to` is `from` or `from` is empty.
+
+### readPieces and piecesOf
+
+* `readPieces(nodes: ArrayLike<Node>): Piece[]`: DOM nodes as pieces. An `sf-i` marker and the props script after it are one island piece.
+* `piecesOf(html: string): Piece[]`: markup as pieces.
+
+### loadedModule and loadModule
+
+* `loadedModule(entry: IslandEntry): unknown`: the entry's module once loaded, else `undefined`.
+* `loadModule(entry: IslandEntry): Promise<unknown>`: loads it and holds it for `loadedModule`.
+
+### markRendered and unmarked
+
+* `markRendered(el: Element): void`: stamps `data-sf-scheduled` and `data-sf-mounted` on a marker an adapter rendered in its parent's tree. A scan leaves such a marker alone.
+* `unmarked(html: string): string`: `html` with both attributes removed.
+
+### defineMounter
+
+* `const defineMounter: Mounter`: does nothing. The mounter for an island whose module defines a custom element, where the import is the mount.
 
 ### hydrationMismatch
 
-* `function hydrationMismatch(el: Element, detail?: unknown): void`
-
-Logs `sf: <module> did not hydrate to the server's markup` with `console.error`, `detail` beside it, naming the module of the marker at or above `el`. A mounter calls it once for each island its framework could not hydrate, since a framework may report only the first mismatch on a page. The React mounter calls it from `onRecoverableError`, the Vue mounter from the app's `warnHandler` for a `Hydration ... mismatch` warning and the Svelte mounter when `hydrate` with `recover: false` throws, before it mounts the island fresh. `fsr test` fails a test that logs an error, so a mismatch fails the spec that caused it.
+* `hydrationMismatch(el: Element, detail?: unknown): void`: logs `sf: <module> did not hydrate to the server's markup` with `console.error`, `detail` beside it, for the marker at or above `el`.
+* The React, Vue and Svelte mounters call it once per island that did not hydrate.
 
 ### discard
 
-* `discard(root: ParentNode): void`
+* `discard(root: ParentNode): void`: ends every island under `root` and `root` itself when it is a marker, nested islands first.
+* A mount still waiting on its timing is called off. One whose loader is in flight mounts nothing. A mounted one goes to its entry's `unmount`. A server island stops following the store.
+* Afterwards `islandState` returns `null` for those markers and `patchIsland` returns `false`.
+* Call it before removing markers from the document, unless the removal is a mounted root's own render.
 
-Ends every island under `root` and `root` itself when it is a marker, nested islands before the island around them. A mount still waiting on `visible` or `idle` is called off, one whose loader is in flight mounts nothing when the loader lands and a mounted one goes to its entry's `unmount`. Afterwards `islandState` answers null for those markers and `patchIsland` false.
+### applyStyles
 
-The navigator calls it on every node it takes out of the document: a swapped region, an emptied slot, a marker the morph replaces and every node the morph removes. A root left in a detached element keeps running otherwise, with its effects never cleaned up and whatever they hold still held. Code that removes markers itself calls it the same way, before the removal. A root's own render removing its nested markers is the one exception, since the framework ends what it rendered.
+* `applyStyles(hrefs: string[], timeout?: number): Promise<void>`: brings the client-owned stylesheets, `link[data-sf-css]`, to exactly `hrefs`.
+* New links go after every other stylesheet. The promise resolves once they load or after `timeout` ms, 2000 by default. The links `hrefs` no longer names are then removed.
+* A stylesheet without `data-sf-css` is never removed.
+
+### mountServer
+
+* `mountServer(el: Element, module: string, encoded: unknown): void`: mounts `el` as a server-mode island from its props as the server encoded them.
+* `$s` in `encoded` is its state and `$sk` the store keys it reads.
+* It listens on `el` for every event type its markup's `data-sf-on` binds. `submit` is prevented.
+* An event posts `{ props, state, handler, event }` to `/_sf/island/<module>`. `handler` is the bound token, a number for an index and a string for a name. `event` carries the target's `value`, `checked` and `name` and a keyboard event's key.
+* Each post sends the browser's values of the keys it reads as the `$store` prop. The answer's `state` is kept, its `html` is patched in with `morph` and its `store` keys are written.
+* An answer carrying `revalidate` calls `refresh` once the patch is in.
+* While a post is out, the island carries `data-sf-pending` and further events are dropped.
+* A write to a key it reads by another island posts again with no handler. A write during a post posts once more when that one lands.
+* A failed post warns `sf: island <module> step failed with <status>: <text>` and leaves the island as it was.
+* `endServer(el: Element): void` stops it following the store. `discard` calls it. From `@snapfire/fsr/client/server`.
+
+### isServerIsland
+
+* `isServerIsland(el: Element): boolean`: whether `mountServer` mounted `el`.
+
+### morph
+
+* `morph(el: Element, html: string, before?: string): void`: patches `el`'s children to match `html`, keeping the nodes it can.
+* Text and comment nodes match by content, elements by tag and position or by `data-sf-key`, attributes by name.
+* With `before`, the markup last written there, only what changed between `before` and `html` is applied. Nodes and attributes `before` does not account for are left as they stand.
+* A focused form control keeps its value. An unfocused one takes the new one.
+* An `sf-i` is kept as it stands. When its props script changed, the script takes the new text and the island takes the new props through `patchIsland`.
 
 ### DOM Contract
 
@@ -646,991 +682,1024 @@ What the server writes and this package reads.
 
 | Marker | Written by | Read by |
 | --- | --- | --- |
-| `<sf-i id data-sf-module>` | HTML serialiser, `nodeToHtml` | `scan` |
-| `<script type="application/json" data-sf-props="<id>">` | HTML serialiser, `nodeToHtml` | `scan` |
-| `data-sf-ssr` on `<sf-i>` | the HTML serialiser, on an island whose own markup the server rendered | `serverRendered`, which decides hydrating over mounting |
-| `<sf-s data-sf-children>`, else `<template data-sf-children>` after the island's markup | the renderer, around an island's children | `islandChildren`, which hands them to the mounter as pieces |
-| `<!--[-->` … `<!--]-->` around the items of a Svelte island's children, each in `<!--[0-->`, `<!--[1-->`, `<!--[2-->` or `<!--[-1-->` | the renderer, as `Pieces.svelte` writes them under `svelte/server` | `svelteMounter`, which reads the tree's layout from them; Svelte's hydration |
-| `data-sf-scheduled` | `scan`, on the marker it takes | `scan`, `navigate`, the React `Island` |
-| `data-sf-mounted` | the mount itself, once the mounter has run | tests, anything asking whether an island is live |
-| `<div data-sf-slot="N">` | HTML serialiser, `nodeToHtml` | the fill script, `refresh`, `navigate` |
+| `<sf-i id data-sf-module>` | the HTML serialiser, `nodeToHtml` | `scan` |
+| `<script type="application/json" data-sf-props="<id>">` | the HTML serialiser, `nodeToHtml` | `scan` |
+| `data-sf-ssr` on `<sf-i>` | the HTML serialiser, on an island whose markup the server rendered | `serverRendered` |
+| `<sf-s data-sf-children>`, else `<template data-sf-children>` after the island's markup | the renderer, around an island's children | `islandChildren` |
+| `<!--[-->` … `<!--]-->` around a Svelte island's children, each in `<!--[0-->`, `<!--[1-->`, `<!--[2-->` or `<!--[-1-->` | the renderer, under `svelte/server` | `svelteMounter`, Svelte's hydration |
+| `data-sf-scheduled` | `scan`, on the marker it takes | `scan`, `navigate`, React's `Island` |
+| `data-sf-mounted` | the mount, once the mounter has run | tests and anything asking whether an island is live |
+| `<div data-sf-slot="N">` | the HTML serialiser, `nodeToHtml` | the fill script, `refresh`, `navigate` |
 | `<template data-sf-fill="N">` | the streamed HTML response | the fill script |
-| `<template data-sf-l="KEY" data-sf-island="NAME">` … `<template data-sf-l-end>`, a run of placed content at the end of the body | the HTML serialiser, after the document; the navigator, from `<template data-sf-placed>` | `navigate`, which replaces a segment's run when it renders the segment and removes the run of a segment no longer in the document; the Vue mounter, which starts Vue's teleport hydration at the island's run |
-| `sf:fill` `CustomEvent` on `document`, `detail` is the slot id | the fill script; `navigate` and `refresh`, once per `S` row they apply | `boot`, `enableNavigation` and whatever else wires markup it did not write |
-| `sf_state` cookie, a fresh generation whenever a written session is saved or destroyed | the host, through `Sessions::state_cookie` | `navigate` and `prefetch`, which hold a payload only under the generation it was fetched in |
-| `sf:navigate` `CustomEvent` on `document`, `detail` is `{ path }` | `navigate` and `refresh`, once the eager wave is applied and before its deferred segments arrive | whatever wires markup it did not write: a library with a `process` call, htmx for one |
-| `<!--sf-g:key-->` and `<!--/sf-g-->` | segment writer, `renderSegment`, the fill of a streamed segment | `navigate`, `refresh` |
-| `<sf-s>` | a layout's markup, around its child segment | `reactMounter`, which adopts it without reconciling it |
-| `<sf-s data-sf-name="…">` | a layout's markup, around a named slot: a parallel segment or the region an intercept opens in, empty when nothing fills it | `Slot` and `reactMounter`, which adopt it; `navigate`, which fills and empties it |
-| `<sf-s data-sf-island data-sf-region="…" data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, which claims it by its region key and adopts it; `scan`, which reads the timing |
-| `<sf-s data-sf-island data-sf-mode="server">` | the same region for an island in server mode | `scan`, which mounts the `sf-i` inside through `mountServer` and never through the registry |
-| `data-sf-on="click:0 change:1"` | the renderer, on an element of a server-mode island that binds handlers; a template writes names instead, `click:filter`, through Tera's `on` | `mountServer`, which delegates those event types on the island |
-| `data-sf-key` | the renderer, from an element's `key`, in server mode only | `morph`, which moves a keyed element rather than recreating it |
-| `data-sf-pending` | `mountServer`, on the island while a round trip is out | the application's styles |
-| `$s` in the props script | the renderer, the initial values of a server-mode island's state | `mountServer` |
-| `$sk` in the props script | the renderer, the store keys a server-mode island reads | `mountServer` |
-| `$h` in the props script | the renderer, the island's hoisted values | `reactMounter`, which lifts it into `useHoisted`'s context |
-| `<script type="application/json" data-sf-segments>` | streamed HTML response | `enableNavigation` |
-
-### mountServer
-
-* `function mountServer(el: Element, module: string, props: Props): void`
-
-Mounts `el` as an island in server mode: keeps `props` less `$s` (the key the state rides under) and `$sk` (the store keys it reads), then listens on `el` for every event type its markup binds. Each step sends the browser's values of those keys as the `$store` prop and sets the keys the answer's `store` names, so every island reading one follows. A write to one of them by any other island steps it again with no handler; a write while a step is out steps it once more when that one lands. Its own answer's writes step nothing. `endServer(el)` stops it following the store; `discard` calls it. An event on a bound element posts `{ props, state, handler, event }` to `/_sf/island/<module>`, the handler being the token the attribute carried, a number when it is an index and a string when it is a name, with `event` carrying the target's `value`, `checked` and `name` and the key of a keyboard event, then stores the answered `state` and patches the answered `html` in with `morph`; when the answer carries `revalidate`, the handler called an action the host has already run and the island calls `refresh` the way a browser-mode action call does once the patch is in. `submit` is prevented. While a round trip is out the island carries `data-sf-pending` and a further event is dropped. A failed round trip is a `console.warn` and the island is left as it was. A patch of a mounted server island, the one a refresh or a navigation hands an island the new payload places again, takes the new props less `$s` and renders again from the state the island holds.
-
-### isServerIsland
-
-* `function isServerIsland(el: Element): boolean`
-
-True when `mountServer` mounted `el`. `patchIsland` on such an element gives it the new props and renders it again on the server from them and the state it holds.
-
-### morph
-
-* `function morph(el: Element, html: string, before?: string): void`
-
-Patches `el`'s children to match `html`: a text or comment node by content, an element by tag and position or by `data-sf-key`, attributes by name, with the nodes it can keep kept. `before` is the markup the server wrote there last. Given it, the morph applies only what changed between `before` and `html`: a node `before` does not account for stays where it is, an attribute the two agree on is left as it stands and one neither carries is never touched, so what a script set on the server's markup survives. Without it the children as they stand are taken for the server's. The navigator, a server island's step and the React, Vue and Svelte adapters always pass it: the navigator from the record it keeps of each region it or the document wrote, a server island from its last answer and an adapter from the markup it last applied. A form control that has focus keeps its value; one that does not takes the server's. An `sf-i` inside is matched and left as it is, marker and children both, since the answer numbers its islands from zero and carries none of the marks mounting left; when the props script after it changed, the script takes the new text and the island mounted there takes the props, a server island by a step of its own and any other through `patchIsland`.
+| `<template data-sf-l="KEY" data-sf-island="NAME">` … `<template data-sf-l-end>` at the end of the body | the HTML serialiser; the navigator, from `<template data-sf-placed>` | `navigate`; the Vue mounter, for teleport hydration |
+| `data-sf-to` on placed content | the HTML serialiser, for content whose place has not arrived | `scan`, which moves it into the place |
+| `sf:fill` `CustomEvent` on `document`, `detail` the slot id | the fill script; `navigate` and `refresh`, once per `S` row | `boot`, `enableNavigation` |
+| `sf:navigate` `CustomEvent` on `document`, `detail` `{ path }` | `navigate` and `refresh`, once the eager wave is applied | `bindHtmx` and any other library that processes new markup |
+| `sf:update-ready` `CustomEvent` on `document` | `enablePwa` | the application |
+| `sf_state` cookie | the host, a new generation whenever a written session is saved or destroyed | `navigate`, `prefetch` |
+| `<!--sf-g:key-->` and `<!--/sf-g-->` | the segment writer, `renderSegment` | `navigate`, `refresh` |
+| `<sf-s>` | a layout's markup, around its child segment | `reactMounter` |
+| `<sf-s data-sf-name="…">` | a layout's markup, around a named slot | `Slot`, `reactMounter`, `navigate` |
+| `<sf-s data-sf-island data-sf-region="…" data-sf-when="…">` | a page's or layout's markup, around a component placed as an island | `Island`, `scan` |
+| `<sf-s data-sf-island data-sf-mode="server">` | the same region for a server-mode island | `scan` |
+| `data-sf-on="click:0 change:1"` | the renderer, on an element of a server-mode island; a Tera template writes names, `click:filter` | `mountServer` |
+| `data-sf-key` | the renderer, from an element's `key`, in server mode only | `morph` |
+| `data-sf-pending` | `mountServer` while a post is out; `navigate` on the clicked anchor | the application's styles |
+| `data-sf-css` on `<link rel="stylesheet">` | the renderer; `applyStyles` | `applyStyles` |
+| `$s`, `$sk`, `$sv`, `$h`, `$k`, `$aw` in the props script | the renderer: state, read keys, store values rendered from, hoisted values, region key, awaited keys | `mountServer`, the mounters, `boot` |
+| `<script type="application/json" data-sf-segments>` | the streamed HTML response | `enableNavigation` |
+| `script[data-sf-store]` | the HTML serialiser; a fragment, with `data-sf-fragment` | `adopt` |
+| `<html lang data-sf-locale>` | the HTML serialiser | `adoptLocale` |
+| `<script type="application/json" data-sf-i18n="<tag>">` | the HTML serialiser | `adoptCatalog` |
+| `script[data-sf-script]` | the host, for a script row | `loadDeclaredScripts` |
+| `<meta name="sf:worker">` | the host under `[pwa]` outside development | `enablePwa` |
+| `<meta name="sf:images">` | the host, from the build's image manifest | `Picture` |
 
 ## 6. Navigation
 
-Segment patching in place of a page load. The functions share one module-level sidecar, one id allocator, the document's current path and one router cache: payload text by the origin, the slot asked for and `pathname + search` or the fetch still bringing it, held for `cacheMs` on the clock `performance.now` reads. A response whose status is not a success, an error page a loader failure rendered included, answers the navigation that asked for it and is not held.
+The functions in this section share one document state: the segment sidecar, the current path and a router cache of payloads keyed by origin path, target slot and `pathname + search`.
 
-A request for a payload says where it comes from: `x-sf-from` carries the document's path and search, which lets the server render the target into a slot of a live layout, an intercept; `x-sf-into` names that slot outright; a full navigation sends neither. `interface NavigateOptions { full?: boolean; into?: string; replace?: boolean; keep?: boolean; scroll?: boolean; transition?: boolean; activity?: boolean }` chooses and an anchor chooses `full`, `into`, `keep`, `transition` and `activity` with `data-sf-full`, `data-sf-into`, `data-sf-keep`, `data-sf-transition` and `data-sf-activity`, where `data-sf-transition="none"` is `transition: false`, `data-sf-activity="none"` is `activity: false` and any other value is `true`. `transition` runs the patch, the history entry, the scroll and the link marks inside one `document.startViewTransition` callback and waits for `updateCallbackDone` before the deferred segments drain; it is skipped when the browser has no `startViewTransition`, when `(prefers-reduced-motion: reduce)` matches and when `document.visibilityState` is `hidden`. A navigation started while the callback is pending makes the older callback a no-op. `replace` puts the target in place of the current history entry. `scroll: false` leaves the window where it is. Every region a patch replaces leaves the document before its replacement enters it. `activity`, over the document's setting, makes the patch hold every segment region it replaces and put back one held under the key of the segment replacing it. When every segment in the region carries the digest it was held with, only the region's top-level islands are settled, each taking the payload's props or, when holding ended it, the payload's marker; otherwise the region is morphed to the payload's markup with every form control's value and check and every textarea's text left as they are; a step through history to a page put back scrolls the window to where it was when the page was held. Held regions are keyed by segment key, kept in least recently held order up to `activityLimit` and dropped, their islands discarded, by `clearRouterCache`, `refresh` and a restore attempted under a different `sf_state` generation. Holding a region pauses every island whose entry pauses, ends every other island whose `IslandEntry` has an `unmount` and every pending mount, unmarking each so the put-back replaces it and `scan` mounts it again; an island with no `unmount`, a custom element's, stays as it is. A server island is held with its props and state: a write to a key it reads while it is held steps it once it is back. `keep` says whether a segment whose key changed within its module is morphed in place or replaced; left out, it is true when the target has the document's current pathname.
+### NavigateOptions
+
+* `interface NavigateOptions { full?: boolean; into?: string; replace?: boolean; keep?: boolean; scroll?: boolean; transition?: boolean; activity?: boolean }`
+* `full`: requests the document's rendering of the target, never an intercept. Sends no `x-sf-from`.
+* `into`: renders the target into this slot of the nearest live layout that declares it. Sent as `x-sf-into`.
+* Without `full` or `into`, `x-sf-from` carries the document's path and search.
+* `replace`: replaces the current history entry.
+* `keep`: whether a segment whose key changed within the same module is morphed in place rather than replaced. Defaults to true when the target has the current pathname.
+* `scroll`: whether the window scrolls to the fragment's element or the top. Defaults to true.
+* `transition`: runs the swap inside `document.startViewTransition`, over the document's `transitions`. Skipped without `startViewTransition`, under `(prefers-reduced-motion: reduce)` and while `document.visibilityState` is `hidden`.
+* `activity`: holds the regions the navigation replaces and puts back one held under the incoming segment's key, over the document's `activity`.
+* An anchor sets `full`, `into`, `keep`, `transition` and `activity` with `data-sf-full`, `data-sf-into`, `data-sf-keep`, `data-sf-transition` and `data-sf-activity`. `data-sf-keep="false"`, `data-sf-transition="none"` and `data-sf-activity="none"` are `false`. Any other value is `true`.
+
+Under `activity`:
+
+* A held region keeps its DOM. Each island whose entry has `pause` is paused. Every other island with an `unmount` is ended and mounted afresh when the region comes back. An island without `unmount` stays as it is.
+* A region put back whose segments all carry their held digests keeps its DOM and its islands take the payload's props. Otherwise it is morphed to the payload's markup with form values left as they are.
+* A step through history to a page put back restores its scroll.
+* Held regions are kept in least recently held order up to `activityLimit`. `clearRouterCache`, `refresh` and a change of `sf_state` generation drop them.
+
+### NavigationOptions and PrefetchTiming
+
+* `interface NavigationOptions { prefetch?: PrefetchTiming; cacheMs?: number; transitions?: boolean; activity?: boolean; activityLimit?: number }`
+* `type PrefetchTiming = "hover" | "viewport" | "none"`
+* `prefetch`: the timing of a link without its own `data-sf-prefetch`. Defaults to `"hover"`.
+* `cacheMs`: how long a fetched payload answers a navigation. Defaults to 30000.
+* `transitions`: the document's `transition` setting. Defaults to false.
+* `activity`: the document's `activity` setting. Defaults to false.
+* `activityLimit`: how many pages `activity` holds. Defaults to 10.
 
 ### enableNavigation
 
-* `enableNavigation(options?: NavigationOptions): void`
-* `interface NavigationOptions { prefetch?: PrefetchTiming; cacheMs?: number; transitions?: boolean; activity?: boolean; activityLimit?: number }`; `type PrefetchTiming = "hover" | "viewport" | "none"`. `prefetch` is the document's timing for a link that names none of its own, `"hover"` by default; `cacheMs` defaults to 30000. `transitions` is whether a navigation that names none of its own swaps the page inside `document.startViewTransition`, false by default; a second call on the same document changes it. `activity` is the same for holding the pages a navigation leaves, false by default. `activityLimit` is how many it holds, 10 by default.
-
-Registers `refresh` as `window.__sf.refresh`, which the host's development script calls, reads `script[data-sf-segments]` into the module's current sidecar, sets `cacheMs` when given, then installs a `click` listener on `document` and a `popstate` listener on `window`. `mouseover`, `focusin` and passive `touchstart` listeners on `document` call `prefetch` for a link whose timing is `"hover"`. A link whose timing is `"viewport"` is observed by one `IntersectionObserver` instead, prefetched as it enters the view and unobserved there, so it is fetched once; the links are observed at `enableNavigation`, after every applied payload and on `sf:fill`, since a navigation brings new ones. A link's own `data-sf-prefetch` decides its timing and the option decides the rest. Where `IntersectionObserver` does not exist, viewport timing observes nothing rather than throwing. The href of the enclosing `a[href]`, unless it carries `data-sf-native` or `data-sf-prefetch="none"`. The navigator is wired to a document once: a second call on the same document, which a mounted site's entry module makes when a payload imports it, keeps the current sidecar, the paths and the listeners the first call installed and changes only the options it names, `cacheMs` and, with `prefetch`, the timing the document's links are observed under. A new document, which `load` under `fsr test` gives every spec, is wired afresh.
-
-A click is ignored when `defaultPrevented` is set, when `button` is not 0, when any of `metaKey`, `ctrlKey`, `shiftKey` or `altKey` is held, when the target has no enclosing `a[href]` or when the href resolves to another origin. Otherwise the default is prevented and `navigate` is called with the path plus search and the anchor's `data-sf-full`, `data-sf-into` and `data-sf-keep` as its options. `data-sf-keep="false"` is `keep: false`, any other value is `keep: true` and no attribute leaves `keep` out.
-
-### prefetch
-
-* `prefetch(href: string, options?: NavigateOptions): Promise<void>`
-
-Resolves `href` against the location; another origin resolves at once. When the router cache holds a fresh feed for the origin, the options and `<pathname><search>`, still arriving or finished less than `cacheMs` ago and fetched under the session generation the `sf_state` cookie names now, that feed is used; a held feed from an earlier generation is dropped with every other feed of that generation; otherwise the payload form is fetched with the headers the options call for and held as a feed from its first row, its time being when the last row arrived. Resolves once the feed is whole. A non-ok response holds nothing.
-
-### clearRouterCache
-
-* `clearRouterCache(): void`
-
-Drops every held payload and forgets every fetch in flight, whose result is then discarded when it lands.
+* `enableNavigation(options?: NavigationOptions): void`: takes over same-origin link clicks and history for the document.
+* Reads `script[data-sf-segments]` as the current sidecar and sets `window.__sf.refresh` to `refresh`.
+* Installs a `click` listener on `document` and a `popstate` listener on `window`.
+* Prefetches a `"hover"` link on `mouseover`, `focusin` and passive `touchstart`. Observes a `"viewport"` link with one `IntersectionObserver` and prefetches it once as it enters the view.
+* A click is left to the browser when `defaultPrevented` is set, `button` is not 0, a modifier key is held, there is no enclosing `a[href]`, the anchor carries `data-sf-native` or the href is another origin. Otherwise it calls `navigate` with the anchor's options.
+* `data-sf-prefetch="none"` turns prefetch off for that link.
+* A second call on the same document keeps the listeners and the sidecar and changes only the options it names. A new document is wired afresh.
 
 ### navigate
 
-* `navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>`
-
-Takes the payload for the origin, the options and `<pathname><search>` from the router cache while its feed is still arriving or finished less than `cacheMs` ago or fetches `<pathname><search>` with `__payload` appended to the query string, joined with `&` when a search string is present and `?` when it is not, with `x-sf-from` set to the document's current path unless `full` is given and `x-sf-into` set to `into` when it is; under `into` the origin is sent for the marks alone, since the slot is named outright. A fetched payload is held as a feed of rows from its first. A non-ok response hands over to `window.location.assign(href)`. Otherwise the rows are read as they arrive through `linesOf` and `parseRow`: at the `G` row the eager wave is applied, history is pushed when `push` is true (its default) unless `replace` is set, which replaces the current entry instead, the current path is moved to the target, then the window scrolls to the element the fragment names (by id, then by an anchor's `name`) or to the top when it names none, unless `scroll` is false or the payload was an intercept, which opens in place. A step back to the page an open intercept sits over makes no request: the intercept's slot empties and the page's segments and head as they stood when the intercept opened are put back. A step back or forward, `push` false, scrolls instead to where the entry it lands on was left, once every island a held page paused is shown again; an entry with no recorded scroll, one from before the document loaded, keeps where the browser put it unless the URL names a fragment. Each entry's state carries an `sfEntry` id the record is kept under, merged into whatever state the entry already had. A link records the scroll just before its patch, a step through history in the `popstate` listener before the browser restores the entry it steps to; `sf:navigate` is dispatched on `document` with the path in `detail`; each `S` row after it fills its slot, rescans and dispatches `sf:fill` with the slot id, each `H` row retitles and each `T` row seeds and the promise resolves once the last row has been applied. A feed that ends before `G` or an eager wave that cannot be patched, hands over to `window.location.assign(href)`. A `navigate` or `refresh` begun later takes the document and the rows still arriving for this one stop applying.
-
-Applying walks the old and new segment spines together. A segment whose digest both responses agree on rendered the same, so its region is kept and its delimiter retagged with the new key and an island in it is not re-rendered; the walk descends to its children all the same, since a digest elides them. Otherwise the first key mismatch replaces that region from the new payload and a mismatch the region cannot answer, at the root, descends when the two keys name the same module. Under `keep` a mismatch within one module is morphed instead: the new markup is patched into the region by the rules of `morph`, so an element that stands where it stood keeps its DOM and its scroll. Every mounted island it places again, by region key, keeps its DOM and its state wherever in the region it stood and takes the new props. A root nothing has mounted is patched like any other element. A segment that is itself an island is retagged and takes its new props. One whose new segment carries a slot over untouched is replaced as before. Children pair by slot name when every child on both sides carries one, else in order, where a differing child count replaces the parent region. A kept region whose node is an island takes the new props through `patchIsland` when they differ from its props script, which is rewritten, along with what `regionSources` read from that node, so the islands nested under it are reached too. A child the old side had and the new side lacks is emptied, delimiters included. Its region takes back what it held before navigation first filled it, its fallback or nothing, unless the new segment's `keep` names its slot, in which case it is carried over untouched. A child the new side has and the old side lacks is written into the parent's `<sf-s data-sf-name>` region, found under the parent's own island. A new child that is slot-addressed replaces the old child's region (its slot element while it is still streaming) with the pending node and its fallback. Resolved slots are filled after the diff, each delimited by its segment key, then the document is rescanned. A static segment with child segments whose own markup changed is morphed after its children are diffed: each child is kept or replaced by its own rule first, then the layout's markup is morphed around them with every segment region, an `<sf-s>` without `data-sf-island` or `data-sf-children`, kept as it stands. With `keep: false` a page under a static layout is replaced while the layout keeps its DOM. A missing sidecar, a missing `G` row, a region whose comment pair cannot be found in the DOM or a named slot the parent's markup lacks falls back to `window.location.reload()`.
+* `navigate(href: string, push?: boolean, options?: NavigateOptions): Promise<void>`: moves to `href` by payload. Resolves once the last row has been applied.
+* `push` defaults to true. False is a step through history.
+* A fragment of the page already showing scrolls without a fetch.
+* Fetches `<pathname><search>` with `__payload` appended, unless the router cache holds a payload for the same request fetched less than `cacheMs` ago under the current `sf_state` generation.
+* The response's `C` stylesheets are added before the swap and the ones it no longer names are removed after it.
+* At the `G` row the eager wave is applied, history is pushed or replaced and the window scrolls. An intercept does not scroll. A step through history restores the entry's recorded scroll once every paused island is shown.
+* `sf:navigate` is dispatched after the eager wave. Each later `S` row fills its slot, rescans and dispatches `sf:fill`. Each `H` row goes to `applyHead` and each `T` row to `contribute`.
+* A step back to the page an open intercept sits over makes no request.
+* Each history entry's state carries an `sfEntry` id.
+* A segment whose digest both responses agree on keeps its region. The first key mismatch replaces that region. Under `keep` it morphs the region instead.
+* A mounted island the new markup places again keeps its DOM and state and takes the new props.
+* A child segment the new side lacks empties back to its fallback, unless the new segment's `keep` names its slot.
+* A non-ok response, a feed that ends before `G` or a payload that cannot be patched falls back to `window.location.assign(href)`.
+* A `navigate` or `refresh` started later takes over and this one stops applying rows.
 
 ### refresh
 
-* `refresh(): Promise<void>`
+* `refresh(): Promise<void>`: drops the router cache and held pages, re-fetches the current URL as a payload and applies it as `navigate` does.
+* Sends `x-sf-into` naming the open intercept's slot when there is one.
+* A kept region that is not an island is replaced when its digest moved. It is also replaced when neither response carries a digest.
+* Every kept island takes its new props in place.
+* A call while a refresh is running returns that refresh's promise and queues one more run, shared by every call in the meantime.
+* Falls back to `window.location.reload()` when there is no sidecar, the response is not ok or the payload cannot be applied. A request that gets no response leaves the page as it is.
+* A `404` payload is applied like any other.
 
-Drops the router cache, re-fetches the current `pathname` and `search` with `__payload` appended, with `x-sf-into` naming the slot the current URL was intercepted into when it was and applies it as `navigate` does, row by row as it streams, with one difference: a kept leaf region that is not an island is replaced when its digest moved, or, when neither response carried one, replaced regardless. Every kept island, layout or page, takes its new props in place and keeps its DOM and its state; an open intercept re-renders in its slot over the page it keeps. `sf:navigate` is dispatched once the eager wave is applied, as `navigate` does. A call made while a refresh is running returns that refresh's promise and queues one more run after it, which every call in the meantime shares, so a burst of publishes fetches twice at most and the page ends at the last state.
+### prefetch
 
-Falls back to `window.location.reload()` when there is no sidecar, when the response is neither ok nor a payload or when the payload cannot be applied. A request that gets no response at all, offline or with the server down, leaves the page as it is, since a reload would land on the browser's error page. A `404` payload is still a payload: the host renders the error segment the page's loader failed into and the navigator applies it, so a link to an entity that does not exist lands on that route with its error page in place, as a full load would.
+* `prefetch(href: string, options?: NavigateOptions): Promise<void>`: fetches `href`'s payload into the router cache and resolves once it is whole.
+* Another origin resolves at once.
+* A fresh cached payload for the same request is reused. One from an earlier `sf_state` generation is dropped.
+* A non-ok response is not cached.
+
+### clearRouterCache
+
+* `clearRouterCache(): void`: drops every cached payload and discards every fetch in flight when it lands.
 
 ### pendingLink and subscribePendingLink
 
-* `pendingLink(): Element | null`
-* `subscribePendingLink(watcher: () => void): () => void`
-
-The anchor whose click started the navigation in flight and a subscription to its changes; the returned function unsubscribes. The click handler hands the anchor to the `navigate` it calls, which marks it `data-sf-pending` (an empty value) as its fetch starts and clears the mark once the eager wave is applied, before the drain. A `navigate` begun later clears the earlier mark and marks its own anchor. One not started by a click marks none. A navigation that hands over to a full load leaves the mark on. A fragment-only step marks nothing.
-
-### live
-
-* `live(topics: string[], options?: LiveOptions): () => void`
-* `LiveOptions`: `{ onTopic?: (topic: string) => void; path?: string }`
-
-Opens the host's event stream at `path` (`/_sf/live` by default) asking for `topics`, then returns the function that closes it. Every publish of a topic in the list calls `onTopic`, which defaults to `refresh()`, so the route's loaders run again and the page is patched in place without a navigation. The browser reconnects the stream on its own, so a restarted server resumes without a reload.
-
-Does nothing and returns a no-op where `topics` is empty or where `EventSource` is absent, which is every server-side render. An island typically opens it in an effect and returns the closer. The stream also closes on `pagehide` and opens again on a `pageshow` from the back-forward cache, since a full navigation never runs the closer and a cached page holding the stream would keep a connection to the host. A topic published while the page was cached is not replayed.
-
-### socket
-
-* `socket(topic: string, options?: SocketOptions): Socket`
-* `SocketOptions`: `{ onRow?: (key: string, value: unknown) => void; onOpen?: () => void; onClose?: () => void; path?: string; backoffMs?: number }`
-* `Socket`: `{ send(key: string, value: SfValue): void; open(): boolean; close(): void }`
-
-Opens a WebSocket on `topic` at `path` (`/_sf/socket` by default) and keeps it open: a drop calls `onClose` and is retried after `backoffMs`, doubling to a minute. Every connection calls `onOpen`. Rows the server sends are written into the store under their keys unless `onRow` says otherwise, so an island reading a key follows without being told.
-
-`send` is dropped rather than queued while the socket is down, which is right for what this seam carries: the state of a keystroke, superseded by the next one. Returns a socket whose methods do nothing where `WebSocket` is absent, which is every server-side render.
-
-### enablePwa
-
-* `enablePwa(): void`
-* `online: StoreKey<boolean>`, the key `sf/online`
-* `updateReady: StoreKey<boolean>`, the key `sf/update-ready`
-
-Writes `online` from `navigator.onLine` and keeps it current from the window's `online` and `offline` events. When the document carries `<meta name="sf:worker" content="…">`, which the host writes under `[pwa]` outside development, registers that worker with scope `/`. When a newer worker takes over a page an older one controlled, sets `updateReady` to true and dispatches `sf:update-ready` on the document. `boot` calls it; a second call on the same document does nothing. The build reads `online` and `updateReady` imported from `@snapfire/fsr/client` as their key strings, so `useStore(online, true)` lowers.
+* `pendingLink(): Element | null`: the anchor whose click started the navigation in flight.
+* `subscribePendingLink(watcher: () => void): () => void`: calls `watcher` when it changes. Returns the unsubscriber.
+* The anchor carries `data-sf-pending` from the start of the fetch until the eager wave is applied.
+* A later navigation clears the mark and marks its own anchor.
+* A navigation not started by a click and a fragment-only step mark nothing. A fallback to a full load leaves the mark on.
 
 ### applyHead
 
-* `applyHead(head: Head): void`
-
-Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. Each entry of `head.scripts`, the attributes of a script row a route's `meta` declared, goes to `loadMarkedScript`. `head.theme` and `head.scheme` set `data-sf-theme` and `data-sf-scheme` on `<html>`, null removing the attribute; `head.forced` sets or removes `data-sf-theme-forced`. A row without the key leaves its attribute. `head.head` lists the document's head rows: the elements between the document's `<!--sf-head-->` and `<!--/sf-head-->` comments become these, except its script rows. An element already there unchanged stays in place and a document without the comments is left alone. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
-
-* `interface HeadRow { tag: string; attrs: [string, string][]; children?: string }`
-
-* `interface Head { title?: string; description?: string; head?: HeadRow[]; scripts?: Record<string, string>[]; theme?: string | null; scheme?: string | null; forced?: boolean }`
+* `applyHead(head: Head): void`: applies one `Head` to the document. `navigate` and `refresh` call it for every `H` row.
+* `title` sets `document.title`. `description` sets `meta[name="description"]`, creating it when absent.
+* `head` replaces the elements between `<!--sf-head-->` and `<!--/sf-head-->`, script rows aside. An unchanged element stays in place. A document without the comments is left alone.
+* Each entry of `scripts` goes to `loadMarkedScript`.
+* `theme` and `scheme` set `data-sf-theme` and `data-sf-scheme` on `<html>`, `null` removing them. `forced` sets or removes `data-sf-theme-forced`. A missing key leaves its attribute.
 
 ### loadScript
 
-* `loadScript(src: string, options?: ScriptOptions): Promise<void>`
-* `interface ScriptOptions { when?: ScriptTiming; attrs?: Record<string, string | boolean> }`; `type ScriptTiming = "load" | "idle" | "interaction"`
-
-Adds `<script src>` to `document.head` once per resolved URL and resolves on its `load` event, rejecting with `Error("<src> did not load")` on `error`. A second call for a URL already asked for returns the first call's promise and adds nothing. `when` defaults to `"load"`, which adds the element at once; `"idle"` waits for `requestIdleCallback`, falling back to a timeout where there is none; `"interaction"` waits for the first `pointerdown`, `keydown`, `touchstart` or `scroll` on `document`. `attrs` are set on the element, `true` as an empty attribute and `false` left off; `async` is set unless `attrs` names it.
+* `loadScript(src: string, options?: ScriptOptions): Promise<void>`: adds `<script src>` to `document.head` once per resolved URL. Resolves on `load` and rejects with `Error("<src> did not load")` on `error`.
+* `interface ScriptOptions { when?: ScriptTiming; attrs?: Record<string, string | boolean> }`
+* `type ScriptTiming = "load" | "idle" | "interaction"`
+* `when` defaults to `"load"`, which adds the element at once. `"idle"` waits for `requestIdleCallback`. `"interaction"` waits for the first `pointerdown`, `keydown`, `touchstart` or `scroll` on `document`.
+* `attrs` are set on the element, `true` as an empty attribute and `false` left off. `async` is set unless `attrs` names it.
+* A second call for the same URL returns the first call's promise.
 
 ### loadDeclaredScripts
 
-* `loadDeclaredScripts(root?: ParentNode): void`
-* `loadMarkedScript(marker: Record<string, string>): void`
+* `loadDeclaredScripts(root?: ParentNode): void`: calls `loadMarkedScript` for every `script[data-sf-script]` under `root`, the document by default.
+* `loadMarkedScript(marker: Record<string, string>): void`: loads `data-src` at the timing `data-sf-script` names. Every other attribute but `type` is set as written and `data-type` is set as `type`.
+* A failure is logged with `console.error` as `sf: <message>`.
 
-`loadDeclaredScripts` calls `loadMarkedScript` with the attributes of every `script[data-sf-script]` under `root`, the inert element the host writes for a script row. `boot` calls it for the document and on every `sf:fill`. It also sets `window.__sf.script` to `loadMarkedScript` for the fill script, which hands it a streamed resolution's script rows or writes them as inert elements when the client has not booted. `loadMarkedScript` loads `data-src` at the timing `data-sf-script` names, with every other attribute but `type` set as written and `data-type` set as `type`. A failure is written to the console.
+### live
 
-### `enableTelemetry`
+* `live(topics: string[], options?: LiveOptions): () => void`: follows `topics` over the host's event stream. Returns the function that closes it.
+* `interface LiveOptions { onTopic?: (topic: string) => void; path?: string }`
+* `onTopic` defaults to `refresh()`. `path` defaults to `/_sf/live`.
+* The browser reconnects a dropped stream on its own.
+* The stream closes on `pagehide` and opens again on a `pageshow` from the back-forward cache. A topic published meanwhile is not replayed.
+* Returns a no-op when `topics` is empty or `EventSource` is absent.
 
-* `enableTelemetry(options: TelemetryOptions): void`: reports this page view's web vitals once, as a POST of JSON to `options.beacon`, when the page is hidden. `TelemetryOptions` is `{ beacon, app, version, sample? }`.
-* `slowMs`: a page whose largest paint takes at least this many milliseconds adds `traceId` to the report, from `<meta name="sf-trace">`, which `[trace] report` turns on. Leave it out to report none.
-* The report holds `app`, `version`, `route` from `<meta name="sf-route">`, a device class and `samples` of `ttfb_ms`, `fcp_ms`, `lcp_ms` and `inp_ms`. It holds no URL and nothing about the person.
+### socket
+
+* `socket(topic: string, options?: SocketOptions): Socket`: a WebSocket on `topic` that reconnects when it drops.
+* `interface SocketOptions { onRow?: (key: string, value: unknown) => void; onOpen?: () => void; onClose?: () => void; path?: string; backoffMs?: number }`
+* `interface Socket { send(key: string, value: SfValue): void; open(): boolean; close(): void }`
+* `path` defaults to `/_sf/socket`. `backoffMs` defaults to 500 and doubles on each retry up to a minute.
+* `onOpen` runs on every connection. `onClose` runs on every drop, not after `close()`.
+* Rows from the server are written into the store under their keys unless `onRow` is given.
+* `send` while the socket is down drops the row.
+* Returns a socket whose methods do nothing where `WebSocket` is absent.
+
+### enablePwa
+
+* `enablePwa(): void`: keeps `online` current and registers the service worker the document names. `boot` calls it. A second call on the same document does nothing.
+* `const online: StoreKey<boolean>`: the key `sf/online`, from `navigator.onLine` and the window's `online` and `offline` events.
+* `const updateReady: StoreKey<boolean>`: the key `sf/update-ready`.
+* Registers `<meta name="sf:worker" content="…">` with scope `/`. A registration failure warns `fsr: the service worker did not register`.
+* When a newer worker takes over a page an older one controlled, it sets `updateReady` and dispatches `sf:update-ready` on the document.
+
+### enableTelemetry
+
+* `enableTelemetry(options: TelemetryOptions): void`: posts this page view's web vitals as JSON to `options.beacon` once, when the page is hidden.
+* `interface TelemetryOptions { beacon: string; app: string; version: string; sample?: number; slowMs?: number }`
+* `sample`: the share of page views that report, 0 to 1. Defaults to 1.
+* `slowMs`: a page whose largest paint takes at least this many ms adds `traceId` from `<meta name="sf-trace">`. Left out, no report carries one.
+* The report holds `app`, `version`, `route` from `<meta name="sf-route">`, a device class and `samples` of `ttfb_ms`, `fcp_ms`, `lcp_ms` and `inp_ms`. It holds no URL.
 
 ## 7. Actions and Sign-In
 
 ### action
 
-* `action(id: string, opts?: { revalidate?: boolean }): (input?: SfValue) => Promise<SfValue>`
+* `action(id: string, opts?: { revalidate?: boolean }): (input?: SfValue) => Promise<SfValue>`: a callable for an action id.
+* A call POSTs `JSON.stringify(encodeValue(input))` to `/_sf/action/${encodeURIComponent(id)}` with `content-type: application/json` and `x-sf-from` set to the page's path and search. `input` defaults to `{}`.
+* Success returns `decodeValue` of the JSON body.
+* A non-ok status throws `ActionFailure`.
+* When the response carries `x-sf-redirect`, the call awaits `navigate` to that path.
+* Otherwise `revalidate`, true by default, awaits `refresh()` before returning.
 
-Builds a callable for a stable action id. The client holds ids, never URLs.
+### upload
 
-The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: application/json` and `JSON.stringify(encodeValue(input))` as the body. `input` defaults to `{}`. On a non-ok status it throws `ActionFailure`: from the body's `kind` and `message` when the body is the JSON failure shape, otherwise with the kind the status stands for, its own kind for every 4xx and 5xx status the server has one for, `invalid` for any other 4xx and `internal` for anything else; the message is then the body's text, the `statusText` or `HTTP <status>`. On success it returns `decodeValue` of the JSON body.
-
-`revalidate` defaults to true, which awaits `refresh()` after a successful call and before the result is returned. Pass `{ revalidate: false }` for a read-only action or to batch several mutations behind one manual `refresh`.
-
-When the action ended in `redirect`, the response carries its path in `x-sf-redirect` and the call awaits `navigate` to it instead of `refresh`, whatever `revalidate` says. `upload` does the same.
-
-* `upload(id: string, form: FormData, opts?: { revalidate?: boolean }): Promise<SfValue>`
-
-Posts a `FormData` to the same action endpoint, which is how a file reaches an action: the host reads `multipart/form-data` into the input an ordinary call carries, with each part that has a filename arriving as an `Upload`.
-
-The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with the `FormData` as the body, so the browser sets the content type and its boundary. It sends `accept: application/json`, which is what makes the host answer the action's value: a form post without it is answered with a 303 back to the page that posted, which is what a browser submitting a form natively wants and not what a caller awaiting a value does.
-
-The form must carry `_csrf`, since a form post is verified where a JSON call is not. A page reads the token from its `csrf_token` prop; for an anonymous visitor the deployment needs `[session] csrf = "always"` for one to exist.
-
-Failures and `revalidate` behave as `action`'s do.
+* `upload(id: string, form: FormData, opts?: { revalidate?: boolean }): Promise<SfValue>`: POSTs a `FormData` to the same endpoint. Each file part reaches the action as an `Upload`.
+* Sends `accept: application/json` and `x-sf-from`. The browser sets the multipart content type.
+* The form must carry `_csrf`, taken from the page's `csrf_token` prop. An anonymous visitor has a token only under `[session] csrf = "always"`.
+* Failures, redirects and `revalidate` behave as in `action`.
 
 ### signIn
 
-* `signIn(opts?: AuthOptions): Promise<AuthStep>`
-
-Begins a sign-in with `GET /auth/login?return_to=<opts.returnTo or the current path and query>&method=<opts.method>`, asking for JSON, then runs the flow. A `redirect` or `complete` step moves the browser with `window.location.assign` unless `opts.navigate` is `false` and is returned. A `present` step of kind `webauthn.get` or `webauthn.create` runs `navigator.credentials.get` or `create` itself over `data.publicKey` (or `data` when it has none). `challenge`, `user.id` and each `allowCredentials` and `excludeCredentials` id are decoded from base64url; `data.mediation` is passed through. Its answer is `{ credential }`, the credential with every byte field base64url (`id`, `rawId`, `type`, `response` and `extensions`). Any other `present` step goes to `opts.present`. What it answers is posted with `answer`; nothing returns the step to the caller. The loop runs until a step leaves the page, completes or goes unanswered.
+* `signIn(opts?: AuthOptions): Promise<AuthStep>`: begins a sign-in with `GET /auth/login?return_to=<opts.returnTo or the current path and query>&method=<opts.method>`, asking for JSON, then runs the flow.
+* A `redirect` or `complete` step moves the browser with `window.location.assign` unless `opts.navigate` is `false`. The step is returned.
+* A `present` step of kind `webauthn.get` or `webauthn.create` runs `navigator.credentials.get` or `create` over `data.publicKey` (`data` when it has none). `challenge`, `user.id` and each `allowCredentials` and `excludeCredentials` id are decoded from base64url. `data.mediation` is passed through.
+* The passkey answer is `{ credential }` with `id`, `rawId`, `type`, `response` and `extensions` and every byte field as base64url.
+* Any other `present` step goes to `opts.present`. Its answer is posted with `answer`.
+* The loop ends when a step leaves the page, completes or goes unanswered.
 
 ### enrol
 
-* `enrol(csrf: string, opts?: AuthOptions): Promise<AuthStep>`
-
-Begins adding a method to whoever is signed in with `POST /auth/enrol` carrying `csrf` as `x-sf-csrf`, then runs the flow as `signIn` does. `csrf` is the page's `csrf_token` prop.
+* `enrol(csrf: string, opts?: AuthOptions): Promise<AuthStep>`: begins adding a method for the signed-in user with `POST /auth/enrol`, `csrf` sent as `x-sf-csrf`, then runs the flow as `signIn` does.
 
 ### answer
 
-* `answer(params: Record<string, unknown>): Promise<AuthStep>`
-
-Posts `params` as JSON to `/auth/callback` and returns the next step without following it.
+* `answer(params: Record<string, unknown>): Promise<AuthStep>`: posts `params` as JSON to `/auth/callback` and returns the next step without following it.
 
 ### AuthStep and AuthOptions
 
 * `type AuthStep = { next: "redirect"; to: string } | { next: "present"; kind: string; data: Record<string, unknown> } | { next: "complete"; to: string }`
 * `interface AuthOptions { returnTo?: string; method?: string; present?: (step: { kind: string; data: Record<string, unknown> }) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined; navigate?: boolean }`
-
+* `navigate` defaults to true.
 
 ## 8. The Store
 
-One keyed map per document, outside every island root, so two islands can show the same value. Its own entry point, `@snapfire/fsr/client/store`, re-exported from the core entry. Module state: there is one store per document, not one per import.
+One keyed map per document, shared by every island. `@snapfire/fsr/client/store` exports the whole section. The core entry exports `key`, `get`, `set`, `clear`, `subscribe`, `transaction`, `derive`, `optimistic`, `seed`, `adopt`, `reset`, `snapshot` and the types `StoreKey` and `StoreListener`.
 
-A route seeds it from its loaders, one contribution per segment. The store is the merge of the contributions it holds, a deeper segment winning a key an outer one also sets and, at one depth, the slot the application's `[store] slot_order` ranks later, by name where it says nothing, so it comes out the same whatever order the segments arrived in; a segment's contribution leaves with the segment. Over the merge sit the writes islands make, each standing until a contribution names its key again. The contributions reach the browser as `script[data-sf-store]` in a document, as `T` rows in a payload and as `__sfStore(…)` calls in a streamed resolution, each ahead of the markup it rendered. An island's props carry the values its markup was rendered from as `$sv`, which the adapters hydrate against, so a key that moved in between never fails a hydration. A server island steps once when it mounts into a store whose value for a key it reads is not the one in its `$sv`, a key another island wrote that the server never saw.
+* The store is the merge of the contributions the route's segments seeded, one per segment.
+* A deeper segment wins a key an outer one also sets. At one depth, the slot ranked later by `[store] slot_order` wins, by name where the list says nothing.
+* An island's write stands until a contribution names its key again.
+* A segment's contribution leaves with the segment.
+* Contributions arrive as `script[data-sf-store]` in a document, `T` rows in a payload and `__sfStore(…)` calls in a streamed resolution.
 
 ### Contribution
 
-* `interface Contribution { k: string; p: string[]; v: { [key: string]: unknown }; d?: { [key: string]: unknown }; w?: string[]; o?: string }`
-
-What one segment seeded: `k` its segment key, `p` the slot names from the root down to it and `v` the values, decoded. `d` is what the segment's `defaults` export seeded: laid under every segment's `v` in the merge and under a write an island holds, so a key only `d` names keeps the island's write when the segment seeds again. `o` is set on a fragment's seed for a segment the document does not show: the segment whose region the fragment landed in, which it stays with.
+* `interface Contribution { k: string; p: string[]; v: { [key: string]: unknown }; d?: { [key: string]: unknown }; w?: string[]; o?: string }`: what one segment seeded.
+* `k`: the segment key. `p`: the slot names from the root to it. `v`: the values, decoded.
+* `d`: what the segment's `defaults` export seeded. It sits under every `v` and under an island's write.
+* `w`: the keys a deferred segment will seed. A contribution with `w` keeps the values its segment last seeded until the seed lands.
+* `o`: on a fragment's seed for a segment the document does not show, the segment whose region the fragment landed in.
 
 ### StoreKey
 
-* `type StoreKey<T> = string & { readonly __store?: T }`
-
-A key is the string it names. The type parameter is a phantom, carried for the reader and the compiler.
+* `type StoreKey<T> = string & { readonly __store?: T }`: a key is the string it names. `T` is a phantom type.
+* `type StoreListener = (value: unknown, key: string) => void`
 
 ### key
 
-* `key<T>(id: string): StoreKey<T>`
-
-Names a key. Declaring one in a module the build can follow is what lets a component in another file use it: the lowerer reads `key()` through an import and takes the string.
+* `key<T>(id: string): StoreKey<T>`: names a key. The build reads `key()` through an import as its string.
 
 ### get
 
-* `get<T>(k: StoreKey<T>): T | undefined`
-
-What the key holds or `undefined` when nothing has set it.
+* `get<T>(k: StoreKey<T>): T | undefined`: what the key holds, `undefined` when nothing has set it.
 
 ### set
 
-* `set<T>(k: StoreKey<T>, value: T): void`
-
-Writes the key and notifies its listeners. A write of the value already held notifies nobody.
+* `set<T>(k: StoreKey<T>, value: T): void`: writes the key and notifies its listeners. Writing the value already held notifies nobody.
 
 ### clear
 
-* `clear<T>(k: StoreKey<T>): void`
-
-Forgets the key and notifies, so readers fall back to their initial value.
+* `clear<T>(k: StoreKey<T>): void`: forgets the key and notifies.
 
 ### subscribe
 
-* `subscribe(k: StoreKey<unknown> | string, listener: (value: unknown, key: string) => void): () => void`
-
-Registers a listener and returns the function that removes it.
+* `subscribe(k: StoreKey<unknown> | string, listener: StoreListener): () => void`: registers a listener. Returns the function that removes it.
 
 ### transaction
 
-* `transaction(work: () => void): void`
-
-Runs `work` with notifications collapsed: each key dirtied fires once afterwards, however many times it was written. A nested call defers to the outermost. Synchronous.
+* `transaction(work: () => void): void`: runs `work` synchronously with notifications collapsed. Each key written fires once afterwards.
+* A nested call defers to the outermost.
 
 ### derive
 
-* `derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void`
-
-Registers a key computed from others and computes it once now. It recomputes whenever a source changes and whenever the locale or a catalog changes, since a compute may call `t`. A derived value beats a contribution for the same key and loses to an island's write. One called at module level in a file the browser loads, with a compute the build lowers, is computed by the server too.
+* `derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[] | string[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void`: registers a key computed from others and computes it now.
+* It recomputes when a source changes and when the locale or a catalog changes.
+* A derived value beats a contribution for the same key and loses to an island's write.
+* A `derive` at module level in a browser file, with a compute the build can lower, is also computed by the server.
 
 ### optimistic
 
-* `optimistic<T, R>(k: StoreKey<T>, guess: T, remote: () => Promise<R>): Promise<R>`
-
-Sets the key to `guess`, awaits `remote` and returns its result. A rejection restores what the key held or clears it when it held nothing and rethrows. A success leaves the guess in place: the revalidation an action runs carries the seed that replaces it.
-
-### contribute
-
-* `contribute(list: Contribution[]): void`
-
-Takes what a response's segments seeded, each contribution replacing the one its segment held, in one transaction. A key a contribution names loses whatever an island wrote to it. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value. A key named in a contribution's `d` alone keeps whatever an island wrote to it.
-
-A contribution with `w` is a promise: the keys a deferred segment will seed, with no values of its own. It keeps the values its segment last seeded or, when a navigation replaces the segment, those of the contribution at the same slot path, so a mounted island goes on showing them until the seed lands and replaces the promise.
-
-### isPending and whenSettled
-
-* `isPending(k: string): boolean`
-* `whenSettled(keys: string[]): Promise<void>`
-
-A key is pending while a promise awaits it and outranks, by the merge order, every contribution holding it. A derived key is pending exactly while one of its sources is. The server holds an island reading one by the same rule. `whenSettled` resolves once none of `keys` is pending, at once when none is. While it waits it hands back one promise per set of pending keys, which is what a component suspending on it needs. `boot` waits on it for an island whose props carry `$aw` before mounting it.
-
-### setSlotOrder
-
-* `setSlotOrder(list: string[]): void`
-
-Sets the slot names the merge ranks parallel slots by at one depth: a name in the list comes after every name not in it and the later name wins; names left out stand in name order. Remerges and notifies every key that moved. `adopt` reads the list off the document's `data-sf-slot-order`, which the host writes from `[store] slot_order`, so an application never calls this; a test does.
-
-### retain
-
-* `retain(segments: Iterable<string>): void`
-
-Drops the contribution of every segment not named, notifying the keys that moved. The navigator calls it with the keys of the tree it has just applied, kept segments included, so a page that seeds nothing does not inherit what the page before it seeded and an intercept's seed goes when it closes. A contribution a fragment brought in for a segment the document does not show is held under the segment whose region it landed in, its `o`. It stays while that segment is named. The contribution `seed` writes stays.
-
-### take and restore
-
-* `take(segments: Iterable<string>): Contribution[]`
-* `restore(list: Contribution[]): void`
-
-`take` removes the contributions of the segments named and of those their regions hold in one transaction and returns them. `restore` contributes them again, each unless the store already holds a contribution for its segment. The navigator takes a page's seeds when activity holds the page and restores them when it puts the page back, after the payload that brought it back has seeded, so the server's fresh values win and a fragment's seed comes back with its markup.
+* `optimistic<T, R>(k: StoreKey<T>, guess: T, remote: () => Promise<R>): Promise<R>`: sets the key to `guess`, awaits `remote` and returns its result.
+* A rejection restores the previous value and rethrows. A key that held nothing is cleared.
+* A success leaves the guess in place.
 
 ### seed
 
-* `seed(values: { [key: string]: SfValue }): void`
-
-Writes a whole map in one transaction as a contribution outside any segment, outermost of all and patched by each call, so an application or a test can seed by hand.
+* `seed(values: { [key: string]: SfValue }): void`: writes a map in one transaction as a contribution outside any segment, outermost of all. Each call patches it.
 
 ### adopt
 
-* `adopt(root?: ParentNode): void`
-
-Reads every `script[data-sf-store]` under `root`, the document by default, that does not yet carry `data-sf-adopted`, marks each once read, then every list a streamed resolution left on `window.__sfSeed` before this module loaded and installs `window.__sfSeedApply` so later resolutions contribute as they arrive. `decodeContributions(encoded: unknown): Contribution[]` is the decoding it applies, exported for a reader of the same encoding. Called when the module loads and again by `boot`, since a document written after the module ran carries a seed nobody has read; called by an application after it swaps a fragment in, since a fragment ends with the same script. A fragment's script carries `data-sf-fragment`. A contribution in it for a segment the document shows is that segment's; one for a segment it does not show belongs to the segment region the script sits in. It is held under that region's key and the fragment's route without its query, `owner>route`, so the next fragment of the route swapped in there replaces it. Two placements of one route in one region share that key and the later one's seed wins. Idempotent.
+* `adopt(root?: ParentNode): void`: reads every unread `script[data-sf-store]` under `root` (the document by default) and marks each with `data-sf-adopted`. Idempotent.
+* Also reads every list a streamed resolution left on `window.__sfSeed` and installs `window.__sfSeedApply` for later ones.
+* Runs when the module loads and again in `boot`. Call it after swapping in a fragment.
+* A fragment's script carries `data-sf-fragment`. A contribution in it for a segment the document does not show is held under `<owner region key>><route without query>`. The next fragment of that route in that region replaces it.
+* `decodeContributions(encoded: unknown): Contribution[]`: the decoding `adopt` applies.
 
 ### reset
 
-* `reset(): void`
-
-Forgets every contribution, write and derived value and notifies nobody, which is what a new document calls for: the listeners of the old one went with its roots and the derived keys stay registered for the next seed. The spec runner's `load` calls it before each document.
+* `reset(): void`: forgets every contribution, write and derived value without notifying. Derived keys stay registered.
 
 ### snapshot
 
-* `snapshot(): { [key: string]: unknown }`
+* `snapshot(): { [key: string]: unknown }`: every key the store holds.
 
-Every key the store holds, for a test or a debugger.
+### contribute
+
+* `contribute(list: Contribution[]): void`: replaces each segment's contribution in one transaction. The navigator calls it for every `T` row before patching the DOM.
+* A key a contribution's `v` names drops an island's write to it. A key only `d` names keeps it.
+
+### retain
+
+* `retain(segments: Iterable<string>): void`: drops the contribution of every segment not named, notifying the keys that moved.
+* A fragment's contribution held under `o` stays while that segment is named.
+* The contribution `seed` writes always stays.
+
+### take and restore
+
+* `take(segments: Iterable<string>): Contribution[]`: removes and returns the contributions of the named segments and of the segments inside their regions, in one transaction.
+* `restore(list: Contribution[]): void`: contributes them again, except where the store already holds a contribution for that segment.
+
+### setSlotOrder
+
+* `setSlotOrder(list: string[]): void`: sets the slot ranking for parallel slots at one depth, then remerges and notifies every key that moved.
+* A listed name comes after every unlisted one and a later name wins. Unlisted names stand in name order.
+* `adopt` reads it from the document's `data-sf-slot-order`.
+
+### isPending and whenSettled
+
+* `isPending(k: string): boolean`: whether a contribution's `w` awaits the key and outranks every contribution holding it. A derived key is pending while one of its sources is.
+* `whenSettled(keys: string[]): Promise<void>`: resolves once none of `keys` is pending, at once when none is. The same promise is returned for the same set of pending keys.
+* `boot` waits on it before mounting an island whose props carry `$aw`.
 
 ## 9. The Locale
 
-The document's locale as the application spells it, `fr_FR` or `fr`. The server writes it on the document as `<html lang="fr-FR" data-sf-locale="fr_FR">` and into every payload as an `L` row; `boot` adopts the attribute and a navigation applies the row.
+The document's locale as the application spells it, `fr_FR` or `fr`. The server writes it as `<html lang="fr-FR" data-sf-locale="fr_FR">` and as each payload's `L` row.
 
 ### currentLocale
 
-* `currentLocale(): string`
-
-The locale the document is in; an empty string before any document said.
+* `currentLocale(): string`: the document's locale. Empty before any document set one.
 
 ### subscribeLocale
 
-* `subscribeLocale(listener: (tag: string) => void): () => void`
-
-Calls `listener` whenever the locale changes. The returned function stops it.
+* `subscribeLocale(listener: (tag: string) => void): () => void`: calls `listener` when the locale changes. Returns the unsubscriber.
 
 ### subscribeMessages
 
-* `subscribeMessages(listener: () => void): () => void`
-
-Calls `listener` whenever what `t` answers may change: after `setLocale` changes the locale and after `setCatalog` holds a table. The store subscribes, so every derived key is computed again under the new messages. The returned function stops it.
-
-### catalog, setCatalog and adoptCatalog
-
-* `type Catalog = { readonly [key: string]: string }`: a locale's message table, dotted keys to messages, merged over the default locale's on the server.
-* `catalog(tag: string): Catalog | null`: the table held for `tag`, `null` when none arrived.
-* `setCatalog(tag: string, table: Catalog): void`: holds `table` for `tag`. A navigation applies a payload's `D` row this way and sends `x-sf-catalog: <tag>` for the locale it holds so the server omits the row.
-* `adoptCatalog(): void`: reads `<script type="application/json" data-sf-i18n="<tag>">` from the document, which `boot` does after `adoptLocale`; a script that does not parse is left out.
+* `subscribeMessages(listener: () => void): () => void`: calls `listener` after `setLocale` changes the locale and after `setCatalog`. Returns the unsubscriber.
 
 ### setLocale
 
-* `setLocale(tag: string): void`
-
-Makes `tag` the document's locale: `<html lang>` in BCP 47 spelling, `data-sf-locale` as written, every listener told. The same tag again does nothing. The navigator calls it with each payload's `L` row.
+* `setLocale(tag: string): void`: sets `<html lang>` in BCP 47 spelling and `data-sf-locale` as written, then tells every listener. The same tag again does nothing.
 
 ### adoptLocale
 
-* `adoptLocale(): void`
+* `adoptLocale(): void`: sets the locale from the document element's `data-sf-locale`. Without the attribute the locale stays.
 
-Reads `data-sf-locale` off the document element and sets it. Nothing written leaves the current locale. `boot` calls it before the first scan, so an island reading the locale hydrates against what the server rendered.
+### catalog, setCatalog and adoptCatalog
+
+* `type Catalog = { readonly [key: string]: string }`: a locale's message table, dotted keys to messages.
+* `catalog(tag: string): Catalog | null`: the table held for `tag`.
+* `setCatalog(tag: string, table: Catalog): void`: holds `table` for `tag`, replacing what was held.
+* `adoptCatalog(): void`: reads `<script type="application/json" data-sf-i18n="<tag>">` from the document. A script that does not parse is skipped.
+* A navigation sends `x-sf-catalog: <tag>` when a catalog for the current locale is held.
 
 ### localePath
 
-* `localePath(to: string, from?: string): string`
-
-The page the document is showing, under locale `to`: its path with the current locale's prefix replaced. Nothing else is rewritten and `from` is used as it stands when given, so this is the caller asking for one segment to change rather than a link being rewritten behind them.
-
-`from` defaults to `currentDocumentPath()` rather than `location.pathname` and the difference matters: an intercepted navigation puts the target's URL in the address bar while the page underneath stays. A language switcher inside a drawer opened over `/agents` reads `/settings` from the address bar and `/agents` from here. `/agents` is the page the reader is on.
-
-A path already under the current prefix has it swapped rather than stacked, so `/fr_FR/help` to `en_US` is `/en_US/help`. A query is carried. The result is always prefixed, including for the default locale, which is what remembers the choice.
+* `localePath(to: string, from?: string): string`: the path of the page being shown, with the current locale's prefix replaced by `to`.
+* `from` defaults to `currentDocumentPath()`, then `location.pathname` and `location.search`. A given `from` is used as it stands.
+* A query is carried. The result always carries a prefix, the default locale's included: `/fr_FR/help` to `en_US` is `/en_US/help`.
 
 ### markLinks
 
-* `markLinks(root?: ParentNode): void`
-
-Brings every `<a data-sf-link>` under `root`, the document by default, to the page it is judged against: `currentAddressPath` for an anchor without `data-sf-current` and `currentDocumentPath` for one carrying `data-sf-current="document"`. `aria-current` is set where the anchor's `href` matches by its rule and removed where it does not. `enableNavigation` calls it after every navigation and after each slot fill, an intercepted navigation included, which is what keeps a nav in a layout right when only the page segment was re-rendered. Call it after writing links into the document by hand.
+* `markLinks(root?: ParentNode): void`: sets or removes `aria-current` on every `<a data-sf-link>` under `root`, the document by default.
+* An anchor is judged against `currentAddressPath()`. One carrying `data-sf-current="document"` is judged against `currentDocumentPath()`.
+* `enableNavigation` calls it after every navigation and every slot fill.
 
 ### currentDocumentPath
 
-* `currentDocumentPath(): string`
-
-The page the document is showing, which is not always what the address bar says: an intercepted navigation changes the URL and leaves the document rooted where it was. Empty before `enableNavigation` runs.
+* `currentDocumentPath(): string`: the page the document is showing, which an intercept leaves in place while the address bar changes. Empty before `enableNavigation` runs.
 
 ### currentAddressPath
 
-* `currentAddressPath(): string`
-
-The path and search in the address bar as the navigator last set them: the target of the last navigation whether it was intercepted or not. Equal to `currentDocumentPath` except while an intercept is open. Empty before `enableNavigation` runs.
+* `currentAddressPath(): string`: the path and search the navigator last put in the address bar. Equal to `currentDocumentPath()` unless an intercept is open. Empty before `enableNavigation` runs.
 
 ## 10. The React Mounter
 
-Its own entry point, so the core package never imports React.
+`@snapfire/fsr/client/react`. Needs `react` and `react-dom/client` in the import map. A component needs `react/jsx-runtime` too when it is a `.tsx` compiled under `"jsx": "react-jsx"`.
 
 ### reactMounter
 
-* `const reactMounter: Mounter`
-
-Creates the element with `createElement(component, props, children)`, then calls `hydrateRoot(el, element)` when `hydrate` is true and `createRoot(el).render(element)` when it is false. `children` renders the pieces the boot runtime read in this root's tree. A React island among them renders there, so it reads the context of the components above it and their error boundaries catch what it throws. It hydrates where the server rendered it, behind a Suspense boundary of its own when its timing is `visible` or `idle`. One the server did not render renders once its module loads. A timed island whose context changes before its timing fires renders empty until it fires, since React drops a boundary it has not hydrated when the context above it changes. An element with no React island under it is taken over whole as the server wrote it and morphed when a patch changes it. An island of another framework among the children is left to a scan. The element is wrapped in a component whose effect scans `el` for islands inside the regions the render built, which is how a nested island reaches its own root when the parent was mounted rather than hydrated. Mounting, hydrating and patching all wrap it the same way, because a root whose child element changes type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. Returns the hydration root or the root. A `$h` entry in `props` is the island's hoisted table: it is lifted out before the component sees its props and provided through `withHoisted`.
-
-### useHoisted
-
-* `function useHoisted(module: string): HoistReader`
-* `interface HoistReader { r<T>(id: number, compute: () => T): T; l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R; c(id: number, hit: (html: { __html: string }) => ReactElement, miss?: () => ReactElement): ReactElement; p(id: number, element: ReactElement): ReactElement; e(index: number): void; x(): void; w<T>(value: T): T; id(id: number): string }`
-* `type Hoisted = { readonly [key: string]: unknown }`
-
-The reader the build binds at the top of every component it rewrote, keyed under `module`. `r` returns the table's value for `<module>|<id>` or for `<module>|<id>@<i>.<j>` inside loops. It calls `compute` when the table has no such key or there is no table. `l` wraps a JSX `.map` callback: while it runs, its index argument is on the loop path and the element it returns is placed under a provider carrying that path with the element's own `key`, so a component it renders keys its hoists below the iteration that placed it. The path starts from the enclosing provider's, so it continues through nested components. `e(index)` and `x()` do the same for a `for…of` or counted `for` the build lowered: the rewrite calls `e` with the iteration's index at the top of each pass and `x` when it leaves. It passes each `push` argument through `w`, which puts an element under a provider carrying the path as `l` does and returns anything else as it is. `p` wraps a keyed placement, one whose component keys a hoist or a region somewhere below it: the element goes under a provider whose path is the current one plus `c<id>`, so two placements of one component key what they hold apart. A component that renders itself is such a pair. `c` is a static subtree: when the table holds a string under the key, `hit` renders the element with that markup as its inner HTML, which React neither renders nor hydrates inside; otherwise `miss` renders the original JSX. The build passes no `miss` for a subtree the server always renders, so a read with no markup and no `miss` throws, naming the key and whether the root mounted with no table at all, since a blank there would be a renderer defect rather than a state of the page. `id` is what the build puts in place of a `useId()` call: `_S_` plus the key for `id` plus `_`, the string the server wrote for the same call, so hydration finds it without a table entry. It is unique within a root, as React's own is; two roots of one module on a page spell the same ids, as two React roots without an `identifierPrefix` do.
-
-### useBrowser
-
-* `function useBrowser(): <T>(compute: () => T) => T | null`
-
-The reader the build binds as `__sfb` in a component that writes a value only the browser knows, the viewer's clock for one, which the server rendered as nothing. The build wraps each such expression as `__sfb(() => expr)`. The reader answers null until the component has mounted, so the first render matches the server's markup and hydration has nothing to report; an effect then sets a flag and the component renders once more with the value computed. React's hydration does not patch a text difference it is told to ignore, which is why the value is not computed during hydration.
-
-### withHoisted
-
-* `function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement`
-
-`element` under `table`, the way the mounter places an island under the table its props carried. `null` makes every read compute. The testing module's `render` uses it with the table the server render produced.
-
-The element is wrapped in a regions provider: the root itself and every `sf-s[data-sf-island]` under `el` that is not inside a nested island, by the `data-sf-region` key each carries, which is how an `Island` rendered under this root finds its own. The provider is built once per root and kept and it carries what the payload behind the current patch says about those regions, taken from `islandState`. `children` is set when `el` holds an `<sf-s>` without `data-sf-island` or `data-sf-name` that is not inside a nested island, which is what a layout's markup looks like and what an island's children region, `<sf-s data-sf-children>`, looks like: one `<sf-s>` element with `dangerouslySetInnerHTML` set to the markup it already holds and `suppressHydrationWarning`, created once per `el` and passed unchanged on every render, so React adopts the region at hydration and never reconciles it. When the server held the children back in a `<template data-sf-children>` because the first render did not place them, the mounter reads its markup, takes it out of the document before React hydrates and passes the same children element, so the children appear when the component first renders them. A patch that brings an island's children new markup, read from `islandState`, passes a new element holding it. Every `sf-s[data-sf-name]` under `el` and not inside a nested island is passed the same way as a prop of that name, so a layout reads a parallel slot as `{feed}`. The page inside hydrates in its own root, unless the layout was mounted by `reactTreeMounter`, which renders the page in the layout's root.
-
-### Island
-
-* `function Island({ when, mode, children }: IslandProps): ReactElement`
-* `interface IslandProps { when?: MountTiming; mode?: "server"; children?: ReactNode }`; `mode` rides as `data-sf-mode` and `island(component, { when, mode })` takes the same.
-
-Places its one child component as an island of its own. The build lowers the use, so on the server the child renders as a nested client node inside `<sf-s data-sf-island>`, with `data-sf-region` naming the placement, `data-sf-when` when `when` is given and its own props script; the child is never rendered by this element.
-
-In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` and `suppressHydrationWarning`, so the outer root adopts the region and never reconciles it while `scan` mounts the child in its own root. Which region it renders is settled once, on the placement's first render. The claim is consuming: a region belongs to the placement that took it for as long as that placement lives, so a placement the parent added later can never take one another is already showing. The build splices the region key onto the placement as `__sfKey`, which this element lifts off the child before the child sees its props.
-
-After every render it reconciles what it owns. A mounted root takes the props the parent just computed, plus the `$h` the last payload gave it. A placement with no region takes its markup from the payload behind the current patch, which `scan` then mounts. A placement with neither renders its child inline, in the parent's own root, which is what a placement created by browser state alone gets.
-
-### island(component, options)
-
-* `function island<P extends object>(component: ComponentType<P>, options?: { when?: MountTiming }): (props: P) => ReactElement`
-
-`component` as a component that places it with `Island` and `options.when` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`, then `<LazyChart series={data} />`. The build recognises the module-level `const` the same way.
-
-### Slot
-
-* `function Slot({ name, children }: SlotProps): ReactElement`
-* `interface SlotProps { name: string; children?: ReactNode }`
-
-A named slot of a layout: the region a parallel segment under `slots/<name>/` renders into or the one an intercept `page.<name>.tsx` opens in. On the server the build lowers the use to `<sf-s data-sf-name>` around the segment or around `children`, the fallback, while nothing fills it; the children are never rendered by this element. In the browser it renders that `<sf-s>` with `dangerouslySetInnerHTML` set to the markup the region of that name under the root already holds and `suppressHydrationWarning`, taken once per instance, so the root adopts the region and never reconciles it while `navigate` fills and empties it. A layout that destructures a prop named after a `slots/` directory gets the same region as that prop from `reactMounter` and needs no `Slot`.
-
-### useStore
-
-* `function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void]`
-
-A store key as component state, over `useSyncExternalStore`. Reads the store's value or `initial` while nothing has set the key; `initial` is captured on the first render, so a fresh object literal there is safe. The setter writes the store, which re-renders every component reading that key in any root.
-
-In a root the server did not render, the first render suspends on a pending key, through React 19's `use` or a thrown promise under React 18. The adapter mounts such a root under a `Suspense` with no fallback, so the island shows nothing until the seed lands rather than the value about to be replaced. A mounted root never suspends: it keeps what it shows and moves when the seed lands.
-
-The build lowers the call, so the key must be a string literal or a `key()` it can follow through an import; anything else is residue naming the line. On the server the read becomes the seed's value with `initial` as the fallback and the island's props carry the values it was rendered from as `$sv`, which is what hydration compares the markup against; the store's live value takes over once hydrated, so a key another island wrote or a later segment seeded in between moves the island instead of failing it. The setter is dropped by lowering, like any handler.
-
-### useLocale
-
-* `useLocale(): string`
-
-The document's locale, re-rendering the island when a navigation changes it. The build lowers the call, so the server renders the same value the browser adopts.
-
-### useLinkStatus
-
-* `function useLinkStatus(): { pending: boolean }`
-
-Whether `pendingLink()` is the enclosing link: the anchor of the `Link` the component renders inside, else the closest `a` around the element the island is mounted in. `pending` is false outside a link. Read through `useSyncExternalStore` over `subscribePendingLink`, with a server snapshot of false. The build lowers the call to `{ pending: false }`, bound as the component's state, so the component hydrates.
-
-### Link
-
-* `function Link({ full, into, prefetch, native, keep, match, current, ...rest }: LinkProps): ReactElement`
-* `interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> { full?: boolean; into?: string; prefetch?: PrefetchTiming; native?: boolean; keep?: boolean; match?: "exact" | "prefix" | "none"; current?: "url" | "document" }`
-
-An `<a>` with the rest of its props, carrying `data-sf-full="true"` when `full`, `data-sf-into` when `into`, `data-sf-prefetch` when `prefetch`, `data-sf-native="true"` when `native` and `data-sf-keep` as `"true"` or `"false"` when `keep` is given, which is what the navigator reads off a clicked or hovered anchor. The build lowers the use to the same `<a>`, spelling a computed `keep` the same way.
-
-Every link also carries `data-sf-link`, the rule by which it is called the page being shown and `aria-current` when it is: `"page"` under `match="exact"`, the default, on the path its `href` names; `"true"` under `match="prefix"` on that path and anything under it, so a section link and the page inside it do not both claim to be the page. `match="none"` leaves the anchor alone and so does an `aria-current` the author writes. The `href` is read as written, so one carrying a query or a fragment never matches: the path a request matched holds neither. `match` is written out rather than computed, since the build lowers it.
-
-`current` says which path the mark is judged against. `"url"`, the default, is the address bar, `currentAddressPath` in the browser and the path the request matched on the server. `"document"` is the page beneath an open intercept, `currentDocumentPath` in the browser and the origin the navigator sent as `x-sf-from` on the server, which the build lowers to `Expr::Document`; the anchor then carries `data-sf-current="document"` so `markLinks` judges it the same way. The two differ only while an intercept is open. `current` is written out rather than computed, since the build lowers it.
-
-The server writes the mark at first paint, from the path the request matched or the document's, so it is there before any script runs and in a prerendered document. A navigation re-renders the page segment and leaves the layout holding the nav alone, so the navigator re-reads every `data-sf-link` in the document afterwards; see `markLinks`.
-
-### Picture
-
-* `function Picture({ src, source, priority, widths, quality, sizes, loading, decoding, ...rest }: PictureProps): ReactElement`
-* `interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> { src: ImageAsset | string; source?: string; priority?: boolean; widths?: number[]; quality?: number | { avif?: number; webp?: number } }`
-* `interface ImageAsset { src: string; width: number; height: number; animated?: boolean; sources?: { type: string; srcset: string }[] }`: an imported image as the bundle binds it; `sources` is present on the server only, where a `meta` preloads one of them.
-
-The markup the server wrote for the same props, so hydration finds what it expects. For an imported image: a `<picture>` with a `<source>` per format of the policy, each `srcSet` naming `<stem>.<width>.<format>` for every policy width below the image's own and then its own, `sizes` as given or `(max-width: {width}px) 100vw, {width}px`, then the `<img>` with `src`, `width` and `height` from the asset, `loading` as given or `lazy` (`eager` under `priority`), `decoding` as given or `async` and, under `priority`, `fetchPriority="high"` (the lowercase attribute under React 18). An SVG, a GIF or an asset marked `animated` is the `<img>` alone. A string `src` with a `source` that names an entry of the policy's `sources` is an `<img>` whose `srcSet` the template writes per policy width with `{src}` and `{width}` filled and `sizes` defaulting to `100vw`; any other string is `<img src>` as written. `widths` replaces the policy's; `quality` changes nothing in the browser.
-
-The policy is read once from the document's `<meta name="sf:images">`, which the host writes from the build's manifest: `widths`, `formats`, `base`, prefixed onto a root-relative `src` for a tree a CDN serves, plus `sources`. A document without the meta falls back to the policy's defaults.
-
-### Embed
-
-* `function Embed(props: EmbedOptions): ReactElement`; the Vue entry and the JSX runtime export the same component.
-* `interface EmbedOptions { provider: "youtube" | "vimeo"; id: string; title: string; className?: string }`
-* `function enableEmbeds(): void`: listens on the document for a click on a placeholder's button and replaces the placeholder with its player's iframe, the `data-sf-embed` URL with the `data-sf-embed-title` title. `boot` calls it once per document.
-* `function playEmbed(button: Element): void`: the swap itself, for the placeholder `button` sits in.
-
-The placeholder the build writes on the server: a `div` with `data-sf-embed` and `data-sf-embed-title` holding a `button` with the still, the title and a play mark. The build lowers `Embed` wherever it renders on the server. In the browser the component reuses the still the server wrote, so a hydrating component's markup matches. With no such still it shows YouTube's from its CDN. Vimeo shows the title alone, as does any provider under `[media] embed_stills = "local"`, which warns in the console. The component here is what a component the browser alone renders writes: YouTube's still from its CDN, none for Vimeo, whose still only the build looks up.
-
-### Place
-
-* `function Place({ name, as, ...attrs }: PlaceProps): ReactElement`; the Vue entry and the JSX runtime export the same component.
-* `interface PlaceProps { name: string; as?: string; [attribute: string]: unknown }`
-
-The element content placed at `#name` is written into, such as a Vue `<Teleport to="#name">`: `<div id="name">` unless `as` names another tag, with the other attributes as given. `name` is letters, digits, `-` and `_`. The build lowers it in the shell, a layout, a page or a component an island renders and writes what is placed at it inside it. Each framework's `Place` leaves the element's children alone when it hydrates and renders; React's carries empty `dangerouslySetInnerHTML` with `suppressHydrationWarning`. Content that arrives after its place, from a streamed segment or a navigation, comes as a run naming the place (`data-sf-to`) and `scan` moves it in. An island whose content is waiting for its place is not mounted while a streamed slot is still pending. When a navigation replaces a place and keeps the segment whose island filled it, that island mounts again afresh. A navigation that keeps a mounted island keeps the content it placed and drops the server's new copy, since the framework holds those nodes. A morph of the markup around a place updates the place's attributes and leaves its content alone. An island whose place never arrives has its content dropped and mounts afresh.
-
-### Mount
-
-* `function Mount({ module, props, when }: MountProps): ReactElement`
-* `interface MountProps { module: string; props?: Props; when?: MountTiming }`
-
-Places an island by module id rather than by component, for a tree holding an island another framework mounts. Renders `<sf-s data-sf-island>` with a marker and a props script inside it, then scans that region, so the registry entry for `module` decides the mounter and this component renders none of it. A later render with different `props` patches the island in place. The Vue entry exports the same component for the other direction.
-
-### foreign
-
-* `function foreign<P extends Props>(module: string): ((props: P) => ReactElement) & { [FOREIGN]: string }`
-* `const FOREIGN: unique symbol`, `Symbol.for("sf.foreign")`
-
-A component another framework mounts, as a React component that renders `Mount` for `module` with its props. In an application that serves React, `fsr build` replaces each import of a component in a plugin's language, a `.vue` file among them, in every `.tsx` and `.jsx` file with `const Name = foreign("<file>#<export>")`, so `<Chart />` in a React island or a spec places that island. Throws when given `children`, which cannot cross into another framework's component. `render` takes it as the island its module names.
+* `const reactMounter: Mounter`: renders `createElement(component, props, children)` with `hydrateRoot` when `hydrate` is true and `createRoot(el).render` otherwise. Returns the root.
+* `children` renders the pieces in this root's tree. A React island among them renders there, inside the context and error boundaries above it.
+* A nested React island timed `visible` or `idle` hydrates behind its own Suspense boundary. One the server did not render renders once its module loads.
+* An element with no React island under it is kept as the server wrote it and morphed on a patch.
+* An island of another framework among the children is left to `scan`.
+* A `$h` prop is lifted out before the component sees its props and provided through `withHoisted`.
+* An `<sf-s>` that is not an island or children region, outside any nested island, is passed as the `children` element and never reconciled.
+* Each `sf-s[data-sf-name]` outside a nested island is passed as a prop of that name.
+* With React 19.2 or later, every root renders under `<Activity mode="visible">`.
 
 ### reactPatcher
 
-* `const reactPatcher: Patcher`
-
-Calls `render` on the root the mounter returned with `createElement(component, props, children)`, the same `children` element as at mount, so a layout re-renders with new props and its page's DOM is untouched. A root the mounter hydrated is never given `render`: its element is held outside the root and read through `useSyncExternalStore`, the server's element during hydration and the latest after, because React 18 abandons a hydration that receives an update before it commits.
-
-Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
+* `const reactPatcher: Patcher`: renders the root again with the new props and the same `children` element. A hydrated root takes the new element through its holder rather than `render`.
 
 ### reactUnmounter
 
-* `const reactUnmounter: Unmounter`
-
-Calls `unmount` on the root the mounter returned, so every effect cleanup in the island runs. A hydrated root whose hydration has not committed is unmounted once it commits, since `unmount` is an update React 18 refuses on such a root; a navigation that discards an island the moment it lands is the case.
+* `const reactUnmounter: Unmounter`: unmounts the root. A hydrated root whose hydration has not committed unmounts once it commits.
 
 ### reactPauser
 
-* `const reactPauser: Pauser`
+* `const reactPauser: Pauser`: renders the root again under `<Activity mode="hidden">` or `"visible"`.
+* Showing returns a promise that settles once the root commits or a second has passed.
+* Returns `false` without `Activity` and for a hydrated root that has not committed.
 
-Where React has `Activity`, from 19.2, every root `reactMounter` creates renders under `<Activity mode="visible">`. A root it hydrates has `<!--&-->` and `<!--/&-->` written around the server's markup first, the boundary React's own server writes. `reactPauser` renders the root again under `mode="hidden"` or `"visible"`, so its state survives and its effects stop while hidden. Showing a root it returns a promise that settles once the root commits visible or a second has passed. It answers false where React has no `Activity` and for a hydrated root whose hydration has not committed.
+### Island and island
+
+* `Island({ when, mode, children }: IslandProps): ReactElement`: places its one child component as an island of its own.
+* `interface IslandProps { when?: MountTiming; mode?: "server"; define?: string; children?: ReactNode }`
+* `mode: "server"` rides as `data-sf-mode`. `define` names a custom element module imported at the island's timing and cannot be combined with `mode`.
+* The build lowers the use to `<sf-s data-sf-island data-sf-region>` around a nested client node. The child is never rendered by this element.
+* In the browser it renders that region with `dangerouslySetInnerHTML` and `suppressHydrationWarning`. `scan` mounts the child in its own root.
+* A placement claims its region on its first render and keeps it for its life. The build passes the region key as `__sfKey`, which is lifted off the child.
+* After each render, the mounted root takes the parent's new props. A placement with no region takes its markup from the current payload. When no payload describes it, it renders its child inline.
+* `island<P extends object>(component: ComponentType<P>, options?: { when?: MountTiming; mode?: "server" }): (props: P) => ReactElement`: `component` wrapped in `Island` with `options`. The build reads a module-level `const LazyChart = island(Chart, { when: "visible" })` the same way.
+
+### Slot
+
+* `Slot({ name }: SlotProps): ReactElement`: a named slot of a layout, the region a `slots/<name>/` segment or a `page.<name>.tsx` intercept renders into.
+* `interface SlotProps { name: string; children?: ReactNode }`: `children` is the fallback the server renders while nothing fills it.
+* The build lowers it to `<sf-s data-sf-name>`. In the browser it adopts the existing region's markup once and `navigate` fills and empties it.
+* A layout prop named after a `slots/` directory receives the same region from `reactMounter`.
+
+### Mount
+
+* `Mount({ module, props, when }: MountProps): ReactElement`: places an island by module id, for an island another framework mounts.
+* `interface MountProps { module: string; props?: Props; when?: MountTiming }`
+* Renders `<sf-s data-sf-island>`, writes a marker and props script into it and scans it. A later render with different `props` patches the island.
+
+### foreign
+
+* `foreign<P extends Props>(module: string): ((props: P) => ReactElement) & { [FOREIGN]: string }`: a React component that renders `Mount` for `module` with its props.
+* `const FOREIGN: unique symbol`: `Symbol.for("sf.foreign")`.
+* Throws `<module> is mounted by another framework, so it takes no React children` when given `children`.
+* `fsr build` replaces an import of another framework's component in a `.tsx` or `.jsx` file with `const Name = foreign("<file>#<export>")`.
+
+### Link
+
+* `Link(props: LinkProps): ReactElement`: an `<a>` with the rest of its props and the attributes the navigator reads.
+* `interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> { full?: boolean; into?: string; prefetch?: PrefetchTiming; native?: boolean; keep?: boolean; match?: "exact" | "prefix" | "none"; current?: "url" | "document" }`
+* `full` writes `data-sf-full="true"`, `into` writes `data-sf-into`, `prefetch` writes `data-sf-prefetch`, `native` writes `data-sf-native="true"` and `keep` writes `data-sf-keep` as `"true"` or `"false"`.
+* Every link carries `data-sf-link`. `match="exact"`, the default, sets `aria-current="page"` on the path its `href` names. `match="prefix"` sets `aria-current="true"` on that path and below it. `match="none"` sets nothing.
+* An author-written `aria-current` is left alone. An `href` with a query or a fragment never matches.
+* `current="url"`, the default, judges against the address bar. `current="document"` judges against the page under an open intercept and writes `data-sf-current="document"`.
+* `match` and `current` must be literals.
+* The server writes the mark at first paint. `markLinks` keeps it current.
+
+### Picture
+
+* `Picture(props: PictureProps): ReactElement`: the same markup the server writes for these props.
+* `interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> { src: ImageAsset | string; source?: string; priority?: boolean; widths?: number[]; quality?: number | { avif?: number; webp?: number } }`
+* `interface ImageAsset { src: string; width: number; height: number; animated?: boolean; sources?: { type: string; srcset: string }[] }`: `sources` is present on the server only.
+* An imported image is a `<picture>` with a `<source>` per policy format, each `srcSet` naming `<stem>.<width>.<format>` for every policy width below the image's own and then its own, then the `<img>`.
+* `sizes` defaults to `(max-width: {width}px) 100vw, {width}px`. `loading` defaults to `lazy`, `eager` under `priority`. `decoding` defaults to `async`. `priority` also sets `fetchPriority="high"`, lowercase under React 18.
+* An SVG, a GIF or an `animated` asset is the `<img>` alone.
+* A string `src` with a `source` naming an entry of the policy's `sources` gets a `srcSet` from that template per policy width and `sizes` defaulting to `100vw`. Any other string is `<img src>` as written.
+* `widths` replaces the policy's. `quality` does not change the markup.
+* The policy is `<meta name="sf:images">`: `widths`, `formats`, `base` prefixed to a root-relative `src` and `sources`. Without the meta, the policy's defaults apply.
+
+### Embed
+
+* `Embed(props: EmbedOptions): ReactElement`: the placeholder for a video hosted elsewhere.
+* `interface EmbedOptions { provider: "youtube" | "vimeo"; id: string; title: string; className?: string }`
+* The placeholder is a `div` with `data-sf-embed` and `data-sf-embed-title` holding a `button` with the still, the title and a play mark.
+* A component the browser alone renders shows YouTube's still from its CDN and no still for Vimeo.
+* `enableEmbeds(): void`, from `@snapfire/fsr/client/embed`: replaces a placeholder with its player's iframe when its button is clicked. `boot` calls it once per document.
+* `playEmbed(button: Element): void`, from `@snapfire/fsr/client/embed`: that swap for the placeholder `button` sits in.
+
+### Place
+
+* `Place({ name, as, ...attrs }: PlaceProps): ReactElement`: the element that content placed at `#name` is written into, `<div id="name">` unless `as` names another tag.
+* `interface PlaceProps { name: string; as?: string; [attribute: string]: unknown }`
+* `name` is letters, digits, `-` and `_`.
+* It renders empty `dangerouslySetInnerHTML` with `suppressHydrationWarning` and never touches its children.
+* Content that arrives before its place carries `data-sf-to` and `scan` moves it in. An island waiting for its place does not mount while a streamed slot is pending.
+* An island whose place never arrives has its content dropped and mounts afresh.
+
+### useStore
+
+* `useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void]`: a store key as component state, over `useSyncExternalStore`.
+* `initial` is used while nothing has set the key and is captured on the first render.
+* The setter writes the store.
+* In a root the server did not render, the first render suspends on a pending key.
+* `k` must be a string literal or a `key()` the build can follow through an import.
+
+### useLocale
+
+* `useLocale(): string`: the document's locale. Re-renders when a navigation changes it.
+
+### useLinkStatus
+
+* `useLinkStatus(): { pending: boolean }`: whether `pendingLink()` is the enclosing link: the `Link` the component renders inside, else the closest `a` around the island.
+* `pending` is false outside a link and in the server snapshot.
+
+### useHoisted
+
+* `useHoisted(module: string): HoistReader`: the reader the build binds at the top of each component it rewrote.
+* `interface HoistReader { r<T>(id: number, compute: () => T): T; l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R; c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement; k(id: number): string; p(id: number, element: ReactElement): ReactElement; e(index: number): void; x(): void; w<T>(value: T): T; id(id: number): string }`
+* `type Hoisted = { readonly [key: string]: unknown }`: the server's hoisted values, keyed `<module>|<id>` or `<module>|<id>@<i>.<j>` inside loops.
+* `r` returns the table's value for the key, else `compute()`.
+* `c` renders `hit` with the table's markup for the key, else `miss`. With neither it throws, naming the key.
+* `id` returns `_S_<key>_`, the string the server wrote for a `useId()` call.
+
+### useBrowser
+
+* `useBrowser(): <T>(compute: () => T) => T | null`: the reader the build binds as `__sfb` for a value only the browser knows.
+* Returns `null` until the component has mounted, then the component renders again with `compute()`.
+
+### withHoisted
+
+* `withHoisted(table: Hoisted | null, element: ReactElement): ReactElement`: `element` under `table`. `null` makes every read compute.
+
+### createContext and use
+
+* `createContext` and `use`: React's `createContext` and `useContext`, for a template file an island imports.
 
 ## 11. The Vue Mounter
 
-`@snapfire/fsr/client/vue`: its own entry point, so the core package never imports Vue and a page with no Vue island never loads it. Requires `vue` in the page's import map.
+`@snapfire/fsr/client/vue`. Needs `vue` in the import map.
 
 ### vueMounter
 
-* `const vueMounter: Mounter`
-
-Takes the module's default export (the module itself when it is the component) and mounts it with `createSSRApp` when `hydrate` is true and `createApp` when it is false. The props are held in a reactive object and the component is rendered through a one-element root that renders nothing of its own, since an app takes its root props once and a patch needs somewhere to write. The runtime's own keys, `$h`, `$k` and `$s`, are lifted off before the component sees its props. `children` is the component's default slot, rendered in this app. A Vue island among them renders there, so `inject` reaches what the components above it provide and `onErrorCaptured` above it sees what it throws. It hydrates where the server rendered it, through `hydrateOnVisible` or `hydrateOnIdle` when its timing is `visible` or `idle`. One the server did not render renders once its module loads. An element with no Vue island under it is adopted as the server wrote it. An island of another framework among the children is left to a scan. A `<template data-sf-children>` region, which the server writes when the template placed no slot this render, is removed once read. Returns the app.
+* `const vueMounter: Mounter`: mounts the module's default export (the module itself when it is the component) with `createSSRApp` when `hydrate` is true and `createApp` otherwise. Returns the app.
+* `$h`, `$k` and `$s` are lifted off the props.
+* `children` is the component's default slot. A Vue island among them renders there, inside the `provide` and `onErrorCaptured` above it.
+* A nested Vue island timed `visible` or `idle` hydrates through `hydrateOnVisible` or `hydrateOnIdle`.
+* An element with no Vue island under it is kept as the server wrote it. An island of another framework is left to `scan`.
+* A `<template data-sf-children>` region is removed once read.
 
 ### vuePatcher
 
-* `const vuePatcher: Patcher`
-
-Assigns the new props into the reactive object the mounter holds for `el`, deleting keys the new props lack, so the component re-renders in place with its DOM and its state. New markup for the children region, read from `islandState`, is read as pieces and rendered in the slot, so a Vue island among them is patched in place. Does nothing for an element nothing mounted.
+* `const vuePatcher: Patcher`: assigns the new props into the reactive props it holds for `el`, deleting keys the new props lack.
+* New children markup from `islandState` renders in the slot.
+* Does nothing for an element nothing mounted.
 
 ### vueUnmounter
 
-* `const vueUnmounter: Unmounter`
-
-Calls `unmount` on the app the mounter returned and forgets the reactive props and children held for `el`.
+* `const vueUnmounter: Unmounter`: unmounts the app and forgets the props and children held for `el`.
 
 ### Mount (Vue)
 
-* `const Mount: Component`, taking `module`, `props` and `when`
+* `const Mount: Component`: props `module`, `props` and `when`. The Vue counterpart of React's `Mount`.
 
-The counterpart of the React `Mount` in a Vue tree: it writes the island marker and its props, scans the region and patches the island when its props change. A Vue component holding a React island uses it.
+### Link, Picture, Embed and Place (Vue)
+
+* `const Link: Component`, `const Picture: Component`, `const Embed: Component`, `const Place: Component`: Vue components with the props and markup of React's `Link`, `Picture`, `Embed` and `Place`.
 
 ### useStore (Vue)
 
-* `function useStore<T>(key: StoreKey<T>, initial: T): { value: T }`
+* `useStore<T>(key: StoreKey<T>, initial: T): { value: T }`: a store key as a Vue ref. Writing `.value` writes the store.
+* Unsubscribes when the current scope is disposed. Call it in `setup`.
 
-A store key as a Vue ref: reads the store's value (`initial` while nothing has set the key) and follows every later write to the key from any root. Writing `.value` writes the store. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`.
+### useLocale (Vue)
+
+* `useLocale(): Readonly<Ref<string>>`: the document's locale as a ref. Call it in `setup`.
 
 ### useLinkStatus (Vue)
 
-* `function useLinkStatus(): { readonly pending: boolean }`
-
-`useLinkStatus` as a reactive object: the anchor the Vue `Link` around the component rendered, else the closest `a` around the element the island is mounted in, which the mounter provides. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`. The build lowers the call to `{ pending: false }`.
+* `useLinkStatus(): { readonly pending: boolean }`: React's `useLinkStatus` as a reactive object, judged against the Vue `Link` around the component or the closest `a` around the island. Call it in `setup`.
 
 ## 12. The Svelte Mounter
 
-`@snapfire/fsr/client/svelte`: its own entry point, so the core package never imports Svelte and a page with no Svelte island never loads it. Requires `svelte` and `svelte/reactivity` in the page's import map, which `fsr use <app> svelte` writes. Svelte 5.5 or later, since `Pieces.svelte` exports a snippet from its module script.
+`@snapfire/fsr/client/svelte`. Needs `svelte` and `svelte/reactivity` in the import map. Svelte 5.5 or later.
 
 ### svelteMounter
 
-* `const svelteMounter: Mounter`
-
-Takes the module's default export (the module itself when it is the component) and mounts it into `el` with Svelte's `mount`. With `hydrate` true it uses `hydrate` instead. The runtime's own keys, `$h`, `$k`, `$s` and `$sv`, are lifted off before the component sees its props. The component reads its props through an object whose reads subscribe through `createSubscriber`, so a patch re-renders only what reads a changed prop and keeps the component's own `$state`. `children` reaches the component as its `children` snippet, the one `registerTree` was given, which renders them through `Pieces.svelte` in this island's tree. The layout of the tree is read from the markers the server wrote around them. A Svelte island among them renders there, so `getContext` reaches what the components above it set and a `<svelte:boundary>` above it catches what it throws. It hydrates where the server rendered it at `load`. One the server did not render renders once its timing fires and its module loads. One the server rendered with a `visible` or `idle` timing hydrates later as a root of its own, mounted with the contexts of the tree around it. An element with no such island under it is kept as the server wrote it, morphed when a patch changes it and scanned for islands of other frameworks. Returns what `mount` or `hydrate` returned.
+* `const svelteMounter: Mounter`: mounts the module's default export (the module itself when it is the component) with Svelte's `mount`. With `hydrate` true it uses Svelte's `hydrate`. Returns what that call returned.
+* `$h`, `$k`, `$s` and `$sv` are lifted off the props.
+* Props are read through `createSubscriber`. A patch re-renders only what reads a changed prop.
+* `children` reaches the component as its `children` snippet, the one `registerTree` was given.
+* A nested Svelte island the server rendered at `load` hydrates in this tree. One timed `visible` or `idle` hydrates later as a root of its own with the tree's contexts.
+* An element with no such island under it is kept, morphed on a patch and scanned for other frameworks' islands.
 
 ### sveltePatcher
 
-* `const sveltePatcher: Patcher`
-
-Replaces the island's props and tells every read of them. New children markup is read as the tree's pieces and rendered in place, so the islands among them keep their DOM and their state.
+* `const sveltePatcher: Patcher`: replaces the props and notifies every read. New children markup renders in place.
 
 ### svelteUnmounter
 
-* `const svelteUnmounter: Unmounter`
-
-Calls Svelte's `unmount` on what the mounter returned and forgets the props and children held for `el`.
+* `const svelteUnmounter: Unmounter`: calls Svelte's `unmount` and forgets the props and children held for `el`.
 
 ### TreePiece
 
-* `type TreePiece = TreeIsland | TreeElement | TreeOpaque | TreeHtml`
-* `interface TreeIsland { kind: "island"; id: string; moduleId: string; region: string | null; when: string | null; mode: string | null; ssr: boolean; props: Props; children: TreePiece[] | null; entry: IslandEntry | undefined; timing: MountTiming }`
-* `interface TreeElement { kind: "element"; tag: string; attrs: { [name: string]: string }; children: TreePiece[] }`
-* `interface TreeOpaque { kind: "opaque"; tag: string; attrs: { [name: string]: string }; html: string }`
-* `interface TreeHtml { kind: "html"; html: string }`
+One item of an island's children as `Pieces.svelte` renders it.
 
-One item of an island's children as `Pieces.svelte` renders it: a Svelte island of the tree (branch `[0` of the server's markers), an element holding one (`[1`), an element kept as the server wrote it (`[2`) and a run of text and comments (`[-1`). Children without markers are laid out by what each piece holds.
+* `type TreePiece = TreeIsland | TreeElement | TreeOpaque | TreeHtml`
+* `interface TreeIsland { kind: "island"; id: string; moduleId: string; region: string | null; when: string | null; mode: string | null; ssr: boolean; props: Props; children: TreePiece[] | null; entry: IslandEntry | undefined; timing: MountTiming }`: branch `[0` of the server's markers.
+* `interface TreeElement { kind: "element"; tag: string; attrs: { [name: string]: string }; children: TreePiece[] }`: branch `[1`.
+* `interface TreeOpaque { kind: "opaque"; tag: string; attrs: { [name: string]: string }; html: string }`: branch `[2`.
+* `interface TreeHtml { kind: "html"; html: string }`: branch `[-1`.
 
 ### registerTree
 
-* `function registerTree(tree: Snippet): void`
-
-Takes the snippet `Pieces.svelte` exports, which renders an island's children in its tree. The island registry `fsr build` writes calls it whenever it registers a Svelte island, from `generated/components/Pieces.svelte`.
+* `registerTree(tree: Snippet): void`: takes the snippet `generated/components/Pieces.svelte` exports. The island registry `fsr build` writes calls it.
 
 ### held, opaque and nested
 
-* `function held(given: () => TreePiece[] | undefined): () => TreePiece[]`
-* `function opaque(): (piece: TreeOpaque) => (el: Element) => () => void`
-* `function nested(piece: () => TreeIsland): { readonly component: Component | null; readonly props: { [key: string]: unknown }; attach: (el: Element) => () => void }`
+Called by `Pieces.svelte` and `Island.svelte` under `generated/components`.
 
-What `Pieces.svelte` and `Island.svelte`, the components `fsr build` writes under `generated/components`, call while they initialise. `held` is the list `Pieces.svelte` renders: the pieces it was given, else the children of the island around it. `opaque` is the attachment on a kept element. It leaves the content while hydrating, writes it on a fresh render, morphs it when a patch changes it and scans it for islands. It discards them once the element leaves the document. `nested` is what `Island.svelte` renders an island with: its props and its component, loaded already when the server rendered it, else once its timing fires. It sets the contexts the island's children and `useLinkStatus` read.
+* `held(given: () => TreePiece[] | undefined): () => TreePiece[]`: the pieces given, else the children of the enclosing island.
+* `opaque(): (piece: TreeOpaque) => (el: Element) => () => void`: the attachment on a kept element. It writes, morphs and scans its content and discards its islands when the element leaves.
+* `nested(piece: () => TreeIsland): { readonly component: Component<{ [key: string]: unknown }> | null; readonly props: { [key: string]: unknown }; attach: (el: Element) => () => void }`: a nested island's component and props, loaded at its timing.
 
 ### useStore (Svelte)
 
-* `function useStore<T>(key: StoreKey<T>, initial: T): { subscribe(run: (value: T) => void): () => void; set(value: T): void; update(fn: (value: T) => T): void }`
-
-A store key as a Svelte store: `$count` reads it (`initial` while nothing has set the key) and `$count = 3` writes it, in runes and legacy components alike. Every other island reading the key follows a write, whichever framework mounts it.
+* `useStore<T>(key: StoreKey<T>, initial: T): { subscribe: (run: (value: T) => void) => () => void; set: (value: T) => void; update: (fn: (value: T) => T) => void }`: a store key as a Svelte store, `$count` to read and `$count = 3` to write.
 
 ### useLocale (Svelte)
 
-* `function useLocale(): { subscribe(run: (value: string) => void): () => void }`
-
-The document's locale as a readable Svelte store, `$locale`, following every navigation that changes it.
+* `useLocale(): { subscribe: (run: (value: string) => void) => () => void }`: the locale as a readable store.
 
 ### useLinkStatus and holdLink (Svelte)
 
-* `function useLinkStatus(): { subscribe(run: (value: { pending: boolean }) => void): () => void }`
-* `function holdLink(anchor: () => Element | null): void`
-
-`useLinkStatus` as a readable store of `{ pending }`, `$status.pending`, called while the component initialises. It reads the anchor a `holdLink` above it put in context, else the closest `a` around the element the island is mounted in, which `svelteMounter` passes as context. FSR's `Link.svelte` calls `holdLink` with its bound anchor. The build lowers the call to `{ pending: false }`.
+* `useLinkStatus(): { subscribe: (run: (value: { pending: boolean }) => void) => () => void }`: a readable store of `{ pending }`. Call it while the component initialises.
+* `holdLink(anchor: () => Element | null): void`: puts the anchor `useLinkStatus` judges against in context. FSR's `Link.svelte` calls it.
 
 ### link, picture and embed (Svelte)
 
-* `function link(options: LinkOptions): Record<string, unknown>`
-* `function picture(options: PictureOptions): { img: Record<string, unknown>; sources: Record<string, unknown>[] | null }`
-* `function embed(options: EmbedOptions): { outer; button; still; title; play }`
-
-The parts `Link`, `Picture` and `Embed` render from, for markup a Svelte component writes itself. A `.svelte` file imports the components themselves from `@snapfire/fsr/components`, which the build supplies as Svelte components. `link` is an anchor's attributes, spread with `<a {...link({ href })}>`. `picture` is the `<img>`'s attributes plus one set per `<source>`, `null` when the image policy derives no variants. `embed` is the attributes of the placeholder's wrapper, button, still, title and play mark.
+* `link(options: LinkOptions): Record<string, unknown>`: the anchor attributes of `Link`, for `<a {...link({ href })}>`.
+* `picture(options: PictureOptions): { img: Record<string, unknown>; sources: Record<string, unknown>[] | null }`: the `<img>` attributes and one set per `<source>`, `sources` `null` when the policy derives no variants.
+* `embed(options: EmbedOptions): { outer: Record<string, string>; button: Record<string, string>; still: Record<string, string> | null; title: Record<string, string>; play: Record<string, string> }`: the attributes of the placeholder's parts.
 
 ### island (Svelte)
 
-* `function island(module: string, props?: Props, when?: MountTiming): (element: Element) => () => void`
-
-An attachment placing an island another framework mounts, by module id: `<div {@attach island("src/ui/Chart.tsx#default", { label })}></div>`. It writes the same marker as the React and Vue `Mount` inside the element and scans it, so the registry entry decides the mounter. When the props change Svelte runs the attachment again, which patches the mounted island in place. When the element leaves the document the islands inside it are discarded.
+* `island(module: string, props?: Props, when?: MountTiming): (element: Element) => () => void`: an attachment placing an island by module id inside the element, `<div {@attach island("src/ui/Chart.tsx#default", { label })}></div>`.
+* A props change patches the island. Removing the element discards it.
 
 ### mount (Svelte)
 
-* `function mount(module: string, props?: Props, when?: MountTiming): (region: Element) => () => void`
-
-The attachment the Svelte `Mount` puts on its `<sf-s data-sf-island>` region: the marker for `module` and its props inside the region, scanned so the registry entry decides the mounter and patched in place when the props change. When the region leaves the document the island inside it is discarded.
+* `mount(module: string, props?: Props, when?: MountTiming): (region: Element) => () => void`: the attachment the Svelte `Mount` puts on its `<sf-s data-sf-island>` region, with the same behaviour as `island`.
 
 ## 13. The JSX Element Builder
 
-`@snapfire/fsr/client/jsx-runtime`, served at `/static/js/fsr/jsx-runtime.js`: what TSX compiles against where no JSX framework is, which is a spec's JSX in an application without React and a template the browser never loads. FSR is no JSX framework, so nothing here mounts, renders or updates an element.
+`@snapfire/fsr/client/jsx-runtime`, what TSX compiles against in an application without React. It builds element descriptions and mounts nothing.
 
-* `namespace JSX { type Element = FsrElement; type ElementType = string | FsrComponent; interface IntrinsicElements { [tag: string]: Record<string, unknown> } }`, what TypeScript checks a file compiled against this entry by.
+### JSX
+
+* `namespace JSX { type Element = FsrElement; type ElementType = string | FsrComponent; interface IntrinsicElements { [tag: string]: Record<string, unknown> } }`
 
 ### jsx and jsxs
 
-* `function jsx(type: FsrElement["type"], props: Record<string, unknown> | null, key?: unknown): FsrElement`; `const jsxs: typeof jsx`; `const Fragment: unique symbol`
+* `jsx(type: FsrElement["type"], props: Record<string, unknown> | null, key?: unknown): FsrElement`
+* `const jsxs: typeof jsx`
+* `const Fragment: unique symbol`: `Symbol.for("sf.fragment")`.
 * `interface FsrElement { type: string | typeof Fragment | FsrComponent; props: Record<string, unknown>; key?: unknown }`
 * `type FsrComponent = (props: Record<string, unknown>) => FsrNode`
 * `type FsrNode = FsrElement | string | number | bigint | boolean | null | undefined | FsrNode[]`
 
-An element is a description and nothing more: `render` in a spec reads its `type` and `props` to place the island it names.
-
 ### Placements
 
-* `function Link(props: LinkProps & { children?: FsrNode }): FsrElement`
-* `function Picture(props: PictureProps): FsrElement`
-* `function Mount(props: { module: string; props?: Record<string, unknown>; when?: MountTiming }): FsrElement`
-* `function Island(props: { children?: FsrNode }): FsrElement`
-* `function island<P>(component: (props: P) => FsrNode): (props: P) => FsrNode`
-* `function Slot(props: { children?: FsrNode }): FsrElement`
-
-The dialect's placements as plain elements, which `@snapfire/fsr/template` resolves to in the browser. `Link` describes an anchor with the marks the navigator reads and `Picture` the `<picture>` or `<img>` the server writes for the same props. `Island` and `Slot` describe their child where it stands and `island` returns the component unchanged.
+* `Link(props: LinkOptions & { children?: FsrNode }): FsrElement`: an anchor with the attributes of React's `Link`.
+* `Picture(props: PictureOptions): FsrElement`: the `<picture>` or `<img>` of React's `Picture`.
+* `Place({ name, as, ...attrs }: { name: string; as?: string; [attribute: string]: unknown }): FsrElement`: `<div id="name">` unless `as` names another tag.
+* `Mount({ when }: { module: string; props?: Record<string, unknown>; when?: "load" | "visible" | "idle" }): FsrElement`: an empty `<sf-s data-sf-island>`.
+* `Embed(props: EmbedOptions): FsrElement`: the video placeholder.
+* `Island(props: { children?: FsrNode }): FsrElement` and `Slot(props: { children?: FsrNode }): FsrElement`: a fragment around their children.
+* `island<P extends Record<string, unknown>>(component: (props: P) => FsrNode): (props: P) => FsrNode`: returns `component` unchanged.
+* `createContext<T>(defaultValue: T): FsrContext<T>` and `use<T>(context: FsrContext<T>): T`: `use` always returns the default.
+* `interface FsrContext<T> { (props: { value: T; children?: FsrNode }): FsrElement; readonly __sfContext: T; Provider: (props: { value: T; children?: FsrNode }) => FsrElement }`
 
 ## 14. Custom Elements and htmx
 
-`@snapfire/fsr/client/elements` and `@snapfire/fsr/client/htmx`: two entry points for markup nothing mounts, each importing nothing outside the package. htmx itself is the application's, passed in, so the binding works with whatever version the import map names.
+`@snapfire/fsr/client/elements` and `@snapfire/fsr/client/htmx`. Neither imports anything outside the package.
 
 ### shadowOf
 
-* `function shadowOf(element: HTMLElement, internals?: ElementInternals): ShadowRoot | null`
-
-The shadow root of a custom element whose template the server wrote. The root the parser attached is returned as it is; a closed one is reached through `internals`. When there is none and the element has a `<template shadowrootmode>` child, which is what markup written through `innerHTML` leaves, a root is attached with that template's mode and with `delegatesFocus`, `clonable` and `serializable` from its `shadowrootdelegatesfocus`, `shadowrootclonable` and `shadowrootserializable` attributes. The template's content is cloned into it and the template removed. `null` when the element has neither, which is also what a closed root the parser attached gives without `internals`.
+* `shadowOf(element: HTMLElement, internals?: ElementInternals): ShadowRoot | null`: the shadow root of a custom element whose template the server wrote.
+* Returns the root the parser attached. A closed root is reached through `internals`.
+* With no root and a `<template shadowrootmode>` child, it attaches a root with that mode and with `delegatesFocus`, `clonable` and `serializable` from the `shadowrootdelegatesfocus`, `shadowrootclonable` and `shadowrootserializable` attributes. The template's content is cloned in and the template removed.
+* `null` when the element has neither. Also `null` for a closed root without `internals`.
 
 ### HtmxProcessor
 
-* `interface HtmxProcessor { process(element: Element): void }`
-
-The one method the binding calls. htmx's own default export satisfies it.
+* `interface HtmxProcessor { process(element: Element): void }`: the method `bindHtmx` calls. htmx's default export satisfies it.
 
 ### bindHtmx
 
-* `function bindHtmx(htmx: HtmxProcessor): () => void`
-
-Makes htmx and the client aware of each other's markup, in both directions. Returns the function that takes the listeners off again.
-
-On `htmx:after:settle`, htmx 4's settle event, or `htmx:afterSettle`, htmx 2's, on `document.body`: `adopt()` reads every store seed nothing has read yet, since a fragment ends with the same inert seed script a document carries, then `scan(document)` mounts any island the swapped markup placed.
-
-Once as it binds and then on `sf:navigate` and `sf:fill` on `document`: `htmx.process(document.body)`, so htmx wires the `hx-` attributes in markup the navigator wrote. htmx leaves an element it already processed alone. Without this direction a form or an anchor reached by a soft navigation is markup htmx never processed, so the browser submits or follows it natively.
-
-On `htmx:before:history:restore` on `document`, while `enableNavigation` has wired the document: `preventDefault()`, so a step back or forward is the navigator's. htmx 4 stamps the entry it loaded on and, on a step back to it, fetches the page and swaps the body under the navigator's patch.
+* `bindHtmx(htmx: HtmxProcessor): () => void`: wires htmx and the client to each other's markup. Returns the function that removes the listeners.
+* On `htmx:after:settle` (htmx 4) and `htmx:afterSettle` (htmx 2) on `document.body`: `adopt()` then `scan(document)`.
+* Once at binding and on every `sf:navigate` and `sf:fill` on `document`: `htmx.process(document.body)`.
+* On `htmx:before:history:restore` on `document`, while `enableNavigation` has wired the document: `preventDefault()`.
 
 ## 15. The Standard Library
 
-`@snapfire/fsr/client` and its modules `intl`, `text`, `time`, `crypto`, `i18n`, `log` and `path`: the browser half of the standard library the server's interpreter carries under the same names, each also at `@snapfire/fsr/client/<module>`. Every member agrees with the server byte for byte under the same locale, which is `currentLocale()`. A member only a host runs is under `@snapfire/fsr/host` and has no browser half; `@snapfire/fsr/host` is never in the import map. `native` is at `@snapfire/fsr`. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.
+Members the server runs under the same names. A member that runs in the browser gives the same answer as the server under the same locale, `currentLocale()`.
 
-### localeTag
+| Module | Members | From |
+| --- | --- | --- |
+| `intl`, `text`, `time`, `crypto`, `i18n`, `path`, `log` and `t` | the browser members | `@snapfire/fsr/client` and `@snapfire/fsr/client/<module>` |
+| the same plus `file` and `id`, with the host-only members | everything a host body runs | `@snapfire/fsr/host` |
+| `system`, `clipboard` and `Scope` | what a terminal program runs | `@snapfire/fsr/terminal` |
+| `native` | | `@snapfire/fsr` |
 
-* `localeTag(): string`: `currentLocale()` as BCP 47, `fr-FR` for `fr_FR`; `en` before any document says.
+* A host-only member called in a browser throws `<name> runs in a host only`. A terminal-only member throws `<name> runs in a terminal page only`.
 
 ### intl
 
-* `intl.localeTag(): string`: `localeTag()`. The platform's `Intl` formatters, `toLocaleString`, `toLocaleDateString` and `localeCompare` take its place for formatting: the build lowers each call it reads and the server answers it as the browser does.
+* `intl.localeTag(): string`: `currentLocale()` as BCP 47, `fr-FR` for `fr_FR`, `en` before any document sets one.
+* The build lowers the platform's `Intl` formatters, `toLocaleString`, `toLocaleDateString` and `localeCompare`. The server answers them as the browser does.
 
 ### text
 
 * `text.slug(s: string): string`: NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end.
 * `text.truncate(s: string, max: number, ellipsis?: string): string`: the first `max` code points and `ellipsis`, `…` by default, when `s` is longer.
-* `text.frontMatter<T>(source: string, options?: FrontMatterOptions): { data: T; content: string }`: the YAML block between two delimiter lines at the top of `source` as `data` and the rest as `content`, as gray-matter reads them. Host bodies only; in a browser it throws.
-* `text.withFrontMatter(content: string, data: object, options?: FrontMatterOptions): string`: `data` as YAML between the delimiter lines, then `content`, as gray-matter's `stringify` writes them. Host bodies only; in a browser it throws.
+* `text.frontMatter<T>(source: string, options?: FrontMatterOptions): { data: T; content: string }`: the YAML block between two delimiter lines at the top of `source` as `data` and the rest as `content`, as gray-matter reads them. Host only.
+* `text.withFrontMatter(content: string, data: { [key: string]: unknown }, options?: FrontMatterOptions): string`: `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes them. Empty `data` writes no block. Host only.
 * `interface FrontMatterOptions { delimiters?: string | [string, string] }`: one string for both lines or `[open, close]`, `---` by default.
 
-### file
+### time
 
-The files a host body reads and writes: a web host's under its `[files] roots`, a terminal program's from its working directory. Each member throws in a browser. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file.
+Instants are milliseconds since the epoch. Every calendar field is UTC.
 
-* `file.read(path: string): string`: the file as text, bytes that are not UTF-8 as U+FFFD.
-* `file.write(path: string, data: unknown): void`: `data` as the file's text, a value that is not text as JSON.
-* `file.exists(path: string): boolean`: whether anything is at `path`.
-* `file.list(path: string): string[]`: the names of a directory's entries, sorted.
-* `file.makeDir(path: string, options?: { recursive?: boolean }): void`: the directory, its parents too with `recursive`.
-* `file.stat(path: string): FileStat`; `interface FileStat { isFile: boolean; isDirectory: boolean; size: number; mtimeMs: number }`.
+* `time.format(when: number, pattern: string): string`: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced, every other character kept.
+* `time.add(when: number, amount: number, unit: string): number` and `time.diff(later: number, earlier: number, unit: string): number`: `unit` is `ms`, `s`, `m`, `h` or `d`. Another unit throws. `diff` is fractional.
+* `time.parse(s: string): number | null`: `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`. A date alone or a time without a zone is UTC. `null` for anything else.
+
+### crypto
+
+* `crypto.hash(s: string): string`: SHA-256 of the UTF-8 bytes as lowercase hex, synchronous.
+* `crypto.verify(s: string, hash: string): boolean`: constant time over the hash's length, case insensitive.
+* `crypto.digest(algorithm: string, encoding: string, ...parts: string[]): string`: `sha256` of the parts' UTF-8 bytes in order, as `hex` or `base64`. Another algorithm or encoding throws.
+* `crypto.random(bytes: number, encoding?: "hex" | "base64"): string`: at most 1024 bytes from `getRandomValues`, `hex` by default. Host only.
 
 ### path
 
-POSIX paths as text. `join`, `normalize`, `dirname`, `basename`, `extname` and `isAbsolute` run in the browser too; `resolve` and `relative` read the working directory and throw in a browser.
+POSIX paths as text.
 
-* `path.join(...parts: string[]): string`: the parts joined by `/` and normalized; `.` for none.
-* `path.resolve(...parts: string[]): string`: the parts right to left until one is absolute, the working directory before them otherwise.
-* `path.normalize(p: string): string`, `path.dirname(p: string): string`, `path.basename(p: string, ext?: string): string`, `path.extname(p: string): string`, `path.relative(from: string, to: string): string` and `path.isAbsolute(p: string): boolean`.
+* `path.join(...parts: string[]): string`: the parts joined by `/` and normalized, `.` for none.
+* `path.normalize(p: string): string`: `.` and empty segments dropped, `..` resolved against what precedes it.
+* `path.dirname(p: string): string`, `path.basename(p: string, ext?: string): string`, `path.extname(p: string): string` and `path.isAbsolute(p: string): boolean`.
+* `path.resolve(...parts: string[]): string`: the parts right to left until one is absolute, the working directory before them otherwise. Host only.
+* `path.relative(from: string, to: string): string`: the path from `from` to `to`, both resolved. Host only.
+
+### log
+
+* `log.trace`, `log.debug`, `log.info`, `log.warn`, `log.error` and `log.fatal`: `(message: string, fields?: unknown) => null`.
+* On the server each is a `tracing` event under `fsr::app`, `fatal` at error level. In the browser each is a console line, `trace` and `debug` through `console.debug` and `fatal` through `console.error`.
+
+### i18n and t
+
+* `t(key: string, args?: { [name: string]: unknown }): string`: the message under `key` in `catalog(currentLocale())`. Also `i18n.t`.
+* With `args.count` a number or bigint, it tries `key.<plural category>`, then `key.other`, then `key`.
+* `{name}` is replaced by `String(args[name])` for a scalar argument and left as written otherwise.
+* Returns the key itself when no form is found or no table is held.
+
+### file
+
+The files a host body reads and writes: the directories `[files] roots` names on a web host and the machine a terminal program runs on. Host only. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file.
+
+* `file.read(path: string): string`: the file as text, bytes that are not UTF-8 as U+FFFD.
+* `file.write(path: string, data: unknown): void`: `data` as the file's text, a value that is not text as JSON.
+* `file.exists(path: string): boolean`
+* `file.list(path: string): string[]`: a directory's entry names, sorted.
+* `file.makeDir(path: string, options?: { recursive?: boolean }): void`
+* `file.stat(path: string): FileStat`
+* `interface FileStat { isFile: boolean; isDirectory: boolean; size: number; mtimeMs: number }`
+
+### id
+
+* `id.new(): string`: a UUID, version 7 on the server. Host only.
 
 ### system
 
-The machine a terminal page runs on. Terminal pages only; in a browser each member throws.
+The machine a terminal program runs on. Terminal only.
 
-* `system.env(name: string): string | null`: the environment variable, null when it is not set.
+* `system.env(name: string): string | null`: the environment variable, `null` when unset.
 * `system.home(): string`, `system.tempDir(): string` (no trailing `/`) and `system.cwd(): string`.
 * `system.platform(): string`: `macos`, `linux`, `windows` or another name Rust gives the operating system.
 * `system.lineEnd(): string`: `"\r\n"` on Windows, `"\n"` elsewhere.
 * `system.memory(): number`: the resident set of the running page, in bytes.
-* `system.spawn(command: string, args?: string[], options?: SpawnOptions): Spawned`: a process started with its output piped. `interface SpawnOptions { cwd?: string; env?: { [name: string]: string }; shell?: boolean | string; stdio?: "inherit" | "pipe" }`, `stdio: "inherit"` for one that owns the terminal. `Spawned` has `stdout.on("data", f)` and `stderr.on("data", f)` for its output, `on("exit" | "close", f)` with the code and signal, `on("error", f)` for a failure to start, `stdin.write(text)` and `stdin.end()` for its input and `off(event, f)`. Its standard input is a pipe only when the page writes it.
+* `system.spawn(command: string, args?: string[], options?: SpawnOptions): Spawned`: a process with its output piped.
+* `interface SpawnOptions { cwd?: string; env?: { [name: string]: string }; shell?: boolean | string; stdio?: "inherit" | "pipe" }`: `stdio: "inherit"` for a process that owns the terminal.
+* `interface Spawned { stdin: SpawnedInput; stdout: SpawnedOutput; stderr: SpawnedOutput; on(event: "exit" | "close", f: (code: number | null, signal: string | null) => void): void; on(event: "error", f: (error: Error) => void): void; off(event: "exit" | "close" | "error", f: (...args: never[]) => void): void }`
+* `interface SpawnedOutput { on(event: "data", f: (chunk: string) => void): void; setEncoding(encoding: string): void }`: output arrives as text and `setEncoding` changes nothing.
+* `interface SpawnedInput { write(text: string): void; end(): void }`: standard input is a pipe only when the page writes it.
 
 ### clipboard
 
-The clipboard of a terminal page. Terminal pages only; in a browser each member throws.
+The clipboard of a terminal program. Terminal only.
 
-* `clipboard.write(text: string): void`: puts `text` on the clipboard of the terminal the user sits at through OSC 52 when the terminal names it in its device attributes, over SSH too. Otherwise on the clipboard of the machine the page runs on through `pbcopy`, `clip`, `wl-copy`, `xclip` or `xsel`, the first the platform has.
-* `clipboard.read(): string`: what the clipboard of the machine the page runs on holds, through the matching paste command. Terminals often refuse OSC 52 reads, so reading never asks the terminal.
-
-### time
-
-Instants are milliseconds since the epoch and every calendar field is UTC.
-
-* `time.format(when: number, pattern: string): string`: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced, every other character kept.
-* `time.add(when: number, amount: number, unit: string): number` and `time.diff(later: number, earlier: number, unit: string): number` with `unit` one of `ms`, `s`, `m`, `h`, `d`; another unit throws.
-* `time.parse(s: string): number | null`: `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`; `null` for anything else.
-
-### crypto
-
-* `crypto.hash(s: string): string`: SHA-256 of the UTF-8 bytes as lowercase hex, computed synchronously.
-* `crypto.verify(s: string, hash: string): boolean`: constant time over the hash's length, case insensitive.
-* `crypto.random(bytes: number, encoding?: "hex" | "base64"): string`: at most 1024 bytes from `getRandomValues`, as `hex` by default or as `base64`. Server only on a render path.
-* `crypto.digest(algorithm: string, encoding: string, ...parts: string[]): string`: the `sha256` of the parts' UTF-8 bytes in order as `hex` or `base64`; another algorithm or encoding throws.
+* `clipboard.write(text: string): void`: through OSC 52 when the terminal names it in its device attributes, over SSH too. Otherwise through `pbcopy`, `clip`, `wl-copy`, `xclip` or `xsel`, the first the platform has.
+* `clipboard.read(): string`: the clipboard of the machine the program runs on, through the matching paste command. It never reads through OSC 52.
 
 ### Scope
 
-* `class Scope<T>`: a value scoped to a call. `run<R>(value: T, fn: (...args) => R, ...args): R` holds `value` while `fn` runs and answers what it does; `get(): T | undefined` reads the value held, `undefined` outside any `run`; `set(value: T): void` holds it from then on. A terminal page keeps it across the awaits inside `fn`.
-
-### id
-
-* `id.new(): string`: `crypto.randomUUID()`. Server only on a render path, where the server's is a UUID version 7.
-
-### t
-
-* `t(key: string, args?: { [name: string]: unknown }): string`: the message under `key` in `catalog(currentLocale())`; with `args.count` a number or bigint, `key.<plural category of count>` then `key.other` then `key`; `{name}` replaced by `String(args[name])` for a scalar argument and left as written otherwise; the key itself when the table lacks every form or no table is held. Lowered by the build to the server's `i18n.t` and hoisted when its inputs are props only.
+* `class Scope<T> { run<R>(value: T, fn: (...args: never[]) => R, ...args: never[]): R; get(): T | undefined; set(value: T): void }`: a value scoped to a call.
+* `run` holds `value` while `fn` runs. `get` returns `undefined` outside any `run`. `set` holds a value from then on.
+* A terminal program keeps the value across the awaits inside `fn`.
 
 ### native
 
-* `native<F extends (...args: never[]) => unknown>(name: string, f?: F): F`: declares the browser half of a native pair under `name`, `module.member`, whose Rust half the host registers under the same name. With `f`, the pair has `render` reach and `f` is returned and registered on `globalThis.__sf_natives` for the runner; without, it has `body` reach and the returned function throws `<name> runs on the server only`. `name` must be a string literal, since the build reads the declaration.
+* `native<F extends (...args: never[]) => unknown>(name: string, f?: F): F`: declares the browser half of a native pair named `module.member`, whose Rust half the host registers under the same name.
+* With `f`, the pair has `render` reach. `f` is returned and registered on `globalThis.__sf_natives`.
+* Without `f`, the pair has `body` reach. The returned function throws `<name> runs on the server only`.
+* `name` must be a string literal.
 
 ## 16. Testing
 
-`@snapfire/fsr/client/testing`: what a page spec imports under `fsr test`, which runs it in QuickJS over linkedom. Its names are the ones Jest, Vitest and Testing Library use, so a suite written for those moves over with small changes; guide chapter 107 lists them. Every call that acts on the page returns a promise that settles the engine before it resolves.
+`@snapfire/fsr/client/testing`: what a page spec imports under `fsr test`, which runs it in QuickJS over linkedom. Every call that acts on the page returns a promise that settles the engine before it resolves. Also exports `f64`.
 
 ### test and it
 
-* `test(name: string, body?: TestBody, timeout?: number): void`; `it` is the same function
-* `test.only`, `test.skip`, `test.todo(name: string)`, `test.each`, `test.skipIf(condition)`, `test.runIf(condition)`, `test.fails`, `test.concurrent`; `xit` and `xtest` are `test.skip`, `fit` is `test.only`
+* `test(name: string, body?: TestBody, timeout?: number): void`: registers a test. `it` is the same function.
+* `test.only`, `test.skip`, `test.todo(name: string)`, `test.each`, `test.skipIf(condition)`, `test.runIf(condition)`, `test.fails` and `test.concurrent`. `xit` and `xtest` are `test.skip`. `fit` is `test.only`.
 * `type TestBody = (done: DoneCallback) => unknown`
 * `interface DoneCallback { (error?: unknown): void; fail(error?: unknown): void }`
-
-Registers a test. A body may be async or take `done` and call it. `each` takes an array of rows or a template table. An array row is spread over the body's parameters and any other row is passed as one argument; a template table's first row names the columns and its rows reach the body as objects. The name takes `%s`, `%d`, `%i`, `%f`, `%j`, `%o` and `%p` for the arguments in order, `%#` for the row's index, `%$` for its number and `$field` for a field of an object row. An `only` anywhere in the file skips every test it does not cover. A test with no body is a todo. `fails` passes when its body throws. `concurrent` runs in order like any other test and `timeout` is accepted and ignored, since time does not pass on its own.
+* A body may be async or take `done` and call it.
+* `each` takes an array of rows or a template table. An array row is spread over the body's parameters and any other row is one argument. A template table's first row names the columns and its rows reach the body as objects.
+* The name takes `%s`, `%d`, `%i`, `%f`, `%j`, `%o` and `%p` for the arguments in order, `%#` for the row's index, `%$` for its number and `$field` for a field of an object row.
+* An `only` anywhere in the file skips every test it does not cover.
+* A test with no body is a todo. `fails` passes when its body throws.
+* `concurrent` runs in order like any other test. `timeout` is ignored.
 
 ### describe
 
-* `describe(name: string, body: () => void): void` with `only`, `skip`, `each`, `skipIf`, `runIf` and `concurrent`; `xdescribe` and `fdescribe`
-
-Groups tests. The body runs at once and throws when it returns a promise. A test's name in the report is the names of the blocks around it and its own, joined with ` > `.
+* `describe(name: string, body: () => void): void`: groups tests. With `only`, `skip`, `each`, `skipIf`, `runIf` and `concurrent`. `xdescribe` and `fdescribe`.
+* The body runs at once and throws when it returns a promise.
+* A test's reported name is the names of its enclosing blocks and its own, joined with ` > `.
 
 ### Hooks
 
-* `beforeAll`, `afterAll`, `beforeEach` and `afterEach`: `(body: TestBody, timeout?: number) => void`
-
-Scoped to the enclosing `describe` or the file. `beforeAll` runs before the first test of its block that runs. `afterAll` runs after the file's last test, for every block a test ran in, innermost first; a failure is reported as a test named `afterAll`. `beforeEach` hooks run outermost first and `afterEach` innermost first, after a failure too. A `beforeAll` that fails fails every test in its block.
+* `beforeAll`, `afterAll`, `beforeEach` and `afterEach`: `(body: TestBody, timeout?: number) => void`, scoped to the enclosing `describe` or the file.
+* `beforeAll` runs before the first test of its block that runs. A `beforeAll` that fails fails every test in its block.
+* `afterAll` runs after the file's last test, for every block a test ran in, innermost first. A failure is reported as a test named `afterAll`.
+* `beforeEach` hooks run outermost first. `afterEach` hooks run innermost first, after a failure too.
 
 ### expect
 
 * `expect(received: unknown, message?: string): Assertion`
 * `interface Assertion extends Matchers<void> { not: Matchers<void>; resolves: Matchers<Promise<void>> & { not: Matchers<Promise<void>> }; rejects: Matchers<Promise<void>> & { not: Matchers<Promise<void>> } }`
-* `expect.assertions(count: number)`, `expect.hasAssertions()`, `expect.extend(matchers: Record<string, MatcherFunction>)`, `expect.unreachable(message?: string): never`
-* `type MatcherFunction = (this: MatcherState, received: any, ...expected: any[]) => MatcherResult | Promise<MatcherResult>`; `interface MatcherResult { pass: boolean; message: () => string }`
-
-`message` leads the report when the expectation fails. `.not` inverts a matcher. `.resolves` and `.rejects` take a promise or a function returning one, await it and match what it settled to, so they return a promise to await; a promise that settled the other way fails with what it settled to. `assertions` and `hasAssertions` are checked when the test's body finishes. `extend` adds matchers, each given the received value and the arguments.
+* `expect.assertions(count: number)`, `expect.hasAssertions()`, `expect.extend(matchers: Record<string, MatcherFunction>)` and `expect.unreachable(message?: string): never`.
+* `type MatcherFunction = (this: MatcherState, received: any, ...expected: any[]) => MatcherResult | Promise<MatcherResult>`
+* `interface MatcherResult { pass: boolean; message: () => string }`
+* `message` leads the report when the expectation fails.
+* `.resolves` and `.rejects` take a promise or a function returning one and return a promise to await. A promise that settled the other way fails with what it settled to.
+* `assertions` and `hasAssertions` are checked when the test's body finishes.
 
 ### Matchers
 
-* Values: `toBe` (`Object.is`, with a bigint equal to the whole number it stands for), `toEqual` (deep, properties holding `undefined` counted absent, the same bigint allowance), `toStrictEqual` (deep, `undefined` properties and prototypes counted, no allowance), `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeUndefined`, `toBeDefined`, `toBeNaN`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toBeCloseTo(n, digits = 2)`, `toContain`, `toContainEqual`, `toHaveLength`, `toHaveProperty(path, value?)`, `toMatch(string | RegExp)`, `toMatchObject`, `toThrow` and `toThrowError`, `toBeInstanceOf`, `toBeTypeOf`, `toSatisfy`, `toBeOneOf`
-* Mock functions: `toHaveBeenCalled`, `toHaveBeenCalledOnce`, `toHaveBeenCalledTimes`, `toHaveBeenCalledWith`, `toHaveBeenCalledExactlyOnceWith`, `toHaveBeenLastCalledWith`, `toHaveBeenNthCalledWith`, `toHaveReturned`, `toHaveReturnedTimes`, `toHaveReturnedWith`, `toHaveLastReturnedWith`, `toHaveNthReturnedWith`, with the older names `toBeCalled`, `toBeCalledTimes`, `toBeCalledWith`, `lastCalledWith`, `nthCalledWith`, `toReturn`, `toReturnTimes`, `toReturnWith`, `lastReturnedWith` and `nthReturnedWith`
-* Markup: `toBeInTheDocument`, `toHaveTextContent(string | RegExp, { normalizeWhitespace }?)`, `toHaveAttribute(name, value?)`, `toHaveClass(...names, { exact }?)`, `toBeVisible`, `toBeDisabled`, `toBeEnabled`, `toBeRequired`, `toBeInvalid`, `toBeValid`, `toBeChecked`, `toBePartiallyChecked`, `toHaveValue`, `toHaveDisplayValue`, `toHaveFocus`, `toBeEmptyDOMElement`, `toContainElement`, `toContainHTML`, `toHaveStyle`, `toHaveFormValues`, `toHaveAccessibleName`, `toHaveAccessibleDescription`, `toHaveRole`
-* `toMatchSnapshot`, `toMatchInlineSnapshot`, `toThrowErrorMatchingSnapshot` and `toThrowErrorMatchingInlineSnapshot` fail saying `fsr test` keeps no snapshot files.
-
-`toThrow` reads what was thrown as its kind followed by its message, so an action's failure matches its kind: a string must appear in that text, a RegExp must match it, a class must be what was thrown and an object must match it. `toHaveTextContent` with a string passes when the whitespace-normalised text holds it. A call matcher refuses a value that is not a mock function. The markup matchers refuse a value that is not an element. Visibility and styles read attributes and inline styles only, since the runner lays nothing out: `toBeVisible` fails on a `hidden` attribute, an inline `display: none`, `visibility: hidden` or `opacity: 0` on the element or an ancestor and the inside of a closed `<details>`.
+* Values: `toBe` (`Object.is`, with a bigint equal to the whole number it stands for), `toEqual` (deep, `undefined` properties counted absent, the same bigint allowance), `toStrictEqual` (deep, `undefined` properties and prototypes counted, no allowance), `toBeTruthy`, `toBeFalsy`, `toBeNull`, `toBeUndefined`, `toBeDefined`, `toBeNaN`, `toBeGreaterThan`, `toBeGreaterThanOrEqual`, `toBeLessThan`, `toBeLessThanOrEqual`, `toBeCloseTo(n, digits = 2)`, `toContain`, `toContainEqual`, `toHaveLength`, `toHaveProperty(path, value?)`, `toMatch(string | RegExp)`, `toMatchObject`, `toThrow`, `toThrowError`, `toBeInstanceOf`, `toBeTypeOf`, `toSatisfy` and `toBeOneOf`.
+* Mock functions: `toHaveBeenCalled`, `toHaveBeenCalledOnce`, `toHaveBeenCalledTimes`, `toHaveBeenCalledWith`, `toHaveBeenCalledExactlyOnceWith`, `toHaveBeenLastCalledWith`, `toHaveBeenNthCalledWith`, `toHaveReturned`, `toHaveReturnedTimes`, `toHaveReturnedWith`, `toHaveLastReturnedWith` and `toHaveNthReturnedWith`. Aliases: `toBeCalled`, `toBeCalledTimes`, `toBeCalledWith`, `lastCalledWith`, `nthCalledWith`, `toReturn`, `toReturnTimes`, `toReturnWith`, `lastReturnedWith` and `nthReturnedWith`.
+* Markup: `toBeInTheDocument`, `toHaveTextContent(string | RegExp, { normalizeWhitespace }?)`, `toHaveAttribute(name, value?)`, `toHaveClass(...names, { exact }?)`, `toBeVisible`, `toBeDisabled`, `toBeEnabled`, `toBeRequired`, `toBeInvalid`, `toBeValid`, `toBeChecked`, `toBePartiallyChecked`, `toHaveValue`, `toHaveDisplayValue`, `toHaveFocus`, `toBeEmptyDOMElement`, `toContainElement`, `toContainHTML`, `toHaveStyle`, `toHaveFormValues`, `toHaveAccessibleName`, `toHaveAccessibleDescription` and `toHaveRole`.
+* `toMatchSnapshot`, `toMatchInlineSnapshot`, `toThrowErrorMatchingSnapshot` and `toThrowErrorMatchingInlineSnapshot` fail, saying `fsr test` keeps no snapshot files.
+* `toThrow` reads what was thrown as its kind followed by its message. A string must appear in that text, a RegExp must match it, a class must be what was thrown and an object must match it.
+* `toHaveTextContent` with a string passes when the whitespace-normalised text contains it.
+* A call matcher refuses a value that is not a mock function. A markup matcher refuses a value that is not an element.
+* Visibility and style matchers read attributes and inline styles only. `toBeVisible` fails on a `hidden` attribute, an inline `display: none`, `visibility: hidden` or `opacity: 0` on the element or an ancestor and the inside of a closed `<details>`.
 
 ### Asymmetric Matchers
 
-* `expect.any(type)`, `expect.anything()`, `expect.objectContaining(object)`, `expect.arrayContaining(array)`, `expect.stringContaining(string)`, `expect.stringMatching(string | RegExp)`, `expect.closeTo(n, digits?)`
-* `expect.not.objectContaining`, `expect.not.arrayContaining`, `expect.not.stringContaining`, `expect.not.stringMatching`
+* `expect.any(type)`, `expect.anything()`, `expect.objectContaining(object)`, `expect.arrayContaining(array)`, `expect.stringContaining(string)`, `expect.stringMatching(string | RegExp)` and `expect.closeTo(n, digits?)`.
+* `expect.not.objectContaining`, `expect.not.arrayContaining`, `expect.not.stringContaining` and `expect.not.stringMatching`.
 * `interface AsymmetricMatcher { $$typeof: symbol; asymmetricMatch(other: unknown): boolean; toString(): string }`
-
-Values that decide equality themselves, placed anywhere in an expected value. `any(String)`, `any(Number)`, `any(Boolean)`, `any(BigInt)`, `any(Symbol)`, `any(Function)` and `any(Object)` match those kinds of value; any other constructor matches its instances. `anything` matches anything but `null` and `undefined`.
+* `any(String)`, `any(Number)`, `any(Boolean)`, `any(BigInt)`, `any(Symbol)`, `any(Function)` and `any(Object)` match those kinds of value. Any other constructor matches its instances.
+* `anything` matches anything but `null` and `undefined`.
 
 ### Mock Functions
 
 * `fn<A extends unknown[], R>(impl?: (...args: A) => R): MockInstance<A, R>`
-* `spyOn(object, key, access?: "get" | "set"): MockInstance`
-* `isMockFunction(value): boolean`, `clearAllMocks()`, `resetAllMocks()`, `restoreAllMocks()`
-* `const vi: Vi` and `const jest: Vi`, one object: `fn`, `spyOn`, `isMockFunction`, `mocked`, `clearAllMocks`, `resetAllMocks`, `restoreAllMocks`, `useFakeTimers`, `useRealTimers`, `isFakeTimers`, `advanceTimersByTime(ms): Promise<void>`, `advanceTimersByTimeAsync(ms): Promise<void>`, `waitFor`
-
-A `MockInstance` records every call in `mock.calls`, `mock.results`, `mock.instances`, `mock.contexts` and `mock.invocationCallOrder`, with `mock.lastCall`. `mockImplementation`, `mockReturnValue`, `mockResolvedValue` and `mockRejectedValue` set what it answers and their `Once` forms answer the next call only. `mockReturnThis`, `mockName`, `getMockName` and `getMockImplementation` are there too. `mockClear` forgets the calls, `mockReset` also forgets the answers and `mockRestore` returns a spy's original. `spyOn` replaces the method with a mock function that calls the original until told otherwise. A mock function may answer a `ctx`'s service method; one answering through `mockResolvedValue` or `mockRejectedValue` settles at once there, since a service mock answers synchronously. Timers are always fake: `useFakeTimers` and `useRealTimers` change nothing.
+* `spyOn<T extends object, K extends keyof T>(object: T, key: K, access?: "get" | "set"): MockInstance`: replaces the member with a mock that calls the original until told otherwise.
+* `isMockFunction(value: unknown): value is MockInstance`, `clearAllMocks()`, `resetAllMocks()` and `restoreAllMocks()`.
+* `const vi: Vi` and `const jest: Vi`, the same object: `fn`, `spyOn`, `isMockFunction`, `mocked`, `clearAllMocks`, `resetAllMocks`, `restoreAllMocks`, `useFakeTimers`, `useRealTimers`, `isFakeTimers`, `advanceTimersByTime(ms): Promise<void>`, `advanceTimersByTimeAsync(ms): Promise<void>` and `waitFor`.
+* A `MockInstance` records calls in `mock.calls`, `mock.results`, `mock.instances`, `mock.contexts` and `mock.invocationCallOrder`, with `mock.lastCall`.
+* `mockImplementation`, `mockReturnValue`, `mockResolvedValue` and `mockRejectedValue` set what it answers. Their `Once` forms answer the next call only. `mockReturnThis`, `mockName`, `getMockName` and `getMockImplementation` are also there.
+* `mockClear` forgets the calls. `mockReset` also forgets the answers. `mockRestore` puts back a spy's original.
+* A mock answering a `ctx` service method through `mockResolvedValue` or `mockRejectedValue` settles at once.
+* Timers are always fake. `useFakeTimers` and `useRealTimers` change nothing and `isFakeTimers` returns true.
 
 ### ctx
 
-* `ctx(mock?: Mock): TestCtx`
-* `interface Mock { session?; services?: Record<string, Record<string, (args) => unknown>>; native?; input?; params?; query?; identity?: { subject: string; claims?: Record<string, unknown> }; locale?; path? }`
+* `ctx(mock?: Mock): TestCtx`: the request an action runs under when a rendered page calls it or a route loads.
+* `interface Mock<Input = unknown> { session?: Record<string, unknown>; services?: Record<string, Record<string, Method>>; native?: Record<string, Record<string, Method>>; input?: Input; params?: Record<string, string>; query?: Record<string, string>; identity?: { subject: string; claims?: Record<string, unknown> }; locale?: string; path?: string }`
 * `interface TestCtx { readonly id: number; readonly locale: string; readonly session: Record<string, unknown>; readonly trace: { calls: ServiceCall[] } }`
-
-The request an action runs under when a rendered page calls it or a route loads. A service method is a mock function or a function of its arguments that answers synchronously. `native` answers the application's own Rust, which a spec cannot link. `session` and `trace` read back after every call.
+* `interface ServiceCall { service: string; method: string; args: Record<string, unknown> }`
+* A service method is a mock function or a function of its arguments that answers synchronously.
+* `native` answers the application's own Rust modules.
+* `locale` defaults to the host's default. `path` is the path the request matched.
+* `session` and `trace` are current after every call.
 
 ### render and renderHook
 
-* `render(element: Placed, options?: { ctx?: TestCtx; hydrate?: boolean }): Promise<Rendered>`
+* `render(element: Placed, options?: { ctx?: TestCtx; hydrate?: boolean }): Promise<Rendered>`: places `element` in the document and mounts it.
 * `type Placed = ReactElement | { type: unknown; props: Record<string, unknown> }`
 * `interface Rendered extends BoundQueries { container: HTMLElement; baseElement: HTMLElement; root: Root; hydrated: string | null; composed: string | null; unmount(): void; rerender(element: Placed): Promise<void>; asFragment(): DocumentFragment; debug(element?: Element, maxLength?: number): void }`
-* `registerComposition(moduleId: string, loader: () => Promise<unknown>): void`
-* `registerLowered(moduleId: string, loader: () => Promise<unknown>): void`
+* A registered island of any framework, a `foreign` component's included, is placed as a page places it and mounted through its adapter. When the module lowers, the server's markup is written first and the adapter hydrates over it. A mismatch fails the test. `rerender` patches the island and `root` throws.
+* A React component no registry knows mounts in a React root. So does a registered one whose props cannot be encoded. It hydrates when the build lowered it.
+* `hydrate: false` mounts fresh.
+* Any other component is refused.
+* A page or layout the build marked `static` is written as the server's markup, its islands are mounted and it is named in `composed`. `rerender` writes the markup again.
+* `hydrated` names the module that hydrated.
+* Markup is written with `setHTMLUnsafe` where the DOM has it.
+* `registerComposition(moduleId: string, loader: () => Promise<unknown>): void` and `registerLowered(moduleId: string, loader: () => Promise<unknown>): void`: called by the spec runner for every composition route module a spec imports and every other lowered component.
 * `renderHook(hook, options?: { initialProps?; ctx?; wrapper? }): Promise<{ result: { current: Result }; rerender(props?): Promise<void>; unmount(): void }>`
-* `act(body: () => T | Promise<T>): Promise<T>`; `cleanup(): void`
-
-`render` takes the element a spec's JSX builds, React's or FSR's, a `foreign` component's among them. A registered island of any framework is placed the way a page places one and mounted through its own adapter: the server's markup for those props is written first when the module lowers and the adapter hydrates over it, so a mismatch fails the test with the framework's message, while a React component the build could not lower mounts fresh. `rerender` patches the island in place and `root` throws, since no React root holds it. A React component no registry knows mounts in a React root, hydrating when the build lowered it, which is how the subtrees it reads from the server are there. So does a registered one whose props cannot be encoded, such as children elements. Anything rendered with `hydrate: false` mounts fresh. Any other component is refused. The markup is written with `setHTMLUnsafe` where the DOM has it, so a declarative shadow root is attached as a browser's parser attaches it. `hydrated` names the module that hydrated. A page or a layout the build marked `static` is composition: `render` writes the server's markup for it, mounts the islands inside and names it in `composed`. No React root holds it, so `rerender` renders the server's markup again. The spec runner calls `registerComposition` for every composition route module a spec imports and `registerLowered` for every other lowered component the browser bundle holds. Every query comes bound to the container. `act` runs its body and settles. `cleanup` ends every island in the body through `discard` and then empties it, which the runner also does after every test.
+* `act<T>(body: () => T | Promise<T>): Promise<T>`: runs `body` and settles.
+* `cleanup(): void`: discards every island in the body and empties it. The runner calls it after every test.
 
 ### load
 
-* `load(path: string, options?: { ctx?: TestCtx }): Promise<{ status: number; path: string }>`
-
-Fetches the document the stock host renders for `path`, following up to five redirects, ends the islands of the page showing until now, installs the new document, evaluates the application's entry module and its island modules again (the application's own files they import with them) as a browser does on every page, so what they wire is wired to this document and their module state starts over, mounts its islands and enables navigation. A custom element defined again replaces the earlier definition; one a package defined keeps its definition. Throws when the response is not a document.
+* `load(path: string, options?: { ctx?: TestCtx }): Promise<{ status: number; path: string }>`: loads the document the stock host renders for `path` and runs it as a browser would.
+* Follows up to five redirects.
+* Ends the islands of the current page, installs the new document, evaluates the application's entry module and island modules again, mounts its islands and enables navigation.
+* A custom element the application defines again replaces its earlier definition. One a package defined keeps its definition.
+* Throws when the response is not a document.
 
 ### Queries
 
-* Kinds: `Role`, `Text`, `LabelText`, `PlaceholderText`, `AltText`, `Title`, `DisplayValue`, `TestId`, each as `getBy`, `getAllBy`, `queryBy`, `queryAllBy`, `findBy` and `findAllBy`
+* Kinds `Role`, `Text`, `LabelText`, `PlaceholderText`, `AltText`, `Title`, `DisplayValue` and `TestId`, each as `getBy`, `getAllBy`, `queryBy`, `queryAllBy`, `findBy` and `findAllBy`.
 * `type Matcher = string | RegExp | ((content: string, element: Element | null) => boolean)`
-* `interface MatcherOptions { exact?: boolean; normalizer?: (text: string) => string; trim?: boolean; collapseWhitespace?: boolean }`; `SelectorMatcherOptions` adds `selector` and `ignore`
+* `interface MatcherOptions { exact?: boolean; normalizer?: (text: string) => string; trim?: boolean; collapseWhitespace?: boolean }`. `SelectorMatcherOptions` adds `selector` and `ignore`.
 * `interface ByRoleOptions { name?: Matcher; description?: Matcher; hidden?: boolean; level?: number; checked?: boolean; selected?: boolean; pressed?: boolean; expanded?: boolean; current?: boolean | string; busy?: boolean; queryFallbacks?: boolean }`
-* `configure(next: { testIdAttribute?: string; asyncUtilTimeout?: number })`; `class TestingLibraryElementError extends Error`
-
-`getBy` answers the one match and throws a `TestingLibraryElementError` for none or more than one; `getAllBy` answers every match and throws for none; `queryBy` answers the match or null and throws for more than one; `queryAllBy` answers every match; `findBy` and `findAllBy` are `getBy` and `getAllBy` under `waitFor`. Text is whitespace-normalised. A string must equal it; with `exact: false` it need only appear in it, in any case. `ByText` reads an element's own text nodes and ignores `script` and `style`. `ByLabelText` finds the control a label names by `for` or holds. It also finds an element whose `aria-label` or `aria-labelledby` text matches. `ByRole` matches an element's first `role` token or the role its tag implies. It leaves out what `hidden`, `aria-hidden` or an inline `display: none` hides unless `hidden` is set. `name` is read against the accessible name: `aria-labelledby`, `aria-label`, a control's labels, alt text, the content of a role that takes its name from content, then `title`. A role query that finds nothing lists every role present with its name. A second argument that is a node searches under it, the form specs used before these options.
+* `configure(next: { testIdAttribute?: string; asyncUtilTimeout?: number }): void`
+* `getBy` returns the one match and throws `TestingLibraryElementError` for none or several. `getAllBy` returns every match and throws for none. `queryBy` returns the match or `null` and throws for several. `queryAllBy` returns every match. `findBy` and `findAllBy` are `getBy` and `getAllBy` under `waitFor`.
+* Text is whitespace-normalised. A string must equal it. With `exact: false` it need only appear in it, in any case.
+* `ByText` reads an element's own text nodes and skips `script` and `style`.
+* `ByLabelText` finds the control a label names by `for` or contains. It also finds an element whose `aria-label` or `aria-labelledby` text matches.
+* `ByRole` matches an element's first `role` token or the role its tag implies. It skips what `hidden`, `aria-hidden` or an inline `display: none` hides unless `hidden` is set.
+* `name` is matched against the accessible name: `aria-labelledby`, `aria-label`, a control's labels, alt text, the content of a role named from content, then `title`.
+* A role query that finds nothing lists every role present with its name.
+* A node as the second argument searches under it.
 
 ### screen and within
 
-* `const screen: Screen`, every query over the document's body read when it runs, plus `debug(element?, maxLength?)` and `logTestingPlaygroundURL()`
+* `const screen: Screen`: every query over the document's body when it runs, plus `debug(element?, maxLength?)` and `logTestingPlaygroundURL()`.
 * `within(container: ParentNode): BoundQueries`
-* `prettyDOM(node?, maxLength = 7000): string`, `logRoles(container?)`, `getDefaultNormalizer(options?)`
+* `prettyDOM(node?: Element | Document | null, maxLength = 7000): string`, `logRoles(container?: ParentNode): void` and `getDefaultNormalizer(options?: { trim?: boolean; collapseWhitespace?: boolean }): (text: string) => string`.
 
 ### waitFor
 
-* `waitFor<T>(callback: () => T | Promise<T>, options?: { timeout?: number; interval?: number; onTimeout?: (error: Error) => Error }): Promise<T>`
-* `waitForElementToBeRemoved(target: Element | Element[] | null | (() => Element | Element[] | null), options?): Promise<void>`
-
-Retries `callback` after settling, then after moving the harness clock by `interval`, 50 by default, until `timeout` has passed on that clock, 1000 by default, so timers in the page fire while it waits. Throws the callback's last error at the timeout. `waitForElementToBeRemoved` refuses a target that is not in the document to begin with.
+* `waitFor<T>(callback: () => T | Promise<T>, options?: WaitForOptions): Promise<T>`: retries `callback` after settling, moving the harness clock by `interval` between tries, until `timeout` has passed on that clock.
+* `WaitForOptions` holds `timeout` (1000 by default), `interval` (50 by default) and `onTimeout?: (error: Error) => Error`.
+* Throws the callback's last error at the timeout.
+* `waitForElementToBeRemoved(target: Element | Element[] | null | (() => Element | Element[] | null), options?: WaitForOptions): Promise<void>`: refuses a target that is not in the document to begin with.
 
 ### fireEvent
 
-* `fireEvent(node: Element | Document | Window, event: Event): Promise<boolean>`
-* `fireEvent.<name>(node, init?: EventInit | string): Promise<boolean>` for `click`, `dblClick`, the mouse, pointer, key, focus, form, touch, drag, clipboard, wheel, scroll, load, error, animation and transition events
-* `createEvent(name: string, node, init?: EventInit): Event`; `type EventInit = Record<string, unknown> & { target?: Record<string, unknown> }`
-
-Dispatches one event and settles. `init.target` sets properties on the element first, `value` through the setter a user's typing would reach. `change` also takes the new value as a string and then dispatches `input` before `change`. `keyDown`, `keyUp` and `keyPress` take a key as a string. A click runs a browser's default action: a checkbox toggles and a radio checks before listeners see it, undone when a listener cancels and followed by `input` and `change` when none does, then a label clicks its control, a submit button submits its form and a reset button resets it. `mouseEnter` and `mouseLeave` also dispatch `mouseover` and `mouseout` and the pointer pair does likewise. `focus` and `blur` also dispatch `focusin` and `focusout`, since React listens for those. Resolves false when a listener cancelled the event.
+* `fireEvent(node: Element | Document | Window, event: Event): Promise<boolean>`: dispatches one event and settles. Resolves false when a listener cancelled it.
+* `fireEvent.<name>(node, init?: EventInit | string): Promise<boolean>` for `click`, `dblClick` and the mouse, pointer, key, focus, form, touch, drag, clipboard, wheel, scroll, load, error, animation and transition events.
+* `createEvent(name: string, node, init?: EventInit): Event`
+* `type EventInit = Record<string, unknown> & { target?: Record<string, unknown> }`: `target` properties are set on the element first, `value` through the setter typing reaches.
+* `change` also takes the new value as a string and dispatches `input` before `change`. `keyDown`, `keyUp` and `keyPress` take a key as a string.
+* A click runs the browser's default action. A checkbox toggles and a radio checks before listeners see it, undone when a listener cancels and followed by `input` and `change` when none does. A label clicks its control. A submit button submits its form and a reset button resets it.
+* `mouseEnter` and `mouseLeave` also dispatch `mouseover` and `mouseout`. The pointer pair does likewise. `focus` and `blur` also dispatch `focusin` and `focusout`.
 
 ### userEvent
 
-* `userEvent.setup(options?: { skipHover?: boolean; delay?; advanceTimers? }): UserEvent`; every `UserEvent` method is on `userEvent` itself too
-* `interface UserEvent { click; dblClick; tripleClick; hover; unhover; tab(options?: { shift?: boolean }); type(element, text, options?: { skipClick?: boolean }); keyboard(text); clear(element); selectOptions(element, values); deselectOptions(element, values); upload(element, files); paste(text) }`, each returning `Promise<void>`
-
-A user at the pointer and the keyboard. `click` hovers, presses and releases, moves focus to the nearest focusable element and clicks with the default actions `fireEvent.click` runs; a disabled control gets the pointer events and nothing else. `type` clicks the element (or focuses it with `skipClick`) and then types. `keyboard` takes key descriptors: a character is itself, `{Enter}` a key by name, `[KeyA]` a key by code, `{Shift>}` holds a key until `{/Shift}` and `{{` or `[[` a literal bracket. A character types into a focused text control through `keydown`, `keypress`, the value setter and `input`, honouring `maxlength`; Backspace deletes; Enter in a text input submits its form: through the form's submit button when it has one, directly when it has a single text field. Enter on a button or a link clicks it; Space clicks a focused button, checkbox or radio; Tab moves focus through the tabbable elements, positive `tabindex` first. `clear` empties an editable element. `selectOptions` chooses options of a `<select>` by value, text or element. On any other element it clicks the `role=option` elements named. `upload` sets an input's `files`. `setup` gives a session its own held modifier keys and hover. `delay` and `advanceTimers` are accepted and ignored.
+* `userEvent.setup(options?: UserOptions): UserEvent`: a session with its own held modifier keys and hover. Every `UserEvent` method is on `userEvent` too.
+* `UserOptions` takes `skipHover`. `delay` and `advanceTimers` are accepted and ignored.
+* `interface UserEvent { click; dblClick; tripleClick; hover; unhover; tab(options?: { shift?: boolean }); type(element, text, options?: { skipClick?: boolean }); keyboard(text); clear(element); selectOptions(element, values); deselectOptions(element, values); upload(element, files); paste(text) }`, each returning `Promise<void>`.
+* `click` hovers, presses, releases, moves focus to the nearest focusable element and clicks with the default actions of `fireEvent.click`. A disabled control gets the pointer events and nothing else.
+* `type` clicks the element (focuses it under `skipClick`) and then types.
+* `keyboard` takes key descriptors: a character is itself, `{Enter}` a key by name, `[KeyA]` a key by code, `{Shift>}` holds a key until `{/Shift}` and `{{` or `[[` a literal bracket.
+* A character types into a focused text control through `keydown`, `keypress`, the value setter and `input`, honouring `maxlength`. Backspace deletes.
+* Enter in a text input submits its form, through its submit button when it has one or directly when it has a single text field. Enter on a button or a link clicks it. Space clicks a focused button, checkbox or radio.
+* Tab moves focus through the tabbable elements, positive `tabindex` first.
+* `clear` empties an editable element.
+* `selectOptions` chooses `<select>` options by value, text or element. On another element it clicks the named `role=option` elements.
+* `upload` sets an input's `files`.
 
 ### settle and advance
 
-* `settle(): Promise<void>`
-* `advance(ms: number): Promise<void>`
-
-`settle` runs everything that happens now: microtasks, action calls, their re-renders and timers already due. `advance` moves the clock `ms` forward and settles, so timers due by then fire in order. Time never passes on its own.
+* `settle(): Promise<void>`: runs everything due now: microtasks, action calls, their re-renders and timers already due.
+* `advance(ms: number): Promise<void>`: moves the clock `ms` forward and settles. Timers due by then fire in order.
+* Time never passes on its own.
+* `show(value: unknown): string`: a value as the report prints it. `1n` and `1` stay distinct and strings are quoted.
 
 ### assert
 
-* `assert.ok(value, message?)`, `assert.equal(actual, expected, message?)`, `assert.match(actual, pattern, message?)`, `assert.throws(run, match?)`, `assert.rejects(run, match?)`
-
-The assertions specs used before `expect`, kept for code outside this repository. `equal` is deep with the bigint allowance. `match` takes a string to contain or a RegExp. `throws` and `rejects` match a string against the kind and message of what was thrown.
+* `assert.ok(value, message?)`, `assert.equal(actual, expected, message?)`, `assert.match(actual, pattern, message?)`, `assert.throws(run, match?)` and `assert.rejects(run, match?)`.
+* `equal` is deep with the bigint allowance. `match` takes a string to contain or a RegExp. `throws` and `rejects` match a string against the kind and message of what was thrown.
 
 ## 17. The Desktop Bridge
 
-What a page can ask of the process that opened its window under `fsr dev --desktop` or `fsr serve --desktop`. `@snapfire/fsr/desktop`, built to `dist/desktop.js`; `@snapfire/fsr/client` does not re-export it. A host names it in the import map when the application's bundle imports it; outside a window its calls reject. Experimental.
+`@snapfire/fsr/desktop`: what a page can ask of the window `fsr dev --desktop` or `fsr serve --desktop` opened. The host maps it when the bundle imports it.
 
 ### openFile and openExternal
 
-* `openFile(options?: OpenFileOptions): Promise<string[] | null>`: the system's open dialog. It answers the chosen absolute paths, `null` when the user cancels.
-* `openExternal(url: string): Promise<void>`: opens the link in the system's browser or mail app. Only `http:`, `https:` and `mailto:` links with something after the scheme; anything else rejects.
-* Without the `window.__sfDesktop` the window installs before the page's scripts run, both reject with `<name> runs only in an fsr --desktop window`.
-* Each call posts `{ id, method, args }` over wry's IPC channel and the window settles it with `window.__sfDesktop.settle(id, ok, value)`. A refusal rejects with an `Error` carrying the window's message.
+* `openFile(options?: OpenFileOptions): Promise<string[] | null>`: the system's open dialog. Resolves to the chosen absolute paths, `null` when the user cancels.
+* `openExternal(url: string): Promise<void>`: opens the link in the system's browser or mail app. Only `http:`, `https:` and `mailto:` links with something after the scheme. Anything else rejects.
+* Both reject with `<name> runs only in an fsr --desktop window` when `window.__sfDesktop` is absent.
+* Each call posts `{ id, method, args }` over the window's IPC channel and settles through `window.__sfDesktop.settle(id, ok, value)`. A refusal rejects with an `Error` carrying the window's message.
 
 ### FileFilter and OpenFileOptions
 
 * `interface FileFilter { name: string; extensions: string[] }`: a label and its extensions without the dot.
-* `interface OpenFileOptions { multiple?: boolean; filters?: FileFilter[] }`: `multiple` lets the user pick several files, `false` by default.
+* `interface OpenFileOptions { multiple?: boolean; filters?: FileFilter[] }`: `multiple` defaults to false.
 
 ## 18. Error Handling
 
-### AuthFailure
-
-Thrown by `signIn`, `enrol` and `answer` when the host refuses a step or a passkey step cannot run.
-
-* `extends Error`
-* `constructor(kind: string, message: string)`
-* `readonly kind: string`: `denied` or `invalid` from the host's `{ error, message }` body, `denied` for a 403 that is not JSON such as a failed CSRF check, `unsupported` when the browser has no WebAuthn and `denied` when the passkey prompt was dismissed
-* `name` is `"AuthFailure"`
-
 ### ActionFailure
 
-Thrown by an action callable when the server answers with a non-ok status.
+Thrown by an action callable and `upload` when the server answers with a non-ok status.
 
-* `extends Error`
-* `constructor(kind: string, message: string)`
-* `readonly kind: string`
-* `name` is `"ActionFailure"`
-* `message` is the server's message, the text of a body that is not the failure shape or the response's `statusText`
+* `class ActionFailure extends Error { readonly kind: string; constructor(kind: string, message: string) }`, `name` `"ActionFailure"`.
+* From a JSON body with a string `kind`: that `kind` and the body's `message`, else `statusText`.
+* From any other body: the status's own kind, `invalid` for any other 4xx and `internal` for anything else. The message is the body's text, else `statusText`, else `HTTP <status>`.
+* Each 4xx and 5xx status has a kind named after it, such as `unauthorized` (401), `forbidden` (403), `request_timeout` (408), `too_many_requests` (429) and `bad_gateway` (502). Three are not: `invalid` (400), `unavailable` (503) and `timeout` (504).
 
-The kinds the runtime emits: one per 4xx and 5xx status, `forbidden` (403), `too_many_requests` (429), `bad_gateway` (502) and the rest, with `invalid` (400), `timeout` (504) and `unavailable` (503) the three whose names are not their status's.
+### AuthFailure
+
+Thrown by `signIn`, `enrol` and `answer`.
+
+* `class AuthFailure extends Error { readonly kind: string; constructor(kind: string, message: string) }`, `name` `"AuthFailure"`.
+* `kind` is the host's `error` field: `denied` or `invalid`.
+* A non-JSON 403, such as a failed CSRF check, is `denied`. Any other non-JSON body is `invalid`.
+* `unsupported` when the browser has no WebAuthn. `denied` when the passkey prompt was dismissed.
+
+### AssertionError
+
+* `class AssertionError extends Error`, `name` `"AssertionError"`: what a failed `expect` or `assert` throws. From `@snapfire/fsr/client/testing`.
 
 ### Thrown Errors
 
@@ -1638,23 +1707,35 @@ The kinds the runtime emits: one per 4xx and 5xx status, `forbidden` (403), `too
 | --- | --- |
 | `decodeValue` | `unknown value tag: <tag>`, `unknown typed array kind: <kind>` |
 | `decodeNode` | `unknown node row kind: <kind>` |
-| `parsePayload` | `unknown payload row tag: <tag>`, `payload has no N row` |
-| `encodeValue` | a `bigint` outside the `i128` and `u128` ranges |
+| `parseRow`, `parsePayload` | `unknown payload row tag: <tag>`. `parsePayload` also throws `payload has no N row` |
+| `encodeValue` | `bigint outside the value model's integer range` |
 | `renderSegment` | `segment path walks through a non-seq node` |
-| an action callable | `ActionFailure` on any non-ok status; the fetch's own error when the request never completes |
-| `signIn`, `enrol`, `answer` | `AuthFailure` on a refused step or a passkey step the browser cannot run; the browser's own error when the passkey prompt fails |
+| an action callable, `upload` | `ActionFailure` on a non-ok status. The fetch's own error when the request never completes |
+| `signIn`, `enrol`, `answer` | `AuthFailure` on a refused step or a passkey step the browser cannot run. The browser's own error when the passkey prompt fails |
+| `foreign` component | `<module> is mounted by another framework, so it takes no React children` |
+| `useHoisted`'s `c` | a read with no markup and no `miss` |
+| `time.add`, `time.diff`, `crypto.digest` | an unknown unit, algorithm or encoding |
+| a host-only or terminal-only member in a browser | `<name> runs in a host only`, `<name> runs in a terminal page only` |
+| a `native` without `f` | `<name> runs on the server only` |
+| `loadScript` | rejects with `<src> did not load` |
+| `openFile`, `openExternal` | reject with `<name> runs only in an fsr --desktop window` or the window's message |
+| a `getBy` or `getAllBy` query | `TestingLibraryElementError` |
 
 ### Silent Degradations
 
-Not every failure surfaces as a rejection.
-
 | Situation | Behaviour |
 | --- | --- |
-| No island registered for a marker's module id | Marker left as rendered and remembered; `console.warn("sf: no island registered for <id>")` only once the document settles and it is still unregistered |
-| An entry module fails to import | `console.warn("sf: loading <src> failed", err)` and `src` is forgotten so a later payload retries |
-| A loader or mounter rejects | `console.warn("sf: mounting <id> failed", err)`, marker left as rendered |
-| A marker with no `data-sf-module` | Skipped, not marked mounted |
+| No island registered for a marker's module id | Marker left as rendered. `console.warn("sf: no island registered for <id>")` once the document settles and it is still unregistered |
+| An entry module fails to import | `console.warn("sf: loading <src> failed", err)`. `src` is forgotten so a later call retries |
+| An adapter module fails to import | `console.warn("sf: loading the adapter for <id> failed", err)` |
+| A loader or mounter rejects | `console.warn("sf: mounting <id> failed", err)`. Marker left as rendered |
+| A module reference names an unregistered file | `console.warn("sf: no module registered for <file>")`. The prop stays a reference |
+| A marker with no `data-sf-module` | Skipped |
 | Missing or empty props script | Mounted with `{}` |
-| Non-ok response from `navigate` | `window.location.assign(href)` |
-| Missing sidecar, missing `G` row, mismatched child counts or a region not found | `window.location.reload()` |
-| `refresh` finds no slot element for a resolution | That resolution is dropped, the rest proceed |
+| A server island's post fails | `console.warn("sf: island <module> step failed with <status>: <text>")`. Island left as it was |
+| A declared script fails to load | `console.error("sf: <message>")` |
+| The service worker does not register | `console.warn("fsr: the service worker did not register", error)` |
+| `navigate` gets a non-ok response, no `G` row or a payload it cannot patch | `window.location.assign(href)`, with `console.warn` naming the patch failure |
+| `refresh` has no sidecar, a non-ok response or a payload it cannot patch | `window.location.reload()` |
+| `refresh` gets no response at all | Page left as it is |
+| A streamed row fails to apply | `console.warn("sf: a streamed payload stopped applying", err)`. Later rows are not applied |

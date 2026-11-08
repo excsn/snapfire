@@ -4,13 +4,30 @@
 [![Docs.rs](https://docs.rs/snapfire_lint/badge.svg)](https://docs.rs/snapfire_lint)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-A linter that needs no Node, for development and CI, with ESLint's rules, ESLint's levels and ESLint's suppression comments. It reads TypeScript and JavaScript in every dialect with 356 rules ported from [oxlint](https://oxc.rs/docs/guide/usage/linter) with their tests: ESLint's, eslint-plugin-react's, jsx-a11y's and typescript-eslint's recommended sets on by default, eslint-plugin-unicorn, eslint-plugin-promise and eslint-plugin-jsdoc off until a configuration names them. It reads Vue components with eslint-plugin-vue's script and template rules (`vue3-essential` on by default), Svelte components with every warning Svelte's compiler gives, Markdown and MDX with `@eslint/markdown`'s rules, an MDX page's JavaScript with the script rules. Tera templates are read with tera's own parser. Levels live in `fsr.lint.toml`; it applies safe fixes, writes SARIF and translates an ESLint configuration. `fsr lint` runs it over an application with FSR's own rules added. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+A linter for TypeScript, JavaScript, Vue, Svelte, Markdown, MDX and Tera templates that needs no Node.js. It uses ESLint's rule names, ESLint's levels and ESLint's suppression comments, so an existing ESLint setup carries over.
+
+It has 356 script rules ported from [oxlint](https://oxc.rs/docs/guide/usage/linter) together with their tests.
+
+These rule sets run without any configuration:
+
+* the recommended rules of ESLint, eslint-plugin-react, jsx-a11y and typescript-eslint
+* eslint-plugin-vue's `vue3-essential` script and template rules
+* every warning Svelte's compiler gives
+* `@eslint/markdown`'s recommended rules, for Markdown and MDX
+* Tera syntax checks, using Tera's own parser
+
+The eslint-plugin-unicorn, eslint-plugin-promise and eslint-plugin-jsdoc rules are there too, off until a configuration turns them on.
+
+Levels live in `fsr.lint.toml`. The linter can apply safe fixes, write SARIF for code review and translate an ESLint configuration. `fsr lint` runs it over an FSR application with FSR's own rules added.
+
+* The task guide is [README.USAGE.md](README.USAGE.md).
+* The call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
 ```toml
 [dependencies]
-snapfire_lint = "0.1"
+snapfire_lint = "0"
 ```
 
 No features.
@@ -25,17 +42,21 @@ No features.
 | Change a rule's level or options | `[rules]` in `fsr.lint.toml` |
 | Change levels for some files | `[[overrides]]` with `files` globs |
 | Give the React or jsx-a11y rules their settings | `[settings]` in `fsr.lint.toml` |
-| Skip vendored or generated files | `ignores` in the file; `Config::ignore` from Rust |
+| Skip vendored or generated files | `ignores` in the file. `Config::ignore` from Rust |
 | Silence one finding in source | `// fsr-lint-disable-next-line <rule> -- reason` or ESLint's comment |
 | Lint Vue and Svelte templates | `Linter::with_compilers(Box::new(Plugins::default()))` |
-| Apply the safe fixes | `fsr lint --fix`; `Linter::fix_dir` from Rust |
-| Fail CI on warnings too | `fsr lint --deny-warnings`; `Report::failed(true)` from Rust |
-| Annotate a pull request | `fsr lint --sarif`; `Report::to_sarif` from Rust |
-| Feed findings to another tool | `fsr lint --json`; `Report::to_json` from Rust |
-| Bring an ESLint configuration over | `fsr migrate`; `eslint::translate_eslintrc` or `eslint::translate_flat` from Rust |
+| Apply the safe fixes | `fsr lint --fix`. From Rust, `Linter::fix_dir` |
+| Fail CI on warnings too | `fsr lint --deny-warnings`. From Rust, `Report::failed(true)` |
+| Annotate a pull request | `fsr lint --sarif`. From Rust, `Report::to_sarif` |
+| Feed findings to another tool | `fsr lint --json`. From Rust, `Report::to_json` |
+| Bring an ESLint configuration over | `fsr migrate`. From Rust, `eslint::translate_eslintrc` or `eslint::translate_flat` |
 | Add a rule of your own | `Check` with `Linter::new_with` |
-| List every rule and its default | `fsr lint --rules`; `rules()` from Rust |
+| List every rule and its default | `fsr lint --rules`. From Rust, `rules()` |
 
 ## License
 
-This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the `LICENSE` file for the full license text. The JavaScript and TypeScript rules, the rule framework under `src/js` and the `<script>` loader are derived from oxlint, Copyright (c) 2024-present VoidZero Inc. & Contributors, under the MIT License in `LICENSE-oxc`; each derived file says so at its top. The templates under `tests/tera_inputs` are tera's own, Copyright (c) 2025 Vincent Prouillet, under the MIT License in `tests/tera_inputs/LICENSE`.
+This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the [LICENSE](LICENSE) file for the full license text.
+
+The JavaScript and TypeScript rules, the rule framework under `src/js` and the `<script>` loader are derived from oxlint, Copyright (c) 2024-present VoidZero Inc. & Contributors, under the MIT License in [LICENSE-oxc](LICENSE-oxc). Each derived file says so at its top.
+
+The templates under `tests/tera_inputs` are Tera's own, Copyright (c) 2025 Vincent Prouillet, under the MIT License in `tests/tera_inputs/LICENSE`.

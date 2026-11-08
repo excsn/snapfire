@@ -98,10 +98,8 @@ impl Compiler {
     self.run(Kind::Compile, filename, source, options)
   }
 
-  /// One component's scripts for a host that follows their imports. The
-  /// plugin does not describe a template yet, so the answer is always
-  /// `Described` with no template and one `Error` diagnostic saying so, or
-  /// `Failed` when the component does not parse.
+  /// One component's template and scripts, as `Described`, or `Failed` when
+  /// the component does not parse.
   pub fn describe(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, SvelteError> {
     self.run(Kind::Describe, filename, source, options)
   }

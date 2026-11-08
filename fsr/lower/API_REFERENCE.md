@@ -1,409 +1,1272 @@
 # API Reference: snapfire_fsr_lower
 
-The recogniser that lowers a TypeScript loader or actions module to the IR.
+Turns the TypeScript an FSR application runs on the server into the IR trees `snapfire_fsr_ir` runs. It names the line where a file stops being translatable.
 
 ## Contents
 
-* [1. Lowering](#1-lowering)
+* [1. Lowering Functions](#1-lowering-functions)
   * [lower_loader](#lower_loader)
   * [lower_actions](#lower_actions)
+  * [lower_handlers](#lower_handlers)
+  * [lower_middleware](#lower_middleware)
   * [lower_theme](#lower_theme)
-  * [lower_loader_with, lower_actions_with and lower_meta_with](#lower_loader_with-lower_actions_with-and-lower_meta_with)
+  * [lower_meta_with](#lower_meta_with)
+  * [lower_store_with](#lower_store_with)
+  * [lower_defaults_with](#lower_defaults_with)
+  * [lower_paths_with](#lower_paths_with)
   * [SessionDefaults](#sessiondefaults)
   * [LoweredAction](#loweredaction)
+  * [LoweredHandler](#loweredhandler)
+  * [mdx_component_map](#mdx_component_map)
+  * [MappedValue](#mappedvalue)
+  * [declares_unexported](#declares_unexported)
+  * [resolve_specifier](#resolve_specifier)
+  * [Origin](#origin)
+  * [OriginSegment](#originsegment)
+  * [Crate Constants](#crate-constants)
+* [2. Schemas](#2-schemas)
   * [read_schema](#read_schema)
   * [read_session_defaults](#read_session_defaults)
+  * [builtin_types](#builtin_types)
   * [SchemaType](#schematype)
+* [3. Component Sets](#3-component-sets)
   * [ComponentSet](#componentset)
-  * [assets](#assets)
-  * [The Vue Front End](#the-vue-front-end)
-  * [The Svelte Front End](#the-svelte-front-end)
-  * [Transformed Files](#transformed-files)
-  * [ALIASES, the Standard Library's Sides and EXT_DIR](#aliases-the-standard-librarys-sides-and-ext_dir)
-* [2. The Recognised Language](#2-the-recognised-language)
+  * [HeadRow](#headrow)
+  * [LoweredDerive](#loweredderive)
+  * [ThemeExport](#themeexport)
+  * [ImageExports](#imageexports)
+  * [Extracted](#extracted)
+  * [ForeignImport](#foreignimport)
+  * [Transform](#transform)
+  * [Transformed](#transformed)
+  * [Override](#override)
+  * [Component Module Items](#component-module-items)
+* [4. Assets](#4-assets)
+  * [AssetResolver](#assetresolver)
+  * [ImageRequest](#imagerequest)
+  * [ImageFacts](#imagefacts)
+  * [NoAssets](#noassets)
+  * [Kind](#kind)
+  * [Asset Functions and Constants](#asset-functions-and-constants)
+* [5. Vue Descriptions](#5-vue-descriptions)
+  * [vue::Template](#vuetemplate)
+  * [vue::Node](#vuenode)
+  * [vue::Prop](#vueprop)
+  * [vue::props_declaration](#vueprops_declaration)
+  * [Vue Constants](#vue-constants)
+* [6. Svelte Descriptions](#6-svelte-descriptions)
+  * [svelte::Template](#sveltetemplate)
+  * [svelte::Fragment](#sveltefragment)
+  * [svelte::Node](#sveltenode)
+  * [svelte::Attr, AttrValue and Part](#svelteattr-attrvalue-and-part)
+  * [svelte::Code, Declarator and SlotGroup](#sveltecode-declarator-and-slotgroup)
+  * [Svelte Constants](#svelte-constants)
+* [7. Hoisting](#7-hoisting)
+  * [hoist::Rewrite](#hoistrewrite)
+  * [hoist::ChunkSite](#hoistchunksite)
+  * [hoist::Hook](#hoisthook)
+  * [hoist::StatementLoop](#hoiststatementloop)
+  * [hoist::Chunk](#hoistchunk)
+  * [hoist::Candidates](#hoistcandidates)
+  * [Hoist Functions](#hoist-functions)
+  * [Hoist Constants](#hoist-constants)
+* [8. Meanings and Sides](#8-meanings-and-sides)
+  * [meaning::Side](#meaningside)
+  * [meaning::ImportBinding](#meaningimportbinding)
+  * [Meaning Functions](#meaning-functions)
+  * [Meaning Constants](#meaning-constants)
+* [9. Terminal Pages](#9-terminal-pages)
+  * [Terminal Constants](#terminal-constants)
+  * [terminal::primitive_ref](#terminalprimitive_ref)
+* [10. Route Extraction](#10-route-extraction)
+  * [extract::Extraction](#extractextraction)
+  * [extract::Kept](#extractkept)
+* [11. The Recognised Language](#11-the-recognised-language)
   * [Modules](#modules)
+  * [Names and Bindings](#names-and-bindings)
+  * [FSR Components](#fsr-components)
   * [Statements](#statements)
   * [Component Bodies](#component-bodies)
+  * [Markup Values](#markup-values)
   * [Expressions](#expressions)
+  * [Builtins](#builtins)
+  * [Dates, Encoding and Intl](#dates-encoding-and-intl)
+  * [Collections and Kinds](#collections-and-kinds)
   * [Extensions](#extensions)
-  * [Hoisting](#hoisting)
+  * [Hoisted Calls and Subtrees](#hoisted-calls-and-subtrees)
+  * [Function Props](#function-props)
   * [Handlers](#handlers)
+  * [Terminal Pages](#terminal-pages)
   * [Lambdas](#lambdas)
-  * [Schemas](#schemas)
-* [3. Test Files](#3-test-files)
+  * [Vue Files](#vue-files)
+  * [Svelte Files](#svelte-files)
+  * [Transformed Files](#transformed-files)
+  * [Schema Types](#schema-types)
+* [12. Test Files](#12-test-files)
   * [lower_tests](#lower_tests)
-  * [TestFile and Block](#testfile-and-block)
-  * [TestCase and Mode](#testcase-and-mode)
+  * [TestFile](#testfile)
+  * [Block](#block)
+  * [TestCase](#testcase)
+  * [Mode](#mode)
+  * [Each](#each)
   * [Step](#step)
-  * [Assertion and Subject](#assertion-and-subject)
-  * [Matcher and Pattern](#matcher-and-pattern)
-  * [Mock, Answer and Binding](#mock-answer-and-binding)
+  * [Assertion](#assertion)
+  * [Subject](#subject)
+  * [Matcher](#matcher)
+  * [Pattern](#pattern)
+  * [Mock](#mock)
+  * [Answer](#answer)
+  * [Binding](#binding)
   * [Target](#target)
-* [4. Error Handling](#4-error-handling)
+* [13. Error Handling](#13-error-handling)
   * [LowerError](#lowererror)
   * [Residue](#residue)
+  * [Placement](#placement)
 
-## 1. Lowering
+## 1. Lowering Functions
+
+`file` is the path relative to the app. It is used in diagnostics and to resolve imports. Each free function lowers through a `ComponentSet` with `source` provided under `file`.
 
 ### lower_loader
 
-* `pub fn lower_loader(file: &str, source: &str) -> Result<Body, LowerError>`
-* `file` is used in diagnostics only. The module must export `load` as a function declaration or an arrow with a block body.
+* `pub fn lower_loader(file: &str, source: &str) -> Result<Body, LowerError>`: the exported `load` of a loader module.
+* `pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError>`: as `lower_loader`, with every read of a session key that has a default lowered to `Coalesce(Session(key), default)`.
+* `load` is a function declaration or an arrow with a block body.
 
 ### lower_actions
 
-* `pub fn lower_actions(file: &str, source: &str) -> Result<Vec<LoweredAction>, LowerError>`
-* Lowers every `export const <name> = action(<function>)` or `action<T>(<function>)` in file order; other exports are skipped. The function is an arrow with a block body, a function expression or an arrow with an expression body, which lowers to a `Return` of the expression. An `action(...)` of anything else is a `Residue` naming the export. The first `Residue` in any action fails the whole call.
+* `pub fn lower_actions(file: &str, source: &str) -> Result<Vec<LoweredAction>, LowerError>`: every `export const <name> = action(<function>)` or `action<T>(<function>)`, in file order.
+* `pub fn lower_actions_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredAction>, LowerError>`: as `lower_actions`, with session defaults.
+* The function is an arrow with a block body, an arrow with an expression body or a function expression. An expression body lowers to a `Return` of the expression.
+* A type or a plain value export is skipped. An `action(...)` of anything but a function is a `Residue` naming the export.
+* The first `Residue` in any action fails the whole call.
+
+### lower_handlers
+
+* `pub fn lower_handlers(file: &str, source: &str) -> Result<Vec<LoweredHandler>, LowerError>`: every export of a `route.ts` named in `HANDLER_METHODS`, in file order.
+* `pub fn lower_handlers_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredHandler>, LowerError>`: as `lower_handlers`, with session defaults.
+* A method exported as a plain function reads the request body as `input` unchecked. One exported as `action<T>(...)` has `input` checked against `T`.
+* A method export that is neither a function nor an `action(...)` is a `Residue`.
+
+### lower_middleware
+
+* `pub fn lower_middleware(file: &str, source: &str) -> Result<Body, LowerError>`: the exported `middleware` of `middleware.ts`.
+* `pub fn lower_middleware_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError>`: as `lower_middleware`, with session defaults.
+* The input is the request line as `request`, with `method` and `path`.
+* The body returns nothing to continue. To act it returns a map naming `redirect`, `rewrite`, `status`, `body` or `headers`.
 
 ### lower_theme
 
-* `pub fn lower_theme(file: &str, source: &str) -> Result<Body, LowerError>`
-* The module must export `theme` as a function. `ctx.theme`, the route's own theme as `{ name, forced }`, lowers to `Expr::Input`; the rest of the context binds the way a loader's does. No `theme` export is `LowerError::MissingExport`.
+* `pub fn lower_theme(file: &str, source: &str) -> Result<Body, LowerError>`: the exported `theme` function.
+* `ctx.theme`, the route's own theme as `{ name, forced }`, lowers to `Expr::Input`. The rest of the context binds as a loader's does.
+* No `theme` export is `LowerError::MissingExport`. There is no `_with` form.
 
-### lower_loader_with, lower_actions_with and lower_meta_with
+### lower_meta_with
 
-* `pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError>`
-* `pub fn lower_actions_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredAction>, LowerError>`
-* As `lower_loader` and `lower_actions`, with every read of a session key that has a default lowered to `Coalesce(Session(key), default)`.
-* `pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `meta`, an object literal or a function of `{ data }` whose `data` lowers to `Expr::Input`, as a block body or an arrow whose expression body becomes its `Return`. `None` when the module exports no `meta`; a `meta` that is not a function is a `Residue`.
-* `pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `store`, the same shape as `meta`.
-* `pub fn lower_paths_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `paths`, a function of the context or of nothing, returning the parameter sets a route prerenders. The context binds the way a loader's does, so `data` is not a name here. `None` when the module exports no `paths`; a `paths` that is not a function is a `Residue`. What the body may read is the app's check, not the lowerer's.
+* `pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the loader module's exported `meta`, returning the document's `title` and `description`.
+* `meta` is an object literal or a function of `{ data }`, with `data` the loader's result as `Expr::Input`.
+* The function is a block body or an arrow whose expression body becomes its `Return`.
+* `None` when the module exports no `meta`. A `meta` that is not a function or an object literal is a `Residue`.
+
+### lower_store_with
+
+* `pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the loader module's exported `store`, a function of `{ data }` returning the store keys the route seeds.
+* Same shape as `meta`. `None` when the module exports no `store`.
+
+### lower_defaults_with
+
+* `pub fn lower_defaults_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the loader module's exported `defaults`, a function of `{ data }` returning store keys the route seeds as defaults.
+* A value an island wrote in the browser outranks a seeded default. `None` when the module exports no `defaults`.
+
+### lower_paths_with
+
+* `pub fn lower_paths_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the page loader's exported `paths`, returning one parameter object per path the route prerenders.
+* `paths` is a function of the context or of nothing. The context binds as a loader's does and `data` is not bound.
+* `None` when the module exports no `paths`. A `paths` that is not a function is a `Residue`.
 
 ### SessionDefaults
 
-* `pub type SessionDefaults = Vec<(String, Expr)>`, one literal expression per session key.
+* `pub type SessionDefaults = Vec<(String, Expr)>`: one literal expression per session key, from `export const defaults` in the session schema.
 
 ### LoweredAction
 
-* `pub struct LoweredAction { pub export: String, pub input: Option<String>, pub body: Body }`
-* `input` is the identifier of the first type argument when it is a plain type reference, otherwise `None`.
+* `pub struct LoweredAction { pub export: String, pub input: Option<String>, pub body: Body }`. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
+* `input` is the type named by the parameter's `ActionCtx<T>` annotation or by `action<T>(...)`, when `T` is a plain type reference. Otherwise `None`.
+
+### LoweredHandler
+
+* `pub struct LoweredHandler { pub method: String, pub input: Option<String>, pub body: Body }`. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
+* `method` is one of `HANDLER_METHODS`. `input` is `T` when the export is an `action<T>`.
+
+### mdx_component_map
+
+* `pub fn mdx_component_map(file: &str, source: &str) -> Result<Vec<(String, MappedValue)>, LowerError>`: the keys of the object `useMDXComponents` returns in `mdx-components.tsx`, in order.
+* A spread of the components it is given is left out.
+* A missing `useMDXComponents` function is a `Residue`. So is one returning anything but an object literal.
+
+### MappedValue
+
+* `pub enum MappedValue { Name(String), Expr(Range<usize>) }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
+* `Name` is a component by its name in the file. `Expr` is any other expression by its byte range in `source`.
+
+### declares_unexported
+
+* `pub fn declares_unexported(file: &str, source: &str, name: &str) -> bool`: whether `source` declares `name` at module level without exporting it. False when `source` does not parse.
+
+### resolve_specifier
+
+* `pub fn resolve_specifier(from: &str, specifier: &str) -> Option<String>`: `specifier` as a path relative to the app, with an alias in `GENERATED` or `ALIASES` expanded or a relative specifier joined to `from`'s directory.
+* `None` for a bare specifier.
+
+### Origin
+
+Where a module written from a file in another language came from.
+
+* `pub struct Origin { pub source: String, pub segments: Vec<OriginSegment> }`. `Debug`, `Clone`, `#[non_exhaustive]`.
+* `Origin::new(source: String, segments: Vec<OriginSegment>) -> Origin`
+* `position(&self, offset: usize) -> (usize, usize)`: the one-based line and column in `source` of byte `offset` of the module.
+* Every residue, parse error and placement position in such a module is reported through it.
+
+### OriginSegment
+
+* `pub struct OriginSegment { pub generated: usize, pub len: usize, pub original: usize, pub verbatim: bool }`. `Debug`, `Clone`, `Copy`, `#[non_exhaustive]`.
+* `OriginSegment::new(generated: usize, len: usize, original: usize, verbatim: bool) -> OriginSegment`
+* A run of `len` bytes from `generated`. A verbatim run maps byte for byte from `original`. Any other run maps whole to `original`.
+
+### Crate Constants
+
+* `pub const ALIASES: &[(&str, &str)]`: `@app/`, `@routes/`, `@src/`, `@schemas/`, `@generated/` and `@ext/`, each with the app directory it stands for (`""`, `routes/`, `src/`, `schemas/`, `generated/`, `ext/`).
+* `pub const GENERATED: &[(&str, &str)]`: `("@snapfire/fsr/head", "generated/head")`, the exact specifiers mapped to a generated module.
+* `pub const HEAD_MODULE: &str = "generated/head.ts"`: a module under `generated/` a body may call into.
+* `pub const CONTENT_MODULE: &str = "generated/content.ts"`: the module `fsr` writes from `[mdx.collections]`, the other module under `generated/` a body may read.
+* `pub const STORE_SPECIFIER: &str = "@snapfire/fsr/client/store"`: where `key` comes from.
+* `pub const EXT_DIR: &str = "ext"`: the directory under the app whose modules are extensions.
+* `pub const HANDLER_METHODS: [&str; 5]`: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`.
+* `pub const TERMINAL_COLUMNS: &str = "$terminal.columns"` and `pub const TERMINAL_ROWS: &str = "$terminal.rows"`: the store keys a terminal sets to its size.
+* `pub const TERMINAL_FOCUS: &str = "$terminal.focus"`: the store key a terminal sets to the focused id. Null when nothing has focus.
+* `pub const TERMINAL_METRICS: &str = "$terminal.metrics"`: the store key a terminal sets to each measured box, by ref id.
+* `pub const REF_ID: &str = "$id"`: the field a terminal `useRef` holds its id in beside `current`.
+* `COMPONENTS_MODULE` and `TEMPLATE_MODULE` are re-exported from `meaning`.
+
+## 2. Schemas
 
 ### read_schema
 
-* `pub fn read_schema(file: &str, source: &str) -> Result<Vec<SchemaType>, LowerError>`
-* Reads every `export interface` and `export type X = "a" | "b"` in file order; non-exported declarations and everything else are skipped.
+* `pub fn read_schema(file: &str, source: &str) -> Result<Vec<SchemaType>, LowerError>`: every `export interface` and `export type X = "a" | "b"`, in file order.
+* Declarations that are not exported and every other statement are skipped.
 
 ### read_session_defaults
 
-* `pub fn read_session_defaults(file: &str, source: &str) -> Result<SessionDefaults, LowerError>`
-* Reads `export const defaults = { key: literal, ... }`; each value is lowered as an expression with no context, so anything beyond literals, object and array literals is residue. Empty when the module declares no `defaults`.
+* `pub fn read_session_defaults(file: &str, source: &str) -> Result<SessionDefaults, LowerError>`: `export const defaults = { key: literal, ... }`, one entry per key.
+* Each value lowers as an expression with no context. Anything beyond literals and object and array literals is a `Residue`.
+* Empty when the module declares no `defaults`.
+
+### builtin_types
+
+* `pub fn builtin_types() -> Vec<SchemaType>`: what every contract holds before a schema is read.
+* One record, `UPLOAD` (`pub const UPLOAD: &str = "Upload"`), with `filename` and `content_type` as `Str`, `size` as `I64` and `bytes` as `Bytes`.
+* The host builds one `Upload` per file part of a `multipart/form-data` body. An application declaring its own `Upload` is refused.
 
 ### SchemaType
 
 * `pub struct SchemaType { pub name: String, pub def: TypeDef }`, with `TypeDef` from `snapfire_fsr_service`.
 
+## 3. Component Sets
+
 ### ComponentSet
 
-The cursor over one application: parsed files, lowered components and the resolution that follows imports. `component::ComponentSet`.
+The parsed files, lowered components and import resolution of one application. `component::ComponentSet`, `#[non_exhaustive]`.
 
-* `ComponentSet::new(app: &Path) -> ComponentSet`; `with_defaults(self, defaults: SessionDefaults) -> ComponentSet`: the session defaults every body lowers with; `with_assets(self, resolver: Rc<dyn AssetResolver>, rewrite_images: bool) -> ComponentSet`: where an imported image, font or media file is looked up and whether a plain `<img>` of one is rewritten, `NoAssets` and `true` by default.
-* `heads: HashMap<String, Vec<HeadRow>>`: the head rows each lowered module asks for, its own and those of every component it places, by module id; `pub struct HeadRow { pub tag: String, pub attrs: Vec<(String, String)> }`. A priority `Picture` of an imported image asks for one `link rel="preload" as="image"` row with its first format's `srcset` and its `sizes`.
-* `lower(&mut self, module: &str) -> Result<(), LowerError>`: lowers `path#export` and everything it renders into `components`; a module already lowered is not read again. A module met while it is still being lowered is a component that renders itself, directly or through others. It lowers to a `Tmpl::Component` naming it, which the renderer calls by id. Once the outermost call returns, every entry of `pure` is brought to what the whole graph says: a component on a cycle is pure when every component on the cycle is. A TSX component's `owner` is `Owner::React` when it has state, handlers, an element whose handler did not lower or a context provider. It is `Owner::Fsr` otherwise, whatever it renders inline. A component it renders that does not lower does not fail it: the placement is recorded in `browser_only` and the renderer places that component as an island.
-* `lower_loader(&mut self, file: &str) -> Result<Body, LowerError>`, `lower_meta`, `lower_store` and `lower_paths` (`Result<Option<Body>, LowerError>`), `store_reads(&mut self, file: &str) -> Vec<String>`, the keys a module that does not lower passes to `useStore` as a literal or a `key()` followed through an import, empty when one of them is neither, `lower_actions` (`Result<Vec<LoweredAction>, LowerError>`), `lower_handlers` (`Result<Vec<LoweredHandler>, LowerError>`) `lower_middleware` and `lower_theme` (`Result<Body, LowerError>`): the body lowerers over a file under the app, each following the module-level names the body calls through the same resolution a component uses, so a loader calls the helper a component calls. A name that cannot be followed is the residue the free functions give.
-* `lower_images(&mut self, file: &str) -> Result<Option<Body>, LowerError>`: a card image module's `images` export, else its `generateImageMetadata`, a function of the context as `paths` is; `None` when it has neither.
-* `theme_export(&mut self, file: &str) -> Result<Option<ThemeExport>, LowerError>`: a layout's or a page's `export const theme`, `pub struct ThemeExport { pub name: String, pub force: bool }`, `#[non_exhaustive]`, built with `ThemeExport::new(name: String, force: bool) -> Self`. A string or a template with no expression is a name; `{ name, force }` with a literal boolean forces it. `as`, `satisfies` and parentheses are looked through. `None` when the module exports no `theme`; anything else is a `Residue`.
-* `image_exports(&mut self, file: &str) -> Result<ImageExports, LowerError>`: a card image module's literal exports, `pub struct ImageExports { pub width: Option<u32>, pub height: Option<u32>, pub alt: Option<String>, pub content_type: Option<String> }`. `size` is `{ width, height }` with whole positive numbers, `alt` and `contentType` strings or templates with no expression; `as`, `satisfies` and parentheses are looked through. A non-literal one is a `Residue`.
-* `lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError>`: lowers every export of a module under `ext/`, `(file#export, kind)` with the kind `lowered`, `native render` or `native body`; an export that does not lower is `LowerError::Extension`.
-* `lower_derives(&mut self, file: &str) -> Result<Vec<LoweredDerive>, LowerError>`: every call in `file` of the store's `derive`, recognised by what it means under any spelling. The key and each source are a literal or a `key()` followed through an import. One that is neither fails with `LowerError::Residue`. A call that is a statement at module level lowers its compute, an arrow or a function with at most one parameter. A call of that parameter is `Expr::Store` of its argument. The compute lowers under the render-path rules, since the browser runs it too. A call inside a function has no body and carries where it is and why, as does one whose compute does not lower.
-* `pub struct LoweredDerive { pub key: String, pub sources: Vec<String>, pub body: Option<Expr>, pub at: Option<String>, pub why: Option<String> }`: `at` is the call's `file:line:column`, set with `why` when `body` is `None`.
-* `natives: Vec<(String, Reach)>`: every native pair declared so far, `module.member` and reach. `remaining: Vec<(String, String)>`: per lowered module, `file:line:column` of each render-path call candidate that was not hoisted and sits under no hoisted call, which the browser still makes.
-* `lower_route(&mut self, module: &str) -> Result<Option<Extracted>, LowerError>`: `lower` for a route module. When the residue that stopped it sits in the module's own body, the statement or element holding it moves into an island beside the page and the page lowers again; `Ok(Some(_))` names the split. The residue is then the island's, which only the browser renders. Any other error is returned as `lower` gives it.
-* `extract_route(&mut self, module: &str) -> Result<Option<Extracted>, String>`: splits a page or a layout whose default export holds state, handlers or effects into composition and an island beside it, before it is lowered. The island is the smallest JSX subtree holding every use of them outside a callback, the whole returned tree when an early return chooses between trees; the hooks, handlers and functions they need move with it and every value it reads from the page becomes a prop. Afterwards the set reads both files from what the split wrote. `Ok(None)` when nothing needs moving. `Err` names why the module cannot be split, which is when its state reaches one of the layout's slot props; the module then stays a root.
-* `pub struct Extracted { pub island: String, pub file: String, pub source: String, pub page: (String, String), pub holds: Vec<String> }`: the island's module id, `<page stem>.island0.tsx#default`, its file and source, the page's file and its source as composition and the names the island took from the page's body. Neither source is written to the app; the build puts both in the bundle overlay.
-* `browser_only: Vec<(String, Residue)>`: components that did not lower, each with the residue that stopped it, placed by a component that did. The build places each as a React island, since FSR is no JSX framework.
-* A function passed as a prop to a component that renders in the browser, a render prop among them, reaches it as a module reference: the placement gets a `render::FUNCTIONS_PROP` object, `$f`, naming for each such prop the module id `file#export` the browser imports it from, while the server keeps the function value for its own render of the island. An arrow or a `function` written in place that reads nothing of the component, only its own names, module-level bindings and globals, is hoisted into an export of its file named `__sfF<byte offset>`; a function the file declares is named by its own export, which the rewrite adds when the file does not export it; an imported function is named by the file and export it comes from; a conditional between two is an expression choosing between their ids. A function the server cannot lower is a `render::BROWSER_HANDLER` value with its reference, so a component calling it only in an effect or a handler lowers. One that reads a prop, a local or a function of the component is residue naming the placement, the prop and what it reads; so is a function held in a local. `ComponentSet::function_modules(&self) -> Vec<String>` is every file the browser imports such a function from, which the build adds to the bundle's roots and registers in the island registry with `registerModule`; a module id carries no site prefix, so two sites of one shell with the same file path share a registration.
-* `mounted: Vec<String>`: components in a plugin's language that an `Owner::React` component renders inline, as `file#export`. Each lowers to the empty `<sf-s data-sf-island>` the React adapter's `Mount` fills, which the build registers as an island. Given children, one is `LowerError::ForeignChildren`. In an `Owner::Fsr` component one stays a residue that says to place it inside `<Island>`.
-* `foreign_imports(&mut self, file: &str) -> Vec<ForeignImport>`: the value imports in `file` of components in a plugin's language, a `.vue` file among them, leaving out namespace imports; none when `file` does not parse. `pub struct ForeignImport { pub text: String, pub bindings: Vec<(String, String)> }`: the declaration as written and each binding as the local name and the module id.
-* `components`, `layouts`, `slots`, `rewrites`, `pure` and `rewritten` as the hoisting section says.
-* `settle_fills(&mut self)`: run once every component is lowered; turns each `render::SLOT_READ_PREFIX` read of a prop that no placement in the set fills back into a plain `Tmpl::Expr`, so a component nobody passes markup to renders as it would without them.
-* `foreign: Vec<String>`: components in a language the build does not read, as `file#export`, placed as islands the server writes empty. `describe(&mut self, file, described: snapfire_compiler_wire::Described)`: what the framework's plugin said `file` is, so a placement of it lowers through that framework's front end instead of staying foreign; `undescribed(&mut self, file, why)`: the plugin refused to describe `file`, so a placement of it is foreign with `why` as its residue; `is_described(&self, module) -> bool`. `foreign_residue: Vec<(String, Residue)>`: each described component that did not lower, with why, so the report can say so. A placement of a described file that does not lower never fails the page: the component is foreign and the page lowers on.
+Construction:
 
-### assets
+* `ComponentSet::new(app: &Path) -> ComponentSet`
+* `with_defaults(self, defaults: SessionDefaults) -> ComponentSet`: the session defaults every body lowers with.
+* `with_assets(self, resolver: Rc<dyn AssetResolver>, rewrite_images: bool) -> ComponentSet`: where an imported image, font or media file is looked up and whether a plain `<img>` of one is rewritten. Default `NoAssets` and `true`.
+* `with_transform(self, transform: Rc<Transform>) -> ComponentSet`: what writes the module for an `.mdx` or `.md` file.
+* `with_elements(self, elements: HashMap<String, String>) -> ComponentSet`: the custom elements whose shadow template the build lowers, by tag.
+* `for_terminal(self) -> ComponentSet`: lowers for `fsr dev --terminal`. A render may read the clock and the `Terminal`, `Later` and `Process` reaches are allowed.
+* `provide(self, file: impl Into<String>, source: impl Into<String>) -> ComponentSet`: a module the set reads from `source` rather than from disk.
 
-Where the lowerer looks an imported image, font or media file up, `assets::AssetResolver`. The build answers from the files; the lowerer writes what it is told.
+Plugin descriptions:
 
-* `pub trait AssetResolver { fn image(&self, path: &str, request: &ImageRequest) -> Option<ImageFacts>; fn font(&self, path: &str) -> Option<String>; fn media(&self, path: &str) -> Option<String> { None }; fn embed_still(&self, provider: &str, id: &str) -> Option<ImageFacts> { youtube_still(provider, id) }; fn source(&self, name: &str) -> Option<String>; fn widths(&self) -> Vec<u32> }`: `path` relative to the app and normalised; `image` records the request's override for the build; `font` and `media` are the served URL, `media` answering `None` unless the resolver overrides it; `embed_still` the still an `Embed` shows, YouTube's own by default (`assets::youtube_still`) and whatever the build answers for `[media] embed_stills`; `source` is a named remote source's template; `widths` the policy's, for a remote image whose own width is unknown.
-* `pub struct ImageRequest { pub widths: Option<Vec<u32>>, pub quality: Option<BTreeMap<String, u8>> }`, a per-image override.
-* `pub struct ImageFacts { pub src: String, pub width: u32, pub height: u32, pub sources: Vec<(String, String)> }`, `#[non_exhaustive]`, built with `ImageFacts::new(src: String, width: u32, height: u32, sources: Vec<(String, String)>) -> Self`: the hashed original's URL, its size and `(mime, srcset)` per format, empty for an image served as it is.
-* `pub struct NoAssets`: knows nothing, so an asset import stays unbound.
-* `assets::EMBED_PLAYERS: [(&str, &str, &str); 2]`: the player each provider serves, as the provider, the URL before the id and the URL after it. `assets::embed_provider(url: &str) -> Option<&'static str>` names the provider whose player `url` starts with.
-* `assets::YOUTUBE_STILL: (&str, &str, u32, u32)`: YouTube's still as the URL before the id, the URL after it, the width and the height. `assets::youtube_still(provider, id)` writes it for an id. An `Embed` whose `id` is computed renders it as a template.
-* `assets::kind(specifier: &str) -> Option<Kind>`, `Kind::Image` for `png`, `jpg`, `jpeg`, `gif`, `webp`, `avif`, `svg`, `ico` and `bmp`, `Kind::Font` for `woff2`, `woff`, `ttf` and `otf`, `Kind::Media` for `mp4`, `m4v`, `webm`, `ogv`, `mov`, `mp3`, `m4a`, `aac`, `oga`, `ogg`, `opus`, `wav` and `vtt`; `assets::default_sizes(width: u32) -> String`, `(max-width: {width}px) 100vw, {width}px`.
-* `component::RAW_ESCAPE: &str`, `data-sf-raw`, the attribute that keeps an `<img>` out of the rewrite; stripped from the markup.
+* `describe(&mut self, file: impl Into<String>, described: Described)`: what the framework's plugin said `file` is. A placement of it then lowers through that framework's front end.
+* `described(&self) -> impl Iterator<Item = (&str, &Described)>`: every file the plugin described.
+* `undescribed(&mut self, file: impl Into<String>, why: impl Into<String>)`: the plugin refused to describe `file`. A placement of it is foreign with `why` as its residue.
+* `script_only(&mut self, file: impl Into<String>, script: snapfire_compiler_wire::Script)`: the script of a file the plugin would not describe, read only for its imports.
+* `is_described(&self, module: &str) -> bool`
 
-### The Vue Front End
+Components:
 
-`vue::VueLowerer` reads a `.vue` file the plugin described and builds the same `Component` a `.tsx` module builds, with `owner` `Owner::Vue` and no hoisting. `ComponentSet::lower` takes this path for a described `.vue` module; the export must be `default`.
+* `lower(&mut self, module: &str) -> Result<(), LowerError>`: lowers `path#export` and everything it renders into `components`. A module already lowered is not read again.
+* A module met while it is still being lowered renders itself. It lowers to a `Tmpl::Component` naming it.
+* When the outermost `lower` returns, a component on a cycle is pure when every component on the cycle is.
+* A TSX component's `owner` is `Owner::React` when it has state, handlers, an element whose handler did not lower or a context provider. Otherwise it is `Owner::Fsr`.
+* A component it renders that does not lower is recorded in `browser_only` and does not fail it.
+* `lower_route(&mut self, module: &str) -> Result<Option<Extracted>, LowerError>`: `lower` for a route module. When the residue sits in the module's own body, the statement or element holding it moves into an island beside the page and the page lowers again. `Ok(Some(_))` names the split. Any other error is returned as `lower` gives it.
+* `extract_route(&mut self, module: &str) -> Result<Option<Extracted>, String>`: splits a page or a layout whose default export holds state, handlers or effects into composition and an island beside it, before lowering. `Ok(None)` when nothing needs moving. `Err` names why the module cannot be split.
+* The island is the smallest JSX subtree holding every use of the state, handlers and effects outside a callback. It is the whole returned tree when an early return chooses between trees.
+* The hooks, handlers and functions the island needs move with it. Every value it reads from the page becomes a prop.
+* After a split, the set reads both files from what the split wrote.
+* A module cannot be split when its state reaches one of the layout's slot props. It stays a root.
+* `settle_fills(&mut self)`: run once every component is lowered. Turns each `render::SLOT_READ_PREFIX` read of a prop that no placement fills back into a plain `Tmpl::Expr`.
+* `settle_proofs(&mut self)`: run once every component is lowered. Clears `proven` on the chunks of a component a `foreign` placement mounts. Clears it on every chunk when any component holds a `<Mount>`.
 
-* `vue::VUE_CLIENT: &str`, `@snapfire/fsr/client/vue`, where `useStore` is imported from.
-* `vue::Template { children: Vec<Node> }`, `vue::Node` and `vue::Prop`: the description's template tree as `snapfirec-vue`'s `describeNode` writes it, read from `Described::template` with serde. A `Node` is `element` with `tag`, `kind` (Vue's `ElementTypes`: element 0, component 1, slot 2, template 3), `props` and `children`, `text` with `content`, `interpolation` with `content` or `other` with Vue's node `type`; a `Prop` is `attribute` with `name` and `value` or `directive` with `name`, `arg`, `argStatic`, `exp` and `modifiers`. Every node and prop carries its `line` and `column` in the file; a directive carries `expLine` and `expColumn` for its expression as well.
-* The script block is parsed as TypeScript padded to its line in the file; each template expression is parsed with `Parsed::parse_expr_at` padded to its line and column, so a residue names the `.vue` file's own position.
-* `<script setup>`: `defineProps`, bound whole or destructured, is `$props`, with `withDefaults` adding a `let $props` that spreads the defaults under the placement's props; `ref` and `shallowRef` are a `let` and a state binding, read as the value in the template and through `.value` in the script; `computed` of an arrow is a `let`; `reactive`, `shallowReactive` and `readonly` bind their value; `useStore(key, initial)` from `VUE_CLIENT` is `let name = <store key> ?? initial`, a state binding read through `.value` on both sides; a `const` with any other value is a `let`; a function declaration or a `const` holding an arrow or a function is a handler body an `@event` can name or call; `defineEmits` and the lifecycle, watch, `provide`, `nextTick`, `defineExpose`, `defineOptions` and `defineSlots` calls are the browser's and are passed over; an interface or a type alias is nothing. Residue: an export, a class, an enum, `toRef`, `toRefs`, `customRef`, `useTemplateRef`, `useId`, `useAttrs`, `useSlots`, a writable `computed`, a plain `<script>` beside or instead of `<script setup>` and any other statement.
-* The template: the root is the one child or a `Fragment`; text and interpolation as they stand; `v-if`, `v-else-if` and `v-else` chain into `If`, whitespace between branches dropped; `v-for="(item, index) in items"` is `For` with those params, the condition of a `v-if` on the same element lowered outside the loop; a `<template>` with `v-if` or `v-for` is its one element or a `Fragment`; a `<slot />` with no name, props or fallback is `Slot("content")`, the island's children; any other `<slot>` is a `Tmpl::Let` named `render::SLOT_OUT_PREFIX` and its name, holding the props it hands the caller's content and its fallback; a static attribute is a literal, valueless as `true`; a static `class` beside `:class` merges into it as `[dynamic, static]` at the dynamic one's position; a static `style` is parsed into an object; `:style`, `v-show` and a static `style` merge into one `style` array at the first one's position; `:class` becomes a one-element array; a bound boolean attribute (Vue's `isBooleanAttr` set) is `true` when truthy or the empty string and null otherwise; any other bound attribute is null when null and `String(value)` otherwise, under the name as written except the four camelCase spellings Vue maps; `@event` with a written event name is a `Handler` and a `HANDLER_ATTR` field holding its index or an `UNLOWERED_ATTR` field with the line and the reason when it does not lower; a handler is a setup function by name or called with arguments, an arrow, a `function` or a statement over `$event`, holding `const`s, `if` and `else`, a bare `return`, an assignment, a compound assignment or `++` and `--` on a `ref` (unwrapped in the template, through `.value` in the script) or on a `useStore` binding through `.value`, calls to setup functions and calls to actions, with `preventDefault` and `stopPropagation` dropped; a write is read by what follows it in the handler; `.prevent` and `.stop` are allowed and any other modifier, a dynamic event name, an object `v-on`, a recursive call and any other statement leave the reason; `:key`, `ref`, `v-once`, `v-memo` and `v-cloak` are dropped; `v-html` is `RAW_ATTR`; `v-text` replaces the children; a scoped style's `data-v-` id is a `true` attribute on every element and the component's `scope` as `ScopedStyle`, `slotted` when a rule is `:slotted()`; `:[name]="value"` is `Entry::Computed` on an element, on a `.vue` child's props and on a `<slot>`'s props. Residue: a slot whose name is an expression, `.prop`, `:is`, `value` on a `<textarea>`, `v-model` on anything but an input, a textarea, a select or a `.vue` child, `v-slot`, `v-pre`, a custom directive, a component tag other than a `.vue` child, a `<template>` with anything but those directives and a `key`, `v-else` with no `v-if` before it, a `v-for` alias that is a pattern or a third alias and a node type the plugin passed through unread.
-* The anchors Vue's server renderer writes are `Tmpl::Marker` nodes the front end places once the tree is built: `<!--[-->` and `<!--]-->` around a root of more than one node with any not text, around every `v-for` list, around each list item and each `v-if` branch that is not exactly one element and around every `<slot>`; `<!---->` as the branch of a `v-if` chain that takes none.
-* An `@event` handler on a `.vue` child passes to it as the prop Vue names `on` and the event camel-cased with its first letter raised, when the handler is an arrow; a ref or `data` entry the handler writes is an `Expr::Cell`. In the child, `emit("event", ...args)` through a `defineEmits` binding in `<script setup>` and `this.$emit(...)` in `created` are body `Let`s calling that prop when the parent gave one, so the write lands before the parent's later markup reads it. A `created` holding anything else is residue.
-* `<Teleport to="body">` writes `<!--teleport start--><!--teleport end-->` in place and its children between `<!--teleport start anchor-->` and `<!--teleport anchor-->` in a `Tmpl::Place` for `body`, as Vue's server renderer writes them for the target. `to="#name"` does the same for `#name`, the place a `<Place name="name">` declares; when the component's own template holds an element whose `id` is written as `name`, a `Tmpl::Outlet { hydrated: true }` goes in that element so the content is written inside it. With `disabled` the children stay between the in-place comments and the empty anchors are placed. A `to` that is neither `body` nor `#` and a name is residue. A `<Teleport defer>` or `:defer` bound to anything but `false` is residue: Vue never updates the content of a deferred Teleport it has hydrated.
-* `v-bind` of an object on an element is an `Entry::Spread`, written in its place among the attributes. On a `.vue` child, each `<template #name="params">` is a `Tmpl::Let` named `render::SLOT_CONTENT_PREFIX` and the slot, its value the template's `v-if` condition and its body the content with the params bound to `render::SLOT_PROPS`; the renderer writes it where the child's `<slot name>` is with the props that slot hands it. The slot's fallback is written instead when the caller gave none or the condition fails.
-* `provide(key, value)` in `<script setup>` wraps the template in a context `Tmpl::Let`, a provided ref as its value; `inject(key, default)` is `Coalesce(Expr::Context(id), default)`, read as a ref. A string key is `vue:<key>`; a key bound to a name is `vue:<file>#<name>` by the declaration the name resolves to, so a key imported under another name or re-exported is the same context and two keys that share a name are not. An `inject` with a default factory is residue.
-* `v-model` writes what Vue's server renderer writes and leaves the binding to the browser: `value` on an input, `checked` on a checkbox (`Builtin::Checked`: an array model holding the box's value, else a truthy model) and on a radio (`Builtin::LooseMatch` of the model and its value), a textarea's content and `selected` on each `<option>` with a value inside a `<select v-model>`. An input whose `type` is bound is residue.
-* `defineModel()` and `defineModel("name", { default })` in `<script setup>` bind a ref reading `$props.modelValue` or `$props.name` with the default under it; on a `.vue` child, `v-model` passes `modelValue` and `v-model:name` passes `name`.
-* A tag naming a `.vue` file the script imports, `<Card>` or `<card-item>` as `CardItem`, is a `Tmpl::Component` the set resolves and lowers; its static attributes and `:bound` ones are props by their camelCase name, `v-bind` of an object a spread and its children the child's default slot. An attribute the child does not declare as a prop, which Vue would fall through onto the child's root, is residue, as is a child that does not lower. A scoped parent adds `render::PARENT_SCOPE_PROP` with its scope attribute, which the renderer writes on the child's root element when it has one, as Vue does. A child placed in a slot's content takes the slot owner's scope on its root instead. Under a `:slotted()` rule every element of the content carries `<id>-s` as well. `@event` on a child is the browser's.
-* `vue::props_declaration(file: &str, described: &Described) -> Option<String>`: a declaration module typing the component as `(props: T & { children?: unknown }) => any`, `T` the `defineProps<T>()` of a `<script setup lang="ts">` with each `withDefaults` key made optional, after the script's interfaces, type aliases and type-only imports. `None` for a JavaScript script or props declared any other way. `vue::props_declaration_path(file)` is where it goes, `generated/vue/<file without .vue>.d.vue.ts` under `vue::PROPS_DECLARATION_DIR`.
+Bodies:
 
-### The Svelte Front End
+* `lower_loader(&mut self, file: &str) -> Result<Body, LowerError>`
+* `lower_meta(&mut self, file: &str) -> Result<Option<Body>, LowerError>`
+* `lower_store(&mut self, file: &str) -> Result<Option<Body>, LowerError>`
+* `lower_defaults(&mut self, file: &str) -> Result<Option<Body>, LowerError>`
+* `lower_paths(&mut self, file: &str) -> Result<Option<Body>, LowerError>`
+* `lower_actions(&mut self, file: &str) -> Result<Vec<LoweredAction>, LowerError>`
+* `lower_handlers(&mut self, file: &str) -> Result<Vec<LoweredHandler>, LowerError>`
+* `lower_middleware(&mut self, file: &str) -> Result<Body, LowerError>`
+* `lower_theme(&mut self, file: &str) -> Result<Body, LowerError>`
+* Each body lowerer follows the module-level names the body calls through the same resolution a component uses. A name that cannot be followed is the residue the free functions give.
+* `lower_images(&mut self, file: &str) -> Result<Option<Body>, LowerError>`: a card image module's `images` export, else its `generateImageMetadata`, a function of the context. `None` when it has neither.
+* `image_exports(&mut self, file: &str) -> Result<ImageExports, LowerError>`: a card image module's literal `size`, `alt` and `contentType` exports. A non-literal one is a `Residue`.
+* `theme_export(&mut self, file: &str) -> Result<Option<ThemeExport>, LowerError>`: a layout's or a page's `export const theme`. `None` when the module exports no `theme`. Anything but a name or `{ name, force }` is a `Residue`.
+* `lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError>`: every export of a module under `ext/`, as `(file#export, kind)` with kind `lowered`, `native render` or `native body`. An export that does not lower is `LowerError::Extension`.
+* `lower_derives(&mut self, file: &str) -> Result<Vec<LoweredDerive>, LowerError>`: every call in `file` of the store's `derive`, under any spelling.
+* A `derive` key and each source are a literal or a `key()` followed through an import. One that is neither is `LowerError::Residue`.
+* A `derive` that is a statement at module level lowers its compute, an arrow or a function with at most one parameter. A call of that parameter is `Expr::Store` of its argument. The compute lowers under render-path rules.
+* A `derive` inside a function has no body and carries `at` and `why`. So does one whose compute does not lower.
+* `store_reads(&mut self, file: &str) -> Vec<String>`: the keys a module that does not lower passes to `useStore`, as a literal or a `key()` followed through an import. Empty when one of them is neither.
 
-`ComponentSet::lower` reads a `.svelte` file the plugin described and builds the same `Component` a `.tsx` module builds, with `owner` `Owner::Svelte`; the export must be `default`. Runes mode and Svelte 4's legacy mode both lower, a file at a time.
+Files:
 
-* `svelte::SVELTE_CLIENT: &str`, `@snapfire/fsr/client/svelte`, where `useStore`, `useLocale`, `useLinkStatus`, `link`, `picture`, `embed`, `island` and `mount` are imported from.
-* `svelte::Template`, `svelte::Fragment`, `svelte::Node`, `svelte::Attr`, `svelte::AttrValue` and `svelte::Part`: the description's template tree as `snapfirec-svelte` writes it, cleaned and flagged as Svelte's server compiler sees it, read from `Described::template` with serde. A `Node` is `text`, `comment`, `expr`, `html`, `const`, `render`, `element` (with `svg`, `mathml` and the `svelte-` class Svelte's CSS gives it), `component` (its children grouped by `slot` as `build_inline_component` groups them), `slot`, `if`, `each`, `snippet`, `key`, `declare`, `await`, `special` (a `svelte:` element or `<title>`) or `other`. Every node carries its line and column, so a residue names the `.svelte` file's own position.
-* The scripts go through the body lowerer. `$state`, `$derived`, `$derived.by` and `$props` bind as `let`s, as do Svelte 4's `export let` and `$:`; `$props.id()` counts on a render cell, one per page render, so ids are unique across a page's islands. `useStore(key, initial)` reads the store. `$effect`, `$effect.pre`, `$effect.root`, `$inspect`, `onMount`, `onDestroy`, `beforeUpdate`, `afterUpdate` and `tick` are the browser's and are passed over. A class whose fields, constructor writes and one-`return` getters the build reads lowers; one that extends another is residue. Any other statement is residue.
-* The markers are placed by the rules of Svelte's server visitors at v5.57.2 (`IfBlock`, `EachBlock`, `RenderTag`, `HtmlTag`, `Fragment` and `build_inline_component`): `<!--[-->` and `<!--]-->` around blocks, `<!--[!-->` for an else branch and `<!---->` where Svelte writes an empty anchor, `{@html}` between two of them.
-* The template: `{#if}`, `{#each}` with its index, key and `{:else}`, `{#key}`, `{#await}`, `{#snippet}` with `{@render}` of a prop or of a snippet the template declares, `{@const}`, `{@html}` and `<slot>` with the `$$slots` a caller filled. `<svelte:element this>`, `<svelte:component this>`, `<svelte:self>`, `<svelte:fragment>` and `<svelte:boundary>` render; `<svelte:window>`, `<svelte:body>` and `<svelte:document>` write nothing; `<svelte:head>` and `<title>` are residue, since what goes in the document head belongs in a loader's `meta` export. A node the build does not render on the server is residue naming it.
-* FSR's components from `COMPONENTS_MODULE` lower through `placements.rs`: `<Link>`, `<Picture>`, `<Mount>`, `<Embed>` and `<Place>` write what the Svelte components the build supplies write, the anchors `svelte/server` puts around a component included. A directive on one of them is residue, as is an attribute mixing text and expressions. `<a {...link({ … })}>`, `picture({ … })` and `embed({ … })` from `SVELTE_CLIENT` lower the same way when their options are an object literal with keys written out.
+* `writes_jsx(&mut self, file: &str) -> bool`: whether `file` writes a JSX element or fragment anywhere. False when it does not parse.
+* `imports_value_from(&self, module: &str, source: &str) -> bool`: whether `module`'s file imports a value from `source`.
+* `local_reach(&mut self, file: &str) -> Vec<String>`: `file` and every local file it reaches through value imports and re-exports, in the order first reached. A file that does not parse is listed and not followed.
+* `local_imports(&mut self, file: &str) -> Vec<String>`: the local script files and described foreign components `file` imports a value from or re-exports, in source order. Imported assets are left out. Empty when it does not parse.
+* `host_import(&mut self, file: &str) -> Option<u32>`: the line of the first import or re-export in `file` from `@snapfire/fsr/host` or a module under it.
+* `sheets(&mut self, file: &str) -> Vec<String>`: the stylesheets `file` brings, in source order: each local one imported for its effect and, for each Vue or Svelte component it imports, the sheet beside it (`Card.vue.css`).
+* `foreign_imports(&mut self, file: &str) -> Vec<ForeignImport>`: the value imports in `file` of components in a plugin's language, namespace imports left out. Empty when `file` does not parse.
+* `draws_in_terminal(&mut self, file: &str) -> bool`: whether `file` or a local file it reaches imports a value from Ink's API.
+* `rewritten(&self) -> Vec<(String, String)>`: every file with a `Rewrite`, with `hoist::apply` over its source. Also every file a hoisted function or an unexported function was referenced from, with `export const __sfF<offset> = <function>;` and `export { name };` appended.
+* `function_modules(&self) -> Vec<String>`: every file the browser imports a function prop from.
 
-### Transformed Files
+Fields:
 
-A file in another language that a caller turns into TSX, `.mdx` and `.md` among them. The set lowers the module the transform writes in the file's place and names the file's own lines.
+* `heads: HashMap<String, Vec<HeadRow>>`: the head rows each lowered module asks for, its own and those of every component it places, by module id.
+* `consts: Consts`: the module-level constants the plan names.
+* `components: Vec<(String, Component)>`: every lowered component, by module id.
+* `layouts: Vec<String>`: modules that are layouts. A layout's `children` is placed inside `<sf-s>`.
+* `slots: Vec<(String, Vec<String>)>`: per layout module, the slots its `slots/` directory declares.
+* `rewrites: Vec<hoist::Rewrite>`: one per component with a surviving hoist.
+* `pure: HashMap<String, bool>`: per lowered module, whether it has no state, handler, island, slot or ambient read and every component it renders is pure.
+* `natives: Vec<(String, Reach)>`: every native pair declared so far, as `module.member` and reach.
+* `remaining: Vec<(String, String)>`: per lowered module, `file:line:column` of each render-path call candidate that was not hoisted and sits under no hoisted call.
+* `foreign: Vec<String>`: components in a language the build does not read, as `file#export`. Each is placed as an island the server writes empty.
+* `foreign_residue: Vec<(String, Residue)>`: each described component that did not lower, with why. It stays foreign and the page lowers on.
+* `browser_only: Vec<(String, Residue)>`: components that did not lower, each with its residue, placed by a component that did. Each is placed as a React island.
+* `browser_texts: Vec<(String, String)>`: per lowered module, each value only the browser knows, as `file:line:column: reason`.
+* `mounted: Vec<String>`: components in a plugin's language that an `Owner::React` component renders inline, as `file#export`.
 
-* `component::TRANSFORMED: &[&str]`, `mdx` and `md`; `component::is_transformed(file: &str) -> bool`, for a path, a `file#export` id or a variant id `file~<hash>`. A transformed file is never foreign.
-* `pub type Transform = dyn Fn(&str, &str, &[Override]) -> Result<Transformed, String>`: the file's path, its text and the elements to place as other components. `ComponentSet::with_transform(self, transform: Rc<Transform>) -> ComponentSet`. Without one, loading a transformed file is `LowerError::Parse` naming the `mdx` feature; an `Err` from the transform is `LowerError::Parse` with that message.
-* `pub struct Transformed { pub source: String, pub origin: Option<Origin> }`, `#[non_exhaustive]`; `Transformed::new(source: String, origin: Option<Origin>) -> Self`
+### HeadRow
+
+* `pub struct HeadRow { pub tag: String, pub attrs: Vec<(String, String)> }`: one element a module asks for in the document head.
+* A priority `Picture` of an imported image asks for one `link rel="preload" as="image"` with its first format's `srcset` and its `sizes`.
+
+### LoweredDerive
+
+* `pub struct LoweredDerive { pub key: String, pub sources: Vec<String>, pub body: Option<Expr>, pub at: Option<String>, pub why: Option<String> }`
+* `at` is the call's `file:line:column`. `at` and `why` are set when `body` is `None`.
+
+### ThemeExport
+
+* `pub struct ThemeExport { pub name: String, pub force: bool }`. `#[non_exhaustive]`.
+* `ThemeExport::new(name: String, force: bool) -> ThemeExport`
+* A string or a template with no expression is a name. `{ name, force }` with a literal boolean sets `force`.
+* `as`, `satisfies` and parentheses are looked through.
+
+### ImageExports
+
+* `pub struct ImageExports { pub width: Option<u32>, pub height: Option<u32>, pub alt: Option<String>, pub content_type: Option<String> }`
+* `size` is `{ width, height }` with whole positive numbers. `alt` and `contentType` are strings or templates with no expression.
+* `as`, `satisfies` and parentheses are looked through.
+
+### Extracted
+
+A route module split by `extract_route` or `lower_route`. `#[non_exhaustive]`.
+
+* `pub struct Extracted { pub island: String, pub file: String, pub source: String, pub page: (String, String), pub holds: Vec<String>, pub started: Option<Residue> }`
+* `island` is the island's module id, `<page stem>.island0.tsx#default`. `file` and `source` are the island's.
+* `page` is the page's file and its source as composition. `holds` is the names the island took from the page's body.
+* `started` is the residue in the page as written that made the split.
+* Neither source is written to the app. The build puts both in the bundle overlay.
+
+### ForeignImport
+
+* `pub struct ForeignImport { pub text: String, pub bindings: Vec<(String, String)> }`: the import declaration as written and each binding as the local name and the module id.
+
+### Transform
+
+* `pub type Transform = dyn Fn(&str, &str, &[Override]) -> Result<Transformed, String>`: takes the file's path, its text and the elements to place as other components.
+* Without a transform, loading a transformed file is `LowerError::Parse` naming the `mdx` feature.
+* An `Err` from the transform is `LowerError::Parse` with that message.
+
+### Transformed
+
+* `pub struct Transformed { pub source: String, pub origin: Option<Origin> }`. `#[non_exhaustive]`.
+* `Transformed::new(source: String, origin: Option<Origin>) -> Transformed`
+
+### Override
+
 * `pub struct Override { pub key: String, pub specifier: String, pub export: String }`: one element and the component placed for it, `export` of `specifier` relative to the file.
-* `pub struct Origin { pub source: String, pub segments: Vec<OriginSegment> }`, `pub struct OriginSegment { pub generated: usize, pub len: usize, pub original: usize, pub verbatim: bool }`, both `#[non_exhaustive]`; `Origin::new(source: String, segments: Vec<OriginSegment>) -> Self`, `OriginSegment::new(generated: usize, len: usize, original: usize, verbatim: bool) -> Self`; `Origin::position(&self, offset: usize) -> (usize, usize)`. Every residue, parse error and placement position in the module is reported through it.
-* A placement of a transformed file's default export with `components={{ key: Name }}`, each value a component the placing file declares or imports or a placement such as `Link`, lowers the file again as `file~<hash>#default` with those elements as `Override`s; the prop is not passed on. Any other `components` value is a residue.
-* `mdx_component_map(file: &str, source: &str) -> Result<Vec<(String, MappedValue)>, LowerError>`: the keys of the object `useMDXComponents` returns in order, a spread left out; `MappedValue::Name(String)` for a component named, `MappedValue::Expr(Range<usize>)` for one written in place, by its bytes in `source`. No such function, or one returning something other than an object written out, is a `Residue`.
-* `pub const CONTENT_MODULE: &str`, `generated/content.ts`: the one module under `generated/` besides `HEAD_MODULE` a body may import.
-* `const { default: Name, meta } = await import(`prefix${key}suffix`)` in a component: every file under the directory `prefix` ends in, subdirectories included and a directory named `node_modules` or starting with `.` left out, is a choice when the set reads it and its path there is the rest of `prefix`, a text that may hold `/`, then `suffix`. `<Name />` lowers to a `Tmpl::If` chain comparing the key, as a string, with each choice's text; a key naming none renders nothing. Each other destructured name is a `let` of the chosen file's export of that name, `null` for none. An `async` component is accepted when every `await` in it is of an `import()`.
 
-### ALIASES, the Standard Library's Sides and EXT_DIR
+### Component Module Items
 
-* `pub const ALIASES: &[(&str, &str)]`: `@app/`, `@routes/`, `@src/`, `@schemas/`, `@generated/` and `@ext/` with the app directory each stands for; `resolve_specifier(from, specifier) -> Option<String>` expands one or joins a relative specifier to `from`'s directory, `None` for a bare specifier.
-* `meaning::Side` (`Client`, `Host`, `Terminal`) and `meaning::side_modules(side) -> Vec<(&'static str, Vec<&'static str>)>`: each standard module a side holds with its members, from `snapfire_fsr_ir::STANDARD` by reach. `Client` holds the `render` members, `Host` the `render` and `body` ones, `Terminal` `system` and `clipboard` with `system.spawn`. `meaning::CLIENT_ROOT`, `HOST_ROOT` and `TERMINAL_ROOT` are `@snapfire/fsr/client`, `@snapfire/fsr/host` and `@snapfire/fsr/terminal`; a root's export is a module object and `<root>/<module>`'s are its members. A member a side lacks and a host member on a web render path are refused with where the member is; `native` is at `@snapfire/fsr`. A member whose `Member.platform` is set is under no side: asking for one is refused with the platform code to write, a module left with no members is not a side's and importing it names the platform forms of its members. `crypto.randomUUID()` beside an imported `crypto` lowers as the platform's.
-* `meaning::reference() -> String`: the Markdown table of every platform form the build reads and every standard member with its paths and where it runs, which the guides carry between `<!-- fsr:reference -->` markers.
-* `pub const EXT_DIR: &str`, `ext`: the directory whose modules are extensions.
+* `pub const TRANSFORMED: &[&str]`: `mdx` and `md`.
+* `pub fn is_transformed(file: &str) -> bool`: for a path, a `file#export` id or a variant id `file~<hash>`. A transformed file is never foreign.
+* `pub fn is_foreign(module: &str) -> bool`: whether a file or a `file#export` module is in a language the build does not read.
+* `pub fn files_under(dir: &Path) -> Vec<String>`: every file under `dir`, relative and `/`-separated. A directory named `node_modules` or starting with `.` is left out.
+* `pub const TEMPLATE_SOURCES: &[&str]`: `@snapfire/fsr/template`, `@snapfire/fsr/client/react`, `@snapfire/fsr/client/vue` and `@snapfire/fsr/client/jsx-runtime`, the modules `Island`, `island`, `Slot` and `Link` are read from.
+* `pub const CLIENT_SOURCE: &str = "@snapfire/fsr/client"`: where `action` comes from.
+* `pub const RAW_ESCAPE: &str = "data-sf-raw"`: the attribute that keeps an `<img>` out of the image rewrite. It is stripped from the markup.
 
-## 2. The Recognised Language
+## 4. Assets
+
+### AssetResolver
+
+Where an imported image, font or media file is looked up. `assets::AssetResolver`. Every `path` is relative to the app and normalised.
+
+* `fn image(&self, path: &str, request: &ImageRequest) -> Option<ImageFacts>`: the image's served URL, size and `<source>` rows. The resolver records `request` for the build. `None` when the file is not under the app.
+* `fn font(&self, path: &str) -> Option<String>`: a font file's served URL.
+* `fn media(&self, path: &str) -> Option<String>`: a video, audio or caption file's served URL. Default `None`.
+* `fn embed_still(&self, provider: &str, id: &str) -> Option<ImageFacts>`: the still an `<Embed>` shows before it plays. Default `youtube_still(provider, id)`.
+* `fn computed_still(&self, provider: &str) -> bool`: whether an `<Embed>` with a computed id shows the provider's still. Default `provider == "youtube"`.
+* `fn source(&self, name: &str) -> Option<String>`: a named remote source's URL template, with `{src}` and `{width}`.
+* `fn widths(&self) -> Vec<u32>`: the policy's widths, for a remote image whose own width is unknown.
+
+### ImageRequest
+
+* `pub struct ImageRequest { pub widths: Option<Vec<u32>>, pub quality: Option<BTreeMap<String, u8>> }`: a per-image override. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+
+### ImageFacts
+
+* `pub struct ImageFacts { pub src: String, pub width: u32, pub height: u32, pub sources: Vec<(String, String)> }`. `#[non_exhaustive]`.
+* `ImageFacts::new(src: String, width: u32, height: u32, sources: Vec<(String, String)>) -> ImageFacts`
+* `src` is the hashed original's URL. `sources` is `(mime, srcset)` per format, empty for an image served as it is.
+
+### NoAssets
+
+* `pub struct NoAssets`: a resolver that knows nothing. An asset import stays unbound.
+
+### Kind
+
+* `pub enum Kind { Image, Font, Media }`
+* `Image`: `png`, `jpg`, `jpeg`, `gif`, `webp`, `avif`, `svg`, `ico`, `bmp`.
+* `Font`: `woff2`, `woff`, `ttf`, `otf`.
+* `Media`: `mp4`, `m4v`, `webm`, `ogv`, `mov`, `mp3`, `m4a`, `aac`, `oga`, `ogg`, `opus`, `wav`, `vtt`.
+
+### Asset Functions and Constants
+
+* `pub fn kind(specifier: &str) -> Option<Kind>`: what a relative specifier names by its extension.
+* `pub fn default_sizes(width: u32) -> String`: `(max-width: {width}px) 100vw, {width}px`.
+* `pub const EMBED_PLAYERS: [(&str, &str, &str); 2]`: each provider's player as the provider, the URL before the id and the URL after it. `youtube`: `https://www.youtube-nocookie.com/embed/<id>?autoplay=1`. `vimeo`: `https://player.vimeo.com/video/<id>?autoplay=1`.
+* `pub fn embed_provider(url: &str) -> Option<&'static str>`: the provider whose player `url` starts with.
+* `pub const YOUTUBE_STILL: (&str, &str, u32, u32)`: `https://i.ytimg.com/vi/`, `/hqdefault.jpg`, `480`, `360`.
+* `pub fn youtube_still(provider: &str, id: &str) -> Option<ImageFacts>`: YouTube's still for `id`. `None` for any other provider.
+
+## 5. Vue Descriptions
+
+The template tree `snapfirec-vue`'s `describeNode` writes, read from `Described::template` with serde.
+
+### vue::Template
+
+* `pub struct Template { pub children: Vec<Node> }`
+
+### vue::Node
+
+* `pub struct Node { pub node: String, pub tag: String, pub kind: u8, pub props: Vec<Prop>, pub children: Vec<Node>, pub content: String, pub other: u32, pub line: usize, pub column: usize }`
+* `node` is `element` (with `tag`, `kind`, `props` and `children`), `text` or `interpolation` (with `content`) or `other`.
+* `kind` is Vue's `ElementTypes`: element 0, component 1, slot 2, template 3.
+* `other` is Vue's `NodeTypes` number of a node the plugin passed through unread.
+
+### vue::Prop
+
+* `pub struct Prop { pub prop: String, pub name: String, pub value: Option<String>, pub arg: Option<String>, pub arg_static: bool, pub exp: Option<String>, pub modifiers: Vec<String>, pub line: usize, pub column: usize, pub exp_line: usize, pub exp_column: usize }`
+* `prop` is `attribute` (with `name` and `value`) or `directive` (with `name`, `arg`, `argStatic`, `exp` and `modifiers`).
+* `exp_line` and `exp_column` locate a directive's expression. Serialized as `expLine` and `expColumn`.
+
+### vue::props_declaration
+
+* `pub fn props_declaration(file: &str, described: &Described) -> Option<String>`: a declaration module typing the component as `(props: T & { children?: unknown }) => any`.
+* `T` is the `defineProps<T>()` of a `<script setup lang="ts">`, each `withDefaults` key made optional, after the script's interfaces, type aliases and type-only imports.
+* `None` for a JavaScript script or props declared any other way.
+* `pub fn props_declaration_path(file: &str) -> String`: `generated/vue/<file without .vue>.d.vue.ts`.
+
+### Vue Constants
+
+* `pub const VUE_CLIENT: &str = "@snapfire/fsr/client/vue"`: where `useStore` is imported from.
+* `pub const PROPS_DECLARATION_DIR: &str = "generated/vue"`
+
+## 6. Svelte Descriptions
+
+The template tree `snapfirec-svelte` writes, read from `Described::template` with serde. Every node carries `at`, its line and column in the file.
+
+### svelte::Template
+
+* `pub struct Template { pub runes: bool, pub scoping: Option<String>, pub instance: Option<(u32, u32)>, pub module: Option<(u32, u32)>, pub fragment: Fragment }`
+* `scoping` is `read` when the plugin read which elements Svelte's CSS scopes and `unread` when it could not.
+
+### svelte::Fragment
+
+* `pub struct Fragment { pub hoisted: Vec<Node>, pub nodes: Vec<Node>, pub standalone: bool, pub text_first: bool }`
+
+### svelte::Node
+
+* `pub enum Node`, tagged by `type`: `Text`, `Comment`, `Expr`, `Html`, `Const`, `Render`, `Element`, `Component`, `Slot`, `If`, `Each`, `Snippet`, `Key`, `Declare`, `Await`, `Special`, `Other`.
+* `Element { name, svg, mathml, scoped, attrs, fragment, at }`: `scoped` is the `svelte-` class Svelte's CSS gives the element.
+* `Component { name, dynamic, svg, attrs, fragment, slots, at }`: `slots` groups the children by their static `slot` attribute, as `build_inline_component` does.
+* `Declare { items, at }`: `{let x = ...}` or `{const x = ...}` in the template.
+* `Special { kind, name, scoped, attrs, this, fragment, slots, at }`: a `svelte:` element or `<title>`. `this` is the expression `svelte:element` and `svelte:component` take.
+* `Other { kind, at }`: a node the plugin passed through unread.
+
+### svelte::Attr, AttrValue and Part
+
+* `pub enum Attr { Attr { name, value: AttrValue, at }, Spread { code, at }, Attach { code, at }, Directive { kind, name, modifiers, expression: Option<Code>, value: Option<AttrValue>, at } }`
+* `pub enum AttrValue { Present(bool), Parts(Vec<Part>) }`
+* `pub enum Part { Text { text: String }, Code(Code) }`
+
+### svelte::Code, Declarator and SlotGroup
+
+* `pub struct Code { pub code: String, pub at: (usize, usize) }`
+* `pub struct Declarator { pub id: Code, pub init: Option<Code> }`
+* `pub struct SlotGroup { pub name: String, pub fragment: Fragment }`
+
+### Svelte Constants
+
+* `pub const SVELTE_CLIENT: &str = "@snapfire/fsr/client/svelte"`: where `useStore`, `useLocale`, `useLinkStatus`, `link`, `picture`, `embed`, `island` and `mount` are imported from.
+
+## 7. Hoisting
+
+### hoist::Rewrite
+
+The rewrite of one component's source for the bundle. `#[non_exhaustive]`.
+
+* `pub struct Rewrite { pub file: String, pub module: String, pub hook: Hook, pub sites: Vec<(u32, Range<usize>)>, pub chunks: Vec<ChunkSite>, pub islands: Vec<(u32, usize)>, pub placements: Vec<(u32, Range<usize>, bool)>, pub ids: Vec<(u32, Range<usize>)>, pub loops: Vec<Range<usize>>, pub statement_loops: Vec<StatementLoop>, pub browser: Vec<Range<usize>> }`
+* `sites`: the surviving value candidates, as id and call range.
+* `chunks`: one `ChunkSite` per kept subtree.
+* `islands`: the island placements, as id and the offset the reader call is spliced at.
+* `placements`: the keyed placements, as id, element range and whether the element sits among JSX children.
+* `ids`: the `useId` calls, as id and call range.
+* `loops`: the byte ranges of the JSX `.map` callbacks the survivors sit in.
+* `statement_loops`: the `for...of` or counted `for` statements the survivors sit in.
+* `browser`: the expressions only the browser knows. Each is null through hydration and computed once the component has mounted.
+* A placement is keyed when the component it places keys a hoist, a chunk or a region below it and it sits inside no kept chunk. `Tmpl::Component.keyed` is set on it. A component met in its own cycle counts as keyed.
+
+### hoist::ChunkSite
+
+* `pub struct ChunkSite { pub id: u32, pub range: Range<usize>, pub open: Range<usize>, pub as_child: bool, pub proven: bool }`. `#[non_exhaustive]`.
+* `range` is the element, `open` its opening tag. `as_child` is whether it sits among JSX children.
+
+### hoist::Hook
+
+* `pub enum Hook { Block { after: usize }, Expression(Range<usize>) }`. `#[non_exhaustive]`.
+* `Block` is after a block body's `{`. `Expression` is around an arrow's expression body, which becomes a block returning it.
+
+### hoist::StatementLoop
+
+* `pub struct StatementLoop { pub range: Range<usize>, pub body: Range<usize>, pub pushes: Vec<Range<usize>> }`
+* `StatementLoop::new(range: Range<usize>, body: Range<usize>, pushes: Vec<Range<usize>>) -> StatementLoop`
+* `pushes` is the ranges of the arguments its body's `push` calls give the arrays it writes.
+
+### hoist::Chunk
+
+* `pub struct Chunk { pub id: u32, pub proven: bool }`. `#[non_exhaustive]`.
+* `proven` is false for a chunk among the children a component or an island is given.
+
+### hoist::Candidates
+
+The hoist candidates of one component as the lowerer meets them. `Default`, `#[non_exhaustive]`.
+
+* Fields: `sites`, `chunk_sites`, `island_sites`, `id_sites`, `open_loops`, `statement_loops`.
+* `remaining(&self, kept: &[u32], chunks: &[Chunk]) -> Vec<Range<usize>>`
+* `rewrite(self, values: &[u32], chunks: &[Chunk], islands: &[u32], keyed: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite>`
+
+### Hoist Functions
+
+* `pub fn decide(component: &mut Component, state: &[String]) -> Vec<u32>`: unwraps every value candidate that is not props only. Returns the ids kept.
+* `pub fn chunks(component: &mut Component, state: &[String], pure: &HashMap<String, bool>) -> Vec<Chunk>`: keeps the outermost subtree candidates that are static and do work. Removes every other marker.
+* `pub fn rechunk(component: &mut Component, state: &[String], pure: &HashMap<String, bool>) -> Vec<Chunk>`: `chunks` again, with the `UNTAKEN_ATTR` marks of the first pass cleared.
+* `pub fn cover(component: &mut Component, chunks: &[Chunk]) -> Vec<u32>`: unwraps every value hoist among a proven chunk's children. Returns their ids.
+* `pub fn static_tree(t: &Tmpl, pure: &HashMap<String, bool>) -> bool`: the static test with no state.
+* `pub fn placed_with_state(component: &Component, state: &[String]) -> Vec<String>`: the modules `component` places with a prop that reads `state` or anything the request or the browser can change.
+* `pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String`: `source` with every rewrite applied, spliced from the end. All rewrites are for that one file.
+* `apply` prepends `IMPORT` and binds `const __sfh = __sfUseHoisted("<module>")` at the hook.
+* `apply` replaces each call with `__sfh.r(<id>, () => (<call>))`.
+* `apply` wraps each loop callback as `__sfh.l(<callback>)`.
+* `apply` wraps each statement loop as `{ let __sfI<at> = 0; <head> { __sfh.e(__sfI<at>++); try { <body> } finally { __sfh.x(); } } }`, with each `push` argument as `__sfh.w(<argument>)`.
+* `apply` wraps each keyed placement as `__sfh.p(<id>, <element>)` and replaces each `useId()` call with `__sfh.id(<id>)`.
+* `apply` writes a proven chunk as `__sfh.c(<id>, (__sfHtml) => <tag attrs dangerouslySetInnerHTML={__sfHtml} />)`. The element and every edit inside it are gone.
+* `apply` writes an unproven chunk as `__sfh.c(<id>, (__sfHtml) => <tag attrs dangerouslySetInnerHTML={__sfHtml} />, () => (<element>))`.
+* A chunk among JSX children is braced.
+
+### Hoist Constants
+
+* `pub const BOUND_ATTR: &str = "$bound"`: marks an element with a handler, a `ref` or a spread.
+* `pub const CHUNK_ATTR: &str = "$chunk"`: marks a subtree candidate with its id.
+* `pub const UNTAKEN_ATTR: &str = "$untaken"`: marks a kept chunk under an `If` whose condition reads state.
+* `pub const PROPS: &str = "$props"`: the name a component reads its props through.
+* `pub const IMPORT: &str`: `import { useHoisted as __sfUseHoisted, useBrowser as __sfUseBrowser } from "@snapfire/fsr/client/react";` and a newline.
+
+## 8. Meanings and Sides
+
+### meaning::Side
+
+* `pub enum Side { Client, Host, Terminal }`
+* `root(self) -> &'static str`: `CLIENT_ROOT`, `HOST_ROOT` or `TERMINAL_ROOT`.
+* `holds(self, module: &str, reach: Reach) -> bool`: whether a standard member of `module` with `reach` is under this side.
+* `Client` holds the `render` members. `Host` holds the `render` and `body` members. `Terminal` holds `system` and `clipboard`, with `system.spawn`.
+
+### meaning::ImportBinding
+
+* `pub struct ImportBinding { pub local: String, pub source: String, pub imported: Option<String> }`: a name bound to a module's export through an awaited `import()`.
+* `imported` is `default` for a default import and `None` when the local is the whole module.
+
+### Meaning Functions
+
+* `pub fn side_modules(side: Side) -> Vec<(&'static str, Vec<&'static str>)>`: each standard module under `side` with its members, from `snapfire_fsr_ir::STANDARD` by reach.
+* `pub fn reference() -> String`: the Markdown table of every platform form the build reads and every standard member with its paths and where it runs.
+* `pub fn awaited_imports(stmt: &Stmt) -> Vec<ImportBinding>`: the bindings `stmt` makes through awaited dynamic imports, including `await Promise.all([import(...), ...])`. Empty for any other statement.
+* `pub fn terminal_primitives() -> impl Iterator<Item = (&'static str, &'static [Signature])>`: each terminal primitive's name with its signatures.
+
+### Meaning Constants
+
+* `pub const CLIENT_ROOT: &str = "@snapfire/fsr/client"`
+* `pub const HOST_ROOT: &str = "@snapfire/fsr/host"`
+* `pub const TERMINAL_ROOT: &str = "@snapfire/fsr/terminal"`
+* `pub const PAGE_LOCALE_MODULE: &str = "@snapfire/fsr/client/intl"`
+* `pub const COMPONENTS_MODULE: &str = "@snapfire/fsr/components"`: exports `Link`, `Picture`, `Mount`, `Embed` and `Place` in every framework.
+* `pub const TEMPLATE_MODULE: &str = "@snapfire/fsr/template"`: `createContext`, `use` and the template dialect's types.
+* `pub const CONFIG_MODULE: &str = "@snapfire/fsr/config"`: the deployment's `[public]` values as `config` and named exports.
+
+## 9. Terminal Pages
+
+### Terminal Constants
+
+* `pub const INK_FILE: &str = "$fsr/terminal.tsx"`: the name `INK_SOURCE` is provided under.
+* `pub const INK_SOURCE: &str`: Ink's hooks written over the terminal primitives, `lower/terminal/ink.tsx`.
+* `pub const INK_MODULE: &str = "@snapfire/fsr/terminal/ink"`
+* `pub const COMPANIONS: [(&str, &str, &str); 4]`: `(specifier, file, source)` for `@snapfire/fsr/terminal/spinners`, `/spinner`, `/text-input` and `/big-text`, provided under `$fsr/terminal/`.
+* `pub const REPLACED: [(&str, &str); 5]`: `ink`, `cli-spinners`, `ink-spinner`, `ink-text-input` and `ink-big-text`, each with FSR's module to import instead.
+* `pub const FOCUSABLE: &str = "focusable"`: the emitted key for `{ id, autoFocus, isActive }`, one per `useFocus`, in render order.
+* `pub const CURSOR: &str = "cursor"`: the emitted key for `{ x, y }`, null to hide the cursor. The last one a step emits holds.
+* `pub const EFFECT: &str = "effect"`: the emitted key for `{ event, deps }` of an effect whose dependencies change.
+* `pub const PRIMITIVE: &str = "$primitive"`: the key a terminal primitive used as a value is held under.
+
+### terminal::primitive_ref
+
+* `pub fn primitive_ref(expr: &Expr) -> Option<String>`: the primitive a `{ "$primitive": name }` value refers to.
+
+## 10. Route Extraction
+
+### extract::Extraction
+
+* `pub struct Extraction { pub page: String, pub island_file: String, pub island: String, pub holds: Vec<String> }`: a page with its browser half moved out. `#[non_exhaustive]`.
+* `page` is the page's source as composition. `island_file` sits beside the page's file.
+
+### extract::Kept
+
+* `pub struct Kept(pub String)`: why a page cannot be split.
+
+## 11. The Recognised Language
+
+What lowers. Anything not listed is a `Residue`.
 
 ### Modules
 
-* The context parameter is the first parameter of the body: an identifier or an object pattern whose keys are `params`, `query`, `session`, `services`, `identity`, `input` or `now`, each optionally renamed with `key: local`. Any other key, a nested pattern or a rest element is residue.
-* Imports, type declarations and non-action exports are ignored, except a default import of a relative specifier naming an image, a font or a media file, which is bound through the set's `AssetResolver`: an image to `{ src, width, height, sources }`, a font or a media file to its URL. An import the resolver does not know stays unbound.
-* `COMPONENTS_MODULE: &str`, `@snapfire/fsr/components`, which exports `Link`, `Picture`, `Mount`, `Embed` and `Place` in every framework. A `.tsx`, `.vue` or `.svelte` file importing them lowers each tag as below.
-* `<Picture>` from `@snapfire/fsr/components`, `@snapfire/fsr/client/react` or `@snapfire/fsr/template` lowers to a `<picture>` with a `<source type srcset sizes>` per format and the hashed original as its `<img>`, with `width`, `height`, `loading` (`lazy`, `eager` under `priority`), `decoding` (`async`) and `fetchpriority="high"` under `priority`; an image served as it is lowers to the `<img>` alone. `src` is an imported image, its `.src`, an entry of an object of imported images indexed by a value (`PHOTOS[key]`, declared in the file or imported, which lowers to `Tmpl::If` per entry on `key == "<entry>"` and nothing when none matches) or any other value: with `source="<name>"` an `<img>` whose `srcset` the named template writes per policy width and `sizes` defaulting to `100vw`, without one an `<img src>` as written. `sizes` defaults to `default_sizes`; `widths` is an array of positive numbers and `quality` a number or `{ avif, webp }`, written out, which only change what the build generates. A literal relative `src` is residue naming the import form, since it resolves against the page in a browser.
-* `<Place name as …attrs>` from the same modules lowers to `<div id="name">` (the `as` tag when given) with the other attributes, holding a `Tmpl::Outlet` for `name`. `name` is written out in letters, digits, `-` and `_`; a missing or computed `name`, an `id`, a computed `as` and children are refused.
-* `<Embed provider id title>` from the same modules lowers to a placeholder `div` carrying `data-sf-embed`, the player URL (`https://www.youtube-nocookie.com/embed/<id>?autoplay=1` or `https://player.vimeo.com/video/<id>?autoplay=1`) and `data-sf-embed-title`, holding a `button` with the still `AssetResolver::embed_still` answers, the title and a play mark. `provider` is `youtube` or `vimeo` and `id` a string, both written out; `title` is required; `style` and a spread are refused.
-* Ink's `Box`, `Text`, `Spacer` and `Newline`, imported from `terminal::INK_MODULE`, `@snapfire/fsr/terminal/ink`, lower through `placements::terminal` to `ink-box`, `ink-text`, `ink-spacer` and `ink-newline` elements carrying their props as kebab-case attributes (`borderStyle` as `border-style`), which `snapfire_fsr_terminal::from_markup` reads. `key` is dropped and `ref={r}` is written as `ink-ref`, the `$id` a terminal `useRef` holds beside `current`; a spread stays a spread. Ink's `Static` is a component in `terminal::INK_FILE`, a column `Box` over its items with `style` spread onto it; the terminal reads a spread's camelCase props as kebab-case attributes.
-* With `rewrite_images`, an `<img>` whose `src` is `<import>.src` lowers as a `Picture` with the same rules; `data-sf-raw` on it keeps a plain `<img>` with the hashed original, `width` and `height` filled unless written and the attribute stripped.
-* A tag whose name means a context (`<X>`) or its provider (`<X.Provider>`, `<P>` after `const P = X.Provider` or `<Ns.X>` through a namespace import), where `X` was made by `createContext(...)` from `react` or `@snapfire/fsr/template`, lowers to the `Tmpl::Let` the hooks entry below describes; a React context makes the component's owner `Owner::React`. A `<Y.Provider>` whose `Y` is no context is residue naming the tag. `X.Consumer` stays residue.
-* A module that binds one name twice at its top level, an import beside a `let`, `const`, function or class of the same name or two imports of it, is residue at the second binding naming the line of the first, as JavaScript refuses it. Two `var`s of one name, overload signatures and `declare` statements bind it once; types, enums and namespaces are left out.
-* Names are read by what they are bound to. `parse_with` runs swc's resolver, so an identifier carries its binding; each file's module-level names and exports are resolved once (`ComponentSet::meanings`) through imports, namespace and default imports, re-exports, `export *` and module-level `const` aliases against one table of library exports (`meaning::LIBRARY`: React's hooks and `createContext`, the client's `useStore`, `useLocale` and `useHoisted`, the store's `key`, the dialect's `createContext` and `use` and the placements of the dialect and each client adapter). A hook, a context read, a provider, a placement, an island alias, the retired `tree`, a store key, the server tier's `action` and `fail`, the client's `action`, the standard library's `t`, `native` and member modules, Vue's composition functions, the generated client's `actions` and an image or font import are recognised by that meaning, so an aliased, namespaced, re-exported or `const`-aliased spelling lowers as the bare import does. The application's own names resolve to the file and name that declare them, which is how a component, a custom hook and a module-level value are found through any of those spellings; a custom hook is a hook by the name it is declared under. A name bound inside a function is a local, whatever it is called: it is no hook, placement or context. A tag naming one is residue. A name nothing binds, `Date` or `Intl`, is a JavaScript global. A `.json` file the application imports is its value as the default export, `import pkg from "../package.json"`. The free `lower_*` functions lower through a `ComponentSet` with the source provided, the path the build takes.
-* `export default tree(...)` with `tree` from `@snapfire/fsr/client/react` is `LowerError::Retired`, naming what to write instead: `export default` the layout itself and share state with the page through the store.
-* `<Link>` from the same module lowers to an `<a>` carrying `data-sf-link` and an `aria-current` computed against `Expr::Path`. With `current="document"` written it is computed against `Expr::Document` and the anchor carries `data-sf-current="document"` beside it; `current="url"` is the default. `match` and `current` must be written out; any other value is residue.
-* In a component, `<Island when="visible">` with `Island` imported from `@snapfire/fsr/client/react` places its one component child as `Tmpl::Island`; a module-level `const Lazy = island(Chart, { when })` with `island` from the same module makes `<Lazy … />` the same. `when` must be written out as `"load"`, `"visible"` or `"idle"`; `<Island>` around an element, with any other attribute or with more than one child is residue.
+* The context is the body's first parameter: an identifier or an object pattern.
+* Pattern keys are `params`, `query`, `session`, `services`, `identity`, `input` or `now`, each optionally renamed with `key: local`. Any other key, a nested pattern or a rest element is residue.
+* Imports, type declarations and non-action exports are ignored.
+* A default import of a relative specifier naming an image binds to `{ src, width, height, sources }` through the set's `AssetResolver`. A font or a media file binds to its URL. An import the resolver does not know stays unbound.
+* A `.json` file the application imports is its value as the default export.
+* A module that binds one name twice at top level is residue at the second binding, naming the line of the first.
+* Two `var`s of one name, overload signatures and `declare` statements bind a name once. Types, enums and namespaces are not counted.
+* `export default tree(...)` with `tree` from `@snapfire/fsr/client/react` is `LowerError::Retired`.
+* A component export that is `export default name` of an app import lowers as the component it names. So does `export { x as name } from "..."` of an app module.
+* Such an export from a package is residue naming the package.
+* A component export made by a call the build cannot read (`observer(...)`, `dynamic(...)`, `const { Link } = createNavigation(...)`) or by a tagged template is residue naming the call.
+
+### Names and Bindings
+
+* A name is read by what it is bound to. Each file's module-level names and exports resolve once through imports, namespace and default imports, re-exports, `export *` and module-level `const` aliases.
+* Library meanings recognised by binding: React's hooks and `createContext`, the client's `useStore`, `useLocale` and `useHoisted`, the store's `key`, the dialect's `createContext` and `use`, the placements, island aliases, the retired `tree`, the server's `action` and `fail`, the client's `action`, `t`, `native`, the standard member modules, Vue's composition functions, the generated client's `actions` and image or font imports.
+* An aliased, namespaced, re-exported or `const`-aliased spelling of any of these lowers as the bare import does.
+* The application's own names resolve to the file and name that declare them. A custom hook is a hook by the name it is declared under.
+* A name bound inside a function is a local. It is never a hook, placement or context. A tag naming one is residue.
+* A name nothing binds, such as `Date` or `Intl`, is a JavaScript global.
+
+### FSR Components
+
+`Link`, `Picture`, `Place`, `Embed` and `Mount` are read from `COMPONENTS_MODULE`, `@snapfire/fsr/client/react` or `@snapfire/fsr/template`.
+
+* `<Picture>` lowers to a `<picture>` with a `<source type srcset sizes>` per format and the hashed original as its `<img>`. An image served as it is lowers to the `<img>` alone.
+* The `<img>` carries `width`, `height`, `loading` (`lazy`, `eager` under `priority`), `decoding="async"` and `fetchpriority="high"` under `priority`.
+* `src` may be an imported image, its `.src` or an entry of an object of imported images indexed by a value (`PHOTOS[key]`). An indexed entry lowers to a `Tmpl::If` per entry and renders nothing when none matches.
+* With `source="<name>"` and any other `src`, the named template writes the `srcset` per policy width and `sizes` defaults to `100vw`. Without `source`, it is an `<img src>` as written.
+* `sizes` defaults to `default_sizes`. `widths` is an array of positive numbers and `quality` a number or `{ avif, webp }`, both written out.
+* A literal relative `src` is residue naming the import form.
+* With `rewrite_images`, an `<img>` whose `src` is `<import>.src` lowers as a `Picture`. With `data-sf-raw` it stays a plain `<img>` of the hashed original, with `width` and `height` filled unless written.
+* `<Place name as ...attrs>` lowers to `<div id="name">` (the `as` tag when given) with the other attributes and a `Tmpl::Outlet` for `name`.
+* `<Place>`'s `name` is written out in letters, digits, `-` and `_`. A missing or computed `name`, an `id`, a computed `as` and children are refused.
+* `<Embed provider id title>` lowers to a `div` carrying `data-sf-embed`, the player URL and `data-sf-embed-title`, holding a `button` with the still, the title and a play mark.
+* `<Embed>`'s `provider` is `youtube` or `vimeo` and `id` a string, both written out. `title` is required. `style` and a spread are refused.
+* `<Link>` lowers to an `<a>` carrying `data-sf-link` and an `aria-current` computed against `Expr::Path`.
+* `<Link current="document">` computes `aria-current` against `Expr::Document` and adds `data-sf-current="document"`. `current="url"` is the default.
+* `<Link>`'s `match` and `current` are written out.
+* `<Island when="visible">` with `Island` from `@snapfire/fsr/client/react` places its one component child as `Tmpl::Island`.
+* A module-level `const Lazy = island(Chart, { when })` makes `<Lazy ... />` the same.
+* `when` is written out as `"load"`, `"visible"` or `"idle"`. `<Island>` around an element, with another attribute or with more than one child is residue.
+* `<Island mode="server">` and `island(C, { mode: "server" })` set `Tmpl::Island.mode`. `"browser"` is the default. Any other value is residue.
+* A tag meaning a context (`<X>`) or its provider (`<X.Provider>`, `<P>` after `const P = X.Provider`, `<Ns.X>`) lowers to a context `Tmpl::Let`. `X` is made by `createContext(...)` from `react` or `@snapfire/fsr/template`.
+* A React context makes the component's owner `Owner::React`. A `<Y.Provider>` whose `Y` is no context is residue. `X.Consumer` is residue.
+* Ink's `Box`, `Text`, `Spacer` and `Newline` from `INK_MODULE` lower to `ink-box`, `ink-text`, `ink-spacer` and `ink-newline` elements with their props as kebab-case attributes.
+* On an Ink element `key` is dropped, `ref={r}` is written as `ink-ref` and a spread stays a spread.
+* Ink's `Static` is a component in `INK_FILE`: a column `Box` over its items with `style` spread onto it.
+* In a `.svelte` file, `<Link>`, `<Picture>`, `<Mount>`, `<Embed>` and `<Place>` write what the Svelte components the build supplies write. A directive on one is residue. So is an attribute mixing text and expressions.
+* In a `.svelte` file, `<a {...link({ ... })}>`, `picture({ ... })` and `embed({ ... })` from `SVELTE_CLIENT` lower the same way when their options are an object literal with keys written out.
 
 ### Statements
 
-* `const x = e` or `let x = e`, several declarators in one statement each their own `Let`. A destructuring binds `e` once under a temporary (`$d1`) and each name it declares reads a part of it: an object pattern's fields (renamed or nested) and an array pattern's items with holes. A rest is `Builtin::Omit` of an object or `Builtin::Slice` of an array. A default is `Coalesce`, so it applies to null as well as to a missing part. An uninitialised binding is residue.
-* `for (const x of e) body`, `x` a name or a pattern bound the same way.
-* `if (c) fail("kind", msg)`, with the call bare or in a one-statement block and no `else`, is a guard; the kind is a string literal, since it is matched at build time, and the message is any expression, a template naming the value that failed for one; any other `if`, with or without `else`, is a conditional whose branches are blocks or single statements.
-* `return e` or `return`.
-* `x = e`, `x += e` and every compound assignment, `x++`, `x--`, `x.field = e`, `x.push(...)` and `x.unshift(...)` as a statement, `x` a name the body declared, is `Stmt::Set`: the nearest binding takes the new value, so a write inside a branch or a loop outlives it. A field write rebinds `x` to a copy with that field and a push to a copy with the items. A local bound to an element of a local array (`const row = rows[i]` or `rows.at(i)`) or to a field of a local through `.`, `?.` or a computed key (`const verbs = config.settings.verbs`) is an alias: a write or a `delete` through it rewrites the array at that index or the root at that path as well; a write through it after the array or the root was itself written is residue. A name holding the same object by any other route does not see the write. `delete x.field` or `delete x.a[key]` as a statement rebinds `x` to a copy without that key, through `Builtin::Omit`. A write at a computed key or index rebinds `x` to a copy with that entry.
-* `switch (d) { ... }` binds `d` under a temporary and is an `if` chain over its arms, each `case` compared with `===`. Cases with no statements share the next one's. An arm ends with a `break` (dropped), a `return` or the end of the last arm; one that falls into the next, a `break` before the end of its arm and a `default` before the last `case` are residue.
-* `session.key = e`, `session.key.sub = e`, `session.key[e] = e`, plus the same through `ctx.session`; `delete session.key[e]`, `delete session.key?.[e]` and `delete session.key.sub`.
-* `session.extend(e)` or `ctx.session.extend(e)` as a statement is `Stmt::SessionExtend` in an action, a route handler or middleware, `e` the seconds. In a loader or any other body it is residue naming the three, since a loader runs on every navigation; more or fewer than one argument is residue.
+* `const x = e` or `let x = e`. Several declarators in one statement are each their own `Let`.
+* `let x;` with no value starts as `null`. Any other uninitialised binding is residue.
+* A destructuring binds `e` once under a temporary (`$d1`). Each name reads a part of it: an object pattern's fields (renamed or nested) or an array pattern's items with holes.
+* A rest in a pattern is `Builtin::Omit` of an object or `Builtin::Slice` of an array.
+* A default in a pattern is `Coalesce`. It applies to null as well as to a missing part.
+* `for (const x of e) body`, with `x` a name or a pattern.
+* `for (let i = a; i < b; i++)`, with `<=`, `++i` or `i += s`, is a `Let` of the start and a `ForOf` over `Builtin::Range` of the count.
+* The count is `ceil((b - a) / s)` under `<` and `floor((b - a) / s) + 1` under `<=`.
+* A step that is not a positive literal is tested at run time. A step that is not positive is refused by `Range`.
+* A counter the loop body writes is residue. So is a bound or a step reading what the loop writes.
+* `while (test)` on a terminal page is a `ForOf` over 10,000 passes that leaves at the first false test. Elsewhere it is residue.
+* `break` and `continue` without a label are `Stmt::Break` and `Stmt::Continue`.
+* `if (c) fail("kind", msg)`, bare or in a one-statement block with no `else`, is a guard.
+* The guard's kind is a string literal. Its message is any expression.
 * `fail("kind", msg)` as a bare statement is a guard whose condition is `true`.
-* Any other expression statement, typically an awaited call, is `Stmt::Expr`.
-* `try { } catch (e) { } finally { }` is `Stmt::Try`; the `catch` and the `finally` are each optional and a `catch` parameter may be a pattern. `throw e` is a `Throw` builtin over the message and the value thrown.
-* `redirect(to)` from `@snapfire/fsr` is a `RedirectTo` builtin in an action or a route handler: a statement is a `Return` of it, an expression its value. In a loader or middleware it is residue.
-* `after(fn)` from `@snapfire/fsr` is `Expr::After` of a lambda with no parameters whose body is the function's statements lowered as a body's, `Stmt::Expr` as a statement. A function that is not written in place, one with parameters and one whose body writes or extends the session are residue.
-* `new Response(body, init)`, `Response.json(value, init)` and `Response.redirect(url, status)` are the `Response`, `ResponseJson` and `ResponseRedirect` builtins; `new Uint8Array(source)` is `Uint8Array`.
-* In middleware, `next(request?)` and `ctx.next(request?)` are `Expr::Next`, the request `undefined` when absent; `new Request(url)` is `RequestNew`. `response.status` and `response.ok` on a `Response` are `ResponseMember`; `response.headers.get(name)` and `.has(name)` are `ResponseHeaderGet` and the statements `response.headers.set`, `.append` and `.delete` on a local rebind it through `ResponseHeaderSet`. The headers calls lower by their shape and fail where they run on anything but a `Response`.
-* `for (let i = a; i < b; i++)`, with `<=`, `++i` or `i += s` too, is a `Let` of the start and a `ForOf` over `Builtin::Range` of the count, the counter read as the start plus the item times the step. The count is `ceil((b - a) / s)` under `<` and `floor((b - a) / s) + 1` under `<=`. A step that is not a positive literal is tested: one that is not positive counts without end, which `Range` refuses, where JavaScript would loop for ever. A counter the body writes and a bound or a step reading what the loop writes are residue.
-* `while (test)` on a terminal page is a `ForOf` over 10,000 passes that leaves at the first false test; elsewhere it is residue.
-* `break` and `continue` without a label are `Stmt::Break` and `Stmt::Continue`. A `case` may end with either; a `break` before the end of its `case` is residue.
-* A function declared in a body is a `Let` of its lambda before the body's first statement, a `Fix` when it calls itself. One that calls a function declared after it in the same body is residue.
+* Any other `if` is a conditional whose branches are blocks or single statements.
+* `return e` or `return`.
+* `x = e`, every compound assignment, `x++`, `x--`, `x.field = e`, `x.push(...)` and `x.unshift(...)` as a statement on a local `x` are `Stmt::Set`.
+* A `Set` updates the nearest binding. A write inside a branch or a loop outlives it.
+* A field write rebinds `x` to a copy with that field. A push rebinds it to a copy with the items.
+* A write at a computed key or index rebinds `x` to a copy with that entry.
+* `delete x.field` or `delete x.a[key]` as a statement rebinds `x` to a copy without that key, through `Builtin::Omit`.
+* A local bound to an element of a local array (`rows[i]`, `rows.at(i)`) or to a field path of a local is an alias. A write or `delete` through it rewrites the array or the root as well.
+* A write through an alias after the array or the root was itself written is residue. A name holding the same object by any other route does not see the write.
+* `switch (d) { ... }` binds `d` under a temporary and is an `if` chain comparing each `case` with `===`.
+* Cases with no statements share the next one's. An arm ends with a `break`, a `return` or the end of the last arm.
+* A `switch` arm that falls into the next, a `break` before the end of its arm and a `default` before the last `case` are residue.
+* `session.key = e`, `session.key.sub = e` and `session.key[e] = e`, also through `ctx.session`.
+* `delete session.key[e]`, `delete session.key?.[e]` and `delete session.key.sub`.
+* `session.extend(e)` or `ctx.session.extend(e)` as a statement is `Stmt::SessionExtend`, `e` the seconds. It lowers in an action, a route handler or middleware with exactly one argument.
+* `try { } catch (e) { } finally { }` is `Stmt::Try`. The `catch` and the `finally` are each optional. A `catch` parameter may be a pattern.
+* `throw e` is a `Throw` builtin over the message and the value thrown.
+* `redirect(to)` from `@snapfire/fsr` is a `RedirectTo` builtin in an action or a route handler. As a statement it is a `Return` of it. In a loader or middleware it is residue.
+* `after(fn)` from `@snapfire/fsr` is `Expr::After` of a lambda with no parameters. `fn` is written in place, takes no parameters and does not write or extend the session.
+* `new Response(body, init)`, `Response.json(value, init)` and `Response.redirect(url, status)` are the `Response`, `ResponseJson` and `ResponseRedirect` builtins.
+* `new Uint8Array(source)` is `Uint8Array`.
+* In middleware, `next(request?)` and `ctx.next(request?)` are `Expr::Next`. `new Request(url)` is `RequestNew`.
+* `response.status` and `response.ok` are `ResponseMember`. `response.headers.get(name)` and `.has(name)` are `ResponseHeaderGet`.
+* `response.headers.set`, `.append` and `.delete` as statements on a local rebind it through `ResponseHeaderSet`. They fail at run time on anything but a `Response`.
+* A function declared in a body is a `Let` of its lambda before the body's first statement. It is a `Fix` when it calls itself.
+* A body function that calls a function declared after it in the same body is residue.
+* Any other expression statement is `Stmt::Expr`.
 * `for...in`, `for await`, classes, labels and bare blocks are residue.
 
 ### Component Bodies
 
-* A component's body before the tree holds `const`s, `let`s, inner functions, effect hooks, blocks, writes to its own locals and `if` and `switch` with no `return` inside. A write rebinds its name at build time: the value after an `if` is a `Ternary` over the branches and after a `switch` a chain of them. Each name written is bound by a `Let` of its own. A write to a prop's name works the same way; a write to state is residue, since its setter owns it. A call to one of the component's own setters in such a statement is a write React makes while rendering: it rebinds `render::RERUN_PREFIX` and the state to `[value]`, an updater applying to what an earlier call in the pass asked for or else to the state. The body ends with a `Let` of that name for each state a setter wrote. A setter called after a branching `return` is residue.
-* `if (c) return t;` with no `else` is an early return: the tree is an `If` choosing `t` when `c` holds. A `let` or a write after one is computed only where no early return fired, since the body binds every value before the tree picks a branch; a hook after one is residue.
-* Any other `if`, `switch` or block that returns makes the rest of the body a tree: each `return` a leaf, a branch a `Tmpl::If` over the paths through it and what follows it, a declaration or a write a `Tmpl::Let` over what follows. A path that ends without a `return` renders nothing; a hook or a function declared there is residue.
-* Hooks: `useState`, `useStore`, `useMemo`, `useRef`, `useCallback`, `useLocale` and effect hooks as before. `useReducer(reducer, initial, init?)` is state starting at `initial` or `init(initial)`, its `dispatch` a handler. `useContext(c)` and `use(c)` are `Coalesce(Expr::Context(id), default)` with `id` the `file#name` that calls `createContext` and `default` its argument, wherever an expression stands, so inside a condition, a ternary or the markup; `use` of anything that is not a context, a promise for one, is residue; `<c.Provider value={v}>` is a `Tmpl::Let` named `render::CONTEXT_PREFIX` and the id around its children. A custom hook, any `use` call React and FSR's client do not export, is inlined from the file that declares it: its statements lower as a component body's do with every name they bind renamed `<hook>$<call>$<name>`. What it returns binds at the call site, part by part for an object or array literal, a returned setter, function or arrow becoming a handler there. `useLinkStatus()` from FSR's React adapter is `let name = { pending: false }` held as state, destructured through a temporary, so the component hydrates; the Vue and Svelte adapters' bind the same object. `useId()` is `let name = Expr::HoistId(n)`, numbered with the component's hoist candidates (`Candidates::id`), so the server writes `_S_<module>|<n>[@<path>]_` and the bundle's copy reads the same string from the hoist reader; `useId` inside a custom hook is residue, since the hook's body has no reader of its own. A hook the build cannot follow to a declaration is residue.
+* Before the tree, a component body holds `const`s, `let`s, inner functions, effect hooks, blocks, writes to its own locals and `if` and `switch` with no `return` inside.
+* A write rebinds its name. After an `if` the value is a `Ternary` over the branches. After a `switch` it is a chain of them.
+* A write to a prop's name works the same way. A write to state is residue.
+* A call to one of the component's own setters during render rebinds `render::RERUN_PREFIX` and the state to `[value]`. The body ends with a `Let` of that name for each state a setter wrote.
+* A setter called after a branching `return` is residue.
+* `if (c) return t;` with no `else` is an early return: the tree is an `If` choosing `t` when `c` holds.
+* A `let` or a write after an early return is computed where no early return fired. A hook after one is residue.
+* Any other `if`, `switch` or block that returns makes the rest of the body a tree. Each `return` is a leaf and a declaration or write is a `Tmpl::Let` over what follows.
+* A path that ends without a `return` renders nothing. A hook or function declared there is residue.
+* `useState`, `useStore`, `useMemo`, `useRef`, `useCallback`, `useLocale` and effect hooks lower. `useState(x)` reads as `x`, `useMemo(f)` as `f()` and `useRef(x)` as `{ current: x }`.
+* Event handlers, inner functions, effects and `useState` setters are dropped from the render.
+* `useReducer(reducer, initial, init?)` is state starting at `initial` or `init(initial)`. Its `dispatch` is a handler.
+* `useContext(c)` and `use(c)` are `Coalesce(Expr::Context(id), default)` wherever an expression stands. `id` is the `file#name` that calls `createContext` and `default` its argument.
+* `use` of anything that is not a context is residue.
+* `<c.Provider value={v}>` is a `Tmpl::Let` named `render::CONTEXT_PREFIX` and the id, around its children.
+* A custom hook is inlined from the file that declares it. Every name it binds is renamed `<hook>$<call>$<name>`.
+* What a custom hook returns binds at the call site, part by part for an object or array literal. A returned setter or function becomes a handler there.
+* A hook the build cannot follow to a declaration is residue.
+* `useLinkStatus()` from FSR's React, Vue or Svelte adapter is `{ pending: false }` held as state.
+* `useId()` is `let name = Expr::HoistId(n)`, numbered with the component's hoist candidates. The server writes `_S_<module>|<n>[@<path>]_`.
+* `useId` inside a custom hook is residue.
 * `xs?.map((x) => <jsx>)` is a `Tmpl::If` that writes nothing when `xs` is null or undefined and the `Tmpl::For` otherwise.
-* A `.map` callback with a block body lowers as that tree does, so it can declare and write its own locals and return from inside a branch.
-* A call in the markup to a function the component or its module declares, an arrow `const` or a `function`, whose body returns markup on some path is inlined where it is called. Returning markup counts JSX, another such call, a `.map` whose callback returns markup and a local the body declared from any of those. Each argument is lowered in the caller's scope and bound to its parameter by a `Tmpl::Let` around the function's tree. A spread argument is residue. A call inside the function's own body is a `Tmpl::Component` placing `file#name`, which lowers the function as a component: one taking a single object pattern gets the argument spread as its props, any other gets each argument as the prop named by its position (`"0"`, `"1"`). A function declared inside the component that reaches itself is residue, since it closes over the component's locals.
-* A component export that is `export default name` of an app import or `export { x as name } from "…"` of an app module lowers as the component it names; from a package it is residue naming the package. An export made by a call the build cannot read (`observer(...)`, `dynamic(...)`, `const { Link } = createNavigation(...)`) or by a tagged template is residue naming the call, so whatever places it renders it in the browser.
-* A name a function writes may be held in a cell (`Lowerer::cells`, each with its handle): a Svelte `let` a script function writes is `Expr::Cell` per instance, one in `<script module>` is `Expr::ModuleCell` keyed `file#name`. Its reads are `ReadCell` of the handle; an assignment or update to it, as a statement or inside an expression, is `WriteCell`. Where the lowerer holds cells, a function body runs in order. A statement that writes a cell or makes a call becomes a `Let` of an `Expr::Block` before the rest. So does a declaration whose value reads a cell or calls a function, which keeps a value read before a write as it was read.
-* A helper's body and a lambda's block lower the same way to one expression: a `return` inside a branch is a `Ternary` over the paths, a write rebinds its name and a path with no `return` is `null`. A helper whose body writes a name it neither takes nor declares, a module-level `let`, keeps its statements instead: its lambda's body is an `Expr::Block`, which runs in the caller's scope, so the write lands on the caller's binding of that name.
-* An object literal in a component body whose every field is a function and that does not lower as a value, `const actions = { async add(item) { await addToCart(item); setCart(…) } }`, is a table of handlers: each field lowers as a handler of the component by the index among its handlers; one whose body only the browser runs is a `render::BROWSER_HANDLER`. The object is bound under its name so a child can read `actions.add` into a handler of its own.
-* A module-level `let` that a function of its file writes is state and so is a module-level collection a function changes in place, `seen.set(k, v)` on a `const seen = new Map()`. In a component it is bound by its own name to the store key `file#name`, seeded with what the module's initialisation leaves it at and listed with the component's state and stores, so a handler's write through the helper reaches the store as any store write does and the browser's store carries it. A constant of such a module is read by replaying the module's initialisation, each top-level `let` and `const` bound in order inside a block, so a constant built by calls that advance the `let` holds what the browser's copy of the module would. A render calling such a helper runs the write on the request's copy of the value and the store is unchanged, as React's own server renderer runs the module's counter per process; a loader or an action reading one is residue.
-* Markup where a value goes, JSX in a `const` or `let`, a write, an attribute or an object field, is lowered ahead into `Expr::Markup` and placed in the tree before the component is done. A local holding markup, written once or chosen by branches, is substituted where it renders, a branch becoming a `Tmpl::If`. A placement's attribute holding markup becomes a `Tmpl::Let` among its children named `render::SLOT_CONTENT_PREFIX` and the prop. In the component that takes it, each `{props.name}` is a `Tmpl::Let` named `render::SLOT_READ_PREFIX` and the prop, holding the read: the renderer draws the fill in the caller's scope when the placement gave one and the value otherwise. An array of markup, returned, written in place, held in a local, passed as a prop, built with `push` in a branch, `concat` or kept with `filter(Boolean)`, is a `Tmpl::Fragment` of its items, any item that is not markup rendering as its value. Markup in data renders where it is read. Markup in an element's attribute or in an expression that reads it as a value is residue. Markup passed as a prop to a component that renders in the browser crosses as a region the server renders and the island adopts.
-* `let x;` with no value starts as `null`.
-* `createElement(type, props, ...children)` bound to React's, named or through a default or namespace import of `react`, is read as the JSX it stands for when the module is parsed, so the lowerer meets one element shape. A string tag starting lowercase is an element, an identifier starting uppercase or `A.B` a component, `null` or `undefined` props none, an object literal's fields its attributes with a spread kept as one, a bare identifier a spread and each further argument a child, an element argument placed as one. A tag held in a variable, props that are neither an object literal nor an identifier and a computed or method field stay a call, which is residue.
-* `Children.count(children)` and `Children.toArray(children).length` (`Children` from `react`, named or through a default import) over the component's own children read `render::CHILD_COUNT` and `render::CHILD_ITEMS`, which the body then opens with as `let`s of the props of those names. `Children.map`, `Children.forEach`, `Children.only` and `Children.toArray` over the component's own children read the same values. Markup arrays lower to `fills::items`, a `render::ARRAY_ITEMS` let around their fragment, so the count tells an array from `<>…</>`.
-* A capitalised tag naming a local, `<Heading>` after `const { Heading } = toneClass[tone]`, is an element with the tag `$tag` until `fills::place_tags` lists the strings the local can be, through the body's `let`s, the set's named constants, object literals, the entries an index reads and both sides of a ternary. It becomes a `Tmpl::If` per listed tag. A list the build cannot complete, such as a tag from a prop, and an entry that is not a lowercase element name are residue.
-* A helper's or a lambda's block body lowers as a loader's does, statement by statement.
-* A loop in a component is a fold. `for (const x of items)` and `for (let i = a; i < b; i++)` (`<=`, `++i` and `i += s` too, a counted loop running over `Builtin::Range` of its count) make each outer local the body writes an `Expr::Reduce` over the items of what one pass writes, several names folding together as fields of one object. `if (...) continue;` skips the rest of a pass. A `return` in a helper's loop gives the first value returned. `break`, any other `continue`, `for await`, a counter the body writes, a bound or a step reading what the loop writes and every other loop are residue naming why. A fold whose pass only appends markup to an array, under conditions or not, places as what the array held before followed by a `Tmpl::For` over the items.
+* A `.map` callback with a block body lowers as a tree. It can declare and write its own locals and return from inside a branch.
+* A loop in a component is a fold: each outer local the loop body writes is an `Expr::Reduce` over the items. Several names fold together as fields of one object.
+* In a component fold, `if (...) continue;` skips the rest of a pass. A `return` in a helper's loop gives the first value returned.
+* In a component fold, `break`, any other `continue`, `for await` and every other loop are residue.
+* A fold whose pass only appends markup to an array places what the array held before followed by a `Tmpl::For` over the items.
+* A call in the markup to a function the component or its module declares, whose body returns markup on some path, is inlined where it is called.
+* Each argument of an inlined markup call is bound to its parameter by a `Tmpl::Let`. A spread argument is residue.
+* A markup function that calls itself is a `Tmpl::Component` placing `file#name`. One taking a single object pattern gets the argument as its props. Any other gets each argument as the prop named by its position (`"0"`, `"1"`).
+* A markup function declared inside the component that reaches itself is residue.
+* A capitalised tag naming a local is a `Tmpl::If` per tag string the local can hold. A list the build cannot complete is residue. So is an entry that is not a lowercase element name.
+* `Children.count(children)` and `Children.toArray(children).length` over the component's own children read `render::CHILD_COUNT`. `Children.map`, `forEach`, `only` and `toArray` read `render::CHILD_ITEMS`.
+* An object literal in a component body whose every field is a function and that does not lower as a value is a table of handlers. Each field lowers as a handler of the component.
+* A module-level `let` a function of its file writes is state. So is a module-level collection a function changes in place.
+* Such a module state is bound in a component to the store key `file#name`, seeded with what the module's initialisation leaves it at.
+* A constant of a module with such state is read by replaying the module's top-level `let` and `const` bindings in order.
+* A render calling a helper that writes module state runs the write on the request's copy. A loader or action reading module state is residue.
+* A name a script function writes may be held in a cell. It is `Expr::Cell` per instance. One in Svelte's `<script module>` is `Expr::ModuleCell` keyed `file#name`.
+* A cell read is `ReadCell`. An assignment or update to it is `WriteCell`.
+* Where cells are held, a statement that writes a cell or makes a call becomes a `Let` of an `Expr::Block` before the rest.
+* A helper's body or a lambda's block lowers to one expression: a `return` in a branch is a `Ternary`, a write rebinds its name and a path with no `return` is `null`.
+* A helper that writes a module-level `let` keeps its statements as an `Expr::Block` that runs in the caller's scope.
+* `const { default: Name, meta } = await import(\`prefix${key}suffix\`)` makes every file under the directory `prefix` ends in a choice. Directories named `node_modules` or starting with `.` are left out.
+* `<Name />` from such an import lowers to a `Tmpl::If` chain comparing the key, as a string, with each choice. A key naming none renders nothing.
+* Each other destructured name is a `let` of the chosen file's export of that name, `null` for none.
+* An `async` component is accepted when every `await` in it is of an `import()`.
+
+### Markup Values
+
+* JSX in a `const` or `let`, a write, an attribute or an object field is lowered into `Expr::Markup`.
+* A local holding markup is substituted where it renders. A branch becomes a `Tmpl::If`.
+* A placement's attribute holding markup becomes a `Tmpl::Let` among its children named `render::SLOT_CONTENT_PREFIX` and the prop.
+* In the component that takes it, each `{props.name}` is a `Tmpl::Let` named `render::SLOT_READ_PREFIX` and the prop.
+* An array of markup (returned, written in place, held in a local, passed as a prop, built with `push` in a branch, `concat` or kept with `filter(Boolean)`) is a `Tmpl::Fragment` of its items.
+* Markup arrays carry a `render::ARRAY_ITEMS` let around their fragment.
+* Markup in data renders where it is read. Markup in an element's attribute is residue. So is markup read as a value.
+* Markup passed as a prop to a component that renders in the browser crosses as a region the server renders and the island adopts.
+* `createElement(type, props, ...children)` bound to React's is read as the JSX it stands for.
+* In `createElement`, a lowercase string tag is an element. An uppercase identifier or `A.B` is a component. `null` or `undefined` props are none.
+* A `createElement` with a tag held in a variable, props that are neither an object literal nor an identifier or a computed or method field is residue.
 
 ### Expressions
 
-* Parentheses, `await`, `as`, `!` non-null, `satisfies`, type assertions and optional chaining on a member are transparent, since a missing field already reads as `null`.
-* Reads: `params.x`, `query.x`, `session.x`, `identity.x`, `identity.x.y`, `input`, `now`, plus the same under `ctx.`. A session read whose key has a default becomes `Coalesce(Session, default)`. A root used as a whole is residue, as is a computed key on a root.
-* Literals: strings, numbers as `Lit::Float`, bigints as `Lit::Int`, booleans, `null`, `undefined` as `Lit::Null`. A regular expression is an object holding its source under `jsregex::PATTERN` and its flags under `jsregex::FLAGS`, so a module-level `const` of one passes through like any value; one `jsregex::compiled` refuses (the `y` flag, a nested unbounded quantifier, a pattern past its length cap or one JavaScript would not compile) is residue naming that construct.
-* Template literals, object literals with shorthand, `key: value`, `[computed]: value` and spread entries, array literals with spread. A method in an object literal, `key() {}` or `async key() {}`, is read as `key: function () {}` when the module is parsed, so it is a function value like an arrow; a getter or a setter is residue. A `function` expression lowers as an arrow does, a generator is residue.
-* `+ - * / % **`, `& | ^ << >> >>>`, `=== !== == != < <= > >=`, `&& || ??`, `!`, `~`, unary minus and the conditional operator. `~x` is `x ^ -1`. A bitwise operator with a `bigint` side is residue. `k in x` is `Builtin::HasKey`: an own key of an object or an index of an array, never one an object inherits. `Array.isArray(x)` is `Builtin::IsArray`. `typeof x` is `Builtin::TypeOf`, which answers `"undefined"` for null as well as for undefined: `typeof x === "object" && x !== null` agrees with JavaScript, a bare `typeof x === "object"` over a null does not. `x instanceof Map`, `Set` or `Date` is a constant where the build knows the kind of `x` (the next section) and residue where it does not; `x instanceof Array` is `Builtin::IsArray`; `x instanceof Error` (or any of the error constructors) is `Builtin::IsError` with the constructor's name, true for the `{ name, message }` object a `throw new Error(...)` or a native member makes; `typeof x` is `"bigint"` or `"object"` written out where `x` has a known kind. Other operators, including `instanceof` of another class, are residue.
-* `a.b` and `a["b"]` are field reads; `a[e]` is an index; `a.length` is `Expr::Length`.
-* `String(e)`, `Number(e)`, `BigInt(e)`; `Object.entries(e)`, `Object.keys(e)`, `Object.values(e)`.
-* `await services.<s>.<m>(args)` and `ctx.services.<s>.<m>(args)`, where `args` is absent or one object literal with shorthand or `key: value` entries. Argument values that lower to `null` are omitted at run time.
-* `e.map(f)`, `e.filter(f)`, `e.find(f)`, `e.findIndex(f)`, `e.some(f)`, `e.every(f)`, `e.flatMap(f)`, `e.reduce(f, init)`; each callback receives the index and the array after the item, as JavaScript passes them. `e.filter(Boolean)` is `e.filter((x) => !!x)`. A call of `clsx` (named or default import from `clsx`) or the default import of `classnames` is `Builtin::ClassNames` over its arguments as one array. `e.toSorted(f)` and `e.sort(f)` are `Expr::Sort` with `f` or `null`; `e.toReversed()` and `e.reverse()` are `Builtin::Reverse`. As an expression, `sort` and `reverse` lower only over an array the expression itself builds (an array literal or the result of `slice`, `map`, `filter`, `concat`, `flatMap`, `split` and their kin), since over one another holder sees they rewrite it in place; otherwise they are residue naming `[...items].sort()`. As a statement on a local they rewrite the local, as `pop` and `shift` do.
-* `f` is an arrow written in place: one expression or a block of `const`s, `if` branches and `return`s, lowered the way a helper's body is. A parameter is a name, a name with a default or a pattern bound as a declaration's is; a rest parameter gathers the arguments after the named ones; one that is not a plain name or not last is residue.
-* The pure builtins, each an `Expr::Builtin`: `Math.round`, `Math.floor`, `Math.ceil`, `Math.abs`, `Math.min`, `Math.max`, `Math.pow`, `Math.sqrt`, `Math.trunc`, `Math.sign`, `Array.from({ length })`, `encodeURIComponent(e)`, `JSON.stringify(e, null, indent)`, `JSON.parse(s)`, `e.toFixed(n)`, `e.repeat(n)`, `e.join(sep)`, `e.trim()`, `e.toUpperCase()`, `e.toLowerCase()`, `e.includes(x)`, `e.startsWith(p)`, `e.endsWith(p)`, `e.split(sep)`, `e.replace(from, to)`, `e.slice(start, end)`, `e.at(i)`, `e.indexOf(x, from)`, `e.concat(...items)`, `e.padStart(n, fill)`, `e.padEnd(n, fill)` and `e.substring(start, end)`. `e.toLocaleString(locale, options)` is `intl.number` as `Intl.NumberFormat` is, under the request's locale when none is written. The receiver is the first argument and the call's own arguments follow it. A string's indices count UTF-16 code units. `Math.min(...items)` and `Math.max(...items)` with a spread are `Builtin::MinOf` and `Builtin::MaxOf` over one array; a spread into another builtin is residue. `JSON.stringify` with a replacer is residue.
-* `startsWith` and `endsWith` take exactly one argument and `replace` exactly two; a second argument, JavaScript's `position`, is residue rather than one the interpreter would ignore. `split` takes a separator and an optional limit. `split("")` lowers; the interpreter fails on a subject holding a character outside the Basic Multilingual Plane. 
-* `new Date(x)` is `Builtin::DateMs`, milliseconds since the epoch from a number or an ISO 8601 string. `new Date()` and `Date.now()` read the request's clock in a body and are residue on a render path, where the server and the browser read different moments; `new Date(year, month, ...)` reads the viewer's time zone and is residue. A date's `getTime()`, `valueOf()`, `toISOString()`, `toJSON()` and `getUTC*()` parts lower; the local-time getters are residue naming their `getUTC` form. `Date.parse(s)` is `DateMs`. `performance.now()` is `Num` over `time.monotonic`, milliseconds since the process started, under the same render-path rule as `Date.now()`. `crypto.randomUUID()` is `crypto.uuid` under that rule too. `d.toLocaleTimeString(locale?)` is `intl.localTime`, the host machine's time zone, in a body and in a terminal page; on a web render path it is the viewer's and residue.
-* `btoa(s)` and `atob(s)` are `encoding.btoa` and `encoding.atob`; `new TextEncoder().encode(s)` and `new TextDecoder().decode(bytes)`, in place or on a name bound to one, are `encoding.encode` and `encoding.decode`, bytes as an array of numbers. A `TextDecoder` with a label other than UTF-8 or options is residue. `structuredClone(x)` is `x`, since a lowered value is never shared.
-* `new Intl.NumberFormat(locale, options).format(n)` is `intl.number` with `style` `decimal` or `percent`, the fraction digits, `minimumIntegerDigits`, `useGrouping` and `signDisplay`. With `style: "currency"` it is `intl.currency` with the `currencyDisplay` as `display`, `symbol` when none is written, plus the fraction digits. `new Intl.DateTimeFormat(locale, options).format(d)` and `d.toLocaleDateString(locale, options)` are `intl.date`: at a `dateStyle`, at a `timeStyle` `short` or `medium` with or without one or at the parts `weekday`, `year`, `month` and `day`, a text month or weekday (`long`, `short`, `narrow`) with a numeric year and day; `timeZone: "UTC"` allowed and required beside a `timeStyle`, whose absence leaves the value to the browser. `new Intl.PluralRules(locale, { type }).select(n)` is `intl.plural`; `new Intl.Collator(locale, { sensitivity, numeric }).compare(a, b)` and `a.localeCompare(b, locale, options)` are `intl.compare` (`collator.compare` passed as a function is a lambda over it); `new Intl.RelativeTimeFormat(locale, { numeric, style }).format(value, unit)` is `intl.relative`; `new Intl.ListFormat(locale, { type, style }).format(items)` is `intl.list`. The locale is `undefined` for the request's or an expression, which goes along as `locale`. A formatter kept as a value, `const f = new Intl.NumberFormat(...)` local or module-level, binds its name to null and its method lowers as the inline form. Each is a hoist candidate in a component. A numeric month, a date with neither a style nor a part, an option a formatter does not read and a string option outside its values are residue naming the formatter and the option, with the options it reads.
-* `new Error(message)`, `new TypeError(message)` and the other error constructors, `RangeError`, `SyntaxError`, `ReferenceError`, `EvalError` and `URIError`, are the object `{ name, message }`, as a `throw` of one reads it; `Error(message)` without `new` is the same object. `console.log(a, ...rest)` is `LogOf` over the array `[a, ...rest]`; `f(a, ...rest)` into a function the module or the component declares or into a function value in scope is `ApplyOf` over that array, while a spread into any other call is residue; a `console` call in a helper's block runs where it is written.
-* A module function that calls itself lowers to `Fix { name, f }` over its lambda: the call inside its body is `ApplyOf(Var(name), args)` and a call site applies the `Fix`, which binds the name to the function while it runs and fails a call nested `interp::MAX_APPLIES` deep. A function's name where a callback goes, `items.map(sum)`, is that function value. `object.name(args)` on an object literal whose field holds a function and `object[key](args)` on one whose fields all do apply that field; `object[key](args)` on a value of no known kind applies whatever the key names and fails the render when it is not a function.
-* `new Map(pairs)` and `Object.fromEntries(pairs)` are `Builtin::FromEntries`, an object keyed by `String(key)`; `new Set(items)` is `Builtin::Unique`; `new URLSearchParams(x)` is `Builtin::FormEncode`, the encoded string. Its `.get(k)` is `Builtin::FormGet`. A name bound to a `new Map`, `new Set` or `new URLSearchParams` is noted, a module-level one included, so a `Map` or `Set` name's `.size`, `.get(k)`, `.has(k)`, `.keys()`, `.values()` and `.entries()`, a spread of it and `for...of` over it read the collection; in a body `m.set(k, v)`, `m.delete(k)` and `s.add(x)` on a local are writes. `Array.from(x)` copies an array and reads a `Map`'s entries. `x.toString()` is `String(x)`. `new` of anything else is residue. A `new Date(...)`, a bigint literal and `BigInt(x)` note their kinds the same way. A component's prop has a kind where the props parameter's type names one, `Map<K, V>`, `ReadonlyMap`, `Set<T>`, `ReadonlySet`, `Date`, `URLSearchParams` or `bigint`, written in place or through a `type` or `interface` the file declares. Without one, a prop has the kind every placement in the first file to place the component passes it as. The type wins where both say something. A placement passing a value of a known kind that differs from the kind the component read a prop as is a residue at that placement. Each placement carries the kinds it knows under `render::TYPES_PROP`, `$t`, so an island mounts with the real types.
-* `re.test(s)`, `s.match(re)`, `s.matchAll(re)` and `s.search(re)` are `Builtin::RegexTest`, `Match`, `MatchAll` and `Search`. `s.replace(re, to)` and `s.split(re)` take a regular expression where they take a string. `s.replace(pattern, f)` with an arrow is `Expr::ReplaceWith`. `s.replaceAll(from, to)` is `Builtin::ReplaceAll` for a string and `Replace` for a regular expression, which must carry `g`; with an arrow, a string literal becomes an escaped regular expression with `g`.
-* `a?.b.m(x)` is the call as written, `null` when an optional link's object is null or undefined. An optional call of a function value, `f?.()`, is residue.
-* `x++`, `x--`, `++x` and `--x` on a local inside an expression are lifted out of the statement that holds them when the statement reaches them unconditionally: the old value is held under a temporary, the write is a `Set` before the statement and the expression reads the temporary or, for a prefix, the name itself. One under a condition, a short-circuit or inside a function stays where it is and is residue.
-* Any other call, `this`, comma expressions, tagged templates, JSX, `yield` and assignment inside an expression are residue. A call to a name that is not a builtin names that name in the message.
+* Parentheses, `await`, `as`, `!` non-null, `satisfies`, type assertions and optional chaining on a member are transparent.
+* Reads: `params.x`, `query.x`, `session.x`, `identity.x`, `identity.x.y`, `input` and `now`, also under `ctx.`.
+* A session read whose key has a default is `Coalesce(Session, default)`.
+* A context root used whole is residue. So is a computed key on a root.
+* Strings and booleans lower as themselves. Numbers are `Lit::Float` and bigints `Lit::Int`. `null` and `undefined` are `Lit::Null`.
+* A regular expression is an object holding its source under `jsregex::PATTERN` and its flags under `jsregex::FLAGS`.
+* A regular expression `jsregex::compiled` refuses is residue: the `y` flag, a nested unbounded quantifier, a pattern past its length cap or one JavaScript would not compile.
+* Template literals. Object literals with shorthand, `key: value`, `[computed]: value` and spread entries. Array literals with spread.
+* A method in an object literal is a function value. A getter or a setter is residue.
+* A `function` expression lowers as an arrow does. A generator is residue.
+* Operators: `+ - * / % **`, `& | ^ << >> >>>`, `=== !== == != < <= > >=`, `&& || ??`, `!`, `~`, unary minus and `?:`.
+* `~x` is `x ^ -1`. A bitwise operator with a `bigint` side is residue.
+* `k in x` is `Builtin::HasKey`, an own key of an object or an index of an array.
+* `Array.isArray(x)` and `x instanceof Array` are `Builtin::IsArray`.
+* `typeof x` is `Builtin::TypeOf`. It answers `"undefined"` for null as well as for undefined.
+* `typeof x` is written out as `"bigint"` or `"object"` where `x` has a known kind.
+* `x instanceof Map`, `Set` or `Date` is a constant where the kind of `x` is known and residue where it is not.
+* `x instanceof Error` and `instanceof` any error constructor are `Builtin::IsError` with the constructor's name.
+* `instanceof` of another class is residue.
+* `a.b` and `a["b"]` are field reads. `a[e]` is an index. `a.length` is `Expr::Length`.
+* `a?.b.m(x)` is the call as written, `null` when an optional link's object is null or undefined. `f?.()` is residue.
+* `String(e)`, `Number(e)` and `BigInt(e)`. `x.toString()` is `String(x)`.
+* `Object.entries(e)`, `Object.keys(e)` and `Object.values(e)`.
+* `await services.<s>.<m>(args)` and `ctx.services.<s>.<m>(args)`, with `args` absent or one object literal. Argument values that are `null` at run time are omitted.
+* `x++`, `x--`, `++x` and `--x` on a local inside an expression are lifted before the statement when it reaches them unconditionally. Under a condition, a short-circuit or a function they are residue.
+* A module function that calls itself lowers to `Fix { name, f }`. A call nested `interp::MAX_APPLIES` deep fails.
+* A function's name where a callback goes, `items.map(sum)`, is that function value.
+* `object.name(args)` on an object literal whose field holds a function applies that field. `object[key](args)` applies the field the key names.
+* `f(a, ...rest)` into a function the module or the component declares is `ApplyOf`. So is one into a function value in scope. A spread into any other call is residue.
+* `console.log(a, ...rest)` is `LogOf` over `[a, ...rest]`.
+* `new Error(message)`, `Error(message)` and the other error constructors are `{ name, message }`.
+* Any other call, `this`, comma expressions, tagged templates, `yield` and assignment inside an expression are residue. A call to a name that is not a builtin names it in the message.
+
+### Builtins
+
+* Each is an `Expr::Builtin` with the receiver as its first argument.
+* `Math.round`, `floor`, `ceil`, `abs`, `min`, `max`, `pow`, `sqrt`, `trunc` and `sign`.
+* `Math.min(...items)` and `Math.max(...items)` are `Builtin::MinOf` and `Builtin::MaxOf` over one array. A spread into another builtin is residue.
+* `Array.from({ length })`. `Array.from(x)` copies an array and reads a `Map`'s entries.
+* `encodeURIComponent(e)`, `JSON.stringify(e, null, indent)` and `JSON.parse(s)`. `JSON.stringify` with a replacer is residue.
+* String and array methods: `toFixed`, `repeat`, `join`, `trim`, `toUpperCase`, `toLowerCase`, `includes`, `startsWith`, `endsWith`, `split`, `replace`, `slice`, `at`, `indexOf`, `concat`, `padStart`, `padEnd` and `substring`.
+* A string's indices count UTF-16 code units.
+* `startsWith` and `endsWith` take exactly one argument. `replace` takes exactly two.
+* `split` takes a separator and an optional limit. `split("")` fails at run time on a character outside the Basic Multilingual Plane.
+* `e.map(f)`, `filter`, `find`, `findIndex`, `some`, `every`, `flatMap` and `reduce(f, init)`. Each callback receives the item, the index and the array.
+* `e.filter(Boolean)` is `e.filter((x) => !!x)`.
+* `clsx` (named or default import) and the default import of `classnames` are `Builtin::ClassNames` over their arguments as one array.
+* `e.toSorted(f)` and `e.sort(f)` are `Expr::Sort` with `f` or `null`. `e.toReversed()` and `e.reverse()` are `Builtin::Reverse`.
+* As an expression, `sort` and `reverse` lower only over an array the expression builds. Otherwise they are residue naming `[...items].sort()`.
+* As a statement on a local, `sort`, `reverse`, `pop` and `shift` rewrite the local.
+* `re.test(s)`, `s.match(re)`, `s.matchAll(re)` and `s.search(re)` are `Builtin::RegexTest`, `Match`, `MatchAll` and `Search`.
+* `s.replace(re, to)` and `s.split(re)` take a regular expression. `s.replace(pattern, f)` with an arrow is `Expr::ReplaceWith`.
+* `s.replaceAll(from, to)` is `Builtin::ReplaceAll` for a string and `Replace` for a regular expression, which must carry `g`.
+* `structuredClone(x)` is `x`.
+
+### Dates, Encoding and Intl
+
+* `new Date(x)` and `Date.parse(s)` are `Builtin::DateMs`, from a number or an ISO 8601 string.
+* `new Date()` and `Date.now()` read the request's clock in a body. On a render path they are residue.
+* `new Date(year, month, ...)` is residue.
+* A date's `getTime()`, `valueOf()`, `toISOString()`, `toJSON()` and `getUTC*()` lower. A local-time getter is residue naming its `getUTC` form.
+* `performance.now()` is `Num` over `time.monotonic`, under the same render-path rule as `Date.now()`.
+* `crypto.randomUUID()` is `crypto.uuid`, under the same rule.
+* `d.toLocaleTimeString(locale?)` is `intl.localTime` in a body and in a terminal page. On a web render path it is residue.
+* `btoa(s)` and `atob(s)` are `encoding.btoa` and `encoding.atob`.
+* `new TextEncoder().encode(s)` and `new TextDecoder().decode(bytes)` are `encoding.encode` and `encoding.decode`, with bytes as an array of numbers.
+* A `TextDecoder` with a label other than UTF-8 is residue. So is one with options.
+* `new Intl.NumberFormat(locale, options).format(n)` and `e.toLocaleString(locale, options)` are `intl.number`, with `style` `decimal` or `percent`, the fraction digits, `minimumIntegerDigits`, `useGrouping` and `signDisplay`.
+* `Intl.NumberFormat` with `style: "currency"` is `intl.currency`, with `currencyDisplay` as `display` (default `symbol`) and the fraction digits.
+* `new Intl.DateTimeFormat(locale, options).format(d)` and `d.toLocaleDateString(locale, options)` are `intl.date`.
+* `intl.date` takes a `dateStyle` or a `timeStyle` of `short` or `medium`.
+* `intl.date` also takes the parts `weekday`, `year`, `month` and `day` with a text month or weekday (`long`, `short`, `narrow`) and a numeric year and day.
+* `timeZone: "UTC"` is allowed. It is required beside a `timeStyle`.
+* `new Intl.PluralRules(locale, { type }).select(n)` is `intl.plural`.
+* `new Intl.Collator(locale, { sensitivity, numeric }).compare(a, b)` and `a.localeCompare(b, locale, options)` are `intl.compare`. `collator.compare` passed as a function is a lambda over it.
+* `new Intl.RelativeTimeFormat(locale, { numeric, style }).format(value, unit)` is `intl.relative`.
+* `new Intl.ListFormat(locale, { type, style }).format(items)` is `intl.list`.
+* The locale is `undefined` for the request's or an expression.
+* A formatter kept in a `const`, local or module-level, binds its name to null and its method lowers as the inline form.
+* Each formatter call is a hoist candidate in a component.
+* A numeric month, a date with neither a style nor a part, an option a formatter does not read and a string option outside its values are residue.
+
+### Collections and Kinds
+
+* `new Map(pairs)` and `Object.fromEntries(pairs)` are `Builtin::FromEntries`, an object keyed by `String(key)`.
+* `new Set(items)` is `Builtin::Unique`.
+* `new URLSearchParams(x)` is `Builtin::FormEncode`. Its `.get(k)` is `Builtin::FormGet`.
+* A name bound to a `new Map`, `new Set` or `new URLSearchParams`, module-level included, has that kind.
+* A `Map` or `Set` name's `.size`, `.get(k)`, `.has(k)`, `.keys()`, `.values()`, `.entries()`, a spread of it and `for...of` over it read the collection.
+* In a body, `m.set(k, v)`, `m.delete(k)` and `s.add(x)` on a local are writes.
+* `new` of anything else is residue.
+* `new Date(...)`, a bigint literal and `BigInt(x)` give their kinds the same way.
+* A prop has a kind where the props parameter's type names `Map<K, V>`, `ReadonlyMap`, `Set<T>`, `ReadonlySet`, `Date`, `URLSearchParams` or `bigint`, in place or through a `type` or `interface` the file declares.
+* Without a type, a prop has the kind every placement in the first file to place the component passes. The type wins where both say something.
+* A placement passing a known kind that differs from the kind the component read is residue at that placement.
+* Each placement carries the kinds it knows under `render::TYPES_PROP`, `$t`.
 
 ### Extensions
 
-* `X.m(args)` where `X` is a standard module imported from a side lowers to `Expr::Ext { module: X, name: m, args }`; a member `standard_reach` does not know is residue naming it. A member whose reach is `terminal`, `later` or `process` is residue on a web page, with `Reach::needs` as the reason. So is source that would need one of those reaches: an async handler, `new Promise`, a `setTimeout` that settles a promise and `p.then` need `later`; `spawn`, `system.*`, `file.*` and `suspendTerminal` need `process`. A member whose reach is `body` on a component's render path is `LowerError::Reach` naming the line, a hard error the set never downgrades; the same call inside a handler, in a body, in middleware or in a helper lowered on its own is allowed and the refusal follows an inlined helper to the render-path call that applies it, naming both. A `render` member is a hoist candidate like a helper call.
-* A module-level `export const f = native("module.member", g?)` with `native` from `@snapfire/fsr` declares a native pair: the name must be a string literal of two non-empty parts, `LowerError::Extension` otherwise; the reach is `render` with `g` and `body` without. The set records it in `natives` and a call `f(args)` lowers to `Expr::Ext` with the same reach rules.
-* Every export of a module under `EXT_DIR` is lowered by `lower_extensions`; one that does not lower is `LowerError::Extension` carrying the residue. Elsewhere a helper that does not lower is residue at its call as before.
+* `X.m(args)` where `X` is a standard module imported from a side lowers to `Expr::Ext { module: X, name: m, args }`. A member `standard_reach` does not know is residue naming it.
+* `@snapfire/fsr/client`, `@snapfire/fsr/host` and `@snapfire/fsr/terminal` export each module as an object. `<root>/<module>` exports its members.
+* A member a side lacks is refused with where the member is. `native` is at `@snapfire/fsr`.
+* A member whose `Member.platform` is set is under no side. Asking for one is refused with the platform code to write.
+* A member whose reach is `terminal`, `later` or `process` is residue on a web page, with `Reach::needs` as the reason.
+* Source needing `later` (an async handler, `new Promise`, a `setTimeout` that settles a promise, `p.then`) or `process` (`spawn`, `system.*`, `file.*`, `suspendTerminal`) is residue on a web page.
+* A `body` member on a component's render path is `LowerError::Reach`. The set never downgrades it.
+* A `body` member inside a handler, a body, middleware or a helper lowered on its own is allowed. The refusal follows an inlined helper to the render-path call, naming both.
+* A `render` member is a hoist candidate.
+* `export const f = native("module.member", g?)` at module level, with `native` from `@snapfire/fsr`, declares a native pair. The name is a string literal of two non-empty parts, else `LowerError::Extension`.
+* A native pair's reach is `render` with `g` and `body` without. `f(args)` lowers to `Expr::Ext`.
+* Every export of a module under `EXT_DIR` must lower, else `LowerError::Extension`.
+* A name imported from one of Node's modules is residue naming FSR's members. So is the `process` global.
 
-### Hoisting
+### Hoisted Calls and Subtrees
 
-* In a component, a call to a module-level helper (`Expr::Apply`), a `render` extension call (`Expr::Ext`, a formatter or `toLocaleString` among them) is wrapped as `Expr::Hoist` when its inputs are props only: none of its free variables reaches a `useState`, `useStore` or `useRef` binding or a name computed from one through a `const`, a `.map` parameter or a block `const` and it reads no store key, no request and no service. A call inside a lambda body, under another hoist or with such an input stays a plain call. A `Tmpl::For` whose `over` reads state taints its parameters.
-* `ComponentSet.rewrites: Vec<hoist::Rewrite>` holds one entry per component with a surviving hoist: `file`, `module`, where the reader hook goes (`hoist::Hook::Block { after }` after a block body's `{` or `Hook::Expression(range)` around an arrow's expression body), the surviving `sites` as `(id, byte range of the call)`, the surviving `chunks` as `hoist::ChunkSite { id, range, open, as_child, proven }`, the keyed `placements` as `(id, element range, among children)` and the `loops` as the byte ranges of the JSX `.map` callbacks holding them. `statement_loops` holds each `for…of` or counted `for` holding one as `hoist::StatementLoop { range, body, pushes }`: the statement's range, its body's and the ranges of the arguments its body's `push` calls give the arrays it writes. A placement is keyed when the component it places keys a hoist, a chunk or a region anywhere below it and it does not sit inside a kept chunk; the lowerer sets `Tmpl::Component.keyed` on it so the renderer extends the key path the same way. A component met in its own cycle counts as keyed. `ComponentSet::settle_proofs(&mut self)` runs once every component is lowered and clears `proven` on the chunks of a component a `foreign` placement mounts and, when any component holds a `<Mount>` (marked `placements::MOUNT_ATTR`, `$mount`), on every chunk, since the browser then supplies an island's props. `ComponentSet::rewritten(&self) -> Vec<(String, String)>` is every such file with `hoist::apply` over its source, plus every file a hoisted function or an unexported function was referenced from, with `export const __sfF<offset> = <the function as written>;` and `export { name };` appended.
-* `hoist::apply(source: &str, rewrites: &[&Rewrite]) -> String` splices from the end: prepends `hoist::IMPORT`, binds `const __sfh = __sfUseHoisted("<module>")` at the hook, replaces each call with `__sfh.r(<id>, () => (<call>))`, wraps each loop callback as `__sfh.l(<callback>)`, each statement loop as `{ let __sfI<at> = 0; <head> { __sfh.e(__sfI<at>++); try { <body> } finally { __sfh.x(); } } }` with each `push` argument as `__sfh.w(<argument>)`, each keyed placement as `__sfh.p(<id>, <element>)`, each `useId()` call as `__sfh.id(<id>)` and each chunk element as `__sfh.c(<id>, (__sfHtml) => <tag attrs dangerouslySetInnerHTML={__sfHtml} />)`, the element itself gone with every edit inside it, when the chunk is proven, else as `__sfh.c(<id>, (__sfHtml) => <tag attrs dangerouslySetInnerHTML={__sfHtml} />, () => (<element>))`, braced either way when the element sits among JSX children. `hoist::decide(&mut Component, state: &[String]) -> Vec<u32>` is the value pass, unwrapping what does not qualify and returning the ids kept.
-* Subtrees: every element with children is a candidate, marked by a `$chunk` attribute that holds its id. `hoist::chunks(&mut Component, state, pure: &HashMap<String, bool>) -> Vec<hoist::Chunk>` keeps the outermost ones that are static and do work, removing every other marker, and never one inside a loop over state, which the browser can grow past what the server rendered. A kept chunk under an `If` whose condition reads state also carries `hoist::UNTAKEN_ATTR`, `$untaken`, so the renderer records it in the branch it did not take. `Chunk { id, proven }` says whether the browser can count on the markup being recorded: a chunk among the children a component or an island is given is not proven, since its slot renders it. `hoist::cover(&mut Component, &[Chunk]) -> Vec<u32>` unwraps every value hoist among a proven chunk's children, whose markup carries them, and returns their ids; the lowerer drops them from the kept values. A subtree is static when every expression in it is props only, no element in it carries `$bound` (a handler, a `ref` or a spread, which the lowerer marks), it is not `sf-s`, it holds no island and no slot and every component it renders is pure; it does work when it holds an interpolation, a branch, a loop, a binding, a component or a non-literal attribute, so literal markup is left to React. `ComponentSet.pure` records per module whether it is pure: no state, static all the way down. `hoist::static_tree(&Tmpl, pure) -> bool` is the static test with no state at all. `Rewrite.chunks` carries one `ChunkSite` per kept chunk.
+* In a component, a call to a module-level helper or a `render` extension call is wrapped as `Expr::Hoist` when its inputs are props only.
+* A call's inputs are props only when no free variable reaches a `useState`, `useStore` or `useRef` binding or a name computed from one. It must also read no store key, request or service.
+* A call inside a lambda body, under another hoist or with a state input stays a plain call.
+* A `Tmpl::For` whose `over` reads state taints its parameters.
+* Every element with children is a subtree candidate, marked `CHUNK_ATTR` with its id.
+* A kept chunk is static and does work. A chunk inside a loop over state is never kept.
+* A subtree is static when every expression is props only, no element carries `BOUND_ATTR`, it is not `sf-s`, it holds no island or slot and every component it renders is pure.
+* A subtree does work when it holds an interpolation, a branch, a loop, a binding, a component or a non-literal attribute.
+* A kept chunk under an `If` whose condition reads state carries `UNTAKEN_ATTR`.
+
+### Function Props
+
+* A function passed as a prop to a component that renders in the browser reaches it as a module reference in a `render::FUNCTIONS_PROP` object, `$f`, naming `file#export` per prop.
+* An arrow or a `function` written in place that reads only its own names, module-level bindings and globals is hoisted into an export of its file named `__sfF<byte offset>`.
+* A function the file declares is named by its own export, which the rewrite adds when missing. An imported function is named by its file and export.
+* A conditional between two function props is an expression choosing between their ids.
+* A function the server cannot lower is a `render::BROWSER_HANDLER` value with its reference.
+* A function prop that reads a prop, a local or a function of the component is residue. So is a function held in a local.
+* A module id carries no site prefix.
+* A component in a plugin's language rendered inline by an `Owner::React` component lowers to an empty `<sf-s data-sf-island>`. Given children, it is `LowerError::ForeignChildren`.
+* In an `Owner::Fsr` component such a component is residue that says to place it inside `<Island>`.
+* A placement of a transformed file's default export with `components={{ key: Name }}` lowers the file again as `file~<hash>#default` with those elements as `Override`s. Any other `components` value is residue.
 
 ### Handlers
 
-* Every `on*` attribute of an element is lowered as a handler when it can be, whether or not the component is ever placed in server mode: an arrow, a function declared in the component or a `const` holding one, `useCallback` included or `() => void f()` calling one. The body is `const`s, which bind, calls to state setters, `setX(expr)` or `setX((prev) => expr)` with `prev` reading `X`, plus calls to actions, `save(input)` or `void save(input)` where `save` is a module-level `const save = action("id")` with `action` imported from `CLIENT_SOURCE`, which lower to `Stmt::Act { action: id, input }` in the order written, the input an empty object when the call has no argument; `e.preventDefault()` and `e.stopPropagation()` are dropped; the event parameter reads as `$event`, so `e.target.value` is `Field(Field(Var("$event"), "target"), "value")`. The handler returns an object of the state it set, empty when it only called actions. An `if`, with `else` or `else if`, holds the same statements: a key set under a branch is `Ternary(reach, value, prior)`, where `reach` is the branch's condition joined by `And` to the conditions around it and `prior` is what the patch already held for the key or `Var(key)`, the state as it stands; an action called under a branch is `Stmt::If { cond: reach, then: [Act], else: [] }`; a `const` declared under a branch is hoisted as `Let` under a name of its own, `rest$1`, its value `Ternary(reach, init, Null)`; a bare `return` in a branch makes the statements after the `if` reachable only where that branch did not run. A handler that neither sets state nor calls an action, that loops or that calls anything else leaves `$unlowered` on the element with the line and the reason and is otherwise the browser's.
-* A prop on a component placement whose value is a function, an arrow, a `function` or the name of one the component declares, is lowered the same way into the placing component's handlers. The prop is `Expr::Handler(index)`, whatever its name, `on*` included. A state setter passed by name, `onChange={setQuery}`, is a handler that sets that state to `$event`.
-* A handler's own `let` that it writes later, in a branch, after an early `return` or with `++` and `--`, is a cell for the step, so a read after the write sees the new value. A branch condition that reads a cell is evaluated once, where the branch is, so a write after the branch does not change which branch ran. A module-level `let` or collection that a function the handler calls writes is read back into the handler's patch, so the step writes its store key. One that does not lower leaves `$unlowered` with the line and the reason among the placement's props, which refuses a server island as an element's does; the prop is then left out.
-* A `setInterval(callback, ms)` or `setTimeout(callback, ms)` that a `useEffect` or `useLayoutEffect` with an empty dependency list starts, as a statement or a `const`'s value, starts on a terminal page from a `mount` handler as the act `$timer`, the way a handler starts one. Its callback, an arrow or a function the component holds, is a continuation that reads the state values of the render that ran the effect, as a closure does, while an updater applies to the state as it is. On a web page a callback with `ms` a number written out or a module constant lowers as a handler named `interval:<ms>` or `timeout:<ms>`. An effect with dependencies, a timer whose callback does not lower and anything else an effect does is dropped, as every effect is on the server.
-* Ink's `useInput(handler)`, from `@snapfire/fsr/terminal/ink`, lowers its handler the same way as the component's `input` handler, with the first parameter reading `Field(Var("$event"), "input")` and the second `Field(Var("$event"), "key")`, so `key.upArrow` reads the flag the terminal passes.
-* In a terminal mount effect, a statement that is not a declaration, a timer or a call to one of the effect's functions, an `if` around setter calls for one, lowers as a `mount` handler of its own holding that statement, so what a handler body refuses the effect refuses too.
-* In a terminal mount effect, `system.spawn(command, args, options)` from `@snapfire/fsr/terminal` lowers to a `mount` handler holding the act `$spawn` `{ id, command, args, options }`; `sub.on("error" | "exit" | "close", f)` and `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)` each lower to a handler named `spawn:<id>:<event>`, `exit` and `close` binding their parameters to the event's `code` and `signal`. `sub.stdin.write(text)` and `sub.stdin.end()` in the effect or a handler lower to the act `$stdin` `{ id, text }` or `{ id, end: true }`. `$spawn` then carries `stdin: true`.
-* In a terminal page an effect whose dependencies change lowers its body as a handler named `effect:<n>` and emits an `effect`, `{ event, deps }`, with the dependencies' values; the terminal runs the handler after a render whose values differ from the last ones it saw for that component. One whose body sets no state and calls no action is left out, as is one that does not lower and reads a browser global (`document`, `window`, `navigator`, `location`, `history`, `localStorage` or `sessionStorage`). In a terminal handler `setInterval(f, ms)` or `setTimeout(f, ms)` with `f` an arrow written in place is `$timer`, `{ id, event, carry, ms, repeats }`, with `f` a continuation of the component; its value is `{ "$timer": id }`, `terminal::TIMER`; `clearInterval` or `clearTimeout` of it is `$clearTimer`. An arrow an effect whose dependencies change returns is `$cleanup`, `{ effect, event, carry }`, which the terminal runs before that effect runs again.
-* In a terminal page a module-level `let` a function writes is a cell, `ModuleCell { key, init }`, which a step starts from the value the host passes in `render::CELLS_PROP` and returns in `Stepped::cells`. A handler's `let` that a listener or a continuation writes is a `ModuleCell` too, keyed by a `crypto.random` value the handler makes each run and carries to them. A listener on a process a handler spawned, `child.on(event, f)` or `child.stdout.on("data", f)`, is `$listen` with `f` a continuation of the component, so it may call the component's setters. `new Promise(executor)` lowers to a block making a deferred, `{ "$deferred": id }`, running the executor with `resolve` and `reject` bound to `terminal::SETTLES` values; a call to one is the act `$settle` and `setTimeout(resolve, ms)` a `$timer` that settles. A module-level `new Map()` or `new Set()` a function changes with `set`, `delete`, `add` or `clear` is a cell too. `setTimeout(callback, ms)` in a block lowers its callback as a continuation and issues `$timer` with its event and what it carries. A declaration whose value issues an act or draws randomness is bound once, where it is declared. An async arrow called where it is written runs to its first `await`, which issues `$then` with the awaited promise; the rest lowers to a handler named `resume:<file>@<offset>`, the names it reads carried in the act. `throw` in a block is `Builtin::Throw`; `Suspense` lowers to `render::SUSPENSE_TAG` with its content and its fallback.
-* In a terminal page an `async` module function returns a deferred its statements settle: an `await` inside a `try` that rejects runs the `catch`, then the `finally` when there is one, then what follows the `try`; one that resolves runs the rest of the `try`, then the `finally`. A promise it returns is adopted, as `resolve(p)` adopts `p`.
-* In a terminal handler, an async arrow called where it is written runs to its first `await`, which issues `$then`; the rest is a handler of the component named `resume:<file>@<offset>`, with the names it reads that the component does not hold carried in the act. In a module async function the `await` is a statement, a `const`'s value or an assignment, `x = await f()`: the settled value is bound to a hidden name and the assignment to it is the first statement of the continuation. A `for...of` over an array, a counted `for` or a `while` whose body awaits lowers its head to a continuation named for the loop, `resume:<file>@<offset>`, run through the act `$run` with every variable in scope carried: when the test holds it runs one pass, the body and the step, whose every way through ends by running the head again with the variables as the pass left them; otherwise it runs the statements after the loop. `for (const x of xs)` reads as `const $items = xs; let $i = 0` with the test `$i < $items.length`, the pass starting `const x = $items[$i]` and ending `$i++`. A `continue` or `return` at the top of the body or ending an `if` there is that way's end: `if (c) continue; rest` reads as `if (c) { step } else { rest; step }` and a `return v` settles the function's promise with `v` in place of running the head again. `break` inside such a loop, a `continue` or `return` deeper than that and a `for...of` over a `Map` are residue. The statements before an `await` are spliced into the block that issues its act, so a `let` among them stays bound for the carry. A `try` around the `await` runs the rest of its block when the promise resolves and its `catch` when it rejects. `suspendTerminal(f)` from `useApp` lowers `f` as an async function whose promise settles when it returns, then `$suspend` `{ until, settles }`. In a block, `spawn(...)` issues `$spawn` and is `{ "$process": id }`; `on("exit" | "close" | "error", f)` and the streams' `on("data", f)` on it issue `$listen` with a continuation or a promise's `resolve` or `reject`. `useStdout().stdout` is the terminal's output with its `columns` and `rows`; `stdout.on("resize", f)` or `off` is `$listen` or `$unlisten` on it, `f` a `const` arrow of the handler or a function its effect declares; `new Error(m)` is `{ name, message }` and `String.raw` a template of its raw pieces.
-* In a terminal page, a name imported from `@snapfire/fsr/terminal/ink` that `terminal::INK_FILE` exports reads that file's export: Ink's `Static`, `useWindowSize`, `useStdout`, `useStderr`, `useIsScreenReaderEnabled`, `useFocus`, `useFocusManager`, `useCursor`, `useBoxMetrics` and `useApp` are TypeScript in `lower/terminal/ink.tsx`, inlined as an application's own hooks are. They build on `useStore` over the terminal's store keys, `action("$…")` and `emit(kind, value)` from `@snapfire/fsr/terminal/core`, which lowers to `Builtin::Emit`. In a terminal page `action("id")` is an act reference, `{ "$act": id }`, which a handler's call issues. `useApp().exit` is the `$exit` act and `suspendTerminal` is `{ "$primitive": "suspendTerminal" }`, a value whose call is the primitive's. A step returns every emitted value as `Stepped::emitted` in the order it was emitted.
-* In a terminal page `ms`, `stripAnsi`, `stringWidth`, `wrapAnsi` and `bigText` from `@snapfire/fsr/terminal` lower to calls of the standard members `terminal.ms`, `terminal.stripAnsi`, `terminal.stringWidth`, `terminal.wrapAnsi` and `terminal.bigText` through `Construct::Extension`. The member's reach decides where the call may stand; a `terminal` member is refused outside a terminal page.
-* In a terminal page, `system.*` and `clipboard.*` from `@snapfire/fsr/terminal` lower as every standard member does at `Process` reach, so each is residue on a web page; `file.*` and the `path` members a host runs come from `@snapfire/fsr/host`. Each answers the value itself, which an `await` continues with. A name imported from one of Node's modules (`node_module`: a `node:` specifier or a bare `fs`, `path`, `os`, `process` and the rest) is residue naming FSR's members (`NOT_FSR`), as is the `process` global. `crypto.randomUUID()`, `crypto.random` and `crypto.digest(algorithm, encoding, ...parts)` lower as standard members. A module `const` holding `new Scope()` from `@snapfire/fsr/terminal` is a module cell starting undefined (`Kind::Scope`): `scope.get()` is `ReadCell`, `scope.set(v)` is `WriteCell` and `scope.run(v, fn, ...args)` sets the cell to `v`, applies `fn` and puts the value before back, answering the call's result; a continuation inside `fn` sees the value until that `run` returns. On a web page the scope is residue.
-* In a terminal page a module-level constant whose value reads the machine, a file or the clock, an extension member past `Render` reach or `now`, is a cell the session makes once, `ModuleCell` keyed `file#name` like a written `let`, so the module runs once as it does under Node.
-* In a terminal page an import of a module in `terminal::COMPANIONS`, `@snapfire/fsr/terminal/spinners`, `/spinner`, `/text-input` and `/big-text`, resolves to the TypeScript module the build provides under `$fsr/terminal/`, which it lowers as an app's own file.
-* A module importing or re-exporting from an npm package in `terminal::REPLACED`, `ink`, `ink-spinner`, `ink-text-input`, `cli-spinners` or `ink-big-text`, is `LowerError::Residue` at that line, `` `ink`, which is not FSR's ``, with a hint naming FSR's module of it.
-* An `on*` attribute naming a function the component was handed, a prop or a local read by name or through a member, is `$on:<event>` holding that expression, so the element binds the handler of the component that passed it. Calling such a function with arguments from an arrow is a handler like any other and does not lower.
-* `<Island mode="server">` and `island(C, { mode: "server" })` set `Tmpl::Island.mode`; `"browser"` is the default and spells as none; anything else is residue. `Component.state` lists the `useState` and `useStore` bindings, `Component.stores` the `useStore` ones with their keys and `Component.handlers` the handlers lowered, indexed by the `$on:` attributes.
+* Every `on*` attribute of an element lowers as a handler when it can: an arrow, a function declared in the component, a `const` holding one, `useCallback` or `() => void f()`.
+* A handler body holds `const`s, state setter calls and action calls.
+* `setX(expr)` or `setX((prev) => expr)` sets state, `prev` reading `X`.
+* `save(input)` or `void save(input)`, where `save` is a module-level `const save = action("id")` with `action` from `CLIENT_SOURCE`, is `Stmt::Act { action: id, input }`. The input is `{}` when the call has no argument.
+* `e.preventDefault()` and `e.stopPropagation()` are dropped. The event parameter reads as `$event`.
+* The handler returns an object of the state it set, empty when it only called actions.
+* An `if`, with `else` or `else if`, holds the same statements. A key set under a branch is `Ternary(reach, value, prior)`.
+* An action called under a branch is `Stmt::If { cond: reach, then: [Act], else: [] }`.
+* A `const` declared under a branch is hoisted as a `Let` under its own name, `rest$1`, with value `Ternary(reach, init, Null)`.
+* A bare `return` in a branch makes the statements after the `if` reachable only where that branch did not run.
+* A handler that sets no state and calls no action, loops or calls anything else leaves `$unlowered` on the element with the line and the reason.
+* A function-valued prop on a component placement lowers into the placing component's handlers. The prop is `Expr::Handler(index)`.
+* A state setter passed by name, `onChange={setQuery}`, is a handler that sets that state to `$event`.
+* A handler's own `let` it writes later is a cell for the step. A branch condition that reads a cell is evaluated once.
+* A module-level `let` or collection a called function writes is read back into the handler's patch.
+* A handler prop that does not lower leaves `$unlowered` with the line and the reason among the placement's props. The prop is left out.
+* An `on*` attribute naming a function the component was handed is `$on:<event>` holding that expression.
+* `Component.state` lists the `useState` and `useStore` bindings. `Component.stores` lists the `useStore` ones with their keys. `Component.handlers` lists the handlers, indexed by the `$on:` attributes.
+* On a web page, `setInterval(callback, ms)` or `setTimeout(callback, ms)` started by a `useEffect` or `useLayoutEffect` with empty dependencies lowers as a handler named `interval:<ms>` or `timeout:<ms>`. `ms` is a number written out or a module constant.
+* An effect with dependencies, a timer whose callback does not lower and anything else an effect does are dropped.
+
+### Terminal Pages
+
+* An effect timer starts from a `mount` handler as the act `$timer`. Its callback reads the state of the render that ran the effect. An updater applies to the current state.
+* Ink's `useInput(handler)` from `INK_MODULE` lowers as the component's `input` handler, its parameters reading `Field(Var("$event"), "input")` and `Field(Var("$event"), "key")`.
+* In a mount effect, a statement that is not a declaration, a timer or a call to one of the effect's functions lowers as a `mount` handler of its own.
+* In a mount effect, `system.spawn(command, args, options)` lowers to a `mount` handler holding the act `$spawn` `{ id, command, args, options }`.
+* `sub.on("error" | "exit" | "close", f)`, `sub.stdout.on("data", f)` and `sub.stderr.on("data", f)` lower to handlers named `spawn:<id>:<event>`. `exit` and `close` bind `code` and `signal`.
+* `sub.stdin.write(text)` and `sub.stdin.end()` lower to the act `$stdin` `{ id, text }` or `{ id, end: true }`. `$spawn` then carries `stdin: true`.
+* An effect whose dependencies change lowers as a handler named `effect:<n>` and emits `EFFECT` with the dependencies' values.
+* A changing-dependency effect that sets no state and calls no action is left out. So is one that does not lower and reads `document`, `window`, `navigator`, `location`, `history`, `localStorage` or `sessionStorage`.
+* In a handler, `setInterval(f, ms)` or `setTimeout(f, ms)` with `f` an arrow in place is `$timer` `{ id, event, carry, ms, repeats }`. Its value is `{ "$timer": id }` (`snapfire_fsr_ir::host::TIMER`).
+* `clearInterval` or `clearTimeout` of a timer is `$clearTimer`.
+* An arrow returned by a changing-dependency effect is `$cleanup` `{ effect, event, carry }`.
+* A module-level `let` a function writes is `ModuleCell { key, init }`. A step starts from `render::CELLS_PROP` and returns `render::Stepped::cells`.
+* A handler's `let` that a listener or continuation writes is a `ModuleCell` keyed by a `crypto.random` value made per run.
+* A module-level `new Map()` or `new Set()` a function changes with `set`, `delete`, `add` or `clear` is a cell.
+* A module-level constant that reads the machine, a file, the clock, an extension member past `Render` reach or `now` is a `ModuleCell` made once per session.
+* `child.on(event, f)` or `child.stdout.on("data", f)` on a spawned process is `$listen` with `f` a continuation.
+* `new Promise(executor)` makes a deferred `{ "$deferred": id }`, with `resolve` and `reject` bound to `snapfire_fsr_ir::host::SETTLES` values. A call to one is `$settle`.
+* `setTimeout(resolve, ms)` is a `$timer` that settles.
+* A declaration whose value issues an act or draws randomness is bound once, where it is declared.
+* An async arrow called where it is written runs to its first `await`, which issues `$then`. The rest is a handler named `resume:<file>@<offset>`, with the names it reads carried in the act.
+* An `async` module function returns a deferred its statements settle. A returned promise is adopted.
+* An awaited rejection inside a `try` runs the `catch`, then the `finally`, then what follows the `try`.
+* In an async module function the `await` is a statement, a `const`'s value or an assignment `x = await f()`.
+* A `for...of` over an array, a counted `for` or a `while` whose body awaits lowers its head to a continuation `resume:<file>@<offset>`, run through `$run` with every variable in scope carried.
+* `for (const x of xs)` in such a loop reads as `const $items = xs; let $i = 0` with the test `$i < $items.length`.
+* A `continue` or `return` at the top of an awaiting loop body ends that pass. So does one ending an `if` there.
+* `break` inside an awaiting loop, a deeper `continue` or `return` and a `for...of` over a `Map` are residue.
+* `suspendTerminal(f)` from `useApp` lowers `f` as an async function, then `$suspend` `{ until, settles }`.
+* In a block, `spawn(...)` issues `$spawn` and is `{ "$process": id }`.
+* `useStdout().stdout` is the terminal's output with `columns` and `rows`. `stdout.on("resize", f)` and `off` are `$listen` and `$unlisten`.
+* `String.raw` is a template of its raw pieces. `throw` in a block is `Builtin::Throw`.
+* `Suspense` lowers to `render::SUSPENSE_TAG` with its content and its fallback.
+* A name imported from `INK_MODULE` that `INK_FILE` exports reads that file's export: `Static`, `useWindowSize`, `useStdout`, `useStderr`, `useIsScreenReaderEnabled`, `useFocus`, `useFocusManager`, `useCursor`, `useBoxMetrics` and `useApp`.
+* `emit(kind, value)` from `@snapfire/fsr/terminal/core` lowers to `Builtin::Emit`. A step returns every emitted value as `render::Stepped::emitted`, in order.
+* `action("id")` is an act reference `{ "$act": id }`.
+* `useApp().exit` is the `$exit` act. `suspendTerminal` is `{ "$primitive": "suspendTerminal" }`.
+* `ms`, `stripAnsi`, `stringWidth`, `wrapAnsi` and `bigText` from `@snapfire/fsr/terminal` lower to `terminal.ms`, `terminal.stripAnsi`, `terminal.stringWidth`, `terminal.wrapAnsi` and `terminal.bigText`.
+* A `terminal` member is refused outside a terminal page.
+* `system.*` and `clipboard.*` lower at `Process` reach. `file.*` and the host's `path` members come from `@snapfire/fsr/host`.
+* `crypto.randomUUID()`, `crypto.random` and `crypto.digest(algorithm, encoding, ...parts)` lower as standard members.
+* A module `const` holding `new Scope()` from `@snapfire/fsr/terminal` is a module cell starting undefined. `scope.get()` is `ReadCell` and `scope.set(v)` is `WriteCell`.
+* `scope.run(v, fn, ...args)` sets the cell to `v`, applies `fn`, restores the previous value and answers the call's result. On a web page a scope is residue.
+* An import of a module in `COMPANIONS` resolves to the TypeScript module the build provides under `$fsr/terminal/`.
+* A module importing or re-exporting from a package in `REPLACED` is `LowerError::Residue` at that line, with a hint naming FSR's module.
 
 ### Lambdas
 
-* An arrow function in a builtin position. A parameter is an identifier, an identifier with a default or any pattern a declaration takes; a pattern parameter is named `$<index>` and each name it declares reads a part of it. A rest parameter, `...xs` last, is named `...xs` and takes every argument past the named ones as an array.
+* An arrow in a builtin position. A parameter is an identifier, an identifier with a default or a pattern.
+* A pattern parameter is named `$<index>` and each name it declares reads a part of it.
+* A rest parameter, last, is named `...xs` and takes every argument past the named ones as an array. A rest that is not a plain name or not last is residue.
 * The body is one expression or a block lowered as a helper's is.
 * An arrow anywhere else is residue.
 
-### Schemas
+### Vue Files
 
-* An interface becomes `TypeDef::Record`; `extends`, type parameters, methods, index signatures and computed keys are residue.
-* Field types: `string` is `Str`, `number` is `F64`, `bigint` is `I64`, `boolean` is `Bool`, `null` and `undefined` are `Null`; `T[]` and `Array<T>` are `List`; `Record<string, T>` is `Map`; `Uint8Array` is `Bytes` and the other typed arrays are `Array(kind)`; a bare name is `Named`.
-* `builtin_types() -> Vec<SchemaType>` is what every contract holds before a schema is read: one record, `UPLOAD`, with `filename` and `content_type` as `Str`, `size` as `I64` and `bytes` as `Bytes`. It is the shape the host builds from one file part of a `multipart/form-data` body, so a schema declaring a field as `Upload` receives exactly that.
-* `T | null`, `T | undefined` and a `?` field are `Optional(T)`; a union of two real types, an inline object type, a literal outside a named union and a generic reference are residue.
-* A type alias must be a union of string literals and becomes `TypeDef::Union` of unit variants.
+A described `.vue` module lowers to a `Component` with `owner` `Owner::Vue` and no hoisting. The export is `default`.
 
-## 3. Test Files
+* The script block is parsed as TypeScript at its line in the file. Each template expression is parsed at its line and column.
+* `defineProps`, bound whole or destructured, is `$props`. `withDefaults` adds a `let $props` spreading the defaults under the placement's props.
+* `ref` and `shallowRef` are a `let` and a state binding, read as the value in the template and through `.value` in the script.
+* `computed` of an arrow is a `let`. `reactive`, `shallowReactive` and `readonly` bind their value.
+* `useStore(key, initial)` from `VUE_CLIENT` is `let name = <store key> ?? initial`, read through `.value`.
+* A `const` with any other value is a `let`.
+* A function declaration or a `const` holding a function is a handler body an `@event` can name or call.
+* `defineEmits`, lifecycle hooks, `watch`, `nextTick`, `defineExpose`, `defineOptions` and `defineSlots` are passed over. Interfaces and type aliases are nothing.
+* Script residue: an export, a class, an enum, `toRef`, `toRefs`, `customRef`, `useTemplateRef`, `useId`, `useAttrs`, `useSlots`, a writable `computed`, a plain `<script>` and any other statement.
+* The template root is the one child or a `Fragment`.
+* `v-if`, `v-else-if` and `v-else` chain into `If`, with whitespace between branches dropped.
+* `v-for="(item, index) in items"` is `For`. A `v-if` on the same element lowers outside the loop.
+* A `<template>` with `v-if` or `v-for` is its one element or a `Fragment`.
+* A `<slot />` with no name, props or fallback is `Slot("content")`. Any other `<slot>` is a `Tmpl::Let` named `render::SLOT_OUT_PREFIX` and its name, holding its props and its fallback.
+* A static attribute is a literal. A valueless one is `true`.
+* A static `class` beside `:class` merges into `[dynamic, static]`. `:class` alone becomes a one-element array.
+* A static `style` is parsed into an object. `:style`, `v-show` and a static `style` merge into one `style` array.
+* A bound boolean attribute (Vue's `isBooleanAttr`) is `true` when truthy or the empty string and null otherwise.
+* Any other bound attribute is null when null and `String(value)` otherwise. Vue's four camelCase attribute spellings are mapped.
+* `@event` with a written event name is a `Handler` and a `HANDLER_ATTR` field. When it does not lower it is an `UNLOWERED_ATTR` field with the line and the reason.
+* A Vue handler is a setup function by name or called with arguments, an arrow, a `function` or a statement over `$event`.
+* A Vue handler holds `const`s, `if` and `else`, a bare `return`, assignments and `++` or `--` on a `ref` or a `useStore` binding, calls to setup functions and calls to actions.
+* `.prevent` and `.stop` are allowed. Any other modifier, a dynamic event name, an object `v-on` and a recursive call leave the reason.
+* `:key`, `ref`, `v-once`, `v-memo` and `v-cloak` are dropped. `v-html` is `RAW_ATTR`. `v-text` replaces the children.
+* A scoped style's `data-v-` id is a `true` attribute on every element and the component's `scope` as `ScopedStyle`, `slotted` when a rule is `:slotted()`.
+* `:[name]="value"` is `Entry::Computed` on an element, a `.vue` child's props and a `<slot>`'s props.
+* `v-bind` of an object on an element is an `Entry::Spread`.
+* Template residue: a slot named by an expression, `.prop`, `:is`, `value` on a `<textarea>`, `v-slot`, `v-pre`, a custom directive and a component tag other than a `.vue` child.
+* Template residue: a `<template>` with other directives, `v-else` with no `v-if`, a `v-for` alias that is a pattern or a third alias and a node type passed through unread.
+* `v-model` on anything but an input, a textarea, a select or a `.vue` child is residue. An input whose `type` is bound is residue.
+* `v-model` writes `value` on an input, `checked` on a checkbox (`Builtin::Checked`) and on a radio (`Builtin::LooseMatch`), a textarea's content and `selected` on each `<option>` with a value.
+* `defineModel()` and `defineModel("name", { default })` bind a ref reading `$props.modelValue` or `$props.name`.
+* Server anchors are `Tmpl::Marker` nodes: `<!--[-->` and `<!--]-->` around a multi-node root, every `v-for` list, each list item and branch that is not one element and every `<slot>`.
+* `<!---->` is the branch of a `v-if` chain that takes none.
+* `<Teleport to="body">` writes `<!--teleport start--><!--teleport end-->` in place and its children in a `Tmpl::Place` for `body`, between `<!--teleport start anchor-->` and `<!--teleport anchor-->`.
+* `<Teleport to="#name">` targets the place a `<Place name="name">` declares. An element of the component with `id` written as `name` gets a `Tmpl::Outlet { hydrated: true }`.
+* `<Teleport disabled>` keeps the children between the in-place comments.
+* A `to` that is neither `body` nor `#name` is residue. `defer` is residue. So is `:defer` bound to anything but `false`.
+* `provide(key, value)` wraps the template in a context `Tmpl::Let`. `inject(key, default)` is `Coalesce(Expr::Context(id), default)`.
+* A string context key is `vue:<key>`. A key bound to a name is `vue:<file>#<name>` of its declaration. An `inject` with a default factory is residue.
+* A tag naming a `.vue` file the script imports (`<Card>`, `<card-item>` as `CardItem`) is a `Tmpl::Component`.
+* A `.vue` child's static and bound attributes are props by camelCase name. `v-bind` of an object is a spread. Its children are its default slot.
+* An attribute the child does not declare as a prop is residue. So is a child that does not lower.
+* A scoped parent adds `render::PARENT_SCOPE_PROP` with its scope attribute. A child in a slot's content takes the slot owner's scope. Under `:slotted()` every content element carries `<id>-s`.
+* An `@event` arrow on a `.vue` child passes as the prop `on<Event>`. A ref or `data` entry it writes is an `Expr::Cell`.
+* In the child, `emit("event", ...args)` through `defineEmits` and `this.$emit(...)` in `created` call that prop. A `created` holding anything else is residue.
+* On a `.vue` child, each `<template #name="params">` is a `Tmpl::Let` named `render::SLOT_CONTENT_PREFIX` and the slot, with the params bound to `render::SLOT_PROPS`. The slot's fallback is written when the caller gave none or the `v-if` fails.
+
+### Svelte Files
+
+A described `.svelte` module lowers to a `Component` with `owner` `Owner::Svelte`. The export is `default`. Runes mode and Svelte 4 legacy mode both lower, a file at a time.
+
+* `$state`, `$derived`, `$derived.by` and `$props` bind as `let`s. So do Svelte 4's `export let` and `$:`.
+* `$props.id()` counts on a render cell, one per page render.
+* `useStore(key, initial)` reads the store.
+* `$effect`, `$effect.pre`, `$effect.root`, `$inspect`, `onMount`, `onDestroy`, `beforeUpdate`, `afterUpdate` and `tick` are passed over.
+* A class whose fields, constructor writes and one-`return` getters lower is read. A class that extends another is residue.
+* Markers follow Svelte's server visitors at v5.57.2: `<!--[-->` and `<!--]-->` around blocks, `<!--[!-->` for an else branch, `<!---->` for an empty anchor and `{@html}` between two of them.
+* `{#if}`, `{#each}` with index, key and `{:else}`, `{#key}`, `{#await}`, `{#snippet}`, `{@render}` of a prop or a declared snippet, `{@const}`, `{@html}` and `<slot>` with `$$slots` lower.
+* `<svelte:element this>`, `<svelte:component this>`, `<svelte:self>`, `<svelte:fragment>` and `<svelte:boundary>` render.
+* `<svelte:window>`, `<svelte:body>` and `<svelte:document>` write nothing.
+* `<svelte:head>` and `<title>` are residue. Head content goes in a loader's `meta` export.
+* Any other statement or node is residue naming it.
+
+### Transformed Files
+
+* A file in another language a `Transform` turns into TSX, `.mdx` and `.md` among them, lowers the module written in its place.
+* Positions in it are reported through its `Origin`.
+
+### Schema Types
+
+* An interface becomes `TypeDef::Record`. `extends`, type parameters, methods, index signatures and computed keys are residue.
+* `string` is `Str`, `number` is `F64`, `bigint` is `I64` and `boolean` is `Bool`. `null` and `undefined` are `Null`.
+* `T[]` and `Array<T>` are `List`. `Record<string, T>` is `Map`.
+* `Uint8Array` is `Bytes`. The other typed arrays are `Array(kind)`.
+* A bare name is `Named`.
+* `T | null`, `T | undefined` and a `?` field are `Optional(T)`.
+* A union of two real types, an inline object type, a literal outside a named union and a generic reference are residue.
+* A type alias is a union of string literals and becomes `TypeDef::Union` of unit variants.
+
+## 12. Test Files
 
 `snapfire_fsr_lower::testing`: reads a `*.test.ts` into the cases `fsr test` replays through the interpreter.
 
 ### lower_tests
 
-* `pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError>`
+* `pub fn lower_tests(file: &str, source: &str) -> Result<TestFile, LowerError>`: the test file at `file`, relative to the app.
+* The file holds imports, `const` fixtures, mock functions, `let` bindings, hooks, `describe` blocks and tests. Anything else is a `LowerError::Residue` naming its line.
+* A test imports the loader, its `meta` or `store`, an action, a route handler or the middleware by path or alias. Helpers come from `@snapfire/fsr/testing`.
+* An `only` anywhere in the file gives every case it does not cover `Mode::Skip`.
 
-Lowers the test file at `file`, relative to the app. The file holds imports, `const` fixtures, mock functions, `let` bindings, hooks, `describe` blocks and tests; anything else is a `LowerError::Residue` naming its line. A test imports the loader, its `meta` or `store`, an action, a route handler or the middleware by path or alias and its helpers from `@snapfire/fsr/testing`. An `only` anywhere in the file is resolved here, so every case it does not cover carries `Mode::Skip`.
+### TestFile
 
-### TestFile and Block
+* `pub struct TestFile { pub file: String, pub blocks: Vec<Block>, pub tests: Vec<TestCase> }`. `#[non_exhaustive]`.
+* `chain(&self, block: usize) -> Vec<usize>`: the blocks around `block`, outermost first. Block 0 is the file.
+* `full_name(&self, case: &TestCase) -> String`: the case's name under its blocks' names, joined with ` > `.
 
-* `pub struct TestFile { pub file: String, pub blocks: Vec<Block>, pub tests: Vec<TestCase> }`
-* `TestFile::chain(&self, block: usize) -> Vec<usize>`: the blocks around `block`, outermost first, block 0 being the file.
-* `TestFile::full_name(&self, case: &TestCase) -> String`: the case's name under its blocks' names, joined with ` > `.
-* `pub struct Block { pub name: String, pub parent: Option<usize>, pub each: Option<Each>, pub before_all: Vec<(usize, Step)>, pub after_all: Vec<(usize, Step)>, pub before_each: Vec<(usize, Step)>, pub after_each: Vec<(usize, Step)> }`
+### Block
 
-A `describe` or the file itself, each hook as its steps with their lines. A mock function declared at the top of a file or a block is a `Step::Fn` in its `before_each`, so every test starts it with no calls.
+* `pub struct Block { pub name: String, pub parent: Option<usize>, pub each: Option<Each>, pub before_all: Vec<(usize, Step)>, pub after_all: Vec<(usize, Step)>, pub before_each: Vec<(usize, Step)>, pub after_each: Vec<(usize, Step)> }`. `Default`, `#[non_exhaustive]`.
+* A `describe` or the file itself, each hook as its steps with their lines.
+* A mock function declared at the top of a file or a block is a `Step::Fn` in its `before_each`.
 
-### TestCase and Mode
+### TestCase
 
-* `pub struct TestCase { pub name: String, pub line: usize, pub block: usize, pub mode: Mode, pub each: Option<Each>, pub steps: Vec<(usize, Step)> }`
+* `pub struct TestCase { pub name: String, pub line: usize, pub block: usize, pub mode: Mode, pub each: Option<Each>, pub steps: Vec<(usize, Step)> }`. `#[non_exhaustive]`.
+* Under an `each`, `name` is the pattern each row fills.
+
+### Mode
+
 * `pub enum Mode { Run, Skip, Todo }`
-* `pub struct Each { pub table: Expr, pub params: Vec<Binding> }`
 
-`name` is the pattern an `each` fills. `table` is evaluated when the file runs: an array row is spread over `params` and any other row binds the one parameter. A template table lowers to an array of objects keyed by its headings.
+### Each
+
+* `pub struct Each { pub table: Expr, pub params: Vec<Binding> }`. `#[non_exhaustive]`.
+* `table` is evaluated when the file runs. An array row is spread over `params`. Any other row binds the one parameter.
+* A template table lowers to an array of objects keyed by its headings.
 
 ### Step
 
-* `pub enum Step { Mock { name, mock }, Run { binding, target, ctx, input }, Let { name, value }, Assert(Assertion), Fn { name, answer: Option<Answer> }, Answer { name, answer, once }, Clear { name, reset } }`
+* `pub enum Step { Mock { name: String, mock: Mock }, Run { binding: Option<Binding>, target: Target, ctx: String, input: Option<Expr> }, Let { name: String, value: Expr }, Assert(Assertion), Fn { name: String, answer: Option<Answer> }, Answer { name: String, answer: Answer, once: bool }, Clear { name: String, reset: bool } }`
+* `Mock` is a `ctx(...)` bound or assigned to a name.
+* `Run`'s `input` is what a `meta({ data })` names, run in place of the ctx's own.
+* `Let` is a local `const` or an assignment to a `let`.
+* `Fn` is `fn(impl)`, `vi.fn(impl)` or `jest.fn(impl)`.
+* `Answer` is `mockReturnValue`, `mockResolvedValue`, `mockRejectedValue`, `mockImplementation` and their `Once` forms.
+* `Clear` is `mockClear` or `mockReset`. An empty name is every mock function, as `vi.clearAllMocks()` asks.
 
-`Mock` is a `ctx(...)` bound or assigned to a name. `Let` is a local `const` or an assignment to a `let`. `Fn` is `fn(impl)`, `vi.fn(impl)` or `jest.fn(impl)`. `Answer` is `mockReturnValue`, `mockResolvedValue`, `mockRejectedValue`, `mockImplementation` and their `Once` forms. `Clear` is `mockClear` or `mockReset`; an empty name is every mock function, which `vi.clearAllMocks()` asks for.
+### Assertion
 
-### Assertion and Subject
+* `pub enum Assertion { Ok(Expr), Equal(Expr, Expr), Rejects { target: Target, ctx: String, input: Option<Expr>, kind: Option<String> }, Expect { subject: Subject, not: bool, matcher: Matcher, message: Option<String> } }`
+* `Ok`, `Equal` and `Rejects` are `assert.ok`, `assert.equal` and `assert.rejects`.
+* `assert.match(actual, pattern, message?)` lowers to an `Expect` with `Matcher::Match`.
+* `Expect` is `expect(subject, message?)` with `.not` and a matcher. The message is a string literal.
 
-* `pub enum Assertion { Ok(Expr), Equal(Expr, Expr), Rejects { target, ctx, input, kind: Option<String> }, Expect { subject: Subject, not: bool, matcher: Matcher, message: Option<String> } }`
-* `pub enum Subject { Value(Expr), Settled { target, ctx, input, rejects: bool }, Mock(String) }`
+### Subject
 
-`Ok`, `Equal` and `Rejects` are `assert.ok`, `assert.equal` and `assert.rejects`. `assert.match(actual, pattern, message?)` lowers to an `Expect` with `Matcher::Match`. `Expect` is `expect(subject, message?)` with `.not` and a matcher; the message must be a string literal. A subject under `.resolves` or `.rejects` is a run, settled when the step runs. Its failure reads as `{ kind, message }`. A call matcher reads a mock function by name.
+* `pub enum Subject { Value(Expr), Settled { target: Target, ctx: String, input: Option<Expr>, rejects: bool }, Mock(String) }`
+* A subject under `.resolves` or `.rejects` is `Settled`, a run settled when the step runs. Its failure reads as `{ kind, message }`.
+* A call matcher reads a mock function by name as `Mock`.
 
-### Matcher and Pattern
+### Matcher
 
-* `pub enum Matcher { Be, Equal, StrictEqual, Truthy, Falsy, Null, Undefined, Defined, NaN, GreaterThan, GreaterThanOrEqual, LessThan, LessThanOrEqual, CloseTo, Contain, ContainEqual, Length, Property, Match, MatchObject, TypeOf, OneOf, Throw, Called, CalledOnce, CalledTimes, CalledWith, CalledExactlyOnceWith, LastCalledWith, NthCalledWith, Returned, ReturnedTimes, ReturnedWith, LastReturnedWith }`, each carrying the expressions its arguments lowered to
-* `Matcher::name(&self) -> &'static str`: the name a test writes, `toBe` for `Be`. `Matcher::takes_expected(&self) -> bool` and `Matcher::reads_calls(&self) -> bool`.
-* `pub enum Pattern { Text(Expr), Regex { source: String, flags: String } }`
+* `pub enum Matcher { Be(Expr), Equal(Expr), StrictEqual(Expr), Truthy, Falsy, Null, Undefined, Defined, NaN, GreaterThan(Expr), GreaterThanOrEqual(Expr), LessThan(Expr), LessThanOrEqual(Expr), CloseTo(Expr, Option<Expr>), Contain(Expr), ContainEqual(Expr), Length(Expr), Property(Expr, Option<Expr>), Match(Pattern), MatchObject(Expr), TypeOf(Expr), OneOf(Expr), Throw(Option<Pattern>), Called, CalledOnce, CalledTimes(Expr), CalledWith(Vec<Expr>), CalledExactlyOnceWith(Vec<Expr>), LastCalledWith(Vec<Expr>), NthCalledWith(Expr, Vec<Expr>), Returned, ReturnedTimes(Expr), ReturnedWith(Expr), LastReturnedWith(Expr) }`
+* `name(&self) -> &'static str`: the name a test writes, `toBe` for `Be`.
+* `takes_expected(&self) -> bool`
+* `reads_calls(&self) -> bool`
+* A matcher's older names lower to the same variant: `toBeCalled` is `Called` and `toThrowError` is `Throw`.
+* `expect.any`, `anything`, `objectContaining`, `arrayContaining`, `stringContaining`, `stringMatching` and `closeTo`, with their `expect.not` forms, lower to objects whose `EXPECT_MARK` field names the helper.
 * `pub const EXPECT_MARK: &str = "$sf.expect"`
+* A regular expression literal is taken only by `toMatch`, `toThrow` and `stringMatching`.
+* A matcher for markup is refused.
 
-Each matcher's older names lower to the same variant: `toBeCalled` is `Called`, `toThrowError` is `Throw`. Expected values lower like any value, except that `expect.any`, `anything`, `objectContaining`, `arrayContaining`, `stringContaining`, `stringMatching` and `closeTo`, with their `expect.not` forms, lower to objects whose `EXPECT_MARK` field names the helper, which the runner reads as a matcher. A regular expression literal is kept as its source and flags for `toMatch`, `toThrow` and `stringMatching`, the only places the lowering takes one. A matcher for markup is refused, since a body test has none.
+### Pattern
 
-### Mock, Answer and Binding
+* `pub enum Pattern { Text(Expr), Regex { source: String, flags: String } }`
 
-* `pub struct Mock { pub session, pub services: Vec<(String, String, Expr)>, pub mock_fns: Vec<(String, String, String)>, pub input, pub params, pub query, pub identity, pub locale, pub path, pub host, pub origin, pub config }`, `Default` and `#[non_exhaustive]`
+### Mock
+
+* `pub struct Mock { pub session: Vec<(String, Expr)>, pub services: Vec<(String, String, Expr)>, pub mock_fns: Vec<(String, String, String)>, pub input: Option<Expr>, pub params: Vec<(String, Expr)>, pub query: Vec<(String, Expr)>, pub identity: Option<Expr>, pub locale: Option<Expr>, pub locales: Option<Expr>, pub path: Option<Expr>, pub host: Option<Expr>, pub origin: Option<Expr>, pub config: Vec<(String, Expr)> }`. `Debug`, `Clone`, `PartialEq`, `Default`, `#[non_exhaustive]`.
+* The `ctx({ ... })` literal, each part an expression the runner evaluates.
+* `services` is `(service, method, lambda)`. A value that is not a function is a lambda of no parameters.
+* `mock_fns` is `(service, method, name)` for a method a mock function or a `let` answers.
+
+### Answer
+
 * `pub enum Answer { Returns(Expr), Calls(Expr), Fails(Expr) }`
-* `pub enum Binding { Name(String), Fields(Vec<(String, String)>) }`
+* `Returns` answers a value whatever the arguments. `Calls` applies a lambda to them.
+* `Fails` fails the call with the kind its value names when that is `{ kind, message }`.
 
-A service method that names a mock function or a `let` is in `mock_fns` as `(service, method, name)` rather than in `services`, which holds a lambda or a value as a lambda of no parameters. `Returns` answers a value whatever the arguments, `Calls` applies a lambda to them and `Fails` fails the call with the kind its value names when that is `{ kind, message }`.
+### Binding
+
+* `pub enum Binding { Name(String), Fields(Vec<(String, String)>) }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
 
 ### Target
 
-* `pub enum Target { Loader { file }, Meta { file }, Store { file }, Paths { file }, Action { file, export }, Handler { file, export }, Middleware { file } }`; `Paths` comes from `paths` imported from a `page.loader` and a `paths()` call with no argument runs against the ctx bound above it.
+* `pub enum Target { Loader { file: String }, Meta { file: String }, Store { file: String }, Paths { file: String }, Action { file: String, export: String }, Handler { file: String, export: String }, Middleware { file: String } }`. Each path is relative to the app.
+* `Meta` and `Store` run over the data rather than a ctx.
+* `Paths` comes from `paths` imported from a `page.loader`. A `paths()` call with no argument runs against the ctx bound above it.
 
-What a run names: a loader module, its `meta` or its `store`, an action export, a route handler's method or the middleware, each path relative to the app.
-
-## 4. Error Handling
+## 13. Error Handling
 
 ### LowerError
 
-* `Parse { file: String, message: String }`, with the parser's line, column and message in `message`.
-* `MissingExport { file: String, export: String }`.
-* `Residue(Residue)`, transparent in `Display`.
-* `Reach(Residue)`: a `body` extension on a component's render path; `Display` is the residue followed by why it is refused.
-* `Extension(Residue)`: an export under `ext/` that does not lower or a `native` declaration the build cannot read; `Display` is the residue followed by the rule.
-* `Retired(Residue)`: a spelling FSR does not take, with what to write instead in the message; `Display` is the residue.
-* `ForeignChildren(Residue)`: an `Owner::React` component gives children to a component another framework mounts, which they cannot cross into; `Display` is the residue.
+`#[non_exhaustive]`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Error`.
+
+* `Parse { file: String, message: String }`: displays as `{file}: {message}`. `message` holds the parser's line, column and message.
+* `MissingExport { file: String, export: String }`: displays as ``{file}: no exported `{export}` ``.
+* `Residue(Residue)`: displays as the residue.
+* `Reach(Residue)`: a `body` extension on a component's render path. Displays as the residue followed by `; it runs on the server only, and a component's render path runs in the browser too`.
+* `Extension(Residue)`: an export under `ext/` that does not lower or a `native` declaration the build cannot read. Displays as the residue followed by `; every export under ext/ is an extension and must lower`.
+* `Retired(Residue)`: a spelling FSR no longer takes, with what to write instead in the message. Displays as the residue.
+* `ForeignChildren(Residue)`: an `Owner::React` component gives children to a component another framework mounts. Displays as the residue.
 
 ### Residue
 
-* `pub struct Residue { pub file: String, pub line: usize, pub column: usize, pub message: String, pub hint: Option<String>, pub via: Vec<Placement> }`
+* `pub struct Residue { pub file: String, pub line: usize, pub column: usize, pub message: String, pub hint: Option<String>, pub via: Vec<Placement> }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Error`, `#[non_exhaustive]`.
 * `Display` is `{file}:{line}:{column}: {message}`, then an indented `reached through <chain>` when `via` is not empty, then the indented `hint` when there is one.
 * `line` and `column` are one-based and point at the construct, not at the statement that contains it.
 * `hint` names the rewrite that does the same thing in the IR.
-* `via` is how the module the build asked for reaches the file this residue is in, outermost placement first, empty when they are the same file. A component set re-raising a child's residue records the placement with `Residue::placed_at`, so one unlowerable leaf tells every page above it which tag to follow. `Residue::chain(&self) -> String` prints it as one line.
+* `via` is the chain of placements from the module the build asked for down to this residue's file, outermost first. Empty when they are the same file.
+* `placed_at(self, at: Placement) -> Residue`: inserts `at` at the front of `via`.
+* `chain(&self) -> String`: `via` as one line, outermost placement first, joined with `, `.
 
 ### Placement
 
-* `pub struct Placement { pub file: String, pub line: usize, pub column: usize, pub tag: String }`, the file holding a `<Tag />`, the one-based position of the tag and the name as written.
+* `pub struct Placement { pub file: String, pub line: usize, pub column: usize, pub tag: String }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+* The file holding a `<Tag />`, the one-based position of the tag and the name as written.
 * `Display` is `<{tag}> {file}:{line}:{column}`.

@@ -5,165 +5,233 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 ## Contents
 
 * [1. The Protocol](#1-the-protocol)
-  * [PROTOCOL](#protocol)
-  * [EXTENSIONS](#extensions)
-  * [Hello](#hello)
+  * [`PROTOCOL`](#protocol)
+  * [`EXTENSIONS`](#extensions)
+  * [`SUFFIXES`](#suffixes)
+  * [`Hello`](#hello)
 * [2. Requests](#2-requests)
-  * [Request](#request)
-  * [Unit](#unit)
-  * [Options](#options)
-  * [Kind](#kind)
+  * [`Request`](#request)
+  * [`Unit`](#unit)
+  * [`Options`](#options)
+  * [`Kind`](#kind)
 * [3. Responses](#3-responses)
-  * [Response](#response)
-  * [Outcome](#outcome)
-  * [Compiled](#compiled)
-  * [Described](#described)
-  * [Script](#script)
-  * [Lang](#lang)
+  * [`Response`](#response)
+  * [`Outcome`](#outcome)
+  * [`Compiled`](#compiled)
+  * [`Described`](#described)
+  * [`Script`](#script)
+  * [`Lang`](#lang)
 * [4. Diagnostics](#4-diagnostics)
-  * [Diagnostic](#diagnostic)
-  * [Severity](#severity)
+  * [`Diagnostic`](#diagnostic)
+  * [`Severity`](#severity)
 * [5. The Host](#5-the-host)
-  * [Worker](#worker)
-  * [HostError](#hosterror)
+  * [`Worker`](#worker)
 * [6. The Driven Protocol](#6-the-driven-protocol)
   * [Lines](#lines)
-  * [AssetMap](#assetmap)
-  * [MappedAsset](#mappedasset)
+  * [`PluginRequest`](#pluginrequest)
+  * [`PluginAnswer`](#pluginanswer)
+  * [`AssetMap`](#assetmap)
+  * [`MappedAsset`](#mappedasset)
 * [7. Error Handling](#7-error-handling)
+  * [`HostError`](#hosterror)
 
 ## 1. The Protocol
 
 ### PROTOCOL
 
-* `pub const PROTOCOL: u32 = 4`
-* The version both sides speak. A `Hello` naming another is refused by the host. 2 added a unit's sibling files and `needs`; 3 added `describe`; 4 added `Options::compiler` and the `SUFFIXES` a plugin claims. A plugin speaking 3 would ignore the compiler it is handed, so a host speaking 4 refuses it.
-* The number moves at most once between publishes: a protocol change since the last published release belongs to the number that release already raised to.
+* `pub const PROTOCOL: u32 = 4`: the plugin protocol version. The host refuses a `Hello` naming another.
 
 ### EXTENSIONS
 
-* `pub const EXTENSIONS: &[&str] = &["vue", "svelte"]`
-* The extensions a plugin compiles, without dots, one framework each.
-* `claimed(ext: &str) -> Option<&'static str>`: `ext` as a static name when the list holds it.
-* `pub const SUFFIXES: &[(&str, &str)] = &[(".svelte.ts", "svelte"), (".svelte.js", "svelte")]`: file name suffixes a plugin claims ahead of the last extension, with the extension whose plugin compiles them.
-* `claimed_name(name: &str) -> Option<&'static str>`: the extension whose plugin compiles a file name: a suffix in `SUFFIXES` first, then the last extension, case-insensitive.
-* `stripped_first(name: &str) -> bool`: whether the file name ends in a claimed suffix that ends in `.ts`. Such a file reaches its plugin as JavaScript: the host strips its types before sending it.
-* `binary_for(ext: &str) -> String`: `snapfirec-<ext>`, the binary the host looks for on `PATH`.
-* `install_hint(ext: &str) -> String`: `cargo install snapfire_<ext>`, what the host prints when that binary is missing.
+* `pub const EXTENSIONS: &[&str] = &["vue", "svelte"]`: the extensions a plugin compiles, without dots.
+* `pub fn claimed(ext: &str) -> Option<&'static str>`: `ext` as a static name when `EXTENSIONS` holds it.
+* `pub fn binary_for(ext: &str) -> String`: `snapfirec-<ext>`, the binary the host runs from `PATH`.
+* `pub fn install_hint(ext: &str) -> String`: `cargo install snapfire_<ext>`.
+
+### SUFFIXES
+
+* `pub const SUFFIXES: &[(&str, &str)] = &[(".svelte.ts", "svelte"), (".svelte.js", "svelte")]`: file name suffixes a plugin claims ahead of the last extension, each with the extension whose plugin compiles it.
+* `pub fn claimed_name(name: &str) -> Option<&'static str>`: the extension whose plugin compiles the file `name`. A suffix in `SUFFIXES` is tried first, then the last extension. Case-insensitive.
+* `pub fn stripped_first(name: &str) -> bool`: whether `name` ends in a claimed suffix ending in `.ts`. The host strips such a file's types and sends it as JavaScript.
 
 ### Hello
 
-* `pub struct Hello { pub protocol: u32, pub name: String, pub version: String, pub compiler: String, pub extensions: Vec<String> }`
-* The first line a plugin writes, after its compiler has booted. `name` is the extension without its dot, which is the `snapfirec-<name>` the host found it as; `version` is the plugin's own; `compiler` names what it compiles through; `extensions` lists the extensions it claims, with dots.
-* `name`, `version` and `compiler` are half of the host's cache key.
+The first line a plugin writes, once its compiler has booted.
+
+* `pub struct Hello { pub protocol: u32, pub name: String, pub version: String, pub compiler: String, pub extensions: Vec<String> }`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* `name` is the extension without its dot, as in `snapfirec-<name>`.
+* `version` is the plugin's own. `compiler` is free text naming the compiler it uses.
+* `extensions` lists the extensions it claims, each with its dot.
+* `name`, `version` and `compiler` are part of `snapfirec`'s plugin cache key.
 
 ## 2. Requests
 
 ### Request
 
-* `pub struct Request { pub id: u64, pub kind: Kind, pub units: Vec<Unit> }`
-* One batch, one line. Every unit shares one extension. The response repeats `id`. `kind` is absent from the JSON for a compile.
+One batch, on one line.
+
+* `pub struct Request { pub id: u64, pub kind: Kind, pub units: Vec<Unit> }`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* Every unit shares one extension. The response repeats `id`.
+* `kind` is absent from the JSON for a compile.
 
 ### Unit
 
-* `pub struct Unit { pub filename: String, pub path: String, pub source: String, pub options: Options, pub files: BTreeMap<String, String> }`
-* `filename` is the path a diagnostic should name, relative to the project root; `path` is where the source is on disk; `files` holds the sibling files the plugin asked for with `Outcome::Needs`, keyed by the specifier it asked with; empty on the first send. Absent from the JSON when empty.
+* `pub struct Unit { pub filename: String, pub path: String, pub source: String, pub options: Options, pub files: BTreeMap<String, String> }`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* `filename`: the path a diagnostic names, relative to the project root.
+* `path`: where the source is on disk.
+* `files`: the sibling files the plugin asked for with `Outcome::Needs`, keyed by the specifier it asked with. Empty on the first send and absent from the JSON when empty.
 
 ### Options
 
-* `pub struct Options { pub production: bool, pub source_map: bool, pub minify: bool, pub compiler: Option<String> }`
-* What the build asked for, in terms every plugin can honour. Every flag defaults to false when absent from the JSON. `Default` is all false with no compiler.
-* `compiler` is a framework compiler file the plugin boots in place of the one it carries: the application's own, so what it compiles calls the runtime the application vendors. Left out of the JSON when `None`.
+What the build asked for.
+
+* `pub struct Options { pub production: bool, pub source_map: bool, pub minify: bool, pub compiler: Option<String> }`. `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`.
+* Each flag is `false` when absent from the JSON. `Default` is all `false` with no compiler.
+* `production`: no development-only branches and no warnings kept. `source_map`: a source map beside the code. `minify`: minified code and styles.
+* `compiler`: a framework compiler file the plugin boots in place of the one it carries. Absent from the JSON when `None`.
 
 ### Kind
 
-* `pub enum Kind { Compile, Describe }`
-* Serialized lowercase; `Default` is `Compile`. A compile answers each unit with `Outcome::Ok`; a describe with `Outcome::Described`. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
+* `pub enum Kind { Compile, Describe }`. `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* Serialized lowercase. `Default` is `Compile`.
+* `Compile` is answered per unit with `Outcome::Ok` and `Describe` with `Outcome::Described`. Either may be answered with `Failed` or `Needs` instead.
 
 ## 3. Responses
 
 ### Response
 
-* `pub struct Response { pub id: u64, pub results: Vec<Outcome> }`
-* One outcome per unit, in the order they were asked for. A response whose `id` or count differs from the request is refused by the host.
+* `pub struct Response { pub id: u64, pub results: Vec<Outcome> }`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* One outcome per unit, in request order. The host refuses a response whose `id` or count differs from the request.
 
 ### Outcome
 
-* `pub enum Outcome { Ok(Compiled), Described(Described), Failed { diagnostics: Vec<Diagnostic> }, Needs { files: Vec<String> } }`
-* Tagged in JSON by `status`: `ok`, `described`, `failed` or `needs`. `Failed::diagnostics` is never empty. `Needs::files` are specifiers as the source wrote them, to be answered through `Unit::files`; a unit that answers `Needs` a second time has failed.
+* `pub enum Outcome { Ok(Compiled), Described(Described), Failed { diagnostics: Vec<Diagnostic> }, Needs { files: Vec<String> } }`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* Tagged in JSON by `status`: `ok`, `described`, `failed` or `needs`.
+* `Failed::diagnostics` is never empty.
+* `Needs::files` are specifiers as the source wrote them, a `<style src>` among them. The host sends the unit again with them in `Unit::files`. A unit that answers `Needs` a second time has failed.
 
 ### Compiled
 
-* `pub struct Compiled { pub js: String, pub lang: Lang, pub css: Option<String>, pub source_map: Option<String>, pub deps: Vec<String>, pub diagnostics: Vec<Diagnostic> }`
-* `js` is the module the unit became, its imports the build's to resolve; `lang` is the dialect it is written in; `css` is every style block as one string, already scoped when the source asked; `deps` are specifiers the plugin reached for that the source's imports do not contain, a `src=` block's file among them; `diagnostics` are warnings that did not stop the compile. `Default` is an empty JavaScript module with nothing else.
+* `pub struct Compiled { pub js: String, pub lang: Lang, pub css: Option<String>, pub source_map: Option<String>, pub deps: Vec<String>, pub diagnostics: Vec<Diagnostic> }`. `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`.
+* `js`: the module the unit became. The build resolves its imports.
+* `lang`: the dialect `js` is written in.
+* `css`: every style block as one string, already scoped when the source asked for it. Absent from the JSON when `None`, as is `source_map`.
+* `deps`: specifiers the plugin found that the source's imports do not contain, a `src=` block's file among them. Each becomes an edge in the module graph.
+* `diagnostics`: warnings that did not stop the compile.
+* `Default` is an empty JavaScript module.
 
 ### Described
 
-* `pub struct Described { pub template: Option<serde_json::Value>, pub script: Option<Script>, pub bindings: BTreeMap<String, String>, pub scope: Option<String>, pub slotted: bool, pub deps: Vec<String>, pub diagnostics: Vec<Diagnostic> }`
-* A component as its framework's parser reads it. `template` is a tree in the plugin's own shape, carried as JSON and read by the host's front end for that framework; `bindings` says per name the script binds how the template reads it, in the framework's own words; `scope` is the attribute a scoped style selects on and `slotted` whether one of its rules is `:slotted()`, so the host stamps the content the component's slots render; `deps` and `diagnostics` are the compile's. A description carrying an `Error` diagnostic is the script alone: the host follows what `script` imports and keeps the component foreign, giving the error as the reason. Every optional field is absent from the JSON when `None` or empty. `Default` describes nothing.
+A component as its framework's parser reads it.
+
+* `pub struct Described { pub template: Option<serde_json::Value>, pub script: Option<Script>, pub bindings: BTreeMap<String, String>, pub scope: Option<String>, pub slotted: bool, pub deps: Vec<String>, pub diagnostics: Vec<Diagnostic> }`. `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`.
+* `template`: the template as a tree in the plugin's own shape. Each plugin's API reference gives its nodes.
+* `script`: the component's script, when it has one.
+* `bindings`: for each name the script binds, how the template reads it, in the framework's own words.
+* `scope`: the attribute a scoped style selects on, when any style is scoped.
+* `slotted`: whether a scoped style has a `:slotted()` rule.
+* `deps` and `diagnostics`: as on `Compiled`.
+* A description carrying an `Error` diagnostic describes the script alone.
+* `template`, `script`, `bindings` and `scope` are absent from the JSON when `None` or empty. `Default` describes nothing.
 
 ### Script
 
-* `pub struct Script { pub content: String, pub lang: Lang, pub line: u32, pub column: u32, pub setup: bool, pub plain: bool }`
-* A script block as written. `line` and `column` are one-based and name where `content` starts in the file. `setup` is the framework's setup form; `plain` says a plain script stands beside or instead of it.
+A script block as written.
+
+* `pub struct Script { pub content: String, pub lang: Lang, pub line: u32, pub column: u32, pub setup: bool, pub plain: bool }`. `Debug`, `Clone`, `Default`, `Serialize`, `Deserialize`.
+* `line` and `column`: one-based, where `content` starts in the file.
+* `setup`: the block is the framework's setup form.
+* `plain`: a plain script stands beside the setup block.
 
 ### Lang
 
-* `pub enum Lang { Js, Ts }`
+* `pub enum Lang { Js, Ts }`. `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
 * Serialized lowercase. `Default` is `Js`.
 
 ## 4. Diagnostics
 
 ### Diagnostic
 
-* `pub struct Diagnostic { pub severity: Severity, pub message: String, pub file: Option<String>, pub line: Option<u32>, pub column: Option<u32>, pub code: Option<String> }`
-* `code` is the framework's own name for what it found, such as Svelte's `a11y_missing_attribute`, when it gives one. It is left out of the JSON when `None`.
-* `Diagnostic::error(message: impl Into<String>) -> Diagnostic`, `Diagnostic::warning(message: impl Into<String>) -> Diagnostic`: a diagnostic with no place.
-* `at(self, file: impl Into<String>, line: Option<u32>, column: Option<u32>) -> Diagnostic`: the same with a place. `line` and `column` are one-based.
-* `file`, `line` and `column` are absent from the JSON when `None`.
+* `pub struct Diagnostic { pub severity: Severity, pub message: String, pub file: Option<String>, pub line: Option<u32>, pub column: Option<u32>, pub code: Option<String> }`. `#[non_exhaustive]`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* `code`: the framework's own name for what it found, such as Svelte's `a11y_missing_attribute`.
+* `file`, `line`, `column` and `code` are absent from the JSON when `None`.
+* `pub fn error(message: impl Into<String>) -> Diagnostic`: an error with no place.
+* `pub fn warning(message: impl Into<String>) -> Diagnostic`: a warning with no place.
+* `pub fn at(mut self, file: impl Into<String>, line: Option<u32>, column: Option<u32>) -> Diagnostic`: the same diagnostic with a place. `line` and `column` are one-based.
 
 ### Severity
 
-* `pub enum Severity { Error, Warning }`
-* Serialized lowercase. An `Error` in a unit's diagnostics stops the build; a `Warning` is printed.
+* `pub enum Severity { Error, Warning }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* Serialized lowercase. An `Error` in a unit's diagnostics fails the build. A `Warning` is printed.
 
 ## 5. The Host
 
 ### Worker
 
-* `pub struct Worker`, in `host`.
-* `Worker::start(ext: &str) -> Result<Worker, HostError>`: spawns `snapfirec-<ext>` with its three streams piped, reads its greeting and refuses a protocol other than `PROTOCOL` by name.
-* `hello(&self) -> &Hello`; `name(&self) -> String`, the binary's name.
-* `compile(&mut self, units: Vec<Unit>) -> Result<Vec<Outcome>, HostError>` and `describe(&mut self, units: Vec<Unit>) -> Result<Vec<Outcome>, HostError>`: one batch each, ids counted up from 1; an answer whose id or count differs is refused.
-* Dropping the worker closes its pipe, which ends the plugin; one that did not take the hint is killed.
+One plugin process, in `host`.
 
-### HostError
-
-* `pub enum HostError { NotFound { binary, hint }, Spawn { binary, error }, Silent { binary, stderr }, Greeting { binary, line }, Protocol { binary, theirs, ours }, Closed { binary, stderr }, Died { binary, stderr }, Answer { binary, error }, Batch { binary, got, wanted }, Count { binary, got, wanted } }`
-* `NotFound` carries the install hint; the three that follow a death carry what the plugin wrote to stderr. `Display` is the sentence the build prints.
+* `pub struct Worker`
+* `pub fn start(ext: &str) -> Result<Worker, HostError>`: spawns `snapfirec-<ext>` with stdin, stdout and stderr piped and reads its `Hello`. `HostError::Protocol` when it names another `PROTOCOL`.
+* `pub fn hello(&self) -> &Hello`
+* `pub fn name(&self) -> String`: `snapfirec-<hello.name>`.
+* `pub fn compile(&mut self, units: Vec<Unit>) -> Result<Vec<Outcome>, HostError>`: one `Compile` batch.
+* `pub fn describe(&mut self, units: Vec<Unit>) -> Result<Vec<Outcome>, HostError>`: one `Describe` batch.
+* Batch ids count up from 1.
+* Dropping the worker kills the plugin process and waits for it.
 
 ## 6. The Driven Protocol
 
-What `snapfirec --driven` and the process driving it say to each other, in `driven`. One line at a time over the compiler's stdin and stdout; the driver sends batches of paths and the compiler answers each.
+The lines `snapfirec --driven` and the process driving it exchange over the compiler's stdin and stdout, in `driven`.
 
 ### Lines
 
-* `driven::PROTOCOL: u32`, 3. The compiler announces it first; a driver refuses another number by name.
-* `driven::HELLO`, `snapfirec: driven`; `fn hello() -> String`, the first line with the version; `fn parse_hello(line: &str) -> Option<u32>`, the version a hello line announces, `None` for any other line.
-* `driven::REBUILT`, `driven::FAILED`: one of them ends every batch.
-* `driven::REFERENCES`: written before the status line when a batch referenced an asset the map does not name, followed by one path per line under the compiler's root directory and an empty line; the compiler then waits.
-* `driven::MAPPED`: the driver's answer once it has rewritten the map, after which the compiler reads the map again and compiles the sources that were waiting.
-* `driven::PLUGIN`, `snapfirec: plugin`: the compiler needs a framework plugin; the next line is a `PluginRequest` as JSON and the driver answers one line, a `PluginAnswer`. Under `--driven` the compiler starts no plugin of its own.
-* `enum PluginRequest { Hello { ext }, Compile { ext, units: Vec<Unit> } }`, tagged `ask` in lowercase. `enum PluginAnswer { Hello { hello: Hello }, Compiled { outcomes: Vec<Outcome> }, Refused { why: String } }`, tagged `answer` in lowercase. Each derives `Debug`, `Clone`, `Serialize` and `Deserialize` and fits on one line.
+* `pub const PROTOCOL: u32 = 3`: the driven protocol version, announced in the compiler's first line.
+* `pub const HELLO: &str = "snapfirec: driven"`
+* `pub fn hello() -> String`: `HELLO`, a space and `PROTOCOL`.
+* `pub fn parse_hello(line: &str) -> Option<u32>`: the version a hello line announces. `None` for any other line.
+* `pub const REBUILT: &str = "snapfirec: rebuilt"` and `pub const FAILED: &str = "snapfirec: failed"`: one of them ends every batch.
+* `pub const REFERENCES: &str = "snapfirec: references"`: written when a batch referenced an asset the map does not name. One root-relative path per line follows, then an empty line. The compiler then waits for `MAPPED`.
+* `pub const MAPPED: &str = "mapped"`: the driver's answer once it has rewritten the map. The compiler reads the map again and compiles the waiting sources.
+* `pub const PLUGIN: &str = "snapfirec: plugin"`: the next line is a `PluginRequest` as JSON. The driver answers with one line, a `PluginAnswer`.
+
+### PluginRequest
+
+* `pub enum PluginRequest { Hello { ext: String }, Compile { ext: String, units: Vec<Unit> } }`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* Tagged in JSON by `ask`, lowercase.
+
+### PluginAnswer
+
+* `pub enum PluginAnswer { Hello { hello: Hello }, Compiled { outcomes: Vec<Outcome> }, Refused { why: String } }`. `Debug`, `Clone`, `Serialize`, `Deserialize`.
+* Tagged in JSON by `answer`, lowercase.
+* `Refused`: the plugin could not start or failed to answer.
 
 ### AssetMap
 
-`pub struct AssetMap { pub version: u32, pub assets: BTreeMap<String, MappedAsset> }`, `Default`, `serde`. `AssetMap::new()` carries `MAP_VERSION`, 1; a compiler reading another version refuses the file. Keys are paths under the compiler's root directory with forward slashes.
+* `pub struct AssetMap { pub version: u32, pub assets: BTreeMap<String, MappedAsset> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub const MAP_VERSION: u32 = 1`. `snapfirec` refuses a map of another version.
+* `pub fn new() -> AssetMap`: empty, at `MAP_VERSION`.
+* Keys are paths relative to the compiler's root, with forward slashes.
 
 ### MappedAsset
 
-`pub struct MappedAsset { pub url: String, pub width: Option<u32>, pub height: Option<u32> }`. The URL a reference is rewritten to and, for an image, the displayed size the driver read; the dimensions are left out of the JSON when absent.
+* `pub struct MappedAsset { pub url: String, pub width: Option<u32>, pub height: Option<u32> }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `url`: what a reference is rewritten to. `width` and `height`: an image's displayed size, absent from the JSON when `None`.
 
 ## 7. Error Handling
 
-The host's failures are `HostError`. The crate defines no other error type. A failure of a unit is `Outcome::Failed`; a failure of the plugin itself is whatever it wrote to stderr before exiting, which the host attaches to the error it reports. Serialization goes through `serde`, so a malformed line is a `serde_json::Error` on whichever side read it.
+A unit's failure is `Outcome::Failed`. A malformed line is a `serde_json::Error` on the side that read it.
+
+### HostError
+
+`Debug`, `std::error::Error`. Each variant's `binary` is the plugin's binary name. A `stderr` field holds what the plugin wrote to stderr, as a suffix of the message.
+
+* `NotFound { binary: String, hint: String }`: `` `<binary>` is not on PATH; `<hint>` puts it there ``.
+* `Spawn { binary: String, error: std::io::Error }`: the process would not start.
+* `Silent { binary: String, stderr: String }`: it exited before writing its `Hello`.
+* `Greeting { binary: String, line: String }`: its `Hello` did not parse.
+* `Protocol { binary: String, theirs: u32, ours: u32 }`: it speaks another `PROTOCOL`.
+* `Closed { binary: String, stderr: String }`: writing a request failed.
+* `Died { binary: String, stderr: String }`: it closed stdout before answering.
+* `Answer { binary: String, error: serde_json::Error }`: its response did not parse.
+* `Batch { binary: String, got: u64, wanted: u64 }`: the response carried another `id`.
+* `Count { binary: String, got: usize, wanted: usize }`: the response had another number of outcomes.

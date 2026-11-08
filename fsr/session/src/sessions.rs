@@ -330,7 +330,6 @@ impl Sessions {
     format!("{STATE_COOKIE}={generation:x}; Path=/; SameSite=Lax; Max-Age={}{}", self.config.ttl.as_secs(), secure)
   }
 
-  /// Logout: deletes the record and returns the expiring cookie.
   /// Saves a fresh session whether or not it changed, so its id survives to the
   /// next request and returns its cookie; an established one is saved as
   /// `persist` saves it. For a host that bound something to the id, such as
@@ -344,6 +343,7 @@ impl Sessions {
     self.set_cookie(opened).map(Some)
   }
 
+  /// Logout: deletes the record and returns the expiring cookie.
   pub async fn destroy(&self, opened: &Opened) -> Result<String, StoreError> {
     self.delete(&opened.id).await?;
     opened.cell.clear();

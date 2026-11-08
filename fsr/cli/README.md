@@ -4,15 +4,22 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_cli/badge.svg)](https://docs.rs/snapfire_fsr_cli)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-`fsr`, the build tool for a SnapFire FSR application. It walks `app/routes/`, turns the directory convention into routes, lowers every `page.loader.ts` and `actions.ts` to the IR and writes `app/generated/plan.sexp`, the file the host reads at boot. `fsr doctor` reads that plan and the configuration back and reports what starts and serves without doing what it says, each finding with its remedy. It also builds the contract from the OpenAPI documents and `.proto` files under `app/clients/` and the interfaces under `app/schemas/`. It writes the TypeScript a body is written against: `generated/services.d.ts`, `generated/host.ts` with `Ctx`, `ActionCtx`, `action` and `fail`, plus `generated/contracts/`, one contract file per client document and one for the schemas, which the host merges at boot, `generated/islands.ts`, the island registry for every module discovery named, plus `generated/client.ts`, the types a page imports: the contract in client flavour, each page's props inferred from its loader and one typed callable per action. It writes the app's `tsconfig.json`, mapping `@snapfire/fsr` to that generated module and every package under `types/` to its declarations, plus `tsconfig.build.json` for snapfirec. `fsr add` vendors a package's runtime modules from esm.sh into `vendor/` and points the import map at them; `fsr types` fetches the declarations of every package the import map names into `types/` from the package or DefinitelyTyped, writes the fsr packages' own and writes the same `tsconfig.json` and `types/foreign.d.ts` the build does, so an application hosted from Rust typechecks without a build. An application with an `xwpm.wmf` is xwpm's: both commands delegate to it and the build reads the directories it names. No npm, no `node_modules`. It compiles nothing. snapfirec builds the browser modules, while `fsr` only reads the TypeScript that runs on the server. The library half exposes the same build for tests and for a host that wants to run it in process. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+`fsr` is the CLI for a SnapFire FSR application.
+
+It scaffolds an app, runs it in development, tests and lints it, builds the IR plan file and writes the deploy tree.
+
+It is also a Rust library: `snapfire_fsr_cli::build` runs the same build as `fsr build` inside your own process, which is how the examples' Rust tests build their apps. 
+
+* The task guide is [README.USAGE.md](README.USAGE.md).
+* The call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
 ```sh
-cargo install --path fsr/cli
-cargo install --path fsr/cli --features desktop
-cargo install --path fsr/cli --no-default-features --features terminal
+cargo install snapfire_fsr_cli
 ```
+
+The default features cover a web application. Add `--features desktop` for a native window. `--no-default-features --features terminal` builds an `fsr` for terminal programs only.
 
 | Feature | Default | Adds |
 | --- | --- | --- |
@@ -31,40 +38,40 @@ cargo install --path fsr/cli --no-default-features --features terminal
 | `desktop` | off | Experimental. It turns `web` on. `fsr dev --desktop` and `fsr serve --desktop`: the application in a native window over the system webview, through wry, tao and muda |
 | `terminal` | off | Experimental. `fsr dev --terminal`: the root page run in the terminal with Ink's elements and `useInput`, through `snapfire_fsr_terminal` and crossterm. Needs no `web`, so `--no-default-features --features terminal` is an `fsr` without Tera or MDX |
 
-It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the bodies, `snapfire_fsr_plan` for the file it writes and `reqwest` with rustls for esm.sh and the npm registry.
+## Commands
 
-## What to reach for
-
-| Problem | Piece |
+| Command | What it does |
 | --- | --- |
-| Start a bare application or one with a direction | `fsr new <dir>`, `fsr new <dir> --with react` |
-| Give an application React, Vue, custom elements, htmx or Tera | `fsr use <app> vue`, once and again for the next |
-| Write a page or a piece of content in MDX or markdown | `page.mdx`, `page.md` or an import of one, with an fsr built with `mdx`; `fsr use <app> mdx` |
-| List every content file under a directory for an index | `[mdx.collections]`, read from `@generated/content` |
-| Serve an image resized per width and format, or a font with a sized fallback | import it and place it with `Picture`; files under `fonts/` and `[fonts.<key>]`; `fsr fonts add <app> google:Inter@400,700` |
-| Emit the whole artifact: the plan, the generated types, the tsconfigs and the browser bundle | `fsr build <app>` |
-| See what a build would emit without writing | `fsr check <app>` |
-| Check a deployment for what the host will not refuse to start over | `fsr doctor <app>` |
-| Lint the source with ESLint's recommended rules, in development and CI | `fsr lint <app>` |
-| Count what the build refuses or leaves to the browser across applications | `fsr census <app>...` |
-| See what the server runs for one loader, action, handler or component | `fsr ir view <app> <id> [section]` |
-| Write the deploy tree, checked first | `fsr bundle <app> [--out <dir>]` |
-| Vendor a package for the browser | `fsr add <app> react@19.3.1` |
-| Fetch declarations for the editor and `tsc` | `fsr types <app>` |
-| Keep an xwpm application in step | an `xwpm.wmf` in the app; the same commands |
-| Name the document module or the slot pages land in | `--shell`, `--slot` |
-| Give bodies a typed `services` | `app/clients/<name>.openapi.json`, `app/clients/<name>.proto` or `app/clients/<name>.graphql` |
-| Give bodies a typed `session` or an action a typed input | an interface under `app/schemas/` |
-| Give a fresh session its starting values | `export const defaults` beside `Session` |
-| Register the page islands in the browser | `generated/islands.ts`, called from `main.ts` |
-| Type a page's props or call an action from a page | `generated/client.ts` |
-| Mount an island written for another framework | nothing to set: the extension picks the adapter, `@snapfire/fsr/client/vue` for `.vue`; one no adapter mounts fails the build |
-| Place a Vue component from a template | `import Card from "@src/ui/Card.vue"` inside `<Island>`, with `snapfirec-vue` on `PATH` |
-| Run an application with no Rust beside it in development | `fsr serve <app>` or `fsr dev <app>` with no `Cargo.toml` beside it |
-| Deploy an application with no Rust beside it | `fsr bundle <app>`, which puts the `fsr-server` binary in the tree |
-| Build one team's application as a site another mounts under a path | a `[site]` section beside the app; `fsr serve` on the shell mounts its `[sites]` table |
-| Hold a mounted site to the bytes you meant to ship | `fsr sites install` pins what it installed; `fsr sites pin <shell>` repins |
-| See what a running shell is serving, against its table | `fsr sites list <shell> --host <url>` |
-| Tell a running shell to read its sites table again | `fsr sites reload --host <url>` |
-| Run the build from Rust | `build` and `write` |
-| Read what was discovered, imported and lowered | `Report` |
+| `fsr new <dir>` | Scaffold an app; `--with react` adds a framework, `--shell`, `--site` and `--terminal` scaffold the other kinds |
+| `fsr migrate <from> [dir]` | Rewrite a Next.js, SvelteKit, Nuxt or Ink app into an FSR project; with no `dir`, move an FSR project onto the client and host imports |
+| `fsr use <app> <direction>` | Adopt react, vue, svelte, elements, htmx, tailwind, tera or mdx |
+| `fsr add <app> <pkg>@<ver>` | Vendor a package for the browser and name it in the import map |
+| `fsr types <app>` | Fetch declarations for every package the import map names |
+| `fsr fonts add <app> <spec>` | Download a provider's font faces, as `google:Inter@400,700` |
+| `fsr dev <app>` | Build, serve and rebuild on change |
+| `fsr serve <app>` | Serve an app that is already built |
+| `fsr run <app> -- <args>` | Run a terminal program once |
+| `fsr test <app>` | Run the specs and the Rust tests of the crate beside the app |
+| `fsr lint <app>` | Lint the source with ESLint's rules |
+| `fsr check <app>` | Build and typecheck, writing only what the checker reads |
+| `fsr build <app>` | Build without serving |
+| `fsr doctor <app>` | Report what a deployment would find wrong before it ships |
+| `fsr prerender <app>` | Write the documents for every prerenderable route |
+| `fsr bundle <app>` | Write the deploy tree, checked first |
+| `fsr census <app>...` | Count what the build refuses or leaves to the browser, by cause |
+| `fsr sites <cmd>` | Mount sites in a shell: `link`, `unlink`, `list`, `pack`, `install`, `pin`, `hash` and `reload` |
+| `fsr ir view <app> <id>` | Print what the server runs for one loader, action, handler or component |
+
+## Common tasks
+
+| To do this | Use |
+| --- | --- |
+| Start a React app and run it | `fsr new app --with react`, then `fsr dev app` |
+| Check the app in CI | `fsr check app`, `fsr lint app --sarif` and `fsr test app` |
+| Ship an app with no Rust crate beside it | `fsr bundle app`, which puts `fsr-server` in the tree |
+| Check a deployment's configuration before release | `fsr doctor app --runtime`, with `--env`, `--app-env` and `--region` for the ladder |
+| Give bodies typed `services` | a document under `app/clients/`: `.openapi.json`, `.proto` or `.graphql` |
+| Let one team's site mount under another's shell | `fsr new site --site --at /docs --into shell` or `fsr sites link shell site` |
+| Find why a component renders only in the browser | `fsr build app --verbose`, then `fsr ir view` |
+| Keep an xwpm application in step | an `xwpm.wmf` in the app; the same commands delegate to it |
+| Run the build from Rust | `build` and `write`, then read the `Report` |

@@ -4,20 +4,55 @@
 [![Docs.rs](https://docs.rs/snapfire_typecheck/badge.svg)](https://docs.rs/snapfire_typecheck)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-Typechecking for TypeScript, as a peer process rather than a library inside a compiler. `snapfirec` strips types and never reads one for meaning; this crate puts a `tsc` of a requested version on the machine and runs it over the same tsconfig, so a wrong prop type or a misspelled field is a build failure instead of something the browser discovers. The engine is TypeScript 7, one self-contained native binary per platform, fetched from the npm registry over plain HTTPS and verified against a hash before it runs: no npm client, no Node and no package manager. The library is the resolution and the diagnostics; `snapfiretc` is the executable `fsr` and `snapfirec` spawn. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+Typechecks a TypeScript project with a real `tsc` of the version you ask for, without Node.js or npm. A wrong prop type or a misspelled field fails the build instead of turning up in the browser.
+
+`snapfirec` strips types without checking them. This crate supplies the check. It finds a `tsc` of the requested version, runs it over the same `tsconfig.json` and hands back the diagnostics with TypeScript's own codes.
+
+The compiler is TypeScript 7, a single native binary per platform. When it is not already cached or on `PATH`, it is downloaded from the npm registry over HTTPS and checked against a known hash before it runs.
+
+Most people meet it as `snapfiretc`, the command `snapfirec --typecheck` and `fsr` run for you. Use the library to run the same check from your own Rust tool.
+
+* The task guide is [README.USAGE.md](README.USAGE.md).
+* The call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
+```sh
+cargo install snapfire_typecheck
+```
+
+That puts `snapfiretc` on `PATH`. As a library:
+
 ```toml
 [dependencies]
-snapfire_typecheck = { path = "../typecheck" }
+snapfire_typecheck = "0"
 ```
+
+No features.
+
+## Quick start
 
 ```sh
-cargo install --path typecheck
+snapfiretc --root ./my-app --config tsconfig.json
 ```
 
-No features. The crate depends on `reqwest` with rustls for the one HTTPS GET, `flate2` and `tar` for the tarball, `sha2` and `base64` for the integrity check and `serde_json` for the registry document and the JSON report.
+```text
+src/cart.ts(12,7): error TS2322: Type 'string' is not assignable to type 'number'.
+tsc 7.0.2 from cache
+```
+
+The same check from Rust:
+
+```rust
+use snapfire_typecheck::{check, resolve, Options};
+use std::path::Path;
+
+let resolved = resolve(&Options::default())?;
+let diagnostics = check(&resolved.tsc, Path::new("./my-app"), Path::new("tsconfig.json"))?;
+for diagnostic in diagnostics.iter().filter(|d| d.is_error()) {
+  println!("{diagnostic}");
+}
+```
 
 ## What to reach for
 
@@ -34,4 +69,4 @@ No features. The crate depends on `reqwest` with rustls for the one HTTPS GET, `
 
 ## License
 
-This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the `LICENSE` file in the repository for the full license text.
+This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the [LICENSE](LICENSE) file for the full license text.

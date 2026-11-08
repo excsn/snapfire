@@ -32,11 +32,17 @@ MDX and markdown converted to TSX modules for the SnapFire FSR build.
 
 ### convert
 
-`pub fn convert(source: &str, options: &Options) -> Result<Converted, Error>`
+* `pub fn convert(source: &str, options: &Options) -> Result<Converted, Error>`
 
-Parses `source` with markdown-rs in the format `options.format` names and writes the module `options.target` names. An ESM block may hold only imports and exports; an expression must be a whole expression, a comment or empty.
+Converts `source`, read in the format `options.format` names, into the module `options.target` names.
+
+* An ESM block may hold only imports and exports.
+* An expression must be a whole expression, a comment or empty.
+* `Error::Feature` when `options.highlight` or `options.frontmatter` is set without its feature.
 
 ### Options
+
+What `convert` reads and writes. `Debug`, `Clone`, `#[non_exhaustive]`.
 
 * `pub fn new(format: Format, target: Target) -> Options`: `gfm` and `heading_ids` on, `frontmatter` and `highlight` off, `ClassAttr::ClassName`, nothing mapped, no provider.
 * `pub format: Format`
@@ -47,29 +53,37 @@ Parses `source` with markdown-rs in the format `options.format` names and writes
 * `pub highlight: bool`: fenced code whose language names a grammar written as classed spans. Needs the `highlight` feature.
 * `pub class_attr: ClassAttr`
 * `pub mapped: Vec<Mapped>`: read for `Target::Lowered` only.
-* `pub provider: Option<String>`: read for `Target::Browser` only; the specifier `useMDXComponents` is imported from.
+* `pub provider: Option<String>`: read for `Target::Browser` only. The specifier `useMDXComponents` is imported from, relative to the file.
 
 ### Format
 
-* `Format::Mdx`, `Format::Md`
+What a file is written in. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
+
+* `Format::Mdx`: markdown with JSX, expressions and ESM.
+* `Format::Md`: markdown alone, MDX's `md` format.
 * `pub fn of(path: &str) -> Option<Format>`: by extension, `.mdx` or `.md`, any case.
 
 ### Target
 
-* `Target::Lowered`: mapped elements placed as `Mdx_<key>`, imported by name; the wrapper takes the content as its children and no props.
+Which module `convert` writes. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
+
+* `Target::Lowered`: mapped elements placed as `Mdx_<key>`, imported by name. The wrapper takes the content as its children and no props.
 * `Target::Browser`: every element written as `_components.<tag>`, the object filled with each tag's own name, then `useMDXComponents()` when there is a provider, then `props.components`.
 
 ### ClassAttr
 
-* `ClassAttr::ClassName`, `ClassAttr::Class`: the attribute a class the conversion writes takes.
+The attribute a written class goes in. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+
+* `ClassAttr::ClassName`: `className`.
+* `ClassAttr::Class`: `class`.
 
 ### Mapped
 
-`#[derive(Debug, Clone, PartialEq, Eq)]`, `#[non_exhaustive]`: build one with `new`.
+One element the `Target::Lowered` module places as a component. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
 * `pub fn new(key: String, specifier: String, export: String) -> Self`
 * `pub key: String`: a tag in `ELEMENTS` or `WRAPPER`.
-* `pub specifier: String`: imported as written.
+* `pub specifier: String`: imported as written, relative to the file.
 * `pub export: String`
 
 ### Constants
@@ -82,13 +96,13 @@ Parses `source` with markdown-rs in the format `options.format` names and writes
 
 ### Converted
 
-`#[derive(Debug, Clone)]`
+The written module and what was read from the source. `Debug`, `Clone`, `#[non_exhaustive]`.
 
 * `pub tsx: String`
 * `pub segments: Vec<Segment>`: in order of `generated`.
 * `pub toc: Vec<TocEntry>`: empty with `heading_ids` off.
-* `pub excerpt: Option<String>`: the plain text of the first top-level paragraph, whitespace collapsed; `None` when there is none or it holds no text. Frontmatter, headings and ESM are not paragraphs.
-* `pub meta: bool`: the module exports `meta`.
+* `pub excerpt: Option<String>`: the plain text of the first top-level paragraph that has any, whitespace collapsed. An expression or JSX inside it adds nothing. Frontmatter, headings and ESM are not paragraphs.
+* `pub meta: bool`: the module exports `meta`, written or from frontmatter.
 * `pub exports: Vec<String>`: every exported name but `default`, `toc` last when written.
 * `pub classes: BTreeSet<String>`: each class the highlighter wrote, `hl-code` among them.
 * `pub placed: BTreeSet<String>`: the keys of `Options::mapped` the module imports.
@@ -97,16 +111,16 @@ Parses `source` with markdown-rs in the format `options.format` names and writes
 
 ### Segment
 
-`#[derive(Debug, Clone, Copy, PartialEq, Eq)]`
+A run of the written module and where it came from. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
 * `pub generated: usize`: byte offset in `tsx`.
 * `pub len: usize`
 * `pub original: usize`: byte offset in the source.
-* `pub verbatim: bool`: the run is source text; each byte maps to the byte at the same distance from `original`. Otherwise the run maps whole to `original`.
+* `pub verbatim: bool`: the run is source text and each byte maps to the byte at the same distance from `original`. Otherwise the run maps whole to `original`.
 
 ### TocEntry
 
-`#[derive(Debug, Clone, PartialEq, Eq)]`
+One heading of the `toc` export. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
 * `pub depth: u8`: 1 to 6.
 * `pub id: String`
@@ -116,63 +130,54 @@ Written as `export const toc = [{ depth, id, text }, ...]`.
 
 ### Warning
 
-`#[derive(Debug, Clone, PartialEq, Eq)]`
+A construct `convert` left out. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
 * `pub line: usize`, `pub column: usize`: one-based, the column in characters.
 * `pub message: String`
 
 ### original_offset
 
-`pub fn original_offset(segments: &[Segment], offset: usize) -> usize`
-
-The source byte that written byte `offset` came from; 0 before the first segment.
+* `pub fn original_offset(segments: &[Segment], offset: usize) -> usize`: the source byte that written byte `offset` came from. 0 before the first segment.
 
 ### position
 
-`pub fn position(source: &str, offset: usize) -> (usize, usize)`
-
-The one-based line and column, in characters, of byte `offset`, clamped to the source's length.
+* `pub fn position(source: &str, offset: usize) -> (usize, usize)`: the one-based line and column, in characters, of byte `offset`, clamped to the source's length.
 
 ## 3. Highlighting
 
-The `highlight` feature. Grammars are bat's (two-face 0.5) on fancy-regex; `jsx` reads with the TSX grammar; `text`, `txt`, `plain` and `plaintext` name none. `SESSIONS`, `shell-session`, `console`, `sh-session` and `shellsession` in any case, read a terminal session: prompt lines `hl-meta hl-prompt` with the command through Bash, other lines `hl-meta hl-output`.
+Module `highlight`, behind the `highlight` feature. Module constants: `PREFIX: &str = "hl-"`, `CODE_CLASS: &str = "hl-code"`, `SESSIONS: &[&str] = &["shell-session", "console", "sh-session", "shellsession"]`.
+
+* A language is matched in any case. `jsx` reads with the TSX grammar. `text`, `txt`, `plain` and `plaintext` name no grammar.
+* A language in `SESSIONS` reads as a terminal session. Prompt lines are `hl-meta hl-prompt` with the command highlighted as Bash. Other lines are `hl-meta hl-output`.
 
 ### highlight::lines
 
-`pub fn lines(code: &str, lang: &str) -> Option<Vec<Vec<Piece>>>`
-
-One tree per line, every scope open at the line's start reopened, the newline left out. `None` when `lang` names no grammar.
+* `pub fn lines(code: &str, lang: &str) -> Option<Vec<Vec<Piece>>>`: one tree per line, with every scope open at the line's start reopened and the newline left out. `None` when `lang` names no grammar.
 
 ### highlight::knows
 
-`pub fn knows(lang: &str) -> bool`
+* `pub fn knows(lang: &str) -> bool`: whether `lang` names a grammar or is in `SESSIONS`.
 
 ### highlight::Piece
 
-`#[derive(Debug, Clone, PartialEq, Eq)]`
+One node of a highlighted line. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
 * `Piece::Text(String)`
 * `Piece::Span { classes: String, children: Vec<Piece> }`: `classes` is the scope's atoms, each prefixed with `PREFIX`, space separated.
 
-Constants: `pub const PREFIX: &str = "hl-"`, `pub const CODE_CLASS: &str = "hl-code"`.
-
 ### highlight::theme_css
 
-`pub fn theme_css(name: &str, scope: &str) -> Option<String>`
-
-syntect's stylesheet for theme `name` with `hl-` classes, each rule's selectors prefixed with `scope` and a space when `scope` is not empty. `None` for a name two-face does not carry.
+* `pub fn theme_css(name: &str, scope: &str) -> Option<String>`: the stylesheet for theme `name` over `hl-` classes. Each rule's selectors are prefixed with `scope` and a space when `scope` is not empty. `None` when no theme has that name.
 
 ### highlight::themes
 
-`pub fn themes() -> Vec<&'static str>`
-
-The theme names offered for `theme_css`, light and dark ones among them.
+* `pub fn themes() -> Vec<&'static str>`: the 17 theme names `theme_css` reads.
 
 ## 4. Error Handling
 
 ### Error
 
-`#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]`. `Display` is the message.
+`Debug`, `Clone`, `PartialEq`, `Eq`, `thiserror::Error`, `#[non_exhaustive]`.
 
 * `Error::Syntax { line: usize, column: usize, message: String }`: `{line}:{column}: {message}`. Any of: the file does not parse, an ESM block holds a statement, a second `export default`, frontmatter that does not read and frontmatter beside its own `export const meta`.
-* `Error::Feature(&'static str, &'static str)`: what was asked for and the feature it needs.
+* `Error::Feature(&'static str, &'static str)`: what was asked for and the feature it needs. Displays as ``{0} needs snapfire_fsr_mdx's `{1}` feature``.

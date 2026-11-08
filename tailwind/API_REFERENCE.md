@@ -27,7 +27,9 @@ Tailwind CSS v4.3.2 in Rust: a CSS-first configuration compiled once and built f
 
 ### Compiler
 
-A parsed configuration. Neither `Send` nor `Sync`: it holds `Rc` and `RefCell` caches.
+A parsed configuration.
+
+* `pub struct Compiler`. Neither `Send` nor `Sync`.
 
 * `pub fn new(css: &str, options: CompileOptions) -> Result<Compiler, Error>`: parses `css`, resolves its imports through `options.load_stylesheet`, reads `@theme`, `@utility`, `@variant`, `@custom-variant`, `@source` and `@reference`. It refuses `@plugin` and `@config`.
 * `pub fn build<'c>(&mut self, candidates: impl IntoIterator<Item = &'c str>) -> String`: the stylesheet with the utilities of every candidate given to any build so far. Tailwind's output before an optimize pass. A build that adds no valid candidate returns the previous output.
@@ -47,7 +49,7 @@ What `Compiler::new` reads besides the stylesheet. `Default` is every field belo
 * `pub load_stylesheet: Option<Box<LoadStylesheet<'a>>>`: resolves every `@import`. `None` resolves Tailwind's built-ins only.
 * `pub polyfills: PolyfillFlags`: the fallbacks written for older browsers. Default `PolyfillFlags::ALL`.
 * `pub banner: bool`: starts the output with Tailwind's license comment. Default `true`.
-* `pub from: Option<String>`: the stylesheet's file name; a syntax error then starts with `file:line:column`, columns in UTF-16 code units. Default `None`.
+* `pub from: Option<String>`: the stylesheet's file name. A syntax error then starts with `file:line:column`, columns in UTF-16 code units. Default `None`.
 * `pub fn base(self, base: String) -> Self`, `pub fn load_stylesheet(self, load_stylesheet: Option<Box<LoadStylesheet<'a>>>) -> Self`, `pub fn polyfills(self, polyfills: PolyfillFlags) -> Self`, `pub fn banner(self, banner: bool) -> Self` and `pub fn from(self, from: Option<String>) -> Self`: setters for the field of the same name.
 
 ### PolyfillFlags
@@ -117,7 +119,7 @@ A configuration with `Features::NONE` builds to its input printed back, with no 
 
 `pub fn optimize(css: &str, options: &OptimizeOptions) -> Result<String, Error>`
 
-Tailwind's Lightning CSS pass, run twice: targets Safari 16.4, iOS Safari 16.4, Firefox 128 and Chrome 111; nesting and media query ranges always lowered; logical properties, `:dir()` and `light-dark()` never.
+Tailwind's Lightning CSS pass, run twice. It targets Safari 16.4, iOS Safari 16.4, Firefox 128 and Chrome 111. Nesting and media query ranges are always lowered. Logical properties, `:dir()` and `light-dark()` are never lowered.
 
 ### OptimizeOptions
 

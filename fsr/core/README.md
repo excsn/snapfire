@@ -1,12 +1,23 @@
-# SnapFire FSR Core (`snapfire_fsr_core`)
+# snapfire_fsr_core
 
 [![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_core.svg)](https://crates.io/crates/snapfire_fsr_core)
 [![Docs.rs](https://docs.rs/snapfire_fsr_core/badge.svg)](https://docs.rs/snapfire_fsr_core)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-The vocabulary crate of SnapFire FSR, the Full Stack Runtime. It holds the four things every other crate in the platform has to agree on before it can say anything: the `Value` model, the payload `Node` tree, the `PlanNode` render plan and canonical fingerprinting over all three. It also holds `ext`, the contract the Rust half of a native extension is written against. It depends on no other FSR crate, has no runtime, opens no socket and renders nothing; everything above it (`snapfire_fsr_payload` for encodings, `snapfire_fsr_runtime` for request handling, the evaluators, the session layer, the service layer) is written in these types. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+The data types every SnapFire FSR crate shares: values, the page tree a response renders to, the render plan and stable content hashes.
 
-The value model decides what can exist. Encodings are projections of it, ranked by how much they preserve: an encoding is either lossless over the model or a degradation it declares, never a silent one. That is why `Value` is not limited to what JSON can express. It carries `i128` and `u128` integers, `f32` separately from `f64`, raw bytes, typed numeric arrays, tagged variants and references. JSON tags whatever it cannot spell natively.
+* `Value` is any data that crosses between server and browser.
+* `Node` is the tree a response renders to: text, trusted markup, islands and streaming holes.
+* `PlanNode` describes what a request will render before anything is loaded.
+* `Fingerprint` gives a stable 64-bit hash of a value, a tree or a plan, for cache keys.
+* `ext` is what the Rust half of a native extension is written against.
+
+`Value` holds more than JSON can. It keeps `i128` and `u128` integers, `f32` apart from `f64`, raw bytes, typed numeric arrays, tagged variants and references to an action or a module. It also keeps JavaScript's `undefined` apart from `null`. Encodings in other crates either keep all of that or say what they drop.
+
+The crate has no runtime, opens no socket and renders nothing. Every other FSR crate builds on it. Depend on it directly when you write loaders, actions, evaluators or extensions in Rust.
+
+* The task guide is [README.USAGE.md](README.USAGE.md).
+* The call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -15,32 +26,47 @@ The value model decides what can exist. Encodings are projections of it, ranked 
 snapfire_fsr_core = "0"
 ```
 
-| Dependency | Why |
-| :--- | :--- |
-| `indexmap` | `ValueMap` and `Params` preserve insertion order for serialization |
-| `serde_json` | The JSON each locale's message table is carried as |
-| `xxhash-rust` (`xxh3`) | The 64-bit digest behind `Fingerprint` |
+## Quick start
+
+```rust
+use snapfire_fsr_core::{Fingerprint, ModuleId, Node, TypedArray, Value, ValueMap};
+
+let mut props = ValueMap::default();
+props.insert("series", Value::TypedArray(TypedArray::F64(vec![1.0, 2.5, 3.0])));
+props.insert("title", Value::str("servers"));
+
+let page = Node::Seq(vec![
+  Node::raw("<section><h1>Servers</h1>"),
+  Node::Client { module: ModuleId::new("components/ServerChart.tsx", "default"), props, children: Vec::new(), rendered: false },
+  Node::raw("</section>"),
+]);
+
+println!("{:016x}", page.fingerprint());
+```
+
+Two values with the same content always have the same fingerprint, whatever order their map keys were inserted in.
 
 ## What to reach for
 
-| Problem | Piece |
+| You want to | Use |
 | :--- | :--- |
-| Represent any data crossing the server/browser boundary | `Value` |
+| Represent data crossing the server/browser boundary | `Value` |
 | Hold a props map or a loader result | `ValueMap`, aliased as `Props` and `Data` |
 | Build an integer without picking a variant by hand | `Value::int`, `Value::uint` |
 | Carry a numeric series without one `Value` per element | `Value::TypedArray` |
-| Carry a Rust enum that arrives in TypeScript as a discriminated union | `Value::Variant` |
+| Carry a Rust enum that arrives in TypeScript as a tagged union | `Value::Variant` |
 | Point at a server action or a client module | `Value::Ref`, `Value::action_ref` |
 | Describe what a response renders to | `Node` |
-| Emit trusted markup an evaluator produced | `Node::Raw`, wrapping `Html` |
-| Mount a hydratable island with props | `Node::Client` |
+| Emit trusted markup | `Node::Raw`, wrapping `Html` |
+| Mount an island with props | `Node::Client` |
 | Leave a hole a later stream row fills | `Node::Pending` and its `SlotId` |
 | Name a component by source path and export | `ModuleId` |
-| Describe what a request renders, before anything is loaded | `PlanNode` |
-| Declare that a segment streams rather than blocks | `PlanNode::deferred`, with `fallback` |
+| Describe what a request renders, before anything loads | `PlanNode` |
+| Mark a segment that streams instead of blocking | `PlanNode::deferred`, with `fallback` |
 | Name the loader a segment waits on | `PlanNode::data_source` |
 | Get a stable content hash for a cache key | `Fingerprint::fingerprint` |
-| Decide whether two values mean the same thing | Compare fingerprints, not `PartialEq` |
+| Write or read JSON for code outside FSR | `json::stringify`, `json::to_value` |
+| Parse a lifetime like `30s` or `5m` | `parse_duration` |
 | Write the Rust half of a native extension | `ext::Reach`, `ext::Ambient`, `ext::Fail` |
 | Read an extension's arguments | `ext::number`, `ext::text`, `ext::text_opt`, `ext::option` |
 | Hold the message catalogs `i18n.t` reads | `ext::Catalogs` |

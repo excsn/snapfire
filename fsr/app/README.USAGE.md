@@ -185,7 +185,7 @@ A host matches handlers before pages: `app.handlers.match_request("GET", "/api/h
 ```rust
 let app = App::from_manifest(&text)?
   .middleware_override(|ctx, request| async move {
-    let mut out = ValueMap::new();
+    let mut out = ValueMap::default();
     if ctx.session.identity().is_none() {
       out.insert("redirect".into(), Value::str("/login"));
     }

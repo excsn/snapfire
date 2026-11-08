@@ -1,6 +1,6 @@
 # API Reference: snapfire_fsr_runtime
 
-The request blocks of SnapFire FSR: matching, resolution, data sources, evaluation, assembly, caching, the request context, the service seam, actions and streaming.
+The request pipeline of SnapFire FSR: matching, resolution, data sources, evaluation, assembly, the store, document metadata, caching, the request context, services, actions, middleware, islands and streaming.
 
 ## Contents
 
@@ -10,10 +10,11 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Matcher`](#matcher)
   * [`MatchitMatcher`](#matchitmatcher)
   * [`HandlerMatcher`](#handlermatcher)
+  * [`HandlerMatch`](#handlermatch)
 * [2. Resolution](#2-resolution)
   * [`Resolver`](#resolver)
   * [`TableResolver`](#tableresolver)
-* [3. Data sources](#3-data-sources)
+* [3. Data Sources](#3-data-sources)
   * [`DataSource`](#datasource)
   * [`DataSources`](#datasources)
   * [`LoadKeyer`](#loadkeyer)
@@ -23,11 +24,15 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`NodeChunks`](#nodechunks)
   * [`Evaluator`](#evaluator)
   * [`NullEvaluator`](#nullevaluator)
+  * [`slot_regions`](#slot_regions)
   * [`Evaluators`](#evaluators)
-* [5. The runtime](#5-the-runtime)
+* [5. The Runtime](#5-the-runtime)
   * [`Runtime`](#runtime)
   * [`RuntimeBuilder`](#runtimebuilder)
-  * [`Static`, `SubtreeReads` and `Reads`](#static-subtreereads-and-reads)
+  * [`Static`](#static)
+  * [`SubtreeReads`](#subtreereads)
+  * [`Reads`](#reads)
+  * [`subtree_shape`](#subtree_shape)
 * [6. Assembly](#6-assembly)
   * [`assemble`](#assemble)
   * [`assemble_under`](#assemble_under)
@@ -35,198 +40,236 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Assembly`](#assembly)
   * [`PendingResolution`](#pendingresolution)
   * [`Resolved`](#resolved)
+* [7. The Store](#7-the-store)
+  * [`Seeds`](#seeds)
+  * [`Contribution`](#contribution)
+  * [`contribution_order`](#contribution_order)
+  * [`Derived`](#derived)
+  * [`PENDING_PROP`](#pending_prop)
+* [8. Document Metadata](#8-document-metadata)
   * [`Meta`](#meta)
+  * [`HeadEl`](#headel)
   * [`Metadata`](#metadata)
   * [`HeadRows`](#headrows)
   * [`Paths`](#paths)
   * [`Head`](#head)
   * [`DocumentTheme`](#documenttheme)
-* [7. Segments](#7-segments)
+  * [Head constants](#head-constants)
+* [9. Segments](#9-segments)
   * [`SegmentKeyer`](#segmentkeyer)
   * [`DefaultKeyer`](#defaultkeyer)
   * [`SegmentInfo`](#segmentinfo)
-* [8. Caching](#8-caching)
+* [10. Caching](#10-caching)
   * [`CacheEntry`](#cacheentry)
   * [`NodeCache`](#nodecache)
   * [`NoCache`](#nocache)
   * [`MemoryCache`](#memorycache)
   * [`FibreCache`](#fibrecache)
+  * [`WarmRenders`](#warmrenders)
   * [`LoadCache`](#loadcache)
   * [`NoLoadCache`](#noloadcache)
   * [`WarmLoads`](#warmloads)
-  * [`WarmRenders`](#warmrenders)
   * [`MemoryLoadCache`](#memoryloadcache)
-* [9. Request context](#9-request-context)
+* [11. Request Context](#11-request-context)
+  * [`RequestCtx`](#requestctx)
   * [`Identity`](#identity)
   * [`SessionCell`](#sessioncell)
-  * [`RequestCtx`](#requestctx)
+  * [`CsrfHandle`](#csrfhandle)
+  * [`RedirectHandle`](#redirecthandle)
+  * [`AfterHandle`](#afterhandle)
   * [`Address`](#address)
   * [`Locale`](#locale)
-* [10. Services](#10-services)
+  * [Context functions](#context-functions)
+* [12. Services](#12-services)
   * [`ServiceCaller`](#servicecaller)
   * [`ServiceHandle`](#servicehandle)
   * [`Native`](#native)
   * [`Natives`](#natives)
   * [`NativeHandle`](#nativehandle)
-* [11. Actions](#11-actions)
+  * [`FromNativeValue`](#fromnativevalue)
+  * [`CallState`](#callstate)
+* [13. Actions](#13-actions)
   * [`ActionHandler`](#actionhandler)
   * [`ActionRegistry`](#actionregistry)
   * [`HttpResponse`](#httpresponse)
-  * [Middleware](#middleware)
-* [12. Streaming](#12-streaming)
+* [14. Middleware](#14-middleware)
+  * [`NextHandle`](#nexthandle)
+  * [`Target`](#target)
+  * [`Passed`](#passed)
+  * [`drive_middleware`](#drive_middleware)
+* [15. Template Islands](#15-template-islands)
+  * [`IslandEvent`](#islandevent)
+  * [`IslandHandler`](#islandhandler)
+  * [`IslandRegistry`](#islandregistry)
+  * [`island_data`](#island_data)
+* [16. Streaming](#16-streaming)
   * [`wire_stream`](#wire_stream)
-  * [`meta_to_json`](#meta_to_json)
-  * [`contributions_to_json`](#contributions_to_json)
   * [`html_stream`](#html_stream)
   * [`fragment_html`](#fragment_html)
+  * [`meta_to_json`](#meta_to_json)
+  * [`contributions_to_json`](#contributions_to_json)
   * [`segments_to_json`](#segments_to_json)
   * [`segments_from_json`](#segments_from_json)
   * [`FILL_SCRIPT`](#fill_script)
-* [13. Error handling](#13-error-handling)
+  * [`CAPTURE_SCRIPT`](#capture_script)
+* [17. Reading a Payload](#17-reading-a-payload)
+  * [`Row`](#row)
+  * [`row_from_line`](#row_from_line)
+  * [`RowReader`](#rowreader)
+  * [`contributions_from_json`](#contributions_from_json)
+  * [`meta_from_json`](#meta_from_json)
+* [18. Error Handling](#18-error-handling)
   * [`FailureKind`](#failurekind)
   * [`LoadError`](#loaderror)
   * [`EvalError`](#evalerror)
   * [`AssembleError`](#assembleerror)
   * [`ActionError`](#actionerror)
   * [`ServiceError`](#serviceerror)
-* [14. Reading a payload](#14-reading-a-payload)
-  * [`Row`](#row)
-  * [`row_from_line`](#row_from_line)
-  * [`RowReader`](#rowreader)
-  * [`contributions_from_json` and `meta_from_json`](#contributions_from_json-and-meta_from_json)
 
 ## 1. Matching
 
-### `EntryId`
+### EntryId
 
-The application's stable id for a route entry. `pub struct EntryId(pub u32)`, `Debug + Clone + Copy + PartialEq + Eq + Hash`.
+The application's stable id for a route entry.
 
-### `RouteMatch`
+* `pub struct EntryId(pub u32)`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`.
 
-What a matcher returns. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
+### RouteMatch
 
-* `pub entry: EntryId`
-* `pub params: Params` (`indexmap::IndexMap<String, String>` from `snapfire_fsr_core`)
-* `pub fn new(entry: EntryId, params: Params) -> Self`
+What a matcher returns. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
 
-### `Matcher`
+* `pub struct RouteMatch { pub entry: EntryId, pub params: Params }`: `Params` is `snapfire_fsr_core`'s `IndexMap<String, String>`.
+* `new(entry: EntryId, params: Params) -> Self`
 
-`pub trait Matcher: Send + Sync`.
+### Matcher
 
-* `fn match_path(&self, path: &str) -> Option<RouteMatch>`: `None` means no route, which the caller renders as a 404.
+* `pub trait Matcher: Send + Sync { fn match_path(&self, path: &str) -> Option<RouteMatch>; }`: `None` means no route.
 
-### `MatchitMatcher`
+### MatchitMatcher
 
-`matchit::Router<EntryId>` behind the `Matcher` trait. `Default`.
+A `matchit::Router<EntryId>` behind `Matcher`. `Default`.
 
-* `pub fn new() -> Self`
-* `pub fn insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), matchit::InsertError>`: patterns are `matchit` patterns, so a capture is written `/dash/{section}`. Conflicting or malformed patterns fail here, at construction.
-* `fn match_path(&self, path: &str) -> Option<RouteMatch>`: named captures become params, in the order `matchit` yields them.
+* `new() -> Self`
+* `insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), matchit::InsertError>`: `pattern` is a `matchit` pattern, such as `/dash/{section}`. A conflicting or malformed pattern fails here.
+* `match_path` answers named captures as params, in the order `matchit` yields them.
 
-### `HandlerMatcher`
+### HandlerMatcher
 
-* `pub struct HandlerMatcher`, `Default`: one `matchit` router per HTTP method, resolving to a handler id.
-* `HandlerMatcher::new() -> Self`
-* `HandlerMatcher::insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), matchit::InsertError>`: the method is upper-cased.
-* `HandlerMatcher::match_request(&self, method: &str, path: &str) -> Option<HandlerMatch>`
-* `HandlerMatcher::is_empty(&self) -> bool`
+One `matchit` router per HTTP method, resolving to a handler id. `Default`.
+
+* `new() -> Self`
+* `insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), matchit::InsertError>`: the method is upper-cased.
+* `match_request(&self, method: &str, path: &str) -> Option<HandlerMatch>`: a HEAD with no handler of its own is answered by the GET handler.
+* `allowed(&self, path: &str) -> Vec<String>`: the methods some handler answers at `path`, sorted, with HEAD wherever GET is. Empty when no handler claims the path.
+* `is_empty(&self) -> bool`
+
+### HandlerMatch
+
 * `pub struct HandlerMatch { pub id: String, pub params: Params }`
 
 ## 2. Resolution
 
-### `Resolver`
+### Resolver
 
-`pub trait Resolver: Send + Sync`.
+* `pub trait Resolver: Send + Sync { fn resolve(&self, entry: EntryId, params: &Params) -> Option<PlanNode>; }`: `None` means the entry has no plan.
 
-* `fn resolve(&self, entry: EntryId, params: &Params) -> Option<PlanNode>`: `None` means the entry has no plan. Params are passed so an implementation may return a different plan per param value.
-
-### `TableResolver`
+### TableResolver
 
 One prebuilt plan per entry. `Default`.
 
-* `pub fn new() -> Self`
-* `pub fn insert(&mut self, entry: EntryId, plan: PlanNode)`: a second insert for the same entry replaces the first.
-* `fn resolve(&self, entry: EntryId, _params: &Params) -> Option<PlanNode>`: clones the stored plan and ignores the params.
+* `new() -> Self`
+* `insert(&mut self, entry: EntryId, plan: PlanNode)`: a second insert for the same entry replaces the first.
+* `plans(&self) -> impl Iterator<Item = &PlanNode>`: every plan the table holds.
+* `most_deferred(&self) -> u32`: the most deferred segments one document can stream. It equals the highest slot number a document fills.
+* `resolve` clones the stored plan and ignores the params.
+* Node ids must be distinct within one plan. Loaded data and load failures are keyed by `PlanNode::id`.
 
-Node ids must be distinct within one plan. The assembler keys loaded data and load failures by `PlanNode::id`, so two nodes sharing an id share a loader result and a failure.
+## 3. Data Sources
 
-## 3. Data sources
+### DataSource
 
-### `DataSource`
+* `pub trait DataSource: Send + Sync { fn load(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Data, LoadError>>; }`: `Data` is `ValueMap`. The future is `'static`, so it cannot borrow `ctx`.
 
-`pub trait DataSource: Send + Sync`.
+### DataSources
 
-* `fn load(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Data, LoadError>>`: the returned future is `'static`, so an implementation clones out of `ctx` rather than borrowing it. `Data` is `ValueMap`.
+Source id to implementation, in insertion order. `Default`.
 
-### `DataSources`
+* `new() -> Self`
+* `insert(&mut self, id: impl Into<String>, source: Arc<dyn DataSource>)`
+* `insert_fn<F, Fut>(&mut self, id: impl Into<String>, f: F)` where `F: Fn(RequestCtx) -> Fut + Send + Sync + 'static` and `Fut: Future<Output = Result<Data, LoadError>> + Send + 'static`: the closure receives a clone of the context.
+* `get(&self, id: &DataSourceId) -> Option<&Arc<dyn DataSource>>`
+* A plan node naming an id that was never inserted fails the assembly with `AssembleError::MissingDataSource`. A source that returns `LoadError` degrades only its own segment.
 
-Registry from source id to implementation, insertion-ordered. `Default`.
+### LoadKeyer
 
-* `pub fn new() -> Self`
-* `pub fn insert(&mut self, id: impl Into<String>, source: Arc<dyn DataSource>)`
-* `pub fn insert_fn<F, Fut>(&mut self, id: impl Into<String>, f: F)` where `F: Fn(RequestCtx) -> Fut + Send + Sync + 'static` and `Fut: Future<Output = Result<Data, LoadError>> + Send + 'static`: the closure receives a clone of the context by value.
-* `pub fn get(&self, id: &DataSourceId) -> Option<&Arc<dyn DataSource>>`
+How much of the request a source reads. A load with a key may be answered from the `LoadCache`.
 
-A plan node naming an id that was never inserted is `AssembleError::MissingDataSource`, which fails the whole assembly. A source that returns `LoadError` degrades only its own segment.
+* `pub trait LoadKeyer: Send + Sync { fn key(&self, source: &DataSourceId, ctx: &RequestCtx) -> Option<String>; }`: `None` means never memoize.
+* The key must name everything the source reads. A key that leaves something out serves one request's data to another.
 
-### `LoadKeyer`
+### NoLoadKey
 
-`pub trait LoadKeyer: Send + Sync`. How much of the request a source reads, so a load may be answered from the [`LoadCache`](#loadcache) rather than run.
-
-* `fn key(&self, source: &DataSourceId, ctx: &RequestCtx) -> Option<String>`: `None` means never memoize.
-
-The key must name everything the source reads. A source keyed without something it reads serves one request's data to another, so a keyer widens to `None` rather than guessing. `snapfire_fsr`'s keyer answers a key only for a lowered source whose body reads nothing of the request beyond the identity and only the anonymous case for one that reads the identity.
-
-### `NoLoadKey`
-
-The default. Unit struct, `key` is always `None`, so a runtime built by hand memoizes nothing.
+* `pub struct NoLoadKey`: the default. `key` is always `None`.
 
 ## 4. Evaluation
 
-### `Chunk`
+### Chunk
 
-One item of an evaluator's output stream. `Debug + Clone + PartialEq`.
+One item of an evaluator's output stream. `Debug`, `Clone`, `PartialEq`.
 
-* `Chunk::Node(Node)`: finished output.
-* `Chunk::Slot(SlotName)`: the stitch point where a plan child's subtree lands. `SlotName("head")` is reserved for the head node passed to `assemble`.
+* `pub enum Chunk { Node(Node), Slot(SlotName) }`
+* `Node`: finished output.
+* `Slot`: where a plan child's subtree lands. `SlotName("head")` is the head node passed to `assemble`.
 
-There is no `Pending` variant. Holes belong to the assembler.
+### NodeChunks
 
-### `NodeChunks`
+* `pub type NodeChunks = BoxStream<'static, Result<Chunk, EvalError>>`
 
-`pub type NodeChunks = BoxStream<'static, Result<Chunk, EvalError>>`.
+### Evaluator
 
-### `Evaluator`
+* `pub trait Evaluator: Send + Sync`
+* `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`
+* `fn reads_csrf(&self, module: &ModuleId) -> bool`: whether rendering `module` can read its `csrf_token` prop. Defaults to `true`.
 
-`pub trait Evaluator: Send + Sync`.
+Props the assembler writes over a node's loaded data. A loader key with one of these names is replaced.
 
-* `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: pure in the arguments. The evaluator sees no plan, no tree and no request context beyond the props the assembler composed.
-* `fn reads_csrf(&self, module: &ModuleId) -> bool`: whether rendering `module` can read its `csrf_token` prop. Defaults to `true`; the host's document shell answers `false`. The assembler writes `csrf_token` into a module's props only when this holds.
+* `params`: always, a `Value::Map` of the matched params. Under `assemble_under`, an origin node's params come from the origin's request.
+* `locale`: the locale tag, when the request has one.
+* `identity`: `{ subject, claims }`, when the session resolved one and the subtree is not `Fixed`.
+* `csrf_token`: a `Value::Str`. Written when the handle is bound, the subtree is `Dynamic`, the subtree reads the token or has no reads entry and the evaluator's `reads_csrf` holds. Reading the handle mints the token.
+* `csp_nonce`: when the subtree is `Dynamic` and the context carries a nonce.
+* `action_failure`: when the subtree is `Dynamic` and the context carries a failure.
+* `$path` and `$document` (`PATH_PROP` and `DOCUMENT_PROP`): when the subtree's reads set `path` or it has no reads entry.
+* `$store`: the whole store for a `Dynamic` subtree or one with no reads entry. Otherwise only the keys `SubtreeReads::store_keys` names. Absent when empty.
+* `$pending`: the pending store keys the subtree reads, every pending key when its reads are unknown. Absent when empty.
+* `$slots`: the node's child slot names and its `keep` names, when it has either.
+* An error module receives `params` and the request props. It also receives `error` (the `LoadError` display string) and `kind` (the failure kind's name).
+* A fallback module receives the request props only, never loader data.
 
-The props are the node's loaded data with three keys written over the top: `params` (always, a `Value::Map` of the matched params), `identity` (`{ subject, claims }`, when the session resolved one and the subtree is not `Fixed`) and `csrf_token` (a `Value::Str`, when the context's handle is bound, the subtree is `Dynamic` it reads the prop or has no reads entry and its evaluator's `reads_csrf` holds; reading it is what mints the token, so a subtree without a form mints nothing). A loader key with one of those names is replaced. `$store` carries the whole store for a `Dynamic` subtree and the keys `SubtreeReads::store_keys` names otherwise, so what a memoized render saw is what its key covers. A node with no entry in `Runtime::reads` is `Dynamic`.
+### NullEvaluator
 
-An error module additionally receives `error`, a `Value::Str` holding the `LoadError` display string. A fallback module receives the three request keys only, never loader data.
+* `pub struct NullEvaluator`: declines to evaluate.
+* `evaluate` emits one `Node::Client` carrying the module and the props, with `rendered: false` and `slot_regions(props)` as its children.
 
-### `NullEvaluator`
+### slot_regions
 
-Declines to evaluate. Unit struct.
+* `pub fn slot_regions(props: &Data) -> Vec<Node>`: one region per name in `$slots`. `content` is a `Node::Slot` inside a bare `<sf-s>`. Any other name is inside `<sf-s data-sf-name="<name>">`.
+* A name that is empty or holds characters outside ASCII letters, digits, `_` and `-` is skipped.
 
-* `fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks`: emits one chunk, a `Node::Client` carrying the module and the same props a server evaluator would have received, so the browser mounts it. Its `children` are the regions the plan children still need: one per name in the injected `$slots`, a `Node::Slot` wrapped in a bare `<sf-s>` for `content` and in one carrying `data-sf-name` otherwise, which is the spelling a lowered layout's own markup uses. Without them a plan child under a module nobody evaluated would have no stitch point and would be dropped. Where the marker belongs inside the component is unknown here and does not matter: the mounter copies a region's markup out rather than moving the element.
+### Evaluators
 
-### `Evaluators`
+Module-to-evaluator dispatch. `Default` holds no rules.
 
-Module-to-evaluator dispatch. `Default`, which is no rules.
+* `new() -> Self`
+* `register(&mut self, applies: impl Fn(&ModuleId) -> bool + Send + Sync + 'static, evaluator: Arc<dyn Evaluator>)`
+* `covers(&self, module: &ModuleId) -> bool`: whether a registered rule answers the module.
+* `select(&self, module: &ModuleId) -> &dyn Evaluator`: the first rule whose predicate holds, in registration order. With no match, the built-in `NullEvaluator`.
 
-* `pub fn new() -> Self`
-* `pub fn register(&mut self, applies: impl Fn(&ModuleId) -> bool + Send + Sync + 'static, evaluator: Arc<dyn Evaluator>)`
-* `pub fn covers(&self, module: &ModuleId) -> bool`: whether a registered rule, rather than the null evaluator, answers the module.
-* `pub fn select(&self, module: &ModuleId) -> &dyn Evaluator`: the first registered rule whose predicate returns true, in registration order. With no match it returns the built-in `NullEvaluator`, so `select` never fails.
+## 5. The Runtime
 
-## 5. The runtime
+### Runtime
 
-### `Runtime`
-
-The per-process pipeline, shared across requests. Fields are public and readable after `build`.
+The pipeline shared across requests. `#[non_exhaustive]`.
 
 * `pub sources: DataSources`
 * `pub evaluators: Evaluators`
@@ -234,50 +277,69 @@ The per-process pipeline, shared across requests. Fields are public and readable
 * `pub cache: Arc<dyn NodeCache>`
 * `pub load_keyer: Arc<dyn LoadKeyer>`
 * `pub loads: Arc<dyn LoadCache>`
-* `pub metas: HashMap<String, Arc<dyn Metadata>>`: by data source id, how a segment describes the document from its data.
-* `pub heads: HashMap<String, Vec<HeadEl>>`: by module id, the head elements a page rendering that module carries, which the build settled; merged into a page's `Meta` after its segments describe it, one module at a time for every module in the plan subtree, outermost first. `PATH_MARK` in a value is replaced by the request's path without a trailing slash.
+* `pub metas: HashMap<String, Arc<dyn Metadata>>`: by data source id.
+* `pub slot_order: Vec<String>`: the application's `[store] slot_order`.
+* `pub heads: HashMap<String, Vec<HeadEl>>`: by module id, the head elements a page rendering that module carries. They merge into a page's `Meta` after its segments describe it, outermost module first. `PATH_MARK` in a value is replaced by the request's path without a trailing slash.
 * `pub listed: HashMap<String, Vec<Arc<dyn HeadRows>>>`: by module id, the head rows a module's listed card images make per request, applied after `heads`.
-* `pub stores: HashMap<String, Arc<dyn Seeds>>`: by data source id, what a segment seeds the store with.
-* `pub slot_order: Vec<String>`: the application's `[store] slot_order`, as `contribution_order` reads it.
-* `pub reads: Reads`: by `subtree_shape`, what each subtree reads of the request; a subtree with no entry reads everything.
-* `pub fn builder() -> RuntimeBuilder`
-* `pub fn new(sources: DataSources, evaluators: Evaluators) -> Arc<Self>`: default keyer, no cache.
-* `pub fn with_keyer(sources: DataSources, evaluators: Evaluators, keyer: Arc<dyn SegmentKeyer>) -> Arc<Self>`: no cache.
+* `pub stores: HashMap<String, Arc<dyn Seeds>>`: by data source id.
+* `pub reads: Reads`: by `subtree_shape`. A subtree with no entry reads everything.
+* `pub derives: Vec<Derived>`: in `derive_order`.
+* `builder() -> RuntimeBuilder`
+* `new(sources: DataSources, evaluators: Evaluators) -> Arc<Self>`: the builder's defaults otherwise.
+* `with_keyer(sources: DataSources, evaluators: Evaluators, keyer: Arc<dyn SegmentKeyer>) -> Arc<Self>`
 
-### `RuntimeBuilder`
+### RuntimeBuilder
 
-Obtained from `Runtime::builder()`; it has no public constructor of its own. Every method takes and returns `self`.
+From `Runtime::builder()`. Each method takes and returns `self`.
 
-* `pub fn sources(self, sources: DataSources) -> Self`
-* `pub fn evaluators(self, evaluators: Evaluators) -> Self`
-* `pub fn keyer(self, keyer: Arc<dyn SegmentKeyer>) -> Self`
-* `pub fn cache(self, cache: Arc<dyn NodeCache>) -> Self`
-* `pub fn load_keyer(self, keyer: Arc<dyn LoadKeyer>) -> Self`
-* `pub fn loads(self, loads: Arc<dyn LoadCache>) -> Self`
-* `pub fn meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
-* `pub fn heads(self, heads: HashMap<String, Vec<HeadEl>>) -> Self`
-* `pub fn listed(self, module: impl Into<String>, rows: Arc<dyn HeadRows>) -> Self`: adds a lister for `module`; a module can have several.
-* `pub fn store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`: `Seeds` has `seed(&self, ctx, data)`, the values a segment seeds from its data. Its `keys(&self) -> Option<Vec<String>>` is every key a seed can hold before the data is known, `None` by default. A segment with no keys promises nothing while it is deferred.
-* `pub fn slot_order(self, slot_order: Vec<String>) -> Self`: the list `contribution_order` ranks parallel slots by, `Runtime::slot_order`; empty by default.
-* `pub fn derives(self, derives: Vec<Derived>) -> Self`: the derived keys, kept in `derive_order` as `Runtime::derives`. Every render applies them after the contributions merge and adds them to the pending keys by `derived_pending`.
-* `pub fn reads(self, reads: Reads) -> Self`
-* `pub fn build(self) -> Arc<Runtime>`
+* `sources(self, sources: DataSources) -> Self`
+* `evaluators(self, evaluators: Evaluators) -> Self`
+* `keyer(self, keyer: Arc<dyn SegmentKeyer>) -> Self`
+* `cache(self, cache: Arc<dyn NodeCache>) -> Self`
+* `load_keyer(self, keyer: Arc<dyn LoadKeyer>) -> Self`
+* `loads(self, loads: Arc<dyn LoadCache>) -> Self`
+* `meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
+* `heads(self, heads: HashMap<String, Vec<HeadEl>>) -> Self`
+* `listed(self, module: impl Into<String>, rows: Arc<dyn HeadRows>) -> Self`: adds a lister. A module can have several.
+* `store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`
+* `slot_order(self, slot_order: Vec<String>) -> Self`
+* `derives(self, derives: Vec<Derived>) -> Self`: kept in `derive_order`. Every render applies them after the contributions merge and adds them to the pending keys by `derived_pending`.
+* `reads(self, reads: Reads) -> Self`
+* `build(self) -> Arc<Runtime>`
+* Defaults: `DataSources::new()`, `Evaluators::new()`, `DefaultKeyer`, `NoCache`, `NoLoadKey`, `NoLoadCache`, no metadata, head rows, listers, seeds or derives, an empty slot order and an empty `Reads`.
 
-Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, `Arc::new(NoLoadKey)`, `Arc::new(NoLoadCache)`, no metadata, no head rows, no seeds, an empty `Reads`.
+### Static
 
-### `Static`, `SubtreeReads` and `Reads`
+How much of the request a body or a subtree depends on.
 
-`pub enum Static { Fixed, Anonymous, Dynamic }`. `Copy`, `Ord`, `Default` (`Dynamic`). How much of the request a body or a subtree depends on: nothing, the identity alone or more. The app crate classifies sources and subtrees with it.
+* `pub enum Static { Fixed, Anonymous, Dynamic }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Default` (`Dynamic`).
+* `Fixed`: nothing. `Anonymous`: the identity alone. `Dynamic`: more.
 
-`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String>, pub path: bool, pub csrf: bool, pub nonce: bool, pub failure: bool }`. `Default` and `#[non_exhaustive]`: build one with `Default` and the setters `class`, `store_keys`, `path`, `csrf`, `nonce` and `failure`, each `fn(self, value) -> Self`. What a subtree reads: the most any node in it reads, the store keys any component in it reads, whether a component in it reads its `csrf_token` prop, which is what makes the render carry the token, whether one reads its `csp_nonce` prop, which makes the render carry the response's nonce, whether one reads its `action_failure` prop, which the request after a failed post carries once, plus whether a component in it renders the request's path or the document's, which a `<Link>` does to mark itself current. For such a subtree the assembler writes `$path` and `$document` (`PATH_PROP` and `DOCUMENT_PROP`) into the props and keys the memo by both paths.
+### SubtreeReads
 
-`pub type Reads = HashMap<u64, SubtreeReads>`, keyed by `subtree_shape`.
+What a subtree reads of the request. `Debug`, `Clone`, `PartialEq`, `Eq`, `Default`, `#[non_exhaustive]`.
 
-* `pub fn subtree_shape(node: &PlanNode) -> u64`: xxh3 over the module names and slot names of the subtree in plan order. Two subtrees of one shape read the same things, since a module has one loader beside it and one component, so an app records one entry per shape and the assembler finds a node's by hashing it.
+* `pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String>, pub path: bool, pub csrf: bool, pub nonce: bool, pub failure: bool }`
+* `class`: the most any node in it reads.
+* `store_keys`: the store keys any component in it reads.
+* `path`: a component in it renders the request's path or the document's.
+* `csrf`: a component in it reads its `csrf_token` prop.
+* `nonce`: a component in it reads its `csp_nonce` prop.
+* `failure`: a component in it reads its `action_failure` prop.
+* Setters, each `fn(self, value) -> Self`: `class`, `store_keys`, `path`, `csrf`, `nonce` and `failure`.
+* `pub const PATH_PROP: &str = "$path"` and `pub const DOCUMENT_PROP: &str = "$document"`: the props the two paths ride in.
+
+### Reads
+
+* `pub type Reads = HashMap<u64, SubtreeReads>`: keyed by `subtree_shape`.
+
+### subtree_shape
+
+* `pub fn subtree_shape(node: &PlanNode) -> u64`: xxh3 over the module names and slot names of the subtree in plan order.
 
 ## 6. Assembly
 
-### `assemble`
+### assemble
 
 ```rust
 pub async fn assemble(
@@ -288,38 +350,66 @@ pub async fn assemble(
 ) -> Result<Assembly, AssembleError>
 ```
 
-`head` is a [`Head`](#head) or anything that converts to one: a `Node` or `&Node` becomes a head with an empty title and `&Head` is cloned.
+`head` is a `Head`, a `Node`, a `&Node` or a `&Head`.
 
-Turns a plan plus a request into a payload. The order is fixed: every eager data source resolves to completion, then evaluation begins.
+Loading:
 
-* **Eager loads.** The walk collects `data_source` from the subtree root and every descendant, stopping at any node with `deferred` set that is not the root. The collected sources run concurrently under one `try_join_all`.
-* **Load outcomes.** A missing registration aborts with `AssembleError::MissingDataSource`. A `LoadError` is recorded against its node id; the wave continues.
-* **Failure degradation.** A node with a recorded failure renders its `error` module or the built-in error node when it has none. Its children are not built.
-* **Metadata.** After the eager wave, the innermost node whose data source has a `Metadata` registered and whose data loaded, deferred children excluded, describes the document: its `describe` runs once with that node's data. A failure there is logged on target `fsr::load` and leaves the defaults. The result, defaults filled in from `head`, is `Assembly::meta`; a deferred subtree does the same for itself when it resolves and carries it in `Resolved::meta`.
-* **Head.** `Chunk::Slot(SlotName("head"))` substitutes `head.node(&meta)`, the head's `rest` followed by the title and description and marks the subtree head-using, which propagates to ancestors through non-deferred children.
-* **Slots.** Any other slot name must match a child in `PlanNode::children`; otherwise the call fails with `AssembleError::MissingSlot`.
-* **Slots inside an island.** A `Chunk::Node` holding a `Node::Slot` anywhere under it has each slot answered the way a `Chunk::Slot` is, in place, the child segment's path counting into the island's `children`; this is how a layout's page sits inside the layout's own markup.
-* **Seeding.** Every node whose data source has a `Seeds` registered, deferred children excluded, contributes what its `seed` returns as one `Contribution`, placed by the slot names from the root down to it. The wave renders from the merge of its contributions by [`contribution_order`](#contribution) under `Runtime::slot_order`: a deeper segment wins a key an outer one also sets and, at one depth, the slot order decides, by name when it says nothing. A failing seed is logged on target `fsr::load` and costs its keys, not the page: the segment contributes empty values, so the browser drops what it seeded before. Every seeding node under a deferred child, at any depth, whose `Seeds::keys` is known contributes a promise to the wave, which keeps it with the seed its resolution writes ahead of its markup; a resolution that fails writes an empty seed for each.
-* **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props and the wave's store; a child with no fallback gets `Node::raw("")`. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`. When it resolves it renders from the contributions of the wave around it plus its own segments', merged by the same rule, so a component in it reads a layout's key as it would had the segment not been deferred; its own contributions are what `Resolved::contributions` carries.
-* **Collapse.** A node whose evaluator emitted exactly one chunk becomes that node. Otherwise it becomes `Node::Seq` and each non-deferred child segment records `path: [index]`.
+* Every eager data source resolves before evaluation begins. Eager sources are those of the root and every descendant, stopping at any non-root node with `deferred` set. They run concurrently.
+* A missing registration fails with `AssembleError::MissingDataSource`.
+* A `LoadError` is recorded against its node id and the wave goes on.
+* A node with a recorded failure renders the module its `error_kinds` names for that kind, else its `error` module, else a built-in error node. Its children are not built.
+* The route's own page is the node reached from the root along `content` slots. When its loader fails, `Assembly::failed` holds the kind.
 
-Cache lookup and store happen per plan node that carries a `cache_key`. The composed key is:
+Metadata:
+
+* After the eager wave, the innermost node whose data source has a `Metadata` registered and whose data loaded describes the document. Deferred children are excluded.
+* A `describe` failure is logged on target `fsr::load` and leaves the defaults.
+* The result, filled in from `head`, is `Assembly::meta`. A deferred subtree describes itself the same way in `Resolved::meta`.
+
+Slots:
+
+* `Chunk::Slot(SlotName("head"))` is answered with `head.node(&meta)`. A subtree that answers it is never written to the render memo.
+* Any other slot name must match a child in `PlanNode::children`, else `AssembleError::MissingSlot`. A named slot the plan leaves unfilled renders nothing. An unfilled `content` slot is an error unless the node keeps it.
+* A `Node::Slot` anywhere under a `Chunk::Node` is answered in place the same way.
+
+Seeding:
+
+* Every node whose data source has `Seeds` registered contributes what its `seed` returns as one `Contribution`. Deferred children are excluded.
+* The wave renders from the merge of its contributions by `contribution_order` under `Runtime::slot_order`.
+* A failing seed is logged on target `fsr::load`. The segment then contributes empty values.
+* Every seeding node under a deferred child whose `Seeds::keys` is known contributes a promise for those keys. A resolution that fails writes an empty seed for each.
+
+Deferral:
+
+* A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response.
+* Its `fallback` module is evaluated with the request props and the wave's store. With no fallback it is `Node::raw("")`.
+* `Node::Pending { slot, fallback }` goes into the tree and a `PendingResolution` into `Assembly::pending`.
+* A resolution renders from the wave's contributions plus its own segments', merged by the same rule. `Resolved::contributions` carries its own.
+
+Collapse:
+
+* A node whose evaluator emitted exactly one chunk becomes that node. Otherwise it becomes `Node::Seq` and each non-deferred child segment records `path: [index]`.
+
+Render memo key, composed per plan node that carries a `cache_key`:
 
 ```text
-{cache_key}|{sorted k=v params joined by &}|ident={subject}|csrf={token}|locale={tag}|{shape:016x}|{fingerprint:016x}|{store fingerprint:016x}
+{cache_key}|{params}|ident={subject}|csrf={token}|locale={tag}|path={path}|{shape:016x}|{data:016x}|{store:016x}|pending={keys}
 ```
 
-* `cache_key` is `PlanNode::cache_key`, the plan's own tag.
-* The params are every entry of `ctx.params`, formatted `k=v`, sorted, joined by `&`. No params means an empty field.
-* `subject` is the subject from `ctx.session.identity()` when the session resolved one and the subtree's class is `Anonymous` or `Dynamic`; it is `-` when the session resolved none or the subtree is `Fixed`, so a fixed subtree's entry serves every visitor.
-* `token` is `ctx.csrf.memo_key()` when the subtree is `Dynamic` and reads `csrf_token` (or has no reads entry), since only then is the token injected into props; `-` otherwise. A stable per-session token memoises such a segment per session; a `memo_key` of `None`, the single-use scheme's, keeps the segment out of the memo altogether, since every render carries a different token. The stock host binds no handle for an anonymous request under `csrf = "identified"`, so those renders share the memo.
-* `shape` is `subtree_shape`.
-* The fingerprint is xxh3 over the subtree, walking the plan in tree order and hashing a presence marker followed by that node's `Data` fingerprint when it loaded any, rendered as 16 lowercase hex digits.
-* The store fingerprint is over the whole store for a `Dynamic` subtree and over the keys `SubtreeReads::store_keys` names otherwise, so a key the subtree never reads changing is not a miss.
+* `params`: every entry of the node's request params as `k=v`, sorted, joined by `&`.
+* `subject`: the session's subject when the subtree is `Anonymous` or `Dynamic` and one resolved. `-` otherwise.
+* `token`: `ctx.csrf.memo_key()` when the subtree is `Dynamic` and reads `csrf_token` or has no reads entry. `-` otherwise. A `memo_key` of `None` composes no key.
+* `tag`: `ctx.locale.tag`.
+* `path`: `{ctx.path}|doc={document}` when the subtree reads the path or has no reads entry, `document` being `-` when absent. `-` otherwise.
+* `shape`: `subtree_shape`.
+* `data`: xxh3 over the subtree's loaded data, in tree order.
+* `store`: the store's fingerprint, whole for a `Dynamic` subtree or one with no reads entry, else over the keys `store_keys` names.
+* `keys`: the pending keys the subtree reads, joined by `,`.
+* No key is composed when the node has no `cache_key` or when the runtime's `NodeCache::keeps` is false.
+* No key is composed when the subtree holds a `deferred` descendant or a recorded load failure.
+* No key is composed for a `Dynamic` subtree that reads a CSP nonce or an action failure the context carries. A subtree with no reads entry counts as reading both.
 
-No key is composed at all, so neither `get` nor `put` runs, when the node has no `cache_key`, when the subtree contains a `deferred` descendant, when any node in the subtree has a recorded load failure or when the subtree is `Dynamic` and the context carries a value made for that request alone that the subtree reads (or the subtree has no reads entry): a CSP nonce it reads as `csp_nonce` or an action failure it reads as `action_failure`. A key that was composed is always looked up, but it is written back only if the subtree did not use the head slot.
-
-### `assemble_under`
+### assemble_under
 
 ```rust
 pub async fn assemble_under(
@@ -331,484 +421,712 @@ pub async fn assemble_under(
 ) -> Result<Assembly, AssembleError>
 ```
 
-`assemble` for an intercepted render. The nodes `origin` names load, seed, describe, take their segment key and their `params` prop from `origin.ctx`, the document's request; every other node and every node's `$path` and `$document` come from `ctx`, the navigation's. A kept layout's data belongs to the page beneath the overlay while a link in its markup is still marked by the address.
+* `assemble` for an intercepted render.
+* The nodes `origin` names load, seed, describe, take their segment key and take their `params` prop from `origin.ctx`, the document's request.
+* Every other node takes these from `ctx`, the navigation's request. Every node's `$path` and `$document` come from `ctx` too.
 
-### `Origin`
+### Origin
 
-`pub struct Origin { pub ctx: RequestCtx, pub nodes: Vec<u32> }`. `#[non_exhaustive]`: build one with `new`. The document's request and the ids of the plan nodes that render under it, which a host takes from the layouts the origin's route shares with the intercept's, from the root down to the one declaring the slot.
+* `pub struct Origin { pub ctx: RequestCtx, pub nodes: Vec<u32> }`: the document's request and the ids of the plan nodes that render under it. `#[non_exhaustive]`.
+* `new(ctx: RequestCtx, nodes: Vec<u32>) -> Self`
 
-* `pub fn new(ctx: RequestCtx, nodes: Vec<u32>) -> Self`
+### Assembly
 
-### `Contribution`
-
-`pub struct Contribution { pub segment: String, pub path: Vec<String>, pub values: Data, pub awaits: Vec<String> }`: what one segment seeded, `segment` its key as the sidecar and its region carry it and `path` the slot names from the route's root down to it. A promise has no `values` and lists in `awaits` the keys a deferred segment will seed; the streams write it with `w`. `Contribution::seeded(segment, path, values)` and `Contribution::promised(segment, path, awaits)` build each. `Debug`, `Clone`, `PartialEq`.
-
-* `pub fn contribution_order(a: &[String], b: &[String], slot_order: &[String]) -> Ordering`: by depth, then at the first slot name the paths differ on, by `slot_order`: a name it lists comes after every name it does not and the later listed name is later; names it leaves out compare as strings. The browser merges by the same rule with the same list, so the two agree whatever order contributions arrive in.
-* `pub fn merge_contributions(contributions: &[Contribution], slot_order: &[String]) -> Data`: the store they merge to, each applied in that order.
-* `pub fn pending_keys(contributions: &[Contribution], slot_order: &[String]) -> BTreeSet<String>`: the keys a promise awaits and outranks every seed of, by `contribution_order`. A promise whose segment has seeded is kept and makes nothing pending. The browser store's `isPending` applies the same rule.
-* `pub struct Derived { pub key: String, pub sources: Vec<String>, pub compute: Option<Compute> }`, `#[non_exhaustive]`, built with `Derived::new(key: String, sources: Vec<String>, compute: Option<Compute>) -> Self`, with `pub type Compute = Arc<dyn Fn(&RequestCtx, &Data) -> Option<Value> + Send + Sync>`: a store key the browser's `derive` computes from `sources`, under the request so a compute reads its locale. `compute` answers `None` where the browser's compute would throw. A derived key with no compute is one the build could not lower. `Debug`.
-* `pub fn derive_order(derives: Vec<Derived>) -> Vec<Derived>`: each derived key after the derived keys it reads.
-* `pub fn apply_derives(ctx: &RequestCtx, store: &mut Data, derives: &[Derived])`: computes each key in order over the merged store and writes it, so a derived value replaces a seed for the same key. A key whose compute is missing or answers `None` is removed.
-* `pub fn derived_pending(pending: &mut BTreeSet<String>, derives: &[Derived])`: a derived key is pending exactly when it has no compute or a key it reads is pending. A promise for a derived key whose sources are settled holds nothing, as in the browser.
-* `PENDING_PROP`, `"$pending"`: the prop a node's pending keys ride in beside `$store`, the ones its subtree reads when that is known, every one otherwise. The memo key carries them, so a subtree rendered while a key was pending is not served once it is not.
-
-### `Assembly`
-
-* `catalog: Option<String>`: the head's `catalog`, written as the `D` row.
-* `failed: Option<FailureKind>`: the kind the route's own page loader failed with, the page being the node reached from the root along the `content` slots. A layout or a slot failing degrades its segment and leaves this `None`. A host reads it for the document's status.
-
-What one call produced. `Debug` (which prints `pending` as a count); not `Clone`. Both streaming functions consume it by value. `#[non_exhaustive]`: build one with `new`.
+What one call produced. `#[non_exhaustive]`. `Debug` prints `tree`, `segments` and `pending` as a count. Not `Clone`.
 
 * `pub tree: Node`
 * `pub pending: Vec<PendingResolution>`
-* `pub segments: SegmentInfo`: the root sidecar, keyed by `runtime.keyer` from the plan root and the request params.
-* `pub meta: Meta`: the document's title and description as the eager wave settled them, the head's defaults where no segment said otherwise.
-* `pub contributions: Vec<Contribution>`: what each eager segment seeded, for the `T` row and the seed script.
-* `pub store: Data`: `contributions` merged, what the eager wave rendered from.
-* `pub locale: Locale`: the request's, for the `L` row.
-* `pub entry: Option<String>`: the head's `entry`, for the `E` row.
-* `pub theme: Option<DocumentTheme>`: the head's `theme`, written into the eager `H` row.
-* `pub fn new(tree: Node, pending: Vec<PendingResolution>, segments: SegmentInfo, meta: Meta, contributions: Vec<Contribution>, store: Data, locale: Locale, entry: Option<String>, styles: Vec<String>, catalog: Option<String>, theme: Option<DocumentTheme>, failed: Option<FailureKind>) -> Self`
+* `pub segments: SegmentInfo`: the root sidecar.
+* `pub meta: Meta`: the title and description the eager wave settled on, the head's defaults included.
+* `pub rows: Vec<HeadEl>`: every head row the document carries under `meta`.
+* `pub contributions: Vec<Contribution>`: what each eager segment seeded.
+* `pub store: Data`: `contributions` merged.
+* `pub locale: Locale`
+* `pub entry: Option<String>`: the head's `entry`.
+* `pub styles: Vec<String>`: the head's `styles`.
+* `pub catalog: Option<String>`: the head's `catalog`.
+* `pub theme: Option<DocumentTheme>`: the head's `theme`.
+* `pub failed: Option<FailureKind>`: the kind the route's own page loader failed with. A layout or a slot failing leaves it `None`.
+* `new(tree: Node, pending: Vec<PendingResolution>, segments: SegmentInfo, meta: Meta, contributions: Vec<Contribution>, store: Data, locale: Locale, entry: Option<String>, styles: Vec<String>, catalog: Option<String>, theme: Option<DocumentTheme>, failed: Option<FailureKind>) -> Self`: `rows` empty.
 
-### `PendingResolution`
+### PendingResolution
 
-A deferred slot's eventual content. `#[non_exhaustive]`: build one with `new`.
+A deferred slot's eventual content. `#[non_exhaustive]`.
 
 * `pub slot: SlotId`
-* `pub key: String`: the deferred segment's key, so its fill is delimited like any region.
-* `pub future: BoxFuture<'static, Resolved>`: infallible. A failed loader or evaluation inside the subtree resolves to an error node instead.
-* `pub fn new(slot: SlotId, key: String, future: BoxFuture<'static, Resolved>) -> Self`
+* `pub key: String`: the deferred segment's key.
+* `pub future: BoxFuture<'static, Resolved>`: never fails. A failed loader or evaluation inside resolves to the segment's error node.
+* `new(slot: SlotId, key: String, future: BoxFuture<'static, Resolved>) -> Self`
 
-### `Resolved`
+### Resolved
 
-`#[non_exhaustive]`: build one with `new`.
+`#[non_exhaustive]`.
 
 * `pub slot: SlotId`
 * `pub key: String`
 * `pub node: Node`
-* `pub segments: Vec<SegmentInfo>`: the child segments of the resolved subtree, positioned in `node`. The deferred subtree's own identity is the slot-addressed `SegmentInfo` already in the first response; these are the segments under it, which that sidecar could not name.
-* `pub contributions: Vec<Contribution>`: what the subtree's own segments seeded, written ahead of its markup.
-* `pub pending: Vec<PendingResolution>`: nested deferral, new slots the resolution itself introduced.
-* `pub meta: Meta`: what the resolved subtree said about the document; empty when no segment in it has metadata.
-* `pub fn new(slot: SlotId, key: String, node: Node, segments: Vec<SegmentInfo>, pending: Vec<PendingResolution>, meta: Meta, contributions: Vec<Contribution>) -> Self`
+* `pub segments: Vec<SegmentInfo>`: the child segments of the resolved subtree, positioned in `node`.
+* `pub pending: Vec<PendingResolution>`: new slots the resolution introduced.
+* `pub meta: Meta`: what the subtree said about the document. Empty when no segment in it has metadata.
+* `pub rows: Vec<HeadEl>`: every head row of the document with this subtree's metadata in. Empty when it has none.
+* `pub contributions: Vec<Contribution>`: what the subtree's own segments seeded.
+* `new(slot: SlotId, key: String, node: Node, segments: Vec<SegmentInfo>, pending: Vec<PendingResolution>, meta: Meta, contributions: Vec<Contribution>) -> Self`: `rows` empty.
 
-### `Meta`
+## 7. The Store
 
-`pub struct Meta { pub title: Option<String>, pub absolute: bool, pub description: Option<String>, pub head: Vec<HeadEl> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. `#[non_exhaustive]`: build one with `Default` and the setters. A field left `None` keeps what the document has. `absolute` writes `title` as given rather than through the head's template.
+### Seeds
 
-* `pub fn title(self, title: Option<String>) -> Self`, `pub fn absolute(self, absolute: bool) -> Self`, `pub fn description(self, description: Option<String>) -> Self`, `pub fn head(self, head: Vec<HeadEl>) -> Self`: setters for the field of the same name.
-* `pub fn is_empty(&self) -> bool`
-* `pub fn merge(&mut self, inner: Meta)`: `inner`'s title and description replace these when set. Each of its head elements replaces the one with the same identity (`HeadEl::identity`: the tag and its `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified), else is appended. A second element of one identity within `inner` is appended too, so a list of `og:image` rows one `Meta` brings is kept whole.
-* `pub const PATH_MARK: &str = "{fsr:path}"`: in a module head row's value, the request's path.
+What a segment seeds the browser's store with. Registered under a data source id.
 
-`HeadEl::script(attrs: Vec<(String, String)>, children: Option<String>) -> Result<HeadEl, String>` turns a `meta` head entry whose `tag` is `script` into the element a document carries: `type="text/plain"`, `data-sf-script` holding `when` (`load` by default, else `idle` or `interaction`, `SCRIPT_WHEN`), `data-src` holding `src`, `data-type` holding `type` and every other attribute as written. `Err` for no `src`, an inline body or another `when`. `HeadEl::is_script` is true of the result. A row whose `type` is a data block, `application/ld+json` as `jsonLd` writes it, is the exception: it is written as given with its text, `</script` in the text escaped as `<\/script`. It is not a script row. `is_data_block(script_type: Option<&str>) -> bool` says which types those are: any but none, an empty one, `module`, `importmap`, `speculationrules` and the JavaScript MIME types. The lowered `meta` evaluator builds every script entry this way.
+* `pub trait Seeds: Send + Sync`
+* `fn seed(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>>`
+* `fn defaults(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>>`: values laid under every segment's seed in the merge and, in the browser, under a write an island holds. Defaults to empty.
+* `fn keys(&self) -> Option<Vec<String>>`: every key a seed can hold, before the data is known. Defaults to `None`. A deferred segment with no keys promises nothing.
 
-### `Metadata`
+### Contribution
 
-`pub trait Metadata: Send + Sync`. Registered on the runtime under a data source id.
+What one segment seeded. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
 
-* `fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>>`: `data` is what that source loaded for the request.
+* `pub struct Contribution { pub segment: String, pub path: Vec<String>, pub values: Data, pub defaults: Data, pub awaits: Vec<String> }`
+* `segment`: the segment's key.
+* `path`: the slot names from the route's root down to the segment.
+* `awaits`: on a promise, the keys a deferred segment will seed. A promise has no `values`.
+* `seeded(segment: impl Into<String>, path: Vec<String>, values: Data) -> Self`
+* `promised(segment: impl Into<String>, path: Vec<String>, awaits: Vec<String>) -> Self`
+* `with_defaults(self, defaults: Data) -> Self`
 
-### `HeadRows`
+### contribution_order
 
-`pub trait HeadRows: Send + Sync`. Registered on the runtime under a module id with `RuntimeBuilder::listed`.
+* `pub fn contribution_order(a: &[String], b: &[String], slot_order: &[String]) -> Ordering`: by depth, deeper later. At one depth, by the first slot name the paths differ on.
+* A slot name `slot_order` lists comes after every name it does not list. Of two listed names, the later listed one is later. Unlisted names compare as strings.
+* `pub fn merge_contributions(contributions: &[Contribution], slot_order: &[String]) -> Data`: the store they merge to, each applied in `contribution_order`.
+* `pub fn pending_keys(contributions: &[Contribution], slot_order: &[String]) -> BTreeSet<String>`: the keys a promise awaits and outranks every seed of. A promise whose segment has also seeded makes nothing pending.
 
-* `fn rows(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<(String, Vec<HeadEl>), LoadError>>`: the rows with the field they are, such as `og:image`. Every element the page carries whose `property` or `name` is that field or starts with it and a colon is removed before the rows are appended. A failure is logged on target `fsr::load` and changes nothing.
+### Derived
 
-### `Paths`
+A store key the browser's `derive` computes. `Debug`, `#[non_exhaustive]`.
 
-`pub trait Paths: Send + Sync`. The parameter sets a route with a parameter is prerendered for. The runtime holds none itself: an app registers one under the route's pattern and a host asks it once per locale, with a context that carries the locale and nothing of a request.
+* `pub struct Derived { pub key: String, pub sources: Vec<String>, pub compute: Option<Compute> }`
+* `pub type Compute = Arc<dyn Fn(&RequestCtx, &Data) -> Option<Value> + Send + Sync>`: answers `None` where the browser's compute would throw.
+* `compute` is `None` for a derived key that was not translated.
+* `new(key: String, sources: Vec<String>, compute: Option<Compute>) -> Self`
+* `pub fn derive_order(derives: Vec<Derived>) -> Vec<Derived>`: each derived key after the derived keys it reads.
+* `pub fn apply_derives(ctx: &RequestCtx, store: &mut Data, derives: &[Derived])`: computes each key in order over the merged store and writes it. A key whose compute is missing or answers `None` is removed.
+* `pub fn derived_pending(pending: &mut BTreeSet<String>, derives: &[Derived])`: a derived key is pending exactly when it has no compute or a key it reads is pending.
 
-* `fn paths(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Vec<Params>, LoadError>>`: one `Params` per path, each naming every parameter of the pattern.
+### PENDING_PROP
 
-### `Head`
+* `pub const PENDING_PROP: &str = "$pending"`: the prop a node's pending store keys ride in beside `$store`. The render memo key carries them.
 
-* `catalog: Option<String>`: the locale's message catalog as JSON when the browser needs it for this response; the payload carries it as a `D` row and the host sets it per request.
-* `theme: Option<DocumentTheme>`: what the request decided for the document's theme, set by the host per request when the application has themes. `None` writes nothing; `Some` writes `theme`, `scheme` and `forced` into the eager `H` row, nulls included. The row is written even when the meta is empty.
+## 8. Document Metadata
 
-`pub struct Head { pub title: String, pub template: Option<String>, pub description: Option<String>, pub rest: Node, pub entry: Option<String> }`. `template` is how a segment's title is written into the document, `{page}` the segment's title and `{title}` the default, each filled once; absent, a segment's title is written as given. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `entry` names a module the browser must load for this response's islands beyond the document's own entry, a mounted site's; `Head::new` and the `From` conversions leave it `None`.
+### Meta
 
-* `pub fn new(title: impl Into<String>, rest: Node) -> Self`: no default description and no template.
-* `pub fn title_for(&self, meta: &Meta) -> String`: the document's title under `meta`: the segment's title through the template unless `meta.absolute`, the default when it names none.
-* `pub fn settle(&self, meta: &mut Meta)`: writes `meta`'s title through the template and clears `absolute`, so what a payload or a streamed segment carries is the title as the document shows it.
-* `pub fn node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the chosen title is non-empty and `<meta name="description">` when a description was chosen, both escaped, then `head` with `meta` folded over it, the response's stylesheets and `<script type="module">` for its `entry` (`ENTRY_OPEN` opens it); `rest` alone when none of those. The empty icon, a `link` with `rel="icon"` and `href="data:,"`, is dropped when the folded head carries any other icon. `HeadEl::is_icon` and `HeadEl::is_empty_icon` are those two tests.
-* `From<Node>`, `From<&Node>`: an empty title. `From<&Head>`: a clone.
+What a route says about itself once its data is known. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
-### `DocumentTheme`
+* `pub struct Meta { pub title: Option<String>, pub absolute: bool, pub description: Option<String>, pub head: Vec<HeadEl> }`
+* A field left `None` keeps the document's default.
+* `absolute`: `title` is written as given instead of through the head's template.
+* Setters `title`, `absolute`, `description` and `head`, each `fn(self, value) -> Self`.
+* `is_empty(&self) -> bool`: no title, no description and no head elements.
+* `merge(&mut self, inner: Meta)`: folds an inner segment over this one.
+* `merge` takes `inner`'s title with its `absolute` when the title is set. It takes `inner`'s description when set.
+* In `merge`, each identity `inner` names replaces every row of that identity: its first row takes the first row's place and the rest are appended in order. An element matching nothing is appended.
+* `card_text(head: &mut Vec<HeadEl>, title: &str, description: Option<&str>)`: adds `og:title` and `og:description`, each only where no element already names it and only when non-empty.
 
-`pub struct DocumentTheme { pub name: Option<String>, pub scheme: Option<String>, pub forced: bool }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. `<html data-sf-theme>` and `<html data-sf-scheme>` for one request: no `name` is the root theme and no `scheme` leaves the attribute off. `forced` is `<html data-sf-theme-forced>`: the route forces its theme and the document kept it. `#[non_exhaustive]`: build one with `Default` and the setters.
+### HeadEl
 
-* `pub fn name(self, name: Option<String>) -> Self`, `pub fn scheme(self, scheme: Option<String>) -> Self`, `pub fn forced(self, forced: bool) -> Self`: setters for the field of the same name.
+One head element. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
-## 7. Segments
+* `pub struct HeadEl { pub tag: String, pub attrs: Vec<(String, String)>, pub children: Option<String> }`: attributes in the order written.
+* `new(tag: String, attrs: Vec<(String, String)>, children: Option<String>) -> Self`
+* `script(attrs: Vec<(String, String)>, children: Option<String>) -> Result<HeadEl, String>`: a `meta` head entry whose tag is `script`, as the document carries it.
+* `script` writes `type="text/plain"`, `data-sf-script` holding `when`, `data-src` holding `src` and `data-type` holding `type`, then every other attribute as written. `when` defaults to `load`.
+* `script` is `Err` for no `src`, an inline body or a `when` outside `SCRIPT_WHEN`.
+* A `script` row whose `type` is a data block is written as given with its text, `</script` in the text escaped.
+* `is_script(&self) -> bool`: a row `script` made.
+* `is_icon(&self) -> bool`: a `link` whose `rel` includes `icon`.
+* `is_empty_icon(&self) -> bool`: an icon whose `href` is `data:,`.
+* `identity(&self) -> (String, String)`: what makes two entries the same element. It is the tag and the first of `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified by `sizes`, `media`, `type` and `hreflang`.
+* `identity` also qualifies a `link` whose `rel` is `stylesheet`, `preconnect`, `dns-prefetch`, `preload`, `modulepreload` or `prefetch` by its `href`.
+* `identity` of an `application/ld+json` script is its text. An element with none of those attributes is identified by all of its attributes.
+* `render(&self, out: &mut String)`: writes the element. A void element takes no end tag and every other element is closed.
+* `pub fn is_data_block(script_type: Option<&str>) -> bool`: whether a script of this `type` is data the browser never runs. False for no type, an empty type, `module`, `importmap`, `speculationrules` and the JavaScript MIME types. True for any other.
+* `pub const SCRIPT_WHEN: [&str; 3] = ["load", "idle", "interaction"]`
 
-### `SegmentKeyer`
+### Metadata
 
-`pub trait SegmentKeyer: Send + Sync`.
+Registered under a data source id.
 
-* `fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String`: the comparable identity of a segment across responses. Equal keys mean the client keeps the region's DOM and island state; different keys mean it is replaced from that point down. Content changes are not identity changes.
+* `pub trait Metadata: Send + Sync { fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>>; }`: `data` is what that source loaded.
 
-### `DefaultKeyer`
+### HeadRows
 
-Module plus every matched param and every query pair. Unit struct. `snapfire_fsr` installs its own keyer over this one: a node with children is keyed by its module and the parameters its source reads, so a layout survives a navigation that changes a parameter it never looks at; a leaf keeps this key.
+Registered under a module id with `RuntimeBuilder::listed`.
 
-* `fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String`: `plan.module` displayed as `path#export`; when params or query pairs are present a `?` followed by the param `k=v` pairs sorted, then the query pairs sorted, joined by `&`, for example `page.tera#default?section=servers` or `page.tsx#default?q=wireless`.
+* `pub trait HeadRows: Send + Sync { fn rows(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<(String, Vec<HeadEl>), LoadError>>; }`: the rows with the field they fill, such as `og:image`.
+* Before the rows are appended, every element is removed whose `property` or `name` is the field or starts with the field and a colon.
+* A failure is logged on target `fsr::load` and changes nothing.
 
-### `SegmentInfo`
+### Paths
 
-The sidecar emitted beside the payload tree. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
+The parameter sets a route with a parameter is prerendered for.
 
-* `pub key: String`
-* `pub digest: u64`: the canonical fingerprint of what the segment rendered, its own child segments elided. Two responses agreeing on it rendered the same DOM for that segment, whatever their keys say, which is what lets a browser keep a region a key change would otherwise replace. Zero for a deferred segment, which arrives as its own fill.
-* `pub path: Vec<u32>`: the subtree's position relative to the parent segment's node. `[]` is the whole node, `[i]` is child `i` of a `Seq`.
-* `pub slot: Option<u32>`: set for a deferred segment, which is slot-addressed and carries no path.
-* `pub children: Vec<SegmentInfo>`
-* `pub fn new(key: String, digest: u64, name: String, path: Vec<u32>, slot: Option<u32>, children: Vec<SegmentInfo>, keep: Vec<String>) -> Self`
+* `pub trait Paths: Send + Sync { fn paths(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<Vec<Params>, LoadError>>; }`: one `Params` per path, each naming every parameter of the pattern.
 
-## 8. Caching
+### Head
 
-### `CacheEntry`
+The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
 
-What a hit restores. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
+* `pub struct Head { pub title: String, pub template: Option<String>, pub description: Option<String>, pub rest: Node, pub entry: Option<String>, pub styles: Vec<String>, pub catalog: Option<String>, pub head: Vec<HeadEl>, pub origin: Option<String>, pub theme: Option<DocumentTheme> }`
+* `template`: how a segment's title is written. `{page}` is the segment's title and `{title}` the default, each filled once. Absent, a segment's title is written as given.
+* `entry`: a module the browser must load for this response's islands beyond the document's own entry. Carried as the `E` row.
+* `styles`: stylesheets this response needs beyond the document's own. Carried as the `C` row.
+* `catalog`: the locale's message catalog as JSON. Carried as the `D` row.
+* `head`: the head elements every document carries. A segment's `meta` folds over these.
+* `origin`: `scheme://host` for the deployment. A path in the `href` of a `canonical` or `alternate` link is prefixed with it.
+* A path in the `content` of an `og:image`, `og:image:url`, `og:image:secure_url`, `og:url`, `og:video`, `og:audio` or `twitter:image` meta is prefixed with `origin` too.
+* `theme`: what the request decided for the document's theme. Carried in the eager `H` row.
+* `new(title: impl Into<String>, rest: Node) -> Self`: every other field empty.
+* `title_for(&self, meta: &Meta) -> String`: the segment's title through the template unless `meta.absolute`, the default when it names none.
+* `settle(&self, meta: &mut Meta)`: writes `meta`'s title through the template and clears `absolute`.
+* `rows(&self, meta: &Meta) -> Vec<HeadEl>`: every head element a document under `meta` carries. That is `head` with `meta`'s folded over it, the card text and the paths made absolute.
+* `rows` drops the empty icon when the head carries any other icon.
+* `node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the title is non-empty, `<meta name="description">` when there is a description, `rows` between `HEAD_OPEN` and `HEAD_CLOSE`, each of `styles` and the `entry` script.
+* `From<Node>` and `From<&Node>`: an empty title. `From<&Head>`: a clone.
 
-* `pub node: Node`
-* `pub segments: Vec<SegmentInfo>`: the subtree's child segments, so navigation identity survives caching.
-* `pub digest: u64`: the subtree's own fingerprint, so a hit carries the digest a miss would have produced.
-* `pub fn new(node: Node, segments: Vec<SegmentInfo>, digest: u64) -> Self`
+### DocumentTheme
 
-### `NodeCache`
+`<html data-sf-theme>` and `<html data-sf-scheme>` for one request. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
-`pub trait NodeCache: Send + Sync`. Memoizes evaluated subtrees. A hit skips evaluation entirely: no chunk stream, no engine.
+* `pub struct DocumentTheme { pub name: Option<String>, pub scheme: Option<String>, pub forced: bool }`
+* No `name` is the root theme. No `scheme` leaves the attribute off.
+* `forced` writes `<html data-sf-theme-forced>`.
+* Setters `name`, `scheme` and `forced`, each `fn(self, value) -> Self`.
 
-* `fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>>`: `key` is the composed key from [`assemble`](#assemble).
+### Head constants
+
+* `PATH_MARK = "{fsr:path}"`: in a module head row's value, the request's path without a trailing slash.
+* `HEAD_OPEN = "<!--sf-head-->"` and `HEAD_CLOSE = "<!--/sf-head-->"`: around a document's head rows.
+* `STYLE_OPEN = "<link rel=\"stylesheet\" data-sf-css=\"\" href=\""`: how a response's own stylesheets are written.
+* `ENTRY_OPEN = "<script type=\"module\" src=\""`: how a response's `entry` is written.
+
+## 9. Segments
+
+### SegmentKeyer
+
+* `pub trait SegmentKeyer: Send + Sync { fn key(&self, plan: &PlanNode, params: &Params, query: &Params) -> String; }`: a segment's identity across responses.
+* Equal keys keep the region's DOM and island state. Different keys replace it from that point down.
+* The assembler appends `Locale::key_suffix` to every key.
+
+### DefaultKeyer
+
+* `pub struct DefaultKeyer`: the module displayed as `path#export`, then `?` and the sorted param `k=v` pairs followed by the sorted query pairs, joined by `&`. No `?` when there are none.
+* For example `page.tera#default?section=servers` or `page.tsx#default?q=wireless`.
+
+### SegmentInfo
+
+The sidecar emitted beside the payload tree. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
+
+* `pub struct SegmentInfo { pub key: String, pub digest: u64, pub name: String, pub path: Vec<u32>, pub slot: Option<u32>, pub children: Vec<SegmentInfo>, pub keep: Vec<String> }`
+* `digest`: the fingerprint of what the segment rendered, its child segments elided. Zero for a deferred segment.
+* `name`: the slot this segment fills in its parent. Empty at the root.
+* `path`: the subtree's position relative to the parent segment's node. `[]` is the whole node and `[i]` is child `i` of a `Seq` or of an island.
+* `slot`: set for a deferred segment, which carries no path.
+* `keep`: slots of this segment the payload leaves unfilled and the browser keeps.
+* `new(key: String, digest: u64, name: String, path: Vec<u32>, slot: Option<u32>, children: Vec<SegmentInfo>, keep: Vec<String>) -> Self`
+* `keep_of(plan: &PlanNode) -> Vec<String>`: the plan node's `keep` names.
+
+## 10. Caching
+
+### CacheEntry
+
+What a render memo hit restores. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
+
+* `pub struct CacheEntry { pub node: Node, pub segments: Vec<SegmentInfo>, pub digest: u64 }`
+* `segments`: the subtree's child segments.
+* `digest`: the subtree's own fingerprint.
+* `new(node: Node, segments: Vec<SegmentInfo>, digest: u64) -> Self`
+
+### NodeCache
+
+Memoizes evaluated subtrees.
+
+* `pub trait NodeCache: Send + Sync`
+* `fn get(&self, key: &str) -> BoxFuture<'_, Option<CacheEntry>>`: `key` is the composed key from `assemble`.
 * `fn put(&self, key: String, entry: CacheEntry) -> BoxFuture<'_, ()>`
-* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>`: takes the plan's `cache_key`, not a composed key. It must remove every composed key derived from it, across all params and identities and return how many it removed.
-* `fn keeps(&self) -> bool`: whether a `put` can answer a later `get`, `true` unless overridden. A render asks a cache that keeps nothing for no entry and computes no key for it. `NoCache` answers `false`; `WarmRenders` answers `true` while it records, while it holds an entry and whenever its live cache keeps.
+* `fn invalidate(&self, cache_key: &str) -> BoxFuture<'_, usize>`: takes the plan's `cache_key`. It must remove every composed key made from it and answer how many went.
+* `fn keeps(&self) -> bool`: whether a `put` can answer a later `get`. Defaults to `true`. A cache that keeps nothing is never given a key.
 
-### `NoCache`
+### NoCache
 
-The default. Unit struct. `get` is always `None`, `put` does nothing and `invalidate` answers zero.
+* `pub struct NoCache`: the default. `get` is `None`, `put` does nothing, `invalidate` answers 0 and `keeps` is false.
 
-### `MemoryCache`
+### MemoryCache
 
-`HashMap` behind a `parking_lot::Mutex`. Unbounded, no expiry. `Default`.
+A `HashMap` behind a `parking_lot::Mutex`. Unbounded, no expiry. `Default`.
 
-* `pub fn new() -> Self`
-* `invalidate` retains every entry whose key does not start with `{cache_key}|`, which relies on the composed key's first field being the plan key.
+* `new() -> Self`
+* `invalidate` removes every entry whose key starts with `{cache_key}|`.
 
-### `FibreCache`
+### FibreCache
 
-`fibre_cache`-backed: sharded, TinyLFU-bounded, TTL-expiring. A side index maps each plan `cache_key` to the composed keys stored under it, so invalidation is exact without iterating the cache.
+Backed by `fibre_cache`: sharded, TinyLFU-bounded and TTL-expiring. A side index maps each plan `cache_key` to the composed keys stored under it.
 
-* `pub fn new(cache: fibre_cache::Cache<String, CacheEntry>) -> Self`: for a cache configured by the caller; with no listener on it, the index shrinks only on `invalidate`.
-* `pub fn listener() -> (Index, impl EvictionListener<String, CacheEntry> + 'static)`: an index and the listener that keeps it exact, for `CacheBuilder::eviction_listener`; `Index` is `Arc<parking_lot::Mutex<HashMap<String, HashSet<String>>>>`.
-* `pub fn with_index(cache: fibre_cache::Cache<String, CacheEntry>, index: Index) -> Self`: `new` over a cache whose builder carried that listener.
-* `pub fn indexed(&self, plan_key: &str) -> usize`: how many composed keys the index holds under a plan key.
-* `pub fn bounded(capacity: u64, ttl: Duration) -> Self`: four shards, opportunistic maintenance on every insert (`maintenance_chance(1)`) and a timer tick of a hundredth of the TTL clamped to 10 ms and 1 s, so an entry leaves within a percent of its TTL.
-* `pub fn bounded_sharded(capacity: u64, ttl: Duration, shards: usize) -> Self`: `bounded` with the shard count given; `shards` is rounded up to the next power of two by `fibre_cache`, whose own default is derived from the CPU count. Capacity is accounted across all shards, so this trades lock contention against the fixed per-shard policy and timer structures, never against usable capacity.
+* `new(cache: fibre_cache::Cache<String, CacheEntry>) -> Self`: over a cache the caller built. With no listener on it, the index shrinks only on `invalidate`.
+* `listener() -> (Index, impl EvictionListener<String, CacheEntry> + 'static)`: an index and the listener that keeps it in step, for `CacheBuilder::eviction_listener`.
+* `Index` is `Arc<parking_lot::Mutex<HashMap<String, HashSet<String>>>>`.
+* `with_index(cache: fibre_cache::Cache<String, CacheEntry>, index: Index) -> Self`: `new` over a cache whose builder carried that listener.
+* `indexed(&self, plan_key: &str) -> usize`: how many composed keys the index holds under a plan key.
+* `bounded(capacity: u64, ttl: Duration) -> Self`: four shards, maintenance on every insert and a timer tick of a hundredth of the TTL, clamped between 10 ms and 1 s.
+* `bounded_sharded(capacity: u64, ttl: Duration, shards: usize) -> Self`: `bounded` with the shard count given. `fibre_cache` rounds `shards` up to a power of two. Capacity is accounted across all shards.
+* `bounded` and `bounded_sharded` install the listener. They panic if `fibre_cache` refuses the configuration.
 * Every entry is inserted with a cost of 1, so `capacity` counts entries.
-* `bounded` and `bounded_sharded` panic if `fibre_cache` refuses the configuration.
-* The side index holds each composed key once and drops a key when the cache evicts it, on TTL or for room, through the eviction listener `bounded` and `bounded_sharded` install; `invalidate` clears a plan key's set. Expiry follows the cache's timer tick, so a key leaves the index when the janitor drops it, within a tick of its TTL.
 
-### `LoadCache`
+### WarmRenders
 
-`pub trait LoadCache: Send + Sync`. Memoizes a source's loaded data under the key its [`LoadKeyer`](#loadkeyer) composed. A hit skips the loader entirely: no service call, no interpreter.
+A `NodeCache` holding what a build rendered, in front of a live one.
 
+* `new(entries: HashMap<String, CacheEntry>, live: Arc<dyn NodeCache>) -> Self`
+* `get` answers from the build's entries first and from `live` after. `put` and `invalidate` reach `live` alone.
+* `record(&self, on: bool)`: while on, every `get` misses and every `put` lands in the build's entries.
+* `replace(&self, entries: HashMap<String, CacheEntry>)`: swaps the whole map.
+* `entries(&self) -> HashMap<String, CacheEntry>`: a copy.
+* `len(&self) -> usize`
+* `is_empty(&self) -> bool`
+* `keeps` is true while it records, while it holds an entry and whenever `live` keeps.
+
+### LoadCache
+
+Memoizes a source's loaded data under the key its `LoadKeyer` composed.
+
+* `pub trait LoadCache: Send + Sync`
 * `fn get(&self, key: &str) -> BoxFuture<'_, Option<Data>>`
 * `fn put(&self, key: String, data: Data) -> BoxFuture<'_, ()>`
 
-This sits below the `NodeCache`, which memoizes what a subtree rendered and is keyed by the fingerprint of the data a load produced. That key cannot exist before the load runs, so the render memo can never skip one.
+### NoLoadCache
 
-### `NoLoadCache`
+* `pub struct NoLoadCache`: the default. `get` is `None` and `put` does nothing.
 
-The default. Unit struct. `get` is always `None` and `put` does nothing.
+### WarmLoads
 
-### `WarmLoads`
+A `LoadCache` holding what a build warmed. `Default`.
 
-What a build warmed. A request never writes to it, so a source the build did not reach costs a load per request and nothing grows unbounded. `Default`.
+* `new(entries: HashMap<String, Data>) -> Self`
+* `replace(&self, entries: HashMap<String, Data>)`: swaps the whole map. The only way in.
+* `len(&self) -> usize`
+* `is_empty(&self) -> bool`
+* `put` does nothing.
 
-* `pub fn new(entries: HashMap<String, Data>) -> Self`
-* `pub fn replace(&self, entries: HashMap<String, Data>)`: swaps the whole map, which a warm pass does before it renders anything so a document is never written from the generation before it.
-* `pub fn len(&self) -> usize`, `pub fn is_empty(&self) -> bool`
-* `put` is a no-op; `replace` is the only way in.
+### MemoryLoadCache
 
-### `WarmRenders`
+A `HashMap` behind a `parking_lot::Mutex`. Unbounded, no expiry. `Default`.
 
-A `NodeCache` holding what a build rendered, in front of a live one. A request's `get` is answered from the build's entries first and from `live` after; its `put` and an `invalidate` reach `live` alone, so nothing a request does changes what the build wrote. While `record` is on, every `get` misses and every `put` lands in the build's entries, which is how a render pass fills it: each subtree is rendered afresh and kept under the key a request will compose.
+* `new() -> Self`
+* `snapshot(&self) -> HashMap<String, Data>`
 
-* `pub fn new(entries: HashMap<String, CacheEntry>, live: Arc<dyn NodeCache>) -> Self`
-* `pub fn replace(&self, entries: HashMap<String, CacheEntry>)`: swaps the whole map, which a render pass does before recording so a stale entry never survives a rebuild.
-* `pub fn record(&self, on: bool)`
-* `pub fn entries(&self) -> HashMap<String, CacheEntry>`: a copy, for writing out.
-* `pub fn len(&self) -> usize`, `pub fn is_empty(&self) -> bool`
+## 11. Request Context
 
-### `MemoryLoadCache`
+### RequestCtx
 
-`HashMap` behind a `parking_lot::Mutex`, read and written in process. Unbounded, no expiry. `Default`.
+Everything a loader or action may know about the request. `Clone`, `Default`, `#[non_exhaustive]`.
 
-* `pub fn new() -> Self`
-* `pub fn snapshot(&self) -> HashMap<String, Data>`
-
-For a warm pass filling it and for a Rust host that knows its keyed sources are few. An application serving unbounded keys wants a bounded cache instead.
-
-## 9. Request context
-
-### `Identity`
-
-Who the request is, resolved by the session layer before anything loads. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
-
-* `pub subject: String`
-* `pub claims: ValueMap`
-* `pub fn new(subject: String, claims: ValueMap) -> Self`
-
-Application code reads it and never sees a token.
-
-### `SessionCell`
-
-The request's session, shared by every loader and action on it. `Clone + Default`; clones share one `Arc<Mutex<..>>`, so a mutation through any clone is visible through all of them.
-
-* `pub fn new(data: ValueMap, identity: Option<Identity>) -> Self`: starts clean.
-* `pub fn get(&self, key: &str) -> Option<Value>`
-* `pub fn insert(&self, key: impl Into<String>, value: Value)`: marks dirty.
-* `pub fn remove(&self, key: &str) -> Option<Value>`: marks dirty only when something was removed. Removal preserves the order of the remaining entries.
-* `pub fn identity(&self) -> Option<Identity>`
-* `pub fn set_identity(&self, identity: Option<Identity>)`: marks dirty.
-* `pub fn clear(&self)`: drops data and identity in one dirty write.
-* `pub fn is_dirty(&self) -> bool`
-* `pub fn snapshot(&self) -> (ValueMap, Option<Identity>)`
-* `pub fn expiring(self, at: u64) -> Self`: sets the end, seconds since the Unix epoch, without marking anything; the session layer's `open` uses it.
-* `pub fn expires(&self) -> u64`: the end.
-* `pub fn extend(&self, by: Duration)`: moves the end to `by` from now and marks the cell extended, which has the session layer save the record and set the cookie again. The end never moves otherwise.
-* `pub fn is_extended(&self) -> bool`
-
-Every mutator takes `&self`. Dirtiness and extension are one-way within a request: nothing clears either flag.
-
-`pub fn unix_now() -> u64` is seconds since the Unix epoch, the clock every end is read against.
-
-### `RequestCtx`
-
-Everything a loader or action may know about the request. `Clone + Default` and `#[non_exhaustive]`: build one with `anonymous` or `Default` and assign the fields. Serializable values only, plus the handle, which is callable but carries nothing readable.
-
-* `pub params: Params`
+* `pub params: Params`: the matched params.
+* `pub query: Params`: the decoded query string, one value per key, the last repeat winning. Keys starting with `__` are dropped.
+* `pub path: String`: the path the request matched, locale prefix included and query excluded. Empty under an action and under a context nothing resolved.
+* `pub document: Option<String>`: on an intercept, the path of the page the document is showing, the `x-sf-from` value with its locale prefix stripped. `None` otherwise.
+* `pub address: Option<Address>`: on an intercept, the navigation's own request. `None` otherwise.
 * `pub session: SessionCell`
-* `pub locale: Locale`: the request's locale as the host resolved it; the default `Locale` under a context nothing resolved.
-* `pub locales: Vec<String>`: the locales the application serves, `ctx.locales` in a body, in the order `[locales]` declares them; the same on every request. Empty under a context the host did not build.
-* `pub csrf: CsrfHandle`: the request's CSRF token, minted on first `get` and held for the request; `CsrfHandle::new(memo, mint)` binds one, `CsrfHandle::fixed(token)` holds a given token, `Default` is unbound and `get` answers `None`. `memo_key` is `Some("-")` unbound, `Some(memo)` when the session's token is stable and `None` when every mint differs, which keeps a subtree rendering the token out of the memo.
+* `pub locale: Locale`: the default `Locale` under a context nothing resolved.
+* `pub locales: Vec<String>`: the locales the application serves, in `[locales]` order. Empty under a context the host did not build.
+* `pub host: Option<String>`: the host the request named, already matched against `[server] hosts`. `None` when that key is unset.
+* `pub origin: Option<String>`: `document.origin` as the host checked it at boot. `None` when the configuration names none.
+* `pub failure: Option<Value>`: the failure of a form post that redirected back here, a map of `kind` and `message`.
+* `pub config: ValueMap`: the deployment's `[public]` values.
+* `pub csrf: CsrfHandle`
+* `pub csp_nonce: Option<String>`: the nonce this live response's policy names. `None` for a render a file or the memo keeps.
 * `pub services: ServiceHandle`
-* `pub natives: NativeHandle`: `ctx.native`, the application's own Rust in this process.
-* `pub redirect: RedirectHandle`: where a successful action sends its caller. `set(to)` takes a path on this origin (one leading `/`, not `//` or `/\`) and refuses anything else as `ActionError` `invalid`; `check(to)` refuses the same without setting; `get` answers what was set. A clone shares the cell, so the edge reads what the handler it passed a clone to set. `Default` holds nothing.
-* `pub next: Option<NextHandle>`: middleware's `next`, set by `drive_middleware` while a middleware runs; `None` everywhere else.
-* `pub after: AfterHandle`: work to run once the response is written. `push(work)` queues a `Future<Output = ()> + Send + 'static`; `take()` answers everything queued and empties the queue. A clone shares the queue. `Default` is an empty queue of its own, which the host replaces with the request's.
-* `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
-* `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's. Empty too under a context nothing resolved.
-* `pub failure: Option<Value>`: the failure of a form post that redirected back to this render, a map of `kind` and `message`, which every dynamic page and layout receives as its `action_failure` prop. The host takes it off the session rather than reading it, so the render that shows it is the only one that does.
-* `pub origin: Option<String>`: `document.origin` as the host checked it at boot, `ctx.origin` in a body. One value for the whole deployment rather than one per request, so a body reading it still memoizes and still prerenders. `None` when the configuration names no origin.
-* `pub document: Option<String>`: the path of the page the document is showing when the render is an intercept, the origin the navigator sent as `x-sf-from` with its locale prefix stripped. `None` on any other request, where the document's path is `path`.
-* `pub address: Option<Address>`: the navigation's own request when the render is an intercept, `None` otherwise; `ctx.address` in a body. On a layout the document keeps, `path`, `params` and `query` are the document's and this is the navigation's; on the variant filling the slot the two are the same request.
-* `pub fn anonymous(params: Params) -> Self`: empty session, no locale, an unbound CSRF handle, unbound service handle. `query` and `path` are empty.
-* `pub fn parse_query(raw: &str) -> Params` (free function in `ctx`, re-exported): decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys.
-* `pub fn identity_value(&self) -> Option<Value>`: the session identity as `Value::Map` with `subject` and `claims`, which is what reaches evaluators as the `identity` prop.
+* `pub natives: NativeHandle`
+* `pub redirect: RedirectHandle`
+* `pub next: Option<NextHandle>`: set while a middleware runs. `None` everywhere else.
+* `pub after: AfterHandle`
+* `anonymous(params: Params) -> Self`: `params` and every other field empty or unbound.
+* `identity_value(&self) -> Option<Value>`: the session identity as a `Value::Map` of `subject` and `claims`.
+* A clone shares the session cell, the CSRF handle, the redirect cell and the after queue.
 
-Cloning a context shares the session cell, the service handle and the CSRF handle; only `params`, `query`, `path` and `locale` are copied.
+### Identity
 
-### `Address`
+Who the request is. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
 
-`pub struct Address { pub path: String, pub params: Params, pub query: Params }`. `Clone`, `Debug`, `Default`, `PartialEq`. `#[non_exhaustive]`: build one with `Default` and the setters. The request the browser navigated to, carried as `RequestCtx::address` on an intercepted render.
+* `pub struct Identity { pub subject: String, pub claims: ValueMap }`
+* `new(subject: String, claims: ValueMap) -> Self`
 
-* `pub fn path(self, path: String) -> Self`, `pub fn params(self, params: Params) -> Self`, `pub fn query(self, query: Params) -> Self`: setters for the field of the same name.
+### SessionCell
 
-* `pub fn value(&self) -> Value`: the map a body reads, `path`, `params` and `query`.
+The request's session. `Clone`, `Default`. Clones share one cell.
 
-### `Locale`
+* `new(data: ValueMap, identity: Option<Identity>) -> Self`: starts clean.
+* `get(&self, key: &str) -> Option<Value>`
+* `insert(&self, key: impl Into<String>, value: Value)`: marks dirty.
+* `remove(&self, key: &str) -> Option<Value>`: marks dirty when something was removed. The remaining entries keep their order.
+* `identity(&self) -> Option<Identity>`
+* `set_identity(&self, identity: Option<Identity>)`: marks dirty.
+* `clear(&self)`: drops data and identity in one dirty write.
+* `is_dirty(&self) -> bool`
+* `mark_saved(&self)`: clears the dirty flag.
+* `snapshot(&self) -> (ValueMap, Option<Identity>)`
+* `expiring(self, at: u64) -> Self`: sets the end, in seconds since the Unix epoch, without marking anything.
+* `expires(&self) -> u64`
+* `extend(&self, by: Duration)`: moves the end to `by` from now and marks the cell extended. The end moves only through `extend`.
+* `is_extended(&self) -> bool`
+* Every mutator takes `&self`. Nothing clears the extended flag.
 
-The request's locale as the application spells it, `fr_FR` or `fr`. `Clone + PartialEq + Eq + Default`; the default is an empty tag flagged as the default locale, which is what a context nothing resolved carries.
+### CsrfHandle
 
-* `pub tag: String`
-* `pub is_default: bool`: the application's default locale, which leaves segment keys and prerender paths unmarked the way an unprefixed URL is.
-* `pub fn new(tag: impl Into<String>, is_default: bool) -> Self`
-* `pub fn hyphenated(&self) -> String`: the BCP 47 spelling, `fr-FR` for `fr_FR`, which `<html lang>` carries.
-* `pub fn key_suffix(&self) -> String`: `@<tag>` for a locale that is not the default, else empty.
+The request's CSRF token, minted on first `get` and held for the request. `Clone`, `Default` (unbound).
 
-The assembler appends `key_suffix` to every segment key the keyer produces, injects the tag as the `locale` prop of every node, folds it into the render memo key and writes it as the `L` row of a payload.
+* `new(memo: Option<String>, mint: impl Fn() -> String + Send + Sync + 'static) -> Self`: `memo` is what the render memo keys a subtree rendering the token by, `None` when every mint differs.
+* `fixed(token: impl Into<String>) -> Self`: a handle holding one token.
+* `is_bound(&self) -> bool`
+* `get(&self) -> Option<String>`: `None` unbound.
+* `memo_key(&self) -> Option<String>`: `Some("-")` unbound, `Some(memo)` when the token is stable for the session and `None` when it is not.
 
-## 10. Services
+### RedirectHandle
 
-### `ServiceCaller`
+Where a successful action sends its caller. `Clone`, `Default` (empty). A clone shares the cell.
 
-`pub trait ServiceCaller: Send + Sync`. What the service layer implements.
+* `set(&self, to: impl Into<String>) -> Result<(), ActionError>`: takes a path on this origin, one leading `/` and not `//` or `/\`. Anything else is `ActionError` `invalid`.
+* `check(to: &str) -> Result<(), ActionError>`: what `set` refuses, without setting.
+* `get(&self) -> Option<String>`
 
-* `fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`
+### AfterHandle
 
-### `ServiceHandle`
+Work to run once the response is written. `Clone`, `Default` (an empty queue). A clone shares the queue.
 
-`ctx.services`. `Clone + Default`; the default is unbound.
+* `push(&self, work: impl Future<Output = ()> + Send + 'static)`
+* `take(&self) -> Vec<BoxFuture<'static, ()>>`: everything queued, leaving the queue empty.
 
-* `pub fn new(caller: Arc<dyn ServiceCaller>) -> Self`
-* `pub fn is_bound(&self) -> bool`
-* `pub fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`: an unbound handle fails the call rather than pretending, with `FailureKind::Unavailable` and the message `no service layer is bound to this request`.
+### Address
 
-The handle is bound to the request before application code reaches it, so identity and credentials are attached to a call without being readable from the context. It exposes no accessor for the caller it holds.
+The request the browser navigated to on an intercepted render. `Clone`, `Debug`, `Default`, `PartialEq`, `#[non_exhaustive]`.
 
-### `Native`
+* `pub struct Address { pub path: String, pub params: Params, pub query: Params }`: `path` includes the locale prefix.
+* Setters `path`, `params` and `query`, each `fn(self, value) -> Self`.
+* `value(&self) -> Value`: the map a body reads, of `path`, `params` and `query`.
 
-`pub trait Native: Send + Sync`. One module of the application's own Rust, reached from a body as `ctx.native.<name>.<method>()`. Nothing crosses a wire, so there is no contract to check the call against, no transport and no interceptor chain.
+### Locale
 
+The request's locale as the application spells it, `fr_FR` or `fr`. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+
+* `pub struct Locale { pub tag: String, pub is_default: bool }`
+* `Default` is an empty tag with `is_default` true.
+* `is_default`: the application's default locale, which leaves segment keys and prerender paths unmarked.
+* `new(tag: impl Into<String>, is_default: bool) -> Self`
+* `hyphenated(&self) -> String`: the BCP 47 spelling, `fr-FR` for `fr_FR`.
+* `key_suffix(&self) -> String`: `@<tag>` for a locale that is not the default, else empty.
+
+### Context functions
+
+* `pub fn parse_query(raw: &str) -> Params`: decodes `+` and `%XX`, drops empty keys and `__`-prefixed keys and keeps a repeated key's last value.
+* `pub fn unix_now() -> u64`: seconds since the Unix epoch.
+* `pub const FAILURE_KEY: &str = "$failure"`: the session key a form post's failure waits under for the render it redirected to.
+
+## 12. Services
+
+### ServiceCaller
+
+What the service layer implements.
+
+* `pub trait ServiceCaller: Send + Sync { fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>; }`
+
+### ServiceHandle
+
+`ctx.services`. `Clone`, `Default` (unbound).
+
+* `new(caller: Arc<dyn ServiceCaller>) -> Self`
+* `is_bound(&self) -> bool`
+* `call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`: an unbound handle fails with `FailureKind::Unavailable` and `no service layer is bound to this request`.
+* The handle has no accessor for the caller it holds.
+
+### Native
+
+One module of the application's own Rust, reached from a body as `ctx.native.<name>.<method>()`.
+
+* `pub trait Native: Send + Sync`
 * `fn call(&self, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`
-* `fn call_sync(&self, method: &str, args: ValueMap) -> Option<Result<Value, ServiceError>>`: a method the build read as `fn` rather than `async fn`, answered without a future. `None` means the name is async or unknown. Defaults to `None`.
+* `fn call_sync(&self, method: &str, args: ValueMap) -> Option<Result<Value, ServiceError>>`: a method the build read as `fn`, answered without a future. `None` for a method that is async or unknown. Defaults to `None`.
+* `#[native]` from `snapfire_fsr_macros` implements both from an `impl` block. Only the methods the block declares `pub` are reachable.
 
-`#[native]` from `snapfire_fsr_macros` writes both from the `impl` block, so a method stays ordinary Rust and only what the block declares `pub` crosses.
-
-`native_arg`, `FromNativeValue` and `IntoNativeValue` are what the generated dispatcher decodes arguments and encodes answers with. `FromNativeValue` covers `Value`, `ValueMap`, `String`, `bool`, every integer width, `f64`, `Option<T>` and `Vec<T>`; `IntoNativeValue` covers the same plus `()` and `Result<T, ServiceError>`. `#[derive(Record)]` from `snapfire_fsr_macros` implements both for a struct.
-
-### `Natives`
+### Natives
 
 The registered modules, by the name a body calls them under. `Default`.
 
-* `pub fn register(&mut self, name: impl Into<String>, module: Arc<dyn Native>)`: a name registered twice keeps the last.
-* `pub fn get(&self, name: &str) -> Option<&Arc<dyn Native>>`
-* `pub fn is_empty(&self) -> bool` and `pub fn names(&self) -> Vec<&str>`, in registration order.
+* `new() -> Self`
+* `register(&mut self, name: impl Into<String>, module: Arc<dyn Native>)`: a name registered twice keeps the last.
+* `get(&self, name: &str) -> Option<&Arc<dyn Native>>`
+* `is_empty(&self) -> bool`
+* `names(&self) -> Vec<&str>`: in registration order.
 
-### `NativeHandle`
+### NativeHandle
 
-`ctx.native`. `Clone + Default`; the default is unbound.
+`ctx.natives`. `Clone`, `Default` (unbound).
 
-* `pub fn new(natives: Arc<Natives>) -> Self`
-* `pub fn is_bound(&self) -> bool`
-* `pub fn call(&self, module: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`
-* `pub fn call_sync(&self, module: &str, method: &str, args: ValueMap) -> Option<Result<Value, ServiceError>>`
+* `new(natives: Arc<Natives>) -> Self`
+* `is_bound(&self) -> bool`
+* `call(&self, module: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`: an unbound handle fails with `FailureKind::Unavailable` and `no native modules are bound to this request`. An unknown name fails with `FailureKind::Unavailable` and ``no native module `{module}` is registered``.
+* `call_sync(&self, module: &str, method: &str, args: ValueMap) -> Option<Result<Value, ServiceError>>`: `None` when nothing is registered under `module` or the method is not sync.
 
-An unbound handle and an unregistered name both fail with `FailureKind::Unavailable` and a message saying which.
+### FromNativeValue
 
-## 11. Actions
+What a native method's arguments and answers may be.
 
-### `ActionHandler`
+* `pub trait FromNativeValue: Sized`: implemented for `Value`, `Dynamic`, `ValueMap`, `String`, `bool`, every integer width, `f64`, `Option<T>` and `Vec<T>`.
+* `pub trait IntoNativeValue`: the same types plus `()` and `Result<T, ServiceError>`.
+* `pub fn native_arg<T: FromNativeValue>(args: &ValueMap, key: &str, method: &str) -> Result<T, ServiceError>`: one argument decoded. An absent or wrong-typed argument is an error.
+* `#[derive(Record)]` from `snapfire_fsr_macros` implements both traits for a struct.
 
-`pub trait ActionHandler: Send + Sync`.
+### CallState
 
-* `fn call(&self, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>`: the context arrives by value.
+* `pub trait CallState: Clone + Send + Sync + 'static {}`: implemented for every such type. A `#[native]` or `#[service]` type must be `Clone`. Each call clones it.
 
-### `ActionRegistry`
+## 13. Actions
 
-Stable action ids to handlers, insertion-ordered. `Default`.
+### ActionHandler
 
-* `pub fn new() -> Self`
-* `pub fn insert(&mut self, id: impl Into<String>, handler: Arc<dyn ActionHandler>)`
-* `pub fn insert_fn<F, Fut>(&mut self, id: impl Into<String>, f: F)` where `F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static` and `Fut: Future<Output = Result<Value, ActionError>> + Send + 'static`
-* `pub fn dispatch(&self, id: &str, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>`: an unknown id resolves to `ActionError` with `FailureKind::NotFound` and the message ``no action `{id}` ``, never a panic. Emits a DEBUG event on target `fsr::action`.
+* `pub trait ActionHandler: Send + Sync { fn call(&self, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>; }`
 
-### `HttpResponse`
+### ActionRegistry
 
-A response a body answers in place of data: what `new Response(...)`, `Response.json`, `Response.redirect` and `redirect()` make. A route handler that returns one is answered with it; an action that returns a redirect sends its caller there. Derives `Debug`, `Clone`, `PartialEq`.
+Action ids to handlers, in insertion order. `Default`.
 
-* `pub status: u16`, `pub headers: Vec<(String, String)>` in the order given, `pub body: Vec<u8>`.
-* `pub fn new(status: u16) -> Self`: no headers, an empty body.
-* `pub fn header(&self, name: &str) -> Option<&str>`: matched without regard to case.
-* `pub fn header_default(&mut self, name: &str, value: &str)`: sets `name` unless it is already there.
-* `pub fn location(&self) -> Option<&str>`: the `location` of a 3xx response.
-* `pub fn to_value(&self) -> Value`: a `Value::Variant` tagged `RESPONSE_TAG`, `"$response"`, whose payload is an object of `status`, `headers` and `body`, with `headers` an array of `[name, value]` pairs so a header may repeat.
-* `pub fn from_value(value: &Value) -> Option<Result<Self, String>>`: `None` for a value that is not one; an error for one whose payload is not.
-* `pub const REDIRECT_STATUSES: [u16; 5]`: 301, 302, 303, 307 and 308.
-* `pub downstream: Option<usize>`: which route response a middleware's `next` answered this stands for; the host holds its body.
+* `new() -> Self`
+* `insert(&mut self, id: impl Into<String>, handler: Arc<dyn ActionHandler>)`
+* `insert_fn<F, Fut>(&mut self, id: impl Into<String>, f: F)` where `F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static` and `Fut: Future<Output = Result<Value, ActionError>> + Send + 'static`
+* `ids(&self) -> Vec<String>`: every registered id, in registration order.
+* `dispatch(&self, id: &str, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>`: an unknown id is `ActionError` with `FailureKind::NotFound` and ``no action `{id}` ``. Emits a DEBUG event on target `fsr::action`.
 
-### Middleware
+### HttpResponse
 
-* `pub struct NextHandle`: `next` in a middleware's context, `RequestCtx.next`, `None` outside a middleware. `NextHandle::new(f)` wraps `Fn(Value) -> BoxFuture<'static, Result<Value, ActionError>>`; `call(&self, request: Value)` runs the rest of the chain for `request` and answers the route's `HttpResponse` value.
-* `pub struct Target { pub path: String, pub query: String }`: where `next` sends a request. `Target::of(request, path, query)` reads nothing as the request as it came, a string or a `Request` value's `url` as a path on this origin (an absolute URL keeping its path and query) and the middleware's own request line by its `path`; anything else is `Internal`.
+A response a body answers in place of data: what `new Response(...)`, `Response.json`, `Response.redirect` and `redirect()` make. `Debug`, `Clone`, `PartialEq`.
+
+* `pub struct HttpResponse { pub status: u16, pub headers: Vec<(String, String)>, pub body: Vec<u8>, pub downstream: Option<usize> }`: `headers` in the order given, names as written.
+* `downstream`: which route response a middleware's `next` answered this stands for.
+* `new(status: u16) -> Self`: no headers and an empty body.
+* `header(&self, name: &str) -> Option<&str>`: matched without regard to case.
+* `header_default(&mut self, name: &str, value: &str)`: sets `name` unless it is already there.
+* `location(&self) -> Option<&str>`: the `location` of a 3xx response.
+* `to_value(&self) -> Value`: a `Value::Variant` tagged `RESPONSE_TAG` whose payload is an object of `status`, `headers` and `body`. `headers` is an array of `[name, value]` pairs.
+* `from_value(value: &Value) -> Option<Result<Self, String>>`: `None` for a value that is not one. An error for one whose payload is malformed.
+* `pub const RESPONSE_TAG: &str = "$response"`
+* `pub const REDIRECT_STATUSES: [u16; 5] = [301, 302, 303, 307, 308]`
+
+## 14. Middleware
+
+### NextHandle
+
+`next` in a middleware's context.
+
+* `new(next: impl Fn(Value) -> BoxFuture<'static, Result<Value, ActionError>> + Send + Sync + 'static) -> Self`
+* `call(&self, request: Value) -> BoxFuture<'static, Result<Value, ActionError>>`: runs the rest of the chain for `request` and answers the route's `HttpResponse` value.
+
+### Target
+
+Where `next` sends a request.
+
+* `pub struct Target { pub path: String, pub query: String }`
+* `of(request: &Value, path: &str, query: &str) -> Result<Self, ActionError>`: null or undefined is the request as it came. A string or a `Request` value's `url` is a path on this origin. An absolute URL keeps its path and query. A map is read by its `path`. Anything else is `Internal`.
 * `pub const REQUEST_TAG: &str = "$request"`: the tag of the `Value::Variant` `new Request(url)` makes, its payload an object holding `url`.
-* `pub enum Passed<B> { Continue, Answer(HttpResponse), Route(HttpResponse, B) }`: how a middleware answered. `Continue` is nothing returned without calling `next`; `Route` is the route's response with the status and headers the middleware left on it and the body the route answered.
-* `pub async fn drive_middleware<B>(ctx: RequestCtx, query: &str, run, serve) -> Result<Passed<B>, ActionError>`: runs `run(ctx)` with `ctx.next` set, serving each `next` call with `serve(Target)`, which answers the route's head and its body, while the middleware waits on it. Nothing returned after `next` is the last route response as it came; a value that is neither a response nor nothing is `Internal`.
 
-## 12. Streaming
+### Passed
 
-Both functions take the `Assembly` by value and yield `String` chunks. A resolution that introduces new pending slots has them folded into the working set, so nested deferral needs no separate call.
+How a middleware answered.
 
-### `wire_stream`
+* `pub enum Passed<B> { Continue, Answer(HttpResponse), Route(HttpResponse, B) }`
+* `Continue`: it returned nothing without calling `next`.
+* `Answer`: a response of its own.
+* `Route`: the route's response, with the status and headers the middleware left on it and the body the route answered.
+
+### drive_middleware
+
+* `pub async fn drive_middleware<B, Run, Serve, Fut>(ctx: RequestCtx, query: &str, run: Run, serve: Serve) -> Result<Passed<B>, ActionError>` where `Run: FnOnce(RequestCtx) -> BoxFuture<'static, Result<Value, ActionError>>`, `Serve: FnMut(Target) -> Fut` and `Fut: Future<Output = Result<(HttpResponse, B), ActionError>>`.
+* Runs `run(ctx)` with `ctx.next` set and serves each `next` call with `serve`. `query` is the request's query as it came. Its path is `ctx.path`.
+* Returning nothing after calling `next` answers the last route response as it came. A value that is neither a response nor nothing is `Internal`.
+
+## 15. Template Islands
+
+Islands whose markup a template renders and whose handlers are Rust.
+
+### IslandEvent
+
+What a handler is given. Every field arrives from the browser. `Debug`, `Clone`, `#[non_exhaustive]`.
+
+* `pub struct IslandEvent { pub props: Value, pub state: Value, pub event: Value }`
+* `new(props: Value, state: Value, event: Value) -> Self`
+
+### IslandHandler
+
+* `pub trait IslandHandler: Send + Sync { fn call(&self, ctx: RequestCtx, event: IslandEvent) -> BoxFuture<'static, Result<Value, ActionError>>; }`: answers the island's next state.
+
+### IslandRegistry
+
+Handlers by module and name. `Default`.
+
+* `new() -> Self`
+* `insert(&mut self, module: impl Into<String>, name: impl Into<String>, handler: Arc<dyn IslandHandler>)`
+* `insert_fn<F, Fut>(&mut self, module: impl Into<String>, name: impl Into<String>, f: F)` where `F: Fn(RequestCtx, IslandEvent) -> Fut + Send + Sync + 'static` and `Fut: Future<Output = Result<Value, ActionError>> + Send + 'static`
+* `holds(&self, module: &str) -> bool`: whether any handler is registered for the module.
+* `modules(&self) -> Vec<String>`: every module with a handler, in registration order, once each.
+* `names(&self, module: &str) -> Vec<String>`: one module's handler names, in registration order.
+* `dispatch(&self, module: &str, name: &str, ctx: RequestCtx, event: IslandEvent) -> BoxFuture<'static, Result<Value, ActionError>>`: an unknown pair is `FailureKind::NotFound` with ``` `{module}` has no handler `{name}` ```. Emits a DEBUG event on target `fsr::island`.
+
+### island_data
+
+* `pub fn island_data(props: &ValueMap, state: &Value) -> ValueMap`: the props without `$s` and `$k`, plus `state` under `state`.
+* `islands::STATE_PROP = "$s"` and `islands::REGION_PROP = "$k"`
+
+## 16. Streaming
+
+Both stream functions take the `Assembly` by value and yield `String` chunks. A resolution's new pending slots join the working set. The stream ends when no slot is outstanding.
+
+### wire_stream
 
 ```rust
 pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send
 ```
 
-The wire encoding of a streamed response. The first item is the eager wave, newline-terminated rows in one string, in this order:
+The first item is the eager wave, newline-terminated rows in this order:
 
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
-* `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
-* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set. `scripts` holds the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `head` holds every other head element. `meta_from_json` reads `scripts` and `head` back into `head`. With `assembly.theme` set, the eager row also carries `theme` and `scheme`, each a string or null, with `forced` as a boolean. The row is then written whatever the meta holds.
-* `T <contributions json>`, from [`contributions_to_json`](#contributions_to_json), when `assembly.contributions` is not empty.
-* `L <json string>`, the locale tag, when `assembly.locale` has one.
-* `E "<src>"`, when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
-* `D <catalog json>`, the head's catalog, when the head holds one.
-* `G <segment json>`, the sidecar, from [`segments_to_json`](#segments_to_json), always and always last: it closes the eager wave, so a navigator applies the tree the moment it reads it.
+* `N <node row json>`: the tree, from `snapfire_fsr_payload::node_to_row_json`.
+* `H <meta json>`: the meta and `rows` as `meta_to_json` writes them, when either is not empty.
+* With `assembly.theme` set, the `H` row is always written. It also carries `theme` and `scheme`, each a string or null, with `forced` as a boolean.
+* `T <contributions json>`: when `assembly.contributions` is not empty.
+* `L <json string>`: the locale tag, when there is one.
+* `E <json string>`: the head's `entry`, when set.
+* `C <json array>`: the head's `styles`, when not empty.
+* `D <catalog json>`: the head's catalog, when set.
+* `G <segment json>`: the sidecar, always and always last.
 
-Then one item per resolution: a `T` row when `Resolved::contributions` is not empty, then `S <slot id> {"n": <node row json>, "g": [<segment json>...]}\n`, `g` present when the resolved subtree has child segments of its own, then an `H` row when `Resolved::meta` is not empty, in completion order rather than plan order. The seed goes ahead of the markup it rendered, so a reader holds it before it mounts anything from the fill. The stream ends when no slot is outstanding. Emits a DEBUG event on target `fsr::stream` per resolution.
+Then one item per resolution, in completion order:
 
-### `meta_to_json`
+* A `T` row when `Resolved::contributions` is not empty.
+* `S <slot id> {"n": <node row json>, "g": [<segment json>...]}`, with `g` present when the resolved subtree has child segments.
+* An `H` row when `Resolved::meta` is not empty.
+* Each resolution emits a DEBUG event on target `fsr::stream`.
 
-`pub fn meta_to_json(meta: &Meta) -> serde_json::Value`: an object holding only the fields that are set: `title`, `description`, `scripts` (each script row's attributes) and `head` (every other element as `{"tag", "attrs": [[name, value], ...], "children"?}`).
-
-### `contributions_to_json`
-
-`pub fn contributions_to_json(contributions: &[Contribution]) -> serde_json::Value`: an array with one object per contribution, `k` the segment key, `p` the slot path as an array of strings and `v` the values encoded the way `snapfire_fsr_payload::value_to_json` encodes a `Value::Map`.
-
-### `html_stream`
+### html_stream
 
 ```rust
 pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send
 ```
 
-The first-response encoding. The first item is the tree serialized with each segment wrapped in `<!--sf-g:{key}-->` and `<!--/sf-g-->`, followed by the sidecar as `<script type="application/json" data-sf-segments>...</script>`, followed by `<script type="application/json" data-sf-store>` holding [`contributions_to_json`](#contributions_to_json) of `assembly.contributions` when there are any, followed by [`FILL_SCRIPT`](#fill_script) when `assembly.pending` is non-empty.
+The first item, in order:
 
-Then one item per resolution:
+* The tree with each segment wrapped in `<!--sf-g:{key}-->` and `<!--/sf-g-->`.
+* The content placed elsewhere in the tree.
+* The sidecar as `<script type="application/json" data-sf-segments>…</script>`.
+* `<script type="application/json" data-sf-store>` holding `contributions_to_json`, when there are contributions.
+* `CAPTURE_SCRIPT`.
+* `FILL_SCRIPT`, when `assembly.pending` is not empty.
 
-```text
-<template data-sf-fill="{slot}">{subtree}</template><script>__sfStore({contributions json});__sfFill({slot})</script>
-```
+Then one item per resolution, in order:
 
-The `__sfStore` call is written only when the resolution seeded and comes first, so the store holds the segment's seed before the fill wakes the boot runtime.
+* The content the resolution placed elsewhere.
+* `<template data-sf-fill="{slot}">{subtree}</template>`, the subtree in its segment's delimiters with every child segment delimited inside it.
+* `<script type="application/json" data-sf-fill-data="{slot}">{data}</script>`, when there is data. `data` holds `store` (the resolution's contributions), `segments` (its child segments) and `head` (its `H` row), each only when present.
+* `<script>__sfFill({slot})</script>`, from `fill_call(slot)`.
 
-The subtree is wrapped in the segment's own delimiters with every child segment delimited inside it. When there are child segments the call is `__sfFill({slot}, [<segment json>...])`, so the fill script can write them into the document's sidecar. When the resolution carries metadata the script also calls `__sfHead({meta json})`, with `<` escaped as `\u003c`, so a streamed page retitles the document once it arrives.
+Encoding:
 
-* Segment keys are escaped for the comment delimiter: `%` becomes `%25` and `-` becomes `%2D`, so a key can never contain `--`.
-* `<` in the sidecar JSON is escaped to `\u003c`, so it cannot terminate its own script tag.
-* One `HtmlSession` spans the whole response, so island ids (`sf-i0` upward) stay unique across chunks: a late slot continues the sequence rather than restarting it.
-* Slot-addressed child segments are not recursed into while serializing the first chunk. Their DOM region is the `data-sf-slot` element `Node::Pending` produces.
+* A segment key is escaped for the comment: `%` is `%25` and `-` is `%2D`.
+* `<` in every JSON script is written `<`.
+* One `HtmlSession` spans the response, so island ids (`sf-i0` upward) stay unique across chunks.
+* A deferred child segment is not written into the first chunk. Its region is the `data-sf-slot` element `Node::Pending` produces.
+* `pub fn fill_call(n: u32) -> String`: `__sfFill(n)`.
 
-### `fragment_html`
+### fragment_html
 
 ```rust
 pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<String>
 ```
 
-One segment of the assembled route as markup with nothing around it: the page when `slot` is `None`, found as the innermost segment reached through `content` slots; otherwise the first segment in sidecar order whose name is `slot`, wherever it sits. Every pending resolution is awaited first, nested ones included, then each resolved node is spliced over its `Node::Pending`, so nothing streams and no fallback is written. The subtree is serialized by a fresh `HtmlSession` with no segment delimiters and no sidecar. When the route seeded the store, the eager wave's seeds and every resolution's, the markup is followed by `<script type="application/json" data-sf-store>...</script>` with `<` escaped as `\u003c`. `None` when no segment carries that name.
+* One segment of the route as markup with nothing around it. With `slot` `None` it is the page, the innermost segment reached through `content` slots. Otherwise it is the first segment in sidecar order whose name is `slot`.
+* Every pending resolution is awaited first, nested ones included. Each is spliced over its `Node::Pending`. No fallback is written.
+* The markup has no segment delimiters and no sidecar. The content it placed elsewhere follows it.
+* When the route seeded the store, the markup is followed by `<script type="application/json" data-sf-store data-sf-fragment>`, `<` written `<`.
+* `None` when no segment carries that name.
 
-### `segments_to_json`
+### meta_to_json
 
-```rust
-pub fn segments_to_json(info: &SegmentInfo) -> serde_json::Value
-```
+* `pub fn meta_to_json(meta: &Meta) -> serde_json::Value`: an object holding only what is set.
+* The object's fields are `title`, `description`, `scripts` and `head`. `scripts` holds each script row's attributes as an object. `head` holds every other element as `{"tag", "attrs": [[name, value], ...], "children"?}`.
 
-The compact sidecar encoding, keys in this order: `k` the segment key, then `s` the slot id when the segment is deferred or `p` the path when it is not, then `c` the children.
+### contributions_to_json
 
-### `segments_from_json`
+* `pub fn contributions_to_json(contributions: &[Contribution]) -> serde_json::Value`: an array with one object per contribution.
+* Each object holds `k` (the segment key), `p` (the slot path) and `v` (the values as `snapfire_fsr_payload::value_to_json` encodes a `Value::Map`).
+* `d` holds the defaults when not empty. `w` holds the awaited keys when not empty.
 
-```rust
-pub fn segments_from_json(json: &serde_json::Value) -> Result<SegmentInfo, snapfire_fsr_payload::DecodeError>
-```
+### segments_to_json
 
-What `segments_to_json` wrote, read back, for a memo entry a build stored beside its node. A missing `k`, a `d` that is not hex or a `p` that is not a list of numbers is a `DecodeError` naming the field; an absent `d`, `n`, `s`, `p`, `c` or `keep` is its empty value.
+* `pub fn segments_to_json(info: &SegmentInfo) -> serde_json::Value`: keys in order `k` the key, `d` the digest as sixteen hex digits when not zero, `n` the name when not empty, `s` the slot for a deferred segment or `p` the path otherwise, `c` the children and `keep` when not empty.
 
-### `CAPTURE_SCRIPT`
+### segments_from_json
 
-`pub const CAPTURE_SCRIPT: &str`. A `<script>` element that sets `window.__sfServer` to `[document.body.innerHTML]`, written after the sidecar in every first chunk, so it runs once the tree is parsed and before any module or deferred script. `CAPTURE_SCRIPT_BODY` is its text, for a policy's hash.
+* `pub fn segments_from_json(json: &serde_json::Value) -> Result<SegmentInfo, DecodeError>`: what `segments_to_json` wrote.
+* A missing `k`, a `d` that is not hex or a `p` that is not a list of numbers is a `DecodeError` naming the field. An absent `d`, `n`, `s`, `p`, `c` or `keep` is its empty value.
 
-### `FILL_SCRIPT`
+### FILL_SCRIPT
 
-`pub const FILL_SCRIPT: &str`. A `<script>` element defining `__sfFill(n, g)` and `__sfHead(h)`, installed once ahead of the first fill. `__sfHead` sets `document.title` and the description meta from the fields `h` carries, creating the meta element when the head has none. It pushes the template's markup onto `window.__sfServer`, replaces the `[data-sf-slot="n"]` element with the content of `template[data-sf-fill="n"]`, removes the template, writes `g`, when given, as the children of slot `n` in the `data-sf-segments` script and dispatches a `sf:fill` `CustomEvent` on `document` whose `detail` is the slot number, which is how the boot runtime learns to rescan the inserted subtree and the navigator learns to re-read the sidecar.
+* `pub const FILL_SCRIPT: &str`: a `<script>` defining `__sfFill(n)`, `__sfHead(h)`, `__sfRows(w)` and `__sfStore(o)`. `FILL_SCRIPT_BODY` is its text.
+* `__sfFill(n)` reads and removes `script[data-sf-fill-data="n"]` and hands its `store` to `__sfStore`.
+* `__sfFill(n)` pushes the template's markup onto `window.__sfServer` and replaces the `[data-sf-slot="n"]` element with the template's content. It then removes the template.
+* `__sfFill(n)` writes the data's `segments` as the children of slot `n` in the `data-sf-segments` script. It dispatches `sf:fill` on `document` with the slot number as `detail` and calls `__sfHead` with the data's `head`.
+* `__sfHead(h)` replaces the rows between the head comments with `h.head` and sets `document.title` and the description meta, creating the meta when there is none. It loads each of `h.scripts` through `window.__sf.script` when defined.
+* `__sfStore(o)` calls `window.__sfSeedApply(o)` when defined, else queues `o` on `window.__sfSeed`.
 
-## 13. Error handling
+### CAPTURE_SCRIPT
 
-### `FailureKind`
+* `pub const CAPTURE_SCRIPT: &str`: a `<script>` that sets `window.__sfServer` to `[document.body.innerHTML]`. `CAPTURE_SCRIPT_BODY` is its text.
 
-The failure shapes a UI has to render, shared by actions and services so no application re-invents the mapping: one kind per 4xx and 5xx status the IANA HTTP status code registry assigns, 418 aside. `Debug + Clone + Copy + PartialEq + Eq`, `#[non_exhaustive]`. Defined in `snapfire_fsr_core::ext` and re-exported here.
+## 17. Reading a Payload
+
+The module `snapfire_fsr_runtime::wire` reads back what `wire_stream` wrote.
+
+### Row
+
+One line of a payload, by its tag. `Debug`, `Clone`, `PartialEq`.
+
+* `pub enum Row { Version { fmt: u32, enc: String }, Tree(Node), Head(Meta), Store(Vec<Contribution>), Locale(String), Entry(String), Styles(Vec<String>), Catalog(String), Segments(SegmentInfo), Fill { slot: u32, node: Node, segments: Vec<SegmentInfo> } }`
+* The tags are `V`, `N`, `H`, `T`, `L`, `E`, `C`, `D`, `G` and `S`, in variant order.
+* `Catalog` keeps the JSON as written.
+
+### row_from_line
+
+* `pub fn row_from_line(line: &str) -> Result<Row, DecodeError>`: `<tag> <json>`, the trailing newline optional.
+* A `V` row of another format, an unknown tag, a line without a tag and an `S` row whose slot is not a number are each an error naming the fault.
+
+### RowReader
+
+Rows out of bytes as they arrive. `Default`.
+
+* `new() -> Self`
+* `push(&mut self, bytes: &[u8]) -> Result<Vec<Row>, DecodeError>`: every row whose newline is in, whatever the chunk boundaries.
+* `finish(self) -> Result<Option<Row>, DecodeError>`: a last line that ended without a newline. `None` when only whitespace is left.
+
+### contributions_from_json
+
+* `pub fn contributions_from_json(json: &serde_json::Value) -> Result<Vec<Contribution>, DecodeError>`: what `contributions_to_json` wrote, `d` and `w` included.
+
+### meta_from_json
+
+* `pub fn meta_from_json(json: &serde_json::Value) -> Result<Meta, DecodeError>`: what `meta_to_json` wrote. `scripts` and `head` both read back into `Meta::head`.
+
+## 18. Error Handling
+
+### FailureKind
+
+One kind per 4xx and 5xx status the IANA HTTP status code registry assigns, 418 aside. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `#[non_exhaustive]`. Defined in `snapfire_fsr_core::ext` and re-exported here.
 
 | Variant | `as_str()` | `http_status()` |
 | :--- | :--- | :--- |
@@ -853,80 +1171,56 @@ The failure shapes a UI has to render, shared by actions and services so no appl
 | `NetworkAuthenticationRequired` | `network_authentication_required` | 511 |
 
 * `pub const ALL: &'static [FailureKind]`: every kind, in status order.
-* `pub fn as_str(&self) -> &'static str`
-* `pub fn http_status(&self) -> u16`
-* `pub fn from_name(name: &str) -> Option<FailureKind>`: the kind `as_str` spells, `None` for any other name.
-* `pub fn from_status(status: u16) -> FailureKind`: the kind for a status, else `Invalid` for a 4xx no kind names and `Internal` for anything else.
-* `pub fn is_client_error(&self) -> bool` and `pub fn is_server_error(&self) -> bool`: a 4xx and a 5xx.
+* `as_str(&self) -> &'static str`
+* `http_status(&self) -> u16`
+* `from_name(name: &str) -> Option<FailureKind>`: the kind `as_str` spells.
+* `from_status(status: u16) -> FailureKind`: the kind for a status. `Invalid` for a 4xx no kind names and `Internal` for anything else.
+* `is_client_error(&self) -> bool`: a 4xx.
+* `is_server_error(&self) -> bool`: a 5xx.
 
-### `LoadError`
+### LoadError
 
-A data source failed. `Debug + Clone + thiserror::Error`, displayed as ``data source {source_id}: {message}``. When a service call failed it is displayed as ``data source {source_id}: {call} failed ({kind}): {message}``, such as `data source $root: shopping.listProducts failed (unavailable): the backend did not answer`.
+A data source failed. `Debug`, `Clone`, `thiserror::Error`, `#[non_exhaustive]`.
 
-* `pub source_id: String`
-* `pub message: String`
-* `pub kind: FailureKind`: the kind a body's `fail` or the failed call named, `Internal` for anything else.
-* `pub call: Option<String>`: the service call that failed, `service.method`.
-* `LoadError::new(source_id, message) -> Self`, kind `Internal`; `with_kind(self, kind) -> Self`.
-* `LoadError::failed(source_id, fail: Fail) -> Self`: a body's failure, keeping its kind and its call.
+* `pub struct LoadError { pub source_id: String, pub message: String, pub kind: FailureKind, pub call: Option<String> }`
+* `Display` is ``data source {source_id}: {message}``. With `call` set it is ``data source {source_id}: {call} failed ({kind}): {message}``.
+* `kind`: the kind a body's `fail` or the failed call named, `Internal` otherwise.
+* `call`: the service call that failed, `service.method`.
+* `new(source_id: impl Into<String>, message: impl Into<String>) -> Self`: kind `Internal`.
+* `failed(source_id: impl Into<String>, fail: Fail) -> Self`: a body's failure, keeping its kind and its call.
+* `with_kind(self, kind: FailureKind) -> Self`
+* In assembly a `LoadError` degrades its segment and keeps the enclosing subtree out of the render memo. Its display string is the error module's `error` prop.
 
-Raised by a `DataSource`. In assembly it degrades one segment to its error module rather than failing the request. It disqualifies the whole enclosing subtree from being cached. Its display string is the `error` prop the error module receives. It is not a hard error unless a caller converts it into `AssembleError::Load` itself.
+### EvalError
 
-### `EvalError`
+An evaluator failed. `Debug`, `Clone`, `thiserror::Error`, `#[non_exhaustive]`.
 
-An evaluator failed. `Debug + Clone + thiserror::Error`, displayed as ``evaluate {module}: {message}``. `#[non_exhaustive]`: build one with `new`.
+* `pub struct EvalError { pub module: String, pub message: String }`
+* `Display` is ``evaluate {module}: {message}``.
+* `new(module: String, message: String) -> Self`
+* In `assemble` it becomes `AssembleError::Eval`. Inside a deferred resolution it becomes that slot's error node.
 
-* `pub module: String`
-* `pub message: String`
-* `pub fn new(module: String, message: String) -> Self`
+### AssembleError
 
-Reaching `assemble` it becomes `AssembleError::Eval`. Inside a deferred resolution it becomes that slot's error node instead.
+What fails a request. `Debug`, `thiserror::Error`, `#[non_exhaustive]`.
 
-### `AssembleError`
-
-What fails a request. `Debug + thiserror::Error`.
-
-* `MissingDataSource(String)`: ``no data source registered for `{0}` ``. A plan names a source the runtime never registered. Misconfiguration, not a runtime condition to degrade around.
-* `Eval(EvalError)`: transparent, via `From<EvalError>`. An evaluator failed outside a deferred resolution.
+* `MissingDataSource(String)`: ``no data source registered for `{0}` ``.
+* `Eval(EvalError)`: transparent, `From<EvalError>`. An evaluator failed outside a deferred resolution.
 * `MissingSlot { node: u32, slot: String }`: ``evaluator asked for slot `{slot}` and plan node {node} has no child there``.
-* `SlotInFallback(String)`: ``fallback module `{0}` may not contain slots``. Raised for a slot marker in a `fallback` module or in an `error` module.
+* `SlotInFallback(String)`: ``fallback module `{0}` may not contain slots``. Raised for a slot in a `fallback` module or an `error` module.
 
-### `ActionError`
+### ActionError
 
-`Debug + Clone + thiserror::Error`, displayed as ``action failed ({kind}): {message}`` with the kind rendered by `as_str()`.
+`Debug`, `Clone`, `thiserror::Error`.
 
-* `pub kind: FailureKind`
-* `pub message: String`
-* `pub fn new(kind: FailureKind, message: impl Into<String>) -> Self`
+* `pub struct ActionError { pub kind: FailureKind, pub message: String }`
+* `Display` is ``action failed ({kind}): {message}``, the kind as `as_str()`.
+* `new(kind: FailureKind, message: impl Into<String>) -> Self`
 
-### `ServiceError`
+### ServiceError
 
-`Debug + Clone + thiserror::Error`, displayed as ``{service}.{method} failed ({kind}): {message}``.
+`Debug`, `Clone`, `thiserror::Error`.
 
-* `pub kind: FailureKind`
-* `pub service: String`
-* `pub method: String`
-* `pub message: String`
-* `pub fn new(kind: FailureKind, service: impl Into<String>, method: impl Into<String>, message: impl Into<String>) -> Self`
-
-Because the kind is the same vocabulary, converting one into an `ActionError` or a `LoadError` needs no translation table.
-
-## 14. Reading a payload
-
-`snapfire_fsr_runtime::wire` reads back what [`wire_stream`](#wire_stream) wrote.
-
-### `Row`
-
-`pub enum Row { Version { fmt: u32, enc: String }, Tree(Node), Head(Meta), Store(Vec<Contribution>), Locale(String), Entry(String), Styles(Vec<String>), Catalog(String), Segments(SegmentInfo), Fill { slot: u32, node: Node, segments: Vec<SegmentInfo> } }`: one line by its tag, `V`, `N`, `H`, `T`, `L`, `E`, `C`, `D`, `G` and `S`. `Catalog` keeps the JSON as written. `Debug`, `Clone`, `PartialEq`.
-
-### `row_from_line`
-
-`pub fn row_from_line(line: &str) -> Result<Row, DecodeError>`: `<tag> <json>`, the trailing newline optional. A `V` row of another format, a tag the reader does not know, a line without a tag and an `S` row whose slot is not a number are each an error naming the fault.
-
-### `RowReader`
-
-`pub struct RowReader`, `Default`: rows out of bytes as they arrive. `push(&mut self, bytes: &[u8]) -> Result<Vec<Row>, DecodeError>` returns every row whose newline is in, whatever the chunk boundaries; `finish(self) -> Result<Option<Row>, DecodeError>` reads a last line that ended without one.
-
-### `contributions_from_json` and `meta_from_json`
-
-`pub fn contributions_from_json(json: &Value) -> Result<Vec<Contribution>, DecodeError>` and `pub fn meta_from_json(json: &Value) -> Result<Meta, DecodeError>`: what `contributions_to_json` and `meta_to_json` wrote, read back; a title or a description only.
+* `pub struct ServiceError { pub kind: FailureKind, pub service: String, pub method: String, pub message: String }`
+* `Display` is ``{service}.{method} failed ({kind}): {message}``.
+* `new(kind: FailureKind, service: impl Into<String>, method: impl Into<String>, message: impl Into<String>) -> Self`

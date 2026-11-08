@@ -2,45 +2,46 @@
 
 Twenty-seven applications and three conformance apps. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
-Each has a `README.md` saying what it shows and where. They are grouped by what renders in the browser. Within a group, read in order: each carries the part the ones before it do not reach.
+Each has a `README.md` saying what it shows and where. They are grouped by what renders in the browser. Within a group, read them in order, since each one shows something the earlier ones do not.
 
 ### React
 
 | | What it is | Read it for |
 | --- | --- | --- |
-| [shopping_react_ts](shopping_react_ts/README.md) | A storefront with a catalog, a cart and a checkout | The whole model in one place: TypeScript loaders and actions lowered and run by the Rust host, React pages rendered on the server and hydrated in the browser, two services described only by an OpenAPI document and a `.proto` |
+| [shopping_react_ts](shopping_react_ts/README.md) | A storefront with a catalog, a cart and a checkout | The whole model in one place: TypeScript loaders and actions that the Rust host runs without a JavaScript engine, React pages rendered on the server and hydrated in the browser, two services described only by an OpenAPI document and a `.proto` |
 | [ops_console_react_ts](ops_console_react_ts/README.md) | An operations console over a fleet of build agents | What the storefront never touches: a store the islands share, nested layouts, a route handler, middleware, a variant per slot and both kinds of intercept |
-| [portal_react_ts](portal_react_ts/README.md) | A company shell with a header, a directory and a sign-in | Three **sites** mounted under it, sharing one session, one store and one navigation: one a linked working tree, one installed from an archive, one fetched from an HTTP store |
-| [billing_site_react_ts](portal_react_ts/sites/billing/README.md) | The site the portal mounts and an application in its own right | The `[site]` section: every id prefixed `billing:`, every route under `/billing`, all built against the shell's contract; plus the same artifact running alone |
+| [portal_react_ts](portal_react_ts/README.md) | A company shell with a header, a directory and a sign-in | Four **sites** mounted under it, sharing one session, one store and one navigation: two linked working trees, one installed from an archive, one fetched from an HTTP store |
+| [billing_site_react_ts](portal_react_ts/sites/billing/README.md) | The site the portal mounts and an application in its own right | The `[site]` section: every id prefixed `billing:`, every route under `/billing`, all built against the shell's contract, plus the same artifact running alone |
 | [gallery_react_ts](gallery_react_ts/README.md) | Four phone photos on a wall | Every image and font path on two pages: photos stored on their side and shown upright, a priority lead with its preload, a keyed record, an SVG served as it is, `data-sf-raw`, the plain `img` rewrite, a remote image source, a stylesheet under `src/` naming an image and a font, an import only the browser's build sees, a family vendored from a provider with its ranges, a family linked from one and a second origin standing in for a CDN |
 | [trails_pwa_react_ts](trails_pwa_react_ts/README.md) | Four walking trails to read on the way | `[pwa]`: the manifest written from config, the host's worker keeping what a visitor opened for when the network fails, an offline route, the `online` and `updateReady` store keys a header island reads |
 | [handbook_react_ts](handbook_react_ts/README.md) | A documentation site with no server at all | A different build of the same framework: every route is fixed, so the binary writes the whole site to `site/` and exits and anything can serve it |
 | [arrivals_react_ts](arrivals_react_ts/README.md) | An arrivals board over services that stall on purpose | Streaming where you can see it: the board goes out rendered with a skeleton per panel and each parallel slot fills as its service answers |
 | [chat_react_ts](chat_react_ts/README.md) | Rooms, messages and who said what | The server talking to a page nobody asked: an action keeps a message, the host publishes the room's topic and every window following it revalidates, with the topic itself behind an authorisation rule |
-| [wave_react_ts](wave_react_ts/README.md) | Google Wave: blips nested in blips, presence and everyone's typing visible before it is kept | The seam that goes the other way: a WebSocket per topic whose rows land in the store, beside actions and `live` for everything durable |
+| [wave_react_ts](wave_react_ts/README.md) | Google Wave: blips nested in blips, presence and everyone's typing visible before it is kept | Updates pushed from the server: a WebSocket per topic whose rows land in the store, beside actions and `live` for everything durable |
 | [conference_react_ts](conference_react_ts/README.md) | A one-day conference programme | The application with no Rust in it: routes, loaders and actions in TypeScript alone, compiled to a plan the stock host reads at boot, over a service that is an OpenAPI document and a file of canned answers |
-| [blog_site_react_ts](portal_react_ts/sites/blog/README.md) | A blog the portal mounts at `/blog`, its posts baked in at build | A static site under a shell that reads the session: the shell's `fsr prerender` renders each page ahead and splices it under the live layout, the same site prerenders its own documents when it runs alone, one per post from `paths`; a slug off the blog answers 404 and React comes from the shell contract, so nothing is vendored and there is no Rust project |
+| [blog_site_react_ts](portal_react_ts/sites/blog/README.md) | A blog the portal mounts at `/blog`, its posts baked in at build | A static site under a shell that reads the session: the shell's `fsr prerender` renders each page ahead and splices it under the live layout, the same site prerenders its own documents when it runs alone, one per post from `paths`. A slug off the blog answers 404. React comes from the shell contract, so nothing is vendored and there is no Rust project |
 | [status](portal_react_ts/sites/status/README.md) | A status page the portal mounts at `/status` | A site the shell fetches itself: the table names a version the cache lacks and the portal takes it from `[sites] store`, verified against its manifest |
+| [reports_site_react_ts](portal_react_ts/sites/reports/README.md) | A reports site the portal mounts at `/reports` from its working tree | A site with a backend the portal does not carry: the portal builds the site's `metrics` client from the site's own configuration when it mounts it. A report page streams under the portal's header and each report gets its own card image |
 | [uploads_react_ts](uploads_react_ts/README.md) | A file posted to an action, with JavaScript and without | Multipart where the body never sees a parser: a part with a filename arrives as the built-in `Upload` beside the text fields, refused above `server.max_upload` before the body runs, posted both by a native form and by `upload` from the page |
 | [notes_desktop_ts](notes_desktop_ts/README.md) | A notes reader in a desktop window | `fsr dev app --desktop`: a loader reading files under `[files] roots`, the system's open dialog through `openFile` and a link handed to the system's browser through `openExternal`, both from `@snapfire/fsr/desktop` |
-| [counter_terminal_ts](counter_terminal_ts/README.md) | An Ink component in the terminal | `fsr dev app` with an fsr built with its `terminal` feature: Ink's `Box`, `Text` and `useInput` imported from FSR's `@snapfire/fsr/terminal/ink`, lowered and drawn by FSR with no Node, each key stepping the state and redrawing only the cells that changed |
+| [counter_terminal_ts](counter_terminal_ts/README.md) | An Ink component in the terminal | `fsr dev app --terminal` with an fsr built with its `terminal` feature: Ink's `Box`, `Text` and `useInput` imported from FSR's `@snapfire/fsr/terminal/ink`, run and drawn by FSR with no Node, each key stepping the state and redrawing only the cells that changed |
 | [tasks_terminal_ts](tasks_terminal_ts/README.md) | A task list in the terminal | A reducer, a prompt with its cursor placed by `useCursor`, rows `useFocus` makes focusable, a log `Static` prints above the page and percentage columns, all from `ink` with no Node |
 | [log_terminal_ts](log_terminal_ts/README.md) | A scrolling `git log` viewer in the terminal | A process a mount effect spawns and streams, `stripAnsi`, a spinner from `useAnimation`, a clock on its own timer and a scroll view `useBoxMetrics` measures |
-| [launcher_terminal_ts](launcher_terminal_ts/README.md) | A command launcher in the terminal | Async handlers awaiting in branches of a `try`, `suspendTerminal` handing the terminal to an editor or a pager, piped commands, `ms`, and a `Suspense` boundary over a promise chained with `then` |
+| [launcher_terminal_ts](launcher_terminal_ts/README.md) | A command launcher in the terminal | Async handlers awaiting in branches of a `try`, `suspendTerminal` handing the terminal to an editor or a pager, piped commands, `ms` and a `Suspense` boundary over a promise chained with `then` |
 | [monitor_terminal_ts](monitor_terminal_ts/README.md) | A system monitor in the terminal | An effect on the chosen tab that spawns a command and reads it through listeners writing a local, a `useAnimation` spinner while it runs, panels sized in percentages of `useWindowSize` that stack when narrow and the width `useBoxMetrics` measured |
-| [pomodoro_terminal_ts](pomodoro_terminal_ts/README.md) | A pomodoro timer in the terminal | An effect on `running` that starts a `setInterval` and returns the `clearInterval` that stops it; an effect on the time left that writes a line above the page with `useStdout` |
+| [pomodoro_terminal_ts](pomodoro_terminal_ts/README.md) | A pomodoro timer in the terminal | An effect on `running` that starts a `setInterval` and returns the `clearInterval` that stops it. A second effect, on the time left, writes a line above the page with `useStdout` |
 
 ### Vue
 
 | | What it is | Read it for |
 | --- | --- | --- |
-| [recipes_vue_ts](recipes_vue_ts/README.md) | A household recipe box | A second framework on the same seam: every interactive piece a `.vue` file compiled by `snapfirec-vue` and mounted by Vue, the pages static templates that load no framework, no React anywhere in the application |
+| [recipes_vue_ts](recipes_vue_ts/README.md) | A household recipe box | A second framework in the same model: every interactive piece a `.vue` file compiled by `snapfirec-vue` and mounted by Vue, the pages static templates that load no framework, no React anywhere in the application |
 
 ### Svelte
 
 | | What it is | Read it for |
 | --- | --- | --- |
-| [shelf_svelte_ts](shelf_svelte_ts/README.md) | A reading shelf | Svelte 5 on the same seam: runes and legacy components side by side, a `.svelte.ts` module two islands share and a store key read as `$count`, with no React in the application |
+| [shelf_svelte_ts](shelf_svelte_ts/README.md) | A reading shelf | Svelte 5 in the same model: runes and legacy components side by side, a `.svelte.ts` module two islands share and a store key read as `$count`, with no React in the application |
 
 ### No framework
 
@@ -52,8 +53,8 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 
 | | What it is | Read it for |
 | --- | --- | --- |
-| [noticeboard_tera](noticeboard_tera/README.md) | A building's noticeboard, every page a Tera template | A template route on the stock host with no Rust project: `page.tera` and `layout.tera` under `routes/`, loaders lowered beside them, a partial included by its path, `fsr serve app` as the whole server |
-| [advanced_tera_app](advanced_tera_app/) | A Rust application rendering Tera templates on the stock host | The framework with no TypeScript at all: routes, loaders and actions bound in Rust, form-encoded actions for a page with no JavaScript, rendering through the `Evaluator` seam |
+| [noticeboard_tera](noticeboard_tera/README.md) | A building's noticeboard, every page a Tera template | A template route on the stock host with no Rust project: `page.tera` and `layout.tera` under `routes/`, TypeScript loaders beside them, a partial included by its path, `fsr serve app` as the whole server |
+| [advanced_tera_app](advanced_tera_app/) | A Rust application rendering Tera templates on the stock host | The framework with no TypeScript at all: routes, loaders and actions bound in Rust, form-encoded actions for a page with no JavaScript, rendering through the `Evaluator` trait |
 
 ### Mixed
 
@@ -63,13 +64,22 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 
 ### Conformance
 
-Three applications that pin down behaviour rather than show an application. Each is `fsr dev` or `fsr test` on its own directory; none has a cargo target.
+Three applications that pin down behaviour rather than show an application. Each runs with `fsr dev` or `fsr test` on its own directory. None has a cargo target.
 
 | | What it pins down |
 | --- | --- |
 | [conformance/adapters_react18](conformance/adapters_react18/) | The client's React adapter on React 18, beside the Vue adapter and a custom element on one page: one store between them, nested islands across frameworks, the request context in specs and a server island reading the store. `fsr/client`'s type check reads its declarations |
 | [conformance/adapters_react19](conformance/adapters_react19/) | The same pages and specs on React 19, plus `/streamed`: a layout and a streamed page seeding one store key, two streamed slots seeding another, an intercept over the page and islands that hydrate late, which is where the store's per-segment seeding and hydration from the rendered values are pinned |
-| [conformance/lowering](conformance/lowering/) | What the build lowers, one route per kind: array and string methods, destructuring, statements, dates, `Intl`, `Map` and `Set`, regular expressions, hooks, Vue children, slots and models and server-rendered `style` attributes under a `[document.csp]`. It builds with `[build] strict`, so anything on it falling back to the browser stops the build |
+| [conformance/lowering](conformance/lowering/) | What the build turns into Rust, one route per kind: array and string methods, destructuring, statements, dates, `Intl`, `Map` and `Set`, regular expressions, hooks, Vue children, slots and models and server-rendered `style` attributes under a `[document.csp]`. It builds with `[build] strict`, so anything on it falling back to the browser stops the build |
+
+### Corpora and patterns
+
+Two test crates that build other people's code through FSR and hold each outcome in a file. Neither is an application to run.
+
+| | What it holds |
+| --- | --- |
+| [corpus](corpus/README.md) | The code examples of the React, Svelte and Vue documentation, each built as an application, plus Ink's examples in terminal mode and Next.js's examples after `fsr migrate`. `cargo test -p corpus` checks each one against its outcome file |
+| [patterns](patterns/README.md) | JSX written where a value goes, one page per pattern under `cases/`. `cargo test -p patterns` checks each case against `outcomes.tsv` and `cargo bench -p patterns` compares FSR's render with React's |
 
 ## Running one
 
@@ -80,15 +90,29 @@ cargo install snapfire_compiler snapfire_fsr_cli
 cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
-After that each example is `fsr build <name>/app`, which writes the plan, the generated TypeScript and the browser bundle, then `cargo run -p <name>` from this directory. `conference_react_ts`, `blog_site_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `shelf_svelte_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` runs them in development and `fsr bundle app` puts `fsr-server` in a deploy tree for production. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` and `shelf_svelte_ts` need `snapfirec-svelte`, from `cargo install snapfire_svelte`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
+An example with a `Cargo.toml` is built with `fsr build <name>/app`, which writes the plan, the generated TypeScript and the browser bundle. Then run `cargo run -p <name>` from this directory.
+
+These examples have no `Cargo.toml` and no binary of their own. Run each with `fsr dev app` or `fsr serve app` in its directory. For a web example, `fsr bundle app` puts the stock `fsr-server` in a deploy tree for production.
+
+* `conference_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `shelf_svelte_ts`, `toolshed_web_ts` and `noticeboard_tera`.
+* `counter_terminal_ts`, `tasks_terminal_ts`, `log_terminal_ts`, `launcher_terminal_ts`, `monitor_terminal_ts` and `pomodoro_terminal_ts`, run with `fsr dev app --terminal` or `fsr run app`.
+* `notes_desktop_ts`, run with `fsr dev app --desktop`.
+* The portal's `blog` and `status` sites.
+* The three apps under `conformance/`.
+
+`handbook_react_ts` has no `Cargo.toml` at its top either. Its two Rust programs, `contents/` and `generate/`, run as part of `fsr build app`, which writes the whole site to `site/`.
+
+The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` and `shelf_svelte_ts` need `snapfirec-svelte`, from `cargo install snapfire_svelte`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, as the tera application's is. Its README has the command.
+
+For the loop that rebuilds as files change, run `fsr dev` on the app directory:
 
 ```sh
 cd shopping_react_ts && fsr dev app
 ```
 
-`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests once `fsr build` has written each one's app, which is every example but the conference, the blog, the recipes, the tool shed and the noticeboard.
+`fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs the Rust tests of every example with a `Cargo.toml`, once `fsr build` has written each one's app.
 
-The cli's `examples` test, `cargo test -p snapfire_fsr_cli --test examples` from `fsr/`, copies every example with only the files a checkout holds, then builds it, runs its specs, bundles it and boots the host from its sources and from its deploy tree. An output an earlier run left in `dist/`, `generated/` or `.fsr/test/` never reaches that copy, so what passes there passes for a new clone.
+`cargo test -p snapfire_fsr_cli --test examples`, run from `fsr/`, checks every example as a fresh clone would see it. It copies each example with only the files git tracks, builds it, runs its specs, bundles it and boots the host from its sources and from its deploy tree.
 
 ## Ports
 
@@ -103,8 +127,9 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8101 | `billing_site_react_ts` running alone |
 | 8102 | `blog_site_react_ts` running alone, which has no binary of its own |
 | 8103 | the status site running alone, which has no binary of its own |
+| 8104 | `reports_site_react_ts` running alone |
 | 8108 | `uploads_react_ts`, which has no binary of its own |
-| 8110 | `handbook_react_ts`, only under `fsr dev`; the built site is files |
+| 8110 | `handbook_react_ts`, only under `fsr dev`. The built site is plain files |
 | 8120 | `arrivals_react_ts` |
 | 8130 | `chat_react_ts` |
 | 8140 | `wave_react_ts` |
@@ -122,8 +147,8 @@ The storefront and the tera application both take 8080, so run one at a time or 
 
 ## The portal and its sites
 
-The sites under `portal_react_ts/sites/` are mounts, not dependencies. The portal reads each one from the artifact its `[sites.<name>]` row names, and the three rows name three different kinds: blog a linked working tree, billing a version installed from an archive, status a version the portal fetches from an HTTP store. `portal_react_ts/README.md` builds, packs, installs and serves them in order, then runs the portal. `GET /__fsr/sites` lists what is mounted, with each artifact's version and content hash.
+The portal mounts the sites under `portal_react_ts/sites/`. They are not cargo dependencies of it. The portal reads each one from the artifact its `[sites.<name>]` row names. The four rows name three different kinds: blog and reports are linked working trees, billing is a version installed from an archive and status is a version the portal fetches from an HTTP store. `portal_react_ts/README.md` builds, packs, installs and serves them in order, then runs the portal. `GET /__fsr/sites` lists what is mounted, with each artifact's version and content hash.
 
 ## What these are not
 
-They are not a template to copy wholesale. Each one keeps things it would not need in production, so a reader can see the seam: the storefront serves its own backends from the same binary, the console mocks its fleet, the billing site runs alone on the portal's vendor tree and has a guard only the portal can satisfy. The crate `README.md` files say which parts are the demonstration and which are the application.
+Do not copy them wholesale as templates. Each one keeps things it would not need in production, so a reader can see how the parts connect: the storefront serves its own backends from the same binary, the console mocks its fleet, the billing site runs alone on the portal's vendor tree and has a guard only the portal can satisfy. The crate `README.md` files say which parts are the demonstration and which are the application.

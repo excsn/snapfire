@@ -4,43 +4,39 @@
 
 **Write the application in TypeScript. Run it in Rust.**
 
-Visit [SnapFire Project Website](https://snapfirers.com) for demos, documentation, tutorials and guides
+SnapFire is a web stack with no Node. You write pages, loaders and actions in TypeScript and a Rust server renders them.
 
-SnapFire started as SnapFire Web, a Tera templating library with live reload. It is now a stack built around SnapFire FSR, a runtime where routes, data loading, actions, service clients, sessions, identity, caching, streaming and client navigation are primitives rather than features owned by a UI framework. Beside it sit a compiler that turns TypeScript into browser-native ES modules with no Node and a typechecker that fetches and pins its own `tsc`. SnapFire Web is still here and is now one renderer among several.
+Nothing needs Node, at build time or on the request path. There is no `node_modules`.
 
-Nothing in the chain needs Node, at build time or on the request path. There is no `node_modules`.
+Demos, documentation, tutorials and guides are on the [SnapFire website](https://snapfirers.com).
 
-## The pieces
+## SnapFire FSR
 
-Each one installs and is used from its own README.
+[SnapFire FSR](fsr/README.md) is the flagship. It is a full-stack runtime: file routes, data loading, actions, service clients, sessions, identity, caching, streaming and client navigation, with React, Vue, Svelte or Tera for the UI.
+
+```sh
+cargo install snapfire_compiler snapfire_fsr_cli
+cd fsr/examples/shopping_react_ts
+cargo build
+fsr dev app
+```
+
+* [The guide](fsr/docs/guide/README.md) teaches it one question per chapter, with a lab on the running example.
+* [The examples](fsr/examples/README.md) are complete applications in reading order.
+
+## The tools
 
 | What you want | Where it is |
 | --- | --- |
-| A full-stack application: file routes, loaders and actions in TypeScript, rendered by Rust | [SnapFire FSR](fsr/README.md), the `fsr` executable |
-| TypeScript and CSS to browser ES modules | [SnapFire Compiler](compiler/README.md), the `snapfirec` executable |
-| Types checked against a pinned TypeScript, fetched and verified | [SnapFire Typecheck](typecheck/README.md), the `snapfiretc` executable |
-| Tera templates with live reload inside an Actix application | [SnapFire Web](web/README.md), the `snapfire` crate |
+| TypeScript and CSS compiled to browser ES modules | [SnapFire Compiler](compiler/README.md), the `snapfirec` executable |
+| Types checked against a pinned TypeScript that it fetches and verifies | [SnapFire Typecheck](typecheck/README.md), the `snapfiretc` executable |
+| ESLint's rules over TypeScript, Vue, Svelte, Markdown and Tera | [snapfire_lint](lint/README.md), which `fsr lint` runs |
 | Tailwind CSS v4 built in Rust | [snapfire_tailwind](tailwind/README.md) |
-| An image's display size and EXIF orientation, a font's family, weight and fallback metrics | [snapfire_media](media/README.md) |
-| Sitemaps and sitemap indexes with every protocol limit enforced as a constructor error | [snapfire_sitemap](sitemap/README.md) |
-| ESLint's rules, levels and suppression comments over TypeScript, Vue, Svelte, Markdown and Tera, with no Node | [snapfire_lint](lint/README.md), which `fsr lint` runs |
-| Twenty-seven applications demonstrating FSR | [The SnapFire FSR examples](fsr/examples/README.md) |
-| One question per chapter, with a lab on the running example | [The SnapFire FSR guide](fsr/docs/guide/README.md) |
+| Image sizes and EXIF orientation, font families, weights and fallback metrics | [snapfire_media](media/README.md) |
+| Sitemaps that enforce every protocol limit when you build them | [snapfire_sitemap](sitemap/README.md) |
+| Tera templates with live reload inside an Actix application | [SnapFire Web](web/README.md), the `snapfire` crate |
 
-## Layout
-
-| Directory | What it holds |
-| --- | --- |
-| `fsr/` | SnapFire FSR: the runtime crates, the client library, the CLI, the guide and the examples |
-| `compiler/` | SnapFire Compiler, `snapfirec`, with its own example |
-| `typecheck/` | SnapFire Typecheck, `snapfiretc` |
-| `web/` | SnapFire Web, the `snapfire` crate: Tera and Actix, with its own example |
-| `tailwind/` | `snapfire_tailwind`, Tailwind CSS v4 in Rust |
-| `media/` | `snapfire_media`, image and font metadata |
-| `sitemap/` | `snapfire_sitemap`, sitemap writing |
-| `lint/` | `snapfire_lint`, the linter `fsr lint` runs |
-
-Every crate carries a `README.md` to skim, a `README.USAGE.md` to work from and an `API_REFERENCE.md` for the surface.
+Each one installs and is used from its own README.
 
 ## License
 

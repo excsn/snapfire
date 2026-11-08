@@ -50,7 +50,7 @@ How to encode SnapFire FSR values and payload trees, what every tag on the wire 
 use snapfire_fsr_core::{Fingerprint, TypedArray, Value, ValueMap};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
 
-let mut props = ValueMap::new();
+let mut props = ValueMap::default();
 props.insert("name".to_owned(), Value::str("web-1"));
 props.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(vec![1.0, 2.5, 3.0])));
 props.insert("onSave".to_owned(), Value::action_ref("saveServer"));
@@ -69,7 +69,7 @@ assert_eq!(value.fingerprint(), decoded.fingerprint());
 use snapfire_fsr_core::{ModuleId, Node, TypedArray, Value, ValueMap};
 use snapfire_fsr_payload::html_serialize;
 
-let mut props = ValueMap::new();
+let mut props = ValueMap::default();
 props.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(vec![1.0, 2.5, 3.0])));
 
 let page = Node::Seq(vec![
@@ -258,11 +258,11 @@ A `Value::Map` normally becomes a JSON object. When the map itself holds the key
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_payload::value_to_json;
 
-let mut plain = ValueMap::new();
+let mut plain = ValueMap::default();
 plain.insert("name".to_owned(), Value::str("web-1"));
 assert_eq!(value_to_json(&Value::Map(plain)).to_string(), "{\"name\":\"web-1\"}");
 
-let mut tricky = ValueMap::new();
+let mut tricky = ValueMap::default();
 tricky.insert("$".to_owned(), Value::str("not a tag"));
 tricky.insert("other".to_owned(), Value::int(1i64));
 assert_eq!(
@@ -324,7 +324,7 @@ use snapfire_fsr_payload::html_serialize;
 
 let node = Node::Client {
   module: ModuleId::new("components/X.tsx", "default"),
-  props: ValueMap::new(),
+  props: ValueMap::default(),
   children: vec![Node::raw("<svg></svg>")],
   rendered: true,
 };
@@ -339,7 +339,7 @@ Props are encoded with `value_to_json` and every `<` in the result is rewritten 
 use snapfire_fsr_core::{ModuleId, Node, Value, ValueMap};
 use snapfire_fsr_payload::html_serialize;
 
-let mut props = ValueMap::new();
+let mut props = ValueMap::default();
 props.insert("payload".to_owned(), Value::str("</script><script>alert(1)</script>"));
 let node = Node::Client {
   module: ModuleId::new("components/X.tsx", "default"),
@@ -374,7 +374,7 @@ use snapfire_fsr_payload::html_serialize;
 
 let island = |name: &str| Node::Client {
   module: ModuleId::new(format!("components/{name}.tsx"), "default"),
-  props: ValueMap::new(),
+  props: ValueMap::default(),
   children: Vec::new(),
   rendered: false,
 };
@@ -414,7 +414,7 @@ use snapfire_fsr_payload::node_to_row_json;
 
 let node = Node::Client {
   module: ModuleId::new("components/ServerChart.tsx", "default"),
-  props: ValueMap::new(),
+  props: ValueMap::default(),
   children: vec![Node::text("chart caption")],
   rendered: false,
 };
@@ -443,7 +443,7 @@ assert_eq!(wire, "V {\"fmt\":2,\"enc\":\"json\"}\nN [\"t\",\"hi\"]\n");
 use snapfire_fsr_core::{Fingerprint, ModuleId, Node, SlotId, Value, ValueMap};
 use snapfire_fsr_payload::{node_to_row_json, row_json_to_node};
 
-let mut props = ValueMap::new();
+let mut props = ValueMap::default();
 props.insert("onSave".to_owned(), Value::action_ref("saveServer"));
 let page = Node::Seq(vec![
   Node::raw("<main>"),

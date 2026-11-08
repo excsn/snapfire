@@ -31,6 +31,8 @@ Writes sitemap and sitemap index documents with the protocol's limits enforced.
   * [Alternate](#alternate)
 * [8. Limits and Namespaces](#8-limits-and-namespaces)
 * [9. Error Handling](#9-error-handling)
+  * [`Error`](#error)
+  * [`Result`](#result)
 
 ## 1. Documents
 
@@ -70,7 +72,7 @@ One `<sitemap>` entry of an index.
 
 ### Url
 
-One `<url>` entry. Built through `UrlBuilder`; the fields are private and validated.
+One `<url>` entry, built through `UrlBuilder`. The fields are private and validated.
 
 * `Url::builder(loc: impl Into<String>) -> UrlBuilder`
 * `loc(&self) -> &str`
@@ -102,17 +104,17 @@ A W3C Datetime at one of two precisions.
 * `Date::Day(NaiveDate)`: renders `%Y-%m-%d`.
 * `Date::Instant(DateTime<FixedOffset>)`: renders RFC 3339 to whole seconds.
 * `render(&self) -> String`
-* `Date::parse(text: &str) -> Option<Date>`: a W3C Datetime as a page writes one, a day or an instant with an offset to the minute or past it; fractional seconds are dropped on render. `None` for a year or month alone, an instant with no offset and anything else.
+* `Date::parse(text: &str) -> Option<Date>`: a W3C Datetime as a page writes one, a day or an instant with an offset, to the minute or finer. Fractional seconds are dropped on render. `None` for a year or month alone, an instant with no offset and anything else.
 * `Date::parse_http(text: &str) -> Option<Date>`: an HTTP date, the `Last-Modified` form, as an instant.
-* `as_instant(&self) -> DateTime<FixedOffset>`: the instant the date starts at, a day at midnight UTC, for ordering dates of either precision.
+* `as_instant(&self) -> DateTime<FixedOffset>`: the instant the date starts at. A day starts at midnight UTC.
 
-`From` is implemented for `NaiveDate`, `DateTime<FixedOffset>` and `DateTime<Utc>`. A `DateTime<Utc>` renders with a `Z` suffix; a `DateTime<FixedOffset>` keeps its offset.
+`From` is implemented for `NaiveDate`, `DateTime<FixedOffset>` and `DateTime<Utc>`. A `DateTime<Utc>` renders with a `Z` suffix. A `DateTime<FixedOffset>` keeps its offset.
 
 ## 4. Image Extension
 
 ### Image
 
-An `<image:image>` entry. Only `loc` is acted on by Google; the rest remain in the schema.
+An `<image:image>` entry.
 
 * `Image::new(loc: impl Into<String>) -> Result<Image>`
 * `caption(self, caption: impl Into<String>) -> Image`
@@ -172,7 +174,7 @@ A `<video:video>` entry.
 ### Uploader
 
 * `name: String`
-* `info: Option<String>`: rendered as the `info` attribute; must share the page's domain.
+* `info: Option<String>`: rendered as the `info` attribute. Must share the page's domain.
 
 ## 6. News Extension
 
@@ -225,22 +227,30 @@ The namespace URIs are exported as `SITEMAP`, `IMAGE`, `VIDEO`, `NEWS` and `XHTM
 
 ## 9. Error Handling
 
-`Result<T>` is `std::result::Result<T, Error>`. `Error` implements `Display`, `Debug`, `Clone`, `PartialEq` and `std::error::Error`.
+### Error
+
+Every way a document can violate the sitemap protocol.
+
+* `pub enum Error`. `#[non_exhaustive]`. `Debug`, `Clone`, `PartialEq`, `Display`, `std::error::Error`.
 
 | Variant | Raised by |
 |---|---|
 | `LocationEmpty` | any location |
-| `LocationTooLong { length }` | any location |
-| `PriorityOutOfRange { priority }` | `UrlBuilder::build` |
-| `TooManyUrls { count }` | `UrlSet::new` |
-| `TooManySitemaps { count }` | `SitemapIndex::new` |
-| `TooManyImages { count }` | `UrlBuilder::build` |
-| `TooMuchNews { count }` | `UrlSet::new` |
-| `TooManyVideoTags { count }` | `VideoBuilder::build` |
-| `VideoCategoryTooLong { length }` | `VideoBuilder::build` |
-| `VideoDurationOutOfRange { seconds }` | `VideoBuilder::build` |
-| `VideoRatingOutOfRange { rating }` | `VideoBuilder::build` |
-| `VideoWithoutSource` | `VideoBuilder::build` |
-| `DocumentTooLarge { bytes }` | `UrlSet::to_xml`, `SitemapIndex::to_xml` |
+| `LocationTooLong { length: usize }` | any location |
+| `PriorityOutOfRange { priority: f32 }` | `UrlBuilder::build` |
+| `TooManyUrls { count: usize }` | `UrlSet::new` |
+| `TooManySitemaps { count: usize }` | `SitemapIndex::new` |
+| `TooManyImages { count: usize }` | `UrlBuilder::build` |
+| `TooMuchNews { count: usize }` | `UrlSet::new` |
+| `TooManyVideoTags { count: usize }` | `VideoBuilder::build` |
+| `VideoCategoryTooLong { length: usize }` | `VideoBuilder::build` |
+| `VideoDurationOutOfRange { seconds: u32 }` | `VideoBuilder::build` |
+| `VideoRatingOutOfRange { rating: f32 }` | `VideoBuilder::build` |
+| `VideoWithoutSource` | `VideoBuilder::build`, when neither `content_loc` nor `player_loc` is set |
+| `DocumentTooLarge { bytes: usize }` | `UrlSet::to_xml`, `SitemapIndex::to_xml` |
 
-No call panics and no constraint is silently clamped or dropped.
+* No call panics. No value is clamped or dropped.
+
+### Result
+
+* `pub type Result<T> = std::result::Result<T, Error>`

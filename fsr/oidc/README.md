@@ -4,7 +4,16 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_oidc/badge.svg)](https://docs.rs/snapfire_fsr_oidc)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-OpenID Connect sign-in for SnapFire FSR: `OidcProvider` is an `IdentityProvider` from `snapfire_fsr_auth` over any issuer, running the authorization code flow with PKCE, verifying the ID token against the issuer's published keys over `ring` and refreshing tokens. Presets carry Google's, Microsoft's and Apple's quirks. The stock host builds one from `[auth] provider = "oidc"` with its `oidc` feature, which `fsr serve` carries; an auth service can run the same provider behind its own contract. The task guide is [README.USAGE.md](README.USAGE.md) and the call surface is [API_REFERENCE.md](API_REFERENCE.md).
+Lets users of an FSR application sign in with Google, Microsoft, Apple or any other OpenID Connect provider.
+
+`OidcProvider` sends the visitor to the provider, checks the ID token that comes back and refreshes the access token when it runs out. It uses the authorization code flow with PKCE and checks token signatures against the provider's published keys. It plugs into [`snapfire_fsr_auth`](../auth/README.md) as a sign-in method.
+
+Google, Microsoft and Apple each have a preset. Apple's preset signs the client secret for you and accepts the posted callback Apple sends.
+
+Most applications never depend on this crate. With `fsr serve`, set `provider = "oidc"` in `[auth]`, with a `preset` or an `issuer`. Use the crate directly when you assemble your own host or run sign-in inside your own auth service.
+
+* The task guide is [README.USAGE.md](README.USAGE.md).
+* The call surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
 
@@ -16,6 +25,17 @@ snapfire_fsr_auth = "0"
 
 The crate has no features.
 
+## Quick start
+
+```rust
+use snapfire_fsr_oidc::{ClientSecret, OidcConfig, OidcProvider};
+
+let google = OidcProvider::new(
+  OidcConfig::google("1234.apps.googleusercontent.com", "https://shop.example/auth/callback")
+    .secret(ClientSecret::Post(std::env::var("GOOGLE_CLIENT_SECRET")?)),
+);
+```
+
 ## What to reach for
 
 | Problem | Piece |
@@ -24,5 +44,5 @@ The crate has no features.
 | Sign in with Google, Microsoft or Apple | `OidcConfig::google`, `OidcConfig::microsoft`, `OidcConfig::apple` |
 | Send a client secret | `ClientSecret::Post` |
 | Read an issuer's claim under another name | `OidcConfig::rename` |
-| Renew an access token from custody | `IdentityProvider::refresh` |
-| Check a JWS against a key set yourself | `verify` |
+| Get a new access token from a refresh token | `IdentityProvider::refresh` |
+| Check a signed token against a key set yourself | `verify` |

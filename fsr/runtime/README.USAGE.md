@@ -158,7 +158,7 @@ fn main() {
 
   let mut sources = DataSources::new();
   sources.insert_fn("chart_loader", |_ctx| async {
-    let mut data = ValueMap::new();
+    let mut data = ValueMap::default();
     data.insert("late".to_owned(), Value::str("ready"));
     Ok(data)
   });
@@ -299,7 +299,7 @@ sources.insert_fn("layout_loader", |ctx| async move {
   };
   ctx.session.insert("visits", Value::Int(visits));
 
-  let mut data = ValueMap::new();
+  let mut data = ValueMap::default();
   data.insert("nav_label".to_owned(), Value::str("SnapFire FSR"));
   data.insert("visits".to_owned(), Value::Int(visits));
   Ok(data)
@@ -328,7 +328,7 @@ struct Static;
 
 impl DataSource for Static {
   fn load(&self, _ctx: &RequestCtx) -> BoxFuture<'static, Result<Data, LoadError>> {
-    Box::pin(async { Ok(ValueMap::new()) })
+    Box::pin(async { Ok(ValueMap::default()) })
   }
 }
 
@@ -673,7 +673,7 @@ What is deliberately absent: tokens, headers, the connection, a database handle.
 ```rust
 use snapfire_fsr_core::{Value, ValueMap};
 
-let mut args = ValueMap::new();
+let mut args = ValueMap::default();
 args.insert("section".to_owned(), Value::Str(section));
 
 let servers = ctx.services.call("fleet", "list", args).await;
@@ -683,7 +683,7 @@ The handle was bound to the request before application code saw it, so identity 
 
 ```rust
 if ctx.services.is_bound() {
-  ctx.services.call("fleet", "count", ValueMap::new()).await?;
+  ctx.services.call("fleet", "count", ValueMap::default()).await?;
 }
 ```
 
@@ -693,11 +693,11 @@ In a loader, map the failure into the loader's own error so the segment degrades
 sources.insert_fn("servers_loader", |ctx| async move {
   let servers = ctx
     .services
-    .call("fleet", "list", ValueMap::new())
+    .call("fleet", "list", ValueMap::default())
     .await
     .map_err(|e| LoadError::new("servers_loader", e.message))?;
 
-  let mut data = ValueMap::new();
+  let mut data = ValueMap::default();
   data.insert("servers".to_owned(), servers);
   Ok(data)
 });
@@ -724,7 +724,7 @@ actions.insert_fn("add_server", |ctx, input| async move {
     _ => return Err(ActionError::new(FailureKind::Invalid, "`name` must be a non-empty string")),
   };
 
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("name".to_owned(), Value::Str(name));
   ctx
     .services

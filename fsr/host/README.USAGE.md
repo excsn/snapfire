@@ -1004,7 +1004,7 @@ let host = Host::from(".")?
       Value::Map(line) => line.get("path").cloned(),
       _ => None,
     };
-    let mut out = ValueMap::new();
+    let mut out = ValueMap::default();
     if path == Some(Value::str("/account")) && ctx.session.identity().is_none() {
       out.insert("redirect".into(), Value::str("/auth/login?return_to=/account"));
     }

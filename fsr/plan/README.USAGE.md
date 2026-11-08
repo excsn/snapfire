@@ -46,9 +46,9 @@ fn main() -> Result<(), snapfire_fsr_plan::PlanError> {
   let manifest = Manifest::new(vec![RouteEntry { pattern: "/cart".into(), plan: Node::from_plan(&shell) }])
     .with_sources(vec![SourceEntry::rust("cart")])
     .with_actions(vec![ActionEntry::rust("cart.addToCart").with_input("AddToCart")]);
-  let text = manifest.to_json();
+  let text = manifest.to_sexpr();
 
-  let read = Manifest::from_json(&text)?;
+  let read = Manifest::from_text(&text)?;
   assert_eq!(read.sources(), vec!["cart".to_owned()]);
   assert_eq!(read.routes()?[0].0, "/cart");
   Ok(())
@@ -57,11 +57,11 @@ fn main() -> Result<(), snapfire_fsr_plan::PlanError> {
 
 ## Reading a Plan File
 
-`from_json` parses, checks the version and refuses a `lowered` row with no body. Everything else is checked when the trees are built.
+`from_text` reads a plan file in either form. Text that opens with `{` goes to `from_json` and anything else to `from_sexpr`, which reads the s-expressions `plan.sexp` holds. Both parse, check the version and refuse a `lowered` row with no body. Everything else is checked when the trees are built.
 
 ```rust
 let text = std::fs::read_to_string("app/generated/plan.sexp")?;
-let manifest = snapfire_fsr_plan::Manifest::from_json(&text)?;
+let manifest = snapfire_fsr_plan::Manifest::from_text(&text)?;
 println!("format {} with {} routes", manifest.version, manifest.routes.len());
 ```
 
@@ -159,19 +159,45 @@ for row in manifest.lowered_actions() {
 
 ## Reading the File by Hand
 
-A leaf route reads as three keys per node; absent fields are absent.
+The plan file is `app/generated/plan.sexp`. Each top-level form is one row. This excerpt is from the shopping example: the `/cart` route without its promo slot, its loader and one action with its body cut.
 
-```json
-{
-  "version": 2,
-  "routes": [
-    { "pattern": "/cart", "plan": { "id": 0, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "source": "cart", "error": "routes/error.tsx#default" } } ] } }
-  ],
-  "sources": [ { "id": "cart", "owner": "lowered", "module": "routes/cart/page.loader.ts", "body": [ ] } ],
-  "actions": [ { "id": "cart.addToCart", "owner": "lowered", "module": "routes/cart/actions.ts", "export": "addToCart", "input": "AddToCart", "body": [ ] } ],
-  "components": [ { "module": "routes/cart/page.tsx#default", "body": { "render": { "text": "" } } } ]
-}
+```lisp
+(plan 7)
+(framework react 18.3.1)
+(route /cart
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/layout.tsx#default
+        (source layout)
+        (error routes/error.tsx#default)
+        (cache-key routes/layout.tsx#default)
+        (slot content
+          (node 2
+            routes/cart/page.tsx#default
+            (source cart)
+            (error routes/error.tsx#default)
+            (cache-key routes/cart/page.tsx#default)))))))
+(source cart
+  lowered
+  (module routes/cart/page.loader.ts)
+  (body
+    (let catalog (call shopping listProducts))
+    (let lines
+      (map
+        (filter catalog (fn (p) (idx (?? (session cart) (obj)) (string (. p id)))))
+        (fn (p) (obj (... p) (quantity (idx (?? (session cart) (obj)) (string (. p id))))))))
+    (ret (obj (lines lines)))))
+(action cart.addToCart
+  lowered
+  (module routes/cart/actions.ts)
+  (export addToCart)
+  (input AddToCart)
+  (body ...))
 ```
+
+A field a node does not have is left out.
 
 ## Format Versions
 
@@ -185,12 +211,12 @@ assert_eq!(manifest.actions[0].owner, snapfire_fsr_plan::RowOwner::Rust);
 
 ## Error Handling
 
-`PlanError` is what `from_json` and `routes` return. Every variant names where in the file it found the problem.
+`PlanError` is what `from_text`, `from_sexpr`, `from_json` and `routes` return. Every variant names where in the file it found the problem.
 
 ```rust
 use snapfire_fsr_plan::{Manifest, PlanError};
 
-match Manifest::from_json(text).and_then(|m| m.routes()) {
+match Manifest::from_text(text).and_then(|m| m.routes()) {
   Ok(routes) => serve(routes),
   Err(PlanError::Version { found }) => eprintln!("plan file version {found}; rebuild with this fsr"),
   Err(PlanError::Module { at, module }) => eprintln!("{at}: `{module}` is not path#export"),

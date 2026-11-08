@@ -237,7 +237,7 @@ Whatever the plan node's loader returned sits alongside them under its own keys:
 
 ```rust
 sources.insert_fn("layout_loader", |ctx| async move {
-  let mut data = ValueMap::new();
+  let mut data = ValueMap::default();
   data.insert("nav_label".to_owned(), Value::Str("SnapFire FSR".to_owned()));
   data.insert("visits".to_owned(), Value::Int(1));
   Ok(data)
@@ -253,7 +253,7 @@ sources.insert_fn("layout_loader", |ctx| async move {
 Props reach the template as JSON, in the payload crate's lossless encoding. Booleans, strings, ordinary integers, sequences and plain maps look the way a template expects. Anything whose JSON form would be ambiguous (typed arrays, byte strings, integers past 2^53 - 1, floats with no fractional part) arrives as a tagged object carrying a `$` key:
 
 ```rust
-let mut map = ValueMap::new();
+let mut map = ValueMap::default();
 map.insert("series".to_owned(), Value::TypedArray(TypedArray::F64(vec![12.0, 15.5, 9.25])));
 data.insert("chart".to_owned(), Value::Map(map));
 ```
@@ -305,7 +305,7 @@ use snapfire_fsr_tera::TeraEvaluator;
 
 async fn chunks_of(evaluator: &TeraEvaluator) -> Result<Vec<Chunk>, EvalError> {
   let module = ModuleId::new("layout.tera", "default");
-  let mut props = ValueMap::new();
+  let mut props = ValueMap::default();
   props.insert("nav_label".to_owned(), Value::Str("SnapFire FSR".to_owned()));
   evaluator.evaluate(&module, &props).try_collect().await
 }

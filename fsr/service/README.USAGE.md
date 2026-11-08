@@ -92,7 +92,7 @@ async fn main() {
       Some(Value::Str(name)) => name.clone(),
       _ => unreachable!("the contract checked this"),
     };
-    let mut server = ValueMap::new();
+    let mut server = ValueMap::default();
     server.insert("name".to_owned(), Value::str(name));
     server.insert("load".to_owned(), Value::F64(0.25));
     Ok(Value::Map(server))
@@ -103,7 +103,7 @@ async fn main() {
     .default_transport(Arc::new(transport))
     .build();
 
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("name".to_owned(), Value::str("db-1"));
   let server = services.bind_anonymous().call("fleet", "get", args).await.unwrap();
   println!("{server:?}");
@@ -138,7 +138,7 @@ async fn main() {
   tokens.set("access_token", Value::str("secret-abc"));
   let identity = Identity::new("alice".into(), Default::default());
 
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("name".to_owned(), Value::str("web-1"));
   let server = services
     .bind(Some(identity), Arc::new(tokens))
@@ -330,18 +330,18 @@ assert!(matches!(
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_service::ContractError;
 
-let mut args = ValueMap::new();
+let mut args = ValueMap::default();
 args.insert("id".to_owned(), Value::Int(7));
 assert!(contract.check_call("users", "get", &args).is_ok());
 
-assert!(contract.check_call("users", "list", &ValueMap::new()).is_ok());
+assert!(contract.check_call("users", "list", &ValueMap::default()).is_ok());
 
 assert!(matches!(
-  contract.check_call("users", "get", &ValueMap::new()).unwrap_err(),
+  contract.check_call("users", "get", &ValueMap::default()).unwrap_err(),
   ContractError::MissingField { field, .. } if field == "id"
 ));
 
-let mut wrong = ValueMap::new();
+let mut wrong = ValueMap::default();
 wrong.insert("id".to_owned(), Value::str("7"));
 assert_eq!(
   contract.check_call("users", "get", &wrong).unwrap_err().to_string(),
@@ -526,7 +526,7 @@ let transport = LocalTransport::new()
       let count = fleet.add(name.clone(), 0.0).map_err(|_| {
         ServiceError::new(FailureKind::Conflict, "fleet", "add", format!("server `{name}` already exists"))
       })?;
-      let mut out = ValueMap::new();
+      let mut out = ValueMap::default();
       out.insert("count".to_owned(), Value::int(count as i64));
       Ok(Value::Map(out))
     }
@@ -868,11 +868,11 @@ The builder turns it on with a capacity per policy:
 ```rust
 let services = Services::builder().contract(contract).default_transport(transport).data_cache(500).build();
 let anon = services.bind_anonymous();
-anon.call("catalog", "list", ValueMap::new()).await?;
-anon.call("catalog", "list", ValueMap::new()).await?;
+anon.call("catalog", "list", ValueMap::default()).await?;
+anon.call("catalog", "list", ValueMap::default()).await?;
 assert_eq!(services.data_cache().unwrap().hits(), 1);
 anon.call("catalog", "add", args).await?;
-anon.call("catalog", "list", ValueMap::new()).await?;
+anon.call("catalog", "list", ValueMap::default()).await?;
 assert_eq!(services.data_cache().unwrap().misses(), 2, "the write dropped the tag");
 services.invalidate_tags(["catalog"]);
 ```
@@ -923,7 +923,7 @@ let services = Services::builder()
   .build();
 
 let handle = services.bind(Some(identity), Arc::new(tokens));
-assert_eq!(handle.call("fleet", "count", ValueMap::new()).await.unwrap(), Value::Int(3));
+assert_eq!(handle.call("fleet", "count", ValueMap::default()).await.unwrap(), Value::Int(3));
 
 assert_eq!(transport.last_metadata("x-sf-subject").as_deref(), Some("alice"));
 assert!(transport.calls().iter().any(|(path, _, _)| path == "fleet.count"));
@@ -965,13 +965,13 @@ A loader asks for the capability and nothing else.
 
 ```rust
 sources.insert_fn("servers_loader", move |ctx| async move {
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("section".to_owned(), Value::Str(ctx.params.get("section").cloned().unwrap_or_default()));
   let servers = ctx.services.call("fleet", "list", args).await.map_err(|e| LoadError {
     source_id: "servers_loader".into(),
     message: e.message,
   })?;
-  let mut data = ValueMap::new();
+  let mut data = ValueMap::default();
   data.insert("servers".to_owned(), servers);
   Ok(data)
 });
@@ -981,7 +981,7 @@ So does an action, which maps the failure kind straight through.
 
 ```rust
 actions.insert_fn("add_server", move |ctx, input| async move {
-  let mut args = ValueMap::new();
+  let mut args = ValueMap::default();
   args.insert("name".to_owned(), Value::Str(name));
   args.insert("load".to_owned(), Value::F64(load));
   ctx

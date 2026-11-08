@@ -48,7 +48,7 @@ Everything public is re-exported from the crate root.
 
 ## 2. JSON Encoding
 
-Module `json`. Encoding is infallible; decoding returns `Result<Value, DecodeError>`. `serde_json` is compiled with `preserve_order`, so a `Value::Map` keeps its `IndexMap` order through the encoding and back.
+Module `json`. Encoding is infallible. Decoding returns `Result<Value, DecodeError>`. A `Value::Map` keeps its key order through encoding and decoding.
 
 ### value_to_json
 
@@ -58,28 +58,35 @@ Encodes a `snapfire_fsr_core::Value` as `serde_json::Value`, tagging whatever pl
 
 Constraints:
 
-* `Value::Int` is a bare JSON number inside the inclusive range from `-9_007_199_254_740_991` to `9_007_199_254_740_991`; outside that range it is a tagged decimal string.
-* `Value::UInt` that fits in `i128` is encoded as if it were `Value::Int`; only a magnitude above `i128::MAX` reaches the `u` tag.
+* `Value::Int` is a bare JSON number inside the inclusive range from `-9_007_199_254_740_991` to `9_007_199_254_740_991`. Outside that range it is a tagged decimal string.
+* `Value::UInt` that fits in `i128` is encoded as `Value::Int`. Only a magnitude above `i128::MAX` is written under the `u` tag.
 * `Value::F64` is a bare JSON number only when it is finite and its fractional part is non-zero.
 * `Value::F32` is always tagged.
+* `Value::Undefined` is `{"$": "undef"}`. A map entry holding `Value::Undefined` is left out.
 * `Value::Map` is a JSON object unless the map itself holds the key `$`, in which case it is written as ordered pairs under the `m` tag.
 * Keys within a tagged object are written in the order `$`, then the tag's own fields as listed in [Tag Table](#tag-table).
 
 ### json_to_value
 
-Decodes `serde_json::Value` into a `Value`, reading both this crate's tags and JSON written elsewhere.
+Decodes `serde_json::Value` into a `Value`. Accepts this crate's tags and untagged JSON.
 
 * `pub fn json_to_value(json: &serde_json::Value) -> Result<Value, DecodeError>`
 
 Constraints:
 
 * A JSON object is treated as a tag only when its `$` key holds a string. An object whose `$` key holds a non-string decodes as a plain `Value::Map`.
-* A tag name outside the table is an error, not a map.
-* A JSON number that fits `i64` or `u64` becomes `Value::Int`; any other number becomes `Value::F64`.
-* A `u` tag is decoded through `Value::uint`, so a magnitude within `i128` normalises back to `Value::Int`.
+* A tag name outside the table is an error.
+* A JSON number that fits `i64` or `u64` becomes `Value::Int`. Any other number becomes `Value::F64`.
+* A `u` tag is decoded through `Value::uint`. A magnitude within `i128` becomes `Value::Int`.
 * An `f32` tag holding a number is narrowed with an `as f32` cast.
 * A `var` tag with no `p` key decodes to a payload of `None`.
-* A `var` tag whose `t` is `$map`, `$set`, `$date` or `$bigint`, the constants in `snapfire_fsr_core::value::typed`, decodes to the plain value its payload stands for rather than a `Value::Variant`: a `$map` payload of `[key, value]` pairs becomes a `Value::Map` keyed by each key's text, a `$set` payload is its array, a `$date` payload is its number of milliseconds and a `$bigint` payload is its integer, given as a number or a decimal string. A payload of another shape is an error. The encoder writes such a variant like any other `var`; the browser half makes the real `Map`, `Set`, `Date` or `BigInt` from it.
+* A `var` tag whose `t` is one of `snapfire_fsr_core::value::typed::ALL` decodes to a plain value, not a `Value::Variant`. Its `p` is required. A payload of another shape than the one below is an error.
+  * `$map`: an array of `[key, value]` pairs, to a `Value::Map`. A key is a string, an integer, a boolean, `null` or `undefined`, keyed by its text.
+  * `$set`: an array, to that `Value::Seq`.
+  * `$date`: a number of milliseconds, to that number.
+  * `$bigint`: an integer or a decimal string, to `Value::Int`.
+  * `$url`: a string, to that `Value::Str`.
+* `value_to_json` writes a typed variant like any other `var`.
 
 ### Tag Table
 
@@ -96,6 +103,7 @@ Every tagged form `value_to_json` emits and `json_to_value` accepts.
 | `m` | `v` | array of two-element `[key, value]` arrays, keys being strings | `Value::Map` |
 | `var` | `t`, optional `p` | variant tag, then the encoded payload | `Value::Variant` |
 | `ref` | `k`, `id` | `"action"` or `"module"`, then the identifier | `Value::Ref` |
+| `undef` | none | none | `Value::Undefined` |
 
 Untagged forms: JSON `null`, `true` and `false`, strings, arrays, objects with no `$` key, integers inside the safe range and finite non-integral numbers.
 
@@ -124,41 +132,41 @@ Module `html`. Both entry points return a `String` and cannot fail.
 
 ### HtmlSession
 
-Holds the island id counter for one response, so ids stay unique across chunks that are serialized separately.
+The island id counter and placed content of one response, shared by every chunk serialized for it.
 
+* `pub struct HtmlSession { /* private */ }`. `Default`.
 * `pub fn new() -> Self`
-* `pub fn serialize(&mut self, node: &Node) -> String`: `node` written on its own and finished, so content placed at a named place whose outlet is not in it goes to `take_placed`.
-* `pub fn write_into(&mut self, node: &Node, out: &mut String)`: writes `node` at the end of `out`. Every `write_into` until the next `finish` writes to the same string, since an outlet is recorded by its offset in it.
-* `pub fn finish(&mut self, out: &mut String)`: writes the content placed at each named place into its outlet in `out`, the first outlet of that name when there are several. Content whose outlet `out` does not hold goes to `take_placed`, its runs opened with `data-sf-to="{name}"` for the browser to move into the place.
-* `pub fn enter_segment(&mut self, key: &str) -> String`: names the segment whose markup is written next, which marks the placed content written inside it. It returns the one it replaces.
-* `pub fn take_placed(&mut self) -> String`: the placed content written since the last take, for the caller to write after the document, where the parser puts it at the end of the body.
-* `pub fn open_client(&mut self, module: &ModuleId, props: &Props, rendered: bool, out: &mut String) -> OpenClient`: writes the island's open tag with a fresh id, with `data-sf-ssr` when `rendered`, for a caller that writes the island's children itself, the way the segment writer does around a child segment inside a layout. A rendered island is the island its placed content names until `close_client`.
+* `pub fn serialize(&mut self, node: &Node) -> String`: `write_into` on a new string, then `finish`. Content placed at a named place whose outlet is not in `node` goes to `take_placed`.
+* `pub fn write_into(&mut self, node: &Node, out: &mut String)`: writes `node` at the end of `out`. Every `write_into` until the next `finish` must write to the same string.
+* `pub fn finish(&mut self, out: &mut String)`: writes the content placed at each named place into its outlet in `out`, the first outlet of that name when there are several. Content whose outlet `out` does not hold goes to `take_placed`, its runs opened with `data-sf-to="{name}"`.
+* `pub fn enter_segment(&mut self, key: &str) -> String`: sets the segment key that placed content written from now on is marked with. Returns the previous key.
+* `pub fn take_placed(&mut self) -> String`: the placed content written since the last take. The session's placed content is then empty.
+* `pub fn open_client(&mut self, module: &ModuleId, props: &Props, rendered: bool, out: &mut String) -> OpenClient`: writes an island's open tag with a fresh id, with `data-sf-ssr` when `rendered`. Until `close_client`, placed content names a rendered island by its `$k` prop when that is a string, else by its `sf-i{n}` id.
 * `pub fn close_client(&mut self, open: OpenClient, props: &Props, out: &mut String)`: writes the island's close tag and its props script.
-* Also implements `Default`; `new` and `Default::default` are the same thing.
+* `Default` is the same as `new`.
 
 Constraints:
 
 * Ids are allocated in depth-first tree order, starting at `0` for a fresh session. They take the form `sf-i{n}`.
 * One session per response. Serializing two chunks of the same response through two sessions emits `sf-i0` twice.
-* The counter is `u32` and only increases; a session is never rewound.
+* The counter is `u32` and only increases.
 
 ### OpenClient
 
-An island `open_client` opened, which `close_client` takes. It holds the island's id and the island placed content named before it. It has no public fields. It is `#[must_use]`, since an island opened and never closed leaves the session naming it.
+An island `open_client` opened, which `close_client` takes.
+
+* `pub struct OpenClient { /* private */ }`. `Debug`, `#[must_use]`.
+* An island opened and never closed leaves the session naming it in placed content.
 
 ### html_serialize
 
-One-shot form for a tree with no streamed continuation.
+Serializes one tree with its placed content after it.
 
-* `pub fn html_serialize(node: &Node) -> String`
-
-Constraints:
-
-* `serialize` followed by `take_placed` on a fresh session, so island ids restart at `0` on every call and placed content follows the tree.
+* `pub fn html_serialize(node: &Node) -> String`: `serialize` then `take_placed` on a new session. Island ids restart at `0` on every call.
 
 ### escape_key
 
-* `pub fn escape_key(key: &str) -> String`: a segment key with `%` and `-` escaped, so it can sit inside an HTML comment without closing it.
+* `pub fn escape_key(key: &str) -> String`: `key` with `%` written as `%25` and `-` written as `%2D`. The result never contains `--`.
 
 ### Emitted Markup
 
@@ -171,16 +179,17 @@ What each `Node` becomes.
 | `Node::Seq` | each child in order, with nothing between them |
 | `Node::Client` | `<sf-i id="sf-i{n}" data-sf-module="{module}">` then the body then `</sf-i>`, followed by `<script type="application/json" data-sf-props="sf-i{n}">{props}</script>` |
 | `Node::Pending` | `<div data-sf-slot="{slot}">` then the fallback then `</div>` |
-| `Node::Placed` | nothing in place; its nodes join the session's placed content for the body or the content for its named place |
-| `Node::Outlet` | nothing; `finish` writes the content placed at its name here |
+| `Node::Placed` | nothing in place. Its nodes join the session's placed content for the body or the content for its named place |
+| `Node::Outlet` | nothing. `finish` writes the content placed at its name here. An outlet inside placed content is not recorded |
+| `Node::Slot` | nothing |
 
-Placed content is written as runs: `<template data-sf-l="{segment key}" data-sf-island="{island}"></template>`, the content, then `<template data-sf-l-end></template>`. `data-sf-island` names the island whose own markup placed it, by its `$k` region key or else its `sf-i{n}` id. It is absent outside an island. Consecutive pieces with the same segment and island share one run, so a framework hydrating them in order finds each after the one before. The delimiters are elements because the parser puts a comment written after the document at the document's level and an element in the body. Content placed at a named place is written the same way inside its outlet. When `finish` found no outlet for it, it is written after the document with `data-sf-to` naming the place.
+Placed content is written as runs: `<template data-sf-l="{segment key}" data-sf-island="{island}"></template>`, the content, then `<template data-sf-l-end></template>`. `data-sf-island` names the island whose own markup placed it, by its `$k` region key or else its `sf-i{n}` id. It is absent outside an island. Both attribute values have `&` and `"` escaped. Consecutive pieces with the same segment and island share one run. Content placed at a named place is written the same way inside its outlet. When `finish` finds no outlet for it, it goes to `take_placed` with `data-sf-to` naming the place.
 
 Constraints on a `Node::Client`:
 
 * The body is the children. When `rendered` is true the open tag carries `data-sf-ssr` and content placed inside the children names the island.
 * The props script is always emitted, including for an empty props map, where the body is `{}`.
-* The props JSON is `value_to_json` over `Value::Map(props)` with every `<` replaced by the JSON escape `\u003c`, so no string can terminate the script element.
+* The props JSON is `value_to_json` over `Value::Map(props)` with every `<` replaced by the JSON escape `\u003c`.
 * `module` is written into the attribute in its `Display` form, `path` then `#` then `export`, without attribute escaping.
 * `slot` is written as its `u32`.
 
@@ -205,19 +214,19 @@ Constraints:
 * The row must be a JSON array whose first element is a string naming a kind in [Node Row Kinds](#node-row-kinds).
 * In a `c` row, `m` must parse as `path#export` with both halves non-empty. `p` must be present and must decode to a `Value::Map`.
 * In a `c` row, `ch` is treated as empty when it is absent or not an array. `r` is treated as `false` when it is missing or not a boolean.
-* In a `p` row, the slot id must be a JSON unsigned integer; it is narrowed to `u32` with an `as` cast.
+* In a `p` row, the slot id must be a JSON unsigned integer. It is narrowed to `u32` with an `as` cast.
 * A decoded `t` row produces an owned `Cow`, never a borrowed one.
 
 ### serialize_page
 
-The wire encoding of one complete page: a version line, then the tree line. Infallible.
+The wire encoding of one complete page. Infallible.
 
 * `pub fn serialize_page(node: &Node) -> String`
 
 Constraints:
 
 * Emits exactly two lines, `V {"fmt":3,"enc":"json"}` and `N {tree row}`, each ending in `\n`.
-* Emits no `G` line and no `S` line. A page with unresolved slots needs the streaming writer in `snapfire_fsr_runtime`.
+* Emits no `G` line and no `S` line.
 
 ### Node Row Kinds
 
@@ -230,8 +239,9 @@ Constraints:
 | `p` | `Node::Pending` | `["p", slot id, fallback row]` |
 | `l` | `Node::Placed` | `["l", target, [child rows]]`, the target `body` or `#` and a place name |
 | `o` | `Node::Outlet` | `["o", name]` |
+| `q` | `Node::Slot` | `["q", []]`, read back as an empty `Node::Seq` |
 
-The `p` field of a `c` row is the props map through `value_to_json`, so every form in [Tag Table](#tag-table) can appear inside it.
+The `p` field of a `c` row is the props map through `value_to_json`. Any form in [Tag Table](#tag-table) can appear inside it.
 
 ### Response Line Tags
 
@@ -248,7 +258,7 @@ The `p` field of a `c` row is the props map through `value_to_json`, so every fo
 
 ### DecodeError
 
-The single error type of this crate, carrying the message and nothing else. Encoding never produces one.
+The decode error, holding its message.
 
 * `pub struct DecodeError(pub String)`
 * Derives `Debug`, `Clone`, `PartialEq` and `Eq`.
@@ -279,4 +289,5 @@ The message text a caller may see, by cause.
 | Row kind not in the table | ``unknown node row kind `{kind}` `` |
 | Row payload of the wrong shape | ``` `t` row needs a string ```, ``` `r` row needs a string ```, ``` `q` row needs an array ```, ``` `c` row needs an object ```, ``` `p` row needs a slot id ```, ``` `p` row needs a fallback ```, ``` `l` row needs a target ```, ``` `l` row needs an array ```, ``` `l` row names an unknown target `{target}` ```, ``` `o` row needs a name ```, ``` `o` row names `{name}`, which is not a place name ``` |
 | `c` row field missing or wrong | ``` `c` row needs `m` ```, ``` `c` row needs `p` ```, ``` `c` row `p` must decode to a map ``` |
+| Typed `var` payload of the wrong shape | ``tag `$map` field `p` must be an array of pairs``, ``tag `$map` entries must be pairs``, ``tag `$map` keys must be strings, integers, booleans or null``, ``tag `$set` field `p` must be an array``, ``tag `$date` field `p` must be a number``, ``tag `$bigint` field `p` must be an integer``, ``tag `$url` field `p` must be a string`` |
 | Module id unparseable | ``module id must be `path#export` with a non-empty path and export`` |

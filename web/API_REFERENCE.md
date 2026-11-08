@@ -1,135 +1,98 @@
-# **`snapfire` API Reference**
+# API Reference: snapfire
 
-This document provides a detailed, unambiguous reference for all public API elements of the `snapfire` crate, suitable for developers or automated systems with no prior knowledge of the library.
+Tera 2 templates rendered from Actix Web handlers, with live reload under the `devel` feature.
 
-## **1. Introduction & Core Concepts**
+## Contents
 
-*   **Core Concept:** `snapfire` is a library that integrates the `tera` templating engine (version 2) with the `actix-web` framework. Its primary goal is to provide a simple API for rendering templates and to offer an optional, automatic live-reload feature for development.
+* [1. Application State](#1-application-state)
+  * [`TeraWeb`](#teraweb)
+  * [`TeraWebBuilder`](#terawebbuilder)
+* [2. Rendering](#2-rendering)
+  * [`Template`](#template)
+* [3. Live Reload](#3-live-reload)
+  * [`InjectSnapFireScript`](#injectsnapfirescript)
+  * [WebSocket messages](#websocket-messages)
+* [4. Features](#4-features)
+  * [`devel`](#devel)
+* [5. Error Handling](#5-error-handling)
+  * [`SnapFireError`](#snapfireerror)
+  * [`Result`](#result)
 
-*   **Primary Handle:** The central struct for all operations is `snapfire::TeraWeb`. An instance of this struct is created at application startup, holds all rendering configuration and is shared with all Actix handlers.
+## 1. Application State
 
-*   **Configuration Entry Point:** All configuration and initialization is performed through the `snapfire::TeraWebBuilder`, which is created via `snapfire::TeraWeb::builder()`.
+### TeraWeb
 
-*   **Rendering Pattern:** The library uses a "renderable struct" pattern. Calling `TeraWeb::render()` does not perform the render immediately. Instead, it returns an instance of `snapfire::Template`. This `Template` struct is what you return from an Actix handler. Actix then uses `snapfire`'s implementation of the `Responder` trait on `Template` to perform the actual rendering asynchronously.
+The engine, the global context and, under `devel`, the reloader.
 
-*   **Pervasive Types:**
-    *   **`snapfire::Result<T>`**: All fallible operations in this library (like `build()`) return this `Result` type, which is an alias for `std::result::Result<T, snapfire::SnapFireError>`.
-    *   **`tera::Context`**: When rendering, users must provide a context object of this type, which comes from the `tera` crate.
-    *   **`tera::Tera`**: The engine instance, reachable only inside the `configure_tera` closure.
-    *   **`tera::Kwargs`, `tera::State`, `tera::TeraResult<T>`, `tera::Value`**: Required to write the filters, functions and tests passed to `tera::Tera::register_filter`, `register_function` and `register_test` inside that closure. A filter is `Fn(Arg, Kwargs, &State) -> Res`, a function is `Fn(Kwargs, &State) -> Res` and a test is `Fn(Arg, Kwargs, &State) -> bool`.
+* `pub struct TeraWeb`. `Clone`, `Debug`. Clones share one engine and one global context. `Debug` prints the global context and, under `devel`, the reloader and `auto_inject_script`.
+* `pub fn builder(templates_glob: &str) -> TeraWebBuilder`: a builder that loads the templates matching `templates_glob`.
+* `pub fn render(&self, tpl: &str, context: tera::Context) -> Template`: a pending render of the template named `tpl`. Keys in `context` override globals of the same name.
+* `pub fn reload_script(&self) -> String`: the live-reload client as JavaScript source with the `ws_path` substituted, without a `<script>` tag. Empty without `devel`.
+* `pub fn configure_routes(&self, cfg: &mut actix_web::web::ServiceConfig)`: adds a `GET` WebSocket route at `ws_path`. A no-op without `devel`.
 
-*   **Cargo Features:**
-    *   **`devel`** *(off by default)*: Compiles in the file watcher, the live-reload WebSocket route and the injection middleware. Methods marked "Only available when the `devel` feature is enabled" below still exist without it, as no-ops or with the dev behaviour removed, so user code needs no `#[cfg]` attributes.
-    *   `snapfire` enables `glob_fs` and `fast` on `tera`. `glob_fs` is mandatory: `TeraWeb::builder` takes a glob and live reload calls `Tera::full_reload`, both of which that feature gates. Cargo features are additive, so a dependent crate's own `tera` dependency also receives them.
+### TeraWebBuilder
 
-*   **Parse-time Name Resolution:** Tera 2 resolves the filters, functions, tests and components a template references while parsing it and errors on an unknown name. Registration therefore has to reach the engine before templates are loaded, which is why `TeraWebBuilder::build` runs the `configure_tera` closure first and why an unregistered name fails `build()` rather than a later render.
+Configures a `TeraWeb`.
 
-## **2. Main Types and Their Public Methods**
+* `pub struct TeraWebBuilder`
+* `pub fn add_global<S: Into<String>, T: serde::Serialize>(mut self, key: S, value: T) -> Self`: a variable available to every template. A repeated key overwrites the earlier value.
+* `pub fn configure_tera<F>(mut self, configurator: F) -> Self where F: FnOnce(&mut tera::Tera) + 'static`: a closure run against the empty engine before the templates load. A filter, function, test or component a template references must be registered here.
+* `pub fn watch_static(mut self, path: &str) -> Self`: a directory the reloader watches recursively. Repeatable. A path that does not exist is skipped with a warning. Unused without `devel`.
+* `pub fn ws_path(mut self, path: &str) -> Self`: the live-reload WebSocket path. Default `"/_snapfire/ws"`. Unused without `devel`.
+* `pub fn auto_inject_script(mut self, enabled: bool) -> Self`: whether `InjectSnapFireScript` injects the client into responses for this state. Default `true`. Unused without `devel`.
+* `pub fn build(self) -> Result<TeraWeb>`: runs the `configure_tera` closure, loads the glob and, under `devel`, starts the watcher.
+* A glob that matches no files builds an engine with no templates.
+* `SnapFireError::Tera` when a template fails to parse or references a name the closure did not register. `SnapFireError::Watcher` when the template directory cannot be watched.
 
-### **Struct: `snapfire::TeraWeb`**
+## 2. Rendering
 
-The primary application state for SnapFire.
+### Template
 
-**Trait Implementations**
+A render waiting for Actix to send it.
 
-*   `Clone` - Cloning shares one engine and one global context between all clones; this is how the state reaches every Actix worker.
-*   `Debug` - Reports the global context and, under `devel`, the reloader. The Tera engine and the loaded templates are omitted and the output is non-exhaustive.
+* `pub struct Template`. No public fields or methods.
+* `impl actix_web::Responder for Template`, with `Body = BoxBody`: a `200` response with `Content-Type: text/html`, streamed. The render runs in `respond_to`.
+* A render failure is logged at `error` and ends the body stream with an internal server error.
 
-**Public Methods**
+## 3. Live Reload
 
-*   **`builder`**
-    *   **Signature:** `pub fn builder(templates_glob: &str) -> TeraWebBuilder`
-    *   **Description:** Creates a new `TeraWebBuilder` to configure and build a `TeraWeb` instance. This is the main entry point for using the library.
-    *   **Parameters:**
-        *   `templates_glob`: `&str` - A glob pattern used by `tera` to discover template files. Example: `"templates/**/*.html"`.
+### InjectSnapFireScript
 
-*   **`render`**
-    *   **Signature:** `pub fn render(&self, tpl: &str, context: tera::Context) -> Template`
-    *   **Description:** Prepares a template for rendering by returning a `Template` struct. This method is synchronous.
-    *   **Parameters:**
-        *   `tpl`: `&str` - The name of the template file to render, relative to the templates directory. Example: `"pages/index.html"`.
-        *   `context`: `tera::Context` - The `tera::Context` object containing the variables for this specific render.
+Actix middleware at `snapfire::actix::dev::InjectSnapFireScript`.
 
-*   **`reload_script`**
-    *   **Signature:** `pub fn reload_script(&self) -> String`
-    *   **Description:** Returns the live-reload client as JavaScript source, for embedding in a template. This is the script `InjectSnapFireScript` injects, with the configured `ws_path` already substituted. It carries no `<script>` tag, so the caller owns the element and can attach a Content-Security-Policy `nonce`. Without the `devel` feature it returns an empty string.
-    *   **Pairing:** Intended for use with `auto_inject_script(false)`. Embedding it while injection is enabled gives the page two reload clients and two WebSocket connections.
+* `pub struct InjectSnapFireScript`. `Debug`, `Clone`, `Default`. Use with `App::wrap(InjectSnapFireScript::default())`.
+* `impl<S, B> Transform<S, ServiceRequest> for InjectSnapFireScript`
+* Under `devel`, a response whose `Content-Type` contains `text/html` is buffered whole and gets `<script data-snapfire-reload="true">` holding the client inserted before the first `</body>`, matched case-insensitively. A response without `</body>` gets it appended.
+* The `ws_path` and `auto_inject_script` are read from the `web::Data<TeraWeb>` registered as app data. Without that app data the script is injected with the default path.
+* Without `devel`, every response passes through unchanged.
 
-*   **`configure_routes`**
-    *   **Availability:** Only available when the `devel` feature is enabled.
-    *   **Signature:** `#[cfg(feature = "devel")] pub fn configure_routes(&self, cfg: &mut actix_web::ServiceConfig)`
-    *   **Description:** Configures Actix application routes required for `snapfire`'s development features (specifically, the live-reload WebSocket). In release builds (without the `devel` feature), this method is a no-op.
-    *   **Parameters:**
-        *   `cfg`: `&mut actix_web::ServiceConfig` - The mutable Actix service configuration that the WebSocket route will be added to.
+### WebSocket messages
 
-### **Struct: `snapfire::TeraWebBuilder`**
+Text frames the server sends on `ws_path` under `devel`.
 
-A builder used to configure and create a `TeraWeb` instance.
+* `reload`: a `.html`, `.tera` or `.jinja` file was created or modified under the glob's base directory or a `watch_static` directory. The engine has already run `Tera::full_reload`.
+* `reload-css`: a `.css` file was created or modified there.
+* The stock client reloads the page on `reload` and adds a cache-busting `_` query parameter to every `link[rel='stylesheet']` on `reload-css`. It retries a closed connection once a second, ten times.
 
-**Public Methods**
+## 4. Features
 
-*   **`add_global`**
-    *   **Signature:** `pub fn add_global<S: Into<String>, T: serde::Serialize>(mut self, key: S, value: T) -> Self`
-    *   **Description:** Adds a variable to the global context, making it available to all templates rendered by this instance.
-    *   **Parameters:**
-        *   `key`: `S` where `S: Into<String>` - The name of the variable as it will be used in templates.
-        *   `value`: `T` where `T: serde::Serialize` - Any value that implements the `serde::Serialize` trait.
+### devel
 
-*   **`configure_tera`**
-    *   **Signature:** `pub fn configure_tera<F>(mut self, configurator: F) -> Self where F: FnOnce(&mut tera::Tera) + 'static`
-    *   **Description:** Provides a closure for advanced, direct manipulation of the `tera::Tera` instance. Use this to register custom filters, functions, tests and components. The closure runs before the template glob is loaded, because Tera resolves those names at parse time and errors on an unknown name.
-    *   **Parameters:**
-        *   `configurator`: `F` where `F: FnOnce(&mut tera::Tera) + 'static` - A closure that receives a mutable reference to the empty `tera::Tera` instance.
+* Off by default. Adds the file watcher, the WebSocket route, the injecting middleware and the `SnapFireError::Watcher` variant.
+* Every method and type listed here exists without it.
+* The crate enables `glob_fs` and `fast` on `tera`.
 
-*   **`watch_static`**
-    *   **Signature:** `pub fn watch_static(mut self, path: &str) -> Self`
-    *   **Description:** Adds a static asset directory path for the live-reload watcher to monitor for changes. The method exists in every build so that call sites need no `#[cfg]`; without the `devel` feature the path is recorded and never used.
-    *   **Parameters:**
-        *   `path`: `&str` - The path to a directory to watch. Example: `"static/css"`.
+## 5. Error Handling
 
-*   **`ws_path`**
-    *   **Signature:** `pub fn ws_path(mut self, path: &str) -> Self`
-    *   **Description:** Customizes the URL path for the live-reload WebSocket endpoint. The method exists in every build so that call sites need no `#[cfg]`; without the `devel` feature no route is mounted. The path is used both for the route added by `configure_routes` and for the URL written into the injected client script.
-    *   **Parameters:**
-        *   `path`: `&str` - The URL path. Defaults to `"/_snapfire/ws"`.
+### SnapFireError
 
-*   **`auto_inject_script`**
-    *   **Signature:** `pub fn auto_inject_script(mut self, enabled: bool) -> Self`
-    *   **Description:** Controls whether `InjectSnapFireScript` rewrites `text/html` responses to carry the live-reload client. Read by the middleware from the `TeraWeb` registered as Actix app data; with no such app data the middleware injects. Without the `devel` feature nothing is injected regardless.
-    *   **Parameters:**
-        *   `enabled`: `bool` - Set to `false` to disable injection. Defaults to `true`.
-    *   **Why it exists:** Injection is unconditional on `Content-Type: text/html`, always targets the end of `<body>`, appends to the end when there is no such tag, emits an inline `<script>` with no CSP `nonce`, and buffers the whole response body to find the insertion point. Any of those can be wrong for a given application, most commonly a strict Content-Security-Policy or a fragment endpoint that would otherwise ship a reload client with every partial.
-    *   **What `false` leaves running:** The file watcher and the WebSocket route are unaffected, so the server half of live reload still works and it is the page's job to connect. Embed `TeraWeb::reload_script` to place the stock client yourself, or open `ws_path` directly and handle the two broadcast messages, `reload` and `reload-css`.
+`#[non_exhaustive]`. `Debug`, `std::error::Error`.
 
-*   **`build`**
-    *   **Signature:** `pub fn build(self) -> Result<TeraWeb>`
-    *   **Description:** Consumes the builder and attempts to create the final `TeraWeb` instance. This can fail if the template glob is invalid, if a template fails to parse, or if the watcher fails to initialize.
+* `Tera(tera::Error)`: loading, parsing or rendering a template. Displays as `Tera error: <error>`.
+* `Io(std::io::Error)`: displays as `IO error: <error>`.
+* `Serialization(String)`: serializing a context. Displays as `Context serialization error: <message>`.
+* `Watcher(notify::Error)`: the file watcher. Feature `devel`. Displays as `File watcher error: <error>`.
 
-### **Struct: `snapfire::Template`**
+### Result
 
-A struct representing a render operation. It has no public fields or methods. Its primary interface is its implementation of `actix_web::Responder`.
-
-Rendering to a `String` is not part of the public surface: the render runs inside `Responder::respond_to`, so a `Template` can only be turned into markup by returning it from an Actix handler.
-
-### **Struct: `snapfire::actix::dev::InjectSnapFireScript`**
-
-An Actix middleware. It has no public fields or methods. It is instantiated via `InjectSnapFireScript::default()` and used with `actix_web::App::wrap()`.
-
-## **3. Public Type Aliases**
-
-### **Type Alias: `snapfire::Result`**
-*   **Definition:** `pub type Result<T, E = SnapFireError> = std::result::Result<T, E>;`
-*   **Description:** The standard `Result` type used throughout the `snapfire` crate.
-
-## **4. Error Handling**
-
-### **Enum: `snapfire::SnapFireError`**
-
-The unified error enum for all fallible operations in the library.
-
-**Enum Variants**
-
-*   **`Tera(tera::Error)`**: Wraps an error from the underlying `tera` crate, raised while loading, parsing or rendering a template. Load and parse failures surface from `TeraWebBuilder::build`; render failures surface through `Responder` and become a `500`.
-*   **`Io(std::io::Error)`**: Wraps a standard I/O error.
-*   **`Serialization(String)`**: An error occurred during context serialization.
-*   **`Watcher(notify::Error)`**: *(Only available when the `devel` feature is enabled).* Wraps an error from the `notify` file watcher crate.
+* `pub type Result<T, E = SnapFireError> = std::result::Result<T, E>`

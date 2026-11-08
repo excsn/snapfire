@@ -1,100 +1,107 @@
 # API Reference: snapfire_fsr_service
 
-The typed service boundary for SnapFire FSR: the contract artifact, its checking, the registry, interceptors and transports.
+The typed service boundary for SnapFire FSR: the contract artifact, its checking, the registry, interceptors, transports and the OpenAPI, protobuf and GraphQL importers.
 
 ## Contents
 
 * [1. The Contract Artifact](#1-the-contract-artifact)
-  * [ScalarKind](#scalarkind)
-  * [Type](#type)
-  * [Field](#field)
-  * [Variant](#variant)
-  * [TypeDef](#typedef)
-  * [Method](#method)
-  * [Freshness](#freshness)
-  * [Scope](#scope)
-  * [Service](#service)
-  * [Contract](#contract)
-  * [Contract::namespaced](#contractnamespaced)
+  * [`ScalarKind`](#scalarkind)
+  * [`Type`](#type)
+  * [`Field`](#field)
+  * [`Variant`](#variant)
+  * [`TypeDef`](#typedef)
+  * [`Method`](#method)
+  * [`Freshness`](#freshness)
+  * [`Scope`](#scope)
+  * [`Service`](#service)
+  * [`Contract`](#contract)
 * [2. The Registry](#2-the-registry)
-  * [Services](#services)
-  * [ServicesBuilder](#servicesbuilder)
+  * [`Services`](#services)
+  * [`ServicesBuilder`](#servicesbuilder)
 * [3. Calls and Custody](#3-calls-and-custody)
-  * [Call](#call)
-  * [Credentials](#credentials)
-  * [NoCredentials](#nocredentials)
+  * [`Call`](#call)
+  * [`next_request`](#next_request)
+  * [`Credentials`](#credentials)
+  * [`NoCredentials`](#nocredentials)
 * [4. Interceptors](#4-interceptors)
-  * [Interceptor](#interceptor)
-  * [Next](#next)
-  * [IdentityInterceptor](#identityinterceptor)
-  * [CredentialInterceptor](#credentialinterceptor)
-  * [Refresher](#refresher)
-  * [TraceInterceptor](#traceinterceptor)
-  * [DataCache](#datacache)
-  * [DataCacheError](#datacacheerror)
+  * [`Interceptor`](#interceptor)
+  * [`Next`](#next)
+  * [`IdentityInterceptor`](#identityinterceptor)
+  * [`CredentialInterceptor`](#credentialinterceptor)
+  * [`Refresher`](#refresher)
+  * [`TraceInterceptor`](#traceinterceptor)
+  * [`DataCache`](#datacache)
+  * [`cache::canonical`](#cachecanonical)
 * [5. Transports](#5-transports)
-  * [Transport](#transport)
-  * [LocalTransport](#localtransport)
-  * [MockTransport](#mocktransport)
-  * [unavailable](#unavailable)
-* [6. The HTTP Transport](#6-the-http-transport)
-  * [Route](#route)
-  * [HttpTransport](#httptransport)
-  * [kind_for_status](#kind_for_status)
+  * [`Transport`](#transport)
+  * [`LocalTransport`](#localtransport)
+  * [`MockTransport`](#mocktransport)
+  * [`transport::unavailable`](#transportunavailable)
+* [6. HTTP and OpenAPI](#6-http-and-openapi)
+  * [`Route`](#route)
+  * [`HttpTransport`](#httptransport)
+  * [`kind_for_status`](#kind_for_status)
+  * [`import`](#import)
+  * [`Imported`](#imported)
 * [7. Protobuf and gRPC](#7-protobuf-and-grpc)
-  * [import_proto](#import_proto)
-  * [ImportedProto](#importedproto)
-  * [GrpcTransport](#grpctransport)
-  * [kind_for_code](#kind_for_code)
+  * [`import_proto`](#import_proto)
+  * [`FSR_PROTO`](#fsr_proto)
+  * [`ImportedProto`](#importedproto)
+  * [`GrpcMethod`](#grpcmethod)
+  * [`GrpcTransport`](#grpctransport)
+  * [`grpc::kind_for_code`](#grpckind_for_code)
 * [8. GraphQL](#8-graphql)
-  * [import_graphql](#import_graphql)
-  * [ImportedGraphql](#importedgraphql)
-  * [GraphqlTransport](#graphqltransport)
-* [9. The Runtime Seam](#9-the-runtime-seam)
-  * [ServiceHandle](#servicehandle)
-  * [ServiceCaller](#servicecaller)
-  * [Identity](#identity)
-  * [FailureKind](#failurekind)
-  * [ServiceError](#serviceerror)
+  * [`import_graphql`](#import_graphql)
+  * [`ImportedGraphql`](#importedgraphql)
+  * [`GraphqlOperation`](#graphqloperation)
+  * [`GraphqlTransport`](#graphqltransport)
+* [9. Builds Without a Feature](#9-builds-without-a-feature)
+  * [Stand-in types](#stand-in-types)
 * [10. TypeScript Declarations](#10-typescript-declarations)
-  * [declarations](#declarations)
-  * [type_name](#type_name)
+  * [`Flavour`](#flavour)
+  * [`typescript::declarations`](#typescriptdeclarations)
+  * [`typescript::type_name`](#typescripttype_name)
 * [11. Services Written in Rust](#11-services-written-in-rust)
-  * [ContractType](#contracttype)
-  * [DeclaredService](#declaredservice)
-  * [Caller](#caller)
-* [12. Error Handling](#12-error-handling)
-  * [ContractError](#contracterror)
+  * [`ContractType`](#contracttype)
+  * [`DeclaredService`](#declaredservice)
+  * [`Caller`](#caller)
+* [12. Types From Other Crates](#12-types-from-other-crates)
+  * [Runtime types](#runtime-types)
+  * [`TokenCell`](#tokencell)
+* [13. Error Handling](#13-error-handling)
+  * [`ContractError`](#contracterror)
+  * [`DataCacheError`](#datacacheerror)
+  * [`ImportError`](#importerror)
 
 ## 1. The Contract Artifact
 
-Module `contract`, re-exported at the crate root. Every type here derives `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize` and `Deserialize`. Enums serialise externally tagged with `snake_case` variant names, so `Type::Str` is the JSON string `"str"` and `Type::Optional(Type::Str)` is `{"optional":"str"}`.
+Module `contract`, re-exported at the crate root. Every type here is `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize` and `Deserialize`. Enums serialise externally tagged in `snake_case`: `Type::Str` is `"str"` and `Type::Optional(Type::Str)` is `{"optional":"str"}`.
 
-### ScalarKind
+### `ScalarKind`
 
-The element kind of a `Value::TypedArray`. Also `Copy`.
+The element kind of a `Value::TypedArray`. `Copy`. `#[non_exhaustive]`.
 
-* `I8` `U8` `I16` `U16` `I32` `U32` `I64` `U64` `F32` `F64`
-* `fn as_str(&self) -> &'static str` returns the lowercase width name, `"f64"` for `F64`.
+* `I8`, `U8`, `I16`, `U16`, `I32`, `U32`, `I64`, `U64`, `F32`, `F64`
+* `pub fn as_str(&self) -> &'static str`: the lowercase name, `"f64"` for `F64`.
 
-### Type
+### `Type`
 
-The contract type vocabulary. Every variant projects onto exactly one shape of the value model; the integer widths are what stop a `u64` being silently truncated at 2^53 on the way to TypeScript.
+The contract type vocabulary.
 
-* `Null` `Bool` `I32` `I64` `I128` `U32` `U64` `U128` `F32` `F64` `Str` `Bytes`
+* `Null`, `Bool`, `I32`, `I64`, `I128`, `U32`, `U64`, `U128`, `F32`, `F64`, `Str`, `Bytes`
 * `Array(ScalarKind)`
 * `Optional(Box<Type>)`
 * `List(Box<Type>)`
-* `Map(Box<Type>)`, keys are always strings
-* `Named(String)`, a reference to a `TypeDef` in the same contract
-* `Dynamic`, any value: `unknown` in TypeScript and `google.protobuf.Struct`, `Value` or `ListValue` in a proto. A `#[service]` signature spells it `snapfire_fsr_core::Dynamic`
-* `fn optional(inner: Type) -> Self`
-* `fn list(inner: Type) -> Self`
-* `fn map(values: Type) -> Self`
-* `fn named(name: impl Into<String>) -> Self`
-* `fn describe(&self) -> String` renders the type as it appears in error messages: `"u64"`, `"list<Server>"`, `"map<str, i64>"`, `"array<f64>"` and `"optional<str>"`. A `Named` renders as the bare name.
+* `Map(Box<Type>)`: keys are always strings.
+* `Named(String)`: a `TypeDef` in the same contract.
+* `Dynamic`: any value, unchecked. A `#[service]` signature spells it `snapfire_fsr_core::Dynamic`.
+* `pub fn optional(inner: Type) -> Self`
+* `pub fn list(inner: Type) -> Self`
+* `pub fn map(values: Type) -> Self`
+* `pub fn named(name: impl Into<String>) -> Self`
+* `pub fn describe(&self) -> String`: the type as error messages print it, such as `u64`, `list<Server>`, `map<str, i64>`, `array<f64>` and `optional<str>`. `Named` prints the bare name.
 
-What each variant accepts when checked against a `Value`:
+What each variant accepts in `check_value`:
 
 | Variant | Accepted value |
 | --- | --- |
@@ -110,510 +117,695 @@ What each variant accepts when checked against a `Value`:
 | `F64` | `Value::F64` |
 | `Str` | `Value::Str` |
 | `Bytes` | `Value::Bytes` |
-| `Array(k)` | `Value::TypedArray` whose element width equals `k` |
-| `Optional(t)` | `Value::Null` or whatever `t` accepts |
+| `Array(k)` | `Value::TypedArray` of element kind `k` |
+| `Optional(t)` | `Value::Null`, `Value::Undefined` or whatever `t` accepts |
 | `List(t)` | `Value::Seq`, every element checked against `t` |
-| `Map(t)` | `Value::Map`, every entry value checked against `t` |
+| `Map(t)` | `Value::Map`, every value checked against `t` |
 | `Named(n)` | `Value::Map` when `n` is a record, `Value::Variant` when `n` is a union |
-| `Dynamic` | Any value |
+| `Dynamic` | any value |
 
-There is no numeric coercion in either direction: an integer offered where `F64` is declared is a mismatch; a float offered where `I64` is declared is a mismatch.
+`check_value` coerces no number. An integer where `F64` is declared is a mismatch. So is a float where `I64` is declared. `conform` does the rewriting before a check.
 
-### Field
+### `Field`
 
-One named member of a record or one parameter of a method. Serialises with the type under the key `type`.
+A record member or a method parameter. Serialises its type under the key `type`. `#[non_exhaustive]`.
 
 * `pub name: String`
 * `pub ty: Type`
-* `fn new(name: impl Into<String>, ty: Type) -> Self`
+* `pub present: bool`: the key is in every value, so an `Optional` field is `null` rather than absent. Omitted from JSON when `false`.
+* `pub fn new(name: impl Into<String>, ty: Type) -> Self`
+* `pub fn present(self, present: bool) -> Self`
 
-### Variant
+### `Variant`
 
-One arm of a union. A payloadless arm is how a proto3 or OpenAPI enum lands here. The payload serialises under the key `type` and is omitted entirely when absent.
+One arm of a union. The payload serialises under the key `type` and is omitted when absent. `#[non_exhaustive]`.
 
 * `pub tag: String`
 * `pub payload: Option<Type>`
-* `fn unit(tag: impl Into<String>) -> Self` builds an arm with no payload
-* `fn with(tag: impl Into<String>, payload: Type) -> Self`
+* `pub fn unit(tag: impl Into<String>) -> Self`: an arm with no payload.
+* `pub fn with(tag: impl Into<String>, payload: Type) -> Self`
 
-### TypeDef
+### `TypeDef`
 
 What a `Type::Named` resolves to.
 
 * `Record { fields: Vec<Field> }`
 * `Union { variants: Vec<Variant> }`
 
-### Method
+### `Method`
 
-One method signature.
+One method signature. `#[non_exhaustive]`.
 
-* `pub params: Vec<Field>`, defaults to empty when absent from JSON
+* `pub params: Vec<Field>`: empty when absent from JSON.
 * `pub returns: Type`
-* `pub cache: Option<Freshness>`, absent from JSON when `None`: how long an answer may be reused
-* `pub writes: Vec<String>`, absent from JSON when empty: the tags a successful call drops
-* `fn new(params: Vec<Field>, returns: Type) -> Self`
-* `fn cached(self, freshness: Freshness) -> Self`; `fn writes<I, S>(self, tags: I) -> Self`
+* `pub cache: Option<Freshness>`: how long an answer may be reused. Omitted from JSON when `None`.
+* `pub writes: Vec<String>`: the tags a successful call drops. Omitted from JSON when empty.
+* `pub fn new(params: Vec<Field>, returns: Type) -> Self`
+* `pub fn cached(self, freshness: Freshness) -> Self`
+* `pub fn writes<I, S>(self, tags: I) -> Self` where `I: IntoIterator<Item = S>`, `S: Into<String>`
 
-### Freshness
+### `Freshness`
 
-The data owner's statement of how long a method's answer holds, on the contract. `#[non_exhaustive]`: build one with `ttl` and the setters.
+How long a method's answer holds. `Default`. `#[non_exhaustive]`: build one with `ttl` and the setters.
 
-* `pub ttl: String`, a duration (`30s`, `5m`, `2h`, `1d` or seconds)
-* `pub tags: Vec<String>`, the tags a write drops it under; absent from JSON when empty
-* `pub scope: Scope`, default `Private`
-* `pub stale: Option<String>`, a window after `ttl` in which the last answer is served while a refresh runs behind it; `Shared` scope only
-* `fn ttl(ttl: impl Into<String>) -> Self`; `fn tags<I, S>(self, tags: I) -> Self`; `fn shared(self) -> Self`; `fn per_subject(self) -> Self`; `fn stale(self, window: impl Into<String>) -> Self`; `fn scope(self, scope: Scope) -> Self`
+* `pub ttl: String`: a duration such as `30s`, `5m`, `2h`, `1d` or plain seconds.
+* `pub tags: Vec<String>`: the tags a write drops it under. Omitted from JSON when empty.
+* `pub scope: Scope`: default `Private`.
+* `pub stale: Option<String>`: a window after `ttl` in which the last answer is served while a refresh runs. `Shared` scope only.
+* `pub fn ttl(ttl: impl Into<String>) -> Self`
+* `pub fn tags<I, S>(self, tags: I) -> Self`
+* `pub fn shared(self) -> Self`
+* `pub fn per_subject(self) -> Self`
+* `pub fn scope(self, scope: Scope) -> Self`
+* `pub fn stale(self, window: impl Into<String>) -> Self`
 
-### Scope
+### `Scope`
 
-Who a cached answer may be served to. Serialized in snake case.
+Who a cached answer may be served to. `Copy`, `Default`. `#[non_exhaustive]`.
 
-* `Private` (default): an identified call never reads or writes the cache; anonymous calls share one entry
-* `Shared`: every call reads one entry, identified or not
-* `Subject`: one entry per identity subject, plus one for anonymous calls
-* `fn as_str(&self) -> &'static str`
+* `Private`, the default: an identified call neither reads nor writes the cache. Anonymous calls share one entry.
+* `Shared`: every call reads one entry, identified or not.
+* `Subject`: one entry per identity subject. Anonymous calls share one more.
+* `pub fn as_str(&self) -> &'static str`
 
-### Service
+### `Service`
 
-A named set of methods. Also `Default`. The map is an `IndexMap`, so declaration order survives into the artifact.
+A named set of methods, in declaration order. `Default`. `#[non_exhaustive]`.
 
-* `pub methods: IndexMap<String, Method>`, defaults to empty when absent from JSON
-* `fn new() -> Self`
-* `fn method(self, name: impl Into<String>, method: Method) -> Self` inserts and returns self; a repeated name replaces the earlier entry
+* `pub methods: IndexMap<String, Method>`: empty when absent from JSON.
+* `pub fn new() -> Self`
+* `pub fn method(self, name: impl Into<String>, method: Method) -> Self`: a repeated name replaces the earlier entry.
 
-### Contract
+### `Contract`
 
-The neutral artifact. Also `Default`. Both maps are `IndexMap`s and both default to empty when absent from JSON.
+The contract artifact. `Default`. `#[non_exhaustive]`.
 
 * `pub types: IndexMap<String, TypeDef>`
 * `pub services: IndexMap<String, Service>`
-* `fn new() -> Self`
-* `fn define(self, name: impl Into<String>, def: TypeDef) -> Self`
-* `fn record(self, name: impl Into<String>, fields: Vec<Field>) -> Self`
-* `fn union(self, name: impl Into<String>, variants: Vec<Variant>) -> Self`
-* `fn service(self, name: impl Into<String>, service: Service) -> Self`
-* `fn to_json(&self) -> String` writes pretty JSON; panics only if serialisation itself fails
-* `fn from_json(source: &str) -> Result<Self, serde_json::Error>`
-* `fn merge(&mut self, other: Contract, file: &str) -> Result<(), ContractError>`: takes every type and service of `other`; a name this contract already defines is `DuplicateType` or `DuplicateService` naming `file`.
-* `fn adopt(&mut self, other: Contract, file: &str) -> Result<(), ContractError>`: `merge`, accepting a type or service `other` defines exactly as this contract already does and refusing one it defines differently with the same errors. The host merges a `#[service]` block's contract this way over what the contracts directory holds.
-* `fn method(&self, service: &str, method: &str) -> Option<&Method>`
-* `fn validate(&self) -> Result<(), ContractError>` checks that every `Named` in every record field, variant payload, parameter and return type resolves. Fails on the first unresolved reference with `ContractError::UnknownType`, whose `path` reads `Type.field`, `Service.method.param` or `Service.method()`.
-* `fn check_value(&self, ty: &Type, value: &Value, path: &str) -> Result<(), ContractError>` checks one value at a caller-supplied path. Descending appends `[i]` for a list index, `.tag` for a variant payload and `.key` for a record field or a map key.
-* `fn check_call(&self, service: &str, method: &str, args: &ValueMap) -> Result<(), ContractError>` checks arguments against a method's parameters at path `service.method`. A parameter typed `Optional` may be absent; any other absent parameter is `MissingField`. Any argument the method does not declare is `UnknownField`.
-* `fn check_return(&self, service: &str, method: &str, value: &Value) -> Result<(), ContractError>` checks a value against a method's return type at path `service.method()`.
-* `fn conform(&self, ty: &Type, value: &mut Value)` rewrites a value in place where JSON's one number type left a shape the contract names exactly: an `Int` or `UInt` for an `F64` or `F32` field becomes that float, through optionals, lists, maps, record fields and variant payloads. Nothing else changes, so a fraction for an integer field, a string for a number or a number for a string still fail the check that follows. Every decoded JSON body meets it before `check_value`: a response through the registry, an action's input on the host and under `fsr test`.
-* `fn conform_text(&self, ty: &Type, value: &mut Value)` is `conform` for a value whose scalars are all text because the encoding carries nothing else, a form body being the one that reaches it: a string that parses becomes the declared integer, double or boolean (`on`, `true`, `1`, `yes` and their opposites for a boolean), an empty string against an `Optional` becomes `Null`, with a string against a declared `Str` left as it is. It descends optionals and record fields, then runs `conform`. Anything that does not parse is left for `check_value` to refuse. Never call it on a value that arrived typed: a string where a number is declared is a mismatch there, not a spelling.
-* `fn conform_return(&self, service: &str, method: &str, value: &mut Value)` is `conform` against a method's return type; an unknown method changes nothing.
+* Both maps are empty when absent from JSON and omitted from JSON when empty.
 
-Record checking is strict in both directions: an absent non-optional field is `MissingField` and a field the record does not declare is `UnknownField`. Union checking requires the tag to be declared, a unit arm to carry no payload and a payload arm to carry one.
+Building and storing:
 
-### Contract::namespaced
+* `pub fn new() -> Self`
+* `pub fn define(self, name: impl Into<String>, def: TypeDef) -> Self`
+* `pub fn record(self, name: impl Into<String>, fields: Vec<Field>) -> Self`
+* `pub fn union(self, name: impl Into<String>, variants: Vec<Variant>) -> Self`
+* `pub fn service(self, name: impl Into<String>, service: Service) -> Self`
+* `pub fn method(&self, service: &str, method: &str) -> Option<&Method>`
+* `pub fn to_json(&self) -> String`: pretty JSON. Panics only if serialisation fails.
+* `pub fn from_json(source: &str) -> Result<Self, serde_json::Error>`
 
-* `namespaced(&self, name: &str) -> Contract`: the contract as a site's: every type and service keyed `<name>:<its name>`, every `named` reference following, every cache tag and `writes` tag prefixed the same way unless it starts with `@`, which marks a tag shared with the shell on purpose. A key already carrying the prefix is left alone.
+Combining:
+
+* `pub fn merge(&mut self, other: Contract, file: &str) -> Result<(), ContractError>`: takes every type and service of `other`. A name this contract already defines is `DuplicateType` or `DuplicateService` naming `file`.
+* `pub fn adopt(&mut self, other: Contract, file: &str) -> Result<(), ContractError>`: `merge`, except a type or service defined identically in both is accepted.
+* `pub fn namespaced(&self, name: &str) -> Contract`: every type and service renamed `<name>:<its name>`, with every `named` reference following.
+  * Every cache tag and `writes` tag is prefixed the same way, except a tag starting with `@`.
+  * A key or tag that already carries the prefix is left alone.
+
+Checking:
+
+* `pub fn validate(&self) -> Result<(), ContractError>`: every `Named` in every field, variant payload, parameter and return type resolves. Every `cache.ttl` and `cache.stale` is a duration and `stale` is only on `Shared` scope.
+  * An unresolved name is `UnknownType`, with `path` `Type.field`, `Service.method.param` or `Service.method()`.
+  * A bad cache policy is `Cache` at `Service.method`.
+* `pub fn check_value(&self, ty: &Type, value: &Value, path: &str) -> Result<(), ContractError>`: checks one value at `path`. Descending appends `[i]` for a list index and `.<key>` for a record field, a map key or a variant payload.
+* `pub fn check_call(&self, service: &str, method: &str, args: &ValueMap) -> Result<(), ContractError>`: checks arguments against the parameters at path `service.method`. An `Optional` parameter may be absent. Any other absent parameter is `MissingField` and an undeclared argument is `UnknownField`.
+* `pub fn check_return(&self, service: &str, method: &str, value: &Value) -> Result<(), ContractError>`: checks a value against the return type at path `service.method()`.
+* A record is checked strictly. An absent non-optional field is `MissingField` and an undeclared field is `UnknownField`.
+* A union value must carry a declared tag. A unit arm carries no payload and a payload arm carries one.
+
+Conforming:
+
+* `pub fn conform(&self, ty: &Type, value: &mut Value)`: rewrites `value` in place where JSON's single number type left a shape the contract names exactly. It descends optionals, lists, maps, record fields and variant payloads.
+  * An `Int` or `UInt` declared `F64` or `F32` becomes that float.
+  * An `F64` or `F32` declared as an integer type becomes `Int` when it is whole, finite and below 2^53 in magnitude.
+  * A `Str` declared as a union becomes the unit variant of that tag when there is one.
+  * Any other non-variant value declared as a union is wrapped in the one payload variant it fits, when exactly one fits.
+  * Nothing else changes. `check_value` reports what remains.
+* `pub fn conform_text(&self, ty: &Type, value: &mut Value)`: `conform` for a value whose scalars are all strings, such as a form body. It descends optionals and record fields, then runs `conform`.
+  * A string that parses becomes the declared integer or float.
+  * For `Bool`, `on`, `true`, `1` and `yes` become `true`. `off`, `false`, `0` and `no` become `false`.
+  * An empty string declared `Optional` becomes `Null`.
+  * A string that does not parse is left for `check_value`.
+  * Must not be called on a value that arrived typed.
+* `pub fn conform_return(&self, service: &str, method: &str, value: &mut Value)`: `conform` against the method's return type. An unknown method changes nothing.
 
 ## 2. The Registry
 
 Module `registry`, re-exported at the crate root.
 
-### Services
+### `Services`
 
-Named clients over transports behind one seam, built once per process and shared as an `Arc`. Not `Clone` itself; clone the `Arc`.
+Named clients over transports, built once per process and shared as an `Arc`. Not `Clone`.
 
-* `fn builder() -> ServicesBuilder` returns a builder with response checking already on
-* `fn contract(&self) -> &Contract`
-* `fn bind(self: &Arc<Self>, identity: Option<Identity>, credentials: Arc<dyn Credentials>) -> ServiceHandle` fixes one request's identity and credential custody into a handle safe to hand to application code
-* `fn bind_anonymous(self: &Arc<Self>) -> ServiceHandle` binds with no identity and `NoCredentials`
-* `fn data_cache(&self) -> Option<&DataCache>`: the cache, when the builder asked for one and the contract declares a cached or writing method
-* `fn invalidate_tags<I, S>(&self, tags: I)`: drops every cached answer under the named tags; nothing without a cache
+* `pub fn builder() -> ServicesBuilder`
+* `pub fn contract(&self) -> &Contract`
+* `pub fn bind(self: &Arc<Self>, identity: Option<Identity>, credentials: Arc<dyn Credentials>) -> ServiceHandle`: one request's identity and credential custody, fixed into a handle for application code. Every call from one handle carries the same `Call::request`.
+* `pub fn bind_anonymous(self: &Arc<Self>) -> ServiceHandle`: `bind(None, Arc::new(NoCredentials))`.
+* `pub fn data_cache(&self) -> Option<&DataCache>`: the cache, when the builder asked for one and the contract declares a cached or writing method.
+* `pub fn invalidate_tags<I, S>(&self, tags: I)` where `I: IntoIterator<Item = S>`, `S: AsRef<str>`: drops every cached answer under the tags. Does nothing without a cache.
 
-Every call made through a bound handle runs `check_call` before any transport is selected, then the interceptor chain, then the transport, then `check_return` unless response checking was disabled. A service with no named transport falls back to the default transport; with neither, the call fails with `FailureKind::Unavailable`.
+A call through a bound handle runs in this order:
 
-### ServicesBuilder
+* `check_call`. `UnknownService` and `UnknownMethod` fail as `FailureKind::NotFound` and every other error as `FailureKind::Invalid`.
+* The transport is chosen: the service's own, else the default. With neither, the call fails as `FailureKind::Unavailable`.
+* The interceptor chain, then the transport.
+* With response checking on, `conform_return` then `check_return`. A failed check is `FailureKind::Internal`.
 
-Also `Default`, though `Services::builder()` is the entry point that sets the intended defaults.
+### `ServicesBuilder`
 
-* `fn contract(self, contract: Contract) -> Self` replaces the contract; the default is an empty one
-* `fn intercept(self, interceptor: Arc<dyn Interceptor>) -> Self` appends to the chain, which runs in registration order
-* `fn transport(self, service: impl Into<String>, transport: Arc<dyn Transport>) -> Self` binds one named service
-* `fn default_transport(self, transport: Arc<dyn Transport>) -> Self` binds the fallback for every service without one
-* `fn check_responses(self, check: bool) -> Self` governs `check_return` only; arguments are checked either way. `Services::builder()` starts it at `true`.
-* `fn data_cache(self, capacity: u64) -> Self`: answers every method whose contract declares `cache` from memory, `capacity` entries per policy; the cache sits last in the chain
-* `fn build(self) -> Arc<Services>` gives every transport its own chain over the same interceptor list; panics on a cache policy `try_build` would refuse
-* `fn try_build(self) -> Result<Arc<Services>, DataCacheError>`
+`Default`, which is what `Services::builder()` returns.
+
+* `pub fn contract(self, contract: Contract) -> Self`: default is an empty contract.
+* `pub fn intercept(self, interceptor: Arc<dyn Interceptor>) -> Self`: appends to the chain, which runs in registration order.
+* `pub fn transport(self, service: impl Into<String>, transport: Arc<dyn Transport>) -> Self`
+* `pub fn default_transport(self, transport: Arc<dyn Transport>) -> Self`: for every service without its own.
+* `pub fn check_responses(self, check: bool) -> Self`: turns `check_return` on or off. Default `true`. Arguments are always checked.
+* `pub fn data_cache(self, capacity: u64) -> Self`: answers every method whose contract declares `cache` from memory, at most `capacity` entries per method. The cache runs last in the chain.
+* `pub fn build(self) -> Arc<Services>`: panics on a cache policy `try_build` refuses.
+* `pub fn try_build(self) -> Result<Arc<Services>, DataCacheError>`
+* With `data_cache` set and no method declaring `cache` or `writes`, no cache is installed.
 
 ## 3. Calls and Custody
 
 Module `call`, re-exported at the crate root.
 
-### Call
+### `Call`
 
-One outbound call as it travels the chain. Interceptors read the identity and write metadata; `credentials` is reachable here and nowhere in application code. `#[non_exhaustive]`: build one with `Call::new` outside this crate.
+One outbound call as it travels the chain. `#[non_exhaustive]`: build one with `new`.
 
-* `fn new(service: impl Into<String>, method: impl Into<String>, args: ValueMap) -> Call` starts with no identity, empty metadata, `NoCredentials` and a fresh `request`
-* `fn with_identity(self, identity: Option<Identity>) -> Call`
-* `fn with_credentials(self, credentials: Arc<dyn Credentials>) -> Call`
-* `fn with_request(self, request: u64) -> Call`
 * `pub service: String`
 * `pub method: String`
 * `pub args: ValueMap`
 * `pub identity: Option<Identity>`
-* `pub metadata: ValueMap`, empty when the chain starts
+* `pub metadata: ValueMap`
 * `pub credentials: Arc<dyn Credentials>`
-* `pub request: u64`, the request the call is made for; every call one binding makes carries the same number, which `TraceInterceptor` writes as `x-sf-request-id`
-* `fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>)` writes a `Value::Str` entry
-* `fn metadata_str(&self, key: &str) -> Option<&str>` reads one back, returning `None` for an entry that is not a string
+* `pub request: u64`: the request the call is made for.
+* `pub fn new(service: impl Into<String>, method: impl Into<String>, args: ValueMap) -> Self`: no identity, empty metadata, `NoCredentials` and a fresh `next_request()`.
+* `pub fn with_identity(self, identity: Option<Identity>) -> Self`
+* `pub fn with_credentials(self, credentials: Arc<dyn Credentials>) -> Self`
+* `pub fn with_request(self, request: u64) -> Self`
+* `pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>)`: writes a `Value::Str` entry.
+* `pub fn metadata_str(&self, key: &str) -> Option<&str>`: `None` for an absent or non-string entry.
 
-`call::next_request() -> u64` returns a request number no other binding in this process holds, counting from 1.
+### `next_request`
 
-### Credentials
+* `pub fn call::next_request() -> u64`: a request number no other binding in this process holds, counting from 1.
 
-Read and write access to the request's backend credentials. `Send + Sync`. `snapfire_fsr_session::TokenCell` implements it; a write through `set` marks that cell dirty so the session persists it.
+### `Credentials`
+
+Read and write access to the request's backend credentials. `Send + Sync`.
 
 * `fn get(&self, key: &str) -> Option<Value>`
 * `fn set(&self, key: &str, value: Value)`
-* `fn snapshot(&self) -> ValueMap`: every credential held, which a refresh is given whole; empty by default.
+* `fn snapshot(&self) -> ValueMap`: every credential held. Default empty.
+* Implemented for `snapfire_fsr_session::TokenCell`.
 
-### NoCredentials
+### `NoCredentials`
 
-The empty implementation used by `bind_anonymous`. Also `Default`. `get` always returns `None` and `set` discards.
+`pub struct NoCredentials`. `Default`. `get` returns `None`, `set` discards and `snapshot` is empty.
 
 ## 4. Interceptors
 
-Module `interceptor`, re-exported at the crate root. The chain is an ordered list of functions, not a workflow engine.
+Module `interceptor`, re-exported at the crate root.
 
-### Interceptor
+### `Interceptor`
 
-`Send + Sync`.
+One step of the outbound chain. `Send + Sync`.
 
 * `fn call(&self, call: Call, next: Next) -> BoxFuture<'static, Result<Value, ServiceError>>`
 
-### Next
+### `Next`
 
-The rest of the chain. Constructed only by the registry; an interceptor receives one and either consumes it or drops it. `Clone`, so an interceptor may run the rest of the chain a second time.
+The rest of the chain. Only the registry constructs one. `Clone`.
 
-* `fn run(self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>>` invokes the next interceptor (the transport when the list is exhausted). Not calling it short-circuits; nothing downstream, transport included, runs.
+* `pub fn run(self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>>`: runs the next interceptor. After the last one it runs the transport.
+* Not calling `run` stops the call. Nothing after it runs, the transport included.
+* A clone may run the rest of the chain a second time.
 
-### IdentityInterceptor
+### `IdentityInterceptor`
 
-Propagates who the request is onto every outbound call. Also `Default`.
+Writes the identity's `subject` as metadata. Writes nothing when the call has no identity. `Default`.
 
-* `fn new() -> Self` with key `x-sf-subject`
-* `fn key(self, key: impl Into<String>) -> Self`
+* `pub fn new() -> Self`: key `x-sf-subject`.
+* `pub fn key(self, key: impl Into<String>) -> Self`
 
-Writes the identity's `subject` under that key. Writes nothing when the request has no identity.
+### `CredentialInterceptor`
 
-### CredentialInterceptor
+Reads one credential from custody and writes it as metadata.
 
-Reads one credential out of custody and attaches it.
+* `pub fn bearer(credential: impl Into<String>) -> Self`: header `authorization`, scheme `"Bearer "`.
+* `pub fn header(self, header: impl Into<String>) -> Self`
+* `pub fn scheme(self, scheme: impl Into<String>) -> Self`
+* `pub fn only(self, services: impl IntoIterator<Item = impl Into<String>>) -> Self`: attaches on calls to these services only. Without it, every service.
+* `pub fn refreshing(self, refresher: Arc<dyn Refresher>) -> Self`: renews the credentials through `refresher`.
+* `pub const EXPIRY_MARGIN_SECS: u64 = 30`
+* Writes `{scheme}{token}` under the header. Writes nothing when custody holds no such credential or holds one that is not `Value::Str`.
+* With a refresher and the credential in custody, it renews before attaching when `expires_at` is at most `EXPIRY_MARGIN_SECS` from now. `expires_at` is Unix seconds as `Int`, `UInt` or `F64`.
+* With a refresher, a call that fails as `FailureKind::Unauthorized` is renewed once and run again. It is not run again when the renewal changed nothing or a renewal already ran for this call.
 
-* `fn bearer(credential: impl Into<String>) -> Self` with header `authorization` and scheme `"Bearer "`
-* `fn header(self, header: impl Into<String>) -> Self`
-* `fn scheme(self, scheme: impl Into<String>) -> Self`
-* `fn only(self, services: impl IntoIterator<Item = impl Into<String>>) -> Self`: attaches the credential on calls to the named services only; without it every service gets it
-* `fn refreshing(self, refresher: Arc<dyn Refresher>) -> Self`: renews the credentials before attaching them when custody's `expires_at` has passed. It also renews them once after a call answers `FailureKind::Unauthorized`, running the call again with what was renewed.
+### `Refresher`
 
-Writes `{scheme}{token}` under the header key. Writes nothing when custody holds no such credential or holds one that is not a `Value::Str`. `expires_at` is seconds since the Unix epoch as an integer or a float; a credential counts as expired `EXPIRY_MARGIN_SECS` (30) before it, so it is not refused in flight. A refused call is retried only when the refresh renewed something and no refresh ran before it.
+Renews the credentials custody holds. `Send + Sync`.
 
-### Refresher
+* `fn refresh(&self, tokens: ValueMap) -> BoxFuture<'static, Option<ValueMap>>`: given `Credentials::snapshot`, the credentials that changed. Each is written back through `Credentials::set`. `None` or an empty map when nothing was renewed.
 
-`Send + Sync`. What renews the credentials custody holds: the host binds the identity provider's `refresh` here.
+### `TraceInterceptor`
 
-* `fn refresh(&self, tokens: ValueMap) -> BoxFuture<'static, Option<ValueMap>>`: given `Credentials::snapshot`, answers the credentials that changed, each written back through `Credentials::set`. It answers `None` when it renews nothing.
+Writes a request id and traces the call. `Default`.
 
-### TraceInterceptor
+* `pub fn new() -> Self`: key `x-sf-request-id`.
+* `pub fn key(self, key: impl Into<String>) -> Self`
+* Writes `Call::request` as 16 lowercase hex digits, zero-padded, when the key is not already set.
+* Emits a `tracing` debug event `call` on target `fsr::service` with `service`, `method` and `request_id`.
+* Wraps the rest of the chain in an info span `call` on target `fsr::trace` with `service`, `method`, `cache` and `fibre.outcome`.
+* `cache` starts as `none`. `DataCache` records `hit`, `stale` or `miss`.
+* `fibre.outcome` is `ok` or the failure kind's `as_str`.
 
-A request id that survives the whole fanout. Also `Default`.
+### `DataCache`
 
-* `fn new() -> Self` with key `x-sf-request-id`
-* `fn key(self, key: impl Into<String>) -> Self`
+The interceptor `ServicesBuilder::data_cache` installs. `Clone` shares the caches. `Debug`, `Interceptor`.
 
-Writes the call's `request` as a zero-padded 16-digit lowercase hex number under that key, but only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`. It opens the `call` span on target `fsr::trace` around the rest of the chain, with fields `service`, `method`, `cache` and `fibre.outcome`. `cache` opens as `none` and `DataCache` records `hit` or `miss` on it when a policy is consulted.
+* `pub fn from_contract(contract: &Contract, capacity: u64) -> Result<Self, DataCacheError>`: one `fibre_cache` per cached method, built on first use.
+* `pub fn is_empty(&self) -> bool`: no method declares `cache` and none declares `writes`.
+* `pub fn policies(&self) -> Vec<(String, Freshness)>`: `service.method` and its policy, sorted.
+* `pub fn writers(&self) -> Vec<(String, Vec<String>)>`: `service.method` and the tags it drops, sorted.
+* `pub fn hits(&self) -> u64`
+* `pub fn misses(&self) -> u64`
+* `pub fn invalidate_tags<I, S>(&self, tags: I)` where `I: IntoIterator<Item = S>`, `S: AsRef<str>`
+* A key is the service, the method, the subject under `Subject` scope, the current generation of each of the policy's tags and the canonical arguments.
+* A successful call to a method with `writes` moves each tag's generation on, so entries under it are no longer reached.
+* A miss runs the caller's own call, credentials included. A `stale` refresh runs as a fresh `Call` with no identity or credentials.
+* A failed call is never stored. A failed refresh keeps the last answer.
 
-### DataCache
+### `cache::canonical`
 
-The interceptor `data_cache` installs: one `fibre_cache` per distinct `(ttl, stale)`, built on first use so a host may be built before its runtime runs. Tag generations are part of every key, so a write moves a generation on and the entries under it become unreachable. A miss runs the caller's own call, credentials included; only a `stale` refresh runs anonymously. A failed call is never stored and a failed refresh keeps the last answer.
-
-* `fn from_contract(contract: &Contract, capacity: u64) -> Result<Self, DataCacheError>`
-* `fn is_empty(&self) -> bool`: no method declares `cache` and none `writes`
-* `fn policies(&self) -> Vec<(String, Freshness)>`: `service.method` and its policy, sorted
-* `fn writers(&self) -> Vec<(String, Vec<String>)>`: `service.method` and the tags it drops, sorted
-* `fn hits(&self) -> u64`; `fn misses(&self) -> u64`. The same decision is recorded as `cache` on the enclosing `call` span, so a trace says which calls the cache answered.
-* `fn invalidate_tags<I, S>(&self, tags: I)`
-* `Clone` shares the caches; `Interceptor`.
-* `pub fn cache::canonical(value: &Value, out: &mut String)`: the deterministic rendering of a value the key uses, maps by sorted key.
-
-### DataCacheError
-
-* `Ttl { method, ttl }`, `Stale { method, stale }`: not a duration; `StaleScope { method }`: `stale` off `Shared` scope; `Build { method, error }`: `fibre_cache` refused the policy.
+* `pub fn canonical(value: &Value, out: &mut String)`: a deterministic rendering of `value`, maps by sorted key.
+* `pub struct cache::CallKey { pub service: String, pub method: String, pub args: ValueMap, .. }`: a cache key. `Clone`, `Debug`, `PartialEq`, `Eq`, `Hash` over the canonical form. `#[non_exhaustive]`.
+* `pub struct cache::Loaded(pub Result<Value, ServiceError>)`: a cached entry.
 
 ## 5. Transports
 
 Module `transport`, re-exported at the crate root.
 
-### Transport
+### `Transport`
 
 The last step of the chain. `Send + Sync`.
 
 * `fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>>`
 
-### LocalTransport
+### `LocalTransport`
 
-Implementations that happen to be in-process, keyed `service.method`. Also `Default`.
+In-process implementations, keyed `service.method`. `Default`.
 
-* `fn new() -> Self`
-* `fn method<F, Fut>(self, path: impl Into<String>, f: F) -> Self` where `F: Fn(Call) -> Fut + Send + Sync + 'static` and `Fut: Future<Output = Result<Value, ServiceError>> + Send + 'static`
+* `pub fn new() -> Self`
+* `pub fn method<F, Fut>(self, path: impl Into<String>, f: F) -> Self` where `F: Fn(Call) -> Fut + Send + Sync + 'static`, `Fut: Future<Output = Result<Value, ServiceError>> + Send + 'static`
+* A path with no closure fails as `FailureKind::NotFound`.
 
-A path with no registered closure fails with `FailureKind::NotFound`.
+### `MockTransport`
 
-### MockTransport
+Canned responses and a record of every call. `Default`.
 
-Canned responses plus a recording of what the chain produced. Also `Default`.
+* `pub fn new() -> Self`
+* `pub fn returns(self, path: impl Into<String>, value: Value) -> Self`
+* `pub fn fails(self, path: impl Into<String>, kind: FailureKind, message: impl Into<String>) -> Self`: `path` splits at the first `.` into the error's service and method.
+* `pub fn calls(&self) -> Vec<(String, ValueMap, ValueMap)>`: one `(path, args, metadata)` per call, in order.
+* `pub fn last_metadata(&self, key: &str) -> Option<String>`: one string metadata entry of the most recent call.
+* A path with no canned response fails as `FailureKind::NotFound`. The call is recorded before the lookup.
 
-* `fn new() -> Self`
-* `fn returns(self, path: impl Into<String>, value: Value) -> Self`
-* `fn fails(self, path: impl Into<String>, kind: FailureKind, message: impl Into<String>) -> Self` splits `path` at the first `.` for the error's service and method
-* `fn calls(&self) -> Vec<(String, ValueMap, ValueMap)>` returns one `(path, args, metadata)` triple per call, in order
-* `fn last_metadata(&self, key: &str) -> Option<String>` reads one string metadata entry from the most recent call
+### `transport::unavailable`
 
-A path with no canned response fails with `FailureKind::NotFound`. Recording happens before the response is looked up, so a call that finds no response still appears in `calls`.
+* `pub fn unavailable(call: &Call, message: impl Into<String>) -> ServiceError`: a `FailureKind::Unavailable` error naming the call's service and method.
 
-### unavailable
+## 6. HTTP and OpenAPI
 
-* `fn unavailable(call: &Call, message: impl Into<String>) -> ServiceError` builds a `FailureKind::Unavailable` error naming the call's service and method.
+Module `http` and module `openapi`, re-exported at the crate root. `HttpTransport` needs the `http` feature. The rest needs none.
 
-## 6. The HTTP Transport
+### `Route`
 
-Module `http`, re-exported at the crate root. Built on `reqwest` with rustls.
+How one contract method reaches HTTP. `Debug`, `Clone`. `#[non_exhaustive]`.
 
-### Route
+* `pub method: String`: the HTTP verb.
+* `pub path: String`: appended to the base URL.
+* `pub fn new(method: impl Into<String>, path: impl Into<String>) -> Self`
+* `pub fn get(path: impl Into<String>) -> Self`
+* `pub fn post(path: impl Into<String>) -> Self`
+* A `{name}` segment takes the argument of that name, which is then not sent in the body or the query.
+* A `{name}` whose argument the call does not carry fails the call as `FailureKind::Invalid`.
+* A string, integer, float or boolean renders as its text. Any other value renders through its `Debug` form.
 
-How one contract method reaches the wire.
+### `HttpTransport`
 
-* `pub method: String`, the HTTP verb
-* `pub path: String`, appended to the base URL
-* `fn new(method: impl Into<String>, path: impl Into<String>) -> Self`
-* `fn get(path: impl Into<String>) -> Self`
-* `fn post(path: impl Into<String>) -> Self`
+A transport over `reqwest` with rustls. Feature `http`.
 
-A `{name}` segment in the path takes the argument of that name and that argument is then not sent in the body or the query. A `{name}` naming an argument that is not present renders as an empty segment and consumes nothing. String, integer, float and boolean arguments render with their natural text; any other value renders through its `Debug` form.
-
-### HttpTransport
-
-Behind the `http` feature. The base URL has any trailing slashes trimmed.
-
-* `fn new(base: impl Into<String>) -> Self` uses a default `reqwest::Client`
-* `fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self`
-* `fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self`
-* `fn route(self, path: impl Into<String>, route: Route) -> Self` overrides one `service.method`
-* `fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a header every call carries, set before the call's metadata; not metadata, so no interceptor or trace sees it. What an application credential goes out as.
-* `fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a query parameter every call carries, after the ones a `GET` or `DELETE` turns its arguments into; never part of a body.
+* `pub fn new(base: impl Into<String>) -> Self`: a default `reqwest::Client`. Trailing slashes are trimmed from `base`.
+* `pub fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self`
+* `pub fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self`
+* `pub fn route(self, path: impl Into<String>, route: Route) -> Self`: the route for one `service.method`.
+* `pub fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a header every call carries, set before the call's metadata. It is not metadata, so no interceptor sees it.
+* `pub fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a query parameter every call carries, after any the arguments become.
 
 Request shape:
 
-* With no route registered: `POST {base}/{service}/{method}`, arguments as a JSON body.
-* With a route: that verb and `{base}{path}` after template substitution.
-* For `GET` and `DELETE` the remaining arguments become query parameters; for every other verb they become the JSON body.
-* Every metadata entry whose value is a `Value::Str` becomes a request header of the same name. Entries of any other shape are skipped.
+* With no route: `POST {base}/{service}/{method}` with the arguments as a JSON body.
+* With a route: its verb and `{base}{path}` after substitution.
+* `GET` and `DELETE` send the remaining arguments as query parameters. Every other verb sends them as the JSON body, integers written as digits.
+* Every metadata entry becomes a request header of the same name. A non-string entry fails the call as `FailureKind::Internal`.
+* A verb that is not a valid HTTP method fails as `FailureKind::Internal`.
 
 Response handling:
 
-* 2xx with a body: parsed as JSON, then converted with `snapfire_fsr_payload::json_to_value`. A parse or conversion failure is `FailureKind::Internal`.
+* 2xx with a body: parsed as JSON and converted with `snapfire_fsr_core::json::to_value`. A lone surrogate escape is replaced with U+FFFD. A parse failure is `FailureKind::Internal`.
 * 2xx with an empty body: `Value::Null`.
-* Non-2xx: an error whose kind comes from `kind_for_status` and whose message is `{status}: {trimmed body}`.
-* A send failure: `FailureKind::Timeout` when reqwest reports a timeout, `FailureKind::Unavailable` otherwise.
-* A verb string that is not a valid HTTP method: `FailureKind::Internal`.
+* Non-2xx: kind from `kind_for_status`. The message is `{status}: {trimmed body}` for a 4xx other than 401, 403, 404 and 408. Otherwise it is `{status}`.
+* A send failure: `FailureKind::Timeout` when reqwest reports a timeout, else `FailureKind::Unavailable`.
 
-### kind_for_status
+### `kind_for_status`
 
-* `fn kind_for_status(status: u16) -> FailureKind`
+* `pub fn kind_for_status(status: u16) -> FailureKind`: `FailureKind::from_status(status)`.
+* A status with its own kind maps to it, such as 401 `Unauthorized`, 403 `Forbidden`, 404 `NotFound`, 409 `Conflict`, 429 `TooManyRequests`, 502 `BadGateway`, 503 `Unavailable` and 504 `Timeout`.
+* Any other 4xx is `Invalid`. Anything else, 2xx included, is `Internal`.
 
-| Status | Kind |
-| --- | --- |
-| 401, 403 | `Unauthorized` |
-| 404 | `NotFound` |
-| 409 | `Conflict` |
-| 408, 504 | `Timeout` |
-| 502, 503 | `Unavailable` |
-| any remaining 400 to 499 | `Invalid` |
-| anything else, 2xx included | `Internal` |
+### `import`
 
-The named statuses are matched before the 4xx range.
+* `pub fn import(document: &str, default_service: &str) -> Result<Imported, ImportError>`: an OpenAPI document in JSON as a contract and its routes.
+* Operations under `get`, `put`, `post`, `delete` and `patch` are read. Each joins the service named by its first tag, else `default_service`.
+* A method is named by `operationId`, else by the verb followed by each path segment in PascalCase.
+* Each method gets a `Route` of its verb and path.
+* Parameters are `path` or `query`. A `path` parameter or a `required` one is its type, any other is `Optional`. Another location is `Unsupported`.
+* An `application/json` request body that is an object spreads into named parameters. Any other JSON body is one parameter `body`. A body in another media type is `Unsupported`.
+* The return type is the first 2xx or `default` response's `application/json` schema. A 2xx with no JSON body returns `Null`. So does an operation with no success response.
+* `x-sf-cache` on an operation is read as a `Freshness`. `x-sf-writes` is read as the tags it writes.
+* Scalars: `string` is `Str` or `Bytes` for format `byte` or `binary`, `boolean` is `Bool`, `integer` is `I32`, `U32` or `U64` by format and `I64` otherwise, `number` is `F32` for format `float` and `F64` otherwise, `null` is `Null`.
+* `nullable: true` or a two-type `type` array with `null` is `Optional`. `items` is `List`. An object with only `additionalProperties` is `Map`.
+* `enum` of strings, `oneOf`, `anyOf`, `allOf` and objects become named types. `allOf` branches must be objects and merge with later branches winning.
+* A reference outside `#/components/schemas/`, `additionalProperties: true` and a union of more than one non-null type are `Unsupported`.
+* The contract is validated before it is returned.
+
+### `Imported`
+
+What `import` returns. `Debug`, `Clone`. `#[non_exhaustive]`.
+
+* `pub contract: Contract`
+* `pub routes: Vec<(String, Route)>`: keyed `service.method`.
+* `pub base_url: Option<String>`: the first `servers` entry's `url`.
 
 ## 7. Protobuf and gRPC
 
-Modules `proto` and `grpc`, behind the `grpc` feature, re-exported at the crate root. protox compiles the file, prost-reflect holds the descriptors and encodes the messages, tonic carries them.
+Modules `proto` and `grpc`, re-exported at the crate root. Feature `grpc`.
 
-### import_proto
+### `import_proto`
 
-* `fn import_proto(path: &Path, default_service: &str) -> Result<ImportedProto, ImportError>`: compiles the file with its directory, `snapfire/fsr.proto` and the Google well-known types as include paths.
-* `fn import_proto_source(name: &str, source: &str, default_service: &str) -> Result<ImportedProto, ImportError>`: the same over source text; only `snapfire/fsr.proto` and the well-known types can be imported.
-* `const FSR_PROTO_NAME: &str` is `"snapfire/fsr.proto"` and `const FSR_PROTO: &str` its source: `package snapfire.fsr` extends `google.protobuf.MethodOptions` with `Cache cache = 50100`, a message of `string ttl`, `repeated string tags`, `Scope scope` (`PRIVATE`, `SHARED`, `SUBJECT`) and `optional string stale`, plus `repeated string writes = 50101`. A method carrying `(snapfire.fsr.cache)` is `Method::cached` with the matching `Freshness`, `scope` `Private` and `stale` `None` unless said; one carrying `(snapfire.fsr.writes)` is `Method::writes` with the tags in order. A cache without a `ttl` is `Malformed` at `<service>.<Method> (snapfire.fsr.cache)`; an option named on a file that did not import `snapfire/fsr.proto` is the compiler's `Malformed` at the file.
-* `fn fsr_proto_include(dir: &Path) -> io::Result<PathBuf>`: writes `snapfire/fsr.proto` under `dir` and answers `dir`, an include path for a build that compiles an annotated `.proto` with protoc, protox or tonic.
-* One service in the file is named `default_service`; several keep their proto names. Method names go lowerCamel. Parameters are the request message's fields; `google.protobuf.Empty` is no parameters or a `Null` return. A streaming method, a map keyed by anything but `string`, `Any` and `FieldMask` are `ImportError::Unsupported`; `Struct`, `Value` and `ListValue` import as `Dynamic`; a file that does not compile is `Malformed`.
-* Types: `int32`, `sint32`, `sfixed32` to `I32`; `int64`, `sint64`, `sfixed64` to `I64`; `uint32`, `fixed32` to `U32`; `uint64`, `fixed64` to `U64`; `float`, `double`, `bool`, `string`, `bytes` to their scalars; `repeated` to `List`; `map<string, T>` to `Map`; an enum to `Str`; a message field, a proto3 `optional` or a `oneof` member to `Optional`; `Outer.Inner` to the record `OuterInner` with the package dropped; `Timestamp` and `Duration` to `Str`; the wrapper types to `Optional` of their scalar.
+* `pub fn import_proto(path: &Path, default_service: &str) -> Result<ImportedProto, ImportError>`: compiles the file with its directory, `snapfire/fsr.proto` and the Google well-known types as include paths.
+* `pub fn import_proto_source(name: &str, source: &str, default_service: &str) -> Result<ImportedProto, ImportError>`: the same over source text. Only `snapfire/fsr.proto` and the well-known types can be imported.
+* With one service in the file, it is named `default_service`. With several, each keeps its proto name.
+* Method names become lowerCamel. Parameters are the request message's fields.
+* `google.protobuf.Empty` as the request is no parameters. As the response it is a `Null` return.
+* A file that does not compile is `Malformed`.
+* A streaming method, a map keyed by anything but `string`, `Any` and `FieldMask` are `Unsupported`.
+* `int32`, `sint32`, `sfixed32` are `I32`. `int64`, `sint64`, `sfixed64` are `I64`. `uint32`, `fixed32` are `U32`. `uint64`, `fixed64` are `U64`.
+* `float`, `double`, `bool`, `string` and `bytes` are their scalars. An enum is `Str`.
+* `repeated` is `List` and `map<string, T>` is `Map`.
+* A message field, a proto3 `optional` field and a `oneof` member are `Optional`.
+* `Outer.Inner` is the record `OuterInner`, with the package dropped.
+* `Timestamp` and `Duration` are `Str`. The wrapper types are `Optional` of their scalar. `Struct`, `Value` and `ListValue` are `Dynamic`.
+* A method with `(snapfire.fsr.cache)` gets `Method::cached` with the matching `Freshness`. `scope` defaults to `Private` and `stale` to `None`.
+* A cache option without `ttl` is `Malformed` at `<service>.<Method> (snapfire.fsr.cache)`.
+* A method with `(snapfire.fsr.writes)` gets `Method::writes` with the tags in order.
+* An option used in a file that does not import `snapfire/fsr.proto` is the compiler's `Malformed` at the file.
 
-### ImportedProto
+### `FSR_PROTO`
 
-* `pub struct ImportedProto { pub contract: Contract, pub pool: prost_reflect::DescriptorPool, pub methods: Vec<(String, GrpcMethod)> }`, the key being `service.method` as the contract names them.
-* `pub struct GrpcMethod { pub path: String, pub input: String, pub output: String }`: the request path `/pkg.Service/Method` and the full names of the request and response messages in `pool`.
+* `pub const FSR_PROTO_NAME: &str = "snapfire/fsr.proto"`
+* `pub const FSR_PROTO: &str`: its source.
+  * `package snapfire.fsr` extends `google.protobuf.MethodOptions` with `Cache cache = 50100` and `repeated string writes = 50101`.
+  * `Cache` holds `string ttl`, `repeated string tags`, `Scope scope` and `optional string stale`.
+  * `Scope` is `PRIVATE`, `SHARED` or `SUBJECT`.
+* `pub fn fsr_proto_include(dir: &Path) -> io::Result<PathBuf>`: writes `snapfire/fsr.proto` under `dir` and returns `dir`, for use as an include path.
 
-### GrpcTransport
+### `ImportedProto`
 
-* `fn new(base: &str, imported: &ImportedProto) -> Result<Self, String>`: `base` is `http://host:port` or `https://`; the channel opens lazily on the first call, so construction needs no runtime.
-* `fn with_channel(channel: tonic::transport::Channel, imported: &ImportedProto) -> Self`
-* `fn metadata(self, name: impl Into<String>, value: impl Into<String>) -> Self`: metadata every call carries, before the call's own.
-* `impl Transport`: the arguments become the request message field by field (`grpc::encode_request`), the response message becomes a value with every field present, unset messages and presence-tracking fields as `Null`, enums as their value names, `Timestamp` and `Duration` as strings (`grpc::decode_response`, `grpc::from_message`). Metadata entries with string values become request metadata.
-* Errors: an argument the message lacks or one outside its width is `Invalid` before the call; a method not in `methods` is `NotFound`; a channel that cannot be opened is `Unavailable`; a gRPC status maps through `kind_for_code` with the status message; a response that does not decode is `Internal`.
+What `import_proto` returns. `Debug`, `Clone`. `#[non_exhaustive]`.
 
-### kind_for_code
+* `pub contract: Contract`
+* `pub pool: prost_reflect::DescriptorPool`
+* `pub methods: Vec<(String, GrpcMethod)>`: keyed `service.method` as the contract names them.
 
-* `fn kind_for_code(code: tonic::Code) -> FailureKind`: `NotFound` to `NotFound`; `InvalidArgument`, `OutOfRange`, `FailedPrecondition` to `Invalid`; `Unauthenticated`, `PermissionDenied` to `Unauthorized`; `AlreadyExists`, `Aborted` to `Conflict`; `DeadlineExceeded` to `Timeout`; `Unavailable` to `Unavailable`; anything else to `Internal`.
+### `GrpcMethod`
+
+How one method reaches a gRPC server. `Debug`, `Clone`, `PartialEq`, `Eq`. `#[non_exhaustive]`.
+
+* `pub path: String`: `/pkg.Service/Method`.
+* `pub input: String`: the request message's full name in the pool.
+* `pub output: String`: the response message's full name in the pool.
+
+### `GrpcTransport`
+
+A transport to a gRPC server.
+
+* `pub fn new(base: &str, imported: &ImportedProto) -> Result<Self, String>`: `base` is `http://host:port` or `https://...`. The channel opens lazily on the first call.
+* `pub fn with_channel(channel: tonic::transport::Channel, imported: &ImportedProto) -> Self`
+* `pub fn metadata(self, name: impl Into<String>, value: impl Into<String>) -> Self`: metadata every call carries, before the call's own.
+* The arguments become the request message field by field. Call metadata with string values becomes request metadata. A key or value that is not valid gRPC metadata is skipped.
+* The response becomes a map with every field present. An unset message or presence-tracking field is `Null`, an enum is its value name and `Timestamp` and `Duration` are strings.
+* An argument the message lacks is `Invalid` before the call. So is one outside its field's width.
+* A method not in `methods` is `NotFound`.
+* A channel that cannot be opened is `Unavailable`.
+* A gRPC status maps through `kind_for_code`, with the status message.
+* A response that does not decode is `Internal`.
+* `pub fn grpc::encode_request(descriptor: &MessageDescriptor, args: &ValueMap) -> Result<Vec<u8>, String>`
+* `pub fn grpc::decode_response(descriptor: &MessageDescriptor, bytes: &[u8]) -> Result<Value, String>`
+* `pub fn grpc::from_message(message: &DynamicMessage) -> Result<Value, String>`
+
+### `grpc::kind_for_code`
+
+* `pub fn kind_for_code(code: tonic::Code) -> FailureKind`
+
+| Code | Kind |
+| --- | --- |
+| `NotFound` | `NotFound` |
+| `InvalidArgument`, `OutOfRange`, `FailedPrecondition` | `Invalid` |
+| `Unauthenticated` | `Unauthorized` |
+| `PermissionDenied` | `Forbidden` |
+| `ResourceExhausted` | `TooManyRequests` |
+| `Unimplemented` | `NotImplemented` |
+| `AlreadyExists`, `Aborted` | `Conflict` |
+| `DeadlineExceeded` | `Timeout` |
+| `Unavailable` | `Unavailable` |
+| anything else | `Internal` |
 
 ## 8. GraphQL
 
-Module `graphql`, behind the `graphql` feature, re-exported at the crate root. apollo-compiler parses and validates the document.
+Module `graphql`, re-exported at the crate root. Feature `graphql`.
 
-### import_graphql
+### `import_graphql`
 
-* `fn import_graphql(source: &str, service: &str) -> Result<ImportedGraphql, ImportError>`: `source` is one document holding the schema's SDL and the named operations. Every operation is validated against the schema; a document that does not parse or validate is `Malformed` with the compiler's diagnostics.
-* Each named query or mutation is a method of `service` named lowerCamel. Its variables are the parameters: a nullable variable or one with a default is `Optional` and may be left out.
-* The answer is the record `<Operation>Query` or `<Operation>Mutation`, one field per response key with `present` set, an alias naming its field. A nested selection is the record named by appending the PascalCased key: `PostBySlugQuery`, `PostBySlugQueryPost`, `PostBySlugQueryPostAuthor`. A fragment spread or an inline fragment on the selection's own type merges its fields.
-* Types: `Int` to `I32`, `Float` to `F64`, `String` and `ID` to `Str`, `Boolean` to `Bool`, a custom scalar to `Str`; a nullable type to `Optional`; a list to `List`; an enum to a union of unit variants under the enum's name; an input object to a record under its name.
-* `ImportError::Unsupported`: a subscription, an anonymous operation and a selection on an interface or a union that picks fields by the answer's type.
+* `pub fn import_graphql(source: &str, service: &str) -> Result<ImportedGraphql, ImportError>`: `source` is one document holding the schema's SDL and the named operations.
+* Every operation is validated against the schema. A document that does not parse or validate is `Malformed` with the compiler's diagnostics.
+* Each named query or mutation is a method of `service`, named lowerCamel.
+* Its variables are the parameters. A nullable variable or one with a default is `Optional`.
+* The return type is the record `<Operation>Query` or `<Operation>Mutation`, one field per response key with `present` set. An alias names its field.
+* A nested selection is the record named by appending the PascalCase key: `PostBySlugQuery`, `PostBySlugQueryPost`, `PostBySlugQueryPostAuthor`.
+* A fragment spread or inline fragment on the selection's own type merges its fields.
+* `Int` is `I32`, `Float` is `F64`, `String` and `ID` are `Str`, `Boolean` is `Bool` and a custom scalar is `Str`.
+* A nullable type is `Optional` and a list is `List`.
+* An enum is a union of unit variants under the enum's name. An input object is a record under its name.
+* A subscription, an anonymous operation and a selection on an interface or union that picks fields by the answer's type are `Unsupported`.
 
-### ImportedGraphql
+### `ImportedGraphql`
 
-* `pub struct ImportedGraphql { pub contract: Contract, pub service: String, pub operations: IndexMap<String, GraphqlOperation> }`, keyed by method name.
-* `pub struct GraphqlOperation { pub name: String, pub document: String }`: the operation's name and the text sent for it, the operation and the fragments it spreads directly or through another fragment.
+What `import_graphql` returns. `Debug`, `Clone`. `#[non_exhaustive]`.
 
-### GraphqlTransport
-
-* `fn new(endpoint: impl Into<String>, imported: &ImportedGraphql) -> Self`: a 30 second timeout.
-* `fn with_client(endpoint: impl Into<String>, imported: &ImportedGraphql, client: reqwest::Client) -> Self`
-* `fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self` and `fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: sent with every call.
-* `impl Transport`: a `POST` to `endpoint` with the JSON body `{ "query", "variables", "operationName" }`, the arguments as the variables and a unit variant as its tag. Metadata entries with string values become headers. The answer is the body's `data`.
-* Errors: a body carrying `errors` fails with the first one's `message`, its kind from `extensions.code`: `NOT_FOUND` to `NotFound`, `UNAUTHENTICATED` to `Unauthorized`, `FORBIDDEN` to `Forbidden`, `BAD_USER_INPUT`, `BAD_REQUEST`, `GRAPHQL_VALIDATION_FAILED` and `GRAPHQL_PARSE_FAILED` to `Invalid`, anything else `Internal`. Without `errors`, a non-2xx status maps through `kind_for_status`. A body without `data` is `Internal`. A method the document has no operation for is `Internal`.
-
-## 9. The Runtime Seam
-
-These types come from `snapfire_fsr_runtime` and are not re-exported here, but they appear in this crate's signatures.
-
-### ServiceHandle
-
-`ctx.services`. What `Services::bind` returns and the only service surface application code holds. `Clone` and `Default`.
-
-* `fn new(caller: Arc<dyn ServiceCaller>) -> Self`
-* `fn is_bound(&self) -> bool`
-* `fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`
-
-A default-constructed handle is unbound and every call through it fails with `FailureKind::Unavailable` rather than pretending to succeed.
-
-### ServiceCaller
-
-What a `ServiceHandle` wraps. `Send + Sync`. This crate's registry implements it privately, which is why `bind` is the only way to obtain one.
-
-* `fn call(&self, service: &str, method: &str, args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>>`
-
-### Identity
-
-Who the request is.
-
-* `pub subject: String`
-* `pub claims: ValueMap`
-
-### FailureKind
-
-The failure taxonomy every error at this boundary carries.
-
-* One kind per 4xx and 5xx status the IANA registry assigns, `Forbidden` 403 and `TooManyRequests` 429 among them; the runtime reference lists every one.
-* `fn as_str(&self) -> &'static str`, `fn http_status(&self) -> u16`, `fn from_name(&str) -> Option<FailureKind>` and `fn from_status(u16) -> FailureKind`
-* `kind_for_status(status)` is `FailureKind::from_status`: a backend's status reaches the page as its own kind. A 4xx other than 401, 403, 404 and 408 carries the response body in its message. `grpc::kind_for_code` reads `Unauthenticated` as `unauthorized`, `PermissionDenied` as `forbidden`, `ResourceExhausted` as `too_many_requests`, `Unimplemented` as `not_implemented`, `NotFound` as `not_found`, `InvalidArgument`, `OutOfRange` and `FailedPrecondition` as `invalid`, `AlreadyExists` and `Aborted` as `conflict`, `DeadlineExceeded` as `timeout`, `Unavailable` as `unavailable` and anything else as `internal`.
-
-### ServiceError
-
-* `pub kind: FailureKind`
+* `pub contract: Contract`
 * `pub service: String`
-* `pub method: String`
-* `pub message: String`
-* `fn new(kind: FailureKind, service: impl Into<String>, method: impl Into<String>, message: impl Into<String>) -> Self`
+* `pub operations: IndexMap<String, GraphqlOperation>`: keyed by method name.
 
-`Display` reads `{service}.{method} failed ({kind}): {message}`.
+### `GraphqlOperation`
+
+`Debug`, `Clone`. `#[non_exhaustive]`.
+
+* `pub name: String`: the operation's name.
+* `pub document: String`: the text sent for it, the operation and every fragment it spreads directly or through another fragment.
+
+### `GraphqlTransport`
+
+A transport that posts operations to one GraphQL endpoint.
+
+* `pub fn new(endpoint: impl Into<String>, imported: &ImportedGraphql) -> Self`: a 30 second timeout.
+* `pub fn with_client(endpoint: impl Into<String>, imported: &ImportedGraphql, client: reqwest::Client) -> Self`
+* `pub fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a header every call carries.
+* `pub fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a query parameter every call carries.
+* A call is a `POST` to `endpoint` with the JSON body `{ "query", "variables", "operationName" }`. The arguments are the variables and a unit variant is sent as its tag.
+* Call metadata becomes headers. A non-string entry fails the call as `Internal`.
+* The answer is the body's `data`.
+* A body carrying `errors` fails with the first one's `message`. Its kind comes from `extensions.code`: `NOT_FOUND` is `NotFound`, `UNAUTHENTICATED` is `Unauthorized`, `FORBIDDEN` is `Forbidden`, `BAD_USER_INPUT`, `BAD_REQUEST`, `GRAPHQL_VALIDATION_FAILED` and `GRAPHQL_PARSE_FAILED` are `Invalid` and anything else is `Internal`.
+* Without `errors`, a non-2xx status maps through `kind_for_status` with the status as the message.
+* A body without `data` is `Internal`. A method with no operation is `Internal`.
+* A send failure is `Timeout` when reqwest reports a timeout, else `Unavailable`.
+
+## 9. Builds Without a Feature
+
+### Stand-in types
+
+Without `grpc`, the crate root still exports `import_proto`, `ImportedProto` and `GrpcTransport`. Without `graphql`, it still exports `import_graphql`, `ImportedGraphql` and `GraphqlTransport`.
+
+* `import_proto` and `import_graphql` return `ImportError::Feature` naming the feature.
+* The stand-in `ImportedProto` and `ImportedGraphql` hold `pub contract: Contract` and can never be constructed.
+* The stand-in transports keep `new`, `metadata`, `header` and `query` with the same signatures. They implement `Transport` and can never be constructed.
 
 ## 10. TypeScript Declarations
 
-### declarations
+Module `typescript`.
 
-* `pub fn typescript::declarations(contract: &Contract) -> String`
-* One `export interface` per record, one `export type` per union with arms `{ tag: "x" }` or `{ tag: "x"; payload: T }`, then `export interface Services` with one nested object per service and one method per contract method. A method with no params takes no argument; one whose params are all optional takes `args?`. Optional fields print as `name?: T | null`. Names that are not identifiers are quoted.
+### `Flavour`
 
-### type_name
+Which side of the wire a declaration is for. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 
-* `pub fn typescript::type_name(ty: &Type) -> String`
-* Every integer width is `bigint`; `F32` and `F64` are `number`; `Str` is `string`; `Bytes` is `Uint8Array`; `Array(kind)` is the matching typed array; `Optional(T)` is `T | null`; `List(T)` is `T[]`, parenthesised when `T` is optional; `Map(T)` is `Record<string, T>`; `Named(n)` is `n`.
+* `Server`: every integer width is `bigint`.
+* `Client`: every integer width is `bigint | number`.
+
+### `typescript::declarations`
+
+* `pub fn declarations(contract: &Contract) -> String`: the server-side declarations.
+  * A generated-file header comment, then `type_declarations(contract, Flavour::Server)`, then `export interface Services` with one nested object per service and one method per contract method.
+  * A method returns `Promise<T>`. One with no params takes no argument. One whose params are all optional takes `args?`.
+* `pub fn type_declarations(contract: &Contract, flavour: Flavour) -> String`: every named type, without `Services`.
+  * One `export interface` per record. One `export type` per union with arms `{ tag: "x" }` or `{ tag: "x"; payload: T }`.
+  * An `Optional` field prints as `name?: T | null`. With `present` set it prints as `name: T | null`.
+  * A name that is not an identifier is quoted.
+
+### `typescript::type_name`
+
+* `pub fn type_name(ty: &Type) -> String`: `type_name_for(ty, Flavour::Server)`.
+* `pub fn type_name_for(ty: &Type, flavour: Flavour) -> String`
+
+| Type | TypeScript |
+| --- | --- |
+| `Null` | `null` |
+| `Bool` | `boolean` |
+| any integer width | `bigint` for `Server`, `bigint \| number` for `Client` |
+| `F32`, `F64` | `number` |
+| `Str` | `string` |
+| `Bytes` | `Uint8Array` |
+| `Array(kind)` | the matching typed array, `BigInt64Array` and `BigUint64Array` for the 64-bit kinds |
+| `Optional(T)` | `T \| null` |
+| `List(T)` | `T[]`, parenthesised when `T` is optional or a `Client` integer |
+| `Map(T)` | `Record<string, T>` |
+| `Named(n)` | `n` |
+| `Dynamic` | `unknown` |
 
 ## 11. Services Written in Rust
 
-What `#[service]` and `#[derive(Record)]` from `snapfire_fsr_macros` expand against. A marked `impl` gains a `Transport` answering its own `pub` methods and a `DeclaredService` carrying its contract; the host takes both through `HostBuilder::service`.
+Module `rust`, re-exported at the crate root. `#[service]` and `#[derive(Record)]` from `snapfire_fsr_macros` expand against these. A `#[service]` `impl` gains a `Transport` answering its `pub` methods and a `DeclaredService` carrying its contract.
 
-### ContractType
+### `ContractType`
 
-* `pub trait ContractType`
-* `fn contract_type() -> Type`: the contract type a Rust type crosses the boundary as.
-* `fn define(contract: &mut Contract)`: adds the records the type mentions to a contract; the default adds nothing.
-* Implemented for `()` as `Null`, `bool`, `i8`, `i16` and `i32` as `I32`, `u8`, `u16` and `u32` as `U32`, `i64` and `isize` as `I64`, `u64` and `usize` as `U64`, `i128`, `u128`, `f32`, `f64`, `String` and `str` as `Str`, `&T`, `Option<T>` as `Optional`, `Vec<T>` as `List`, `HashMap<String, T>`, `BTreeMap<String, T>` and `IndexMap<String, T>` as `Map` and `Result<T, ServiceError>` as `T`'s type. `#[derive(Record)]` implements it for a struct as `Named` with `define` inserting the record and each field's own records.
+The contract type a Rust type crosses the boundary as.
 
-### DeclaredService
+* `fn contract_type() -> Type`
+* `fn define(contract: &mut Contract)`: adds the records the type mentions. Default adds nothing.
 
-* `pub trait DeclaredService`
+| Rust type | Contract type |
+| --- | --- |
+| `()` | `Null` |
+| `bool` | `Bool` |
+| `i8`, `i16`, `i32` | `I32` |
+| `u8`, `u16`, `u32` | `U32` |
+| `i64`, `isize` | `I64` |
+| `u64`, `usize` | `U64` |
+| `i128` | `I128` |
+| `u128` | `U128` |
+| `f32` | `F32` |
+| `f64` | `F64` |
+| `String`, `str` | `Str` |
+| `snapfire_fsr_core::Dynamic` | `Dynamic` |
+| `&T` | `T`'s type |
+| `Option<T>` | `Optional` |
+| `Vec<T>` | `List` |
+| `HashMap<String, T>`, `BTreeMap<String, T>`, `IndexMap<String, T>` | `Map` |
+| `Result<T, ServiceError>` | `T`'s type |
+
+`#[derive(Record)]` implements it for a struct as `Named`, with `define` inserting the record and each field's own records.
+
+### `DeclaredService`
+
 * `const NAME: &'static str`: the service name, the type's name in snake case.
-* `fn contract() -> Contract`: the service under `NAME` with one method per `pub` fn, its parameters as fields under their camelCased names, its return as the type and the policy `#[cache]` and `#[writes]` carried, plus every record the signatures name. A parameter typed `Caller` is not a field.
+* `fn contract() -> Contract`: the service under `NAME` with one method per `pub` fn and every record the signatures name.
+  * Parameters are fields under their camelCase names. The return is the return type.
+  * `#[cache]` and `#[writes]` set the method's policy.
+  * A parameter typed `Caller` is not a field.
 
-### Caller
+### `Caller`
 
-Who called a `#[service]` method, as the call carries it. `Debug`, `Clone`. A method takes it as a parameter typed `Caller`, at most once; the dispatcher fills it from the `Call` and the contract does not list it.
+Who called a `#[service]` method. `Debug`, `Clone`. `#[non_exhaustive]`.
 
-* `pub service: String`, `pub method: String`
-* `pub identity: Option<Identity>`: the identity the session resolved, `None` for an anonymous visitor.
-* `pub metadata: ValueMap`: what the interceptors added to the call.
-* `fn of(call: &Call) -> Self`
-* `fn require(&self) -> Result<&Identity, ServiceError>`: the identity; `FailureKind::Unauthorized` naming the method when the caller is anonymous.
+* `pub service: String`
+* `pub method: String`
+* `pub identity: Option<Identity>`: `None` for an anonymous visitor.
+* `pub metadata: ValueMap`: what the interceptors added.
+* `pub fn of(call: &Call) -> Self`
+* `pub fn require(&self) -> Result<&Identity, ServiceError>`: `FailureKind::Unauthorized` naming the method when the caller is anonymous.
+* A method takes it as a parameter typed `Caller`, at most once. The contract does not list it.
+* The call's credentials are not on it.
 
-The call's `credentials` are not on it, since a method is application code and custody stays in the transport.
+## 12. Types From Other Crates
 
-## 12. Error Handling
+### Runtime types
 
-### ContractError
+`ServiceHandle`, `ServiceCaller`, `Identity`, `FailureKind` and `ServiceError` are `snapfire_fsr_runtime`'s and are not re-exported here. The [runtime reference](../runtime/API_REFERENCE.md) documents the first two under Services and the rest under Error Handling.
 
-What every checking call returns. `Debug`, `Clone`, `PartialEq`, `Eq` and `std::error::Error`.
+* A default `ServiceHandle` is unbound. Every call through it fails as `FailureKind::Unavailable`.
 
-The variants and their `Display` forms:
+### `TokenCell`
 
-```
-UnknownService(String)                     no service `{0}` in the contract
-UnknownMethod { service, method }          service `{service}` has no method `{method}`
-UnknownType { path, name }                 contract names type `{name}` at {path}, which it does not define
-UnknownField { path, field }               {path}: unknown field `{field}`
-MissingField { path, field }               {path}: missing field `{field}`
-UnknownVariant { path, tag, expected }     {path}: unknown variant `{tag}`, expected one of {expected}
-Mismatch { path, expected, found }         {path}: expected {expected}, found {found}
-DuplicateType { name, file }               type `{name}` is already defined and `{file}` defines it again
-DuplicateService { name, file }            service `{name}` is already defined and `{file}` defines it again
-```
+`snapfire_fsr_session::TokenCell`, documented in the [session reference](../session/API_REFERENCE.md). It implements `Credentials`.
 
-In `UnknownVariant`, `expected` is the union's declared tags joined with a comma and a space. In `Mismatch`, `expected` is `Type::describe` and `found` names the value's own shape, with integers carrying their value:
+## 13. Error Handling
 
-```
-int 7        uint 340282366920938463463374607431768211455        f64
-str          bytes        list        map        null        bool
-array<f32>   variant `trial`          ref
-```
+### `ContractError`
 
-The registry maps these onto `FailureKind` before application code sees them:
+Returned by every checking call and by `merge` and `adopt`. `Debug`, `Clone`, `PartialEq`, `Eq`, `std::error::Error`. `#[non_exhaustive]`.
 
-| Where | ContractError | FailureKind |
+| Variant | `Display` |
+| --- | --- |
+| `UnknownService(String)` | ``no service `{0}` in the contract`` |
+| `Cache { path, reason }` | `{path}: {reason}` |
+| `UnknownMethod { service, method }` | ``service `{service}` has no method `{method}` `` |
+| `UnknownType { path, name }` | ``contract names type `{name}` at {path}, which it does not define`` |
+| `UnknownField { path, field }` | ``{path}: unknown field `{field}` `` |
+| `MissingField { path, field }` | ``{path}: missing field `{field}` `` |
+| `UnknownVariant { path, tag, expected }` | ``{path}: unknown variant `{tag}`, expected one of {expected}`` |
+| `Mismatch { path, expected, found }` | `{path}: expected {expected}, found {found}` |
+| `DuplicateType { name, file }` | ``type `{name}` is already defined and `{file}` defines it again`` |
+| `DuplicateService { name, file }` | ``service `{name}` is already defined and `{file}` defines it again`` |
+
+Every field is a `String`.
+
+* In `UnknownVariant`, `expected` is the union's tags joined with `, `.
+* In `Mismatch`, `expected` is `Type::describe` or `no payload`.
+* In `Mismatch`, `found` is the value's shape: `null`, `undefined`, `bool`, `int <n>`, `uint <n>`, `f32`, `f64`, `str`, `bytes`, `array<kind>`, `list`, `map`, ``variant `tag` ``, `ref` or `no payload`.
+
+How the registry maps them onto `FailureKind`:
+
+| Where | `ContractError` | `FailureKind` |
 | --- | --- | --- |
 | `check_call` | `UnknownService`, `UnknownMethod` | `NotFound` |
 | `check_call` | every other variant | `Invalid` |
 | `check_return` | any variant | `Internal` |
 
-A contract-breaking response is `Internal` because it is the backend's defect, not the caller's.
+### `DataCacheError`
+
+Returned by `DataCache::from_contract` and `ServicesBuilder::try_build`. `Debug`, `std::error::Error`. `#[non_exhaustive]`.
+
+* `Ttl { method: String, ttl: String }`: ``{method}: cache.ttl `{ttl}` is not a duration``.
+* `Stale { method: String, stale: String }`: ``{method}: cache.stale `{stale}` is not a duration``.
+* `StaleScope { method: String }`: `stale` on a scope other than `Shared`.
+* `Build { method: String, error: String }`: `fibre_cache` refused the policy.
+
+### `ImportError`
+
+Returned by `import`, `import_proto`, `import_proto_source` and `import_graphql`. `Debug`, `Clone`, `PartialEq`, `Eq`, `std::error::Error`. `#[non_exhaustive]`.
+
+* `Malformed { at: String, what: String }`: `{at}: {what}`. A contract that fails `validate` after an OpenAPI import is `Malformed` at `#`.
+* `Unsupported { at: String, what: String }`: `{at}: {what} is not supported`.
+* `Feature { at: String, contract: &'static str, feature: &'static str }`: the importer is not in this build. ``{at}: a {contract} contract needs the `{feature}` feature of snapfire_fsr_service, which this build does not turn on``.
