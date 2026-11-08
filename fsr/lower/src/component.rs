@@ -2971,6 +2971,29 @@ pub(crate) enum FunctionBody<'a> {
   Expr(&'a js::Expr),
 }
 
+/// A function a handler calls by name. One an inlined custom hook declared carries the hook's scope, since its body reads the hook's names wherever the caller runs it.
+#[derive(Clone)]
+pub(crate) struct HandlerFn<'p> {
+  params: Vec<js::Pat>,
+  body: FunctionBody<'p>,
+  hook: Option<Rc<HookScope<'p>>>,
+}
+
+impl<'p> From<(Vec<js::Pat>, FunctionBody<'p>)> for HandlerFn<'p> {
+  fn from((params, body): (Vec<js::Pat>, FunctionBody<'p>)) -> Self {
+    Self { params, body, hook: None }
+  }
+}
+
+/// What one inlined custom hook call bound, as its body saw it: its module, its parameters, its locals and the names the inlining renamed.
+pub(crate) struct HookScope<'p> {
+  parsed: &'p Parsed,
+  meanings: Option<Rc<crate::meaning::Meanings>>,
+  scope: Vec<(String, Expr)>,
+  declared_below: Vec<(String, String)>,
+  renames: Vec<(String, String)>,
+}
+
 /// What `const Lazy = island(Chart, { when, mode })` at module scope names.
 pub(crate) struct IslandAlias {
   pub target: String,
@@ -6757,7 +6780,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let declared = self.lowerer.declared_below.len();
     self.lowerer.parsed = parsed;
     let outer_meanings = std::mem::replace(&mut self.lowerer.meanings, parsed.meanings.get().cloned());
-    let returned = self.hook_body(&prefix, &params, body, args);
+    let fns: std::collections::HashSet<String> = self.handler_fns.keys().cloned().collect();
+    let mut renames = Vec::new();
+    let returned = self.hook_body(&prefix, &params, body, args, &mut renames);
+    let scope = Rc::new(HookScope { parsed, meanings: self.lowerer.meanings.clone(), scope: self.lowerer.scope[depth..].to_vec(), declared_below: self.lowerer.declared_below[declared..].to_vec(), renames });
+    for (name, f) in self.handler_fns.iter_mut() {
+      if f.hook.is_none() && !fns.contains(name) {
+        f.hook = Some(scope.clone());
+      }
+    }
     self.lowerer.parsed = outer;
     self.lowerer.meanings = outer_meanings;
     self.lowerer.hoisting = hoisting;
@@ -6778,7 +6809,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(None)
   }
 
-  fn hook_body(&mut self, prefix: &str, params: &[js::Pat], body: FunctionBody<'p>, args: Vec<Expr>) -> Lowered<Returned> {
+  fn hook_body(&mut self, prefix: &str, params: &[js::Pat], body: FunctionBody<'p>, args: Vec<Expr>, renames: &mut Vec<(String, String)>) -> Lowered<Returned> {
     for (i, param) in params.iter().enumerate() {
       let mut arg = args.get(i).cloned().unwrap_or(Expr::Lit(Lit::Null));
       if !plain(&arg) {
@@ -6793,7 +6824,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       FunctionBody::Block(stmts) => stmts,
     };
     let floor = self.lowerer.scope.len();
-    let mut renames: Vec<(String, String)> = Vec::new();
     let mut early: Vec<(Expr, Expr)> = Vec::new();
     let guard = |early: &[(Expr, Expr)], expr: Expr| match early.iter().map(|(cond, _)| cond.clone()).reduce(|a, b| Expr::Logic(LogicOp::Or, Box::new(a), Box::new(b))) {
       None => expr,
@@ -6804,7 +6834,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if let js::Stmt::Decl(js::Decl::Fn(f)) = stmt {
         let bound = format!("{prefix}{}", f.ident.sym);
         if let Some(body) = &f.function.body {
-          self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+          self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)).into());
           self.lowerer.local_fns.push((f.ident.sym.to_string(), (*f.function).clone()));
         }
         self.lowerer.browser_functions.push(f.ident.sym.to_string());
@@ -6818,7 +6848,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         js::Stmt::Decl(js::Decl::Var(var)) => {
           for decl in &var.decls {
             let from = self.pending_lets.len();
-            self.hook_let(decl, prefix, &mut renames)?;
+            self.hook_let(decl, prefix, renames)?;
             for pending in &mut self.pending_lets[from..] {
               if let Stmt::Let { expr, .. } = pending {
                 *expr = guard(&early, std::mem::replace(expr, Expr::Lit(Lit::Null)));
@@ -6851,7 +6881,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         js::Stmt::Return(ret) => {
           let returned = match ret.arg.as_deref() {
-            Some(arg) => self.returned(arg, &renames)?,
+            Some(arg) => self.returned(arg, renames)?,
             None => Returned::Value(Expr::Lit(Lit::Null)),
           };
           return self.after_early(early, returned, ret.span);
@@ -6862,7 +6892,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             js::Stmt::Throw(thrown) => throw_expr(&mut self.lowerer, thrown)?,
             js::Stmt::Return(ret) => match ret.arg.as_deref() {
               None => Expr::Lit(Lit::Null),
-              Some(arg) => match self.returned(arg, &renames)? {
+              Some(arg) => match self.returned(arg, renames)? {
                 Returned::Value(value) => value,
                 _ => return Err(self.lowerer.residue(ret.span, "an early `return` of handlers from a custom hook")),
               },
@@ -6923,7 +6953,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             ("useMemo", js::Pat::Ident(id)) => value(self, &mut bound, &id.id.sym),
             ("useCallback", js::Pat::Ident(id)) => {
               if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) {
-                self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((arrow.params.clone(), arrow_body(arrow)));
+                self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((arrow.params.clone(), arrow_body(arrow)).into());
                 bound.push((id.id.sym.to_string(), format!("{prefix}{}", id.id.sym)));
               }
             }
@@ -6933,11 +6963,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         match (&decl.name, init) {
           (js::Pat::Ident(id), Some(js::Expr::Arrow(arrow))) => {
-            self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((arrow.params.clone(), arrow_body(arrow)));
+            self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((arrow.params.clone(), arrow_body(arrow)).into());
           }
           (js::Pat::Ident(id), Some(js::Expr::Fn(f))) => {
             if let Some(body) = &f.function.body {
-              self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((patterns(&f.function), FunctionBody::Block(&body.stmts)));
+              self.handler_fns.entry(format!("{prefix}{}", id.id.sym)).or_insert((patterns(&f.function), FunctionBody::Block(&body.stmts)).into());
             }
           }
           (pattern, _) => {
@@ -7027,7 +7057,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if let js::Expr::Arrow(arrow) = e {
         this.hook_calls += 1;
         let bound = format!("$hook{}", this.hook_calls);
-        this.handler_fns.insert(bound.clone(), (arrow.params.clone(), arrow_body(arrow)));
+        this.handler_fns.insert(bound.clone(), (arrow.params.clone(), arrow_body(arrow)).into());
         this.browser_function(bound.clone());
         return Ok(Part::Handler(bound));
       }
@@ -7223,7 +7253,7 @@ struct ComponentLowerer<'a, 'p> {
   /// Each setter and the state it sets.
   setters: Vec<(String, String)>,
   /// Handler functions declared in the component, by name, for `onClick={add}`.
-  handler_fns: HashMap<String, (Vec<js::Pat>, FunctionBody<'p>)>,
+  handler_fns: HashMap<String, HandlerFn<'p>>,
   /// The handlers lowered so far; an element's `$on:` marker holds an index into it.
   lowered_handlers: Vec<Handler>,
   /// What a handler's parameters stand for in place of `$event` alone: `useInput`'s `input` and `key`.
@@ -7808,7 +7838,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         for stmt in stmts.iter() {
           if let js::Stmt::Decl(js::Decl::Fn(f)) = stmt {
             if let Some(body) = &f.function.body {
-              self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+              self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)).into());
               self.lowerer.local_fns.push((f.ident.sym.to_string(), (*f.function).clone()));
             }
           }
@@ -7882,7 +7912,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             js::Stmt::Decl(js::Decl::Fn(f)) => {
               self.browser_function(f.ident.sym.to_string());
               if let Some(body) = &f.function.body {
-                self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+                self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)).into());
               }
             }
             js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
@@ -8440,7 +8470,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           }
           Some(("useCallback", call)) => {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
-              self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+              self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)).into());
             }
             if matches!(call.args.get(1).map(|a| &*a.expr), Some(js::Expr::Array(deps)) if deps.elems.iter().all(|d| self.never_changes(d))) {
               self.stable_callbacks.push(local.clone());
@@ -8480,7 +8510,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           Some(("useLocale", _)) => Expr::Locale,
           Some(("useEffectEvent", call)) => {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
-              self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+              self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)).into());
             }
             self.browser_function(local);
             return Ok(None);
@@ -8511,7 +8541,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           _ if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) => {
             match init {
               js::Expr::Arrow(arrow) => {
-                self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+                self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)).into());
                 if self.lowerer.reaches(Reach::Terminal) {
                   let unbound = self.lowerer.unbound.take();
                   match self.lowerer.lambda(arrow) {
@@ -8526,7 +8556,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               }
               js::Expr::Fn(f) => {
                 if let Some(body) = &f.function.body {
-                  self.handler_fns.insert(local.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+                  self.handler_fns.insert(local.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)).into());
                 }
               }
               _ => {}
@@ -9050,7 +9080,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let js::Expr::Ident(id) = &**callee else { return None };
     let name = id.sym.to_string();
     let (params, body) = match self.handler_fns.get(&name) {
-      Some(declared) => declared.clone(),
+      Some(declared) => (declared.params.clone(), declared.body),
       None if !self.lowerer.scope.iter().any(|(n, _)| *n == name) => match find_function(self.lowerer.parsed, &name)? {
         Found::Declared(params, stmts, _) => (params, FunctionBody::Block(stmts)),
         Found::Arrow(arrow) => (arrow.params.clone(), arrow_body(arrow)),
@@ -9898,8 +9928,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     let declared: Vec<(String, String)> = self.effect_fns.clone();
     for (name, event) in &declared {
-      let (params, body) = self.handler_fns.get(name).cloned().expect("an effect function is a handler function");
-      let lowered = self.handler_fn(&params, body, arrow.span)?;
+      let f = self.handler_fns.get(name).cloned().expect("an effect function is a handler function");
+      let lowered = self.in_hook(f.hook, |this| this.handler_fn(&f.params, f.body, arrow.span))?;
       self.lowered_handlers.push(Handler { event: event.clone(), body: lowered });
     }
     for stmt in &stmts {
@@ -9931,7 +9961,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// An effect's function as a handler the terminal can call, `call:<n>`, and a function the effect's other handlers inline.
   fn effect_fn(&mut self, name: &str, params: Vec<js::Pat>, body: FunctionBody<'p>) {
     let event = snapfire_fsr_ir::host::Event::Call(self.lowered_handlers.len() + self.effect_fns.len()).name();
-    self.handler_fns.insert(name.to_owned(), (params, body));
+    self.handler_fns.insert(name.to_owned(), (params, body).into());
     self.effect_fns.push((name.to_owned(), event));
   }
 
@@ -10011,10 +10041,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       js::Expr::Ident(id) => {
         let name = id.sym.to_string();
-        let Some((params, body)) = self.handler_fns.get(&name).cloned() else {
+        let Some(f) = self.handler_fns.get(&name).cloned() else {
           return Err(self.lowerer.residue(id.span, format!("`{name}` is not a handler this component declares")));
         };
-        self.handler_fn(&params, body, id.span)
+        self.in_hook(f.hook, |this| this.handler_fn(&f.params, f.body, id.span))
       }
       other => Err(self.lowerer.residue(other.span(), "a handler that is not an arrow or a name")),
     }
@@ -10065,6 +10095,24 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
+  /// Runs `lower` inside the custom hook call that declared the function it lowers, so the function's body reads the hook's module, parameters, locals and renamed names. A function no hook declared lowers where it stands.
+  fn in_hook<R>(&mut self, hook: Option<Rc<HookScope<'p>>>, lower: impl FnOnce(&mut Self) -> R) -> R {
+    let Some(hook) = hook else { return lower(self) };
+    let parsed = std::mem::replace(&mut self.lowerer.parsed, hook.parsed);
+    let meanings = std::mem::replace(&mut self.lowerer.meanings, hook.meanings.clone());
+    let (scope, below, renames) = (self.lowerer.scope.len(), self.lowerer.declared_below.len(), self.hook_renames.len());
+    self.lowerer.scope.extend(hook.scope.iter().cloned());
+    self.lowerer.declared_below.extend(hook.declared_below.iter().cloned());
+    self.hook_renames.extend(hook.renames.iter().cloned());
+    let result = lower(self);
+    self.lowerer.parsed = parsed;
+    self.lowerer.meanings = meanings;
+    self.lowerer.scope.truncate(scope);
+    self.lowerer.declared_below.truncate(below);
+    self.hook_renames.truncate(renames);
+    result
+  }
+
   /// A handler's statements into `walk`, under the reach it holds: an inlined handler runs under the branch that called it.
   fn handler_fn_into(&mut self, params: &[js::Pat], body: FunctionBody<'p>, walk: &mut HandlerWalk) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
@@ -10091,7 +10139,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// Statements of a handler or of one of its branches. True when the block ended in a bare `return`, which makes what follows the branch reachable only when the branch was not taken.
   fn handler_block(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk) -> Lowered<bool> {
-    let mut declared: Vec<(String, Option<(Vec<js::Pat>, FunctionBody<'p>)>)> = Vec::new();
+    let mut declared: Vec<(String, Option<HandlerFn<'p>>)> = Vec::new();
     let result = self.handler_stmts(stmts, walk, &mut declared);
     for (name, outer) in declared.into_iter().rev() {
       match outer {
@@ -10103,7 +10151,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// [`Self::handler_block`]'s statements; a `const` arrow the rest calls by name is a function the calls inline, recorded in `declared` with what it shadowed.
-  fn handler_stmts(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk, declared: &mut Vec<(String, Option<(Vec<js::Pat>, FunctionBody<'p>)>)>) -> Lowered<bool> {
+  fn handler_stmts(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk, declared: &mut Vec<(String, Option<HandlerFn<'p>>)>) -> Lowered<bool> {
     for (at, stmt) in stmts.iter().enumerate() {
       match stmt {
         js::Stmt::Expr(e) => self.handler_stmt(&e.expr, walk)?,
@@ -10113,7 +10161,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             let local = name.id.sym.to_string();
             if let Some(js::Expr::Arrow(arrow)) = decl.init.as_deref().map(crate::meaning::bare) {
               if var.kind == js::VarDeclKind::Const && called_names(&stmts[at + 1..]).contains(&local) && !listened_names(&stmts[at + 1..]).contains(&local) {
-                let outer = self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+                let outer = self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)).into());
                 declared.push((local, outer));
                 continue;
               }
@@ -10164,7 +10212,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           let params: Vec<js::Pat> = f.function.params.iter().map(|p| p.pat.clone()).collect();
           let body = FunctionBody::Block(&f.function.body.as_ref().expect("checked").stmts);
           if !(self.lowerer.reaches(Reach::Process) && listened_names(&stmts[at + 1..]).contains(&local)) {
-            let outer = self.handler_fns.insert(local.clone(), (params, body));
+            let outer = self.handler_fns.insert(local.clone(), (params, body).into());
             declared.push((local, outer));
             continue;
           }
@@ -10701,12 +10749,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               let js::Expr::Ident(target) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(call.span, "a timer a handler starts on something other than a function its effect or its component declares")) };
               let held = self.handler_fns.get(target.sym.as_ref()).cloned();
               let Some((_, event)) = self.effect_fns.iter().find(|(f, _)| *f == *target.sym).cloned() else {
-                let Some((params, body)) = held else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect or its component declares", target.sym))) };
+                let Some(HandlerFn { params, body, hook }) = held else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect or its component declares", target.sym))) };
                 let binds = params.iter().filter_map(|param| match param {
                   js::Pat::Ident(id) => Some((id.id.sym.to_string(), Expr::Lit(Lit::Undefined))),
                   _ => None,
                 });
-                let continuation = self.body_continuation(body, binds.collect(), call.span)?;
+                let continuation = self.in_hook(hook, |this| this.body_continuation(body, binds.collect(), call.span))?;
                 self.start_timer(repeats, continuation, delay, walk)?;
                 return Ok(());
               };
@@ -10752,7 +10800,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               walk.set(state, value);
               return Ok(());
             }
-            if let Some((params, body)) = self.handler_fns.get(&name).cloned() {
+            if let Some(HandlerFn { params, body, hook }) = self.handler_fns.get(&name).cloned() {
               let before = (walk.out.len(), walk.patch.clone());
               let hoisting = self.lowerer.hoisting.take();
               let mut args = Vec::with_capacity(call.args.len());
@@ -10760,7 +10808,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 args.push(self.lowerer.expr(&arg.expr)?);
               }
               self.event_binds = Some(args);
-              let result = self.handler_fn_into(&params, body, walk);
+              let result = self.in_hook(hook, |this| this.handler_fn_into(&params, body, walk));
               self.lowerer.hoisting = hoisting;
               result?;
               if walk.out.len() == before.0 && walk.patch == before.1 {
@@ -11473,7 +11521,7 @@ fn map_call(call: &js::CallExpr) -> Option<(&js::Expr, &js::ArrowExpr)> {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use snapfire_fsr_ir::ast::CompareOp;
+  use snapfire_fsr_ir::ast::{ArithOp, CompareOp};
 
   fn app(files: &[(&str, &str)]) -> PathBuf {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -12701,6 +12749,60 @@ export default function Order({ id }: { id: number }) {
     assert_eq!(page.handlers.len(), 1, "the returned setter is a handler the button's arrow calls: {:?}", page.render);
     let Tmpl::Element { attrs, .. } = &page.render else { panic!("{:?}", page.render) };
     assert!(attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n == "$on:click")), "{attrs:?}");
+  }
+
+  const NAME_HOOK: &str = "import { useState } from \"react\";\nexport function useName() {\n  const [name, setName] = useState(\"\");\n  const update = (next: string) => {\n    setName(next);\n  };\n  return [name, update];\n}\n";
+
+  const PREFIX_HOOK: &str = "import { useState } from \"react\";\nexport function useName(prefix: string) {\n  const [name, setName] = useState(\"\");\n  const update = (next: string) => {\n    setName(prefix + next);\n  };\n  return [name, update];\n}\n";
+
+  fn sets(body: &Body) -> Vec<(String, Expr)> {
+    let Some(Stmt::Return(Expr::Object(fields))) = body.last() else { panic!("{body:?}") };
+    fields.iter().map(|f| match f { Entry::Field(n, e) => (n.clone(), e.clone()), other => panic!("{other:?}") }).collect()
+  }
+
+  #[test]
+  fn a_function_a_custom_hook_returns_calls_the_hook_s_own_setter_when_the_caller_binds_it_to_the_setter_s_name() {
+    let files = [
+      ("src/hooks.ts", NAME_HOOK),
+      ("routes/a/page.tsx", "import { useName } from \"../../src/hooks\";\nexport default function A() {\n  const [name, setName] = useName();\n  return <button onClick={() => setName(\"b\")}>{name}</button>;\n}\n"),
+    ];
+    let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap().1;
+    assert_eq!(page.state, vec!["useName$1$name".to_owned()], "{:?}", page.body);
+    assert_eq!(page.handlers.len(), 1, "{:?} {:?}", page.body, page.render);
+    let written = sets(&page.handlers[0].body);
+    assert_eq!(written.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), vec!["useName$1$name"], "{written:?}");
+    assert!(format!("{:?}", written[0].1).contains("\"b\""), "{written:?}");
+  }
+
+  #[test]
+  fn a_function_a_custom_hook_returns_passed_to_a_child_s_prop_calls_the_hook_s_own_setter() {
+    let files = [
+      ("src/hooks.ts", NAME_HOOK),
+      ("src/Field.tsx", "export function Field({ onName }: { onName: (name: string) => void }) {\n  return <form onSubmit={(e) => {\n    e.preventDefault();\n    onName(\"b\");\n  }}><button>Set</button></form>;\n}\n"),
+      ("routes/a/page.tsx", "import { useName } from \"../../src/hooks\";\nimport { Field } from \"../../src/Field\";\nexport default function A() {\n  const [name, setName] = useName();\n  return <main><p>{name}</p><Field onName={setName} /></main>;\n}\n"),
+    ];
+    let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap().1;
+    assert_eq!(page.state, vec!["useName$1$name".to_owned()], "{:?}", page.body);
+    let written: Vec<_> = page.handlers.iter().flat_map(|h| sets(&h.body)).map(|(n, _)| n).collect();
+    assert_eq!(written, vec!["useName$1$name".to_owned()], "{:?}", page.handlers);
+  }
+
+  #[test]
+  fn a_function_a_custom_hook_returns_reads_the_hook_s_parameters_as_the_call_passed_them() {
+    let files = [
+      ("src/hooks.ts", PREFIX_HOOK),
+      ("routes/a/page.tsx", "import { useName } from \"../../src/hooks\";\nexport default function A() {\n  const prefix = \"page\";\n  const [name, update] = useName(\"x-\");\n  return <button onClick={() => update(prefix)}>{name}</button>;\n}\n"),
+    ];
+    let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap().1;
+    assert_eq!(page.handlers.len(), 1, "{:?} {:?}", page.body, page.render);
+    let written = sets(&page.handlers[0].body);
+    assert_eq!(written.len(), 1, "{written:?}");
+    assert_eq!(written[0].0, "useName$1$name");
+    assert_eq!(written[0].1, Expr::Arith(ArithOp::Add, Box::new(Expr::lit_str("x-")), Box::new(Expr::Var("prefix".to_owned()))), "the hook's `prefix` is the call's \"x-\" and the argument is the page's own `prefix`");
+    assert!(page.body.contains(&Stmt::Let { name: "prefix".to_owned(), expr: Expr::lit_str("page") }), "{:?}", page.body);
   }
 
   #[test]
