@@ -80,9 +80,11 @@ fn declared_members(module: &str) -> String {
 }
 
 /// The file under [`TERMINAL_TYPES`] holding a hash of what its declarations were written from.
+#[cfg(feature = "terminal")]
 const TERMINAL_STAMP: &str = ".written-from";
 
 /// The TypeScript FSR provides a terminal page, each under the name its declaration takes: Ink's hooks as `hooks`, each companion under its file's name.
+#[cfg(feature = "terminal")]
 fn terminal_sources() -> Vec<(String, &'static str)> {
   let mut sources = vec![("hooks.tsx".to_owned(), snapfire_fsr_lower::terminal::INK_SOURCE)];
   for (_, file, source) in snapfire_fsr_lower::terminal::COMPANIONS {
