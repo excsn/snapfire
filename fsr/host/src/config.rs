@@ -3217,7 +3217,7 @@ impl Config {
     let mut found = Vec::new();
     for source in &self.sources {
       let Ok(text) = std::fs::read_to_string(source) else { continue };
-      let Ok(toml::Value::Table(table)) = text.parse::<toml::Value>() else { continue };
+      let Ok(table) = text.parse::<toml::Table>() else { continue };
       let Some(toml::Value::Table(secrets)) = table.get("secrets") else { continue };
       for (name, entry) in secrets {
         if let Some(toml::Value::String(_)) = entry.get("value") {

@@ -544,9 +544,9 @@ dependencies = [
 
 [[package]]
 name = "bolero"
-version = "0.13.7"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "327b100d52fa36bfa0008774e7ccfd6cce310fb9fcd7d05e90b0ef03a87dfa0a"
+checksum = "0ff44d278fc0062c95327087ed96b3d256906d1d8f579e534a3de8d6b386913a"
 dependencies = [
  "bolero-afl",
  "bolero-engine",
@@ -560,9 +560,9 @@ dependencies = [
 
 [[package]]
 name = "bolero-afl"
-version = "0.13.2"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e84f1752ab38853c1c6e68eaa1f04b290651d3c18e4357f9c66a6fdcfbae933"
+checksum = "d9bf4cbd0bacf9356d3c7e5d9d088480f2076ba3c595c15ee9a6a378cdd7b297"
 dependencies = [
  "bolero-engine",
  "cc",
@@ -570,9 +570,9 @@ dependencies = [
 
 [[package]]
 name = "bolero-engine"
-version = "0.13.6"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "194f1920d9462a13cd03dce3b09142d351d0cf2166a3cf10933aa218fec942af"
+checksum = "dca199170a7c92c669c1019f9219a316b66bcdcfa4b36cac5a460a4c1a851aba"
 dependencies = [
  "anyhow",
  "bolero-generator",
@@ -584,9 +584,9 @@ dependencies = [
 
 [[package]]
 name = "bolero-generator"
-version = "0.13.6"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8990cd995c46a12a728248a858d1696ff499e8e4725affbeb3ed703931d5822b"
+checksum = "98a5782f2650f80d533f58ec339c6dce4cc5428f9c2755894f98156f52af81f2"
 dependencies = [
  "bolero-generator-derive",
  "either",
@@ -597,11 +597,10 @@ dependencies = [
 
 [[package]]
 name = "bolero-generator-derive"
-version = "0.13.5"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b73d4128e5945a4db71b88be60b9b1ef4e970fa84c82a01d20dd1346550ba04a"
+checksum = "9a21a3b022507b9edd2050caf370d945e398c1a7c8455531220fa3968c45d29e"
 dependencies = [
- "indexmap",
  "proc-macro-crate 2.0.2",
  "proc-macro2",
  "quote",
@@ -610,27 +609,27 @@ dependencies = [
 
 [[package]]
 name = "bolero-honggfuzz"
-version = "0.13.2"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202965f4792d09444632132c599d4340e53a134afed0c2834bda05d0dc183717"
+checksum = "9a118ef27295eddefadc6a99728ee698d1b18d2e80dc4777d21bee3385096ffd"
 dependencies = [
  "bolero-engine",
 ]
 
 [[package]]
 name = "bolero-kani"
-version = "0.13.2"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f688a783b39f74e615161baa99296f8bb4c45e48ec15f9461de48db6a0a84d6"
+checksum = "852ea5784a9f3e68bfd302ca80b8b863bce140593eb5770fee6ab110899c28fc"
 dependencies = [
  "bolero-engine",
 ]
 
 [[package]]
 name = "bolero-libfuzzer"
-version = "0.13.2"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7acc354e1a5b6f20dceb93470016cce02903b77ca00cf445fa4f1a0a5d73f8ed"
+checksum = "858dc57c11725c52662501fa79fdbc6f7050339a05ca1bf1e587add0fed40d62"
 dependencies = [
  "bolero-engine",
  "cc",
@@ -2068,12 +2067,12 @@ checksum = "2d3a73c82a0b0747dba739b380c046a140b5ae747234bf701df3460282da7193"
 
 [[package]]
 name = "indexmap"
-version = "2.11.2"
+version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24855426e2ca0eb0c416e7e1f548b11f7547805faeed2a3d3e961286b51f7d53"
+checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
- "hashbrown 0.15.5",
+ "hashbrown 0.17.1",
  "serde",
  "serde_core",
 ]
@@ -4157,11 +4156,11 @@ dependencies = [
 
 [[package]]
 name = "serde_spanned"
-version = "0.6.9"
+version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
+checksum = "9c187e0a369471c550af028cba56d4f4fa2a489ad28151ae95a4d340a2a8b782"
 dependencies = [
- "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -5282,14 +5281,17 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.8.2"
+version = "1.2.1+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "185d8ab0dfbb35cf1399a6344d8484209c088f75f8f68230da55d48d95d43e3d"
+checksum = "d5755c51863cdac711f1956baf8eb9588e060755f7d3c4c979e70ea1e1f32cd7"
 dependencies = [
- "serde",
+ "indexmap",
+ "serde_core",
  "serde_spanned",
- "toml_datetime 0.6.3",
- "toml_edit 0.20.2",
+ "toml_datetime 1.1.3+spec-1.1.0",
+ "toml_parser",
+ "toml_writer",
+ "winnow 1.0.5",
 ]
 
 [[package]]
@@ -5297,9 +5299,6 @@ name = "toml_datetime"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cda73e2f1397b1262d6dfdcef8aafae14d1de7748d66822d3bfeeb6d03e5e4b"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "toml_datetime"
@@ -5311,14 +5310,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml_datetime"
+version = "1.1.3+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "173f25c883cd2176a2d8212155638c0a60d484a9d84546d270866f40f56b6e49"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "toml_edit"
 version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "396e4d48bbb2b7554c944bde63101b5ae446cff6ec4a24227428f15eb72ef338"
 dependencies = [
  "indexmap",
- "serde",
- "serde_spanned",
  "toml_datetime 0.6.3",
  "winnow 0.5.40",
 ]
@@ -5343,6 +5349,12 @@ checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow 1.0.5",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.2.0+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tower"

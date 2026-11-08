@@ -27,7 +27,7 @@ thiserror = "2"
 syntect = { version = "5.3", default-features = false, features = ["html", "regex-fancy"], optional = true }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"], optional = true }
 yaml-rust2 = { version = "0.13", optional = true }
-toml = { version = "0.8", optional = true }
+toml = { version = "1", optional = true }
 
 [dependencies.swc_core]
 version = "82"

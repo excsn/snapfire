@@ -98,7 +98,7 @@ open = { version = "5", optional = true }
 rfd = { version = "0.17", optional = true }
 tao = { version = "0.37", optional = true }
 wry = { version = "0.57", optional = true }
-toml = "0.8"
+toml = "1"
 
 [dependencies.swc_core]
 version = "82"

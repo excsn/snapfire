@@ -19,7 +19,7 @@ snapfire_lint = { path = "../../lint", version = "0.1.0" }
 snapfire_fsr_lint.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-toml = "0.8"
+toml = "1"
 
 [dependencies.swc_core]
 version = "82"

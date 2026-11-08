@@ -20,7 +20,7 @@ snapfire_fsr_session.workspace = true
 form_urlencoded = "1"
 futures-util = "0.3"
 serde = { version = "1", features = ["derive"] }
-toml = "0.8"
+toml = "1"
 
 [dev-dependencies]
 futures = "0.3"

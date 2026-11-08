@@ -413,7 +413,7 @@ pub fn load_catalogs(app: &std::path::Path, default: &str) -> Result<snapfire_fs
   for file in files {
     let tag = file.file_stem().unwrap_or_default().to_string_lossy().to_string();
     let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-    let value: toml::Value = text.parse().map_err(|e| format!("{}: {e}", file.display()))?;
+    let value = toml::Value::Table(text.parse::<toml::Table>().map_err(|e| format!("{}: {e}", file.display()))?);
     let mut table = std::collections::BTreeMap::new();
     flatten(&file, "", &value, &mut table)?;
     tables.insert(tag, table);
