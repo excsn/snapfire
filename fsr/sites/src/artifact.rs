@@ -93,7 +93,7 @@ impl Listing {
       entries.push(Entry {
         path: row.path.clone(),
         size: bytes.len() as u64,
-        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        sha256: Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect(),
       });
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));

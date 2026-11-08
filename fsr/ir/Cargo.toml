@@ -39,7 +39,7 @@ indexmap = "2"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-sha2 = "0.10"
+sha2 = "0.11"
 smol_str = "0.3"
 thiserror = "2"
 tracing = "0.1"
