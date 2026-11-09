@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
-use swc_core::common::comments::SingleThreadedComments;
-use swc_core::common::{BytePos, FileName, GLOBALS, Globals, Mark, SourceMap, Span, sync::Lrc};
+use swc_core::common::comments::{Comments, SingleThreadedComments};
+use swc_core::common::{BytePos, FileName, GLOBALS, Globals, Mark, SourceMap, Span, Spanned, sync::Lrc};
 use swc_core::ecma::ast::{EsVersion, ModuleDecl, ModuleItem, Program, Str};
 use swc_core::ecma::codegen::text_writer::{BindingStorage, JsWriter, ScopeKind, WriteJs};
 use swc_core::ecma::codegen::{Config as CodegenConfig, Emitter};
@@ -40,6 +40,7 @@ pub fn declare(path: &Path, aliases: &Aliases, source_text: &Result<String>) -> 
       Err(fatal) => return Err(anyhow!("{}", crate::compiler::describe(&cm, &fatal))),
     };
 
+    let first_source = module.body.first().map(|item| item.span_lo());
     let unresolved_mark = Mark::new();
     let top_level_mark = Mark::new();
     let mut program = Program::Module(module).apply(&mut resolver(unresolved_mark, top_level_mark, true));
@@ -55,6 +56,14 @@ pub fn declare(path: &Path, aliases: &Aliases, source_text: &Result<String>) -> 
         })
         .collect();
       return Err(anyhow!("{}", described.join("\n")));
+    }
+    // The comments above a file's first statement are attached to where it starts, so they would outlive a statement the declarations leave out.
+    let first_written = match &program {
+      Program::Module(module) => module.body.first().map(|item| item.span_lo()),
+      Program::Script(_) => None,
+    };
+    if let Some(first) = first_source.filter(|first| first_written != Some(*first)) {
+      comments.take_leading(first);
     }
 
     let dir = path.parent().unwrap_or_else(|| Path::new("."));

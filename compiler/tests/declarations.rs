@@ -156,3 +156,15 @@ fn test_a_doc_comment_stays_on_its_own_line_above_what_it_documents() {
   assert!(declared.contains(" * Each call to `bump` adds one.\n */\nexport declare class Counter"), "the block comment does not end its own line: {declared}");
   assert!(!lines.iter().any(|line| line.contains("*/") && !line.trim_end().ends_with("*/")), "a declaration shares a line with a comment: {declared}");
 }
+
+#[test]
+fn test_a_doc_comment_goes_with_a_declaration_the_file_does_not_export() {
+  let fixture = Fixture::new("declaration-private-first");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--declaration"));
+
+  let declared = fs::read_to_string(fixture.root().join("dist/index.d.ts")).unwrap();
+  assert!(!declared.contains("Not part of the module's surface"), "a comment outlived its declaration: {declared}");
+  assert!(declared.starts_with("/** Reads the value stored under `key`. */\nexport declare function read("), "{declared}");
+}
