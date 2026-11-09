@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_session"
-version = "0.13.0"
+version = "0.14.0"
 include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
 description = "Sessions for SnapFire FSR: signed cookies, the session store and CSRF."
 keywords = ["snapfire", "fsr", "session", "cookie", "csrf"]

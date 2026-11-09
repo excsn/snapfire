@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_lint"
-version = "0.1.0"
+version = "0.1.1"
 include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "FSR's own lint rules and base levels for snapfire_lint, which fsr lint runs."
 

@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr"
-version = "0.20.0"
+version = "0.21.0"
 include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
 description = "The SnapFire FSR application host: binds a plan file to the implementations that answer it."
 keywords = ["snapfire", "fsr", "fullstack", "routing", "ssr"]

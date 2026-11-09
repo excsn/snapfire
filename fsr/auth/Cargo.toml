@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_auth"
-version = "0.13.0"
+version = "0.14.0"
 include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
 description = "Auth for SnapFire FSR: the IdentityProvider seam, flow state and the dev provider."
 keywords = ["snapfire", "fsr", "authentication", "identity", "oidc"]
