@@ -546,10 +546,21 @@ use snapfire_fsr_service::HttpTransport;
 
 let plain = HttpTransport::new("https://api.internal");
 let timed = HttpTransport::with_timeout("https://api.internal", Duration::from_secs(5));
-let custom = HttpTransport::with_client("https://api.internal", my_reqwest_client);
 ```
 
-Use `with_timeout` when the deadline is all you want to change and `with_client` when you need connection pooling, proxies or TLS settings of your own.
+`with_options` takes how to connect, the same `TransportOptions` for every transport:
+
+```rust
+use snapfire_fsr_service::{HttpTransport, TransportOptions};
+
+let options = TransportOptions::new()
+  .root_certificate(std::fs::read("certs/internal-ca.der")?)
+  .proxy("http://proxy.internal:3128")
+  .max_connections(64);
+let internal = HttpTransport::with_options("https://api.internal", &options)?;
+```
+
+`root_certificate` trusts a private CA beside the bundled roots. `proxy` replaces the proxies from the environment. `max_connections` caps the connections to the backend. An option the transport cannot honour is refused with `TransportError::Unsupported`. HTTP and GraphQL refuse a client identity. gRPC refuses a proxy or a connection limit.
 
 A 2xx response with a body is parsed as JSON and converted through `snapfire_fsr_payload::json_to_value`; a 2xx response with an empty body becomes `Value::Null`.
 
@@ -597,7 +608,7 @@ A non-2xx response becomes a `ServiceError` whose message is `{status}: {body}` 
 | any other 4xx | `Invalid` |
 | anything else | `Internal` |
 
-The named statuses are matched before the 4xx range, so 401, 404, 408 and 409 never fall through to `Invalid`. A transport-level failure never panics: a reqwest timeout is `Timeout` and any other send failure, an unreachable host included, is `Unavailable`. A body that will not parse as JSON is `Internal`.
+The named statuses are matched before the 4xx range, so 401, 404, 408 and 409 never fall through to `Invalid`. A transport-level failure never panics: a call past its timeout is `Timeout` and any other send failure, an unreachable host included, is `Unavailable`. A body that will not parse as JSON is `Internal`.
 
 ```rust
 use snapfire_fsr_service::kind_for_status;

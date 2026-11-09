@@ -36,6 +36,10 @@ mod grpc {
       match imported.never {}
     }
 
+    pub fn with_options(_base: &str, imported: &ImportedProto, _options: &crate::TransportOptions) -> Result<Self, crate::TransportError> {
+      match imported.never {}
+    }
+
     pub fn metadata(self, _name: impl Into<String>, _value: impl Into<String>) -> Self {
       self
     }
@@ -75,6 +79,10 @@ mod graphql {
 
   impl GraphqlTransport {
     pub fn new(_endpoint: impl Into<String>, imported: &ImportedGraphql) -> Self {
+      match imported.never {}
+    }
+
+    pub fn with_options(_endpoint: impl Into<String>, imported: &ImportedGraphql, _options: &crate::TransportOptions) -> Result<Self, crate::TransportError> {
       match imported.never {}
     }
 

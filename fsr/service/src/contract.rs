@@ -335,8 +335,8 @@ impl Contract {
     serde_json::to_string_pretty(self).expect("contract serializes")
   }
 
-  pub fn from_json(source: &str) -> Result<Self, serde_json::Error> {
-    serde_json::from_str(source)
+  pub fn from_json(source: &str) -> Result<Self, crate::ContractError> {
+    serde_json::from_str(source).map_err(|e| crate::ContractError::Json(e.to_string()))
   }
 
   pub fn method(&self, service: &str, method: &str) -> Option<&Method> {

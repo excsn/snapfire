@@ -27,8 +27,24 @@ pub struct GrpcMethod {
 #[non_exhaustive]
 pub struct ImportedProto {
   pub contract: Contract,
-  pub pool: DescriptorPool,
+  pub(crate) pool: DescriptorPool,
   pub methods: Vec<(String, GrpcMethod)>,
+}
+
+impl ImportedProto {
+  /// `args` as the wire bytes of the message named `message`, such as `shop.inventory.StockRequest`.
+  pub fn encode(&self, message: &str, args: &snapfire_fsr_core::ValueMap) -> Result<Vec<u8>, String> {
+    crate::grpc::encode_request(&self.descriptor(message)?, args)
+  }
+
+  /// The wire bytes of the message named `message`, as a value.
+  pub fn decode(&self, message: &str, bytes: &[u8]) -> Result<snapfire_fsr_core::Value, String> {
+    crate::grpc::decode_response(&self.descriptor(message)?, bytes)
+  }
+
+  fn descriptor(&self, message: &str) -> Result<prost_reflect::MessageDescriptor, String> {
+    self.pool.get_message_by_name(message).ok_or_else(|| format!("no message `{message}` in the imported proto"))
+  }
 }
 
 fn malformed(at: impl Into<String>, what: impl Into<String>) -> ImportError {

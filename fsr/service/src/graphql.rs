@@ -19,6 +19,7 @@ use crate::call::Call;
 use crate::contract::{Contract, Field, Method, Service, Type, TypeDef, Variant};
 use crate::http::{kind_for_status, replace_lone_surrogates};
 use crate::openapi::ImportError;
+use crate::options::{TransportError, TransportOptions};
 use crate::transport::Transport;
 
 /// One operation as it goes out: its name and a document holding it and the
@@ -280,7 +281,7 @@ fn upper_first(s: &str) -> String {
 /// carrying `errors` fails the call with the first one's message, its kind
 /// from `extensions.code` where the server sets one.
 pub struct GraphqlTransport {
-  client: reqwest::Client,
+  client: fibre_http::AsyncClient,
   endpoint: String,
   operations: HashMap<String, GraphqlOperation>,
   headers: Vec<(String, String)>,
@@ -289,12 +290,14 @@ pub struct GraphqlTransport {
 
 impl GraphqlTransport {
   pub fn new(endpoint: impl Into<String>, imported: &ImportedGraphql) -> Self {
-    Self::with_client(endpoint, imported, reqwest::Client::builder().timeout(Duration::from_secs(30)).build().unwrap_or_default())
+    Self::with_options(endpoint, imported, &TransportOptions::new()).expect("default options build")
   }
 
-  pub fn with_client(endpoint: impl Into<String>, imported: &ImportedGraphql, client: reqwest::Client) -> Self {
+  /// Connects as `options` say, with a 30 second timeout per call. A client identity is refused: this transport presents none.
+  pub fn with_options(endpoint: impl Into<String>, imported: &ImportedGraphql, options: &TransportOptions) -> Result<Self, TransportError> {
+    let client = crate::options::fibre_client(options, "graphql", GRAPHQL_MAX_CONNECTIONS, Some(Duration::from_secs(30)))?;
     let operations = imported.operations.iter().map(|(method, op)| (format!("{}.{method}", imported.service), op.clone())).collect();
-    Self { client, endpoint: endpoint.into(), operations, headers: Vec::new(), query: Vec::new() }
+    Ok(Self { client, endpoint: endpoint.into(), operations, headers: Vec::new(), query: Vec::new() })
   }
 
   pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
@@ -307,6 +310,8 @@ impl GraphqlTransport {
     self
   }
 }
+
+const GRAPHQL_MAX_CONNECTIONS: usize = 32;
 
 /// A variable as GraphQL reads it: an enum value by its name.
 fn variable_json(value: &Value) -> serde_json::Value {
@@ -342,7 +347,7 @@ impl Transport for GraphqlTransport {
     };
     let variables: serde_json::Map<String, serde_json::Value> = call.args.iter().map(|(k, v)| (k.to_string(), variable_json(v))).collect();
     let body = serde_json::json!({ "query": operation.document, "variables": variables, "operationName": operation.name });
-    let mut request = self.client.post(&self.endpoint).json(&body);
+    let mut request = self.client.post(&self.endpoint).header("content-type", "application/json").body(body.to_string());
     for (key, value) in &self.headers {
       request = request.header(key.as_str(), value.as_str());
     }
@@ -359,9 +364,9 @@ impl Transport for GraphqlTransport {
     Box::pin(async move {
       let response = request.send().await.map_err(|e| {
         tracing::warn!(target: "fsr::service", error = %e, "backend request failed");
-        match e.is_timeout() {
-          true => fail(FailureKind::Timeout, "the backend timed out".to_owned()),
-          false => fail(FailureKind::Unavailable, "the backend did not answer".to_owned()),
+        match e {
+          fibre_http::Error::Timeout => fail(FailureKind::Timeout, "the backend timed out".to_owned()),
+          _ => fail(FailureKind::Unavailable, "the backend did not answer".to_owned()),
         }
       })?;
       let status = response.status().as_u16();

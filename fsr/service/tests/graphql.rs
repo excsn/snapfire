@@ -134,6 +134,7 @@ fn a_document_the_importer_cannot_type_is_refused_with_where() {
 }
 
 struct Recorded {
+  request_line: String,
   body: String,
 }
 
@@ -147,6 +148,8 @@ fn serve(responses: Vec<&'static str>) -> (String, Arc<Mutex<Vec<Recorded>>>) {
       let Ok((stream, _)) = listener.accept() else { return };
       let mut reader = BufReader::new(stream);
       let mut length = 0usize;
+      let mut request_line = String::new();
+      reader.read_line(&mut request_line).unwrap();
       loop {
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
@@ -160,7 +163,7 @@ fn serve(responses: Vec<&'static str>) -> (String, Arc<Mutex<Vec<Recorded>>>) {
       }
       let mut payload = vec![0u8; length];
       reader.read_exact(&mut payload).unwrap();
-      recorder.lock().push(Recorded { body: String::from_utf8_lossy(&payload).into_owned() });
+      recorder.lock().push(Recorded { request_line: request_line.trim_end().to_owned(), body: String::from_utf8_lossy(&payload).into_owned() });
       let mut stream = reader.into_inner();
       let response = format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
       let _ = stream.write_all(response.as_bytes());
@@ -219,4 +222,14 @@ async fn errors_in_the_answer_fail_the_call_with_the_first_message_and_its_code(
   let failed = call().await.unwrap_err();
   assert_eq!(failed.kind, FailureKind::NotFound);
   assert!(failed.message.contains("no such post"), "{}", failed.message);
+}
+
+#[tokio::test]
+async fn a_transport_with_a_proxy_sends_its_calls_through_the_proxy() {
+  let (proxy, seen) = serve(vec![r#"{"data":{"post":null}}"#]);
+  let imported = import_graphql(CMS, "cms").unwrap();
+  let transport = GraphqlTransport::with_options("http://cms.invalid/graphql", &imported, &snapfire_fsr_service::TransportOptions::new().proxy(proxy.as_str())).unwrap();
+  let services = Services::builder().contract(imported.contract.clone()).default_transport(Arc::new(transport)).build();
+  services.bind_anonymous().call("cms", "postBySlug", args(vec![("slug", Value::str("hello"))])).await.unwrap();
+  assert_eq!(seen.lock()[0].request_line.split(' ').take(2).collect::<Vec<_>>(), vec!["POST", "http://cms.invalid/graphql"]);
 }

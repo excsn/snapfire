@@ -14,15 +14,16 @@ use prost_reflect::{DescriptorPool, DynamicMessage, FieldDescriptor, Kind, MapKe
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
-use tonic::transport::{Channel, Endpoint};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity as TlsIdentity};
 use tonic::{Code, Request, Status};
 
 use crate::call::Call;
+use crate::options::{TransportError, TransportOptions};
 use crate::proto::{GrpcMethod, ImportedProto};
 use crate::transport::Transport;
 
 pub struct GrpcTransport {
-  endpoint: Option<Endpoint>,
+  endpoint: Endpoint,
   /// Opened on the first call, since a channel needs the runtime it will run on.
   channel: Mutex<Option<Channel>>,
   pool: DescriptorPool,
@@ -32,12 +33,42 @@ pub struct GrpcTransport {
   metadata: Vec<(String, String)>,
 }
 
+/// `der` as a PEM block labelled `label`, the form tonic reads certificates in.
+fn pem(label: &str, der: &[u8]) -> String {
+  use base64::Engine as _;
+  let body = base64::engine::general_purpose::STANDARD.encode(der);
+  let lines: Vec<&str> = body.as_bytes().chunks(64).map(|c| std::str::from_utf8(c).expect("base64 is ASCII")).collect();
+  format!("-----BEGIN {label}-----\n{}\n-----END {label}-----\n", lines.join("\n"))
+}
+
 impl GrpcTransport {
   /// `base` is the server's URL, `http://host:port` or `https://`; nothing
   /// connects until the first call.
   pub fn new(base: &str, imported: &ImportedProto) -> Result<Self, String> {
-    let endpoint = Endpoint::from_shared(base.to_owned()).map_err(|e| e.to_string())?;
-    Ok(Self { endpoint: Some(endpoint), channel: Mutex::new(None), pool: imported.pool.clone(), methods: imported.methods.iter().cloned().collect(), metadata: Vec::new() })
+    Self::with_options(base, imported, &TransportOptions::new()).map_err(|e| e.to_string())
+  }
+
+  /// Connects as `options` say. An `https` base, a root certificate or an identity turns on TLS over the bundled roots. A proxy or a connection limit is refused: a gRPC channel multiplexes one connection and tonic has no HTTP proxy.
+  pub fn with_options(base: &str, imported: &ImportedProto, options: &TransportOptions) -> Result<Self, TransportError> {
+    options.refuse("grpc", &["root_certificate", "identity", "keep_alive"])?;
+    let mut endpoint = Endpoint::from_shared(base.to_owned()).map_err(|e| TransportError::Url { url: base.to_owned(), reason: e.to_string() })?;
+    if base.starts_with("https:") || !options.roots.is_empty() || options.identity.is_some() {
+      let mut tls = ClientTlsConfig::new().with_webpki_roots();
+      let mut store = rustls::RootCertStore::empty();
+      for der in &options.roots {
+        store.add(rustls::pki_types::CertificateDer::from(der.clone())).map_err(|e| TransportError::RootCertificate(e.to_string()))?;
+        tls = tls.ca_certificate(Certificate::from_pem(pem("CERTIFICATE", der)));
+      }
+      endpoint = endpoint.clone().tls_config(tls.clone()).map_err(|e| TransportError::RootCertificate(e.to_string()))?;
+      if let Some((chain, key)) = &options.identity {
+        tls = tls.identity(TlsIdentity::from_pem(chain, key));
+        endpoint = endpoint.tls_config(tls).map_err(|e| TransportError::Identity(e.to_string()))?;
+      }
+    }
+    if let Some((interval, pong)) = options.keep_alive {
+      endpoint = endpoint.http2_keep_alive_interval(interval).keep_alive_timeout(pong);
+    }
+    Ok(Self { endpoint, channel: Mutex::new(None), pool: imported.pool.clone(), methods: imported.methods.iter().cloned().collect(), metadata: Vec::new() })
   }
 
   /// Metadata every call carries.
@@ -46,17 +77,13 @@ impl GrpcTransport {
     self
   }
 
-  pub fn with_channel(channel: Channel, imported: &ImportedProto) -> Self {
-    Self { endpoint: None, channel: Mutex::new(Some(channel)), pool: imported.pool.clone(), methods: imported.methods.iter().cloned().collect(), metadata: Vec::new() }
-  }
 
   fn channel(&self) -> Result<Channel, String> {
     let mut slot = self.channel.lock();
     if let Some(channel) = slot.as_ref() {
       return Ok(channel.clone());
     }
-    let endpoint = self.endpoint.as_ref().ok_or_else(|| "no endpoint and no channel".to_owned())?;
-    let channel = endpoint.connect_lazy();
+    let channel = self.endpoint.connect_lazy();
     *slot = Some(channel.clone());
     Ok(channel)
   }
@@ -105,7 +132,7 @@ impl Codec for Raw {
   }
 }
 
-pub fn kind_for_code(code: Code) -> FailureKind {
+pub(crate) fn kind_for_code(code: Code) -> FailureKind {
   match code {
     Code::NotFound => FailureKind::NotFound,
     Code::InvalidArgument | Code::OutOfRange | Code::FailedPrecondition => FailureKind::Invalid,
@@ -423,7 +450,7 @@ fn json_list_from(message: &DynamicMessage) -> Result<Value, String> {
 
 /// A message as a record: every field present, an unset message or
 /// presence-tracking field as null, a Timestamp or Duration as its string.
-pub fn from_message(message: &DynamicMessage) -> Result<Value, String> {
+pub(crate) fn from_message(message: &DynamicMessage) -> Result<Value, String> {
   let desc = message.descriptor();
   match desc.full_name() {
     "google.protobuf.Timestamp" => {
@@ -454,12 +481,12 @@ pub fn from_message(message: &DynamicMessage) -> Result<Value, String> {
 }
 
 /// The arguments as the request message.
-pub fn encode_request(descriptor: &MessageDescriptor, args: &ValueMap) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_request(descriptor: &MessageDescriptor, args: &ValueMap) -> Result<Vec<u8>, String> {
   Ok(to_message(descriptor, args, descriptor.full_name())?.encode_to_vec())
 }
 
 /// The response message as a value.
-pub fn decode_response(descriptor: &MessageDescriptor, bytes: &[u8]) -> Result<Value, String> {
+pub(crate) fn decode_response(descriptor: &MessageDescriptor, bytes: &[u8]) -> Result<Value, String> {
   let message = DynamicMessage::decode(descriptor.clone(), bytes).map_err(|e| e.to_string())?;
   from_message(&message)
 }

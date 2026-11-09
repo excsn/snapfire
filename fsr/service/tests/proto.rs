@@ -1,7 +1,6 @@
 #![cfg(feature = "grpc")]
 
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_service::grpc::{decode_response, encode_request};
 use snapfire_fsr_service::typescript::declarations;
 use snapfire_fsr_service::{import_proto_source, Freshness, ImportError, Type, TypeDef};
 
@@ -86,17 +85,17 @@ fn a_streaming_method_and_a_non_string_map_key_are_refused() {
 #[test]
 fn values_round_trip_through_the_messages() {
   let imported = import_proto_source("inventory.proto", INVENTORY, "inventory").unwrap();
-  let request = imported.pool.get_message_by_name("shop.inventory.StockRequest").unwrap();
+  let request = "shop.inventory.StockRequest";
   let mut args = ValueMap::default();
   args.insert("product_id".to_owned(), Value::Int(9_007_199_254_740_993));
-  let bytes = encode_request(&request, &args).unwrap();
+  let bytes = imported.encode(request, &args).unwrap();
   assert!(!bytes.is_empty());
 
   let mut extra = ValueMap::default();
   extra.insert("nope".to_owned(), Value::int(1));
-  assert!(encode_request(&request, &extra).is_err(), "an argument the message lacks is refused");
+  assert!(imported.encode(request, &extra).is_err(), "an argument the message lacks is refused");
 
-  let level = imported.pool.get_message_by_name("shop.inventory.StockLevel").unwrap();
+  let level = "shop.inventory.StockLevel";
   let mut fields = ValueMap::default();
   fields.insert("product_id".to_owned(), Value::Int(9_007_199_254_740_993));
   fields.insert("on_hand".to_owned(), Value::int(12));
@@ -107,8 +106,8 @@ fn values_round_trip_through_the_messages() {
   let mut by_bin = ValueMap::default();
   by_bin.insert("a1".to_owned(), Value::int(3));
   fields.insert("by_bin".to_owned(), Value::Map(by_bin));
-  let bytes = encode_request(&level, &fields).unwrap();
-  let back = decode_response(&level, &bytes).unwrap();
+  let bytes = imported.encode(level, &fields).unwrap();
+  let back = imported.decode(level, &bytes).unwrap();
   let Value::Map(map) = back else { panic!("a record") };
   assert_eq!(map.get("product_id"), Some(&Value::Int(9_007_199_254_740_993)), "int64 keeps its width past 2^53");
   assert_eq!(map.get("warehouse"), Some(&Value::str("north")));

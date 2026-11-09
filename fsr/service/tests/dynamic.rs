@@ -98,7 +98,6 @@ fn dynamic_crosses_the_native_boundary_unchanged() {
 #[cfg(feature = "grpc")]
 mod grpc {
   use snapfire_fsr_service::Type;
-  use snapfire_fsr_service::grpc::{decode_response, encode_request};
   use snapfire_fsr_service::proto::import_proto_source;
 
   use super::*;
@@ -138,12 +137,12 @@ service Demo {
   #[test]
   fn a_dynamic_value_round_trips_through_the_wire() {
     let imported = import_proto_source("demo.proto", SOURCE, "demo").unwrap();
-    let holder = imported.pool.get_message_by_name("demo.Holder").unwrap();
+    let holder = "demo.Holder";
     let nested = map(&[("n", Value::F64(1.5)), ("t", Value::str("x")), ("b", Value::Bool(true)), ("nothing", Value::Null), ("list", Value::Seq(vec![Value::F64(2.0), Value::str("y")].into_iter().collect()))]);
     let fields: ValueMap = [("value".to_string(), nested.clone()), ("object".to_string(), nested.clone()), ("list".to_string(), Value::Seq(vec![Value::F64(1.0), nested.clone()].into_iter().collect()))].into_iter().collect();
 
-    let bytes = encode_request(&holder, &fields).unwrap();
-    let Value::Map(back) = decode_response(&holder, &bytes).unwrap() else { panic!("a record") };
+    let bytes = imported.encode(holder, &fields).unwrap();
+    let Value::Map(back) = imported.decode(holder, &bytes).unwrap() else { panic!("a record") };
     assert_eq!(back.get("value"), Some(&nested));
     assert_eq!(back.get("object"), Some(&nested));
     assert_eq!(back.get("list"), Some(&Value::Seq(vec![Value::F64(1.0), nested].into_iter().collect())));
@@ -152,15 +151,15 @@ service Demo {
   #[test]
   fn a_small_integer_becomes_a_double_and_one_too_big_to_fit_is_refused() {
     let imported = import_proto_source("demo.proto", SOURCE, "demo").unwrap();
-    let holder = imported.pool.get_message_by_name("demo.Holder").unwrap();
+    let holder = "demo.Holder";
     let args = |value: Value| -> ValueMap { [("value".to_string(), value)].into_iter().collect() };
 
-    let bytes = encode_request(&holder, &args(Value::Int(5))).unwrap();
-    let Value::Map(back) = decode_response(&holder, &bytes).unwrap() else { panic!("a record") };
+    let bytes = imported.encode(holder, &args(Value::Int(5))).unwrap();
+    let Value::Map(back) = imported.decode(holder, &bytes).unwrap() else { panic!("a record") };
     assert_eq!(back.get("value"), Some(&Value::F64(5.0)));
 
-    let error = encode_request(&holder, &args(Value::Int(1 << 60))).unwrap_err();
+    let error = imported.encode(holder, &args(Value::Int(1 << 60))).unwrap_err();
     assert!(error.contains("double"), "{error}");
-    assert!(encode_request(&holder, &args(Value::Bytes(vec![1]))).is_err());
+    assert!(imported.encode(holder, &args(Value::Bytes(vec![1]))).is_err());
   }
 }

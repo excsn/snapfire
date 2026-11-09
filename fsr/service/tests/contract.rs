@@ -336,3 +336,9 @@ fn conform_text_leaves_what_it_cannot_read_for_the_check_to_refuse() {
   let err = contract.check_value(&Type::named("Reserve"), &nonsense, "input").unwrap_err();
   assert_eq!(err.to_string(), "input.days: expected f64, found str");
 }
+
+#[test]
+fn a_contract_that_is_not_json_is_a_contract_error() {
+  let error: snapfire_fsr_service::ContractError = Contract::from_json("{").unwrap_err();
+  assert!(!error.to_string().is_empty());
+}

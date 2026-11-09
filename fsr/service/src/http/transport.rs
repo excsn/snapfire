@@ -9,6 +9,7 @@ use snapfire_fsr_runtime::{FailureKind, ServiceError};
 
 use super::{Route, kind_for_status, replace_lone_surrogates, scalar_to_path};
 use crate::call::Call;
+use crate::options::{TransportError, TransportOptions};
 use crate::transport::Transport;
 
 /// The first transport that leaves the process. Metadata written by the
@@ -22,7 +23,6 @@ pub struct HttpTransport {
   /// credential, which no interceptor or trace sees since it is not metadata.
   headers: Vec<(String, String)>,
   query: Vec<(String, String)>,
-  /// `None` leaves the client's own: a transport built [`HttpTransport::with_client`].
   user_agent: Option<String>,
   timeout: Option<Duration>,
 }
@@ -30,13 +30,8 @@ pub struct HttpTransport {
 /// What [`HttpTransport::new`] and [`HttpTransport::with_timeout`] send as `User-Agent`. Some services, GitHub's API among them, refuse a request without one.
 pub const HTTP_USER_AGENT: &str = concat!("snapfire_fsr_service/", env!("CARGO_PKG_VERSION"));
 
-/// Connections [`HttpTransport::new`] opens to its backend at most.
+/// Connections [`HttpTransport::new`] opens to its backend at most, unless [`TransportOptions::max_connections`] says otherwise.
 pub const HTTP_MAX_CONNECTIONS: usize = 32;
-
-fn client(max_connections: usize) -> fibre_http::AsyncClient {
-  let pool = fibre_http::Pool::builder().max_per_host(max_connections).build();
-  fibre_http::AsyncClient::builder().pool(&pool).build_async().expect("the default TLS configuration is valid")
-}
 
 /// How long [`HttpTransport::new`] waits for a backend's whole answer.
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -49,23 +44,18 @@ impl HttpTransport {
 
   /// Sends [`HTTP_USER_AGENT`] and waits `timeout` for an answer.
   pub fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self {
-    Self::with_client(base, client(HTTP_MAX_CONNECTIONS)).user_agent(HTTP_USER_AGENT).timeout(timeout)
+    Self::with_options(base, &TransportOptions::new()).expect("default options build").timeout(timeout)
   }
 
-  /// Over `client` as it was built: its own user agent and timeout, if any.
-  pub fn with_client(base: impl Into<String>, client: fibre_http::AsyncClient) -> Self {
-    Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client, headers: Vec::new(), query: Vec::new(), user_agent: None, timeout: None }
+  /// Sends [`HTTP_USER_AGENT`], waits [`HTTP_TIMEOUT`] and connects as `options` say. A client identity is refused: this transport presents none.
+  pub fn with_options(base: impl Into<String>, options: &TransportOptions) -> Result<Self, TransportError> {
+    let client = crate::options::fibre_client(options, "http", HTTP_MAX_CONNECTIONS, None)?;
+    Ok(Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client, headers: Vec::new(), query: Vec::new(), user_agent: Some(HTTP_USER_AGENT.to_owned()), timeout: Some(HTTP_TIMEOUT) })
   }
 
   /// The `User-Agent` every call sends.
   pub fn user_agent(mut self, agent: impl Into<String>) -> Self {
     self.user_agent = Some(agent.into());
-    self
-  }
-
-  /// The most connections calls open to the backend at once, [`HTTP_MAX_CONNECTIONS`] when not set. Replaces a client given to [`HttpTransport::with_client`].
-  pub fn max_connections(mut self, n: usize) -> Self {
-    self.client = client(n);
     self
   }
 

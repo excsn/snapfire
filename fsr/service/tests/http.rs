@@ -9,7 +9,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, Identity};
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Field, HttpTransport, IdentityInterceptor, Method, Route,
-  Services, TraceInterceptor, Type,
+  Services, TraceInterceptor, TransportOptions, Type,
 };
 use snapfire_fsr_session::TokenCell;
 
@@ -362,7 +362,7 @@ async fn a_transport_opens_at_most_max_connections_to_its_backend() {
       held.push(stream);
     }
   });
-  let transport = HttpTransport::new(&base).max_connections(2).timeout(std::time::Duration::from_millis(500));
+  let transport = HttpTransport::with_options(&base, &TransportOptions::new().max_connections(2)).unwrap().timeout(std::time::Duration::from_millis(500));
   let services = Arc::new(Services::builder().contract(contract()).default_transport(Arc::new(transport)).build());
   let calls: Vec<_> = (0..6)
     .map(|i| {
@@ -374,4 +374,14 @@ async fn a_transport_opens_at_most_max_connections_to_its_backend() {
     assert_eq!(call.await.unwrap().unwrap_err().kind, FailureKind::Timeout);
   }
   assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn a_transport_with_a_proxy_sends_its_calls_through_the_proxy() {
+  let (proxy, seen) = serve(vec![(200, r#"{"name":"web-1","load":0.5}"#)]);
+  let transport = HttpTransport::with_options("http://backend.invalid", &TransportOptions::new().proxy(proxy.as_str()).max_connections(4)).unwrap();
+  let services = Services::builder().contract(contract()).default_transport(Arc::new(transport)).build();
+  let got = services.bind_anonymous().call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap();
+  assert_eq!(got, Value::Map(args(vec![("name", Value::str("web-1")), ("load", Value::F64(0.5))])));
+  assert_eq!(seen.lock()[0].request_line.split(' ').take(2).collect::<Vec<_>>(), vec!["POST", "http://backend.invalid/fleet/get"]);
 }

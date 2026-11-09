@@ -5,6 +5,9 @@ use crate::contract::{Contract, ScalarKind, Scope, Type, TypeDef};
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ContractError {
+  /// A contract document that does not parse.
+  #[error("{0}")]
+  Json(String),
   #[error("no service `{0}` in the contract")]
   UnknownService(String),
   #[error("{path}: {reason}")]

@@ -249,15 +249,16 @@ pub(crate) fn clients_of(
     #[cfg(feature = "http")]
     {
       let base_url = client.base_url.clone().unwrap_or_default();
-      let mut transport = HttpTransport::new(&base_url);
+      let mut options = snapfire_fsr_service::TransportOptions::new();
+      if let Some(n) = client.max_connections {
+        options = options.max_connections(n);
+      }
+      let mut transport = HttpTransport::with_options(&base_url, &options).map_err(|e| HostError::Transport(name.clone(), e.to_string()))?;
       if let Some(agent) = &client.user_agent {
         transport = transport.user_agent(agent.as_str());
       }
       if let Some(timeout) = client.timeout.as_deref().and_then(crate::config::parse_duration) {
         transport = transport.timeout(timeout);
-      }
-      if let Some(n) = client.max_connections {
-        transport = transport.max_connections(n);
       }
       for (path, route) in &imported.routes {
         transport = transport.route(path.clone(), route.clone());

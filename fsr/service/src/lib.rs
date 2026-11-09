@@ -5,6 +5,7 @@ pub mod contract;
 pub mod http;
 pub mod interceptor;
 pub mod openapi;
+pub mod options;
 #[cfg(feature = "grpc")]
 pub mod proto;
 #[cfg(feature = "grpc")]
@@ -25,6 +26,7 @@ pub use http::{kind_for_status, Route};
 #[cfg(feature = "http")]
 pub use http::{HttpTransport, HTTP_TIMEOUT, HTTP_USER_AGENT};
 pub use openapi::{import, ImportError, Imported};
+pub use options::{TransportError, TransportOptions};
 #[cfg(feature = "grpc")]
 pub use proto::{fsr_proto_include, import_proto, import_proto_source, GrpcMethod, ImportedProto, FSR_PROTO, FSR_PROTO_NAME};
 #[cfg(feature = "grpc")]

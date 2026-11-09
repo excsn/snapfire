@@ -37,6 +37,8 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [`LocalTransport`](#localtransport)
   * [`MockTransport`](#mocktransport)
   * [`transport::unavailable`](#transportunavailable)
+  * [`TransportOptions`](#transportoptions)
+  * [`TransportError`](#transporterror)
 * [6. HTTP and OpenAPI](#6-http-and-openapi)
   * [`Route`](#route)
   * [`HttpTransport`](#httptransport)
@@ -49,7 +51,6 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [`ImportedProto`](#importedproto)
   * [`GrpcMethod`](#grpcmethod)
   * [`GrpcTransport`](#grpctransport)
-  * [`grpc::kind_for_code`](#grpckind_for_code)
 * [8. GraphQL](#8-graphql)
   * [`import_graphql`](#import_graphql)
   * [`ImportedGraphql`](#importedgraphql)
@@ -216,7 +217,7 @@ Building and storing:
 * `pub fn service(self, name: impl Into<String>, service: Service) -> Self`
 * `pub fn method(&self, service: &str, method: &str) -> Option<&Method>`
 * `pub fn to_json(&self) -> String`: pretty JSON. Panics only if serialisation fails.
-* `pub fn from_json(source: &str) -> Result<Self, serde_json::Error>`
+* `pub fn from_json(source: &str) -> Result<Self, ContractError>`: a document that does not parse is `ContractError::Json`.
 
 Combining:
 
@@ -441,6 +442,41 @@ Canned responses and a record of every call. `Default`.
 
 * `pub fn unavailable(call: &Call, message: impl Into<String>) -> ServiceError`: a `FailureKind::Unavailable` error naming the call's service and method.
 
+### `TransportOptions`
+
+How a transport connects to its backend, taken by every transport's `with_options`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`.
+
+* `pub fn new() -> Self`: no options set.
+* `pub fn root_certificate(self, der: Vec<u8>) -> Self`: trusts a DER-encoded certificate as a root beside the bundled ones. Repeatable.
+* `pub fn identity(self, cert_chain_pem: Vec<u8>, key_pem: Vec<u8>) -> Self`: presents a PEM certificate chain and its PEM key to the backend, for mutual TLS.
+* `pub fn proxy(self, url: impl Into<String>) -> Self`: sends every call through the HTTP proxy at `url`, in place of the proxies from the environment.
+* `pub fn max_connections(self, n: usize) -> Self`: the most connections open to the backend at once.
+* `pub fn keep_alive(self, interval: Duration, timeout: Duration) -> Self`: an HTTP/2 PING after `interval` with nothing read while a call is in flight. Without a PONG within `timeout` the connection closes and its calls fail.
+
+| Option | `HttpTransport` | `GraphqlTransport` | `GrpcTransport` |
+| --- | --- | --- | --- |
+| `root_certificate` | yes | yes | yes |
+| `identity` | refused | refused | yes |
+| `proxy` | yes | yes | refused |
+| `max_connections` | yes | yes | refused |
+| `keep_alive` | yes | yes | yes |
+
+A refused option fails `with_options` with `TransportError::Unsupported`.
+
+### `TransportError`
+
+Why `with_options` could not build a transport. `Debug`, `Clone`, `PartialEq`, `Eq`, `std::error::Error`. `#[non_exhaustive]`.
+
+| Variant | `Display` |
+| --- | --- |
+| `RootCertificate(String)` | `root certificate: {0}` |
+| `Identity(String)` | `client identity: {0}` |
+| `Proxy { url, reason }` | ``proxy `{url}`: {reason}`` |
+| `Url { url, reason }` | ``base URL `{url}`: {reason}`` |
+| `Unsupported { transport, option }` | ``the {transport} transport does not support `{option}` `` |
+
+Every field is a `String`.
+
 ## 6. HTTP and OpenAPI
 
 Module `http` and module `openapi`, re-exported at the crate root. `HttpTransport` needs the `http` feature. The rest needs none.
@@ -460,13 +496,14 @@ How one contract method reaches HTTP. `Debug`, `Clone`. `#[non_exhaustive]`.
 
 ### `HttpTransport`
 
-A transport over `reqwest` with rustls. Feature `http`.
+A transport over fibre_http with rustls. Feature `http`.
 
 * `pub const HTTP_USER_AGENT: &str`: `snapfire_fsr_service/<crate version>`.
 * `pub const HTTP_TIMEOUT: Duration`: 30 seconds.
-* `pub fn new(base: impl Into<String>) -> Self`: a default `reqwest::Client`, user agent `HTTP_USER_AGENT`, timeout `HTTP_TIMEOUT`. Trailing slashes are trimmed from `base`.
+* `pub const HTTP_MAX_CONNECTIONS: usize`: 32.
+* `pub fn new(base: impl Into<String>) -> Self`: user agent `HTTP_USER_AGENT`, timeout `HTTP_TIMEOUT`, at most `HTTP_MAX_CONNECTIONS` connections. Trailing slashes are trimmed from `base`.
 * `pub fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self`: as `new` with `timeout`.
-* `pub fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self`: no user agent or timeout of its own; `client`'s apply.
+* `pub fn with_options(base: impl Into<String>, options: &TransportOptions) -> Result<Self, TransportError>`: as `new`, connecting as `options` say.
 * `pub fn user_agent(self, agent: impl Into<String>) -> Self`: the `User-Agent` header every call sends.
 * `pub fn timeout(self, timeout: Duration) -> Self`: how long a call waits for the whole answer. Past it the call fails as `FailureKind::Timeout`.
 * `pub fn route(self, path: impl Into<String>, route: Route) -> Self`: the route for one `service.method`.
@@ -486,7 +523,7 @@ Response handling:
 * 2xx with a body: parsed as JSON and converted with `snapfire_fsr_core::json::to_value`. A lone surrogate escape is replaced with U+FFFD. A parse failure is `FailureKind::Internal`.
 * 2xx with an empty body: `Value::Null`.
 * Non-2xx: kind from `kind_for_status`. The message is `{status}: {trimmed body}` for a 4xx other than 401, 403, 404 and 408. Otherwise it is `{status}`.
-* A send failure: `FailureKind::Timeout` when reqwest reports a timeout, else `FailureKind::Unavailable`.
+* A send failure: `FailureKind::Timeout` when the call's timeout passes, else `FailureKind::Unavailable`.
 
 ### `kind_for_status`
 
@@ -556,38 +593,33 @@ Modules `proto` and `grpc`, re-exported at the crate root. Feature `grpc`.
 What `import_proto` returns. `Debug`, `Clone`. `#[non_exhaustive]`.
 
 * `pub contract: Contract`
-* `pub pool: prost_reflect::DescriptorPool`
 * `pub methods: Vec<(String, GrpcMethod)>`: keyed `service.method` as the contract names them.
+* `pub fn encode(&self, message: &str, args: &ValueMap) -> Result<Vec<u8>, String>`: `args` as the wire bytes of the message with full name `message`, such as `shop.inventory.StockRequest`.
+* `pub fn decode(&self, message: &str, bytes: &[u8]) -> Result<Value, String>`: wire bytes of that message as a value, with every field present.
+* A `message` the proto does not define is an error from both.
 
 ### `GrpcMethod`
 
 How one method reaches a gRPC server. `Debug`, `Clone`, `PartialEq`, `Eq`. `#[non_exhaustive]`.
 
 * `pub path: String`: `/pkg.Service/Method`.
-* `pub input: String`: the request message's full name in the pool.
-* `pub output: String`: the response message's full name in the pool.
+* `pub input: String`: the request message's full name.
+* `pub output: String`: the response message's full name.
 
 ### `GrpcTransport`
 
 A transport to a gRPC server.
 
 * `pub fn new(base: &str, imported: &ImportedProto) -> Result<Self, String>`: `base` is `http://host:port` or `https://...`. The channel opens lazily on the first call.
-* `pub fn with_channel(channel: tonic::transport::Channel, imported: &ImportedProto) -> Self`
+* `pub fn with_options(base: &str, imported: &ImportedProto, options: &TransportOptions) -> Result<Self, TransportError>`: as `new`, connecting as `options` say. TLS over the bundled roots is on for an `https` base or when a root certificate or an identity is set.
 * `pub fn metadata(self, name: impl Into<String>, value: impl Into<String>) -> Self`: metadata every call carries, before the call's own.
 * The arguments become the request message field by field. Call metadata with string values becomes request metadata. A key or value that is not valid gRPC metadata is skipped.
 * The response becomes a map with every field present. An unset message or presence-tracking field is `Null`, an enum is its value name and `Timestamp` and `Duration` are strings.
 * An argument the message lacks is `Invalid` before the call. So is one outside its field's width.
 * A method not in `methods` is `NotFound`.
 * A channel that cannot be opened is `Unavailable`.
-* A gRPC status maps through `kind_for_code`, with the status message.
 * A response that does not decode is `Internal`.
-* `pub fn grpc::encode_request(descriptor: &MessageDescriptor, args: &ValueMap) -> Result<Vec<u8>, String>`
-* `pub fn grpc::decode_response(descriptor: &MessageDescriptor, bytes: &[u8]) -> Result<Value, String>`
-* `pub fn grpc::from_message(message: &DynamicMessage) -> Result<Value, String>`
-
-### `grpc::kind_for_code`
-
-* `pub fn kind_for_code(code: tonic::Code) -> FailureKind`
+* A gRPC status fails the call with the status message and this kind:
 
 | Code | Kind |
 | --- | --- |
@@ -637,10 +669,10 @@ What `import_graphql` returns. `Debug`, `Clone`. `#[non_exhaustive]`.
 
 ### `GraphqlTransport`
 
-A transport that posts operations to one GraphQL endpoint.
+A transport that posts operations to one GraphQL endpoint, over fibre_http with rustls.
 
 * `pub fn new(endpoint: impl Into<String>, imported: &ImportedGraphql) -> Self`: a 30 second timeout.
-* `pub fn with_client(endpoint: impl Into<String>, imported: &ImportedGraphql, client: reqwest::Client) -> Self`
+* `pub fn with_options(endpoint: impl Into<String>, imported: &ImportedGraphql, options: &TransportOptions) -> Result<Self, TransportError>`: as `new`, connecting as `options` say.
 * `pub fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a header every call carries.
 * `pub fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a query parameter every call carries.
 * A call is a `POST` to `endpoint` with the JSON body `{ "query", "variables", "operationName" }`. The arguments are the variables and a unit variant is sent as its tag.
@@ -649,7 +681,7 @@ A transport that posts operations to one GraphQL endpoint.
 * A body carrying `errors` fails with the first one's `message`. Its kind comes from `extensions.code`: `NOT_FOUND` is `NotFound`, `UNAUTHENTICATED` is `Unauthorized`, `FORBIDDEN` is `Forbidden`, `BAD_USER_INPUT`, `BAD_REQUEST`, `GRAPHQL_VALIDATION_FAILED` and `GRAPHQL_PARSE_FAILED` are `Invalid` and anything else is `Internal`.
 * Without `errors`, a non-2xx status maps through `kind_for_status` with the status as the message.
 * A body without `data` is `Internal`. A method with no operation is `Internal`.
-* A send failure is `Timeout` when reqwest reports a timeout, else `Unavailable`.
+* A send failure is `Timeout` when the 30 second timeout passes, else `Unavailable`.
 
 ## 9. Builds Without a Feature
 
@@ -659,7 +691,7 @@ Without `grpc`, the crate root still exports `import_proto`, `ImportedProto` and
 
 * `import_proto` and `import_graphql` return `ImportError::Feature` naming the feature.
 * The stand-in `ImportedProto` and `ImportedGraphql` hold `pub contract: Contract` and can never be constructed.
-* The stand-in transports keep `new`, `metadata`, `header` and `query` with the same signatures. They implement `Transport` and can never be constructed.
+* The stand-in transports keep `new`, `with_options`, `metadata`, `header` and `query` with the same signatures. They implement `Transport` and can never be constructed.
 
 ## 10. TypeScript Declarations
 
@@ -772,10 +804,11 @@ Who called a `#[service]` method. `Debug`, `Clone`. `#[non_exhaustive]`.
 
 ### `ContractError`
 
-Returned by every checking call and by `merge` and `adopt`. `Debug`, `Clone`, `PartialEq`, `Eq`, `std::error::Error`. `#[non_exhaustive]`.
+Returned by every checking call, by `merge` and `adopt` and by `Contract::from_json`. `Debug`, `Clone`, `PartialEq`, `Eq`, `std::error::Error`. `#[non_exhaustive]`.
 
 | Variant | `Display` |
 | --- | --- |
+| `Json(String)` | `{0}`, the parser's message |
 | `UnknownService(String)` | ``no service `{0}` in the contract`` |
 | `Cache { path, reason }` | `{path}: {reason}` |
 | `UnknownMethod { service, method }` | ``service `{service}` has no method `{method}` `` |
