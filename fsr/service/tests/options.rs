@@ -29,9 +29,9 @@ mod http {
   }
 
   #[test]
-  fn a_client_identity_is_unsupported_over_http() {
+  fn a_client_identity_that_is_not_pem_is_an_identity_error_over_http() {
     let error = HttpTransport::with_options("https://api.invalid", &TransportOptions::new().identity(NOT_PEM.to_vec(), NOT_PEM.to_vec())).err().unwrap();
-    assert!(unsupported(&error, "identity"), "{error}");
+    assert!(matches!(error, TransportError::Identity(_)), "{error}");
   }
 
   #[test]
@@ -66,9 +66,9 @@ mod graphql {
   }
 
   #[test]
-  fn a_client_identity_is_unsupported_over_graphql() {
+  fn a_client_identity_that_is_not_pem_is_an_identity_error_over_graphql() {
     let error = GraphqlTransport::with_options("https://api.invalid/graphql", &imported(), &TransportOptions::new().identity(NOT_PEM.to_vec(), NOT_PEM.to_vec())).err().unwrap();
-    assert!(unsupported(&error, "identity"), "{error}");
+    assert!(matches!(error, TransportError::Identity(_)), "{error}");
   }
 
   #[test]

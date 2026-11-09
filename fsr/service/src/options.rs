@@ -81,21 +81,28 @@ pub enum TransportError {
 /// A fibre_http client from `options`, for the transports that run on it.
 #[cfg(any(feature = "http", feature = "graphql"))]
 pub(crate) fn fibre_client(options: &TransportOptions, transport: &str, max_connections: usize, timeout: Option<Duration>) -> Result<fibre_http::AsyncClient, TransportError> {
-  options.refuse(transport, &["root_certificate", "proxy", "max_connections", "keep_alive"])?;
-  let pool = fibre_http::Pool::builder().max_per_host(options.max_connections.unwrap_or(max_connections)).build();
-  let mut builder = fibre_http::AsyncClient::builder().pool(&pool);
-  for der in &options.roots {
-    builder = builder.add_root_certificate(der.clone());
+  options.refuse(transport, &["root_certificate", "identity", "proxy", "max_connections", "keep_alive"])?;
+  let builder = || -> Result<fibre_http::ClientBuilder, TransportError> {
+    let pool = fibre_http::Pool::builder().max_per_host(options.max_connections.unwrap_or(max_connections)).build();
+    let mut builder = fibre_http::AsyncClient::builder().pool(&pool);
+    for der in &options.roots {
+      builder = builder.add_root_certificate(der.clone());
+    }
+    if let Some(url) = &options.proxy {
+      let proxy = fibre_http::Proxy::parse(url).map_err(|e| TransportError::Proxy { url: url.clone(), reason: e.to_string() })?;
+      builder = builder.proxy(proxy);
+    }
+    if let Some((interval, pong)) = options.keep_alive {
+      builder = builder.http2_keep_alive_interval(interval).http2_keep_alive_timeout(pong);
+    }
+    if let Some(timeout) = timeout {
+      builder = builder.timeout(timeout);
+    }
+    Ok(builder)
+  };
+  let client = builder()?.build_async().map_err(|e| TransportError::RootCertificate(e.to_string()))?;
+  match &options.identity {
+    None => Ok(client),
+    Some((chain, key)) => builder()?.identity(chain.clone(), key.clone()).build_async().map_err(|e| TransportError::Identity(e.to_string())),
   }
-  if let Some(url) = &options.proxy {
-    let proxy = fibre_http::Proxy::parse(url).map_err(|e| TransportError::Proxy { url: url.clone(), reason: e.to_string() })?;
-    builder = builder.proxy(proxy);
-  }
-  if let Some((interval, pong)) = options.keep_alive {
-    builder = builder.http2_keep_alive_interval(interval).http2_keep_alive_timeout(pong);
-  }
-  if let Some(timeout) = timeout {
-    builder = builder.timeout(timeout);
-  }
-  builder.build_async().map_err(|e| TransportError::RootCertificate(e.to_string()))
 }

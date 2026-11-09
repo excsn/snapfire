@@ -293,7 +293,7 @@ impl GraphqlTransport {
     Self::with_options(endpoint, imported, &TransportOptions::new()).expect("default options build")
   }
 
-  /// Connects as `options` say, with a 30 second timeout per call. A client identity is refused: this transport presents none.
+  /// Connects as `options` say, with a 30 second timeout per call.
   pub fn with_options(endpoint: impl Into<String>, imported: &ImportedGraphql, options: &TransportOptions) -> Result<Self, TransportError> {
     let client = crate::options::fibre_client(options, "graphql", GRAPHQL_MAX_CONNECTIONS, Some(Duration::from_secs(30)))?;
     let operations = imported.operations.iter().map(|(method, op)| (format!("{}.{method}", imported.service), op.clone())).collect();

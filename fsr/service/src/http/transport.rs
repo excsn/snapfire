@@ -47,7 +47,7 @@ impl HttpTransport {
     Self::with_options(base, &TransportOptions::new()).expect("default options build").timeout(timeout)
   }
 
-  /// Sends [`HTTP_USER_AGENT`], waits [`HTTP_TIMEOUT`] and connects as `options` say. A client identity is refused: this transport presents none.
+  /// Sends [`HTTP_USER_AGENT`], waits [`HTTP_TIMEOUT`] and connects as `options` say.
   pub fn with_options(base: impl Into<String>, options: &TransportOptions) -> Result<Self, TransportError> {
     let client = crate::options::fibre_client(options, "http", HTTP_MAX_CONNECTIONS, None)?;
     Ok(Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client, headers: Vec::new(), query: Vec::new(), user_agent: Some(HTTP_USER_AGENT.to_owned()), timeout: Some(HTTP_TIMEOUT) })

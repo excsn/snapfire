@@ -560,7 +560,7 @@ let options = TransportOptions::new()
 let internal = HttpTransport::with_options("https://api.internal", &options)?;
 ```
 
-`root_certificate` trusts a private CA beside the bundled roots. `proxy` replaces the proxies from the environment. `max_connections` caps the connections to the backend. An option the transport cannot honour is refused with `TransportError::Unsupported`. HTTP and GraphQL refuse a client identity. gRPC refuses a proxy or a connection limit.
+`root_certificate` trusts a private CA beside the bundled roots. `proxy` replaces the proxies from the environment. `max_connections` caps the connections to the backend. `identity` presents a client certificate to a backend that asks for one. An option the transport cannot honour is refused with `TransportError::Unsupported`: gRPC refuses a proxy or a connection limit.
 
 A 2xx response with a body is parsed as JSON and converted through `snapfire_fsr_payload::json_to_value`; a 2xx response with an empty body becomes `Value::Null`.
 

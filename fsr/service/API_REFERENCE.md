@@ -456,7 +456,7 @@ How a transport connects to its backend, taken by every transport's `with_option
 | Option | `HttpTransport` | `GraphqlTransport` | `GrpcTransport` |
 | --- | --- | --- | --- |
 | `root_certificate` | yes | yes | yes |
-| `identity` | refused | refused | yes |
+| `identity` | yes | yes | yes |
 | `proxy` | yes | yes | refused |
 | `max_connections` | yes | yes | refused |
 | `keep_alive` | yes | yes | yes |

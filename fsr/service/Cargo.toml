@@ -22,7 +22,7 @@ fibre_cache = { version = "0.4", features = ["tokio"] }
 futures-util = "0.3"
 indexmap = { version = "2", features = ["serde"] }
 parking_lot = "0.13"
-fibre_http = { version = "0.5", optional = true }
+fibre_http = { version = "0.5.2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"
