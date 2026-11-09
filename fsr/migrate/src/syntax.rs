@@ -243,3 +243,36 @@ impl<'a> Visit<'a> for Collect<'_, '_> {
     walk::walk_call_expression(self, n);
   }
 }
+
+/// `raw` with each HTML entity a JSX string or text holds decoded, as React reads it: `&amp;`, `&rsquo;`, `&#8217;`. An unknown name stays as written.
+pub(crate) fn decode_entities(raw: &str) -> String {
+  if !raw.contains('&') {
+    return raw.to_owned();
+  }
+  let mut out = String::with_capacity(raw.len());
+  let mut rest = raw;
+  while let Some(start) = rest.find('&') {
+    out.push_str(&rest[..start]);
+    rest = &rest[start..];
+    let decoded = rest.find(';').filter(|&end| end <= 10).and_then(|end| {
+      let entity = &rest[1..end];
+      let entity = match entity.strip_prefix("#X") {
+        Some(hex) => format!("#x{hex}"),
+        None => entity.to_owned(),
+      };
+      oxc_syntax::xml_entities::decode_entity(&entity).map(|c| (c.to_char().unwrap_or(char::REPLACEMENT_CHARACTER), end))
+    });
+    match decoded {
+      Some((c, end)) => {
+        out.push(c);
+        rest = &rest[end + 1..];
+      }
+      None => {
+        out.push('&');
+        rest = &rest[1..];
+      }
+    }
+  }
+  out.push_str(rest);
+  out
+}

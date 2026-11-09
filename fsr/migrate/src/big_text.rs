@@ -8,7 +8,7 @@ use oxc_ast_visit::{walk, Visit};
 use oxc_span::GetSpan;
 
 use crate::edit::Edits;
-use crate::syntax::{is_script, jsx_ident, lossy, parse, Parsed};
+use crate::syntax::{decode_entities, is_script, jsx_ident, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 /// Where the input tree holds the font files of the cfonts package the application installed, `<name>.json` each; `fsr migrate` reads them from `node_modules/cfonts/fonts/`.
@@ -153,7 +153,7 @@ impl<'a> Visit<'a> for Uses<'_> {
       return;
     };
     let named = match &font.value {
-      Some(JSXAttributeValue::StringLiteral(s)) => Some(lossy(s.value)),
+      Some(JSXAttributeValue::StringLiteral(s)) => Some(decode_entities(&lossy(s.value))),
       Some(JSXAttributeValue::ExpressionContainer(c)) => match c.expression.as_expression() {
         Some(js::Expression::StringLiteral(s)) => Some(lossy(s.value)),
         Some(_) => None,

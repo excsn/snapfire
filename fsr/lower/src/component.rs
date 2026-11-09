@@ -11424,47 +11424,16 @@ fn decode_entities(raw: &str) -> String {
   while let Some(start) = rest.find('&') {
     out.push_str(&rest[..start]);
     rest = &rest[start..];
-    let Some(end) = rest.find(';').filter(|&e| e <= 10) else {
-      out.push('&');
-      rest = &rest[1..];
-      continue;
-    };
-    let entity = &rest[1..end];
-    let decoded = match entity {
-      "amp" => Some('&'),
-      "lt" => Some('<'),
-      "gt" => Some('>'),
-      "quot" => Some('"'),
-      "apos" => Some('\''),
-      "nbsp" => Some('\u{a0}'),
-      "copy" => Some('\u{a9}'),
-      "reg" => Some('\u{ae}'),
-      "minus" => Some('\u{2212}'),
-      "times" => Some('\u{d7}'),
-      "middot" => Some('\u{b7}'),
-      "hellip" => Some('\u{2026}'),
-      "mdash" => Some('\u{2014}'),
-      "ndash" => Some('\u{2013}'),
-      "rarr" => Some('\u{2192}'),
-      "larr" => Some('\u{2190}'),
-      "laquo" => Some('\u{ab}'),
-      "raquo" => Some('\u{bb}'),
-      "bull" => Some('\u{2022}'),
-      "trade" => Some('\u{2122}'),
-      "euro" => Some('\u{20ac}'),
-      "pound" => Some('\u{a3}'),
-      "yen" => Some('\u{a5}'),
-      "deg" => Some('\u{b0}'),
-      _ => entity
-        .strip_prefix('#')
-        .and_then(|n| match n.strip_prefix('x').or_else(|| n.strip_prefix('X')) {
-          Some(hex) => u32::from_str_radix(hex, 16).ok(),
-          None => n.parse().ok(),
-        })
-        .and_then(char::from_u32),
-    };
+    let decoded = rest.find(';').filter(|&end| end <= 10).and_then(|end| {
+      let entity = &rest[1..end];
+      let entity = match entity.strip_prefix("#X") {
+        Some(hex) => format!("#x{hex}"),
+        None => entity.to_owned(),
+      };
+      oxc_syntax::xml_entities::decode_entity(&entity).map(|c| (c.to_char().unwrap_or(char::REPLACEMENT_CHARACTER), end))
+    });
     match decoded {
-      Some(c) => {
+      Some((c, end)) => {
         out.push(c);
         rest = &rest[end + 1..];
       }
@@ -12442,6 +12411,20 @@ export function Page(props: { className: string; children: React.ReactNode; cart
     assert_eq!(jsx_text("\n    Hello\n    world\n  "), "Hello world");
     assert_eq!(jsx_text("a  b"), "a  b");
     assert_eq!(jsx_text("&minus; &amp; &#8230; &#x2192; &bogus;"), "\u{2212} & \u{2026} \u{2192} &bogus;");
+  }
+  #[test]
+  fn jsx_text_and_string_attributes_decode_every_html_entity_once() {
+    assert_eq!(jsx_text("FSR&rsquo;s &hellip; &mdash; &eacute; &#8217;"), "FSR\u{2019}s \u{2026} \u{2014} \u{e9} \u{2019}");
+    assert_eq!(jsx_text("&amp;lt;"), "&lt;");
+    let page = r#"
+export default function Page({ id }: { id: number }) {
+  return <p data-id={id} title="Tom &amp; Jerry&rsquo;s">FSR&rsquo;s renderer &hellip;</p>;
+}
+"#;
+    let lowered = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap();
+    let Tmpl::Element { attrs, children, .. } = &lowered[0].1.render else { panic!("{:?}", lowered[0].1.render) };
+    assert!(attrs.contains(&Entry::Field("title".to_owned(), Expr::lit_str("Tom & Jerry\u{2019}s"))), "{attrs:?}");
+    assert_eq!(children, &vec![Tmpl::Text("FSR\u{2019}s renderer \u{2026}".to_owned())]);
   }
   #[test]
   fn a_rest_in_a_destructuring_is_the_object_without_the_named_keys() {

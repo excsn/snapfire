@@ -10,7 +10,7 @@ use oxc_span::GetSpan;
 use crate::edit::Edits;
 use crate::items::{drop_named_import, line_range};
 use crate::relocate::{dirname, find, normalize, relocate, Aliases};
-use crate::syntax::{export_ident, import_specifiers, jsx_ident, key_value, lossy, parse};
+use crate::syntax::{decode_entities, export_ident, import_specifiers, jsx_ident, key_value, lossy, parse};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn app_passes() -> Vec<Box<dyn Pass>> {
@@ -427,7 +427,7 @@ fn literal(e: &Expression) -> bool {
 fn attribute(opening: &js::JSXOpeningElement, name: &str) -> Option<String> {
   opening.attributes.iter().find_map(|a| match a {
     JSXAttributeItem::Attribute(attr) => match (&attr.name, &attr.value) {
-      (JSXAttributeName::Identifier(n), Some(JSXAttributeValue::StringLiteral(s))) if n.name == name => Some(lossy(s.value)),
+      (JSXAttributeName::Identifier(n), Some(JSXAttributeValue::StringLiteral(s))) if n.name == name => Some(decode_entities(&lossy(s.value))),
       _ => None,
     },
     _ => None,

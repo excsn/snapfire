@@ -13,7 +13,7 @@ use crate::edit::Edits;
 use crate::items::{drop_named_import, line_range, tidy};
 use crate::lift::route_kind;
 use crate::relocate::dirname;
-use crate::syntax::{is_script, jsx_ident, key_value, lossy, parse, Parsed};
+use crate::syntax::{decode_entities, is_script, jsx_ident, key_value, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) struct Scripts;
@@ -137,7 +137,7 @@ fn attrs(text: &str, parsed: &Parsed, opening: &js::JSXOpeningElement) -> Vec<(S
         };
         let value = match &attr.value {
           None => Value::True,
-          Some(JSXAttributeValue::StringLiteral(s)) => Value::Str(lossy(s.value)),
+          Some(JSXAttributeValue::StringLiteral(s)) => Value::Str(decode_entities(&lossy(s.value))),
           Some(JSXAttributeValue::ExpressionContainer(c)) => match c.expression.as_expression().map(unparen) {
             Some(Expression::StringLiteral(s)) => Value::Str(lossy(s.value)),
             Some(Expression::BooleanLiteral(b)) if b.value => Value::True,
@@ -398,6 +398,15 @@ mod tests {
   }
 
   const NEXT: &str = r#"{ "dependencies": { "next": "latest" } }"#;
+
+  #[test]
+  fn a_script_tags_string_attributes_carry_their_html_entities_decoded() {
+    let layout = "import Script from \"next/script\";\n\nexport default function RootLayout({ children }: { children: React.ReactNode }) {\n  return (\n    <html lang=\"en\">\n      <body>{children}</body>\n      <Script src=\"https://cdn.example/a.js?x=1&amp;y=2\" />\n    </html>\n  );\n}\n";
+    let input = tree(&[("package.json", NEXT), ("app/layout.tsx", layout), ("app/page.tsx", "export default function Page() {\n  return <main />;\n}\n")]);
+    let (out, _) = migrate(&input);
+    let loader = out.text("app/routes/layout.loader.ts").unwrap();
+    assert!(loader.contains("scriptTag(\"https://cdn.example/a.js?x=1&y=2\")"), "{loader}");
+  }
 
   #[test]
   fn a_script_tag_in_a_layout_becomes_a_head_row_beside_the_meta_it_has() {

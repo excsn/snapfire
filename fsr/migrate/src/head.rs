@@ -9,7 +9,7 @@ use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::{drop_named_import, import_text, line_range, local, tidy};
-use crate::syntax::{import_specifiers, is_script, jsx_ident, lossy, parse, Parsed};
+use crate::syntax::{decode_entities, import_specifiers, is_script, jsx_ident, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 /// Each `<Head>` taken out of the module that places it. In a page or a
@@ -165,7 +165,7 @@ fn attr<'a>(text: &'a str, parsed: &Parsed, opening: &js::JSXOpeningElement, nam
   opening.attributes.iter().find_map(|a| match a {
     JSXAttributeItem::Attribute(attr) => match (&attr.name, &attr.value) {
       (JSXAttributeName::Identifier(n), Some(value)) if n.name == name => Some(match value {
-        JSXAttributeValue::StringLiteral(s) => format!("{:?}", lossy(s.value)),
+        JSXAttributeValue::StringLiteral(s) => format!("{:?}", decode_entities(&lossy(s.value))),
         JSXAttributeValue::ExpressionContainer(c) => match c.expression.as_expression() {
           Some(e) => text[parsed.range(e.span())].to_owned(),
           None => text[parsed.range(c.span)].to_owned(),
@@ -239,7 +239,7 @@ fn title(text: &str, parsed: &Parsed, tag: &js::JSXElement) -> Option<String> {
         if !collapsed.is_empty() {
           let lead = if value.starts_with(char::is_whitespace) && !parts.is_empty() { " " } else { "" };
           let trail = if value.ends_with(char::is_whitespace) { " " } else { "" };
-          parts.push(Ok(format!("{lead}{collapsed}{trail}")));
+          parts.push(Ok(format!("{lead}{}{trail}", decode_entities(&collapsed))));
         } else if !parts.is_empty() && value.contains(' ') && !value.contains('\n') {
           parts.push(Ok(" ".to_owned()));
         }
@@ -447,6 +447,17 @@ mod tests {
   }
 
   const PACKAGE: &str = r#"{ "dependencies": { "next": "latest" } }"#;
+
+  #[test]
+  fn a_heads_text_and_string_attributes_carry_their_html_entities_decoded() {
+    let page = "import Head from \"next/head\";\n\nexport default function About() {\n  return (\n    <main>\n      <Head>\n        <title>Tom &amp; Jerry&rsquo;s</title>\n        <meta name=\"description\" content=\"Cats &amp; mice &hellip;\" />\n      </Head>\n      <h1>About</h1>\n    </main>\n  );\n}\n";
+    let input = tree(&[("package.json", PACKAGE), ("pages/about.js", page)]);
+    let (out, _) = migrate(&input);
+    let written: String = out.iter().map(|(path, bytes)| format!("== {path}\n{}\n", String::from_utf8_lossy(bytes))).collect();
+    assert!(written.contains("title: \"Tom & Jerry\u{2019}s\""), "{written}");
+    assert!(written.contains("description: \"Cats & mice \u{2026}\""), "{written}");
+    assert!(!written.contains("&amp;") && !written.contains("&rsquo;") && !written.contains("&hellip;"), "{written}");
+  }
 
   #[test]
   fn a_pages_head_becomes_its_loaders_meta_reading_the_props_from_data() {
