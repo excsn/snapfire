@@ -708,7 +708,7 @@ impl SourceMapGenConfig for NamedSource {
   }
 }
 
-fn describe(cm: &SourceMap, error: &ParserError) -> String {
+pub(crate) fn describe(cm: &SourceMap, error: &ParserError) -> String {
   let loc = cm.lookup_char_pos(error.span().lo);
   format!(
     "{}:{}:{}: {}",

@@ -3,6 +3,8 @@
 //! output like any rule written by hand.
 
 use std::cell::RefCell;
+
+use swc_core::ecma::visit::VisitWith;
 use std::path::{Path, PathBuf};
 
 use snapfire_tailwind::{CompileOptions, Compiler, Error, Loaded, Root, tailwind_stylesheet};
@@ -158,17 +160,39 @@ fn declaration_follows(rest: &[u8]) -> bool {
 /// `normalizeClass` or what Svelte's compiled output hands its runtime's `from_html` and
 /// `set_class`. Whole tokens only: a token a template expression touches is left out.
 pub fn source_classes(path: &Path, source: &str) -> Vec<String> {
-  use oxc_ast_visit::Visit;
-  let allocator = oxc_allocator::Allocator::default();
-  let source_type = oxc_span::SourceType::from_path(path).unwrap_or_else(|_| oxc_span::SourceType::tsx());
-  let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
+  let Some(program) = parse(path, source, true) else { return Vec::new() };
   let mut consts = Consts::default();
-  consts.visit_program(&parsed.program);
-  let mut collector = Classes { consts: Some(&consts.table), aliases: helper_aliases(&parsed.program), svelte: svelte_runtimes(&parsed.program), ..Classes::default() };
-  collector.visit_program(&parsed.program);
+  program.visit_with(&mut consts);
+  let mut collector = Classes { consts: Some(&consts.table), aliases: helper_aliases(&program), svelte: svelte_runtimes(&program), ..Classes::default() };
+  program.visit_with(&mut collector);
   let mut found: Vec<String> = collector.found.into_iter().collect();
   found.sort();
   found
+}
+
+/// `source` parsed by its extension: TypeScript for `.ts`, TSX for `.tsx` and anything unknown,
+/// JavaScript with JSX for `.js`, `.mjs`, `.cjs` and `.jsx`. A parse that fails reads as nothing.
+fn parse(path: &Path, source: &str, unknown_is_tsx: bool) -> Option<swc_core::ecma::ast::Program> {
+  use swc_core::common::{FileName, SourceMap, sync::Lrc};
+  use swc_core::ecma::ast::EsVersion;
+  use swc_core::ecma::parser::{EsSyntax, Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
+  let extension = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+  let syntax = match extension {
+    "ts" | "mts" | "cts" => Syntax::Typescript(TsSyntax { decorators: true, ..Default::default() }),
+    "tsx" => Syntax::Typescript(TsSyntax { tsx: true, decorators: true, ..Default::default() }),
+    "js" | "mjs" | "cjs" | "jsx" => Syntax::Es(EsSyntax { jsx: true, decorators: true, ..Default::default() }),
+    _ if unknown_is_tsx => Syntax::Typescript(TsSyntax { tsx: true, decorators: true, ..Default::default() }),
+    _ => Syntax::Es(EsSyntax { jsx: true, ..Default::default() }),
+  };
+  let cm: Lrc<SourceMap> = Default::default();
+  let fm = cm.new_source_file(Lrc::new(FileName::Anon), source.to_owned());
+  let lexer = Lexer::new(syntax, EsVersion::latest(), StringInput::from(&*fm), None);
+  Parser::new_from(lexer).parse_program().ok()
+}
+
+/// A string literal's text, `None` when it holds a lone surrogate.
+fn text(value: &swc_core::atoms::Wtf8Atom) -> Option<&str> {
+  value.as_wtf8().as_str()
 }
 
 /// What each `const` holds read as classes, by name: as a whole, as a lookup table indexed by
@@ -186,11 +210,61 @@ struct Consts {
   table: ConstTable,
 }
 
-impl<'a> oxc_ast_visit::Visit<'a> for Consts {
-  fn visit_variable_declaration(&mut self, it: &oxc_ast::ast::VariableDeclaration<'a>) {
-    if it.kind == oxc_ast::ast::VariableDeclarationKind::Const {
-      for declarator in &it.declarations {
-        let (oxc_ast::ast::BindingPattern::BindingIdentifier(id), Some(init)) = (&declarator.id, &declarator.init) else { continue };
+/// A property key's name when it is written out: an identifier, a string or a number.
+fn static_name(key: &swc_core::ecma::ast::PropName) -> Option<String> {
+  use swc_core::ecma::ast::PropName;
+  match key {
+    PropName::Ident(id) => Some(id.sym.to_string()),
+    PropName::Str(s) => text(&s.value).map(str::to_owned),
+    PropName::Num(n) => Some(n.value.to_string()),
+    _ => None,
+  }
+}
+
+/// The values of an object literal's `key: value` properties.
+fn values(object: &swc_core::ecma::ast::ObjectLit) -> impl Iterator<Item = &swc_core::ecma::ast::Expr> {
+  use swc_core::ecma::ast::{Prop, PropOrSpread};
+  object.props.iter().filter_map(|property| match property {
+    PropOrSpread::Prop(prop) => match &**prop {
+      Prop::KeyValue(kv) => Some(&*kv.value),
+      _ => None,
+    },
+    _ => None,
+  })
+}
+
+/// The keys of an object literal's own properties, shorthand and methods included.
+fn property_keys(object: &swc_core::ecma::ast::ObjectLit) -> Vec<String> {
+  use swc_core::ecma::ast::{Prop, PropOrSpread};
+  let mut out = Vec::new();
+  for property in &object.props {
+    let PropOrSpread::Prop(prop) = property else { continue };
+    let key = match &**prop {
+      Prop::KeyValue(kv) => static_name(&kv.key),
+      Prop::Shorthand(id) => Some(id.sym.to_string()),
+      Prop::Method(m) => static_name(&m.key),
+      Prop::Getter(g) => static_name(&g.key),
+      Prop::Setter(s) => static_name(&s.key),
+      _ => None,
+    };
+    out.extend(key);
+  }
+  out
+}
+
+fn without_parentheses(expr: &swc_core::ecma::ast::Expr) -> &swc_core::ecma::ast::Expr {
+  match expr {
+    swc_core::ecma::ast::Expr::Paren(p) => without_parentheses(&p.expr),
+    other => other,
+  }
+}
+
+impl swc_core::ecma::visit::Visit for Consts {
+  fn visit_var_decl(&mut self, it: &swc_core::ecma::ast::VarDecl) {
+    use swc_core::ecma::ast::{Expr, Pat, VarDeclKind};
+    if it.kind == VarDeclKind::Const {
+      for declarator in &it.decls {
+        let (Pat::Ident(id), Some(init)) = (&declarator.name, &declarator.init) else { continue };
         let read = |f: &mut dyn FnMut(&mut Classes)| {
           let mut sub = Classes { consts: Some(&self.table), ..Classes::default() };
           f(&mut sub);
@@ -199,17 +273,20 @@ impl<'a> oxc_ast_visit::Visit<'a> for Consts {
         let whole = read(&mut |c| c.expression(init));
         let lookup = read(&mut |c| c.lookup(init));
         let mut fields = Vec::new();
-        if let oxc_ast::ast::Expression::ObjectExpression(o) = init.without_parentheses() {
-          for property in &o.properties {
-            if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property
-              && let Some(name) = p.key.static_name()
-              && let Some(key) = name.as_str()
-            {
-              fields.push((key.to_string(), read(&mut |c| c.expression(&p.value))));
+        if let Expr::Object(o) = without_parentheses(init) {
+          for property in &o.props {
+            let swc_core::ecma::ast::PropOrSpread::Prop(prop) = property else { continue };
+            let (key, value): (Option<String>, std::borrow::Cow<'_, Expr>) = match &**prop {
+              swc_core::ecma::ast::Prop::KeyValue(kv) => (static_name(&kv.key), std::borrow::Cow::Borrowed(&*kv.value)),
+              swc_core::ecma::ast::Prop::Shorthand(name) => (Some(name.sym.to_string()), std::borrow::Cow::Owned(Expr::Ident(name.clone()))),
+              _ => continue,
+            };
+            if let Some(key) = key {
+              fields.push((key, read(&mut |c| c.expression(&value))));
             }
           }
         }
-        let name = id.name.to_string();
+        let name = id.id.sym.to_string();
         self.table.whole.insert(name.clone(), whole);
         self.table.lookup.insert(name.clone(), lookup);
         for (key, classes) in fields {
@@ -217,7 +294,7 @@ impl<'a> oxc_ast_visit::Visit<'a> for Consts {
         }
       }
     }
-    oxc_ast_visit::walk::walk_variable_declaration(self, it);
+    it.visit_children_with(self);
   }
 }
 
@@ -231,18 +308,30 @@ struct Classes<'t> {
   svelte: std::collections::HashSet<String>,
 }
 
+/// The import declarations of a module program.
+fn imports(program: &swc_core::ecma::ast::Program) -> impl Iterator<Item = &swc_core::ecma::ast::ImportDecl> {
+  use swc_core::ecma::ast::{ModuleDecl, ModuleItem, Program};
+  let body: &[ModuleItem] = match program {
+    Program::Module(m) => &m.body,
+    _ => &[],
+  };
+  body.iter().filter_map(|item| match item {
+    ModuleItem::ModuleDecl(ModuleDecl::Import(import)) => Some(import),
+    _ => None,
+  })
+}
+
 /// The names a program imports `svelte/internal/client` under as a namespace.
-fn svelte_runtimes(program: &oxc_ast::ast::Program) -> std::collections::HashSet<String> {
-  use oxc_ast::ast::{ImportDeclarationSpecifier, Statement};
+fn svelte_runtimes(program: &swc_core::ecma::ast::Program) -> std::collections::HashSet<String> {
+  use swc_core::ecma::ast::ImportSpecifier;
   let mut out = std::collections::HashSet::new();
-  for statement in &program.body {
-    let Statement::ImportDeclaration(import) = statement else { continue };
-    if import.source.value != "svelte/internal/client" {
+  for import in imports(program) {
+    if text(&import.src.value) != Some("svelte/internal/client") {
       continue;
     }
-    for specifier in import.specifiers.iter().flatten() {
-      if let ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) = specifier {
-        out.insert(s.local.name.to_string());
+    for specifier in &import.specifiers {
+      if let ImportSpecifier::Namespace(s) = specifier {
+        out.insert(s.local.sym.to_string());
       }
     }
   }
@@ -254,25 +343,24 @@ const CLASS_PACKAGES: &[&str] = &["clsx", "clsx/lite", "classnames", "tailwind-m
 
 /// The local names a program's imports bind a class helper to: a named import of one of
 /// [`CLASS_CALLS`] under any local name or a default import from one of [`CLASS_PACKAGES`].
-fn helper_aliases(program: &oxc_ast::ast::Program) -> std::collections::HashSet<String> {
-  use oxc_ast::ast::{ImportDeclarationSpecifier, ModuleExportName, Statement};
+fn helper_aliases(program: &swc_core::ecma::ast::Program) -> std::collections::HashSet<String> {
+  use swc_core::ecma::ast::{ImportSpecifier, ModuleExportName};
   let mut out = std::collections::HashSet::new();
-  for statement in &program.body {
-    let Statement::ImportDeclaration(import) = statement else { continue };
-    for specifier in import.specifiers.iter().flatten() {
+  for import in imports(program) {
+    for specifier in &import.specifiers {
       match specifier {
-        ImportDeclarationSpecifier::ImportSpecifier(s) => {
+        ImportSpecifier::Named(s) => {
           let imported = match &s.imported {
-            ModuleExportName::IdentifierName(n) => n.name.as_str(),
-            ModuleExportName::IdentifierReference(n) => n.name.as_str(),
-            ModuleExportName::StringLiteral(n) => n.value.as_str().unwrap_or_default(),
+            Some(ModuleExportName::Ident(n)) => n.sym.to_string(),
+            Some(ModuleExportName::Str(n)) => text(&n.value).unwrap_or_default().to_owned(),
+            None => s.local.sym.to_string(),
           };
-          if CLASS_CALLS.contains(&imported) {
-            out.insert(s.local.name.to_string());
+          if CLASS_CALLS.contains(&imported.as_str()) {
+            out.insert(s.local.sym.to_string());
           }
         }
-        ImportDeclarationSpecifier::ImportDefaultSpecifier(s) if CLASS_PACKAGES.contains(&import.source.value.as_str().unwrap_or_default()) => {
-          out.insert(s.local.name.to_string());
+        ImportSpecifier::Default(s) if CLASS_PACKAGES.contains(&text(&import.src.value).unwrap_or_default()) => {
+          out.insert(s.local.sym.to_string());
         }
         _ => {}
       }
@@ -282,6 +370,11 @@ fn helper_aliases(program: &oxc_ast::ast::Program) -> std::collections::HashSet<
 }
 
 const CLASS_CALLS: &[&str] = &["clsx", "cn", "cx", "classnames", "classNames", "twMerge", "twJoin", "normalizeClass", "_normalizeClass"];
+
+/// A call's arguments that are expressions, spreads left out.
+fn argument(call: &swc_core::ecma::ast::CallExpr, i: usize) -> Option<&swc_core::ecma::ast::Expr> {
+  call.args.get(i).filter(|a| a.spread.is_none()).map(|a| &*a.expr)
+}
 
 impl Classes<'_> {
   fn words(&mut self, text: &str) {
@@ -295,43 +388,50 @@ impl Classes<'_> {
   }
 
   /// The values of a lookup object or the elements of a lookup array: what `table[key]` can be.
-  fn lookup(&mut self, table: &oxc_ast::ast::Expression) {
-    use oxc_ast::ast::Expression;
+  fn lookup(&mut self, table: &swc_core::ecma::ast::Expr) {
+    use swc_core::ecma::ast::Expr;
     match table {
-      Expression::ObjectExpression(o) => {
-        for property in &o.properties {
-          if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property {
-            self.expression(&p.value);
+      Expr::Object(o) => {
+        for value in values(o) {
+          self.expression(value);
+        }
+        for property in &o.props {
+          if let swc_core::ecma::ast::PropOrSpread::Prop(prop) = property
+            && let swc_core::ecma::ast::Prop::Shorthand(name) = &**prop
+          {
+            self.expression(&Expr::Ident(name.clone()));
           }
         }
       }
-      Expression::ArrayExpression(_) => self.expression(table),
-      Expression::TSAsExpression(e) => self.lookup(&e.expression),
-      Expression::TSSatisfiesExpression(e) => self.lookup(&e.expression),
+      Expr::Array(_) => self.expression(table),
+      Expr::TsAs(e) => self.lookup(&e.expr),
+      Expr::TsConstAssertion(e) => self.lookup(&e.expr),
+      Expr::TsSatisfies(e) => self.lookup(&e.expr),
       _ => {}
     }
   }
 
-  fn expression(&mut self, expr: &oxc_ast::ast::Expression) {
-    use oxc_ast::ast::Expression;
+  fn expression(&mut self, expr: &swc_core::ecma::ast::Expr) {
+    use swc_core::ecma::ast::{BinaryOp, Expr, Lit, MemberProp};
     match expr {
-      Expression::Identifier(id) => self.from_table(|t| t.whole.get(id.name.as_str())),
-      Expression::ComputedMemberExpression(m) => {
-        if let Expression::Identifier(id) = &m.object {
-          self.from_table(|t| t.lookup.get(id.name.as_str()));
+      Expr::Ident(id) => self.from_table(|t| t.whole.get(id.sym.as_str())),
+      Expr::Member(m) => {
+        if let Expr::Ident(id) = &*m.obj {
+          match &m.prop {
+            MemberProp::Computed(_) => self.from_table(|t| t.lookup.get(id.sym.as_str())),
+            MemberProp::Ident(property) => {
+              let key = (id.sym.to_string(), property.sym.to_string());
+              self.from_table(|t| t.fields.get(&key));
+            }
+            _ => {}
+          }
         }
       }
-      Expression::StaticMemberExpression(m) => {
-        if let Expression::Identifier(id) = &m.object {
-          let key = (id.name.to_string(), m.property.name.to_string());
-          self.from_table(|t| t.fields.get(&key));
-        }
-      }
-      Expression::StringLiteral(s) => self.words(s.value.as_str().unwrap_or_default()),
-      Expression::TemplateLiteral(t) => {
+      Expr::Lit(Lit::Str(s)) => self.words(text(&s.value).unwrap_or_default()),
+      Expr::Tpl(t) => {
         let last = t.quasis.len().saturating_sub(1);
         for (i, quasi) in t.quasis.iter().enumerate() {
-          let text = quasi.value.cooked.and_then(|c| c.as_str()).unwrap_or(quasi.value.raw.as_str());
+          let text = quasi.cooked.as_ref().and_then(text).unwrap_or(quasi.raw.as_str());
           let mut tokens: Vec<&str> = text.split_whitespace().collect();
           if i > 0 && !text.starts_with(char::is_whitespace) && !tokens.is_empty() {
             tokens.remove(0);
@@ -341,62 +441,63 @@ impl Classes<'_> {
           }
           self.found.extend(tokens.into_iter().map(str::to_owned));
         }
-        for inner in &t.expressions {
+        for inner in &t.exprs {
           self.expression(inner);
         }
       }
-      Expression::ConditionalExpression(c) => {
-        self.expression(&c.consequent);
-        self.expression(&c.alternate);
+      Expr::Cond(c) => {
+        self.expression(&c.cons);
+        self.expression(&c.alt);
       }
-      Expression::LogicalExpression(l) => {
-        if l.operator != oxc_ast::ast::LogicalOperator::And {
-          self.expression(&l.left);
+      Expr::Bin(b) if matches!(b.op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr | BinaryOp::NullishCoalescing) => {
+        if b.op != BinaryOp::LogicalAnd {
+          self.expression(&b.left);
         }
-        self.expression(&l.right);
+        self.expression(&b.right);
       }
-      Expression::ArrayExpression(a) => {
-        for element in &a.elements {
-          if let Some(e) = element.as_expression() {
-            self.expression(e);
+      Expr::Array(a) => {
+        for element in a.elems.iter().flatten() {
+          if element.spread.is_none() {
+            self.expression(&element.expr);
           }
         }
       }
-      Expression::ObjectExpression(o) => {
-        for property in &o.properties {
-          if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property {
-            match &p.key {
-              oxc_ast::ast::PropertyKey::StringLiteral(s) => self.words(s.value.as_str().unwrap_or_default()),
-              oxc_ast::ast::PropertyKey::StaticIdentifier(id) => self.words(&id.name),
-              _ => {}
-            }
-          }
+      Expr::Object(o) => {
+        for key in property_keys(o) {
+          self.words(&key);
         }
       }
-      Expression::ParenthesizedExpression(p) => self.expression(&p.expression),
-      Expression::TSAsExpression(e) => self.expression(&e.expression),
-      Expression::TSSatisfiesExpression(e) => self.expression(&e.expression),
-      Expression::CallExpression(call) => self.call(call),
+      Expr::Paren(p) => self.expression(&p.expr),
+      Expr::TsAs(e) => self.expression(&e.expr),
+      Expr::TsConstAssertion(e) => self.expression(&e.expr),
+      Expr::TsSatisfies(e) => self.expression(&e.expr),
+      Expr::Call(call) => self.call(call),
       _ => {}
     }
   }
 
-  fn call(&mut self, call: &oxc_ast::ast::CallExpression) {
-    if let oxc_ast::ast::Expression::StaticMemberExpression(m) = &call.callee
-      && let oxc_ast::ast::Expression::Identifier(object) = &m.object
-      && self.svelte.contains(object.name.as_str())
+  fn call(&mut self, call: &swc_core::ecma::ast::CallExpr) {
+    use swc_core::ecma::ast::{Callee, Expr, MemberProp};
+    let Callee::Expr(callee) = &call.callee else { return };
+    if let Expr::Member(m) = &**callee
+      && let Expr::Ident(object) = &*m.obj
+      && let MemberProp::Ident(property) = &m.prop
+      && self.svelte.contains(object.sym.as_str())
     {
-      self.svelte_call(m.property.name.as_str(), call);
+      self.svelte_call(property.sym.as_str(), call);
     }
-    let name = match &call.callee {
-      oxc_ast::ast::Expression::Identifier(id) => Some(id.name.as_str()),
-      oxc_ast::ast::Expression::StaticMemberExpression(m) => Some(m.property.name.as_str()),
+    let name = match &**callee {
+      Expr::Ident(id) => Some(id.sym.as_str()),
+      Expr::Member(m) => match &m.prop {
+        MemberProp::Ident(property) => Some(property.sym.as_str()),
+        _ => None,
+      },
       _ => None,
     };
     if name.is_some_and(|n| CLASS_CALLS.contains(&n) || self.aliases.contains(n)) {
-      for argument in &call.arguments {
-        if let Some(e) = argument.as_expression() {
-          self.expression(e);
+      for argument in &call.args {
+        if argument.spread.is_none() {
+          self.expression(&argument.expr);
         }
       }
     }
@@ -407,20 +508,20 @@ impl Classes<'_> {
   /// Svelte's compiled output: `set_class(element, flags, value, hash, previous, directives)`
   /// sets `value` and toggles each key of `directives`, and `from_html` and its siblings hold
   /// the template's static markup, whose `class` attributes are classes.
-  fn svelte_call(&mut self, name: &str, call: &oxc_ast::ast::CallExpression) {
-    let argument = |i: usize| call.arguments.get(i).and_then(|a| a.as_expression());
+  fn svelte_call(&mut self, name: &str, call: &swc_core::ecma::ast::CallExpr) {
+    use swc_core::ecma::ast::{Expr, Lit};
     match name {
       "set_class" => {
         for i in [2, 5] {
-          if let Some(e) = argument(i) {
+          if let Some(e) = argument(call, i) {
             self.expression(e);
           }
         }
       }
       "from_html" | "from_svg" | "from_mathml" => {
-        let markup = match argument(0) {
-          Some(oxc_ast::ast::Expression::StringLiteral(s)) => s.value.as_str().map(str::to_owned),
-          Some(oxc_ast::ast::Expression::TemplateLiteral(t)) if t.expressions.is_empty() => t.quasis.first().map(|q| q.value.cooked.and_then(|c| c.as_str()).unwrap_or(q.value.raw.as_str()).to_owned()),
+        let markup = match argument(call, 0) {
+          Some(Expr::Lit(Lit::Str(s))) => text(&s.value).map(str::to_owned),
+          Some(Expr::Tpl(t)) if t.exprs.is_empty() => t.quasis.first().map(|q| q.cooked.as_ref().and_then(text).unwrap_or(q.raw.as_str()).to_owned()),
           _ => None,
         };
         let Some(markup) = markup else { return };
@@ -481,50 +582,56 @@ fn unescape(value: &str) -> std::borrow::Cow<'_, str> {
   std::borrow::Cow::Owned(out)
 }
 
-impl<'a> oxc_ast_visit::Visit<'a> for Classes<'_> {
-  fn visit_jsx_attribute(&mut self, attribute: &oxc_ast::ast::JSXAttribute<'a>) {
-    let named = matches!(&attribute.name, oxc_ast::ast::JSXAttributeName::Identifier(id) if id.name == "class" || id.name == "className");
+impl swc_core::ecma::visit::Visit for Classes<'_> {
+  fn visit_jsx_attr(&mut self, attribute: &swc_core::ecma::ast::JSXAttr) {
+    use swc_core::ecma::ast::{JSXAttrName, JSXAttrValue, JSXExpr};
+    let named = matches!(&attribute.name, JSXAttrName::Ident(id) if id.sym == "class" || id.sym == "className");
     if named {
       match &attribute.value {
-        Some(oxc_ast::ast::JSXAttributeValue::StringLiteral(s)) => self.words(s.value.as_str().unwrap_or_default()),
-        Some(oxc_ast::ast::JSXAttributeValue::ExpressionContainer(c)) => {
-          if let Some(e) = c.expression.as_expression() {
+        Some(JSXAttrValue::Str(s)) => self.words(text(&s.value).unwrap_or_default()),
+        Some(JSXAttrValue::JSXExprContainer(c)) => {
+          if let JSXExpr::Expr(e) = &c.expr {
             self.expression(e);
           }
         }
         _ => {}
       }
     }
-    oxc_ast_visit::walk::walk_jsx_attribute(self, attribute);
+    attribute.visit_children_with(self);
   }
 
-  fn visit_object_property(&mut self, property: &oxc_ast::ast::ObjectProperty<'a>) {
-    let named = match &property.key {
-      oxc_ast::ast::PropertyKey::StaticIdentifier(id) => id.name == "class" || id.name == "className",
-      oxc_ast::ast::PropertyKey::StringLiteral(s) => s.value == "class" || s.value == "className",
-      _ => false,
-    };
-    if named {
-      self.expression(&property.value);
+  fn visit_prop(&mut self, property: &swc_core::ecma::ast::Prop) {
+    use swc_core::ecma::ast::{Expr, Prop, PropName};
+    let is_class = |name: &str| name == "class" || name == "className";
+    match property {
+      Prop::KeyValue(kv) => {
+        let named = match &kv.key {
+          PropName::Ident(id) => is_class(&id.sym),
+          PropName::Str(s) => text(&s.value).is_some_and(is_class),
+          _ => false,
+        };
+        if named {
+          self.expression(&kv.value);
+        }
+      }
+      Prop::Shorthand(id) if is_class(&id.sym) => self.expression(&Expr::Ident(id.clone())),
+      _ => {}
     }
-    oxc_ast_visit::walk::walk_object_property(self, property);
+    property.visit_children_with(self);
   }
 
-  fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+  fn visit_call_expr(&mut self, call: &swc_core::ecma::ast::CallExpr) {
     self.call(call);
-    oxc_ast_visit::walk::walk_call_expression(self, call);
+    call.visit_children_with(self);
   }
 }
 
 /// The specifiers a script imports: static imports and re-exports, side-effect imports and
 /// `import("x")` with a literal argument.
 pub fn module_imports(path: &Path, source: &str) -> Vec<String> {
-  use oxc_ast_visit::Visit;
-  let allocator = oxc_allocator::Allocator::default();
-  let source_type = oxc_span::SourceType::from_path(path).unwrap_or_else(|_| oxc_span::SourceType::mjs());
-  let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
+  let Some(program) = parse(path, source, false) else { return Vec::new() };
   let mut collector = Imports::default();
-  collector.visit_program(&parsed.program);
+  program.visit_with(&mut collector);
   collector.found.into_iter().collect()
 }
 
@@ -533,24 +640,35 @@ struct Imports {
   found: std::collections::BTreeSet<String>,
 }
 
-impl<'a> oxc_ast_visit::Visit<'a> for Imports {
-  fn visit_import_declaration(&mut self, it: &oxc_ast::ast::ImportDeclaration<'a>) {
-    self.found.extend(it.source.value.as_str().map(str::to_owned));
+impl Imports {
+  fn add(&mut self, source: &swc_core::ecma::ast::Str) {
+    self.found.extend(text(&source.value).map(str::to_owned));
+  }
+}
+
+impl swc_core::ecma::visit::Visit for Imports {
+  fn visit_import_decl(&mut self, it: &swc_core::ecma::ast::ImportDecl) {
+    self.add(&it.src);
   }
 
-  fn visit_export_all_declaration(&mut self, it: &oxc_ast::ast::ExportAllDeclaration<'a>) {
-    self.found.extend(it.source.value.as_str().map(str::to_owned));
+  fn visit_export_all(&mut self, it: &swc_core::ecma::ast::ExportAll) {
+    self.add(&it.src);
   }
 
-  fn visit_export_from_declaration(&mut self, it: &oxc_ast::ast::ExportFromDeclaration<'a>) {
-    self.found.extend(it.source.value.as_str().map(str::to_owned));
-  }
-
-  fn visit_import_expression(&mut self, it: &oxc_ast::ast::ImportExpression<'a>) {
-    if let oxc_ast::ast::Expression::StringLiteral(s) = &it.source {
-      self.found.extend(s.value.as_str().map(str::to_owned));
+  fn visit_named_export(&mut self, it: &swc_core::ecma::ast::NamedExport) {
+    if let Some(source) = &it.src {
+      self.add(source);
     }
-    oxc_ast_visit::walk::walk_import_expression(self, it);
+  }
+
+  fn visit_call_expr(&mut self, it: &swc_core::ecma::ast::CallExpr) {
+    use swc_core::ecma::ast::{Callee, Expr, Lit};
+    if matches!(it.callee, Callee::Import(_))
+      && let Some(Expr::Lit(Lit::Str(s))) = argument(it, 0)
+    {
+      self.add(s);
+    }
+    it.visit_children_with(self);
   }
 }
 

@@ -1,12 +1,13 @@
 use std::path::Path;
 
-use anyhow::{Result, anyhow};
-use oxc_allocator::Allocator;
-use oxc_ast::ast::{Statement, StringLiteral};
-use oxc_codegen::Codegen;
-use oxc_isolated_declarations::{IsolatedDeclarations, IsolatedDeclarationsOptions};
-use oxc_parser::Parser;
-use oxc_span::SourceType;
+use anyhow::{Context, Result, anyhow};
+use swc_core::common::comments::SingleThreadedComments;
+use swc_core::common::{FileName, GLOBALS, Globals, Mark, SourceMap, sync::Lrc};
+use swc_core::ecma::ast::{EsVersion, ModuleDecl, ModuleItem, Program, Str};
+use swc_core::ecma::codegen::{Config as CodegenConfig, Emitter, text_writer::JsWriter};
+use swc_core::ecma::parser::{Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
+use swc_core::ecma::transforms::base::resolver;
+use swc_core::typescript::fast_dts::{FastDts, FastDtsOptions};
 
 use crate::config::Aliases;
 use crate::transforms::{relative_specifier, resolve_specifier};
@@ -19,95 +20,83 @@ use crate::transforms::{relative_specifier, resolve_specifier};
 /// inferred across files is an error here rather than something to guess at.
 pub fn declare(path: &Path, aliases: &Aliases, source_text: &Result<String>) -> Result<String> {
   let source_text = match source_text {
-    Ok(text) => text.as_str(),
+    Ok(text) => text.clone(),
     Err(e) => return Err(anyhow!("{e:#}")),
   };
-
-  let allocator = Allocator::default();
-  let source_type = SourceType::from_path(path).map_err(|e| anyhow!("{e:?}"))?;
-
-  let parsed = Parser::new(&allocator, &source_text, source_type).parse();
-
-  if !parsed.diagnostics.is_empty() {
-    return Err(anyhow!("{}", describe(&parsed.diagnostics, path, &source_text)));
-  }
-
-  let built = IsolatedDeclarations::new(
-    &allocator,
-    IsolatedDeclarationsOptions { strip_internal: true },
-  )
-  .build(&parsed.program);
-
-  if !built.diagnostics.is_empty() {
-    return Err(anyhow!("{}", describe(&built.diagnostics, path, &source_text)));
-  }
-
-  let mut program = built.program;
-  let dir = path.parent().unwrap_or_else(|| Path::new("."));
-
-  for statement in &mut program.body {
-    let Some(source) = module_source(statement) else {
-      continue;
+  let cm: Lrc<SourceMap> = Default::default();
+  GLOBALS.set(&Globals::new(), || {
+    let fm = cm.new_source_file(Lrc::new(FileName::Real(path.to_path_buf())), source_text);
+    let comments = SingleThreadedComments::default();
+    let tsx = path.extension().is_some_and(|e| e == "tsx");
+    let syntax = Syntax::Typescript(TsSyntax { tsx, decorators: true, ..Default::default() });
+    let lexer = Lexer::new(syntax, EsVersion::latest(), StringInput::from(&*fm), Some(&comments));
+    let mut parser = Parser::new_from(lexer);
+    let parsed = parser.parse_module();
+    let recovered = parser.take_errors();
+    let module = match parsed {
+      Ok(module) if recovered.is_empty() => module,
+      Ok(_) => return Err(anyhow!("{}", recovered.iter().map(|e| crate::compiler::describe(&cm, e)).collect::<Vec<_>>().join("\n"))),
+      Err(fatal) => return Err(anyhow!("{}", crate::compiler::describe(&cm, &fatal))),
     };
 
-    let Some(written) = source.value.as_str().map(str::to_owned) else {
-      continue;
-    };
-    let relative = if written.starts_with('.') {
-      written.clone()
-    } else {
-      match aliases.expand(&written) {
-        Some(target) => relative_specifier(dir, &target),
-        None => continue,
-      }
-    };
-
-    let resolved = resolve_specifier(dir, &relative);
-
-    if resolved == written {
-      continue;
+    let unresolved_mark = Mark::new();
+    let top_level_mark = Mark::new();
+    let mut program = Program::Module(module).apply(&mut resolver(unresolved_mark, top_level_mark, true));
+    let internal_annotations = Some(FastDts::get_internal_annotations(&comments));
+    let name = std::sync::Arc::new(FileName::Real(path.to_path_buf()));
+    let issues = FastDts::new(name, unresolved_mark, FastDtsOptions { internal_annotations }).transform(&mut program);
+    if !issues.is_empty() {
+      let described: Vec<String> = issues
+        .iter()
+        .map(|issue| {
+          let at = cm.lookup_char_pos(issue.range.span.lo);
+          format!("{}:{}:{}: {}", path.display(), at.line, at.col_display + 1, issue.message)
+        })
+        .collect();
+      return Err(anyhow!("{}", described.join("\n")));
     }
 
-    source.value = (&*allocator.alloc_str(&resolved)).into();
-    source.raw = None;
-  }
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    if let Program::Module(module) = &mut program {
+      for item in &mut module.body {
+        let Some(source) = module_source(item) else {
+          continue;
+        };
+        let Some(written) = source.value.as_wtf8().as_str().map(str::to_owned) else {
+          continue;
+        };
+        let relative = if written.starts_with('.') {
+          written.clone()
+        } else {
+          match aliases.expand(&written) {
+            Some(target) => relative_specifier(dir, &target),
+            None => continue,
+          }
+        };
+        let resolved = resolve_specifier(dir, &relative);
+        if resolved == written {
+          continue;
+        }
+        source.value = resolved.as_str().into();
+        source.raw = None;
+      }
+    }
 
-  Ok(Codegen::new().build(&program).code)
+    let mut buf = vec![];
+    {
+      let mut emitter = Emitter { cfg: CodegenConfig::default(), cm: cm.clone(), comments: Some(&comments), wr: JsWriter::new(cm.clone(), "\n", &mut buf, None) };
+      emitter.emit_program(&program).context("Failed to emit declarations")?;
+    }
+    Ok(String::from_utf8(buf)?)
+  })
 }
 
-/// The specifier a statement imports from, when it has one.
-fn module_source<'a, 'ast>(statement: &'a mut Statement<'ast>) -> Option<&'a mut StringLiteral<'ast>> {
-  match statement {
-    Statement::ImportDeclaration(declaration) => Some(&mut declaration.source),
-    Statement::ExportAllDeclaration(declaration) => Some(&mut declaration.source),
-    Statement::ExportFromDeclaration(declaration) => Some(&mut declaration.source),
+/// The specifier a module item imports from, when it has one.
+fn module_source(item: &mut ModuleItem) -> Option<&mut Str> {
+  match item {
+    ModuleItem::ModuleDecl(ModuleDecl::Import(import)) => Some(&mut import.src),
+    ModuleItem::ModuleDecl(ModuleDecl::ExportAll(export)) => Some(&mut export.src),
+    ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export)) => export.src.as_deref_mut(),
     _ => None,
   }
-}
-
-/// Reports every diagnostic in the same `file:line:column: message` shape the script compiler uses,
-/// so a declaration failure reads like a compile failure rather than like a different tool.
-fn describe(diagnostics: &[oxc_diagnostics::OxcDiagnostic], path: &Path, source: &str) -> String {
-  diagnostics
-    .iter()
-    .map(|diagnostic| {
-      let offset = diagnostic.labels.first().map(|label| label.offset() as usize);
-
-      match offset.map(|offset| position(source, offset)) {
-        Some((line, column)) => format!("{}:{}:{}: {}", path.display(), line, column, diagnostic.message),
-        None => format!("{}: {}", path.display(), diagnostic.message),
-      }
-    })
-    .collect::<Vec<_>>()
-    .join("\n")
-}
-
-/// One-based line and column for a byte offset, counting columns in characters so a line with
-/// multibyte text does not report a column past its own length.
-fn position(source: &str, offset: usize) -> (usize, usize) {
-  let consumed = &source[..offset.min(source.len())];
-  let line = consumed.matches('\n').count() + 1;
-  let column = consumed.rsplit('\n').next().unwrap_or_default().chars().count() + 1;
-
-  (line, column)
 }

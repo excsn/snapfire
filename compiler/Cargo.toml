@@ -42,14 +42,6 @@ snapfire_tailwind = { path = "../tailwind", version = "0.3.0" }
 notify = "8"
 rayon = "1.12.0"
 
-oxc_allocator = "0.155"
-oxc_ast = "0.155"
-oxc_ast_visit = "0.155"
-oxc_diagnostics = "0.155"
-oxc_parser = "0.155"
-oxc_span = "0.155"
-oxc_codegen = "0.155"
-oxc_isolated_declarations = "0.155"
 
 [dependencies.swc_core]
 version = "84"
@@ -61,7 +53,8 @@ features = [
   "ecma_codegen",
   "ecma_visit",
   "ecma_transforms_react",
-  "ecma_transforms_typescript"
+  "ecma_transforms_typescript",
+  "typescript"
 ]
 
 [features]
