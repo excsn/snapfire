@@ -19,7 +19,7 @@ Most applications never depend on this crate. `fsr build` uses it for `.mdx` and
 
 ```toml
 [dependencies]
-snapfire_fsr_mdx = { version = "0.1", features = ["highlight", "frontmatter"] }
+snapfire_fsr_mdx = { version = "0", features = ["highlight", "frontmatter"] }
 ```
 
 | Feature | Adds |

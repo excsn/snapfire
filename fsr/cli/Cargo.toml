@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_cli"
-version = "0.25.0"
+version = "0.25.1"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/embedded/**", "/templates/**", "/LICENSE"]
 description = "fsr, the CLI for a SnapFire FSR application: scaffolds, runs in development, tests, lints, builds the plan file and writes the deploy tree."
 keywords = ["snapfire", "fsr", "build-tool", "typescript", "cli"]
