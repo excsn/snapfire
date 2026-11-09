@@ -1,10 +1,10 @@
 [package]
 name = "snapfire_fsr_mdx"
 version = "0.2.2"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "MDX and markdown for SnapFire FSR: turns an .mdx or .md file into a TSX module the build lowers, with GFM, heading ids, frontmatter and highlighted code."
 keywords = ["snapfire", "fsr", "mdx", "markdown"]
 categories = ["web-programming", "parser-implementations"]
-exclude = ["tests"]
 
 edition = { workspace = true }
 authors = { workspace = true }

@@ -1,6 +1,7 @@
 [package]
 name = "snapfire_fsr_macros"
 version = "0.8.1"
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 edition.workspace = true
 license.workspace = true
 homepage = { workspace = true }
