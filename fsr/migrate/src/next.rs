@@ -2,14 +2,15 @@
 
 use std::collections::BTreeMap;
 
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::{Allocator, CloneIn};
+use oxc_ast::ast::{self as js, ArrayExpressionElement, BindingPattern, Declaration, ExportDefaultDeclarationKind, Expression, ImportDeclarationSpecifier, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, ObjectPropertyKind, PropertyKey, PropertyKind, Statement, UnaryOperator};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::GetSpan;
 
 use crate::edit::Edits;
 use crate::items::{drop_named_import, line_range};
 use crate::relocate::{dirname, find, normalize, relocate, Aliases};
-use crate::syntax::parse;
+use crate::syntax::{export_ident, import_specifiers, jsx_ident, key_value, lossy, parse};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn app_passes() -> Vec<Box<dyn Pass>> {
@@ -200,32 +201,30 @@ impl Pass for Document {
 
 /// The module whose default export `path` re-exports as its own: `export { default } from "x"` or `import L from "x"; export default L`.
 fn default_import(tree: &Tree, path: &str, text: &str) -> Option<String> {
-  let parsed = parse(path, text).ok()?;
+  let allocator = Allocator::default();
+  let parsed = parse(&allocator, path, text).ok()?;
   let source = |name: &str| {
-    parsed.module.body.iter().find_map(|item| match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if import.specifiers.iter().any(|s| matches!(s, js::ImportSpecifier::Default(d) if &*d.local.sym == name)) => Some(import.src.value.to_string_lossy().into_owned()),
+    parsed.body().iter().find_map(|item| match item {
+      Statement::ImportDeclaration(import) if import_specifiers(import).iter().any(|s| matches!(s, ImportDeclarationSpecifier::ImportDefaultSpecifier(d) if d.local.name == name)) => Some(lossy(import.source.value)),
       _ => None,
     })
   };
-  let spec = parsed.module.body.iter().find_map(|item| match item {
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) => named.specifiers.iter().find_map(|s| match s {
-      js::ExportSpecifier::Named(n) => {
-        let exported = n.exported.as_ref().unwrap_or(&n.orig);
-        let is_default = matches!(exported, js::ModuleExportName::Ident(i) if &*i.sym == "default");
-        let orig = match &n.orig {
-          js::ModuleExportName::Ident(i) => i.sym.to_string(),
-          _ => return None,
-        };
-        match (&named.src, is_default) {
-          (Some(src), true) if orig == "default" => Some(src.value.to_string_lossy().into_owned()),
-          (None, true) => source(&orig),
-          _ => None,
-        }
+  let named = |specifiers: &[js::ExportSpecifier], src: Option<&js::StringLiteral>| {
+    specifiers.iter().find_map(|n| {
+      let is_default = export_ident(&n.exported) == Some("default");
+      let orig = export_ident(&n.local)?.to_owned();
+      match (src, is_default) {
+        (Some(src), true) if orig == "default" => Some(lossy(src.value)),
+        (None, true) => source(&orig),
+        _ => None,
       }
-      _ => None,
-    }),
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => match &*e.expr {
-      js::Expr::Ident(id) => source(&id.sym),
+    })
+  };
+  let spec = parsed.body().iter().find_map(|item| match item {
+    Statement::ExportNamedDeclaration(export) => named(&export.specifiers, None),
+    Statement::ExportFromDeclaration(export) => named(&export.specifiers, Some(&export.source)),
+    Statement::ExportDefaultDeclaration(e) => match &e.declaration {
+      ExportDefaultDeclarationKind::Identifier(id) => source(&id.name),
       _ => None,
     },
     _ => None,
@@ -240,17 +239,18 @@ fn default_import(tree: &Tree, path: &str, text: &str) -> Option<String> {
 
 fn unwrap_document(tree: &mut Tree, path: String, report: &mut Report) {
   let Some(text) = tree.text(&path).map(str::to_owned) else { return };
-  let Ok(parsed) = parse(&path, &text) else { return };
-  let mut find = Elements { found: Vec::new() };
-  parsed.module.visit_with(&mut find);
+  let allocator = Allocator::default();
+  let Ok(parsed) = parse(&allocator, &path, &text) else { return };
+  let mut find = Elements { allocator: &allocator, found: Vec::new() };
+  find.visit_program(&parsed.program);
   let mut edits = Edits::default();
   for element in &find.found {
-    let js::JSXElementName::Ident(name) = &element.opening.name else { continue };
-    let open = parsed.range(element.opening.span);
-    let close = element.closing.as_ref().map(|c| parsed.range(c.span));
-    match &*name.sym {
+    let Some((name, _)) = jsx_ident(&element.opening_element.name) else { continue };
+    let open = parsed.range(element.opening_element.span);
+    let close = element.closing_element.as_ref().map(|c| parsed.range(c.span));
+    match name {
       "html" => {
-        if let Some(lang) = attribute(&element.opening, "lang").filter(|l| l != "en") {
+        if let Some(lang) = attribute(&element.opening_element, "lang").filter(|l| l != "en") {
           report.note(&path, parsed.line(element.span), format!("`<html lang=\"{lang}\">`: FSR writes `lang` from the request's locale, `[locales]` in `config/app.toml`"));
         }
         edits.replace(open, "<>");
@@ -259,7 +259,7 @@ fn unwrap_document(tree: &mut Tree, path: String, report: &mut Report) {
         }
       }
       "body" => {
-        let tag = &text[parsed.range(element.opening.span)];
+        let tag = &text[parsed.range(element.opening_element.span)];
         edits.replace(open.start..open.start + "<body".len(), "<div");
         if tag.ends_with("/>") {
           continue;
@@ -302,42 +302,44 @@ impl Pass for Metadata {
       .collect();
     for path in modules {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
-      let Ok(parsed) = parse(&path, &text) else { continue };
-      for item in &parsed.module.body {
-        let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) = item else { continue };
-        let Some(decl) = var.decls.first() else { continue };
-        let js::Pat::Ident(name) = &decl.name else { continue };
-        if &*name.id.sym != "metadata" {
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
+      for item in parsed.body() {
+        let Statement::ExportDeclaration(export) = item else { continue };
+        let Declaration::VariableDeclaration(var) = &export.declaration else { continue };
+        let Some(decl) = var.declarations.first() else { continue };
+        let BindingPattern::BindingIdentifier(name) = &decl.id else { continue };
+        if name.name != "metadata" {
           continue;
         }
         let line = parsed.line(item.span());
-        let Some(js::Expr::Object(object)) = decl.init.as_deref().map(strip) else {
+        let Some(Expression::ObjectExpression(object)) = decl.init.as_ref().map(strip) else {
           report.note(&path, line, "`metadata` is not an object literal, so it was left in place");
           continue;
         };
         let mut fields = Vec::new();
         let mut written = false;
-        for prop in &object.props {
-          let js::PropOrSpread::Prop(prop) = prop else {
+        for prop in &object.properties {
+          let ObjectPropertyKind::ObjectProperty(kv) = prop else {
             report.note(&path, line, "a spread in `metadata` was not carried over");
             continue;
           };
-          let js::Prop::KeyValue(kv) = &**prop else { continue };
+          if kv.kind != PropertyKind::Init || kv.method || kv.shorthand || kv.computed {
+            continue;
+          }
           let key = match &kv.key {
-            js::PropName::Ident(i) => i.sym.to_string(),
-            js::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+            PropertyKey::StaticIdentifier(i) => i.name.to_string(),
+            PropertyKey::StringLiteral(s) => lossy(s.value),
             _ => continue,
           };
           match (key.as_str(), strip(&kv.value)) {
             ("title" | "description", value) if literal(value) => fields.push(format!("{key}: {}", &text[parsed.range(value.span())])),
-            ("title", js::Expr::Object(title)) => {
-              for part in &title.props {
-                let js::PropOrSpread::Prop(part) = part else { continue };
-                let js::Prop::KeyValue(kv) = &**part else { continue };
-                let js::PropName::Ident(k) = &kv.key else { continue };
-                match &*k.sym {
-                  "default" if literal(&kv.value) => fields.push(format!("title: {}", &text[parsed.range(kv.value.span())])),
-                  "template" => report.note(&path, line, format!("the title template {} goes in `config/app.toml` as `[document] title_template`, `%s` written `{{page}}`", &text[parsed.range(kv.value.span())])),
+            ("title", Expression::ObjectExpression(title)) => {
+              for part in &title.properties {
+                let Some((k, value)) = key_value(part) else { continue };
+                match k {
+                  "default" if literal(value) => fields.push(format!("title: {}", &text[parsed.range(value.span())])),
+                  "template" => report.note(&path, line, format!("the title template {} goes in `config/app.toml` as `[document] title_template`, `%s` written `{{page}}`", &text[parsed.range(value.span())])),
                   "absolute" => report.note(&path, line, "an absolute title is `absolute: true` beside the title in `meta`"),
                   _ => {}
                 }
@@ -384,64 +386,67 @@ impl Pass for Metadata {
   }
 }
 
-fn strip(e: &js::Expr) -> &js::Expr {
+fn strip<'e, 'a>(e: &'e Expression<'a>) -> &'e Expression<'a> {
   match e {
-    js::Expr::Paren(p) => strip(&p.expr),
-    js::Expr::TsAs(a) => strip(&a.expr),
-    js::Expr::TsSatisfies(s) => strip(&s.expr),
-    js::Expr::TsConstAssertion(c) => strip(&c.expr),
+    Expression::ParenthesizedExpression(p) => strip(&p.expression),
+    Expression::TSAsExpression(a) => strip(&a.expression),
+    Expression::TSSatisfiesExpression(s) => strip(&s.expression),
     other => other,
   }
 }
 
 /// A value written out whole: literals, templates with no holes and arrays and objects of them.
-fn constant(e: &js::Expr) -> bool {
+fn constant(e: &Expression) -> bool {
   match strip(e) {
-    js::Expr::Lit(js::Lit::Str(_) | js::Lit::Num(_) | js::Lit::Bool(_) | js::Lit::Null(_)) => true,
-    js::Expr::Tpl(t) => t.exprs.is_empty(),
-    js::Expr::Unary(u) if u.op == js::UnaryOp::Minus => matches!(strip(&u.arg), js::Expr::Lit(js::Lit::Num(_))),
-    js::Expr::Array(a) => a.elems.iter().all(|e| e.as_ref().is_some_and(|e| e.spread.is_none() && constant(&e.expr))),
-    js::Expr::Object(o) => o.props.iter().all(|p| match p {
-      js::PropOrSpread::Prop(p) => match &**p {
-        js::Prop::KeyValue(kv) => matches!(kv.key, js::PropName::Ident(_) | js::PropName::Str(_) | js::PropName::Num(_)) && constant(&kv.value),
-        _ => false,
-      },
-      js::PropOrSpread::Spread(_) => false,
+    Expression::StringLiteral(_) | Expression::NumericLiteral(_) | Expression::BooleanLiteral(_) | Expression::NullLiteral(_) => true,
+    Expression::TemplateLiteral(t) => t.expressions.is_empty(),
+    Expression::UnaryExpression(u) if u.operator == UnaryOperator::UnaryNegation => matches!(strip(&u.argument), Expression::NumericLiteral(_)),
+    Expression::ArrayExpression(a) => a.elements.iter().all(|e| match e {
+      ArrayExpressionElement::Elision(_) | ArrayExpressionElement::SpreadElement(_) => false,
+      other => constant(other.to_expression()),
+    }),
+    Expression::ObjectExpression(o) => o.properties.iter().all(|p| match p {
+      ObjectPropertyKind::ObjectProperty(p) => {
+        p.kind == PropertyKind::Init && !p.method && !p.shorthand && !p.computed && matches!(p.key, PropertyKey::StaticIdentifier(_) | PropertyKey::StringLiteral(_) | PropertyKey::NumericLiteral(_)) && constant(&p.value)
+      }
+      ObjectPropertyKind::SpreadProperty(_) => false,
     }),
     _ => false,
   }
 }
 
 /// A string written out: a literal or a template with no holes.
-fn literal(e: &js::Expr) -> bool {
+fn literal(e: &Expression) -> bool {
   match strip(e) {
-    js::Expr::Lit(js::Lit::Str(_)) => true,
-    js::Expr::Tpl(t) => t.exprs.is_empty(),
+    Expression::StringLiteral(_) => true,
+    Expression::TemplateLiteral(t) => t.expressions.is_empty(),
     _ => false,
   }
 }
 
 fn attribute(opening: &js::JSXOpeningElement, name: &str) -> Option<String> {
-  opening.attrs.iter().find_map(|a| match a {
-    js::JSXAttrOrSpread::JSXAttr(js::JSXAttr { name: js::JSXAttrName::Ident(n), value: Some(js::JSXAttrValue::Str(s)), .. }) if &*n.sym == name => {
-      Some(s.value.to_string_lossy().into_owned())
-    }
+  opening.attributes.iter().find_map(|a| match a {
+    JSXAttributeItem::Attribute(attr) => match (&attr.name, &attr.value) {
+      (JSXAttributeName::Identifier(n), Some(JSXAttributeValue::StringLiteral(s))) if n.name == name => Some(lossy(s.value)),
+      _ => None,
+    },
     _ => None,
   })
 }
 
-struct Elements {
-  found: Vec<js::JSXElement>,
+struct Elements<'a> {
+  allocator: &'a Allocator,
+  found: Vec<js::JSXElement<'a>>,
 }
 
-impl Visit for Elements {
-  fn visit_jsx_element(&mut self, n: &js::JSXElement) {
-    if let js::JSXElementName::Ident(name) = &n.opening.name {
-      if ["html", "body", "head"].contains(&&*name.sym) {
-        self.found.push(n.clone());
+impl<'a> Visit<'a> for Elements<'_> {
+  fn visit_jsx_element(&mut self, n: &js::JSXElement<'a>) {
+    if let Some((name, _)) = jsx_ident(&n.opening_element.name) {
+      if ["html", "body", "head"].contains(&name) {
+        self.found.push(n.clone_in(self.allocator));
       }
     }
-    n.visit_children_with(self);
+    walk::walk_jsx_element(self, n);
   }
 }
 

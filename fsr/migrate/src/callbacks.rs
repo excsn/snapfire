@@ -5,12 +5,13 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, ArrowFunctionBody, AssignmentOperator, AssignmentTarget, BindingPattern, Declaration, Expression, ImportDeclarationSpecifier, ModuleExportName, Statement, TSType, VariableDeclarationKind};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
-use crate::syntax::{is_script, parse, Parsed, SCRIPT_EXTENSIONS};
+use crate::syntax::{argument, is_script, lossy, params, parse, Param, Parsed, SCRIPT_EXTENSIONS};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
@@ -48,10 +49,11 @@ impl Pass for Callbacks {
 
   fn run(&self, tree: &mut Tree, report: &mut Report) {
     let paths: Vec<String> = tree.paths().filter(|p| p.starts_with("app/") && is_script(p)).map(str::to_owned).collect();
+    let allocator = Allocator::default();
     let mut parsed: BTreeMap<String, (String, Parsed)> = BTreeMap::new();
     for path in &paths {
       let Some(text) = tree.text(path).map(str::to_owned) else { continue };
-      if let Ok(p) = parse(path, &text) {
+      if let Ok(p) = parse(&allocator, path, &text) {
         parsed.insert(path.clone(), (text, p));
       }
     }
@@ -64,7 +66,7 @@ impl Pass for Callbacks {
       for (path, (text, p)) in &parsed {
         let Some(local) = local_name(path, p, &target) else { continue };
         let mut calls = Calls { parsed: p, text, local: &local, index: target.index, found: Vec::new() };
-        p.module.visit_with(&mut calls);
+        calls.visit_program(&p.program);
         passed.extend(calls.found.into_iter().map(|c| (path.clone(), c)));
       }
       if passed.is_empty() {
@@ -97,7 +99,7 @@ impl Pass for Callbacks {
         let text = parsed[&path].0.clone();
         let rewritten = edits.apply(&text);
         tree.insert(path.clone(), rewritten.clone());
-        if let Ok(p) = parse(&path, &rewritten) {
+        if let Ok(p) = parse(&allocator, &path, &rewritten) {
           parsed.insert(path, (rewritten, p));
         }
       }
@@ -108,44 +110,48 @@ impl Pass for Callbacks {
 /// The module functions of `parsed` that call a parameter as a statement on a name.
 fn targets_in(path: &str, text: &str, parsed: &Parsed) -> Vec<Target> {
   let mut out = Vec::new();
-  for item in &parsed.module.body {
+  for item in parsed.body() {
     let decl = match item {
-      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
-      _ => continue,
-    };
-    let (name, params, body): (String, Vec<&js::Pat>, &js::FunctionBody) = match decl {
-      js::Decl::Fn(f) => match &f.function.body {
-        Some(body) => (f.ident.sym.to_string(), f.function.params.iter().map(|p| &p.pat).collect(), body),
+      Statement::ExportDeclaration(export) => &export.declaration,
+      other => match other.as_declaration() {
+        Some(decl) => decl,
         None => continue,
       },
-      js::Decl::Var(var) => {
-        let [declarator] = var.decls.as_slice() else { continue };
-        let (js::Pat::Ident(id), Some(js::Expr::Arrow(arrow))) = (&declarator.name, declarator.init.as_deref()) else { continue };
-        let js::ArrowFunctionBody::FunctionBody(body) = &*arrow.body else { continue };
-        (id.id.sym.to_string(), arrow.params.iter().collect(), body)
+    };
+    let (name, formals, body): (String, &js::FormalParameters, &js::FunctionBody) = match decl {
+      Declaration::FunctionDeclaration(f) => match (&f.id, &f.body) {
+        (Some(id), Some(body)) => (id.name.to_string(), &f.params, body),
+        _ => continue,
+      },
+      Declaration::VariableDeclaration(var) => {
+        let [declarator] = var.declarations.as_slice() else { continue };
+        let (BindingPattern::BindingIdentifier(id), Some(Expression::ArrowFunctionExpression(arrow))) = (&declarator.id, &declarator.init) else { continue };
+        let ArrowFunctionBody::FunctionBody(body) = &arrow.body else { continue };
+        (id.name.to_string(), &arrow.params, body)
       }
       _ => continue,
     };
-    for (index, pat) in params.iter().enumerate() {
-      let js::Pat::Ident(param) = pat else { continue };
-      let mut uses = Uses { param: &param.id.sym, parsed, calls: Vec::new(), other: None };
-      body.visit_with(&mut uses);
+    for (index, param) in params(formals).into_iter().enumerate() {
+      let Param::Plain(param) = param else { continue };
+      let BindingPattern::BindingIdentifier(id) = &param.pattern else { continue };
+      let mut uses = Uses { param: &id.name, parsed, calls: Vec::new(), other: None };
+      uses.visit_function_body(body);
       if uses.calls.is_empty() {
         continue;
       }
       let blocked = uses.other.map(|span| format!("`{}`", &text[parsed.range(span)])).or_else(|| {
         uses.calls.iter().find(|(_, x)| declared_const(parsed, x)).map(|(_, x)| format!("`{x}`, a `const` it cannot assign"))
       });
-      let returns = param.type_ann.as_deref().and_then(|ann| match &*ann.type_ann {
-        js::TsType::TsFnOrConstructorType(js::TsFnOrConstructorType::TsFnType(f)) => {
-          let returns_void = matches!(&*f.type_ann.type_ann, js::TsType::TsKeywordType(k) if k.kind == js::TsKeywordTypeKind::TsVoidKeyword);
-          let first = f.params.first().and_then(|p| match p {
-            js::TsFnParam::Ident(i) => i.type_ann.as_deref(),
+      let returns = param.type_annotation.as_deref().and_then(|ann| match &ann.type_annotation {
+        TSType::TSFunctionType(f) => {
+          let returned = &f.return_type.type_annotation;
+          let returns_void = matches!(returned, TSType::TSVoidKeyword(_));
+          let first = params(&f.params).into_iter().next().and_then(|p| match p {
+            Param::Plain(p) if matches!(p.pattern, BindingPattern::BindingIdentifier(_)) => p.type_annotation.as_deref(),
             _ => None,
           });
           match (returns_void, first) {
-            (true, Some(first)) => Some((parsed.range(f.type_ann.type_ann.span()), text[parsed.range(first.type_ann.span())].to_owned())),
+            (true, Some(first)) => Some((parsed.range(returned.span()), text[parsed.range(first.type_annotation.span())].to_owned())),
             _ => None,
           }
         }
@@ -160,46 +166,54 @@ fn targets_in(path: &str, text: &str, parsed: &Parsed) -> Vec<Target> {
 /// Whether `name` is declared with `const` anywhere in `parsed`.
 fn declared_const(parsed: &Parsed, name: &str) -> bool {
   struct Consts<'n>(&'n str, bool);
-  impl Visit for Consts<'_> {
-    fn visit_var_decl(&mut self, var: &js::VarDecl) {
-      if var.kind == js::VarDeclKind::Const && var.decls.iter().any(|d| matches!(&d.name, js::Pat::Ident(id) if *id.id.sym == *self.0)) {
+  impl<'a> Visit<'a> for Consts<'_> {
+    fn visit_variable_declaration(&mut self, var: &js::VariableDeclaration<'a>) {
+      if var.kind == VariableDeclarationKind::Const && var.declarations.iter().any(|d| matches!(&d.id, BindingPattern::BindingIdentifier(id) if id.name == self.0)) {
         self.1 = true;
       }
-      var.visit_children_with(self);
+      walk::walk_variable_declaration(self, var);
     }
   }
   let mut found = Consts(name, false);
-  parsed.module.visit_with(&mut found);
+  found.visit_program(&parsed.program);
   found.1
 }
 
 /// The uses of a function parameter: each `param(x);` statement and the first use of another shape.
 struct Uses<'a> {
   param: &'a str,
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   calls: Vec<(Range<usize>, String)>,
   other: Option<Span>,
 }
 
-impl Visit for Uses<'_> {
-  fn visit_expr_stmt(&mut self, stmt: &js::ExprStmt) {
-    if let js::Expr::Call(call) = &*stmt.expr {
-      if let (js::Callee::Expr(callee), [arg]) = (&call.callee, call.args.as_slice()) {
-        if let (js::Expr::Ident(f), None, js::Expr::Ident(x)) = (&**callee, arg.spread, &*arg.expr) {
-          if *f.sym == *self.param {
-            self.calls.push((self.parsed.range(stmt.span), x.sym.to_string()));
-            return;
-          }
+impl Uses<'_> {
+  fn named(&mut self, name: &str, span: Span) {
+    if name == self.param && self.other.is_none() {
+      self.other = Some(span);
+    }
+  }
+}
+
+impl<'a> Visit<'a> for Uses<'_> {
+  fn visit_expression_statement(&mut self, stmt: &js::ExpressionStatement<'a>) {
+    if let Expression::CallExpression(call) = &stmt.expression {
+      if let (Expression::Identifier(f), [js::Argument::Identifier(x)]) = (&call.callee, call.arguments.as_slice()) {
+        if f.name == self.param {
+          self.calls.push((self.parsed.range(stmt.span), x.name.to_string()));
+          return;
         }
       }
     }
-    stmt.visit_children_with(self);
+    walk::walk_expression_statement(self, stmt);
   }
 
-  fn visit_ident(&mut self, id: &js::Ident) {
-    if *id.sym == *self.param && self.other.is_none() {
-      self.other = Some(id.span);
-    }
+  fn visit_identifier_reference(&mut self, id: &js::IdentifierReference<'a>) {
+    self.named(&id.name, id.span);
+  }
+
+  fn visit_binding_identifier(&mut self, id: &js::BindingIdentifier<'a>) {
+    self.named(&id.name, id.span);
   }
 }
 
@@ -208,20 +222,20 @@ fn local_name(path: &str, parsed: &Parsed, target: &Target) -> Option<String> {
   if path == target.file {
     return Some(target.name.clone());
   }
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if !names(path, &import.src.value.to_string_lossy(), &target.file) {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    if !names(path, &lossy(import.source.value), &target.file) {
       continue;
     }
-    for specifier in &import.specifiers {
-      if let js::ImportSpecifier::Named(named) = specifier {
+    for specifier in import.specifiers.iter().flatten() {
+      if let ImportDeclarationSpecifier::ImportSpecifier(named) = specifier {
         let imported = match &named.imported {
-          Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-          Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-          None => named.local.sym.to_string(),
+          ModuleExportName::IdentifierName(i) => i.name.to_string(),
+          ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+          ModuleExportName::StringLiteral(s) => lossy(s.value),
         };
         if imported == target.name {
-          return Some(named.local.sym.to_string());
+          return Some(named.local.name.to_string());
         }
       }
     }
@@ -252,49 +266,53 @@ fn names(from: &str, specifier: &str, file: &str) -> bool {
 
 /// Each call of the function by `local`, with what its callback at `index` becomes.
 struct Calls<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   local: &'a str,
   index: usize,
   found: Vec<Passed>,
 }
 
-impl Visit for Calls<'_> {
-  fn visit_call_expr(&mut self, call: &js::CallExpr) {
-    if let js::Callee::Expr(callee) = &call.callee {
-      if matches!(&**callee, js::Expr::Ident(f) if *f.sym == *self.local) {
-        if let Some(arg) = call.args.get(self.index) {
-          self.found.push(Passed { rewrite: returning(self.parsed, self.text, &arg.expr), line: self.parsed.line(call.span) });
-        }
+impl<'a> Visit<'a> for Calls<'_> {
+  fn visit_call_expression(&mut self, call: &js::CallExpression<'a>) {
+    if matches!(&call.callee, Expression::Identifier(f) if f.name == self.local) {
+      if let Some(arg) = call.arguments.get(self.index) {
+        self.found.push(Passed { rewrite: returning(self.parsed, self.text, argument(arg)), line: self.parsed.line(call.span) });
       }
     }
-    call.visit_children_with(self);
+    walk::walk_call_expression(self, call);
   }
 }
 
 /// A callback `c => { c.a = x; c.b = y; }` as `c => ({ ...c, a: x, b: y })`: the block's range and its replacement. A statement of another shape is why it cannot, as is a value that reads a field an earlier statement wrote.
-fn returning(parsed: &Parsed, text: &str, callback: &js::Expr) -> Result<(Range<usize>, String), String> {
+fn returning(parsed: &Parsed, text: &str, callback: &Expression) -> Result<(Range<usize>, String), String> {
   let written = |span: Span| text[parsed.range(span)].to_owned();
-  let js::Expr::Arrow(arrow) = callback else { return Err(format!("`{}`", written(callback.span()))) };
-  let ([js::Pat::Ident(param)], js::ArrowFunctionBody::FunctionBody(body)) = (arrow.params.as_slice(), &*arrow.body) else { return Err(format!("`{}`", written(arrow.span))) };
-  let param = param.id.sym.to_string();
+  let Expression::ArrowFunctionExpression(arrow) = callback else { return Err(format!("`{}`", written(callback.span()))) };
+  let formals = params(&arrow.params);
+  let ([Param::Plain(param)], ArrowFunctionBody::FunctionBody(body)) = (formals.as_slice(), &arrow.body) else { return Err(format!("`{}`", written(arrow.span))) };
+  let BindingPattern::BindingIdentifier(param) = &param.pattern else { return Err(format!("`{}`", written(arrow.span))) };
+  let param = param.name.to_string();
+  if let Some(directive) = body.directives.first() {
+    return Err(format!("`{}`", written(directive.span)));
+  }
   let mut fields: Vec<(String, String)> = Vec::new();
-  for stmt in &body.stmts {
+  for stmt in &body.statements {
     let shape = || format!("`{}`", written(stmt.span()));
-    let js::Stmt::Expr(e) = stmt else { return Err(shape()) };
-    let js::Expr::Assign(assign) = &*e.expr else { return Err(shape()) };
-    let js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) = &assign.left else { return Err(shape()) };
-    let (js::Expr::Ident(object), js::MemberProp::Ident(field)) = (&*member.obj, &member.prop) else { return Err(shape()) };
-    if assign.op != js::AssignOp::Assign || *object.sym != *param {
+    let Statement::ExpressionStatement(e) = stmt else { return Err(shape()) };
+    let Expression::AssignmentExpression(assign) = &e.expression else { return Err(shape()) };
+    let AssignmentTarget::StaticMemberExpression(member) = &assign.left else { return Err(shape()) };
+    let Expression::Identifier(object) = &member.object else { return Err(shape()) };
+    let field = &member.property;
+    if assign.operator != AssignmentOperator::Assign || object.name.as_str() != param {
       return Err(shape());
     }
     let mut reads = Reads { param: &param, fields: &fields, found: false };
-    assign.right.visit_with(&mut reads);
+    reads.visit_expression(&assign.right);
     if reads.found {
       return Err(shape());
     }
-    fields.retain(|(name, _)| *name != *field.sym);
-    fields.push((field.sym.to_string(), written(assign.right.span())));
+    fields.retain(|(name, _)| name.as_str() != field.name.as_str());
+    fields.push((field.name.to_string(), written(assign.right.span())));
   }
   let entries: Vec<String> = fields.iter().map(|(name, value)| if name == value { name.clone() } else { format!("{name}: {value}") }).collect();
   let object = if entries.is_empty() { format!("({{ ...{param} }})") } else { format!("({{ ...{param}, {} }})", entries.join(", ")) };
@@ -302,19 +320,19 @@ fn returning(parsed: &Parsed, text: &str, callback: &js::Expr) -> Result<(Range<
 }
 
 /// Whether an expression reads `param.field` for a field already written.
-struct Reads<'a> {
-  param: &'a str,
-  fields: &'a [(String, String)],
+struct Reads<'r> {
+  param: &'r str,
+  fields: &'r [(String, String)],
   found: bool,
 }
 
-impl Visit for Reads<'_> {
-  fn visit_member_expr(&mut self, member: &js::MemberExpr) {
-    if let (js::Expr::Ident(object), js::MemberProp::Ident(field)) = (&*member.obj, &member.prop) {
-      if *object.sym == *self.param && self.fields.iter().any(|(name, _)| *name == *field.sym) {
+impl<'a> Visit<'a> for Reads<'_> {
+  fn visit_static_member_expression(&mut self, member: &js::StaticMemberExpression<'a>) {
+    if let Expression::Identifier(object) = &member.object {
+      if object.name == self.param && self.fields.iter().any(|(name, _)| name.as_str() == member.property.name.as_str()) {
         self.found = true;
       }
     }
-    member.visit_children_with(self);
+    walk::walk_static_member_expression(self, member);
   }
 }

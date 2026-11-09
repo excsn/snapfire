@@ -2,11 +2,13 @@
 
 use std::collections::BTreeSet;
 
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, ImportDeclarationSpecifier, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::GetSpan;
 
 use crate::edit::Edits;
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{is_script, jsx_ident, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 /// Where the input tree holds the font files of the cfonts package the application installed, `<name>.json` each; `fsr migrate` reads them from `node_modules/cfonts/fonts/`.
@@ -37,10 +39,11 @@ impl Pass for BigText {
       if !text.contains("ink-big-text") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let Some((local, last_import)) = imported(&parsed) else { continue };
       let mut uses = Uses { parsed: &parsed, text: &text, local: &local, path: &path, edits: Edits::default(), fonts: BTreeSet::new(), table: false, report };
-      parsed.module.visit_with(&mut uses);
+      uses.visit_program(&parsed.program);
       let Uses { mut edits, fonts, table: chosen, .. } = uses;
       if fonts.is_empty() && !chosen {
         continue;
@@ -83,12 +86,12 @@ impl Pass for BigText {
 fn imported(parsed: &Parsed) -> Option<(String, usize)> {
   let mut local = None;
   let mut last = None;
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
     last = Some(parsed.range(import.span).end);
-    if import.src.value.to_string_lossy() == "ink-big-text" {
-      if let Some(js::ImportSpecifier::Default(d)) = import.specifiers.first() {
-        local = Some(d.local.sym.to_string());
+    if import.source.value == "ink-big-text" {
+      if let Some(ImportDeclarationSpecifier::ImportDefaultSpecifier(d)) = import.specifiers.as_ref().and_then(|s| s.first()) {
+        local = Some(d.local.name.to_string());
       }
     }
   }
@@ -117,7 +120,7 @@ fn ident(name: &str) -> String {
 }
 
 struct Uses<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   local: &'a str,
   path: &'a str,
@@ -129,38 +132,39 @@ struct Uses<'a> {
   report: &'a mut Report,
 }
 
-impl Visit for Uses<'_> {
-  fn visit_jsx_opening_element(&mut self, n: &js::JSXOpeningElement) {
-    n.visit_children_with(self);
-    let js::JSXElementName::Ident(name) = &n.name else { return };
-    if *name.sym != *self.local {
+impl<'a> Visit<'a> for Uses<'_> {
+  fn visit_jsx_opening_element(&mut self, n: &js::JSXOpeningElement<'a>) {
+    walk::walk_jsx_opening_element(self, n);
+    let Some((name, name_span)) = jsx_ident(&n.name) else { return };
+    if name != self.local {
       return;
     }
-    let font = n.attrs.iter().find_map(|attr| match attr {
-      js::JSXAttrOrSpread::JSXAttr(a) if matches!(&a.name, js::JSXAttrName::Ident(i) if &*i.sym == "font") => Some(a),
+    let font = n.attributes.iter().find_map(|attr| match attr {
+      JSXAttributeItem::Attribute(a) if matches!(&a.name, JSXAttributeName::Identifier(i) if i.name == "font") => Some(a),
       _ => None,
     });
     let Some(font) = font else {
-      if n.attrs.iter().any(|attr| matches!(attr, js::JSXAttrOrSpread::SpreadElement(_))) {
+      if n.attributes.iter().any(|attr| matches!(attr, JSXAttributeItem::SpreadAttribute(_))) {
         self.report.note(self.path, self.parsed.line(n.span), format!("`<{}>` spreads its props, so a `font` among them is still a name; pass the font file's JSON", self.local));
       }
-      let at = self.parsed.range(name.span).end;
+      let at = self.parsed.range(name_span).end;
       self.edits.replace(at..at, format!(" font={{{}}}", ident(DEFAULT_FONT)));
       self.fonts.insert(DEFAULT_FONT.to_owned());
       return;
     };
     let named = match &font.value {
-      Some(js::JSXAttrValue::Str(s)) => Some(s.value.to_string_lossy().into_owned()),
-      Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) => match &**e {
-        js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_string_lossy().into_owned()),
-        _ => None,
+      Some(JSXAttributeValue::StringLiteral(s)) => Some(lossy(s.value)),
+      Some(JSXAttributeValue::ExpressionContainer(c)) => match c.expression.as_expression() {
+        Some(js::Expression::StringLiteral(s)) => Some(lossy(s.value)),
+        Some(_) => None,
+        None => return,
       },
       _ => return,
     };
     let Some(value) = &font.value else { return };
     let value = match value {
-      js::JSXAttrValue::Str(s) => self.parsed.range(s.span),
-      js::JSXAttrValue::JSXExprContainer(c) => self.parsed.range(c.span),
+      JSXAttributeValue::StringLiteral(s) => self.parsed.range(s.span),
+      JSXAttributeValue::ExpressionContainer(c) => self.parsed.range(c.span),
       _ => return,
     };
     match named {
@@ -169,8 +173,9 @@ impl Visit for Uses<'_> {
         self.fonts.insert(named);
       }
       None => {
-        let js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. }) = font.value.as_ref().expect("a value") else { return };
-        let written = &self.text[self.parsed.range(swc_core::common::Spanned::span(&**e))];
+        let Some(JSXAttributeValue::ExpressionContainer(c)) = &font.value else { return };
+        let Some(e) = c.expression.as_expression() else { return };
+        let written = &self.text[self.parsed.range(e.span())];
         self.edits.replace(value, format!("{{{FONT_TABLE}Fonts[{written}]}}"));
         self.table = true;
       }

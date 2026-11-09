@@ -5,13 +5,14 @@
 
 use std::collections::BTreeMap;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::{Allocator, CloneIn};
+use oxc_ast::ast::{self as js, ArrayExpressionElement, BindingPattern, Expression, ObjectPropertyKind, PropertyKind, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::{local, tidy};
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{argument, import_specifiers, is_script, key_value, last_property, lossy, params, parse, Param, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) struct Prisma;
@@ -58,10 +59,11 @@ impl Pass for Prisma {
     let mut left = 0;
     for path in loaders {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let Some(client) = prisma_local(&path, &parsed, &clients) else { continue };
-      let mut found = Calls { client: &client, found: Vec::new() };
-      parsed.module.visit_with(&mut found);
+      let mut found = Calls { client: &client, allocator: &allocator, found: Vec::new() };
+      found.visit_program(&parsed.program);
       if found.found.is_empty() {
         continue;
       }
@@ -162,16 +164,16 @@ fn models(schema: &str) -> Vec<Model> {
 /// The name the loader binds the Prisma client to: an import of a module
 /// that makes one.
 fn prisma_local(path: &str, parsed: &Parsed, clients: &[String]) -> Option<String> {
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    let spec = import.src.value.to_string_lossy().into_owned();
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    let spec = lossy(import.source.value);
     let base = match spec.strip_prefix("@src/") {
       Some(rest) => format!("app/src/{rest}"),
       None => crate::relocate::normalize(crate::relocate::dirname(path), &spec).unwrap_or_default(),
     };
     let made_here = clients.iter().any(|c| c == &base || c.strip_prefix(&base).is_some_and(|ext| ext.starts_with('.')));
     if made_here {
-      if let Some(found) = import.specifiers.first() {
+      if let Some(found) = import_specifiers(import).first() {
         return Some(local(found));
       }
     }
@@ -180,23 +182,13 @@ fn prisma_local(path: &str, parsed: &Parsed, clients: &[String]) -> Option<Strin
 }
 
 /// `{ include: { category: true } }` as the relations it includes.
-fn includes(args: &js::Expr) -> Vec<String> {
-  let js::Expr::Object(object) = args else { return Vec::new() };
+fn includes(args: &Expression) -> Vec<String> {
+  let Expression::ObjectExpression(object) = args else { return Vec::new() };
   let mut out = Vec::new();
-  for prop in &object.props {
-    let js::PropOrSpread::Prop(prop) = prop else { continue };
-    let js::Prop::KeyValue(kv) = &**prop else { continue };
-    if !matches!(&kv.key, js::PropName::Ident(i) if &*i.sym == "include") {
-      continue;
-    }
-    if let js::Expr::Object(included) = &*kv.value {
-      for p in &included.props {
-        if let js::PropOrSpread::Prop(p) = p {
-          if let js::Prop::KeyValue(js::KeyValueProp { key: js::PropName::Ident(i), .. }) = &**p {
-            out.push(i.sym.to_string());
-          }
-        }
-      }
+  for prop in &object.properties {
+    let Some(("include", value)) = key_value(prop) else { continue };
+    if let Expression::ObjectExpression(included) = value {
+      out.extend(included.properties.iter().filter_map(|p| key_value(p).map(|(key, _)| key.to_owned())));
     }
   }
   out
@@ -213,39 +205,35 @@ struct Passed {
 /// The request-time values `args` passes, each directly under `where` or
 /// `data` and keyed by a scalar field of `model`; None when one sits
 /// anywhere else, such as `{ title: { contains: q } }` or `take: n`.
-fn request_values(args: &js::Expr, model: &Model, models: &[Model], text: &str, parsed: &Parsed) -> Option<Vec<Passed>> {
-  let js::Expr::Object(object) = args else { return literal(args).then(Vec::new) };
+fn request_values(args: &Expression, model: &Model, models: &[Model], text: &str, parsed: &Parsed) -> Option<Vec<Passed>> {
+  let Expression::ObjectExpression(object) = args else { return literal(args).then(Vec::new) };
   let scalar = |name: &str| model.fields.iter().any(|f| f.name == name && !models.iter().any(|m| m.name == f.ty));
   let mut out: Vec<Passed> = Vec::new();
-  for prop in &object.props {
-    let js::PropOrSpread::Prop(prop) = prop else { return None };
-    let js::Prop::KeyValue(kv) = &**prop else { return None };
-    let section = match &kv.key {
-      js::PropName::Ident(i) => i.sym.to_string(),
-      _ => return None,
-    };
-    if literal(&kv.value) {
+  for prop in &object.properties {
+    let (section, value) = key_value(prop)?;
+    if literal(value) {
       continue;
     }
     if section != "where" && section != "data" {
       return None;
     }
-    let js::Expr::Object(fields) = &*kv.value else { return None };
-    for field in &fields.props {
-      let js::PropOrSpread::Prop(field) = field else { return None };
-      let (name, value) = match &**field {
-        js::Prop::Shorthand(i) => (i.sym.to_string(), i.sym.to_string()),
-        js::Prop::KeyValue(kv) => {
-          let js::PropName::Ident(key) = &kv.key else { return None };
-          if literal(&kv.value) {
+    let Expression::ObjectExpression(fields) = value else { return None };
+    for field in &fields.properties {
+      let (name, value) = match field {
+        ObjectPropertyKind::ObjectProperty(p) if p.shorthand => {
+          let js::PropertyKey::StaticIdentifier(key) = &p.key else { return None };
+          (key.name.to_string(), key.name.to_string())
+        }
+        other => {
+          let (key, value) = key_value(other)?;
+          if literal(value) {
             continue;
           }
-          if matches!(&*kv.value, js::Expr::Object(_) | js::Expr::Array(_)) {
+          if matches!(value, Expression::ObjectExpression(_) | Expression::ArrayExpression(_)) {
             return None;
           }
-          (key.sym.to_string(), text[parsed.range(kv.value.span())].to_owned())
+          (key.to_owned(), text[parsed.range(value.span())].to_owned())
         }
-        _ => return None,
       };
       if !scalar(&name) || out.iter().any(|p| p.field == name) {
         return None;
@@ -256,16 +244,19 @@ fn request_values(args: &js::Expr, model: &Model, models: &[Model], text: &str, 
   Some(out)
 }
 
-fn literal(e: &js::Expr) -> bool {
+fn literal(e: &Expression) -> bool {
   match e {
-    js::Expr::Lit(_) => true,
-    js::Expr::Object(o) => o.props.iter().all(|p| match p {
-      js::PropOrSpread::Prop(p) => matches!(&**p, js::Prop::KeyValue(kv) if literal(&kv.value)),
-      js::PropOrSpread::Spread(_) => false,
+    Expression::ObjectExpression(o) => o.properties.iter().all(|p| match p {
+      ObjectPropertyKind::ObjectProperty(p) => p.kind == PropertyKind::Init && !p.method && !p.shorthand && literal(&p.value),
+      ObjectPropertyKind::SpreadProperty(_) => false,
     }),
-    js::Expr::Array(a) => a.elems.iter().flatten().all(|e| e.spread.is_none() && literal(&e.expr)),
-    js::Expr::Paren(p) => literal(&p.expr),
-    _ => false,
+    Expression::ArrayExpression(a) => a.elements.iter().all(|e| match e {
+      ArrayExpressionElement::Elision(_) => true,
+      ArrayExpressionElement::SpreadElement(_) => false,
+      other => literal(other.to_expression()),
+    }),
+    Expression::ParenthesizedExpression(p) => literal(&p.expression),
+    other => other.is_literal(),
   }
 }
 
@@ -274,36 +265,40 @@ fn literal(e: &js::Expr) -> bool {
 fn with_action_services(path: &str, text: &str) -> String {
   struct Actions<'a> {
     text: &'a str,
-    parsed: &'a Parsed,
+    parsed: &'a Parsed<'a>,
     edits: Edits,
   }
-  impl Visit for Actions<'_> {
-    fn visit_call_expr(&mut self, n: &js::CallExpr) {
-      let is_action = matches!(&n.callee, js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(i) if &*i.sym == "action"));
-      let arrow = n.args.first().and_then(|a| match &*a.expr {
-        js::Expr::Arrow(arrow) => Some(arrow),
+  impl<'a> Visit<'a> for Actions<'_> {
+    fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+      let is_action = matches!(&n.callee, Expression::Identifier(i) if i.name == "action");
+      let arrow = n.arguments.first().and_then(|a| match argument(a) {
+        Expression::ArrowFunctionExpression(arrow) => Some(arrow),
         _ => None,
       });
       if let (true, Some(arrow)) = (is_action, arrow) {
         if self.text[self.parsed.range(arrow.body.span())].contains("services.") {
-          match arrow.params.first() {
-            Some(js::Pat::Object(obj)) if !obj.props.iter().any(|p| matches!(p, js::ObjectPatProp::Assign(a) if &*a.key.sym == "services")) => {
-              if let Some(last) = obj.props.last() {
-                let at = self.parsed.range(last.span()).end;
+          match params(&arrow.params).first().map(|p| match p {
+            Param::Plain(p) => Some(&p.pattern),
+            Param::Other(_) => None,
+          }) {
+            Some(Some(BindingPattern::ObjectPattern(obj))) if !obj.properties.iter().any(|p| p.shorthand && matches!(&p.key, js::PropertyKey::StaticIdentifier(k) if k.name == "services")) => {
+              if let Some(last) = last_property(obj) {
+                let at = self.parsed.range(last).end;
                 self.edits.replace(at..at, ", services");
               }
             }
-            Some(js::Pat::Ident(ctx)) => self.edits.replace(self.parsed.range(ctx.id.span), "{ services }"),
+            Some(Some(BindingPattern::BindingIdentifier(ctx))) => self.edits.replace(self.parsed.range(ctx.span), "{ services }"),
             _ => {}
           }
         }
       }
-      n.visit_children_with(self);
+      walk::walk_call_expression(self, n);
     }
   }
-  let Ok(parsed) = parse(path, text) else { return text.to_owned() };
+  let allocator = Allocator::default();
+  let Ok(parsed) = parse(&allocator, path, text) else { return text.to_owned() };
   let mut actions = Actions { text, parsed: &parsed, edits: Edits::default() };
-  parsed.module.visit_with(&mut actions);
+  actions.visit_program(&parsed.program);
   actions.edits.apply(text)
 }
 
@@ -333,13 +328,14 @@ fn retarget_types(tree: &mut Tree) {
     if !text.contains("prisma") {
       continue;
     }
-    let Ok(parsed) = parse(&path, &text) else { continue };
+    let allocator = Allocator::default();
+    let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
     let mut edits = Edits::default();
-    for item in &parsed.module.body {
-      let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-      let spec = import.src.value.to_string_lossy();
-      if import.type_only && (spec == "@prisma/client" || spec.contains("generated/prisma")) {
-        edits.replace(parsed.range(import.src.span), "\"@generated/client\"");
+    for item in parsed.body() {
+      let Statement::ImportDeclaration(import) = item else { continue };
+      let spec = lossy(import.source.value);
+      if import.import_kind.is_type() && (spec == "@prisma/client" || spec.contains("generated/prisma")) {
+        edits.replace(parsed.range(import.source.span), "\"@generated/client\"");
       }
     }
     if !edits.is_empty() {
@@ -411,25 +407,24 @@ const CARGO: &str = "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \
 
 struct Calls<'a> {
   client: &'a str,
+  allocator: &'a Allocator,
   /// Each `client.<model>.<op>(args)`: its span, the model, the operation and its argument.
-  found: Vec<(Span, String, String, Option<js::Expr>)>,
+  found: Vec<(Span, String, String, Option<Expression<'a>>)>,
 }
 
-impl Visit for Calls<'_> {
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let js::Callee::Expr(callee) = &n.callee {
-      if let js::Expr::Member(op) = &**callee {
-        if let (js::Expr::Member(model), js::MemberProp::Ident(op_name)) = (&*op.obj, &op.prop) {
-          if let (js::Expr::Ident(client), js::MemberProp::Ident(model_name)) = (&*model.obj, &model.prop) {
-            if *client.sym == *self.client {
-              self.found.push((n.span, model_name.sym.to_string(), op_name.sym.to_string(), n.args.first().map(|a| (*a.expr).clone())));
-              return;
-            }
+impl<'a> Visit<'a> for Calls<'_> {
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if let Expression::StaticMemberExpression(op) = &n.callee {
+      if let Expression::StaticMemberExpression(model) = &op.object {
+        if let Expression::Identifier(client) = &model.object {
+          if client.name == self.client {
+            self.found.push((n.span, model.property.name.to_string(), op.property.name.to_string(), n.arguments.first().map(|a| argument(a).clone_in(self.allocator))));
+            return;
           }
         }
       }
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 }
 

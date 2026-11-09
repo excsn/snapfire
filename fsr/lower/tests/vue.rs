@@ -15,11 +15,6 @@ use snapfire_fsr_ir::{Frameworks, Interpreter, Owner, VueMajor};
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::LowerError;
 use snapfire_vue::Compiler;
-use swc_core::common::{sync::Lrc, FileName, Globals, Mark, SourceMap, GLOBALS};
-use swc_core::ecma::codegen::{text_writer::JsWriter, Emitter};
-use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
-use swc_core::ecma::transforms::base::{fixer::fixer, hygiene::hygiene, resolver};
-use swc_core::ecma::transforms::typescript::strip;
 
 const TONIGHT: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/Tonight.vue");
 const PLAN: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/PlanRecipe.vue");
@@ -123,25 +118,15 @@ fn render_vue(compiler: &Compiler, file: &str, source: &str, props: &str, childr
 }
 
 fn strip_types(source: &str) -> String {
-  let cm: Lrc<SourceMap> = Default::default();
-  let fm = cm.new_source_file(Lrc::new(FileName::Custom("component.ts".to_owned())), source.to_owned());
-  let lexer = Lexer::new(Syntax::Typescript(TsSyntax::default()), swc_core::ecma::ast::EsVersion::latest(), StringInput::from(&*fm), None);
-  let module = Parser::new_from(lexer).parse_module().expect("the server module parses");
-  GLOBALS.set(&Globals::new(), || {
-    let unresolved = Mark::new();
-    let top = Mark::new();
-    let program = swc_core::ecma::ast::Program::Module(module);
-    let program = program.apply(&mut resolver(unresolved, top, true));
-    let program = program.apply(&mut strip(unresolved, top));
-    let program = program.apply(&mut (hygiene(), fixer(None)));
-    let mut buf = Vec::new();
-    {
-      let writer = JsWriter::new(cm.clone(), "\n", &mut buf, None);
-      let mut emitter = Emitter { cfg: Default::default(), cm: cm.clone(), comments: None, wr: writer };
-      emitter.emit_program(&program).expect("emits");
-    }
-    String::from_utf8(buf).expect("utf8")
-  })
+  let arena = oxc_allocator::Allocator::default();
+  let parsed = oxc_parser::Parser::new(&arena, source, oxc_span::SourceType::ts()).parse();
+  assert!(parsed.diagnostics.is_empty(), "the server module parses: {:?}", parsed.diagnostics);
+  let mut program = parsed.program;
+  let scoping = oxc_semantic::SemanticBuilder::new().build(&program).semantic.into_scoping();
+  let options = oxc_transformer::TransformOptions::default();
+  let stripped = oxc_transformer::Transformer::new(&arena, std::path::Path::new("component.ts"), &options).build_with_scoping(scoping, &mut program);
+  assert!(stripped.diagnostics.is_empty(), "the server module strips: {:?}", stripped.diagnostics);
+  oxc_codegen::Codegen::new().build(&program).code
 }
 
 fn props(pairs: &[(&str, Value)]) -> ValueMap {

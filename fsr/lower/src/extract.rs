@@ -5,9 +5,9 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_span::{GetSpan, Span};
+use oxc_ast::ast as js;
+use crate::syntax::Walk;
 
 use crate::component::{find_function, Found};
 use crate::Parsed;
@@ -36,35 +36,46 @@ fn browser_hook(name: &str) -> bool {
   name.len() > 3 && name.starts_with("use") && name[3..].starts_with(|c: char| c.is_ascii_uppercase()) && !matches!(name, "useLocale" | "useMemo")
 }
 
-fn hook_name(expr: &js::Expr) -> Option<&str> {
-  let js::Expr::Call(call) = expr else { return None };
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  match &**callee {
-    js::Expr::Ident(id) => Some(id.sym.as_ref()),
-    js::Expr::Member(member) => match &member.prop {
-      js::MemberProp::Ident(prop) => Some(prop.sym.as_ref()),
+fn hook_name<'e>(expr: &'e js::Expression<'e>) -> Option<&'e str> {
+  let js::Expression::CallExpression(call) = expr else { return None };
+  let callee = &call.callee;
+  match callee {
+    js::Expression::Identifier(id) => Some(id.name.as_str()),
+    member_expr if member_expr.is_member_expression() => { let member = member_expr.as_member_expression().expect("matched as a member"); match crate::syntax::prop(member) {
+      crate::syntax::MemberProp::Ident(prop) => Some(prop.name.as_str()),
       _ => None,
-    },
+    } },
     _ => None,
   }
 }
 
-fn bound(pat: &js::Pat, out: &mut Vec<String>) {
+/// The names a function's parameters bind, its rest included.
+fn bound_params(params: &js::FormalParameters, out: &mut Vec<String>) {
+  params.items.iter().for_each(|p| bound(&p.pattern, out));
+  if let Some(rest) = &params.rest {
+    bound(&rest.rest.argument, out);
+  }
+}
+
+fn bound(pat: &js::BindingPattern, out: &mut Vec<String>) {
   match pat {
-    js::Pat::Ident(id) => out.push(id.id.sym.to_string()),
-    js::Pat::Array(array) => array.elems.iter().flatten().for_each(|p| bound(p, out)),
-    js::Pat::Object(object) => {
-      for prop in &object.props {
+    js::BindingPattern::BindingIdentifier(id) => out.push(id.name.to_string()),
+    js::BindingPattern::ArrayPattern(array) => {
+      array.elements.iter().flatten().for_each(|p| bound(p, out));
+      if let Some(rest) = &array.rest {
+        bound(&rest.argument, out);
+      }
+    }
+    js::BindingPattern::ObjectPattern(object) => {
+      for prop in crate::syntax::pat_props(object) {
         match prop {
-          js::ObjectPatProp::KeyValue(kv) => bound(&kv.value, out),
-          js::ObjectPatProp::Assign(assign) => out.push(assign.key.id.sym.to_string()),
-          js::ObjectPatProp::Rest(rest) => bound(&rest.arg, out),
+          crate::syntax::PatProp::KeyValue(kv) => bound(&kv.value, out),
+          crate::syntax::PatProp::Assign(assign) => out.push(assign.key.name.to_string()),
+          crate::syntax::PatProp::Rest(rest) => bound(&rest.argument, out),
         }
       }
     }
-    js::Pat::Assign(assign) => bound(&assign.left, out),
-    js::Pat::Rest(rest) => bound(&rest.arg, out),
-    _ => {}
+    js::BindingPattern::AssignmentPattern(assign) => bound(&assign.left, out),
   }
 }
 
@@ -72,23 +83,23 @@ fn bound(pat: &js::Pat, out: &mut Vec<String>) {
 #[derive(Default)]
 struct Names(BTreeSet<String>);
 
-impl Visit for Names {
-  fn visit_ident(&mut self, ident: &js::Ident) {
-    self.0.insert(ident.sym.to_string());
+impl<'a> oxc_ast_visit::Visit<'a> for Names {
+  fn visit_identifier_reference(&mut self, ident: &js::IdentifierReference<'a>) {
+    self.0.insert(ident.name.to_string());
   }
 }
 
-fn names_of<N: VisitWith<Names>>(node: &N) -> BTreeSet<String> {
+fn names_of<'a, N: crate::syntax::Walk<'a> + ?Sized>(node: &N) -> BTreeSet<String> {
   let mut names = Names::default();
-  node.visit_with(&mut names);
+  node.walk(&mut names);
   names.0
 }
 
-fn is_event(attr: &js::JSXAttr) -> bool {
-  let js::JSXAttrName::Ident(name) = &attr.name else { return false };
-  let name = name.sym.as_ref();
+fn is_event(attr: &js::JSXAttribute) -> bool {
+  let js::JSXAttributeName::Identifier(name) = &attr.name else { return false };
+  let name = name.name.as_str();
   let event = name.len() > 2 && name.starts_with("on") && name[2..].starts_with(|c: char| c.is_ascii_uppercase());
-  event && matches!(&attr.value, Some(js::JSXAttrValue::JSXExprContainer(_)))
+  event && matches!(&attr.value, Some(js::JSXAttributeValue::ExpressionContainer(_)))
 }
 
 /// A node of the markup an island can be cut at: an element, a fragment or an
@@ -121,7 +132,7 @@ struct Uses<'a> {
   depth: usize,
   found: Vec<Vec<Cut>>,
   /// Where the lowerer stopped inside the markup, with the parsed file to read spans against.
-  residue: Option<(usize, &'a Parsed)>,
+  residue: Option<(usize, &'a Parsed<'a>)>,
   /// The cuts around the residue, the deepest holding it last.
   at: Option<Vec<Cut>>,
 }
@@ -137,64 +148,62 @@ impl Uses<'_> {
   }
 }
 
-impl Visit for Uses<'_> {
-  fn visit_jsx_element(&mut self, el: &js::JSXElement) {
-    let tag = match &el.opening.name {
-      js::JSXElementName::Ident(ident) => Some(ident.sym.to_string()),
+impl<'a> oxc_ast_visit::Visit<'a> for Uses<'_> {
+  fn visit_jsx_element(&mut self, el: &js::JSXElement<'a>) {
+    let tag = match &el.opening_element.name {
+      js::JSXElementName::Identifier(ident) => Some(ident.name.to_string()),
+      js::JSXElementName::IdentifierReference(ident) => Some(ident.name.to_string()),
       _ => None,
     };
     self.enter(el.span, el.span, tag);
-    el.visit_children_with(self);
+    oxc_ast_visit::walk::walk_jsx_element(self, el);
     self.stack.pop();
   }
 
-  fn visit_jsx_element_child(&mut self, child: &js::JSXElementChild) {
+  fn visit_jsx_child(&mut self, child: &js::JSXChild<'a>) {
     let cut = match child {
-      js::JSXElementChild::JSXExprContainer(container) => match &container.expr {
-        js::JSXExpr::Expr(expr) => Some((container.span, expr.span())),
-        js::JSXExpr::JSXEmptyExpr(_) => None,
-      },
-      js::JSXElementChild::JSXFragment(fragment) => Some((fragment.span, fragment.span)),
+      js::JSXChild::ExpressionContainer(container) => container.expression.as_expression().map(|expr| (container.span, expr.span())),
+      js::JSXChild::Fragment(fragment) => Some((fragment.span, fragment.span)),
       _ => None,
     };
     let Some((span, body)) = cut else {
-      child.visit_children_with(self);
+      oxc_ast_visit::walk::walk_jsx_child(self, child);
       return;
     };
     self.enter(span, body, None);
-    child.visit_children_with(self);
+    oxc_ast_visit::walk::walk_jsx_child(self, child);
     self.stack.pop();
   }
 
-  fn visit_jsx_attr(&mut self, attr: &js::JSXAttr) {
+  fn visit_jsx_attribute(&mut self, attr: &js::JSXAttribute<'a>) {
     if is_event(attr) {
       self.found.push(self.stack.clone());
     }
-    attr.visit_children_with(self);
+    oxc_ast_visit::walk::walk_jsx_attribute(self, attr);
   }
 
-  fn visit_ident(&mut self, ident: &js::Ident) {
-    if self.browser.contains(ident.sym.as_ref()) {
+  fn visit_identifier_reference(&mut self, ident: &js::IdentifierReference<'a>) {
+    if self.browser.contains(ident.name.as_str()) {
       self.found.push(self.stack.clone());
     }
   }
 
-  fn visit_arrow_expr(&mut self, arrow: &js::ArrowExpr) {
+  fn visit_arrow_function_expression(&mut self, arrow: &js::ArrowFunctionExpression<'a>) {
     self.depth += 1;
-    arrow.visit_children_with(self);
+    oxc_ast_visit::walk::walk_arrow_function_expression(self, arrow);
     self.depth -= 1;
   }
 
-  fn visit_function(&mut self, function: &js::Function) {
+  fn visit_function(&mut self, function: &js::Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
     self.depth += 1;
-    function.visit_children_with(self);
+    oxc_ast_visit::walk::walk_function(self, function, flags);
     self.depth -= 1;
   }
 }
 
 /// A statement of the component's body and what it binds.
 struct Line<'a> {
-  stmt: &'a js::Stmt,
+  stmt: &'a js::Statement<'a>,
   names: Vec<String>,
   browser: bool,
   function: bool,
@@ -213,32 +222,34 @@ pub(crate) fn page_offset(parsed: &Parsed, offset: usize) -> Option<usize> {
     return Some(offset);
   }
   let mut functions: Vec<(String, Range<usize>)> = Vec::new();
-  for item in &parsed.module.body {
+  for item in &parsed.module().body {
     let decl = match item {
-      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
-      _ => continue,
+      js::Statement::ExportDeclaration(export) => &export.declaration,
+      other => match other.as_declaration() {
+        Some(decl) => decl,
+        None => continue,
+      },
     };
     match decl {
-      js::Decl::Fn(f) => functions.push((f.ident.sym.to_string(), parsed.range(f.function.span))),
-      js::Decl::Var(var) => {
-        for d in &var.decls {
-          if let (js::Pat::Ident(id), Some(init @ (js::Expr::Arrow(_) | js::Expr::Fn(_)))) = (&d.name, d.init.as_deref()) {
-            functions.push((id.id.sym.to_string(), parsed.range(init.span())));
+      js::Declaration::FunctionDeclaration(f) => functions.extend(f.id.as_ref().map(|id| (id.name.to_string(), parsed.range(f.span)))),
+      js::Declaration::VariableDeclaration(var) => {
+        for d in &var.declarations {
+          if let (js::BindingPattern::BindingIdentifier(id), Some(init @ (js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)))) = (&d.id, d.init.as_ref()) {
+            functions.push((id.name.to_string(), parsed.range(init.span())));
           }
         }
       }
       _ => {}
     }
   }
-  struct Refs<'a>(&'a Parsed, Vec<(String, usize)>);
-  impl Visit for Refs<'_> {
-    fn visit_ident(&mut self, ident: &js::Ident) {
-      self.1.push((ident.sym.to_string(), self.0.range(ident.span).start));
+  struct Refs<'a>(&'a Parsed<'a>, Vec<(String, usize)>);
+  impl<'a> oxc_ast_visit::Visit<'a> for Refs<'_> {
+    fn visit_identifier_reference(&mut self, ident: &js::IdentifierReference<'a>) {
+      self.1.push((ident.name.to_string(), self.0.range(ident.span).start));
     }
   }
   let mut refs = Refs(parsed, Vec::new());
-  parsed.module.visit_with(&mut refs);
+  parsed.module().walk(&mut refs);
   let mut at = offset;
   let mut seen: Vec<String> = Vec::new();
   loop {
@@ -256,52 +267,52 @@ pub(crate) fn page_offset(parsed: &Parsed, offset: usize) -> Option<usize> {
 /// an island. `None` when it holds nothing a framework has to run. `slots` are
 /// the layout's slot props, which composition fills and an island cannot take.
 pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Option<usize>, whole: bool) -> Result<Option<Extraction>, Kept> {
-  let Some(source) = parsed.cm.files().first().map(|f| f.src.to_string()) else { return Ok(None) };
+  let source = parsed.text().to_owned();
   let Some(found) = find_function(parsed, "default") else { return Ok(None) };
-  let (params, stmts, ret): (Vec<js::Pat>, &[js::Stmt], &js::Expr) = match &found {
+  let (params, stmts, ret): (&js::FormalParameters, &[js::Statement], &js::Expression) = match found {
     Found::Declared(params, stmts, _) => {
       let Some(ret) = stmts.iter().rev().find_map(|s| match s {
-        js::Stmt::Return(ret) => ret.arg.as_deref(),
+        js::Statement::ReturnStatement(ret) => ret.argument.as_ref(),
         _ => None,
       }) else {
         return Ok(None);
       };
-      (params.clone(), stmts, ret)
+      (params, stmts, ret)
     }
-    Found::Arrow(arrow) => match &*arrow.body {
-      js::ArrowFunctionBody::Expr(e) => (arrow.params.clone(), &[][..], &**e),
+    Found::Arrow(arrow) => match &arrow.body {
       js::ArrowFunctionBody::FunctionBody(body) => {
-        let Some(ret) = body.stmts.iter().rev().find_map(|s| match s {
-          js::Stmt::Return(ret) => ret.arg.as_deref(),
+        let Some(ret) = body.statements.iter().rev().find_map(|s| match s {
+          js::Statement::ReturnStatement(ret) => ret.argument.as_ref(),
           _ => None,
         }) else {
           return Ok(None);
         };
-        (arrow.params.clone(), &body.stmts[..], ret)
+        (&arrow.params, &body.statements[..], ret)
       }
+      body => (&arrow.params, &[][..], body.as_expression().expect("an arrow body is a block or an expression")),
     },
   };
 
   let mut lines: Vec<Line> = Vec::new();
   for stmt in stmts {
     match stmt {
-      js::Stmt::Return(_) => break,
-      js::Stmt::Decl(js::Decl::Var(var)) => {
+      js::Statement::ReturnStatement(_) => break,
+      js::Statement::VariableDeclaration(var) => {
         let mut names = Vec::new();
         let mut browser = false;
         let mut function = false;
-        for decl in &var.decls {
-          bound(&decl.name, &mut names);
-          match decl.init.as_deref() {
+        for decl in &var.declarations {
+          bound(&decl.id, &mut names);
+          match decl.init.as_ref() {
             Some(init) if hook_name(init).is_some_and(browser_hook) => browser = true,
-            Some(js::Expr::Arrow(_) | js::Expr::Fn(_)) => function = true,
+            Some(js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)) => function = true,
             _ => {}
           }
         }
         lines.push(Line { stmt, names, browser, function });
       }
-      js::Stmt::Decl(js::Decl::Fn(f)) => lines.push(Line { stmt, names: vec![f.ident.sym.to_string()], browser: false, function: true }),
-      js::Stmt::Expr(e) if hook_name(&e.expr).is_some_and(browser_hook) => lines.push(Line { stmt, names: Vec::new(), browser: true, function: false }),
+      js::Statement::FunctionDeclaration(f) => lines.push(Line { stmt, names: f.id.iter().map(|id| id.name.to_string()).collect(), browser: false, function: true }),
+      js::Statement::ExpressionStatement(e) if hook_name(&e.expression).is_some_and(browser_hook) => lines.push(Line { stmt, names: Vec::new(), browser: true, function: false }),
       other => lines.push(Line { stmt: other, names: Vec::new(), browser: false, function: false }),
     }
   }
@@ -313,21 +324,23 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
       }
     }
   }
-  let early = stmts.iter().any(|s| matches!(s, js::Stmt::If(_)));
+  let early = stmts.iter().any(|s| matches!(s, js::Statement::IfStatement(_)));
 
   // A function an event attribute names runs in the browser, and so does
   // anything that reads what the browser holds.
   let mut handlers = Names::default();
   {
     struct Events<'a>(&'a mut Names);
-    impl Visit for Events<'_> {
-      fn visit_jsx_attr(&mut self, attr: &js::JSXAttr) {
+    impl<'a> oxc_ast_visit::Visit<'a> for Events<'_> {
+      fn visit_jsx_attribute(&mut self, attr: &js::JSXAttribute<'a>) {
         if is_event(attr) {
-          attr.value.visit_with(&mut *self.0);
+          if let Some(value) = &attr.value {
+            oxc_ast_visit::Visit::visit_jsx_attribute_value(&mut *self.0, value);
+          }
         }
       }
     }
-    ret.visit_with(&mut Events(&mut handlers));
+    ret.walk(&mut Events(&mut handlers));
   }
   let mut browser: BTreeSet<String> = BTreeSet::new();
   loop {
@@ -354,7 +367,7 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   let effects = lines.iter().any(|l| l.browser && l.names.is_empty());
   let in_markup = residue.filter(|offset| parsed.range(ret.span()).contains(offset));
   let mut uses = Uses { browser: &browser, stack: Vec::new(), depth: 0, found: Vec::new(), residue: in_markup.map(|offset| (offset, parsed)), at: None };
-  ret.visit_with(&mut uses);
+  ret.walk(&mut uses);
   if let Some(at) = uses.at.take() {
     uses.found.push(at);
   } else if in_markup.is_some() {
@@ -382,7 +395,7 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   let range_of = |span: Span| parsed.range(span);
   let unit_range: Range<usize> = match (&unit, &found) {
     (Some(cut), _) => range_of(cut.span),
-    (None, _) if early => range_of(Span::new(stmts.first().map(|s| s.span().lo).unwrap_or_default(), stmts.last().map(|s| s.span().hi).unwrap_or_default())),
+    (None, _) if early => range_of(Span::new(stmts.first().map(|s| s.span().start).unwrap_or_default(), stmts.last().map(|s| s.span().end).unwrap_or_default())),
     (None, _) => range_of(ret.span()),
   };
   let whole_body = unit.is_none() && early;
@@ -392,9 +405,7 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   let moved_text: Vec<&str> = moved.iter().map(|l| &source[range_of(l.stmt.span())]).collect();
 
   let mut scope: Vec<String> = Vec::new();
-  for param in &params {
-    bound(param, &mut scope);
-  }
+  bound_params(params, &mut scope);
   for line in lines.iter().filter(|l| !l.browser && !whole_body) {
     scope.extend(line.names.iter().cloned());
   }
@@ -402,27 +413,27 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   {
     let mut names = Names::default();
     for line in &moved {
-      line.stmt.visit_with(&mut names);
+      line.stmt.walk(&mut names);
     }
     if whole_body {
       for stmt in stmts {
-        stmt.visit_with(&mut names);
+        stmt.walk(&mut names);
       }
     } else {
       struct Within<'a> {
         range: Range<usize>,
-        parsed: &'a Parsed,
+        parsed: &'a Parsed<'a>,
         names: &'a mut Names,
       }
-      impl Visit for Within<'_> {
-        fn visit_ident(&mut self, ident: &js::Ident) {
+      impl<'a> oxc_ast_visit::Visit<'a> for Within<'_> {
+        fn visit_identifier_reference(&mut self, ident: &js::IdentifierReference<'a>) {
           let at = self.parsed.range(ident.span);
           if at.start >= self.range.start && at.end <= self.range.end {
-            self.names.0.insert(ident.sym.to_string());
+            self.names.0.insert(ident.name.to_string());
           }
         }
       }
-      ret.visit_with(&mut Within { range: unit_range.clone(), parsed, names: &mut names });
+      ret.walk(&mut Within { range: unit_range.clone(), parsed, names: &mut names });
     }
     reads.extend(names.0);
   }
@@ -436,13 +447,16 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   let own = default_function_name(parsed);
   let mut items: Vec<(Range<usize>, Vec<String>)> = Vec::new();
   let mut imports: Vec<Range<usize>> = Vec::new();
-  for item in &parsed.module.body {
+  for item in &parsed.module().body {
     match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => imports.push(range_of(import.span)),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(_) | js::ModuleDecl::ExportDefaultExpr(_)) => {}
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => items.push((range_of(export.span), decl_names(&export.decl))),
-      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => items.push((range_of(decl.span()), decl_names(decl))),
-      _ => {}
+      js::Statement::ImportDeclaration(import) => imports.push(range_of(import.span)),
+      js::Statement::ExportDefaultDeclaration(_) => {}
+      js::Statement::ExportDeclaration(export) => items.push((range_of(export.span), decl_names(&export.declaration))),
+      other => {
+        if let Some(decl) = other.as_declaration() {
+          items.push((range_of(decl.span()), decl_names(decl)));
+        }
+      }
     }
   }
   items.retain(|(_, names)| own.as_ref().is_none_or(|own| !names.contains(own)));
@@ -455,8 +469,9 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
         taken[i] = true;
         grew = true;
         let text = &source[range.clone()];
-        if let Ok(parsed) = crate::parse_with(file, text, true) {
-          wanted.extend(names_of(&parsed.module));
+        let arena = oxc_allocator::Allocator::default();
+        if let Ok(parsed) = crate::parse_with(&arena, file, text, true) {
+          wanted.extend(names_of(parsed.module()));
         }
       }
     }
@@ -527,15 +542,15 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   Ok(Some(Extraction { page, island_file, island, holds }))
 }
 
-fn decl_names(decl: &js::Decl) -> Vec<String> {
+fn decl_names(decl: &js::Declaration) -> Vec<String> {
   let mut out = Vec::new();
   match decl {
-    js::Decl::Fn(f) => out.push(f.ident.sym.to_string()),
-    js::Decl::Class(c) => out.push(c.ident.sym.to_string()),
-    js::Decl::Var(var) => var.decls.iter().for_each(|d| bound(&d.name, &mut out)),
-    js::Decl::TsInterface(i) => out.push(i.id.sym.to_string()),
-    js::Decl::TsTypeAlias(t) => out.push(t.id.sym.to_string()),
-    js::Decl::TsEnum(e) => out.push(e.id.sym.to_string()),
+    js::Declaration::FunctionDeclaration(f) => out.extend(f.id.iter().map(|id| id.name.to_string())),
+    js::Declaration::ClassDeclaration(c) => out.extend(c.id.iter().map(|id| id.name.to_string())),
+    js::Declaration::VariableDeclaration(var) => var.declarations.iter().for_each(|d| bound(&d.id, &mut out)),
+    js::Declaration::TSInterfaceDeclaration(i) => out.push(i.id.name.to_string()),
+    js::Declaration::TSTypeAliasDeclaration(t) => out.push(t.id.name.to_string()),
+    js::Declaration::TSEnumDeclaration(e) => out.push(e.id.name.to_string()),
     _ => {}
   }
   out
@@ -543,13 +558,10 @@ fn decl_names(decl: &js::Decl) -> Vec<String> {
 
 /// The name `export default function Name` gives the component, which the island is named after.
 fn default_function_name(parsed: &Parsed) -> Option<String> {
-  parsed.module.body.iter().find_map(|item| match item {
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) => match &d.decl {
-      js::DefaultDecl::Fn(f) => f.ident.as_ref().map(|id| id.sym.to_string()),
-      _ => None,
-    },
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => match &*e.expr {
-      js::Expr::Ident(id) => Some(id.sym.to_string()),
+  parsed.module().body.iter().find_map(|item| match item {
+    js::Statement::ExportDefaultDeclaration(d) => match &d.declaration {
+      js::ExportDefaultDeclarationKind::FunctionDeclaration(f) => f.id.as_ref().map(|id| id.name.to_string()),
+      js::ExportDefaultDeclarationKind::Identifier(id) => Some(id.name.to_string()),
       _ => None,
     },
     _ => None,

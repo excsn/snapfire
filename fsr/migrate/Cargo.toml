@@ -13,6 +13,13 @@ homepage = { workspace = true }
 repository = { workspace = true }
 
 [dependencies]
+oxc_allocator = "0.155"
+oxc_ast = "0.155"
+oxc_ast_visit = "0.155"
+oxc_parser = "0.155"
+oxc_span = "0.155"
+oxc_str = "0.155"
+oxc_syntax = "0.155"
 schemars = "1"
 snapfire_fsr_lower.workspace = true
 snapfire_lint = { path = "../../lint", version = "0.1.0" }
@@ -20,7 +27,3 @@ snapfire_fsr_lint.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml = "1"
-
-[dependencies.swc_core]
-version = "84"
-features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]

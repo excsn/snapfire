@@ -11,8 +11,7 @@ use std::rc::Rc;
 
 use snapfire_fsr_ir::ast::Expr;
 use snapfire_fsr_ir::Reach;
-use swc_core::common::SyntaxContext;
-use swc_core::ecma::ast as js;
+use oxc_ast::ast as js;
 
 /// Which of FSR's standard-library roots a module object or member was imported from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -524,81 +523,93 @@ impl Meaning {
 }
 
 /// The meanings of one file's module-level names and exports.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(crate) struct Meanings {
-  /// The syntax context of the module's top level: an identifier with another names a local or nothing.
-  pub(crate) top: SyntaxContext,
-  /// The syntax context of a name nothing in the module binds.
-  pub(crate) unresolved: SyntaxContext,
+  /// Which binding each identifier of the file names: an identifier bound at module level has a meaning here, one bound anywhere else names a local.
+  pub(crate) scope: Option<Rc<crate::scope::Scope>>,
   pub(crate) bindings: HashMap<String, Meaning>,
   pub(crate) exports: HashMap<String, Meaning>,
 }
 
+impl std::fmt::Debug for Meanings {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Meanings").field("bindings", &self.bindings).field("exports", &self.exports).finish()
+  }
+}
+
 impl Meanings {
+  /// These meanings read against `scope`, the scopes of another parse of the same text.
+  pub(crate) fn with_scope(&self, scope: Rc<crate::scope::Scope>) -> Self {
+    Self { scope: Some(scope), bindings: self.bindings.clone(), exports: self.exports.clone() }
+  }
+
+  /// What `id` is bound to in the file.
+  pub(crate) fn ctxt(&self, id: &js::IdentifierReference) -> crate::Ctxt {
+    match &self.scope {
+      Some(scope) => scope.of(id),
+      None => crate::Ctxt::Written,
+    }
+  }
+
   /// Whether `callee` is `want` from the server tier, or the bare name with nothing in the module binding it.
-  pub(crate) fn names_server(&self, callee: &js::Callee, want: &str) -> bool {
-    let js::Callee::Expr(expr) = callee else { return false };
-    if self.of_expr(expr).as_ref().is_some_and(|meant| matches!(meant, Meaning::Library(Construct::Server(name)) if *name == want)) {
+  pub(crate) fn names_server(&self, callee: &js::Expression, want: &str) -> bool {
+    if self.of_expr(callee).as_ref().is_some_and(|meant| matches!(meant, Meaning::Library(Construct::Server(name)) if *name == want)) {
       return true;
     }
-    matches!(&**expr, js::Expr::Ident(id) if id.ctxt == self.unresolved && id.sym.as_ref() == want)
+    matches!(callee, js::Expression::Identifier(id) if self.ctxt(id) == crate::Ctxt::Unresolved && id.name.as_str() == want)
   }
 
   /// What `id` names where it is written: a module-level name's meaning, `None` for a local or a name nothing binds.
-  pub(crate) fn of_ident(&self, id: &js::Ident) -> Option<&Meaning> {
-    (id.ctxt == self.top).then(|| self.bindings.get(id.sym.as_ref())).flatten()
+  pub(crate) fn of_ident(&self, id: &js::IdentifierReference) -> Option<&Meaning> {
+    (self.ctxt(id) == crate::Ctxt::Top).then(|| self.bindings.get(id.name.as_str())).flatten()
   }
 
   /// Whether `callee` is the standard `system.spawn`: from `@snapfire/fsr/terminal`, its `system` path or the old standard module.
-  pub(crate) fn names_spawn(&self, callee: &js::Expr) -> bool {
+  pub(crate) fn names_spawn(&self, callee: &js::Expression) -> bool {
     if self.of_expr(callee).and_then(|m| m.std_member()).is_some_and(|(_, module, name)| module == "system" && name == "spawn") {
       return true;
     }
-    let js::Expr::Member(member) = bare(callee) else { return false };
-    let js::MemberProp::Ident(prop) = &member.prop else { return false };
-    prop.sym.as_ref() == "spawn" && self.of_expr(&member.obj) == Some(Meaning::Library(Construct::Std("system")))
+    let js::Expression::StaticMemberExpression(member) = bare(callee) else { return false };
+    member.property.name.as_str() == "spawn" && self.of_expr(&member.object) == Some(Meaning::Library(Construct::Std("system")))
   }
 
-  pub(crate) fn of_expr(&self, expr: &js::Expr) -> Option<Meaning> {
+  pub(crate) fn of_expr(&self, expr: &js::Expression) -> Option<Meaning> {
     match expr {
-      js::Expr::Ident(id) => self.of_ident(id).cloned(),
-      js::Expr::Member(member) => {
-        let js::MemberProp::Ident(prop) = &member.prop else { return None };
-        self.of_expr(&member.obj)?.member(prop.sym.as_ref())
-      }
-      js::Expr::Paren(p) => self.of_expr(&p.expr),
-      js::Expr::TsAs(e) => self.of_expr(&e.expr),
-      js::Expr::TsNonNull(e) => self.of_expr(&e.expr),
-      js::Expr::TsSatisfies(e) => self.of_expr(&e.expr),
+      js::Expression::Identifier(id) => self.of_ident(id).cloned(),
+      js::Expression::StaticMemberExpression(member) => self.of_expr(&member.object)?.member(member.property.name.as_str()),
+      js::Expression::ParenthesizedExpression(p) => self.of_expr(&p.expression),
+      js::Expression::TSAsExpression(e) => self.of_expr(&e.expression),
+      js::Expression::TSNonNullExpression(e) => self.of_expr(&e.expression),
+      js::Expression::TSSatisfiesExpression(e) => self.of_expr(&e.expression),
       _ => None,
     }
   }
 
   /// What a JSX tag names, an identifier or a member chain of any depth.
   pub(crate) fn of_tag(&self, name: &js::JSXElementName) -> Option<Meaning> {
-    fn object(m: &Meanings, obj: &js::JSXObject) -> Option<Meaning> {
+    fn object(m: &Meanings, obj: &js::JSXMemberExpressionObject) -> Option<Meaning> {
       match obj {
-        js::JSXObject::Ident(id) => m.of_ident(id).cloned(),
-        js::JSXObject::JSXMemberExpr(inner) => object(m, &inner.obj)?.member(inner.prop.sym.as_ref()),
+        js::JSXMemberExpressionObject::IdentifierReference(id) => m.of_ident(id).cloned(),
+        js::JSXMemberExpressionObject::MemberExpression(inner) => object(m, &inner.object)?.member(inner.property.name.as_str()),
+        js::JSXMemberExpressionObject::ThisExpression(_) => None,
       }
     }
     match name {
-      js::JSXElementName::Ident(id) => self.of_ident(id).cloned(),
-      js::JSXElementName::JSXMemberExpr(m) => object(self, &m.obj)?.member(m.prop.sym.as_ref()),
-      js::JSXElementName::JSXNamespacedName(_) => None,
+      js::JSXElementName::IdentifierReference(id) => self.of_ident(id).cloned(),
+      js::JSXElementName::MemberExpression(m) => object(self, &m.object)?.member(m.property.name.as_str()),
+      js::JSXElementName::Identifier(_) | js::JSXElementName::NamespacedName(_) | js::JSXElementName::ThisExpression(_) => None,
     }
   }
 }
 
 /// `expr` without the parentheses and the TypeScript wrappers around it, `(x as T)` and `x satisfies T` read as `x`.
-pub(crate) fn bare(expr: &js::Expr) -> &js::Expr {
+pub(crate) fn bare<'e, 'a>(expr: &'e js::Expression<'a>) -> &'e js::Expression<'a> {
   match expr {
-    js::Expr::Paren(p) => bare(&p.expr),
-    js::Expr::TsAs(e) => bare(&e.expr),
-    js::Expr::TsNonNull(e) => bare(&e.expr),
-    js::Expr::TsSatisfies(e) => bare(&e.expr),
-    js::Expr::TsConstAssertion(e) => bare(&e.expr),
-    js::Expr::TsTypeAssertion(e) => bare(&e.expr),
+    js::Expression::ParenthesizedExpression(p) => bare(&p.expression),
+    js::Expression::TSAsExpression(e) => bare(&e.expression),
+    js::Expression::TSNonNullExpression(e) => bare(&e.expression),
+    js::Expression::TSSatisfiesExpression(e) => bare(&e.expression),
+    js::Expression::TSTypeAssertion(e) => bare(&e.expression),
     other => other,
   }
 }
@@ -615,19 +626,22 @@ pub struct ImportBinding {
 }
 
 /// The import bindings `stmt` makes through awaited dynamic imports; empty for any other statement.
-pub fn awaited_imports(stmt: &js::Stmt) -> Vec<ImportBinding> {
-  let js::Stmt::Decl(js::Decl::Var(var)) = stmt else { return Vec::new() };
+pub fn awaited_imports(stmt: &js::Statement) -> Vec<ImportBinding> {
+  let js::Statement::VariableDeclaration(var) = stmt else { return Vec::new() };
   let mut out = Vec::new();
-  for decl in &var.decls {
-    let Some(init) = decl.init.as_deref() else { continue };
-    let js::Expr::Await(awaited) = bare(init) else { continue };
-    match (bare(&awaited.arg), &decl.name) {
-      (js::Expr::Call(call), pat) => {
-        if let Some(source) = imported_source(call) {
-          bind(pat, &source, &mut out);
-        } else if let Some(sources) = promise_all(call) {
-          if let js::Pat::Array(array) = pat {
-            for (element, source) in array.elems.iter().zip(sources) {
+  for decl in &var.declarations {
+    let Some(init) = &decl.init else { continue };
+    let js::Expression::AwaitExpression(awaited) = bare(init) else { continue };
+    match bare(&awaited.argument) {
+      js::Expression::ImportExpression(import) => {
+        if let Some(source) = imported_source(import) {
+          bind(&decl.id, &source, &mut out);
+        }
+      }
+      js::Expression::CallExpression(call) => {
+        if let Some(sources) = promise_all(call) {
+          if let js::BindingPattern::ArrayPattern(array) = &decl.id {
+            for (element, source) in array.elements.iter().zip(sources) {
               if let Some(pat) = element {
                 bind(pat, &source, &mut out);
               }
@@ -641,56 +655,51 @@ pub fn awaited_imports(stmt: &js::Stmt) -> Vec<ImportBinding> {
   out
 }
 
-/// The specifier of `import("m")`; `None` for any other call.
-fn imported_source(call: &js::CallExpr) -> Option<String> {
-  if !matches!(call.callee, js::Callee::Import(_)) {
-    return None;
-  }
-  match call.args.first().map(|a| bare(&a.expr)) {
-    Some(js::Expr::Lit(js::Lit::Str(s))) => Some(s.value.to_string_lossy().into_owned()),
+/// The specifier of `import("m")`.
+fn imported_source(import: &js::ImportExpression) -> Option<String> {
+  match bare(&import.source) {
+    js::Expression::StringLiteral(s) => Some(crate::lossy(s.value)),
     _ => None,
   }
 }
 
 /// The specifiers of `Promise.all([import("m"), import("n")])` in order; `None` for any other call or an element that is not an `import()`.
-fn promise_all(call: &js::CallExpr) -> Option<Vec<String>> {
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Member(member) = bare(callee) else { return None };
-  if !matches!(&*member.obj, js::Expr::Ident(id) if id.sym.as_ref() == "Promise") || !matches!(&member.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "all") {
+fn promise_all(call: &js::CallExpression) -> Option<Vec<String>> {
+  let js::Expression::StaticMemberExpression(member) = bare(&call.callee) else { return None };
+  if !matches!(&member.object, js::Expression::Identifier(id) if id.name.as_str() == "Promise") || member.property.name.as_str() != "all" {
     return None;
   }
-  let js::Expr::Array(array) = bare(&call.args.first()?.expr) else { return None };
+  let js::Expression::ArrayExpression(array) = bare(crate::syntax::arg_expr(call.arguments.first()?)) else { return None };
   array
-    .elems
+    .elements
     .iter()
-    .map(|element| match element {
-      Some(element) if element.spread.is_none() => match bare(&element.expr) {
-        js::Expr::Call(call) => imported_source(call),
-        _ => None,
-      },
+    .map(|element| match element.as_expression().map(bare) {
+      Some(js::Expression::ImportExpression(import)) => imported_source(import),
       _ => None,
     })
     .collect()
 }
 
-fn bind(pat: &js::Pat, source: &str, out: &mut Vec<ImportBinding>) {
+fn bind(pat: &js::BindingPattern, source: &str, out: &mut Vec<ImportBinding>) {
   match pat {
-    js::Pat::Ident(id) => out.push(ImportBinding { local: id.id.sym.to_string(), source: source.to_owned(), imported: None }),
-    js::Pat::Object(object) => {
-      for prop in &object.props {
-        match prop {
-          js::ObjectPatProp::Assign(a) => out.push(ImportBinding { local: a.key.sym.to_string(), source: source.to_owned(), imported: Some(a.key.sym.to_string()) }),
-          js::ObjectPatProp::KeyValue(kv) => {
-            let imported = match &kv.key {
-              js::PropName::Ident(id) => id.sym.to_string(),
-              js::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+    js::BindingPattern::BindingIdentifier(id) => out.push(ImportBinding { local: id.name.to_string(), source: source.to_owned(), imported: None }),
+    js::BindingPattern::ObjectPattern(object) => {
+      for prop in &object.properties {
+        if prop.shorthand {
+          let local = match &prop.value {
+            js::BindingPattern::BindingIdentifier(id) => id,
+            js::BindingPattern::AssignmentPattern(a) => match &a.left {
+              js::BindingPattern::BindingIdentifier(id) => id,
               _ => continue,
-            };
-            if let js::Pat::Ident(local) = &*kv.value {
-              out.push(ImportBinding { local: local.id.sym.to_string(), source: source.to_owned(), imported: Some(imported) });
-            }
-          }
-          js::ObjectPatProp::Rest(_) => {}
+            },
+            _ => continue,
+          };
+          out.push(ImportBinding { local: local.name.to_string(), source: source.to_owned(), imported: Some(local.name.to_string()) });
+          continue;
+        }
+        let Some(imported) = crate::prop_name(&prop.key, prop.computed).filter(|_| !matches!(prop.key, js::PropertyKey::NumericLiteral(_))) else { continue };
+        if let js::BindingPattern::BindingIdentifier(local) = &prop.value {
+          out.push(ImportBinding { local: local.name.to_string(), source: source.to_owned(), imported: Some(imported) });
         }
       }
     }

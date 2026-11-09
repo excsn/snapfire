@@ -4,15 +4,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::{Allocator, CloneIn};
+use oxc_ast::ast::{self as js, ArrayExpressionElement, BindingPattern, Declaration, ExportDefaultDeclarationKind, Expression, ImportDeclarationSpecifier, JSXAttributeItem, ObjectPropertyKind, PropertyKey, PropertyKind, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 
 use crate::edit::Edits;
 use crate::items::{describe, drop_named_import, import_text, line_range, local, tidy, Item};
 use crate::next::{read_packages, source_path};
 use crate::relocate::{relocate, Aliases};
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{import_specifiers, is_script, jsx_ident, lossy, params, parse, Node, Param, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
@@ -113,8 +115,9 @@ impl Pass for AppShell {
   fn run(&self, tree: &mut Tree, report: &mut Report) {
     let Some(path) = ["tsx", "jsx", "js", "ts"].iter().map(|e| format!("app/routes/layout.{e}")).find(|p| tree.contains(p)) else { return };
     let Some(text) = tree.text(&path).map(str::to_owned) else { return };
-    let Ok(parsed) = parse(&path, &text) else { return };
-    let Some(app) = default_component(&parsed.module) else {
+    let allocator = Allocator::default();
+    let Ok(parsed) = parse(&allocator, &path, &text) else { return };
+    let Some(app) = default_component(&parsed) else {
       report.note(&path, 0, "the default export of `_app` is not a function this pass can read, so it still takes `{ Component, pageProps }`");
       return;
     };
@@ -123,48 +126,43 @@ impl Pass for AppShell {
       edits.replace(parsed.range(*span), inner.clone());
       report.note(&path, parsed.line(*span), format!("`{wrapper}` wrapped the app for Next and was dropped; a provider it set up goes in an island of the layout"));
     }
-    let Some(param) = app.params.first() else {
+    let formals = params(app.params);
+    let Some(param) = formals.first() else {
       tree.insert(path, edits.apply(&text));
       return;
     };
-    let js::Pat::Object(object) = param else {
+    let Some(BindingPattern::ObjectPattern(object)) = param.plain() else {
       report.note(&path, parsed.line(param.span()), "`_app`'s props are not destructured, so they were not rewritten to `{ children }`");
       return;
     };
-    let names: Vec<String> = object.props.iter().filter_map(|p| match p {
-      js::ObjectPatProp::Assign(a) => Some(a.key.sym.to_string()),
-      js::ObjectPatProp::KeyValue(js::KeyValuePatProp { value, .. }) => match &**value {
-        js::Pat::Ident(i) => Some(i.id.sym.to_string()),
-        _ => None,
-      },
+    let names: Vec<String> = object.properties.iter().filter_map(|p| match (&p.key, &p.value, p.shorthand) {
+      (PropertyKey::StaticIdentifier(k), _, true) => Some(k.name.to_string()),
+      (_, BindingPattern::BindingIdentifier(i), false) => Some(i.name.to_string()),
       _ => None,
     }).collect();
     let component = names.iter().find(|n| *n == "Component").cloned().unwrap_or_else(|| "Component".to_owned());
     edits.replace(parsed.range(param.span()), "{ children }");
     let mut finder = Placements { name: component.clone(), found: Vec::new(), other: Vec::new() };
-    app.body.visit_with(&mut finder);
+    app.body.accept(&mut finder);
     for span in &finder.found {
       edits.replace(parsed.range(*span), "<>{children}</>");
     }
     for span in &finder.other {
       report.note(&path, parsed.line(*span), format!("`{component}` is read other than placed; FSR's layout receives the page as `children`"));
     }
-    let page_props = object.props.iter().find_map(|p| match p {
-      js::ObjectPatProp::Assign(a) if &*a.key.sym == "pageProps" => Some(a.key.sym.to_string()),
-      js::ObjectPatProp::KeyValue(js::KeyValuePatProp { key: js::PropName::Ident(key), value }) if &*key.sym == "pageProps" => match &**value {
-        js::Pat::Ident(i) => Some(i.id.sym.to_string()),
-        _ => None,
-      },
+    let page_props = object.properties.iter().find_map(|p| match (&p.key, &p.value, p.shorthand) {
+      (PropertyKey::StaticIdentifier(k), _, true) if k.name == "pageProps" => Some(k.name.to_string()),
+      (PropertyKey::StaticIdentifier(k), BindingPattern::BindingIdentifier(i), false) if k.name == "pageProps" && !p.computed => Some(i.name.to_string()),
       _ => None,
     });
     if let Some(name) = page_props {
-      let outside = |span: swc_core::common::Span| {
+      let param_range = parsed.range(param.span());
+      let outside = |span: Span| {
         let at = parsed.range(span);
-        let param = parsed.range(param.span());
-        !(param.start <= at.start && at.end <= param.end) && finder.found.iter().all(|f| { let f = parsed.range(*f); !(f.start <= at.start && at.end <= f.end) })
+        !(param_range.start <= at.start && at.end <= param_range.end) && finder.found.iter().all(|f| { let f = parsed.range(*f); !(f.start <= at.start && at.end <= f.end) })
       };
-      let mut uses = PageProps { name, spreads: Vec::new(), reads: Vec::new() };
-      app.body.visit_page_props(&mut uses);
+      let mut uses = PageProps { name, text: &text, spreads: Vec::new(), reads: Vec::new() };
+      app.body.accept(&mut uses);
       for dots in uses.spreads.into_iter().filter(|s| outside(*s)) {
         let at = parsed.range(dots).start;
         let (Some(open), Some(close)) = (text[..at].rfind('{'), text[at..].find('}').map(|i| at + i + 1)) else { continue };
@@ -191,92 +189,88 @@ impl Pass for AppShell {
 /// `_app`'s component: its parameters and its body. `wrapped` is set when
 /// the default export wraps it in a call: that call's span, the callee and
 /// the component's name.
-struct AppComponent<'a> {
-  params: Vec<&'a js::Pat>,
-  body: &'a dyn AppBody,
-  wrapped: Option<(swc_core::common::Span, String, String)>,
+struct AppComponent<'p, 'a> {
+  params: &'p js::FormalParameters<'a>,
+  body: AppBody<'p, 'a>,
+  wrapped: Option<(Span, String, String)>,
 }
 
-trait AppBody {
-  fn visit_with(&self, v: &mut Placements);
-  fn visit_page_props(&self, v: &mut PageProps);
+/// The function `_app` is written as.
+#[derive(Clone, Copy)]
+enum AppBody<'p, 'a> {
+  Function(&'p js::Function<'a>),
+  Arrow(&'p js::ArrowFunctionExpression<'a>),
 }
 
-impl AppBody for js::Function {
-  fn visit_with(&self, v: &mut Placements) {
-    VisitWith::visit_with(self, v);
-  }
-
-  fn visit_page_props(&self, v: &mut PageProps) {
-    VisitWith::visit_with(self, v);
-  }
-}
-
-impl AppBody for js::ArrowExpr {
-  fn visit_with(&self, v: &mut Placements) {
-    VisitWith::visit_with(self, v);
-  }
-
-  fn visit_page_props(&self, v: &mut PageProps) {
-    VisitWith::visit_with(self, v);
+impl<'a> AppBody<'_, 'a> {
+  fn accept<V: Visit<'a>>(self, v: &mut V) {
+    match self {
+      AppBody::Function(f) => v.visit_function(f, ScopeFlags::Function),
+      AppBody::Arrow(a) => v.visit_arrow_function_expression(a),
+    }
   }
 }
 
 /// The `...` of each `{...pageProps}` spread on an element and every other
 /// read of the name.
-struct PageProps {
+struct PageProps<'t> {
   name: String,
-  spreads: Vec<swc_core::common::Span>,
-  reads: Vec<swc_core::common::Span>,
+  text: &'t str,
+  spreads: Vec<Span>,
+  reads: Vec<Span>,
 }
 
-impl Visit for PageProps {
-  fn visit_jsx_attr_or_spread(&mut self, n: &js::JSXAttrOrSpread) {
-    if let js::JSXAttrOrSpread::SpreadElement(spread) = n {
-      if matches!(&*spread.expr, js::Expr::Ident(i) if *i.sym == *self.name) {
-        self.spreads.push(spread.dot3_token);
+impl<'a> Visit<'a> for PageProps<'_> {
+  fn visit_jsx_attribute_item(&mut self, n: &JSXAttributeItem<'a>) {
+    if let JSXAttributeItem::SpreadAttribute(spread) = n {
+      if matches!(&spread.argument, Expression::Identifier(i) if i.name == self.name.as_str()) {
+        let start = spread.span.start as usize;
+        let at = self.text[start..spread.span.end as usize].find("...").map_or(start, |i| start + i) as u32;
+        self.spreads.push(Span::new(at, at + 3));
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_jsx_attribute_item(self, n);
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    if *n.sym == *self.name {
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    if n.name == self.name.as_str() {
+      self.reads.push(n.span);
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    if n.name == self.name.as_str() {
       self.reads.push(n.span);
     }
   }
 }
 
-fn default_component(module: &js::Module) -> Option<AppComponent<'_>> {
+fn default_component<'p, 'a>(parsed: &'p Parsed<'a>) -> Option<AppComponent<'p, 'a>> {
   let mut named = None;
   let mut wrapped = None;
-  for item in &module.body {
-    match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(js::ExportDefaultDecl { decl: js::DefaultDecl::Fn(f), .. })) => {
-        return Some(AppComponent { params: f.function.params.iter().map(|p| &p.pat).collect(), body: &*f.function, wrapped: None });
+  for item in parsed.body() {
+    let Statement::ExportDefaultDeclaration(e) = item else { continue };
+    match &e.declaration {
+      ExportDefaultDeclarationKind::FunctionDeclaration(f) => {
+        return Some(AppComponent { params: &f.params, body: AppBody::Function(f), wrapped: None });
       }
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => match &*e.expr {
-        js::Expr::Ident(i) => named = Some(i.sym.to_string()),
-        js::Expr::Call(call) => {
-          if let Some((callee, inner)) = wrapped_component(call, module) {
-            named = Some(inner.clone());
-            wrapped = Some((call.span, callee, inner));
-          }
+      ExportDefaultDeclarationKind::Identifier(i) => named = Some(i.name.to_string()),
+      ExportDefaultDeclarationKind::CallExpression(call) => {
+        if let Some((callee, inner)) = wrapped_component(call, parsed) {
+          named = Some(inner.clone());
+          wrapped = Some((call.span, callee, inner));
         }
-        _ => {}
-      },
+      }
       _ => {}
     }
   }
   let named = named?;
-  module.body.iter().find_map(|item| match item {
-    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) if f.ident.sym == *named => {
-      Some(AppComponent { params: f.function.params.iter().map(|p| &p.pat).collect(), body: &*f.function, wrapped: wrapped.clone() })
-    }
-    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(v))) => v.decls.iter().find_map(|d| match (&d.name, d.init.as_deref()) {
-      (js::Pat::Ident(i), Some(js::Expr::Arrow(arrow))) if i.id.sym == *named => Some(AppComponent { params: arrow.params.iter().collect(), body: arrow, wrapped: wrapped.clone() }),
-      (js::Pat::Ident(i), Some(js::Expr::Fn(f))) if i.id.sym == *named => Some(AppComponent { params: f.function.params.iter().map(|p| &p.pat).collect(), body: &*f.function, wrapped: wrapped.clone() }),
+  parsed.body().iter().find_map(|item| match item {
+    Statement::FunctionDeclaration(f) if f.id.as_ref().is_some_and(|id| id.name == named.as_str()) => Some(AppComponent { params: &f.params, body: AppBody::Function(f), wrapped: wrapped.clone() }),
+    Statement::VariableDeclaration(v) => v.declarations.iter().find_map(|d| match (&d.id, &d.init) {
+      (BindingPattern::BindingIdentifier(i), Some(Expression::ArrowFunctionExpression(arrow))) if i.name == named.as_str() => Some(AppComponent { params: &arrow.params, body: AppBody::Arrow(arrow), wrapped: wrapped.clone() }),
+      (BindingPattern::BindingIdentifier(i), Some(Expression::FunctionExpression(f))) if i.name == named.as_str() => Some(AppComponent { params: &f.params, body: AppBody::Function(f), wrapped: wrapped.clone() }),
       _ => None,
     }),
     _ => None,
@@ -285,30 +279,24 @@ fn default_component(module: &js::Module) -> Option<AppComponent<'_>> {
 
 /// `hoc(App)`, `hoc(options)(App)` or `hoc(App, options)` with `App` a
 /// function the module declares: the outermost callee and `App`.
-fn wrapped_component(call: &js::CallExpr, module: &js::Module) -> Option<(String, String)> {
+fn wrapped_component(call: &js::CallExpression, parsed: &Parsed) -> Option<(String, String)> {
   let declared = |name: &str| {
-    module.body.iter().any(|item| match item {
-      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => *f.ident.sym == *name,
-      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(v))) => v.decls.iter().any(|d| matches!(&d.name, js::Pat::Ident(i) if *i.id.sym == *name)),
+    parsed.body().iter().any(|item| match item {
+      Statement::FunctionDeclaration(f) => f.id.as_ref().is_some_and(|id| id.name == name),
+      Statement::VariableDeclaration(v) => v.declarations.iter().any(|d| matches!(&d.id, BindingPattern::BindingIdentifier(i) if i.name == name)),
       _ => false,
     })
   };
   let callee = match &call.callee {
-    js::Callee::Expr(e) => match &**e {
-      js::Expr::Ident(i) => i.sym.to_string(),
-      js::Expr::Call(inner) => match &inner.callee {
-        js::Callee::Expr(e) => match &**e {
-          js::Expr::Ident(i) => i.sym.to_string(),
-          _ => return None,
-        },
-        _ => return None,
-      },
+    Expression::Identifier(i) => i.name.to_string(),
+    Expression::CallExpression(inner) => match &inner.callee {
+      Expression::Identifier(i) => i.name.to_string(),
       _ => return None,
     },
     _ => return None,
   };
-  let inner = call.args.iter().find_map(|a| match &*a.expr {
-    js::Expr::Ident(i) if declared(&i.sym) => Some(i.sym.to_string()),
+  let inner = call.arguments.iter().find_map(|a| match a {
+    js::Argument::Identifier(i) if declared(&i.name) => Some(i.name.to_string()),
     _ => None,
   })?;
   Some((callee, inner))
@@ -316,23 +304,29 @@ fn wrapped_component(call: &js::CallExpr, module: &js::Module) -> Option<(String
 
 struct Placements {
   name: String,
-  found: Vec<swc_core::common::Span>,
-  other: Vec<swc_core::common::Span>,
+  found: Vec<Span>,
+  other: Vec<Span>,
 }
 
-impl Visit for Placements {
-  fn visit_jsx_element(&mut self, n: &js::JSXElement) {
-    if let js::JSXElementName::Ident(i) = &n.opening.name {
-      if *i.sym == *self.name {
+impl<'a> Visit<'a> for Placements {
+  fn visit_jsx_element(&mut self, n: &js::JSXElement<'a>) {
+    if let Some((name, _)) = jsx_ident(&n.opening_element.name) {
+      if name == self.name {
         self.found.push(n.span);
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_jsx_element(self, n);
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    if *n.sym == *self.name {
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    if n.name == self.name.as_str() {
+      self.other.push(n.span);
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    if n.name == self.name.as_str() {
       self.other.push(n.span);
     }
   }
@@ -355,7 +349,8 @@ impl Pass for DataFunctions {
     let pages: Vec<String> = tree.paths().filter(|p| p.starts_with("app/routes/") && is_page(p)).map(str::to_owned).collect();
     for path in pages {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let Some(moved) = data_functions(&path, &text, &parsed, report) else { continue };
       let loader_path = format!("{}/page.loader.ts", path.rsplit_once('/').map(|(d, _)| d).unwrap_or(""));
       if tree.contains(&loader_path) {
@@ -381,12 +376,12 @@ struct Moved {
 /// Whether a node holds a JSX element or fragment.
 struct Jsx(bool);
 
-impl Visit for Jsx {
-  fn visit_jsx_element(&mut self, _: &js::JSXElement) {
+impl<'a> Visit<'a> for Jsx {
+  fn visit_jsx_element(&mut self, _: &js::JSXElement<'a>) {
     self.0 = true;
   }
 
-  fn visit_jsx_fragment(&mut self, _: &js::JSXFragment) {
+  fn visit_jsx_fragment(&mut self, _: &js::JSXFragment<'a>) {
     self.0 = true;
   }
 }
@@ -394,7 +389,7 @@ impl Visit for Jsx {
 pub(crate) const DATA_FUNCTIONS: &[&str] = &["getStaticProps", "getServerSideProps", "getStaticPaths"];
 
 fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) -> Option<Moved> {
-  let items: Vec<Item> = parsed.module.body.iter().map(|item| describe(item, parsed)).collect();
+  let items: Vec<Item> = parsed.body().iter().map(|item| describe(item, parsed)).collect();
   if !items.iter().any(|i| i.data.is_some()) {
     return None;
   }
@@ -413,18 +408,18 @@ fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) 
   }
   if let Some(n) = moved_items.iter().copied().find(|n| {
     let mut found = Jsx(false);
-    parsed.module.body[*n].visit_with(&mut found);
+    parsed.body()[*n].accept(&mut found);
     found.0
   }) {
-    report.note(path, parsed.line(parsed.module.body[n].span()), "the data functions render JSX, which a loader cannot, since it returns data; they were left in place");
+    report.note(path, parsed.line(parsed.body()[n].span()), "the data functions render JSX, which a loader cannot, since it returns data; they were left in place");
     return None;
   }
 
   let mut loader = String::new();
   let mut fails = false;
-  for (n, item) in parsed.module.body.iter().enumerate() {
-    if let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item {
-      let kept: Vec<&js::ImportSpecifier> = import.specifiers.iter().filter(|s| needed.contains(&local(s))).collect();
+  for (n, item) in parsed.body().iter().enumerate() {
+    if let Statement::ImportDeclaration(import) = item {
+      let kept: Vec<&ImportDeclarationSpecifier> = import_specifiers(import).iter().filter(|s| needed.contains(&local(s))).collect();
       if !kept.is_empty() {
         loader.push_str(&import_text(text, parsed, import, &kept));
       }
@@ -472,13 +467,14 @@ fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) 
       page_edits.replace(line_range(text, item.range.clone()), "");
     }
   }
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if import.specifiers.is_empty() {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    let specifiers = import_specifiers(import);
+    if specifiers.is_empty() {
       continue;
     }
-    let kept: Vec<&js::ImportSpecifier> = import.specifiers.iter().filter(|s| still_read.contains(&local(s))).collect();
-    if kept.len() < import.specifiers.len() {
+    let kept: Vec<&ImportDeclarationSpecifier> = specifiers.iter().filter(|s| still_read.contains(&local(s))).collect();
+    if kept.len() < specifiers.len() {
       page_edits.replace(line_range(text, parsed.range(import.span)), if kept.is_empty() { String::new() } else { import_text(text, parsed, import, &kept) });
     }
   }
@@ -487,44 +483,54 @@ fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) 
 
 /// The data function `item` rewritten under FSR's name for it, plus whether
 /// the rewrite calls `fail`.
-fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::ModuleItem, name: &str, report: &mut Report) -> (String, bool) {
+fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &Statement, name: &str, report: &mut Report) -> (String, bool) {
   let range = parsed.range(item.span());
   let mut edits = Edits::default();
-  let mut returns = Returns { depth: 0, found: Vec::new() };
+  let mut returns = Returns { depth: 0, allocator: parsed.allocator, found: Vec::new() };
   let fsr_name = if name == "getStaticPaths" { "paths" } else { "load" };
-  if let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(e)) = item {
-    match &e.decl {
-      js::Decl::Fn(f) => {
-        edits.replace(shift(parsed.range(f.ident.span), range.start), fsr_name);
-        f.function.body.visit_with(&mut returns);
-        let params: Vec<&js::Pat> = f.function.params.iter().map(|p| &p.pat).collect();
-        let body = f.function.body.as_ref().map(|b| parsed.range(b.span).start + 1);
-        context(path, text, parsed, &params, body, range.clone(), &mut edits, report);
+  if let Statement::ExportDeclaration(e) = item {
+    match &e.declaration {
+      Declaration::FunctionDeclaration(f) => {
+        if let Some(id) = &f.id {
+          edits.replace(shift(parsed.range(id.span), range.start), fsr_name);
+        }
+        if let Some(b) = &f.body {
+          returns.visit_function_body(b);
+        }
+        let body = f.body.as_ref().map(|b| parsed.range(b.span).start + 1);
+        context(path, text, parsed, params(&f.params).first(), body, range.clone(), &mut edits, report);
       }
-      js::Decl::Var(v) => {
-        if let Some(d) = v.decls.first() {
-          if let js::Pat::Ident(i) = &d.name {
-            let ident = parsed.range(i.id.span);
+      Declaration::VariableDeclaration(v) => {
+        if let Some(d) = v.declarations.first() {
+          if let BindingPattern::BindingIdentifier(i) = &d.id {
+            let ident = parsed.range(i.span);
             edits.replace(shift(ident.start..ident.end, range.start), fsr_name);
-            if let Some(type_ann) = &i.type_ann {
+            if let Some(type_ann) = &d.type_annotation {
               edits.replace(shift(parsed.range(type_ann.span), range.start), "");
             }
           }
-          match d.init.as_deref() {
-            Some(js::Expr::Arrow(a)) => {
-              a.body.visit_with(&mut returns);
-              let params: Vec<&js::Pat> = a.params.iter().collect();
-              let body = match &*a.body {
-                js::ArrowFunctionBody::FunctionBody(b) => Some(parsed.range(b.span).start + 1),
-                js::ArrowFunctionBody::Expr(_) => None,
+          match &d.init {
+            Some(Expression::ArrowFunctionExpression(a)) => {
+              let body = match &a.body {
+                js::ArrowFunctionBody::FunctionBody(b) => {
+                  returns.visit_function_body(b);
+                  Some(parsed.range(b.span).start + 1)
+                }
+                other => {
+                  if let Some(e) = other.as_expression() {
+                    returns.visit_expression(e);
+                  }
+                  None
+                }
               };
-              context(path, text, parsed, &params, body, range.clone(), &mut edits, report);
+              context(path, text, parsed, params(&a.params).first(), body, range.clone(), &mut edits, report);
             }
-            Some(js::Expr::Fn(f)) => {
-              f.function.body.visit_with(&mut returns);
-              let params: Vec<&js::Pat> = f.function.params.iter().map(|p| &p.pat).collect();
-              let body = f.function.body.as_ref().map(|b| parsed.range(b.span).start + 1);
-              context(path, text, parsed, &params, body, range.clone(), &mut edits, report);
+            Some(Expression::FunctionExpression(f)) => {
+              if let Some(b) = &f.body {
+                returns.visit_function_body(b);
+              }
+              let body = f.body.as_ref().map(|b| parsed.range(b.span).start + 1);
+              context(path, text, parsed, params(&f.params).first(), body, range.clone(), &mut edits, report);
             }
             _ => {}
           }
@@ -535,19 +541,15 @@ fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::Mod
   }
   let mut fails = false;
   for ret in returns.found {
-    let Some(arg) = &ret.arg else { continue };
+    let Some(arg) = &ret.argument else { continue };
     let line = parsed.line(ret.span);
-    let js::Expr::Object(object) = strip_parens(arg) else {
+    let Expression::ObjectExpression(object) = strip_parens(arg) else {
       report.note(path, line, format!("`{name}` returns something other than an object literal, which was left as it is"));
       continue;
     };
     let field = |key: &str| {
-      object.props.iter().find_map(|p| match p {
-        js::PropOrSpread::Prop(prop) => match &**prop {
-          js::Prop::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some(key) => Some(&*kv.value),
-          js::Prop::Shorthand(i) if &*i.sym == key => None,
-          _ => None,
-        },
+      object.properties.iter().find_map(|p| match p {
+        ObjectPropertyKind::ObjectProperty(prop) if prop.kind == PropertyKind::Init && !prop.method && !prop.shorthand && !prop.computed && prop_name(&prop.key).as_deref() == Some(key) => Some(&prop.value),
         _ => None,
       })
     };
@@ -593,47 +595,43 @@ const UNREAD_CONTEXT: &[&str] = &["preview", "previewData", "draftMode", "defaul
 /// declared `false` at the top of the body; `ctx.preview` is read as
 /// `false`.
 #[allow(clippy::too_many_arguments)]
-fn context(path: &str, text: &str, parsed: &Parsed, params: &[&js::Pat], body: Option<usize>, item: Range<usize>, edits: &mut Edits, report: &mut Report) {
-  let Some(param) = params.first() else { return };
+fn context(path: &str, text: &str, parsed: &Parsed, param: Option<&Param>, body: Option<usize>, item: Range<usize>, edits: &mut Edits, report: &mut Report) {
+  let Some(Param::Plain(param)) = param else { return };
   let mut declared = Vec::new();
-  match param {
-    js::Pat::Object(object) => {
+  match &param.pattern {
+    BindingPattern::ObjectPattern(object) => {
       let mut kept = Vec::new();
       let mut dropped = false;
-      for prop in &object.props {
-        let key = match prop {
-          js::ObjectPatProp::Assign(a) => Some(a.key.sym.to_string()),
-          js::ObjectPatProp::KeyValue(kv) => prop_name(&kv.key),
-          js::ObjectPatProp::Rest(_) => None,
-        };
+      for prop in &object.properties {
+        let key = if prop.computed { None } else { prop_name(&prop.key) };
         match key {
           Some(key) if UNREAD_CONTEXT.contains(&key.as_str()) => {
             dropped = true;
-            let local = match prop {
-              js::ObjectPatProp::KeyValue(js::KeyValuePatProp { value, .. }) => match &**value {
-                js::Pat::Ident(i) => i.id.sym.to_string(),
-                _ => key.clone(),
-              },
+            let local = match (&prop.value, prop.shorthand) {
+              (BindingPattern::BindingIdentifier(i), false) => i.name.to_string(),
               _ => key.clone(),
             };
             match key.as_str() {
               "preview" | "draftMode" => declared.push(format!("const {local} = false;")),
-              _ => report.note(path, parsed.line(prop.span()), format!("`{key}` has no counterpart in FSR's loader context, so it was taken out of the parameter")),
+              _ => report.note(path, parsed.line(prop.span), format!("`{key}` has no counterpart in FSR's loader context, so it was taken out of the parameter")),
             }
           }
-          _ => kept.push(&text[parsed.range(prop.span())]),
+          _ => kept.push(&text[parsed.range(prop.span)]),
         }
       }
+      if let Some(rest) = &object.rest {
+        kept.push(&text[parsed.range(rest.span)]);
+      }
       if dropped {
-        let pattern = parsed.range(object.span);
-        let typed = object.type_ann.as_ref().filter(|t| parsed.range(t.span).end <= pattern.end).map(|t| format!(": {}", text[parsed.range(t.type_ann.span())].trim()));
+        let pattern = parsed.range(param.span);
+        let typed = param.type_annotation.as_ref().map(|t| format!(": {}", text[parsed.range(t.type_annotation.span())].trim()));
         let braces = if kept.is_empty() { "{}".to_owned() } else { format!("{{ {} }}", kept.join(", ")) };
         edits.replace(shift(pattern, item.start), format!("{braces}{}", typed.unwrap_or_default()));
       }
     }
-    js::Pat::Ident(ident) => {
-      let mut reads = ContextReads { name: ident.id.sym.to_string(), found: Vec::new() };
-      parsed.module.visit_with(&mut reads);
+    BindingPattern::BindingIdentifier(ident) => {
+      let mut reads = ContextReads { name: ident.name.to_string(), found: Vec::new() };
+      reads.visit_program(&parsed.program);
       for (span, field) in reads.found {
         let at = parsed.range(span);
         if at.start < item.start || at.end > item.end {
@@ -656,70 +654,72 @@ fn context(path: &str, text: &str, parsed: &Parsed, params: &[&js::Pat], body: O
 /// Reads of `name.<field>`.
 struct ContextReads {
   name: String,
-  found: Vec<(swc_core::common::Span, String)>,
+  found: Vec<(Span, String)>,
 }
 
-impl Visit for ContextReads {
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*n.obj, &n.prop) {
-      if *obj.sym == *self.name {
-        self.found.push((n.span, prop.sym.to_string()));
+impl<'a> Visit<'a> for ContextReads {
+  fn visit_static_member_expression(&mut self, n: &js::StaticMemberExpression<'a>) {
+    if let Expression::Identifier(obj) = &n.object {
+      if obj.name == self.name.as_str() {
+        self.found.push((n.span, n.property.name.to_string()));
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_static_member_expression(self, n);
   }
 }
 
 /// `paths` from `getStaticPaths` as FSR's `paths` returns them: an array
 /// literal of `{ params: x }` as the `x`s, anything else mapped to its params.
-fn paths_text(text: &str, parsed: &Parsed, paths: &js::Expr) -> String {
-  if let js::Expr::Array(array) = strip_parens(paths) {
+fn paths_text(text: &str, parsed: &Parsed, paths: &Expression) -> String {
+  if let Expression::ArrayExpression(array) = strip_parens(paths) {
     let mut out = Vec::new();
-    for elem in array.elems.iter().flatten() {
-      if elem.spread.is_some() {
-        out.clear();
-        break;
-      }
-      let js::Expr::Object(o) = strip_parens(&elem.expr) else {
+    for elem in &array.elements {
+      let elem = match elem {
+        ArrayExpressionElement::Elision(_) => continue,
+        ArrayExpressionElement::SpreadElement(_) => {
+          out.clear();
+          break;
+        }
+        other => other.to_expression(),
+      };
+      let Expression::ObjectExpression(o) = strip_parens(elem) else {
         out.clear();
         break;
       };
-      let params = o.props.iter().find_map(|p| match p {
-        js::PropOrSpread::Prop(prop) => match &**prop {
-          js::Prop::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("params") => Some(&text[parsed.range(kv.value.span())]),
-          _ => None,
-        },
+      let params = o.properties.iter().find_map(|p| match p {
+        ObjectPropertyKind::ObjectProperty(prop) if prop.kind == PropertyKind::Init && !prop.method && !prop.shorthand && !prop.computed && prop_name(&prop.key).as_deref() == Some("params") => Some(&text[parsed.range(prop.value.span())]),
         _ => None,
       });
       match params {
-        Some(p) if o.props.len() == 1 => out.push(p.to_owned()),
+        Some(p) if o.properties.len() == 1 => out.push(p.to_owned()),
         _ => {
           out.clear();
           break;
         }
       }
     }
-    if out.len() == array.elems.len() {
+    if out.len() == array.elements.len() {
       return format!("[{}]", out.join(", "));
     }
   }
   format!("({}).map((p) => p.params)", &text[parsed.range(paths.span())])
 }
 
-fn prop_name(key: &js::PropName) -> Option<String> {
+/// A property key written as an identifier or a string.
+fn prop_name(key: &PropertyKey) -> Option<String> {
   match key {
-    js::PropName::Ident(i) => Some(i.sym.to_string()),
-    js::PropName::Str(s) => Some(s.value.to_string_lossy().into_owned()),
+    PropertyKey::StaticIdentifier(i) => Some(i.name.to_string()),
+    PropertyKey::StringLiteral(s) => Some(lossy(s.value)),
     _ => None,
   }
 }
 
-fn strip_parens(e: &js::Expr) -> &js::Expr {
+fn strip_parens<'e, 'a>(e: &'e Expression<'a>) -> &'e Expression<'a> {
   match e {
-    js::Expr::Paren(p) => strip_parens(&p.expr),
-    js::Expr::TsAs(a) => strip_parens(&a.expr),
-    js::Expr::TsSatisfies(s) => strip_parens(&s.expr),
+    Expression::ParenthesizedExpression(p) => strip_parens(&p.expression),
+    Expression::TSAsExpression(a) => strip_parens(&a.expression),
+    Expression::TSSatisfiesExpression(s) => strip_parens(&s.expression),
     other => other,
   }
 }
@@ -729,27 +729,28 @@ fn shift(range: Range<usize>, by: usize) -> Range<usize> {
 }
 
 /// The `return`s of one function body, not of the functions inside it.
-struct Returns {
+struct Returns<'a> {
   depth: usize,
-  found: Vec<js::ReturnStmt>,
+  allocator: &'a Allocator,
+  found: Vec<js::ReturnStatement<'a>>,
 }
 
-impl Visit for Returns {
-  fn visit_return_stmt(&mut self, n: &js::ReturnStmt) {
+impl<'a> Visit<'a> for Returns<'_> {
+  fn visit_return_statement(&mut self, n: &js::ReturnStatement<'a>) {
     if self.depth == 0 {
-      self.found.push(n.clone());
+      self.found.push(n.clone_in(self.allocator));
     }
   }
 
-  fn visit_function(&mut self, n: &js::Function) {
+  fn visit_function(&mut self, n: &js::Function<'a>, flags: ScopeFlags) {
     self.depth += 1;
-    n.visit_children_with(self);
+    walk::walk_function(self, n, flags);
     self.depth -= 1;
   }
 
-  fn visit_arrow_expr(&mut self, n: &js::ArrowExpr) {
+  fn visit_arrow_function_expression(&mut self, n: &js::ArrowFunctionExpression<'a>) {
     self.depth += 1;
-    n.visit_children_with(self);
+    walk::walk_arrow_function_expression(self, n);
     self.depth -= 1;
   }
 }

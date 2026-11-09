@@ -4,14 +4,15 @@
 
 use std::collections::BTreeSet;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, BinaryOperator, BindingPattern, Expression, ImportDeclarationSpecifier, MemberExpression, ModuleExportName, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::line_range;
 use crate::packages::std_home;
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{argument, import_specifiers, is_script, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
@@ -93,10 +94,11 @@ impl Pass for Node {
     let paths: Vec<String> = tree.paths().filter(|p| p.starts_with("app/") && is_script(p)).map(str::to_owned).collect();
     for path in paths {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let (held, imports) = held(&parsed);
       let mut uses = Uses { parsed: &parsed, text: &text, held: &held, edits: Edits::default(), members: BTreeSet::new(), unmapped: Vec::new(), process: Vec::new(), declared_process: declares(&parsed, "process"), scopes: Vec::new() };
-      parsed.module.visit_with(&mut uses);
+      uses.visit_program(&parsed.program);
       let Uses { edits, members, unmapped, process, .. } = uses;
       for (line, written) in &process {
         report.note(&path, *line, format!("`{written}`: `process` is not FSR's; in a component, `useApp().exit(code)` ends the page and `useStdout().stdout` is the terminal's output, so this is left for the application to write"));
@@ -112,7 +114,7 @@ impl Pass for Node {
       }
       let locals: BTreeSet<&str> = held.iter().map(|h| h.local.as_str()).collect();
       let mut names = Names(BTreeSet::new());
-      parsed.module.visit_with(&mut names);
+      names.visit_program(&parsed.program);
       let taken = |member: &str| names.0.contains(member) && !locals.contains(member);
       let mut specifiers: Vec<String> = Vec::new();
       let mut renamed: Vec<(String, String)> = Vec::new();
@@ -136,12 +138,14 @@ impl Pass for Node {
       for member in &members {
         written = written.replace(&format!("\u{0}{member}"), member);
       }
-      let Ok(reparsed) = parse(&path, &written) else { continue };
+      let reallocator = Allocator::default();
+      let Ok(reparsed) = parse(&reallocator, &path, &written) else { continue };
       let mut out = Edits::default();
       let mut import = import;
-      for item in &reparsed.module.body {
-        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(i)) = item else { continue };
-        if group(&i.src.value.to_string_lossy()).is_none() && !matches!(i.src.value.to_string_lossy().as_ref(), "process" | "node:process") {
+      for item in reparsed.body() {
+        let Statement::ImportDeclaration(i) = item else { continue };
+        let source = lossy(i.source.value);
+        if group(&source).is_none() && !matches!(source.as_str(), "process" | "node:process") {
           continue;
         }
         let range = reparsed.range(i.span);
@@ -151,7 +155,7 @@ impl Pass for Node {
         }
       }
       if let Some(line) = import {
-        let at = reparsed.module.body.first().map(|item| reparsed.range(item.span()).start).unwrap_or(0);
+        let at = reparsed.body().first().map(|item| reparsed.range(item.span()).start).unwrap_or(0);
         out.replace(at..at, format!("{line}\n"));
       }
       let finished = out.apply(&written);
@@ -166,27 +170,27 @@ impl Pass for Node {
 fn held(parsed: &Parsed) -> (Vec<Held>, Vec<Span>) {
   let mut held = Vec::new();
   let mut imports = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    let Some(group) = group(&import.src.value.to_string_lossy()) else { continue };
-    if import.type_only {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    let Some(group) = group(&lossy(import.source.value)) else { continue };
+    if import.import_kind.is_type() {
       continue;
     }
     imports.push(import.span);
-    for specifier in &import.specifiers {
+    for specifier in import_specifiers(import) {
       match specifier {
-        js::ImportSpecifier::Default(d) => held.push(Held { local: d.local.sym.to_string(), group, member: None }),
-        js::ImportSpecifier::Namespace(n) => held.push(Held { local: n.local.sym.to_string(), group, member: None }),
-        js::ImportSpecifier::Named(n) => {
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => held.push(Held { local: d.local.name.to_string(), group, member: None }),
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(n) => held.push(Held { local: n.local.name.to_string(), group, member: None }),
+        ImportDeclarationSpecifier::ImportSpecifier(n) => {
           let imported = match &n.imported {
-            Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-            Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-            None => n.local.sym.to_string(),
+            ModuleExportName::IdentifierName(i) => i.name.to_string(),
+            ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+            ModuleExportName::StringLiteral(s) => lossy(s.value),
           };
           if imported == "default" {
-            held.push(Held { local: n.local.sym.to_string(), group, member: None });
+            held.push(Held { local: n.local.name.to_string(), group, member: None });
           } else {
-            held.push(Held { local: n.local.sym.to_string(), group, member: Some(imported) });
+            held.push(Held { local: n.local.name.to_string(), group, member: Some(imported) });
           }
         }
       }
@@ -195,24 +199,45 @@ fn held(parsed: &Parsed) -> (Vec<Held>, Vec<Span>) {
   (held, imports)
 }
 
-/// Whether `parsed` declares `name` itself, which then shadows the global.
+/// Whether `parsed` binds `name` in a pattern, a variable, a parameter or a
+/// `catch` clause, which then shadows the global. An import, a function and
+/// a class do not count.
 fn declares(parsed: &Parsed, name: &str) -> bool {
   struct Declares<'n>(&'n str, bool);
-  impl Visit for Declares<'_> {
-    fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
-      self.1 |= *id.id.sym == *self.0;
+  impl<'a> Visit<'a> for Declares<'_> {
+    fn visit_binding_pattern(&mut self, pattern: &BindingPattern<'a>) {
+      if let BindingPattern::BindingIdentifier(id) = pattern {
+        self.1 |= id.name == self.0;
+      }
+      walk::walk_binding_pattern(self, pattern);
     }
   }
   let mut found = Declares(name, false);
-  parsed.module.visit_with(&mut found);
+  found.visit_program(&parsed.program);
   found.1
 }
 
+/// Every name a file writes: identifiers, labels and the tag of a JSX element.
 struct Names(BTreeSet<String>);
 
-impl Visit for Names {
-  fn visit_ident(&mut self, n: &js::Ident) {
-    self.0.insert(n.sym.to_string());
+impl<'a> Visit<'a> for Names {
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    self.0.insert(n.name.to_string());
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    self.0.insert(n.name.to_string());
+  }
+
+  fn visit_label_identifier(&mut self, n: &js::LabelIdentifier<'a>) {
+    self.0.insert(n.name.to_string());
+  }
+
+  fn visit_jsx_element_name(&mut self, n: &js::JSXElementName<'a>) {
+    if let js::JSXElementName::Identifier(i) = n {
+      self.0.insert(i.name.to_string());
+    }
+    walk::walk_jsx_element_name(self, n);
   }
 }
 
@@ -222,7 +247,7 @@ fn marked(member: &str, method: &str) -> String {
 }
 
 struct Uses<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   held: &'a [Held],
   edits: Edits,
@@ -244,46 +269,51 @@ impl Uses<'_> {
   }
 
   /// The Node member `callee` names: a named import, `module.member` or `module.promises.member`.
-  fn member_of(&self, e: &js::Expr) -> Option<(Group, String)> {
+  fn member_of(&self, e: &Expression) -> Option<(Group, String)> {
     match e {
-      js::Expr::Ident(id) => self.held(&id.sym).and_then(|h| h.member.clone().map(|m| (h.group, m))),
-      js::Expr::Member(m) => {
-        let js::MemberProp::Ident(prop) = &m.prop else { return None };
-        match &*m.obj {
-          js::Expr::Ident(id) => self.held(&id.sym).filter(|h| h.member.is_none()).map(|h| (h.group, prop.sym.to_string())),
-          js::Expr::Member(inner) => match (&*inner.obj, &inner.prop) {
-            (js::Expr::Ident(id), js::MemberProp::Ident(p)) if &*p.sym == "promises" => self.held(&id.sym).filter(|h| h.member.is_none() && h.group == Group::Fs).map(|h| (h.group, prop.sym.to_string())),
-            _ => None,
-          },
-          _ => None,
-        }
-      }
+      Expression::Identifier(id) => self.named(&id.name),
+      other => self.member_of_member(other.as_member_expression()?),
+    }
+  }
+
+  /// The Node member a named import held under `name` is.
+  fn named(&self, name: &str) -> Option<(Group, String)> {
+    self.held(name).and_then(|h| h.member.clone().map(|m| (h.group, m)))
+  }
+
+  fn member_of_member(&self, m: &MemberExpression) -> Option<(Group, String)> {
+    let MemberExpression::StaticMemberExpression(m) = m else { return None };
+    let prop = &m.property.name;
+    match &m.object {
+      Expression::Identifier(id) => self.held(&id.name).filter(|h| h.member.is_none()).map(|h| (h.group, prop.to_string())),
+      Expression::StaticMemberExpression(inner) => match &inner.object {
+        Expression::Identifier(id) if inner.property.name == "promises" => self.held(&id.name).filter(|h| h.member.is_none() && h.group == Group::Fs).map(|h| (h.group, prop.to_string())),
+        _ => None,
+      },
       _ => None,
     }
   }
 
   /// Whether `e` names Node's `AsyncLocalStorage`.
-  fn is_storage(&self, e: &js::Expr) -> bool {
+  fn is_storage(&self, e: &Expression) -> bool {
     matches!(self.member_of(e), Some((Group::AsyncHooks, name)) if name == "AsyncLocalStorage")
   }
 
   /// `randomBytes(n).toString(encoding)` as `crypto.random(n, encoding)`, `hex` left out as the default.
-  fn random_bytes(&mut self, n: &js::CallExpr) -> Option<String> {
-    let js::Callee::Expr(callee) = &n.callee else { return None };
-    let js::Expr::Member(m) = &**callee else { return None };
-    if !matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "toString") {
+  fn random_bytes(&mut self, n: &js::CallExpression) -> Option<String> {
+    let Expression::StaticMemberExpression(m) = &n.callee else { return None };
+    if m.property.name != "toString" {
       return None;
     }
-    let js::Expr::Call(inner) = &*m.obj else { return None };
-    let js::Callee::Expr(inner_callee) = &inner.callee else { return None };
-    if !matches!(self.member_of(inner_callee), Some((Group::Crypto, name)) if name == "randomBytes") {
+    let Expression::CallExpression(inner) = &m.object else { return None };
+    if !matches!(self.member_of(&inner.callee), Some((Group::Crypto, name)) if name == "randomBytes") {
       return None;
     }
-    let count = self.written(inner.args.first()?.span());
-    let encoding = match n.args.first().map(|a| &*a.expr) {
+    let count = self.written(inner.arguments.first()?.span());
+    let encoding = match n.arguments.first().map(argument) {
       None => None,
-      Some(js::Expr::Lit(js::Lit::Str(s))) if s.value.to_string_lossy() == "hex" => None,
-      Some(js::Expr::Lit(js::Lit::Str(s))) if s.value.to_string_lossy() == "base64" => Some(self.written(s.span)),
+      Some(Expression::StringLiteral(s)) if s.value == "hex" => None,
+      Some(Expression::StringLiteral(s)) if s.value == "base64" => Some(self.written(s.span)),
       Some(_) => return None,
     };
     self.members.insert("crypto".to_owned());
@@ -294,53 +324,55 @@ impl Uses<'_> {
   }
 
   /// `createHash(algorithm).update(part)….digest(encoding)` as `crypto.digest(algorithm, encoding, part, …)`.
-  fn hash_chain(&mut self, n: &js::CallExpr) -> Option<String> {
-    let js::Callee::Expr(callee) = &n.callee else { return None };
-    let js::Expr::Member(m) = &**callee else { return None };
-    if !matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "digest") {
+  fn hash_chain(&mut self, n: &js::CallExpression) -> Option<String> {
+    let Expression::StaticMemberExpression(m) = &n.callee else { return None };
+    if m.property.name != "digest" {
       return None;
     }
-    let encoding = self.written(n.args.first()?.span());
+    let encoding = self.written(n.arguments.first()?.span());
     let mut parts = Vec::new();
-    let mut at = &*m.obj;
+    let mut at = &m.object;
     loop {
-      let js::Expr::Call(call) = at else { return None };
-      let js::Callee::Expr(callee) = &call.callee else { return None };
-      if matches!(self.member_of(callee), Some((Group::Crypto, name)) if name == "createHash") {
-        let algorithm = self.written(call.args.first()?.span());
+      let Expression::CallExpression(call) = at else { return None };
+      if matches!(self.member_of(&call.callee), Some((Group::Crypto, name)) if name == "createHash") {
+        let algorithm = self.written(call.arguments.first()?.span());
         parts.reverse();
         self.members.insert("crypto".to_owned());
         let mut args = vec![algorithm, encoding];
         args.extend(parts);
         return Some(format!("{}({})", marked("crypto", "digest"), args.join(", ")));
       }
-      let js::Expr::Member(update) = &**callee else { return None };
-      if !matches!(&update.prop, js::MemberProp::Ident(p) if &*p.sym == "update") {
+      let Expression::StaticMemberExpression(update) = &call.callee else { return None };
+      if update.property.name != "update" {
         return None;
       }
-      parts.push(self.written(call.args.first()?.span()));
-      at = &update.obj;
+      parts.push(self.written(call.arguments.first()?.span()));
+      at = &update.object;
     }
   }
 
-  fn is_process(&self, e: &js::Expr) -> bool {
-    !self.declared_process && matches!(e, js::Expr::Ident(id) if &*id.sym == "process")
+  fn is_process(&self, e: &Expression) -> bool {
+    !self.declared_process && matches!(e, Expression::Identifier(id) if id.name == "process")
   }
 
   /// A `process` read written as FSR's, `None` for one with no FSR member.
-  fn process_read(&mut self, e: &js::Expr) -> Option<String> {
-    let js::Expr::Member(m) = e else { return None };
-    match (&*m.obj, &m.prop) {
-      (obj, js::MemberProp::Ident(p)) if self.is_process(obj) && &*p.sym == "platform" => Some(self.system("platform", "")),
-      (js::Expr::Member(env), prop) if matches!(&env.prop, js::MemberProp::Ident(e) if &*e.sym == "env") && self.is_process(&env.obj) => match prop {
-        js::MemberProp::Ident(name) => Some(self.system("env", &format!("\"{}\"", name.sym))),
-        js::MemberProp::Computed(key) => {
-          let key = self.written(key.expr.span());
-          Some(self.system("env", &key))
-        }
-        js::MemberProp::PrivateName(_) => None,
-      },
-      _ => None,
+  fn process_read(&mut self, m: &MemberExpression) -> Option<String> {
+    if let MemberExpression::StaticMemberExpression(s) = m {
+      if self.is_process(&s.object) && s.property.name == "platform" {
+        return Some(self.system("platform", ""));
+      }
+    }
+    let Expression::StaticMemberExpression(env) = m.object() else { return None };
+    if env.property.name != "env" || !self.is_process(&env.object) {
+      return None;
+    }
+    match m {
+      MemberExpression::StaticMemberExpression(s) => Some(self.system("env", &format!("\"{}\"", s.property.name))),
+      MemberExpression::ComputedMemberExpression(c) => {
+        let key = self.written(c.expression.span());
+        Some(self.system("env", &key))
+      }
+      MemberExpression::PrivateFieldExpression(_) => None,
     }
   }
 
@@ -350,52 +382,61 @@ impl Uses<'_> {
   }
 
   /// Whether `e` reads the platform, which FSR names as Rust does.
-  fn reads_platform(&self, e: &js::Expr) -> bool {
+  fn reads_platform(&self, e: &Expression) -> bool {
     match e {
-      js::Expr::Member(m) => self.is_process(&m.obj) && matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "platform"),
-      js::Expr::Call(call) => matches!(&call.callee, js::Callee::Expr(callee) if matches!(self.member_of(callee), Some((Group::Os, name)) if name == "platform")),
+      Expression::StaticMemberExpression(m) => self.is_process(&m.object) && m.property.name == "platform",
+      Expression::CallExpression(call) => matches!(self.member_of(&call.callee), Some((Group::Os, name)) if name == "platform"),
       _ => false,
     }
   }
 }
 
-impl Visit for Uses<'_> {
-  fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+impl<'a> Visit<'a> for Uses<'_> {
+  fn visit_import_declaration(&mut self, _: &js::ImportDeclaration<'a>) {}
 
-  fn visit_var_declarator(&mut self, n: &js::VarDeclarator) {
-    if let (js::Pat::Ident(name), Some(js::Expr::New(made))) = (&n.name, n.init.as_deref()) {
-      if self.is_storage(&made.callee) {
-        self.scopes.push(name.id.sym.to_string());
-      }
+  fn visit_object_property(&mut self, n: &js::ObjectProperty<'a>) {
+    if n.shorthand {
+      return;
     }
-    n.visit_children_with(self);
+    walk::walk_object_property(self, n);
   }
 
-  fn visit_new_expr(&mut self, n: &js::NewExpr) {
+  fn visit_variable_declarator(&mut self, n: &js::VariableDeclarator<'a>) {
+    if let (BindingPattern::BindingIdentifier(name), Some(Expression::NewExpression(made))) = (&n.id, &n.init) {
+      if self.is_storage(&made.callee) {
+        self.scopes.push(name.name.to_string());
+      }
+    }
+    walk::walk_variable_declarator(self, n);
+  }
+
+  fn visit_new_expression(&mut self, n: &js::NewExpression<'a>) {
     if self.is_storage(&n.callee) {
       self.members.insert("Scope".to_owned());
       self.edits.replace(self.parsed.range(n.callee.span()), "\u{0}Scope");
-      n.args.visit_with(self);
+      for arg in &n.arguments {
+        self.visit_argument(arg);
+      }
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_new_expression(self, n);
   }
 
-  fn visit_ts_type_ref(&mut self, n: &js::TsTypeRef) {
-    if let js::TsEntityName::Ident(id) = &n.type_name {
-      if self.is_storage(&js::Expr::Ident(id.clone())) {
+  fn visit_ts_type_reference(&mut self, n: &js::TSTypeReference<'a>) {
+    if let js::TSTypeName::IdentifierReference(id) = &n.type_name {
+      if matches!(self.named(&id.name), Some((Group::AsyncHooks, name)) if name == "AsyncLocalStorage") {
         self.members.insert("Scope".to_owned());
         self.edits.replace(self.parsed.range(id.span), "\u{0}Scope");
       }
     }
-    n.visit_children_with(self);
+    walk::walk_ts_type_reference(self, n);
   }
 
-  fn visit_bin_expr(&mut self, n: &js::BinExpr) {
-    if matches!(n.op, js::BinaryOp::EqEqEq | js::BinaryOp::NotEqEq | js::BinaryOp::EqEq | js::BinaryOp::NotEq) {
+  fn visit_binary_expression(&mut self, n: &js::BinaryExpression<'a>) {
+    if matches!(n.operator, BinaryOperator::StrictEquality | BinaryOperator::StrictInequality | BinaryOperator::Equality | BinaryOperator::Inequality) {
       for (side, other) in [(&n.left, &n.right), (&n.right, &n.left)] {
-        if let (true, js::Expr::Lit(js::Lit::Str(s))) = (self.reads_platform(side), &**other) {
-          let renamed = match s.value.to_string_lossy().as_ref() {
+        if let (true, Expression::StringLiteral(s)) = (self.reads_platform(side), other) {
+          let renamed = match lossy(s.value).as_str() {
             "darwin" => Some("macos"),
             "win32" => Some("windows"),
             _ => None,
@@ -408,25 +449,27 @@ impl Visit for Uses<'_> {
         }
       }
     }
-    n.visit_children_with(self);
+    walk::walk_binary_expression(self, n);
   }
 
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    let js::Callee::Expr(callee) = &n.callee else { return n.visit_children_with(self) };
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    let callee = &n.callee;
     if let Some(written) = self.random_bytes(n).or_else(|| self.hash_chain(n)) {
       self.edits.replace(self.parsed.range(n.span), written);
       return;
     }
-    if let js::Expr::Member(m) = &**callee {
-      if let (js::Expr::Ident(object), js::MemberProp::Ident(method)) = (&*m.obj, &m.prop) {
-        let renamed = match &*method.sym {
+    if let Expression::StaticMemberExpression(m) = callee {
+      if let Expression::Identifier(object) = &m.object {
+        let renamed = match m.property.name.as_str() {
           "getStore" => Some("get"),
           "enterWith" => Some("set"),
           _ => None,
         };
-        if let (true, Some(renamed)) = (self.scopes.iter().any(|s| *s == *object.sym), renamed) {
-          self.edits.replace(self.parsed.range(method.span), renamed);
-          n.args.visit_with(self);
+        if let (true, Some(renamed)) = (self.scopes.iter().any(|s| object.name == s.as_str()), renamed) {
+          self.edits.replace(self.parsed.range(m.property.span), renamed);
+          for arg in &n.arguments {
+            self.visit_argument(arg);
+          }
           return;
         }
       }
@@ -442,86 +485,85 @@ impl Visit for Uses<'_> {
             }
           };
           self.edits.replace(self.parsed.range(callee.span()), written);
-          let keep = m.keep.unwrap_or(usize::MAX).min(n.args.len());
-          if keep < n.args.len() {
+          let args = &n.arguments;
+          let keep = m.keep.unwrap_or(usize::MAX).min(args.len());
+          if keep < args.len() {
             let from = match keep {
-              0 => self.parsed.range(n.args[0].span()).start,
-              k => self.parsed.range(n.args[k - 1].span()).end,
+              0 => self.parsed.range(args[0].span()).start,
+              k => self.parsed.range(args[k - 1].span()).end,
             };
-            let to = self.parsed.range(n.args[n.args.len() - 1].span()).end;
+            let to = self.parsed.range(args[args.len() - 1].span()).end;
             self.edits.replace(from..to, "");
           }
-          n.args.iter().take(keep).for_each(|a| a.visit_with(self));
+          args.iter().take(keep).for_each(|a| self.visit_argument(a));
         }
         _ => self.unmapped.push((self.parsed.line(n.span), self.written(n.span))),
       }
       return;
     }
-    if let js::Expr::Member(m) = &**callee {
-      if let (true, js::MemberProp::Ident(p)) = (self.is_process(&m.obj), &m.prop) {
-        if &*p.sym == "cwd" && n.args.is_empty() {
-          let written = self.system("cwd", "");
-          self.edits.replace(self.parsed.range(n.span), written);
-          return;
-        }
+    if let Expression::StaticMemberExpression(m) = callee {
+      if self.is_process(&m.object) && m.property.name == "cwd" && n.arguments.is_empty() {
+        let written = self.system("cwd", "");
+        self.edits.replace(self.parsed.range(n.span), written);
+        return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if let (js::Expr::Call(call), js::MemberProp::Ident(p)) = (&*n.obj, &n.prop) {
-      if let js::Callee::Expr(callee) = &call.callee {
-        if let js::Expr::Member(m) = &**callee {
-          if self.is_process(&m.obj) && matches!(&m.prop, js::MemberProp::Ident(f) if &*f.sym == "memoryUsage") && &*p.sym == "rss" {
+  fn visit_member_expression(&mut self, n: &MemberExpression<'a>) {
+    if let MemberExpression::StaticMemberExpression(outer) = n {
+      if let Expression::CallExpression(call) = &outer.object {
+        if let Expression::StaticMemberExpression(m) = &call.callee {
+          if self.is_process(&m.object) && m.property.name == "memoryUsage" && outer.property.name == "rss" {
             let written = self.system("memory", "");
-            self.edits.replace(self.parsed.range(n.span), written);
+            self.edits.replace(self.parsed.range(n.span()), written);
             return;
           }
         }
       }
     }
-    if let Some(read) = self.process_read(&js::Expr::Member(n.clone())) {
-      self.edits.replace(self.parsed.range(n.span), read);
-      if let js::MemberProp::Computed(key) = &n.prop {
-        key.visit_with(self);
+    if let Some(read) = self.process_read(n) {
+      self.edits.replace(self.parsed.range(n.span()), read);
+      if let MemberExpression::ComputedMemberExpression(key) = n {
+        self.visit_expression(&key.expression);
       }
       return;
     }
-    if let Some((group, name)) = self.member_of(&js::Expr::Member(n.clone())) {
+    if let Some((group, name)) = self.member_of_member(n) {
       match mapped(group, &name) {
         Some(m) if !m.call => {
           self.members.insert(m.member.to_owned());
-          self.edits.replace(self.parsed.range(n.span), format!("{}()", marked(m.member, m.method)));
+          self.edits.replace(self.parsed.range(n.span()), format!("{}()", marked(m.member, m.method)));
         }
-        _ => self.unmapped.push((self.parsed.line(n.span), self.written(n.span))),
+        _ => self.unmapped.push((self.parsed.line(n.span()), self.written(n.span()))),
       }
       return;
     }
-    if self.is_process(&n.obj) {
-      self.process.push((self.parsed.line(n.span), self.written(n.span)));
+    if self.is_process(n.object()) {
+      self.process.push((self.parsed.line(n.span()), self.written(n.span())));
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_member_expression(self, n);
   }
 
-  fn visit_expr(&mut self, n: &js::Expr) {
-    if let js::Expr::Ident(id) = n {
-      if let Some(h) = self.held(&id.sym) {
+  fn visit_expression(&mut self, n: &Expression<'a>) {
+    if let Expression::Identifier(id) = n {
+      if let Some(h) = self.held(&id.name) {
         match h.member.as_deref().and_then(|member| mapped(h.group, member)) {
           Some(m) if !m.call => {
             self.members.insert(m.member.to_owned());
             self.edits.replace(self.parsed.range(id.span), format!("{}()", marked(m.member, m.method)));
           }
-          _ => self.unmapped.push((self.parsed.line(id.span), id.sym.to_string())),
+          _ => self.unmapped.push((self.parsed.line(id.span), id.name.to_string())),
         }
         return;
       }
       if self.is_process(n) {
-        self.process.push((self.parsed.line(id.span), id.sym.to_string()));
+        self.process.push((self.parsed.line(id.span), id.name.to_string()));
       }
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_expression(self, n);
   }
 }

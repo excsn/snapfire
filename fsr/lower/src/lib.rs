@@ -13,18 +13,20 @@ pub mod meaning;
 pub use meaning::{COMPONENTS_MODULE, TEMPLATE_MODULE};
 mod placements;
 pub mod schema;
+mod scope;
+mod syntax;
 pub mod testing;
 pub mod svelte;
 pub mod terminal;
 pub mod vue;
 
-use component::FunctionBody;
+use component::{arrow_body, FunctionBody};
 use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
 use snapfire_fsr_ir::{standard_reach, Reach};
-use swc_core::common::{sync::Lrc, FileName, Globals, Mark, SourceMap, Span, Spanned, SyntaxContext, GLOBALS};
-use swc_core::ecma::transforms::base::resolver;
-use swc_core::ecma::ast as js;
-use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
+use oxc_allocator::Allocator;
+use oxc_ast::ast as js;
+use oxc_span::{GetSpan, Span};
+pub(crate) use scope::Ctxt;
 
 /// Where a component that does not lower was placed: the file holding the
 /// tag, the one-based line and column of the tag, plus the name as written.
@@ -148,8 +150,8 @@ pub const EXT_DIR: &str = "ext";
 pub(crate) struct Resolved {
   pub globals: Vec<(String, Expr)>,
   pub global_kinds: Vec<(String, Kind)>,
-  /// The resolved module-level names that hold an `Intl` formatter, with the `new` that made each.
-  pub global_formatters: Vec<(String, js::NewExpr)>,
+  /// The resolved module-level names that hold an `Intl` formatter, with the source text of the `new` that made each.
+  pub global_formatters: Vec<(String, String)>,
   pub natives: Vec<(String, Reach)>,
   pub classes: Option<std::rc::Rc<std::cell::RefCell<crate::classes::ClassTable>>>,
   pub type_kinds: Vec<(String, AliasKind)>,
@@ -406,7 +408,7 @@ fn lower_optional_export_in(parsed: &Parsed, defaults: &SessionDefaults, resolve
     Exported::Expr(first, expr) => lowerer.bind_ctx(first).and_then(|()| lowerer.expr(expr)).map(|e| vec![Stmt::Return(e)]),
     Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`{export}` is {what}")).into(), None)),
     Exported::Value(value) if of_data && export == "meta" => lowerer.expr(value).map(|e| vec![Stmt::Return(e)]),
-    Exported::Action { .. } | Exported::BadAction(_) | Exported::Value(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module.span, format!("`{export}` must be a function of {takes}")).into(), None)),
+    Exported::Action { .. } | Exported::BadAction(_) | Exported::Value(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module().span, format!("`{export}` must be a function of {takes}")).into(), None)),
   };
   result.map(Some).map_err(|r| (r.into(), lowerer.unbound.take()))
 }
@@ -423,50 +425,52 @@ pub enum MappedValue {
 /// The elements `mdx-components.tsx` maps, in order: each key of the object
 /// its `useMDXComponents` returns, a spread of the components it is given left out.
 pub fn mdx_component_map(file: &str, source: &str) -> Result<Vec<(String, MappedValue)>, LowerError> {
-  let parsed = parse_with(file, source, true)?;
+  let arena = Allocator::default();
+  let parsed = parse_with(&arena, file, source, true)?;
   let unreadable = |span: Span, message: &str| LowerError::Residue(parsed.residue(span, message));
   let Some(found) = component::find_function(&parsed, "useMDXComponents") else {
-    return Err(unreadable(parsed.module.span, "no `useMDXComponents` function; export one returning the map, as Next's `mdx-components.tsx` does"));
+    return Err(unreadable(parsed.module().span, "no `useMDXComponents` function; export one returning the map, as Next's `mdx-components.tsx` does"));
   };
-  let returned: Option<&js::Expr> = match &found {
-    component::Found::Declared(_, stmts, _) => stmts.iter().rev().find_map(|stmt| match stmt {
-      js::Stmt::Return(ret) => ret.arg.as_deref(),
+  fn returned_in<'s, 'a>(stmts: &'s [js::Statement<'a>]) -> Option<&'s js::Expression<'a>> {
+    stmts.iter().rev().find_map(|stmt| match stmt {
+      js::Statement::ReturnStatement(ret) => ret.argument.as_ref(),
       _ => None,
-    }),
-    component::Found::Arrow(arrow) => match &*arrow.body {
-      js::ArrowFunctionBody::Expr(e) => Some(e),
-      js::ArrowFunctionBody::FunctionBody(b) => b.stmts.iter().rev().find_map(|stmt| match stmt {
-        js::Stmt::Return(ret) => ret.arg.as_deref(),
-        _ => None,
-      }),
+    })
+  }
+  let returned: Option<&js::Expression> = match &found {
+    component::Found::Declared(_, stmts, _) => returned_in(stmts),
+    component::Found::Arrow(arrow) => match arrow_body(arrow) {
+      FunctionBody::Expr(e) => Some(e),
+      FunctionBody::Block(stmts) => returned_in(stmts),
     },
   };
-  let mut expr = returned.ok_or_else(|| unreadable(parsed.module.span, "`useMDXComponents` returns nothing"))?;
+  let mut expr = returned.ok_or_else(|| unreadable(parsed.module().span, "`useMDXComponents` returns nothing"))?;
   loop {
     expr = match expr {
-      js::Expr::Paren(inner) => &inner.expr,
-      js::Expr::TsAs(inner) => &inner.expr,
-      js::Expr::TsSatisfies(inner) => &inner.expr,
+      js::Expression::ParenthesizedExpression(inner) => &inner.expression,
+      js::Expression::TSAsExpression(inner) => &inner.expression,
+      js::Expression::TSSatisfiesExpression(inner) => &inner.expression,
       _ => break,
     };
   }
-  let js::Expr::Object(object) = expr else { return Err(unreadable(expr.span(), "`useMDXComponents` returns something other than an object written out")) };
+  let js::Expression::ObjectExpression(object) = expr else { return Err(unreadable(expr.span(), "`useMDXComponents` returns something other than an object written out")) };
   let mut out = Vec::new();
-  for prop in &object.props {
+  for prop in &object.properties {
     match prop {
-      js::PropOrSpread::Spread(_) => {}
-      js::PropOrSpread::Prop(p) => match &**p {
-        js::Prop::Shorthand(id) => out.push((id.sym.to_string(), MappedValue::Name(id.sym.to_string()))),
-        js::Prop::KeyValue(kv) => {
-          let Some(key) = prop_name(&kv.key) else { return Err(unreadable(kv.key.span(), "a computed key in `useMDXComponents`")) };
-          let value = match &*kv.value {
-            js::Expr::Ident(id) => MappedValue::Name(id.sym.to_string()),
-            other => MappedValue::Expr(parsed.range(other.span())),
-          };
-          out.push((key, value));
-        }
-        other => return Err(unreadable(other.span(), "an entry in `useMDXComponents` other than `key: Component`")),
-      },
+      js::ObjectPropertyKind::SpreadProperty(_) => {}
+      js::ObjectPropertyKind::ObjectProperty(p) if p.kind == js::PropertyKind::Init && !p.method && p.shorthand => {
+        let js::Expression::Identifier(id) = &p.value else { return Err(unreadable(p.span, "an entry in `useMDXComponents` other than `key: Component`")) };
+        out.push((id.name.to_string(), MappedValue::Name(id.name.to_string())));
+      }
+      js::ObjectPropertyKind::ObjectProperty(p) if p.kind == js::PropertyKind::Init && !p.method => {
+        let Some(key) = prop_name(&p.key, p.computed) else { return Err(unreadable(p.key.span(), "a computed key in `useMDXComponents`")) };
+        let value = match &p.value {
+          js::Expression::Identifier(id) => MappedValue::Name(id.name.to_string()),
+          other => MappedValue::Expr(parsed.range(other.span())),
+        };
+        out.push((key, value));
+      }
+      js::ObjectPropertyKind::ObjectProperty(other) => return Err(unreadable(other.span, "an entry in `useMDXComponents` other than `key: Component`")),
     }
   }
   Ok(out)
@@ -596,61 +600,133 @@ pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, r
   result.map_err(|r| (r.into(), lowerer.unbound.take()))
 }
 
-pub(crate) struct Parsed {
+pub(crate) struct Parsed<'a> {
   pub(crate) file: String,
-  cm: Lrc<SourceMap>,
-  pub(crate) module: js::Module,
-  /// The syntax context swc's resolver gave the module's top-level bindings: an identifier carrying it names an import or a module-level declaration, and one carrying any other names a local.
-  pub(crate) top: SyntaxContext,
-  /// The syntax context of a name nothing in the module binds.
-  pub(crate) unresolved: SyntaxContext,
+  program: js::Program<'a>,
+  /// The arena the module lives in, where the lowerers write the nodes they add.
+  arena: &'a Allocator,
+  /// Which binding each identifier of the module names.
+  pub(crate) scope: std::rc::Rc<scope::Scope>,
+  /// The byte offset each line of the module's text starts at.
+  line_starts: Vec<usize>,
+  /// Expressions parsed at a line and column of the file after the module was, whose spans start past its text.
+  snippets: std::cell::RefCell<Vec<Snippet>>,
   /// What the module's names mean, filled when a component set resolves the file.
   pub(crate) meanings: std::cell::OnceCell<std::rc::Rc<meaning::Meanings>>,
   /// The file the module was written from, when it was not written by hand.
   pub(crate) origin: Option<std::rc::Rc<Origin>>,
 }
 
+/// An expression [`Parsed::parse_expr_at`] read: where its spans start and its text, padded to the line and column it was written at.
+struct Snippet {
+  base: u32,
+  padded: String,
+}
+
+/// A parameter as written: its pattern, its type, its default and whether it gathers the rest.
+#[derive(Clone, Copy)]
+pub(crate) struct Param<'a> {
+  pub(crate) pattern: &'a js::BindingPattern<'a>,
+  pub(crate) type_annotation: Option<&'a js::TSTypeAnnotation<'a>>,
+  pub(crate) default: Option<&'a js::Expression<'a>>,
+  pub(crate) rest: bool,
+  pub(crate) span: Span,
+}
+
+impl<'a> Param<'a> {
+  /// The name the parameter binds when it is one name with no default, as a plain `x` or `x: T`.
+  pub(crate) fn ident(&self) -> Option<&'a js::BindingIdentifier<'a>> {
+    match self.pattern {
+      js::BindingPattern::BindingIdentifier(id) if !self.rest && self.default.is_none() => Some(id),
+      _ => None,
+    }
+  }
+}
+
+impl<'a> Param<'a> {
+  /// A pattern standing where a parameter would, as a declaration binds it: no type, no default, no rest.
+  pub(crate) fn of_pattern(pattern: &'a js::BindingPattern<'a>) -> Self {
+    Param { pattern, type_annotation: None, default: None, rest: false, span: pattern.span() }
+  }
+}
+
+/// Each parameter of `params` in order, the rest parameter last.
+pub(crate) fn params_of<'a>(params: &'a js::FormalParameters<'a>) -> Vec<Param<'a>> {
+  let mut out: Vec<Param<'a>> = params
+    .items
+    .iter()
+    .map(|p| match &p.pattern {
+      js::BindingPattern::AssignmentPattern(assign) => Param { pattern: &assign.left, type_annotation: p.type_annotation.as_deref(), default: Some(&assign.right), rest: false, span: p.span },
+      pattern => Param { pattern, type_annotation: p.type_annotation.as_deref(), default: p.initializer.as_deref(), rest: false, span: p.span },
+    })
+    .collect();
+  if let Some(rest) = &params.rest {
+    out.push(Param { pattern: &rest.rest.argument, type_annotation: rest.type_annotation.as_deref(), default: None, rest: true, span: rest.span });
+  }
+  out
+}
+
+/// The first parameter of `params`.
+pub(crate) fn first_param<'a>(params: &'a js::FormalParameters<'a>) -> Option<Param<'a>> {
+  params_of(params).into_iter().next()
+}
+
 pub(crate) enum Exported<'a> {
-  Function(Option<&'a js::Pat>, &'a [js::Stmt]),
+  Function(Option<Param<'a>>, &'a [js::Statement<'a>]),
   /// An arrow whose body is one expression.
-  Expr(Option<&'a js::Pat>, &'a js::Expr),
+  Expr(Option<Param<'a>>, &'a js::Expression<'a>),
   /// `action(<function>)`, the function an arrow with either body or a function expression.
-  Action { input: Option<String>, first: Option<&'a js::Pat>, body: FunctionBody<'a> },
+  Action { input: Option<String>, first: Option<Param<'a>>, body: FunctionBody<'a> },
   /// `action(<something that is not a function>)`, which no lowering accepts.
   BadAction(Span),
   /// An export the build tried to read and could not classify, as against one
   /// it classified as something else. Never skipped in silence.
   Unreadable(Span, &'static str),
   /// An object literal, which `meta` may be when it reads nothing from the route's data.
-  Value(&'a js::Expr),
+  Value(&'a js::Expression<'a>),
   Other(Span),
 }
 
+/// The statements of a function's body, none for a declaration without one.
+pub(crate) fn body_of<'a>(f: &'a js::Function<'a>) -> &'a [js::Statement<'a>] {
+  f.body.as_ref().map(|b| b.statements.as_slice()).unwrap_or(&[])
+}
+
+/// A string literal's value, a lone surrogate read as U+FFFD.
+pub(crate) fn lossy(value: oxc_str::JSStr<'_>) -> String {
+  match value.as_str() {
+    Some(text) => text.to_owned(),
+    None => value.chars().map(|c| c.to_char().unwrap_or('\u{FFFD}')).collect(),
+  }
+}
 
 /// Every name a pattern binds, for a declaration shape the build does not
 /// otherwise read: the names are reported so nothing is skipped unseen.
-fn bound_names<'a>(pat: &'a js::Pat, out: &mut impl FnMut(&'a str, Span)) {
+fn bound_names<'a>(pat: &'a js::BindingPattern<'a>, out: &mut impl FnMut(&'a str, Span)) {
   match pat {
-    js::Pat::Ident(id) => out(id.id.sym.as_ref(), id.id.span),
-    js::Pat::Array(arr) => arr.elems.iter().flatten().for_each(|p| bound_names(p, out)),
-    js::Pat::Rest(rest) => bound_names(&rest.arg, out),
-    js::Pat::Assign(assign) => bound_names(&assign.left, out),
-    js::Pat::Object(obj) => {
-      for prop in &obj.props {
-        match prop {
-          js::ObjectPatProp::KeyValue(kv) => bound_names(&kv.value, out),
-          js::ObjectPatProp::Assign(a) => out(a.key.id.sym.as_ref(), a.key.id.span),
-          js::ObjectPatProp::Rest(rest) => bound_names(&rest.arg, out),
-        }
+    js::BindingPattern::BindingIdentifier(id) => out(id.name.as_str(), id.span),
+    js::BindingPattern::ArrayPattern(arr) => {
+      arr.elements.iter().flatten().for_each(|p| bound_names(p, out));
+      if let Some(rest) = &arr.rest {
+        bound_names(&rest.argument, out);
       }
     }
-    js::Pat::Invalid(_) | js::Pat::Expr(_) => {}
+    js::BindingPattern::AssignmentPattern(assign) => bound_names(&assign.left, out),
+    js::BindingPattern::ObjectPattern(obj) => {
+      for prop in &obj.properties {
+        bound_names(&prop.value, out);
+      }
+      if let Some(rest) = &obj.rest {
+        bound_names(&rest.argument, out);
+      }
+    }
   }
 }
 
 /// Whether `source` declares `name` at module level without exporting it, which is a component the build can mount only once the bundle overlay exports it.
 pub fn declares_unexported(file: &str, source: &str, name: &str) -> bool {
-  let Ok(parsed) = parse_with(file, source, jsx_parses(file)) else { return false };
+  let arena = Allocator::default();
+  let Ok(parsed) = parse_with(&arena, file, source, jsx_parses(file)) else { return false };
   parsed.local(name).is_some() && !parsed.exports().any(|(exported, _)| exported == name)
 }
 
@@ -660,12 +736,12 @@ pub(crate) fn jsx_parses(file: &str) -> bool {
   [".tsx", ".jsx", ".js", ".mjs", ".cjs"].iter().any(|ext| file.ends_with(ext))
 }
 
-pub(crate) fn parse(file: &str, source: &str) -> Result<Parsed, LowerError> {
-  parse_with(file, source, false)
+pub(crate) fn parse<'a>(arena: &'a Allocator, file: &str, source: &str) -> Result<Parsed<'a>, LowerError> {
+  parse_with(arena, file, source, false)
 }
 
-pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, LowerError> {
-  parse_from(file, source, tsx, None)
+pub(crate) fn parse_with<'a>(arena: &'a Allocator, file: &str, source: &str, tsx: bool) -> Result<Parsed<'a>, LowerError> {
+  parse_from(arena, file, source, tsx, None)
 }
 
 /// Where a module the build reads came from when it was written from a file in
@@ -722,97 +798,122 @@ impl Origin {
   }
 }
 
-pub(crate) fn parse_from(file: &str, source: &str, tsx: bool, origin: Option<std::rc::Rc<Origin>>) -> Result<Parsed, LowerError> {
-  let cm: Lrc<SourceMap> = Default::default();
-  let fm = cm.new_source_file(Lrc::new(FileName::Custom(file.to_owned())), source.to_owned());
-  let syntax = Syntax::Typescript(TsSyntax { tsx, decorators: true, ..Default::default() });
-  let lexer = Lexer::new(syntax, js::EsVersion::latest(), StringInput::from(&*fm), None);
-  let mut parser = Parser::new_from(lexer);
-  let module = parser.parse_module().map_err(|e| {
-    let (line, column) = match &origin {
-      Some(origin) => origin.position((e.span().lo.0 - fm.start_pos.0) as usize),
-      None => {
-        let loc = cm.lookup_char_pos(e.span().lo);
-        (loc.line, loc.col_display + 1)
-      }
-    };
-    LowerError::Parse { file: file.to_owned(), message: format!("{line}:{column}: {}", e.kind().msg()) }
-  })?;
-  let (module, top, unresolved) = GLOBALS.set(&Globals::new(), || {
-    let unresolved = Mark::new();
-    let top_level = Mark::new();
-    let program = js::Program::Module(module).apply(resolver(unresolved, top_level, true));
-    let js::Program::Module(mut module) = program else { unreachable!("a module resolves to a module") };
-    let top = SyntaxContext::empty().apply_mark(top_level);
-    create_element::desugar(&mut module, top);
-    methods::desugar(&mut module);
-    (module, top, SyntaxContext::empty().apply_mark(unresolved))
-  });
-  let at = |span: Span| match &origin {
-    Some(origin) => origin.position((span.lo.0 - fm.start_pos.0) as usize),
-    None => {
-      let loc = cm.lookup_char_pos(span.lo);
-      (loc.line, loc.col_display + 1)
-    }
+/// The byte offset each line of `text` starts at.
+fn line_starts(text: &str) -> Vec<usize> {
+  std::iter::once(0).chain(text.match_indices('\n').map(|(at, _)| at + 1)).collect()
+}
+
+/// The one-based line and column of byte `offset` of `text`, the column counted in characters.
+fn line_column(text: &str, starts: &[usize], offset: usize) -> (usize, usize) {
+  let line = starts.partition_point(|start| *start <= offset).max(1);
+  let start = starts[line - 1];
+  let mut end = offset.min(text.len());
+  while !text.is_char_boundary(end) {
+    end -= 1;
+  }
+  (line, text[start..end.max(start)].chars().count() + 1)
+}
+
+/// The one-based line and column a parse error points at, in the file the author wrote.
+fn error_at(source: &str, origin: Option<&Origin>, error: &oxc_diagnostics::OxcDiagnostic) -> (usize, usize) {
+  let offset = error.labels.first().map(|label| label.offset() as usize).unwrap_or(0);
+  match origin {
+    Some(origin) => origin.position(offset),
+    None => line_column(source, &line_starts(source), offset),
+  }
+}
+
+fn source_type(tsx: bool) -> oxc_span::SourceType {
+  oxc_span::SourceType::ts().with_jsx(tsx)
+}
+
+pub(crate) fn parse_from<'a>(arena: &'a Allocator, file: &str, source: &str, tsx: bool, origin: Option<std::rc::Rc<Origin>>) -> Result<Parsed<'a>, LowerError> {
+  parse_into(arena, file, source, tsx, origin, |_, _, _| {})
+}
+
+/// [`parse_from`] with `edit` run over the tree once its scopes are known.
+pub(crate) fn parse_into<'a>(arena: &'a Allocator, file: &str, source: &str, tsx: bool, origin: Option<std::rc::Rc<Origin>>, edit: impl FnOnce(&'a Allocator, &scope::Scope, &mut js::Program<'a>)) -> Result<Parsed<'a>, LowerError> {
+  let parse_error = |error: &oxc_diagnostics::OxcDiagnostic| {
+    let (line, column) = error_at(source, origin.as_deref(), error);
+    LowerError::Parse { file: file.to_owned(), message: format!("{line}:{column}: {}", error.message) }
   };
-  if let Some((name, again, first)) = bound_twice(&module) {
-    let ((line, column), (first_line, _)) = (at(again), at(first));
-    return Err(LowerError::Residue(Residue {
-      file: file.to_owned(),
-      line,
-      column,
-      message: format!("`{name}`, bound twice at the top of the module; its first binding is line {first_line}"),
-      hint: Some("JavaScript refuses a module that binds one name twice; rename one of them".to_owned()),
-      via: Vec::new(),
-    }));
+  let starts = line_starts(source);
+  let at = |span: Span| match &origin {
+    Some(origin) => origin.position(span.start as usize),
+    None => line_column(source, &starts, span.start as usize),
+  };
+  let (program, scope) = (|| {
+    let scope::Analysed { mut program, scope, errors, .. } = scope::analyse(arena, source, source_type(tsx));
+    if let Some(error) = errors.first() {
+      return Err(parse_error(error));
+    }
+    create_element::desugar(arena, &scope, &mut program);
+    methods::desugar(&mut program);
+    if let Some((name, again, first)) = bound_twice(&program) {
+      let ((line, column), (first_line, _)) = (at(again), at(first));
+      return Err(LowerError::Residue(Residue {
+        file: file.to_owned(),
+        line,
+        column,
+        message: format!("`{name}`, bound twice at the top of the module; its first binding is line {first_line}"),
+        hint: Some("JavaScript refuses a module that binds one name twice; rename one of them".to_owned()),
+        via: Vec::new(),
+      }));
+    }
+    if let Some((source, fsr, span)) = replaced_import(&program) {
+      let (line, column) = at(span);
+      return Err(LowerError::Residue(Residue {
+        file: file.to_owned(),
+        line,
+        column,
+        message: format!("`{source}`, which is not FSR's"),
+        hint: Some(format!("FSR provides its own; import it from `{fsr}`, which `fsr migrate` writes")),
+        via: Vec::new(),
+      }));
+    }
+    edit(arena, &scope, &mut program);
+    Ok((program, scope))
+  })()?;
+  Ok(Parsed { file: file.to_owned(), program, arena, scope: std::rc::Rc::new(scope), line_starts: starts, snippets: std::cell::RefCell::new(Vec::new()), meanings: std::cell::OnceCell::new(), origin })
+}
+
+/// The specifier `stmt` imports or re-exports from, with the statement's span.
+fn module_source<'a>(stmt: &'a js::Statement<'a>) -> Option<(&'a js::StringLiteral<'a>, Span)> {
+  match stmt {
+    js::Statement::ImportDeclaration(import) => Some((&import.source, import.span)),
+    js::Statement::ExportFromDeclaration(export) => Some((&export.source, export.span)),
+    js::Statement::ExportAllDeclaration(all) => Some((&all.source, all.span)),
+    _ => None,
   }
-  if let Some((source, fsr, span)) = replaced_import(&module) {
-    let (line, column) = at(span);
-    return Err(LowerError::Residue(Residue {
-      file: file.to_owned(),
-      line,
-      column,
-      message: format!("`{source}`, which is not FSR's"),
-      hint: Some(format!("FSR provides its own; import it from `{fsr}`, which `fsr migrate` writes")),
-      via: Vec::new(),
-    }));
-  }
-  Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new(), origin })
 }
 
 /// The first import or re-export in `module` from an npm package FSR provides its own of ([`terminal::REPLACED`]), with FSR's module and where.
-fn replaced_import(module: &js::Module) -> Option<(String, &'static str, Span)> {
-  module.body.iter().find_map(|item| {
-    let (src, span) = match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => (&*import.src, import.span),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(js::NamedExport { src: Some(src), span, .. })) => (&**src, *span),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportAll(all)) => (&*all.src, all.span),
-      _ => return None,
-    };
-    let source = src.value.to_atom_lossy().to_string();
+fn replaced_import(module: &js::Program<'_>) -> Option<(String, &'static str, Span)> {
+  module.body.iter().find_map(|stmt| {
+    let (src, span) = module_source(stmt)?;
+    let source = lossy(src.value);
     terminal::REPLACED.iter().find(|(npm, _)| *npm == source).map(|(_, fsr)| (source, *fsr, span))
   })
 }
 
 /// The first name `module` binds twice at its top level, with the spans of the second binding and the first: an import, a `let`, `const` or `var`, a function or a class. Two `var`s of one name, a function's overload signatures and `declare` statements bind it once, as JavaScript and TypeScript have it; types, enums and namespaces are a namespace of their own and are left out.
-fn bound_twice(module: &js::Module) -> Option<(String, Span, Span)> {
+fn bound_twice(module: &js::Program<'_>) -> Option<(String, Span, Span)> {
   let mut bindings = Bindings(Vec::new());
-  for item in &module.body {
-    let twice = match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if !import.type_only => import.specifiers.iter().find_map(|specifier| match specifier {
-        js::ImportSpecifier::Named(n) if n.is_type_only => None,
-        js::ImportSpecifier::Named(n) => bindings.bind(&n.local, false),
-        js::ImportSpecifier::Default(d) => bindings.bind(&d.local, false),
-        js::ImportSpecifier::Namespace(n) => bindings.bind(&n.local, false),
+  for stmt in &module.body {
+    let twice = match stmt {
+      js::Statement::ImportDeclaration(import) if !import.import_kind.is_type() => import.specifiers.iter().flatten().find_map(|specifier| match specifier {
+        js::ImportDeclarationSpecifier::ImportSpecifier(n) if n.import_kind.is_type() => None,
+        js::ImportDeclarationSpecifier::ImportSpecifier(n) => bindings.bind(&n.local, false),
+        js::ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => bindings.bind(&d.local, false),
+        js::ImportDeclarationSpecifier::ImportNamespaceSpecifier(n) => bindings.bind(&n.local, false),
       }),
-      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => bindings.decl(decl),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => bindings.decl(&export.decl),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(export)) => match &export.decl {
-        js::DefaultDecl::Fn(f) => f.ident.as_ref().and_then(|id| bindings.bind(id, false)),
-        js::DefaultDecl::Class(c) => c.ident.as_ref().and_then(|id| bindings.bind(id, false)),
-        js::DefaultDecl::TsInterfaceDecl(_) => None,
+      js::Statement::ExportDeclaration(export) => bindings.decl(&export.declaration),
+      js::Statement::ExportDefaultDeclaration(export) => match &export.declaration {
+        js::ExportDefaultDeclarationKind::FunctionDeclaration(f) if f.body.is_some() => f.id.as_ref().and_then(|id| bindings.bind(id, false)),
+        js::ExportDefaultDeclarationKind::ClassDeclaration(c) => c.id.as_ref().and_then(|id| bindings.bind(id, false)),
+        _ => None,
       },
-      _ => None,
+      other => other.as_declaration().and_then(|decl| bindings.decl(decl)),
     };
     if twice.is_some() {
       return twice;
@@ -826,26 +927,26 @@ struct Bindings(Vec<(String, Span, bool)>);
 
 impl Bindings {
   /// Binds `id`, answering the name and both spans when it was bound already by anything but two `var`s.
-  fn bind(&mut self, id: &js::Ident, var: bool) -> Option<(String, Span, Span)> {
-    match self.0.iter().find(|(name, _, _)| *name == *id.sym) {
+  fn bind(&mut self, id: &js::BindingIdentifier, var: bool) -> Option<(String, Span, Span)> {
+    match self.0.iter().find(|(name, _, _)| *name == id.name.as_str()) {
       Some((_, _, true)) if var => None,
       Some((name, first, _)) => Some((name.clone(), id.span, *first)),
       None => {
-        self.0.push((id.sym.to_string(), id.span, var));
+        self.0.push((id.name.to_string(), id.span, var));
         None
       }
     }
   }
 
-  fn decl(&mut self, decl: &js::Decl) -> Option<(String, Span, Span)> {
+  fn decl(&mut self, decl: &js::Declaration) -> Option<(String, Span, Span)> {
     match decl {
-      js::Decl::Fn(f) if f.function.body.is_some() && !f.declare => self.bind(&f.ident, false),
-      js::Decl::Class(c) if !c.declare => self.bind(&c.ident, false),
-      js::Decl::Var(var) if !var.declare => {
-        let is_var = var.kind == js::VarDeclKind::Var;
+      js::Declaration::FunctionDeclaration(f) if f.body.is_some() && !f.declare => f.id.as_ref().and_then(|id| self.bind(id, false)),
+      js::Declaration::ClassDeclaration(c) if !c.declare => c.id.as_ref().and_then(|id| self.bind(id, false)),
+      js::Declaration::VariableDeclaration(var) if !var.declare => {
+        let is_var = var.kind == js::VariableDeclarationKind::Var;
         let mut names = Vec::new();
-        for d in &var.decls {
-          pattern_names(&d.name, &mut names);
+        for d in &var.declarations {
+          pattern_names(&d.id, &mut names);
         }
         names.iter().find_map(|id| self.bind(id, is_var))
       }
@@ -855,66 +956,109 @@ impl Bindings {
 }
 
 /// Every name `pat` binds, in order.
-pub(crate) fn pattern_names<'p>(pat: &'p js::Pat, out: &mut Vec<&'p js::Ident>) {
+pub(crate) fn pattern_names<'p>(pat: &'p js::BindingPattern<'p>, out: &mut Vec<&'p js::BindingIdentifier<'p>>) {
   match pat {
-    js::Pat::Ident(id) => out.push(&id.id),
-    js::Pat::Array(array) => array.elems.iter().flatten().for_each(|p| pattern_names(p, out)),
-    js::Pat::Object(object) => {
-      for prop in &object.props {
-        match prop {
-          js::ObjectPatProp::KeyValue(kv) => pattern_names(&kv.value, out),
-          js::ObjectPatProp::Assign(a) => out.push(&a.key.id),
-          js::ObjectPatProp::Rest(r) => pattern_names(&r.arg, out),
-        }
+    js::BindingPattern::BindingIdentifier(id) => out.push(id),
+    js::BindingPattern::ArrayPattern(array) => {
+      array.elements.iter().flatten().for_each(|p| pattern_names(p, out));
+      if let Some(rest) = &array.rest {
+        pattern_names(&rest.argument, out);
       }
     }
-    js::Pat::Assign(a) => pattern_names(&a.left, out),
-    js::Pat::Rest(r) => pattern_names(&r.arg, out),
-    js::Pat::Expr(_) | js::Pat::Invalid(_) => {}
+    js::BindingPattern::ObjectPattern(object) => {
+      for prop in &object.properties {
+        pattern_names(&prop.value, out);
+      }
+      if let Some(rest) = &object.rest {
+        pattern_names(&rest.argument, out);
+      }
+    }
+    js::BindingPattern::AssignmentPattern(a) => pattern_names(&a.left, out),
   }
 }
 
-impl Parsed {
-  /// Parses `source` as one TypeScript expression written at `line` and
-  /// `column` of this file. It joins the file's own source map padded to
-  /// that position, so a residue inside it names where the expression sits.
-  pub(crate) fn parse_expr_at(&self, source: &str, line: usize, column: usize) -> Result<Box<js::Expr>, String> {
-    let padded = format!("{}{}{source}", "\n".repeat(line.saturating_sub(1)), " ".repeat(column.saturating_sub(1)));
-    let fm = self.cm.new_source_file(Lrc::new(FileName::Custom(self.file.clone())), padded);
-    let syntax = Syntax::Typescript(TsSyntax { tsx: false, decorators: false, ..Default::default() });
-    let lexer = Lexer::new(syntax, js::EsVersion::latest(), StringInput::from(&*fm), None);
-    let mut parser = Parser::new_from(lexer);
-    parser.parse_expr().map_err(|e| e.kind().msg().to_string())
+/// Moves every span in `expr` on by `by`.
+fn shift_spans(expr: &mut js::Expression<'_>, by: u32) {
+  struct Shift(u32);
+  impl<'a> oxc_ast_visit::VisitMut<'a> for Shift {
+    fn visit_span(&mut self, span: &mut Span) {
+      *span = Span::new(span.start + self.0, span.end + self.0);
+    }
+  }
+  oxc_ast_visit::VisitMut::visit_expression(&mut Shift(by), expr);
+}
+
+impl<'a> Parsed<'a> {
+  /// The module.
+  pub(crate) fn module(&self) -> &js::Program<'a> {
+    &self.program
   }
 
-  /// The byte range of `span` in the file's text.
+  /// The arena the module lives in, for the nodes the lowerers write.
+  pub(crate) fn arena(&self) -> &'a Allocator {
+    self.arena
+  }
+
+  /// The module's text.
+  pub(crate) fn text(&self) -> &str {
+    self.module().source_text
+  }
+
+  /// What `id` names where it is written.
+  pub(crate) fn ctxt(&self, id: &js::IdentifierReference) -> Ctxt {
+    self.scope.of(id)
+  }
+
+  /// What a binding binds.
+  pub(crate) fn binding_ctxt(&self, id: &js::BindingIdentifier) -> Ctxt {
+    self.scope.of_binding(id)
+  }
+
+  /// Parses `source` as one TypeScript expression written at `line` and
+  /// `column` of this file. Its spans start past the module's text, so a
+  /// residue inside it names where the expression sits.
+  pub(crate) fn parse_expr_at(&self, source: &str, line: usize, column: usize) -> Result<js::Expression<'a>, String> {
+    let padded = format!("{}{}{source}", "\n".repeat(line.saturating_sub(1)), " ".repeat(column.saturating_sub(1)));
+    let text = self.arena().alloc_str(&padded);
+    let mut expr = oxc_parser::Parser::new(self.arena(), text, oxc_span::SourceType::ts()).parse_expression().map_err(|errors| errors.first().map(|e| e.message.to_string()).unwrap_or_default())?;
+    let mut snippets = self.snippets.borrow_mut();
+    let base = snippets.last().map(|s| s.base as usize + s.padded.len() + 1).unwrap_or(self.text().len() + 1) as u32;
+    shift_spans(&mut expr, base);
+    snippets.push(Snippet { base, padded });
+    Ok(expr)
+  }
+
+  /// The byte range of `span` in the file's text, or in the text of the expression that holds it.
   pub(crate) fn range(&self, span: Span) -> std::ops::Range<usize> {
-    let lo = self.cm.lookup_byte_offset(span.lo).pos.0 as usize;
-    let hi = self.cm.lookup_byte_offset(span.hi).pos.0 as usize;
-    lo..hi
+    let base = self.snippet_base(span.start);
+    (span.start - base) as usize..(span.end - base) as usize
+  }
+
+  /// Where the text `pos` falls in starts: 0 for the module, a snippet's base for an expression parsed after it.
+  fn snippet_base(&self, pos: u32) -> u32 {
+    self.snippets.borrow().iter().rev().find(|s| s.base <= pos).map(|s| s.base).unwrap_or(0)
   }
 
   pub(crate) fn residue(&self, span: Span, message: impl Into<String>) -> Residue {
-    let (line, column) = self.loc(span.lo);
+    let (line, column) = self.loc(span.start);
     Residue { file: self.file.clone(), line, column, message: message.into(), hint: None, via: Vec::new() }
   }
 
   /// The one-based line and column `pos` names, in the file the author wrote.
-  pub(crate) fn loc(&self, pos: swc_core::common::BytePos) -> (usize, usize) {
-    if let Some(origin) = &self.origin {
-      let start = self.cm.files().first().map(|f| f.start_pos).unwrap_or_default();
-      return origin.position(pos.0.saturating_sub(start.0) as usize);
+  pub(crate) fn loc(&self, pos: u32) -> (usize, usize) {
+    if let Some(snippet) = self.snippets.borrow().iter().rev().find(|s| s.base <= pos) {
+      return line_column(&snippet.padded, &line_starts(&snippet.padded), (pos - snippet.base) as usize);
     }
-    let loc = self.cm.lookup_char_pos(pos);
-    (loc.line, loc.col_display + 1)
+    if let Some(origin) = &self.origin {
+      return origin.position(pos as usize);
+    }
+    line_column(self.text(), &self.line_starts, pos as usize)
   }
 
-  /// The one-based line and column of a byte offset in the file's text.
   /// The byte offset of a 1-based line and column as [`Parsed::position`] counts them.
   pub(crate) fn offset(&self, line: usize, column: usize) -> Option<usize> {
-    let source = self.cm.files().first()?.src.clone();
     let mut at = 0;
-    for (i, text) in source.split_inclusive('\n').enumerate() {
+    for (i, text) in self.text().split_inclusive('\n').enumerate() {
       if i + 1 == line {
         return Some(at + text.char_indices().nth(column.saturating_sub(1)).map(|(byte, _)| byte).unwrap_or(0));
       }
@@ -923,32 +1067,51 @@ impl Parsed {
     None
   }
 
+  /// The one-based line and column of a byte offset in the file's text.
   pub(crate) fn position(&self, offset: usize) -> (usize, usize) {
-    let start = self.cm.files().first().map(|f| f.start_pos).unwrap_or_default();
-    self.loc(start + swc_core::common::BytePos(offset as u32))
+    self.loc(offset as u32)
   }
 
   pub(crate) fn exports(&self) -> impl Iterator<Item = (&str, Exported<'_>)> {
     let mut out: Vec<(&str, Exported<'_>)> = Vec::new();
-    for item in &self.module.body {
-      match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => self.declared(&export.decl, &mut out),
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) if !named.type_only => {
+    for stmt in &self.module().body {
+      match stmt {
+        js::Statement::ExportDeclaration(export) => self.declared(&export.declaration, &mut out),
+        js::Statement::ExportNamedDeclaration(named) if !named.export_kind.is_type() => {
           for spec in &named.specifiers {
-            let js::ExportSpecifier::Named(spec) = spec else { continue };
-            if spec.is_type_only {
+            if spec.export_kind.is_type() {
               continue;
             }
-            let js::ModuleExportName::Ident(orig) = &spec.orig else { continue };
-            let name = match &spec.exported {
-              Some(js::ModuleExportName::Ident(id)) => id.sym.as_ref(),
-              Some(js::ModuleExportName::Str(_)) => continue,
-              None => orig.sym.as_ref(),
+            let orig = match &spec.local {
+              js::ModuleExportName::IdentifierReference(id) => id.name.as_str(),
+              js::ModuleExportName::IdentifierName(id) => id.name.as_str(),
+              js::ModuleExportName::StringLiteral(_) => continue,
             };
-            match self.local(orig.sym.as_ref()).filter(|_| named.src.is_none()) {
+            let name = match &spec.exported {
+              js::ModuleExportName::IdentifierReference(id) => id.name.as_str(),
+              js::ModuleExportName::IdentifierName(id) => id.name.as_str(),
+              js::ModuleExportName::StringLiteral(_) => continue,
+            };
+            match self.local(orig) {
               Some(exported) => out.push((name, exported)),
               None => out.push((name, Exported::Unreadable(spec.span, "exported from a name this module does not declare"))),
             }
+          }
+        }
+        js::Statement::ExportFromDeclaration(from) if !from.export_kind.is_type() => {
+          for spec in &from.specifiers {
+            if spec.export_kind.is_type() {
+              continue;
+            }
+            let name = match &spec.exported {
+              js::ModuleExportName::IdentifierReference(id) => id.name.as_str(),
+              js::ModuleExportName::IdentifierName(id) => id.name.as_str(),
+              js::ModuleExportName::StringLiteral(_) => continue,
+            };
+            if matches!(spec.local, js::ModuleExportName::StringLiteral(_)) {
+              continue;
+            }
+            out.push((name, Exported::Unreadable(spec.span, "exported from a name this module does not declare")));
           }
         }
         _ => {}
@@ -958,21 +1121,20 @@ impl Parsed {
   }
 
   /// Every name a declaration exports, in source order.
-  fn declared<'a>(&'a self, decl: &'a js::Decl, out: &mut Vec<(&'a str, Exported<'a>)>) {
+  fn declared<'p>(&'p self, decl: &'p js::Declaration<'p>, out: &mut Vec<(&'p str, Exported<'p>)>) {
     match decl {
-      js::Decl::Fn(f) => {
-        let first = f.function.params.first().map(|p| &p.pat);
-        let body = f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or(&[]);
-        out.push((f.ident.sym.as_ref(), Exported::Function(first, body)));
+      js::Declaration::FunctionDeclaration(f) => {
+        let Some(id) = &f.id else { return };
+        out.push((id.name.as_str(), Exported::Function(first_param(&f.params), body_of(f))));
       }
-      js::Decl::Var(var) => {
-        for d in &var.decls {
-          let js::Pat::Ident(name) = &d.name else {
-            bound_names(&d.name, &mut |name, span| out.push((name, Exported::Unreadable(span, "bound by a destructuring the build does not read"))));
+      js::Declaration::VariableDeclaration(var) => {
+        for d in &var.declarations {
+          let js::BindingPattern::BindingIdentifier(name) = &d.id else {
+            bound_names(&d.id, &mut |name, span| out.push((name, Exported::Unreadable(span, "bound by a destructuring the build does not read"))));
             continue;
           };
-          let Some(init) = d.init.as_deref() else { continue };
-          out.push((name.id.sym.as_ref(), self.classify(init)));
+          let Some(init) = &d.init else { continue };
+          out.push((name.name.as_str(), self.classify(init)));
         }
       }
       _ => {}
@@ -983,11 +1145,13 @@ impl Parsed {
   /// that stands apart from it.
   fn local(&self, name: &str) -> Option<Exported<'_>> {
     let mut found = Vec::new();
-    for item in &self.module.body {
-      let decl = match item {
-        js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
-        _ => continue,
+    for stmt in &self.module().body {
+      let decl = match stmt {
+        js::Statement::ExportDeclaration(export) => &export.declaration,
+        other => match other.as_declaration() {
+          Some(decl) => decl,
+          None => continue,
+        },
       };
       self.declared(decl, &mut found);
     }
@@ -995,67 +1159,62 @@ impl Parsed {
   }
 }
 
-impl Parsed {
+impl Parsed<'_> {
   /// Whether `callee` names `want` from the server tier, however the module
   /// reaches it; with no meanings resolved, the bare name nothing binds.
-  pub(crate) fn names_server(&self, callee: &js::Callee, want: &str) -> bool {
+  pub(crate) fn names_server(&self, callee: &js::Expression, want: &str) -> bool {
     match self.meanings.get() {
       Some(meanings) => meanings.names_server(callee, want),
-      None => matches!(callee, js::Callee::Expr(expr) if matches!(&**expr, js::Expr::Ident(id) if id.ctxt == self.unresolved && id.sym.as_ref() == want)),
+      None => matches!(callee, js::Expression::Identifier(id) if self.ctxt(id) == Ctxt::Unresolved && id.name.as_str() == want),
     }
   }
 
-  fn classify<'a>(&'a self, init: &'a js::Expr) -> Exported<'a> {
+  fn classify<'a>(&'a self, init: &'a js::Expression<'a>) -> Exported<'a> {
     classify_in(self, init)
   }
 }
 
-fn classify_in<'a>(parsed: &'a Parsed, init: &'a js::Expr) -> Exported<'a> {
+fn classify_in<'a>(parsed: &'a Parsed<'a>, init: &'a js::Expression<'a>) -> Exported<'a> {
   match init {
-    js::Expr::Paren(inner) => classify_in(parsed, &inner.expr),
-    js::Expr::TsAs(inner) => classify_in(parsed, &inner.expr),
-    js::Expr::TsSatisfies(inner) => classify_in(parsed, &inner.expr),
-    js::Expr::Fn(f) => Exported::Function(f.function.params.first().map(|p| &p.pat), f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or(&[])),
-    js::Expr::Arrow(arrow) => match &*arrow.body {
-      js::ArrowFunctionBody::FunctionBody(b) => Exported::Function(arrow.params.first(), &b.stmts),
-      js::ArrowFunctionBody::Expr(e) => Exported::Expr(arrow.params.first(), e),
+    js::Expression::ParenthesizedExpression(inner) => classify_in(parsed, &inner.expression),
+    js::Expression::TSAsExpression(inner) => classify_in(parsed, &inner.expression),
+    js::Expression::TSSatisfiesExpression(inner) => classify_in(parsed, &inner.expression),
+    js::Expression::FunctionExpression(f) => Exported::Function(first_param(&f.params), body_of(f)),
+    js::Expression::ArrowFunctionExpression(arrow) => match arrow_body(arrow) {
+      FunctionBody::Block(stmts) => Exported::Function(first_param(&arrow.params), stmts),
+      FunctionBody::Expr(e) => Exported::Expr(first_param(&arrow.params), e),
     },
-    js::Expr::Call(call) => {
+    js::Expression::CallExpression(call) => {
       if !parsed.names_server(&call.callee, "action") {
         return Exported::Unreadable(call.span, "a call the build does not recognise");
       }
-      match call.args.last().map(|a| &*a.expr) {
-        Some(js::Expr::Arrow(arrow)) => {
-          let first = arrow.params.first();
-          let body = match &*arrow.body {
-            js::ArrowFunctionBody::FunctionBody(b) => FunctionBody::Block(&b.stmts),
-            js::ArrowFunctionBody::Expr(e) => FunctionBody::Expr(e),
-          };
-          Exported::Action { input: action_input(call, first), first, body }
+      match call.arguments.last() {
+        Some(js::Argument::ArrowFunctionExpression(arrow)) => {
+          let first = first_param(&arrow.params);
+          Exported::Action { input: action_input(call, first), first, body: arrow_body(arrow) }
         }
-        Some(js::Expr::Fn(f)) => {
-          let first = f.function.params.first().map(|p| &p.pat);
-          let body = f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or(&[]);
-          Exported::Action { input: action_input(call, first), first, body: FunctionBody::Block(body) }
+        Some(js::Argument::FunctionExpression(f)) => {
+          let first = first_param(&f.params);
+          Exported::Action { input: action_input(call, first), first, body: FunctionBody::Block(body_of(f)) }
         }
         Some(other) => Exported::BadAction(other.span()),
         None => Exported::BadAction(call.span),
       }
     }
-    js::Expr::Object(_) => Exported::Value(init),
+    js::Expression::ObjectExpression(_) => Exported::Value(init),
     other => Exported::Other(other.span()),
   }
 }
 
 /// The input type of an `action(...)`: the call's type argument, else what
 /// the function's first parameter names through `ActionCtx<T>`.
-fn action_input(call: &js::CallExpr, first: Option<&js::Pat>) -> Option<String> {
-  call.type_args.as_ref().and_then(|t| t.params.first()).and_then(|t| type_ref_name(t)).or_else(|| first.and_then(action_ctx_input))
+fn action_input(call: &js::CallExpression, first: Option<Param<'_>>) -> Option<String> {
+  call.type_arguments.as_ref().and_then(|t| t.params.first()).and_then(type_ref_name).or_else(|| first.and_then(action_ctx_input))
 }
 
 /// Binds the context parameter and lowers a function body: a block as it
 /// stands, an expression as the value returned.
-fn lower_function(lowerer: &mut Lowerer<'_>, first: Option<&js::Pat>, body: FunctionBody<'_>) -> Lowered<Body> {
+fn lower_function<'p>(lowerer: &mut Lowerer<'p>, first: Option<Param<'p>>, body: FunctionBody<'p>) -> Lowered<Body> {
   lowerer.bind_ctx(first)?;
   match body {
     FunctionBody::Block(stmts) => lowerer.block(stmts),
@@ -1063,14 +1222,15 @@ fn lower_function(lowerer: &mut Lowerer<'_>, first: Option<&js::Pat>, body: Func
   }
 }
 
-fn is_bitwise(op: js::BinaryOp) -> bool {
-  matches!(op, js::BinaryOp::BitAnd | js::BinaryOp::BitOr | js::BinaryOp::BitXor | js::BinaryOp::LShift | js::BinaryOp::RShift | js::BinaryOp::ZeroFillRShift)
+fn is_bitwise(op: js::BinaryOperator) -> bool {
+  matches!(op, js::BinaryOperator::BitwiseAnd | js::BinaryOperator::BitwiseOR | js::BinaryOperator::BitwiseXOR | js::BinaryOperator::ShiftLeft | js::BinaryOperator::ShiftRight | js::BinaryOperator::ShiftRightZeroFill)
 }
 
-fn type_ref_name(ty: &js::TsType) -> Option<String> {
+/// The name a type reference writes, `T` for `T` or `T<U>`.
+fn type_ref_name(ty: &js::TSType) -> Option<String> {
   match ty {
-    js::TsType::TsTypeRef(r) => match &r.type_name {
-      js::TsEntityName::Ident(id) => Some(id.sym.to_string()),
+    js::TSType::TSTypeReference(r) => match &r.type_name {
+      js::TSTypeName::IdentifierReference(id) => Some(id.name.to_string()),
       _ => None,
     },
     _ => None,
@@ -1079,18 +1239,17 @@ fn type_ref_name(ty: &js::TsType) -> Option<String> {
 
 /// The input type an action's parameter names: `ActionCtx<AddToCart>` on
 /// `ctx` or on the destructuring of it.
-fn action_ctx_input(param: &js::Pat) -> Option<String> {
-  let ann = match param {
-    js::Pat::Ident(id) => id.type_ann.as_ref()?,
-    js::Pat::Object(obj) => obj.type_ann.as_ref()?,
-    _ => return None,
-  };
-  let js::TsType::TsTypeRef(r) = &*ann.type_ann else { return None };
+fn action_ctx_input(param: Param<'_>) -> Option<String> {
+  if param.rest || param.default.is_some() || !matches!(param.pattern, js::BindingPattern::BindingIdentifier(_) | js::BindingPattern::ObjectPattern(_)) {
+    return None;
+  }
+  let ann = param.type_annotation?;
+  let js::TSType::TSTypeReference(r) = &ann.type_annotation else { return None };
   match &r.type_name {
-    js::TsEntityName::Ident(id) if id.sym.as_ref() == "ActionCtx" => {}
+    js::TSTypeName::IdentifierReference(id) if id.name.as_str() == "ActionCtx" => {}
     _ => return None,
   }
-  r.type_params.as_ref().and_then(|p| p.params.first()).and_then(|t| type_ref_name(t))
+  r.type_arguments.as_ref().and_then(|p| p.params.first()).and_then(type_ref_name)
 }
 
 #[derive(Clone)]
@@ -1117,7 +1276,7 @@ enum Root {
 }
 
 pub(crate) struct Lowerer<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   defaults: &'a SessionDefaults,
   roots: Vec<(String, Root)>,
   /// A middleware body reads the request line as `request`, which is its input.
@@ -1166,9 +1325,9 @@ pub(crate) struct Lowerer<'a> {
   /// The props whose kind the lowering read, so a placement passing another kind for one is a conflict rather than a silent wrong constant.
   pub(crate) consulted: std::cell::RefCell<Vec<String>>,
   /// Names bound to an `Intl` formatter kept as a value, with the binding noted against and the `new` that made it, so `f.format(x)` lowers as the inline form would.
-  pub(crate) formatters: Vec<(String, Expr, js::NewExpr)>,
+  pub(crate) formatters: Vec<(String, Expr, &'a js::NewExpression<'a>)>,
   /// The resolved module-level names that hold an `Intl` formatter.
-  pub(crate) global_formatters: Vec<(String, js::NewExpr)>,
+  pub(crate) global_formatters: Vec<(String, &'a js::NewExpression<'a>)>,
   /// Why the last residue was a value only the browser knows, set by the site that refused it. A consumer that can leave the value to the browser, text under an element, a prop into a placement, a binding, takes it and lowers null in its place; anywhere else the residue stands.
   pub(crate) browser_value: Option<String>,
   /// The reaches this page may use besides `Render` and `Body`: [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`] for a terminal page, none for a web page.
@@ -1182,11 +1341,11 @@ pub(crate) struct Lowerer<'a> {
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
   /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
-  pub(crate) reader: Option<js::Id>,
+  pub(crate) reader: Option<oxc_syntax::symbol::SymbolId>,
   /// A component's setters, dispatchers and inner functions, which only the browser calls. Read as a value on the server one is `render::BROWSER_HANDLER`, a function that renders nothing, as React renders nothing for one.
   pub(crate) browser_functions: Vec<String>,
   /// The functions a component's body declares, by name; a call to one in an expression applies it as a lambda made where the call stands.
-  pub(crate) local_fns: Vec<(String, js::Function)>,
+  pub(crate) local_fns: Vec<(String, &'a js::Function<'a>)>,
   /// The application's functions whose every statement the browser alone runs, so a call to one as a statement does nothing on the server.
   pub(crate) browser_effects: Vec<String>,
   /// Names held in a cell, `Expr::Cell` or `Expr::ModuleCell`, because a function writes them, each with the expression for its handle: a write in a block is a `WriteCell` through it.
@@ -1195,7 +1354,7 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) held: Vec<Vec<Stmt>>,
   /// For each frame in `held`, where its conditions start in `rebind_reach`.
   pub(crate) held_reach: Vec<usize>,
-  pub(crate) shared: Vec<(String, swc_core::common::SyntaxContext)>,
+  pub(crate) shared: Vec<(String, crate::Ctxt)>,
   pub(crate) extra_lets: Vec<Stmt>,
   /// The conditions of the branches a rebinding is inside, outermost first: a `let` held for a statement inside them runs only where they all hold.
   pub(crate) rebind_reach: Vec<Expr>,
@@ -1287,18 +1446,18 @@ impl Kind {
   }
 
   /// The kind a type annotation names: `Map<K, V>`, `Set<T>`, `Date`, `URLSearchParams`, `URL` or `bigint`.
-  pub(crate) fn of_type(ty: &js::TsType) -> Option<Kind> {
+  pub(crate) fn of_type(ty: &js::TSType) -> Option<Kind> {
     Kind::of_type_in(ty, &[])
   }
 
   /// The kind `ty` names, an alias in `aliases` read through to what it stands for, so `Unique<URL>` for `type Unique<T> = T & Brand` is a `URL`.
-  pub(crate) fn of_type_in(ty: &js::TsType, aliases: &[(String, AliasKind)]) -> Option<Kind> {
+  pub(crate) fn of_type_in(ty: &js::TSType, aliases: &[(String, AliasKind)]) -> Option<Kind> {
     match ty {
-      js::TsType::TsParenthesizedType(p) => Kind::of_type_in(&p.type_ann, aliases),
-      js::TsType::TsUnionOrIntersectionType(js::TsUnionOrIntersectionType::TsIntersectionType(i)) => i.types.iter().find_map(|t| Kind::of_type_in(t, aliases)),
-      js::TsType::TsKeywordType(k) if k.kind == js::TsKeywordTypeKind::TsBigIntKeyword => Some(Kind::BigInt),
-      js::TsType::TsTypeRef(r) => match &r.type_name {
-        js::TsEntityName::Ident(id) => match id.sym.as_ref() {
+      js::TSType::TSParenthesizedType(p) => Kind::of_type_in(&p.type_annotation, aliases),
+      js::TSType::TSIntersectionType(i) => i.types.iter().find_map(|t| Kind::of_type_in(t, aliases)),
+      js::TSType::TSBigIntKeyword(_) => Some(Kind::BigInt),
+      js::TSType::TSTypeReference(r) => match &r.type_name {
+        js::TSTypeName::IdentifierReference(id) => match id.name.as_str() {
           "Map" | "ReadonlyMap" => Some(Kind::Map),
           "Set" | "ReadonlySet" => Some(Kind::Set),
           "Date" => Some(Kind::Date),
@@ -1306,7 +1465,7 @@ impl Kind {
           "URL" => Some(Kind::Url),
           name => match aliases.iter().find(|(n, _)| n == name).map(|(_, kind)| *kind)? {
             AliasKind::Fixed(kind) => Some(kind),
-            AliasKind::Param(i) => Kind::of_type_in(r.type_params.as_ref()?.params.get(i)?, aliases),
+            AliasKind::Param(i) => Kind::of_type_in(r.type_arguments.as_ref()?.params.get(i)?, aliases),
           },
         },
         _ => None,
@@ -1334,14 +1493,15 @@ pub(crate) const URL_PARTS: [&str; 10] = ["origin", "protocol", "username", "pas
 pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
-  pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
+  pub(crate) fn new(parsed: &'a Parsed<'a>, defaults: &'a SessionDefaults) -> Self {
     Self { shared: Vec::new(), extra_lets: Vec::new(), parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), methods: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), declared_below: Vec::new(), after_body: false, read_below: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, loop_tail: None, breakable: Vec::new(), markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
     self.globals = resolved.globals.clone();
     self.global_kinds = resolved.global_kinds.clone();
-    self.global_formatters = resolved.global_formatters.clone();
+    self.global_formatters.clear();
+    self.formatters_from(&resolved.global_formatters);
     self.natives = resolved.natives.clone();
     self.classes = resolved.classes.clone();
     self.type_kinds = resolved.type_kinds.clone();
@@ -1361,7 +1521,7 @@ impl<'a> Lowerer<'a> {
 
   /// Refuses a `body` extension on a web page's render path and any reach the page may not use.
   /// A call to a standard member imported from a side, as the member's extension call. A member the side lacks and a host member the browser would run are refused with where the member is.
-  fn std_call(&mut self, call: &js::CallExpr, callee: &js::Expr) -> Lowered<Option<Expr>> {
+  fn std_call(&mut self, call: &js::CallExpression, callee: &js::Expression) -> Lowered<Option<Expr>> {
     use meaning::{Meaning, Side, CLIENT_ROOT, HOST_ROOT};
     let Some(meant) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) else { return Ok(None) };
     if let Meaning::StdAbsent { side, module, name } = &meant {
@@ -1387,12 +1547,12 @@ impl<'a> Lowerer<'a> {
       return Err(self.residue(call.span, why));
     }
     self.check_reach(call.span, &key, reach)?;
-    let mut args = Vec::with_capacity(call.args.len());
-    for a in &call.args {
-      if a.spread.is_some() {
-        return Err(self.residue(a.expr.span(), format!("a spread into `{key}`")));
+    let mut args = Vec::with_capacity(call.arguments.len());
+    for a in &call.arguments {
+      if crate::syntax::is_spread(a) {
+        return Err(self.residue(crate::syntax::arg_expr(a).span(), format!("a spread into `{key}`")));
       }
-      args.push(self.expr(&a.expr)?);
+      args.push(self.expr(crate::syntax::arg_expr(a))?);
     }
     let expr = Expr::Ext { module: module.to_owned(), name: name.to_owned(), args };
     Ok(Some(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr }))
@@ -1462,7 +1622,7 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  pub(crate) fn literal(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+  pub(crate) fn literal(&mut self, expr: &js::Expression) -> Lowered<Expr> {
     self.expr(expr)
   }
 
@@ -1476,30 +1636,33 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The body's first parameter: `ctx` or a destructuring of it.
-  fn bind_ctx(&mut self, first: Option<&js::Pat>) -> Lowered<()> {
+  fn bind_ctx(&mut self, first: Option<Param>) -> Lowered<()> {
     let Some(first) = first else { return Ok(()) };
-    match first {
-      js::Pat::Ident(id) => {
-        self.roots.push((id.id.sym.to_string(), Root::Ctx));
+    if first.rest || first.default.is_some() {
+      return Err(self.residue(first.span, "the context parameter must be `ctx` or a destructuring"));
+    }
+    match first.pattern {
+      js::BindingPattern::BindingIdentifier(id) => {
+        self.roots.push((id.name.to_string(), Root::Ctx));
         Ok(())
       }
-      js::Pat::Object(obj) => {
-        for prop in &obj.props {
+      js::BindingPattern::ObjectPattern(obj) => {
+        for prop in crate::syntax::pat_props(obj) {
           match prop {
-            js::ObjectPatProp::Assign(a) => {
-              let name = a.key.id.sym.to_string();
+            crate::syntax::PatProp::Assign(a) => {
+              let name = a.key.name.to_string();
               let root = self.root_named(&name).ok_or_else(|| self.residue(a.span, format!("`{name}` is not a field of the context")))?;
               self.roots.push((name, root));
             }
-            js::ObjectPatProp::KeyValue(kv) => {
-              let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed context field"))?;
-              let js::Pat::Ident(local) = &*kv.value else {
+            crate::syntax::PatProp::KeyValue(kv) => {
+              let key = prop_name(&kv.key, kv.computed).ok_or_else(|| self.residue(kv.key.span(), "a computed context field"))?;
+              let js::BindingPattern::BindingIdentifier(local) = &kv.value else {
                 return Err(self.residue(kv.value.span(), "a nested destructuring of the context"));
               };
               let root = self.root_named(&key).ok_or_else(|| self.residue(kv.key.span(), format!("`{key}` is not a field of the context")))?;
-              self.roots.push((local.id.sym.to_string(), root));
+              self.roots.push((local.name.to_string(), root));
             }
-            js::ObjectPatProp::Rest(r) => return Err(self.residue(r.span, "a rest of the context")),
+            crate::syntax::PatProp::Rest(r) => return Err(self.residue(r.span, "a rest of the context")),
           }
         }
         Ok(())
@@ -1509,51 +1672,52 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Whether `init` is the context parameter itself, so a declaration of it binds as the parameter's own destructuring does.
-  fn is_ctx(&self, init: Option<&js::Expr>) -> bool {
-    matches!(init, Some(js::Expr::Ident(id)) if matches!(self.root_of(id), Some(Root::Ctx)))
+  fn is_ctx(&self, init: Option<&js::Expression>) -> bool {
+    matches!(init, Some(js::Expression::Identifier(id)) if matches!(self.root_of(id), Some(Root::Ctx)))
   }
 
   /// `params`, `query`, `session` or `config`, by name or as a field of the context: a root read only by key.
-  fn keyed_root(&self, init: &js::Expr) -> Option<Root> {
+  fn keyed_root(&self, init: &js::Expression) -> Option<Root> {
     let keyed = |root: Root| matches!(root, Root::Params | Root::Query | Root::Session | Root::Config).then_some(root);
     match init {
-      js::Expr::Paren(p) => self.keyed_root(&p.expr),
-      js::Expr::Ident(id) if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) => self.root_of(id).and_then(keyed),
-      js::Expr::Member(m) => {
-        let (js::Expr::Ident(obj), js::MemberProp::Ident(field)) = (&*m.obj, &m.prop) else { return None };
-        if self.scope.iter().any(|(n, _)| n == obj.sym.as_ref()) || !matches!(self.root_of(obj), Some(Root::Ctx)) {
+      js::Expression::ParenthesizedExpression(p) => self.keyed_root(&p.expression),
+      js::Expression::Identifier(id) if !self.scope.iter().any(|(n, _)| n == id.name.as_str()) => self.root_of(id).and_then(keyed),
+      m_expr if m_expr.is_member_expression() => {
+let m = m_expr.as_member_expression().expect("matched as a member");
+        let (js::Expression::Identifier(obj), crate::syntax::MemberProp::Ident(field)) = (m.object(), crate::syntax::prop(m)) else { return None };
+        if self.scope.iter().any(|(n, _)| n == obj.name.as_str()) || !matches!(self.root_of(obj), Some(Root::Ctx)) {
           return None;
         }
-        root_named(field.sym.as_ref()).and_then(keyed)
+        root_named(field.name.as_str()).and_then(keyed)
       }
       _ => None,
     }
   }
 
   /// `const { id, slug: s = "a" } = params`: each name bound to its key's read.
-  fn bind_keyed(&mut self, fields: &js::ObjectPat, root: Root) -> Lowered<()> {
+  fn bind_keyed(&mut self, fields: &js::ObjectPattern, root: Root) -> Lowered<()> {
     let read = |lowerer: &Self, key: String| match root {
       Root::Params => Expr::Param(key),
       Root::Query => Expr::Query(key),
       Root::Session => lowerer.session_read(key),
       _ => Expr::Config(key),
     };
-    for field in &fields.props {
+    for field in crate::syntax::pat_props(fields) {
       match field {
-        js::ObjectPatProp::Assign(a) => {
-          let name = a.key.id.sym.to_string();
-          let bound = match &a.value {
+        crate::syntax::PatProp::Assign(a) => {
+          let name = a.key.name.to_string();
+          let bound = match a.value {
             Some(default) => Expr::Coalesce(Box::new(read(self, name.clone())), Box::new(self.expr(default)?)),
             None => read(self, name.clone()),
           };
           self.scope.push((name, bound));
         }
-        js::ObjectPatProp::KeyValue(kv) => {
-          let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed key in a pattern"))?;
+        crate::syntax::PatProp::KeyValue(kv) => {
+          let key = prop_name(&kv.key, kv.computed).ok_or_else(|| self.residue(kv.key.span(), "a computed key in a pattern"))?;
           let value = read(self, key);
           crate::component::bind_pattern(self, &kv.value, value)?;
         }
-        js::ObjectPatProp::Rest(r) => return Err(self.residue(r.span, "a rest of a value read only by key")),
+        crate::syntax::PatProp::Rest(r) => return Err(self.residue(r.span, "a rest of a value read only by key")),
       }
     }
     Ok(())
@@ -1575,10 +1739,10 @@ impl<'a> Lowerer<'a> {
     root_named(name)
   }
 
-  pub(crate) fn block(&mut self, stmts: &[js::Stmt]) -> Lowered<Body> {
+  pub(crate) fn block(&mut self, stmts: &[js::Statement]) -> Lowered<Body> {
     let depth = self.scope.len();
     let _ = self.shared.len();
-    let shared = crate::component::closure_shared(stmts);
+    let shared = crate::component::closure_shared(&self.parsed.scope, stmts);
     self.shared.extend(shared);
     let mut out = Vec::with_capacity(stmts.len());
     if let Err(residue) = self.hoist_functions(stmts, &mut out) {
@@ -1588,27 +1752,27 @@ impl<'a> Lowerer<'a> {
     for stmt in stmts {
       self.lift_updates(stmt, &mut out)?;
       match stmt {
-        js::Stmt::Decl(js::Decl::Fn(_)) => {}
-        js::Stmt::For(counted) => out.extend(self.counted_for(counted)?),
-        js::Stmt::While(looped) if self.reaches(Reach::Terminal) => out.push(self.capped_while(looped)?),
-        js::Stmt::Decl(js::Decl::Var(var)) => {
-          for decl in &var.decls {
-            if self.is_ctx(decl.init.as_deref()) {
-              self.bind_ctx(Some(&decl.name))?;
+        js::Statement::FunctionDeclaration(_) => {}
+        js::Statement::ForStatement(counted) => out.extend(self.counted_for(counted)?),
+        js::Statement::WhileStatement(looped) if self.reaches(Reach::Terminal) => out.push(self.capped_while(looped)?),
+        js::Statement::VariableDeclaration(var) => {
+          for decl in &var.declarations {
+            if self.is_ctx(decl.init.as_ref()) {
+              self.bind_ctx(Some(Param::of_pattern(&decl.id)))?;
               continue;
             }
-            if let (js::Pat::Object(fields), Some(root)) = (&decl.name, decl.init.as_deref().and_then(|init| self.keyed_root(init))) {
+            if let (js::BindingPattern::ObjectPattern(fields), Some(root)) = (&decl.id, decl.init.as_ref().and_then(|init| self.keyed_root(init))) {
               self.bind_keyed(fields, root)?;
               continue;
             }
             out.push(self.declare(decl)?);
             out.append(&mut self.extra_lets);
-            if var.kind == js::VarDeclKind::Const {
+            if var.kind == js::VariableDeclarationKind::Const {
               self.note_methods(decl);
             }
           }
         }
-        js::Stmt::Switch(sw) => out.extend(self.switch(sw)?),
+        js::Statement::SwitchStatement(sw) => out.extend(self.switch(sw)?),
         stmt => out.push(self.stmt(stmt)?),
       }
     }
@@ -1617,30 +1781,31 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The functions `stmts` declare, each bound before the first statement as JavaScript hoists them: a `Fix` when it calls itself.
-  fn hoist_functions(&mut self, stmts: &[js::Stmt], out: &mut Vec<Stmt>) -> Lowered<()> {
-    let declared: Vec<&js::FnDecl> = stmts.iter().filter_map(|stmt| match stmt {
-      js::Stmt::Decl(js::Decl::Fn(f)) => Some(f),
+  fn hoist_functions(&mut self, stmts: &[js::Statement], out: &mut Vec<Stmt>) -> Lowered<()> {
+    let declared: Vec<&js::Function> = stmts.iter().filter_map(|stmt| match stmt {
+      js::Statement::FunctionDeclaration(f) => Some(&**f),
       _ => None,
     }).collect();
+    let name_of = |f: &js::Function| f.id.as_ref().map_or(String::new(), |id| id.name.to_string());
     for f in &declared {
-      let name = f.ident.sym.to_string();
+      let name = name_of(f);
       self.scope.push((name.clone(), Expr::Var(name)));
     }
     for (at, f) in declared.iter().enumerate() {
-      if f.function.is_generator {
-        return Err(self.residue(f.function.span, "a generator function"));
+      if f.generator {
+        return Err(self.residue(f.span, "a generator function"));
       }
-      let name = f.ident.sym.to_string();
-      let pats = crate::component::patterns(&f.function);
-      let body = f.function.body.as_ref().map(|body| body.stmts.as_slice()).unwrap_or(&[]);
+      let name = name_of(f);
+      let pats = crate::params_of(&f.params);
+      let body = f.body.as_ref().map(|body| body.statements.as_slice()).unwrap_or(&[]);
       let outer = std::mem::take(&mut self.breakable);
-      let lambda = crate::component::function_to_lambda(self, &pats, crate::component::FunctionBody::Block(body), f.function.is_async);
+      let lambda = crate::component::function_to_lambda(self, &pats, crate::component::FunctionBody::Block(body), f.r#async);
       self.breakable = outer;
       let lambda = lambda?;
       let mut free = Vec::new();
       lambda.free_vars(&mut free);
-      if let Some(later) = declared[at + 1..].iter().find(|later| free.iter().any(|name| *name == *later.ident.sym)) {
-        return Err(self.residue_with(f.function.span, format!("`{name}` calls `{}`, a function declared after it in the same body", later.ident.sym), "declare the function it calls first"));
+      if let Some(later) = declared[at + 1..].iter().find(|later| free.iter().any(|name| *name == name_of(later))) {
+        return Err(self.residue_with(f.span, format!("`{name}` calls `{}`, a function declared after it in the same body", name_of(later)), "declare the function it calls first"));
       }
       let expr = if free.contains(&name) { Expr::Fix { name: name.clone(), f: Box::new(lambda) } } else { lambda };
       out.push(Stmt::Let { name, expr });
@@ -1649,7 +1814,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `for (let i = a; i < b; i += s)` as its start under a temporary and a `for...of` over the count, the counter read as the start plus the item times the step. A bound that may change between passes, one that calls something, is tested every pass as JavaScript tests it.
-  fn counted_for(&mut self, f: &js::ForStmt) -> Lowered<Vec<Stmt>> {
+  fn counted_for(&mut self, f: &js::ForStatement) -> Lowered<Vec<Stmt>> {
     let counted = crate::component::Counted::of(self, f)?;
     let (from, to, inclusive) = counted.bounds();
     let start = self.temp();
@@ -1672,7 +1837,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A counted loop whose bound is read again every pass: the counter a local, the test and the step after every pass as written.
-  fn tested_for(&mut self, f: &js::ForStmt, counted: &crate::component::Counted, from: Expr, bound: &js::Expr, inclusive: bool) -> Lowered<Vec<Stmt>> {
+  fn tested_for(&mut self, f: &js::ForStatement, counted: &crate::component::Counted, from: Expr, bound: &js::Expression, inclusive: bool) -> Lowered<Vec<Stmt>> {
     let counter = counted.name.as_str();
     let step = counted.step_expr(self)?;
     let depth = self.scope.len();
@@ -1692,7 +1857,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A terminal's `while (test) body`, the test read before every pass.
-  fn capped_while(&mut self, looped: &js::WhileStmt) -> Lowered<Stmt> {
+  fn capped_while(&mut self, looped: &js::WhileStatement) -> Lowered<Stmt> {
     let test = self.expr(&looped.test)?;
     self.breakable.push(Breakable::Loop);
     let body = self.branch(&looped.body);
@@ -1701,14 +1866,14 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `switch` as its discriminant under a temporary and an `if` chain over the arms, each compared with `===`.
-  fn switch(&mut self, sw: &js::SwitchStmt) -> Lowered<Vec<Stmt>> {
+  fn switch(&mut self, sw: &js::SwitchStatement) -> Lowered<Vec<Stmt>> {
     self.breakable.push(Breakable::Switch);
     let lowered = self.switch_arms(sw);
     self.breakable.pop();
     lowered
   }
 
-  fn switch_arms(&mut self, sw: &js::SwitchStmt) -> Lowered<Vec<Stmt>> {
+  fn switch_arms(&mut self, sw: &js::SwitchStatement) -> Lowered<Vec<Stmt>> {
     let disc = self.expr(&sw.discriminant)?;
     let held = self.temp();
     let (arms, default) = crate::component::switch_arms(self, sw)?;
@@ -1740,15 +1905,15 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The kind `e` holds: a `new Map(...)`, `new Set(...)`, `new Date(...)` or bigint written in place, a name noted as bound to one or a prop whose kind is known.
-  pub(crate) fn kind_of(&self, e: &js::Expr) -> Option<Kind> {
+  pub(crate) fn kind_of(&self, e: &js::Expression) -> Option<Kind> {
     match e {
-      js::Expr::Paren(p) => self.kind_of(&p.expr),
-      js::Expr::Await(a) => self.kind_of(&a.arg),
-      js::Expr::Call(call) if self.calls_next(call) => Some(Kind::Response),
-      js::Expr::TsAs(a) => self.kind_of(&a.expr),
-      js::Expr::TsNonNull(a) => self.kind_of(&a.expr),
-      js::Expr::Ident(id) => {
-        let name = id.sym.as_ref();
+      js::Expression::ParenthesizedExpression(p) => self.kind_of(&p.expression),
+      js::Expression::AwaitExpression(a) => self.kind_of(&a.argument),
+      js::Expression::CallExpression(call) if self.calls_next(call) => Some(Kind::Response),
+      js::Expression::TSAsExpression(a) => self.kind_of(&a.expression),
+      js::Expression::TSNonNullExpression(a) => self.kind_of(&a.expression),
+      js::Expression::Identifier(id) => {
+        let name = id.name.as_str();
         match self.scope.iter().rev().find(|(n, _)| n == name) {
           Some((_, bound)) => {
             let kind = self.kinds.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, kind)| *kind);
@@ -1760,45 +1925,50 @@ impl<'a> Lowerer<'a> {
           None => self.global_kinds.iter().find(|(n, _)| n == name).map(|(_, kind)| *kind),
         }
       }
-      js::Expr::Call(call) => match &call.callee {
-        js::Callee::Expr(callee) => match &**callee {
-          js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Browser) => Some(Kind::Browser),
-          js::Expr::Ident(f) if !self.scope.iter().any(|(n, _)| n == f.sym.as_ref()) => {
-            let returned = returned_by(f.sym.as_ref());
-            self.global_kinds.iter().find(|(n, _)| *n == returned).map(|(_, kind)| *kind).or_else(|| made_kind(e))
-          }
-          _ => made_kind(e),
-        },
-        _ => None,
-      },
-      js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Browser) => Some(Kind::Browser),
-      js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Url) && matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "searchParams") => Some(Kind::Query),
-      js::Expr::Member(m) if matches!((&*m.obj, &m.prop), (js::Expr::Ident(this), js::MemberProp::Ident(_)) if this.sym.as_ref() == crate::classes::THIS) => {
-        let js::MemberProp::Ident(field) = &m.prop else { return None };
-        self.this_kinds.iter().find(|(n, _)| n == field.sym.as_ref()).map(|(_, kind)| *kind)
-      }
-      js::Expr::Member(m) => {
-        let js::Expr::Ident(obj) = &*m.obj else { return None };
-        let js::MemberProp::Ident(prop) = &m.prop else { return None };
-        let (_, bound) = self.scope.iter().rev().find(|(n, _)| n == obj.sym.as_ref())?;
-        if *bound != Expr::Var("$props".to_owned()) {
-          return None;
+      js::Expression::CallExpression(call) => match &call.callee {
+        callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Browser)) => Some(Kind::Browser),
+        js::Expression::Identifier(f) if !self.scope.iter().any(|(n, _)| n == f.name.as_str()) => {
+          let returned = returned_by(f.name.as_str());
+          self.global_kinds.iter().find(|(n, _)| *n == returned).map(|(_, kind)| *kind).or_else(|| made_kind(e))
         }
-        let kind = self.prop_kinds.iter().find(|(k, _)| k == prop.sym.as_ref()).map(|(_, kind)| *kind)?;
-        self.consulted.borrow_mut().push(prop.sym.to_string());
-        Some(kind)
-      }
+        _ => made_kind(e),
+      },
+      member if member.is_member_expression() => self.member_kind(member.as_member_expression().expect("matched as a member")),
       other => made_kind(other),
     }
   }
 
+  /// The kind a member read holds: a browser object's member, a URL's `searchParams`, a class field or a prop whose kind is known.
+  pub(crate) fn member_kind(&self, m: &js::MemberExpression) -> Option<Kind> {
+    if self.kind_of(m.object()) == Some(Kind::Browser) {
+      return Some(Kind::Browser);
+    }
+    if self.kind_of(m.object()) == Some(Kind::Url) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "searchParams") {
+      return Some(Kind::Query);
+    }
+    if let (js::Expression::Identifier(this), crate::syntax::MemberProp::Ident(field)) = (m.object(), crate::syntax::prop(m)) {
+      if this.name.as_str() == crate::classes::THIS {
+        return self.this_kinds.iter().find(|(n, _)| n == field.name.as_str()).map(|(_, kind)| *kind);
+      }
+    }
+    let js::Expression::Identifier(obj) = m.object() else { return None };
+    let crate::syntax::MemberProp::Ident(prop) = crate::syntax::prop(m) else { return None };
+    let (_, bound) = self.scope.iter().rev().find(|(n, _)| n == obj.name.as_str())?;
+    if *bound != Expr::Var("$props".to_owned()) {
+      return None;
+    }
+    let kind = self.prop_kinds.iter().find(|(k, _)| k == prop.name.as_str()).map(|(_, kind)| *kind)?;
+    self.consulted.borrow_mut().push(prop.name.to_string());
+    Some(kind)
+  }
+
   /// `x instanceof Map`, `Set`, `Date` or `Array`: a constant where the build knows what `x` holds, `Array.isArray` for `Array`.
-  fn instance_of(&mut self, bin: &js::BinExpr) -> Lowered<Expr> {
+  fn instance_of(&mut self, bin: &js::BinaryExpression) -> Lowered<Expr> {
     if let Some(test) = self.class_instance_of(&bin.left, &bin.right)? {
       return Ok(test);
     }
-    let js::Expr::Ident(class) = &*bin.right else { return Err(self.residue(bin.span, "`instanceof` of a computed class")) };
-    let class = class.sym.as_ref();
+    let js::Expression::Identifier(class) = &bin.right else { return Err(self.residue(bin.span, "`instanceof` of a computed class")) };
+    let class = class.name.as_str();
     if self.scope.iter().any(|(n, _)| n == class) || self.globals.iter().any(|(n, _)| n == class) {
       return Err(self.residue(bin.span, format!("`instanceof {class}`, a class this file declares")));
     }
@@ -1819,45 +1989,67 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The `Intl` formatter `e` holds: a `new Intl.NumberFormat(...)` written in place, or a name bound to one, local or module-level.
-  pub(crate) fn formatter_of(&self, e: &js::Expr) -> Option<js::NewExpr> {
+  pub(crate) fn formatter_of(&self, e: &js::Expression) -> Option<&'a js::NewExpression<'a>> {
     match strip_parens(e) {
-      js::Expr::TsAs(a) => self.formatter_of(&a.expr),
-      js::Expr::TsNonNull(a) => self.formatter_of(&a.expr),
-      js::Expr::New(n) if platform_object(n).is_some() => Some(n.clone()),
-      js::Expr::Ident(id) => {
-        let name = id.sym.as_ref();
+      js::Expression::TSAsExpression(a) => self.formatter_of(&a.expression),
+      js::Expression::TSNonNullExpression(a) => self.formatter_of(&a.expression),
+      js::Expression::NewExpression(n) if platform_object(n).is_some() => Some(self.keep(&**n)),
+      js::Expression::Identifier(id) => {
+        let name = id.name.as_str();
         match self.scope.iter().rev().find(|(n, _)| n == name) {
-          Some((_, bound)) => self.formatters.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, made)| made.clone()),
-          None => self.global_formatters.iter().find(|(n, _)| n == name).map(|(_, made)| made.clone()),
+          Some((_, bound)) => self.formatters.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, made)| *made),
+          None => self.global_formatters.iter().find(|(n, _)| n == name).map(|(_, made)| *made),
         }
       }
       _ => None,
     }
   }
 
+  /// Builds nodes in the arena of the module being lowered.
+  pub(crate) fn build(&self) -> syntax::Build<'a> {
+    syntax::Build::new(self.parsed.arena())
+  }
+
+  /// A copy of `node` in the module's arena, which lives as long as the lowerer's view of the module.
+  pub(crate) fn formatters_from(&mut self, formatters: &[(String, String)]) {
+    for (name, text) in formatters {
+      let Ok(js::Expression::NewExpression(made)) = self.parsed.parse_expr_at(text, 1, 1) else { continue };
+      if platform_object(&made).is_some() {
+        let made: &'a js::NewExpression<'a> = self.parsed.arena().alloc(made);
+        self.global_formatters.push((name.clone(), made));
+      }
+    }
+  }
+
+  pub(crate) fn keep<T: oxc_allocator::CloneIn<'a>>(&self, node: &T) -> &'a T::Cloned {
+    let b = self.build();
+    b.alloc(b.copy(node))
+  }
+
   /// Binds `name` to an `Intl` formatter `init` makes, so a later `.format(x)` on it lowers as the inline form; the name reads as null anywhere else.
-  pub(crate) fn bind_formatter(&mut self, name: &str, init: &js::Expr) -> bool {
-    let js::Expr::New(made) = strip_parens(init) else { return false };
+  pub(crate) fn bind_formatter(&mut self, name: &str, init: &js::Expression) -> bool {
+    let js::Expression::NewExpression(made) = strip_parens(init) else { return false };
     if platform_object(made).is_none() {
       return false;
     }
     self.scope.push((name.to_owned(), Expr::Lit(Lit::Null)));
-    self.formatters.push((name.to_owned(), Expr::Lit(Lit::Null), made.clone()));
+    let made = self.keep(&**made);
+    self.formatters.push((name.to_owned(), Expr::Lit(Lit::Null), made));
     true
   }
 
   /// Notes the fields of the object literal `decl` binds that are written as functions.
-  fn note_methods(&mut self, decl: &js::VarDeclarator) {
-    let (js::Pat::Ident(name), Some(js::Expr::Object(object))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) else { return };
-    let fields: Vec<String> = object.props.iter().filter_map(|prop| match prop {
-      js::PropOrSpread::Prop(prop) => match &**prop {
-        js::Prop::KeyValue(kv) if matches!(crate::meaning::bare(&kv.value), js::Expr::Arrow(_) | js::Expr::Fn(_)) => prop_name(&kv.key),
-        js::Prop::Method(method) => prop_name(&method.key),
+  fn note_methods(&mut self, decl: &js::VariableDeclarator) {
+    let (js::BindingPattern::BindingIdentifier(name), Some(js::Expression::ObjectExpression(object))) = (&decl.id, decl.init.as_ref().map(crate::meaning::bare)) else { return };
+    let fields: Vec<String> = object.properties.iter().filter_map(|prop| match prop {
+      js::ObjectPropertyKind::ObjectProperty(prop) => match crate::syntax::prop_of(prop) {
+        crate::syntax::Prop::KeyValue(kv) if matches!(crate::meaning::bare(&kv.value), js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)) => prop_name(&kv.key, kv.computed),
+        crate::syntax::Prop::Method(method) => prop_name(&method.key, method.computed),
         _ => None,
       },
-      js::PropOrSpread::Spread(_) => None,
+      js::ObjectPropertyKind::SpreadProperty(_) => None,
     }).collect();
-    let name = name.id.sym.to_string();
+    let name = name.name.to_string();
     let Some(bound) = self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, e)| e.clone()) else { return };
     if !fields.is_empty() {
       self.methods.push((name, bound, fields));
@@ -1865,42 +2057,42 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Whether `obj` is a name noted by [`Self::note_methods`] as holding an object whose field `field` is a function.
-  fn holds_method(&self, obj: &js::Expr, field: &str) -> bool {
-    let js::Expr::Ident(id) = crate::meaning::bare(obj) else { return false };
-    let name = id.sym.as_ref();
+  fn holds_method(&self, obj: &js::Expression, field: &str) -> bool {
+    let js::Expression::Identifier(id) = crate::meaning::bare(obj) else { return false };
+    let name = id.name.as_str();
     let Some(bound) = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e) else { return false };
     self.methods.iter().rev().any(|(n, at, fields)| n == name && at == bound && fields.iter().any(|f| f == field))
   }
 
   /// Notes `name`, just bound to `init`, as a collection when `init` is one.
-  pub(crate) fn note_kind(&mut self, name: &str, init: &js::Expr) {
+  pub(crate) fn note_kind(&mut self, name: &str, init: &js::Expression) {
     let Some(kind) = self.kind_of(init) else { return };
     let Some(bound) = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e.clone()) else { return };
     self.kinds.push((name.to_owned(), bound, kind));
   }
 
   /// One declarator as a `let`: a name binds the value; a pattern binds it under a temporary and each name it declares reads a part of that.
-  fn declare(&mut self, decl: &js::VarDeclarator) -> Lowered<Stmt> {
+  fn declare(&mut self, decl: &js::VariableDeclarator) -> Lowered<Stmt> {
     let Some(init) = &decl.init else {
       return Err(self.residue(decl.span, "a declaration without a value"));
     };
-    if let js::Pat::Ident(name) = &decl.name {
-      if self.bind_formatter(name.id.sym.as_ref(), init) {
-        return Ok(Stmt::Let { name: name.id.sym.to_string(), expr: Expr::Lit(Lit::Null) });
+    if let js::BindingPattern::BindingIdentifier(name) = &decl.id {
+      if self.bind_formatter(name.name.as_str(), init) {
+        return Ok(Stmt::Let { name: name.name.to_string(), expr: Expr::Lit(Lit::Null) });
       }
     }
     let expr = self.expr(init)?;
-    let name = match &decl.name {
-      js::Pat::Ident(name) if self.shared.iter().any(|(n, c)| *n == *name.id.sym && *c == name.id.ctxt) => {
+    let name = match &decl.id {
+      js::BindingPattern::BindingIdentifier(name) if self.shared.iter().any(|(n, c)| *n == name.name.as_str() && *c == self.parsed.binding_ctxt(name)) => {
         let handle = self.temp();
-        let local = name.id.sym.to_string();
+        let local = name.name.to_string();
         self.cells.push((local.clone(), Expr::Var(handle.clone())));
         self.scope.push((local.clone(), Expr::ReadCell(Box::new(Expr::Var(handle.clone())))));
         self.note_kind(&local, init);
         return Ok(Stmt::Let { name: handle, expr: Expr::Cell(Box::new(expr)) });
       }
-      js::Pat::Ident(name) => {
-        let name = name.id.sym.to_string();
+      js::BindingPattern::BindingIdentifier(name) => {
+        let name = name.name.to_string();
         self.scope.push((name.clone(), Expr::Var(name.clone())));
         self.note_kind(&name, init);
         name
@@ -1926,17 +2118,17 @@ impl<'a> Lowerer<'a> {
     Ok(Stmt::Let { name, expr })
   }
 
-  pub(crate) fn stmt(&mut self, stmt: &js::Stmt) -> Lowered<Stmt> {
+  pub(crate) fn stmt(&mut self, stmt: &js::Statement) -> Lowered<Stmt> {
     match stmt {
-      js::Stmt::Decl(js::Decl::Var(var)) => {
-        if var.decls.len() != 1 {
+      js::Statement::VariableDeclaration(var) => {
+        if var.declarations.len() != 1 {
           return Err(self.residue(var.span, "one binding per declaration"));
         }
-        self.declare(&var.decls[0])
+        self.declare(&var.declarations[0])
       }
-      js::Stmt::If(if_stmt) => {
-        if let Some((kind, message)) = self.as_fail(&if_stmt.cons) {
-          if if_stmt.alt.is_some() {
+      js::Statement::IfStatement(if_stmt) => {
+        if let Some((kind, message)) = self.as_fail(&if_stmt.consequent) {
+          if if_stmt.alternate.is_some() {
             return Err(self.residue(if_stmt.span, "an `else` after `fail`"));
           }
           let cond = self.expr(&if_stmt.test)?;
@@ -1944,18 +2136,18 @@ impl<'a> Lowerer<'a> {
           return Ok(Stmt::Guard { cond, kind, message });
         }
         let cond = self.expr(&if_stmt.test)?;
-        let then = self.branch(&if_stmt.cons)?;
-        let r#else = match &if_stmt.alt {
+        let then = self.branch(&if_stmt.consequent)?;
+        let r#else = match &if_stmt.alternate {
           Some(alt) => self.branch(alt)?,
           None => Vec::new(),
         };
         Ok(Stmt::If { cond, then, r#else })
       }
-      js::Stmt::ForOf(for_of) => {
-        let js::ForHead::VarDecl(decl) = &for_of.left else {
+      js::Statement::ForOfStatement(for_of) => {
+        let js::ForStatementLeft::VariableDeclaration(decl) = &for_of.left else {
           return Err(self.residue(for_of.span, "`for...of` must declare its variable"));
         };
-        let Some(pattern) = decl.decls.first().map(|d| &d.name) else {
+        let Some(pattern) = decl.declarations.first().map(|d| &d.id) else {
           return Err(self.residue(decl.span, "`for...of` must declare its variable"));
         };
         let mut over = self.expr(&for_of.right)?;
@@ -1964,8 +2156,8 @@ impl<'a> Lowerer<'a> {
         }
         let depth = self.scope.len();
         let name = match pattern {
-          js::Pat::Ident(name) => {
-            let name = name.id.sym.to_string();
+          js::BindingPattern::BindingIdentifier(name) => {
+            let name = name.name.to_string();
             self.scope.push((name.clone(), Expr::Var(name.clone())));
             name
           }
@@ -1981,25 +2173,25 @@ impl<'a> Lowerer<'a> {
         self.scope.truncate(depth);
         Ok(Stmt::ForOf { name, over, body: body? })
       }
-      js::Stmt::Return(ret) if self.markup_base.is_some() => {
+      js::Statement::ReturnStatement(ret) if self.markup_base.is_some() => {
         let base = self.markup_base.expect("checked");
         let path = self.markup_returns.len();
         let mut fields = vec![Entry::Field("$path".to_owned(), Expr::Lit(Lit::Int(path as i128)))];
         fields.extend(self.scope[base..].iter().enumerate().map(|(k, (_, expr))| Entry::Field(format!("${k}"), expr.clone())));
         let names = self.scope[base..].iter().map(|(name, _)| name.clone()).collect();
-        self.markup_returns.push((ret.span.lo.0, names));
+        self.markup_returns.push((crate::lo(ret.span), names));
         Ok(Stmt::Return(Expr::Object(fields)))
       }
-      js::Stmt::Return(ret) => match &ret.arg {
+      js::Statement::ReturnStatement(ret) => match &ret.argument {
         Some(arg) => Ok(Stmt::Return(self.expr(arg)?)),
         None => Ok(Stmt::Return(Expr::Lit(Lit::Null))),
       },
-      js::Stmt::Expr(expr_stmt) => self.effect(&expr_stmt.expr),
-      js::Stmt::Throw(thrown) => Ok(Stmt::Expr(crate::component::throw_expr(self, thrown)?)),
-      js::Stmt::Try(t) => self.try_stmt(t),
-      js::Stmt::Break(b) if b.label.is_none() && self.breakable.last() == Some(&Breakable::Loop) => Ok(Stmt::Break),
-      js::Stmt::Continue(c) if c.label.is_none() && self.breakable.contains(&Breakable::Loop) => Ok(Stmt::Continue),
-      js::Stmt::Block(block) => Err(self.residue(block.span, "a bare block")),
+      js::Statement::ExpressionStatement(expr_stmt) => self.effect(&expr_stmt.expression),
+      js::Statement::ThrowStatement(thrown) => Ok(Stmt::Expr(crate::component::throw_expr(self, thrown)?)),
+      js::Statement::TryStatement(t) => self.try_stmt(t),
+      js::Statement::BreakStatement(b) if b.label.is_none() && self.breakable.last() == Some(&Breakable::Loop) => Ok(Stmt::Break),
+      js::Statement::ContinueStatement(c) if c.label.is_none() && self.breakable.contains(&Breakable::Loop) => Ok(Stmt::Continue),
+      js::Statement::BlockStatement(block) => Err(self.residue(block.span, "a bare block")),
       other => {
         let (what, hint) = describe_stmt(other);
         Err(self.residue_with(other.span(), what, hint))
@@ -2009,15 +2201,15 @@ impl<'a> Lowerer<'a> {
 
   /// `redirect(to)`: the response that sends the caller to `to`, which ends the body where it is a statement. An action or a route handler holds one.
   /// `after(fn)`: the function, written in place with no parameters, to run once the response is written. Its body lowers as a body does; it cannot write the session, whose cookie is already sent.
-  fn after_of(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
-    let body = match call.args.as_slice() {
-      [work] if work.spread.is_none() => match strip_parens(&work.expr) {
-        js::Expr::Arrow(arrow) if arrow.params.is_empty() => match &*arrow.body {
-          js::ArrowFunctionBody::FunctionBody(block) => self.block(&block.stmts)?,
-          js::ArrowFunctionBody::Expr(e) => vec![Stmt::Return(self.expr(e)?)],
+  fn after_of(&mut self, call: &js::CallExpression) -> Lowered<Expr> {
+    let body = match call.arguments.as_slice() {
+      [work] if !crate::syntax::is_spread(work) => match strip_parens(crate::syntax::arg_expr(work)) {
+        js::Expression::ArrowFunctionExpression(arrow) if crate::params_of(&arrow.params).is_empty() => match crate::syntax::arrow_body_of(arrow) {
+          crate::syntax::ArrowBody::Block(block) => self.block(&block.body)?,
+          crate::syntax::ArrowBody::Expr(e) => vec![Stmt::Return(self.expr(e)?)],
         },
-        js::Expr::Fn(f) if f.function.params.is_empty() => match &f.function.body {
-          Some(block) => self.block(&block.stmts)?,
+        js::Expression::FunctionExpression(f) if crate::params_of(&f.params).is_empty() => match &f.body {
+          Some(block) => self.block(&block.statements)?,
           None => Vec::new(),
         },
         _ => return Err(self.residue(call.span, "`after` takes a function written in place, with no parameters")),
@@ -2030,7 +2222,7 @@ impl<'a> Lowerer<'a> {
     Ok(Expr::After(Box::new(Expr::Lambda { params: Vec::new(), body: Box::new(Expr::Block(body)) })))
   }
 
-  fn redirect_to(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+  fn redirect_to(&mut self, call: &js::CallExpression) -> Lowered<Expr> {
     if !self.redirects {
       return Err(self.residue_with(
         call.span,
@@ -2038,57 +2230,57 @@ impl<'a> Lowerer<'a> {
         "middleware returns `Response.redirect(to)`; a loader cannot send the visitor elsewhere",
       ));
     }
-    let [to] = call.args.as_slice() else {
+    let [to] = call.arguments.as_slice() else {
       return Err(self.residue(call.span, "`redirect` takes the path to send the caller to"));
     };
-    Ok(Expr::Builtin { name: Builtin::RedirectTo, args: vec![self.expr(&to.expr)?] })
+    Ok(Expr::Builtin { name: Builtin::RedirectTo, args: vec![self.expr(crate::syntax::arg_expr(to))?] })
   }
 
-  pub(crate) fn try_stmt(&mut self, t: &js::TryStmt) -> Lowered<Stmt> {
-    let body = self.block(&t.block.stmts)?;
+  pub(crate) fn try_stmt(&mut self, t: &js::TryStatement) -> Lowered<Stmt> {
+    let body = self.block(&t.block.body)?;
     let (name, handler) = match &t.handler {
       None => (None, None),
       Some(catch) => {
         let depth = self.scope.len();
         let name = crate::component::catch_param(self, catch.param.as_ref());
-        let handler = name.and_then(|name| Ok((name, self.block(&catch.body.stmts)?)));
+        let handler = name.and_then(|name| Ok((name, self.block(&catch.body.body)?)));
         self.scope.truncate(depth);
         let (name, handler) = handler?;
         (name, Some(handler))
       }
     };
     let finally = match &t.finalizer {
-      Some(finalizer) => self.block(&finalizer.stmts)?,
+      Some(finalizer) => self.block(&finalizer.body)?,
       None => Vec::new(),
     };
     Ok(Stmt::Try { body, name, handler, finally })
   }
 
-  fn branch(&mut self, stmt: &js::Stmt) -> Lowered<Body> {
+  fn branch(&mut self, stmt: &js::Statement) -> Lowered<Body> {
     match stmt {
-      js::Stmt::Block(block) => self.block(&block.stmts),
+      js::Statement::BlockStatement(block) => self.block(&block.body),
       single => self.block(std::slice::from_ref(single)),
     }
   }
 
   /// `fail("kind", "message")` as a statement, bare or in a one-statement block.
-  fn as_fail(&mut self, stmt: &js::Stmt) -> Option<(Lowered<String>, Lowered<Expr>)> {
+  fn as_fail(&mut self, stmt: &js::Statement) -> Option<(Lowered<String>, Lowered<Expr>)> {
     let inner = match stmt {
-      js::Stmt::Block(b) if b.stmts.len() == 1 => &b.stmts[0],
+      js::Statement::BlockStatement(b) if b.body.len() == 1 => &b.body[0],
       other => other,
     };
-    let js::Stmt::Expr(e) = inner else { return None };
-    let js::Expr::Call(call) = &*e.expr else { return None };
+    let js::Statement::ExpressionStatement(e) = inner else { return None };
+    let js::Expression::CallExpression(call) = &e.expression else { return None };
     if !self.parsed.names_server(&call.callee, "fail") {
       return None;
     }
-    let kind = match call.args.first().map(|a| &*a.expr) {
-      Some(js::Expr::Lit(js::Lit::Str(s))) => Ok(s.value.to_atom_lossy().to_string()),
+    let kind = match call.arguments.first().map(|a| crate::syntax::arg_expr(a)) {
+      Some(js::Expression::StringLiteral(s)) => Ok(crate::lossy(s.value)),
       Some(other) => Err(self.residue(other.span(), "`fail` takes its kind as a string literal, since the kind is matched at build time")),
       None => Err(self.residue(call.span, "`fail` takes a kind and a message")),
     };
-    let message = match call.args.get(1) {
-      Some(a) => self.expr(&a.expr),
+    let message = match call.arguments.get(1) {
+      Some(a) => self.expr(crate::syntax::arg_expr(a)),
       None => Err(self.residue(call.span, "`fail` takes a kind and a message")),
     };
     Some((kind, message))
@@ -2096,7 +2288,7 @@ impl<'a> Lowerer<'a> {
 
   /// A statement that is an expression: a session write, a delete, a bare
   /// `fail` or an awaited call for its effect.
-  pub(crate) fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
+  pub(crate) fn effect(&mut self, expr: &js::Expression) -> Lowered<Stmt> {
     if self.object_write(expr) {
       if heap_pass() {
         return Ok(Stmt::Expr(self.heap_write(expr)?));
@@ -2104,18 +2296,18 @@ impl<'a> Lowerer<'a> {
       want_heap();
     }
     // A `console` call in a helper's block logs on the server as one in a component's body does.
-    if let js::Expr::Call(call) = expr {
+    if let js::Expression::CallExpression(call) = expr {
       if let Some((response, op, args)) = self.response_headers_call(call) {
         if matches!(op.as_str(), "set" | "append" | "delete") {
-          let js::Expr::Ident(local) = crate::meaning::bare(response) else { return Err(self.residue(call.span, "a header written on a `Response` that is not a local")) };
-          let Some((_, Expr::Var(name))) = self.scope.iter().rev().find(|(n, _)| n == local.sym.as_ref()).cloned() else { return Err(self.residue(call.span, "a header written on a `Response` that is not a local")) };
+          let js::Expression::Identifier(local) = crate::meaning::bare(response) else { return Err(self.residue(call.span, "a header written on a `Response` that is not a local")) };
+          let Some((_, Expr::Var(name))) = self.scope.iter().rev().find(|(n, _)| n == local.name.as_str()).cloned() else { return Err(self.residue(call.span, "a header written on a `Response` that is not a local")) };
           let wanted = if op == "delete" { 1 } else { 2 };
           if args.len() != wanted {
             return Err(self.residue(call.span, format!("`headers.{op}` takes {wanted} arguments")));
           }
           let mut lowered = vec![Expr::Var(name.clone()), Expr::lit_str(&op)];
           for arg in args {
-            lowered.push(self.expr(&arg.expr)?);
+            lowered.push(self.expr(crate::syntax::arg_expr(arg))?);
           }
           return Ok(Stmt::Set { name, expr: Expr::Builtin { name: Builtin::ResponseHeaderSet, args: lowered } });
         }
@@ -2130,27 +2322,28 @@ impl<'a> Lowerer<'a> {
         return Ok(listen);
       }
       if let Some(arrow) = self.async_iife(call) {
-        let ran = match &*arrow.body {
-          js::ArrowFunctionBody::FunctionBody(b) => self.async_stmts(&b.stmts)?,
-          js::ArrowFunctionBody::Expr(e) => self.async_stmts(&[js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })])?,
+        let ran = match crate::syntax::arrow_body_of(arrow) {
+          crate::syntax::ArrowBody::Block(b) => self.async_stmts(&b.body)?,
+          crate::syntax::ArrowBody::Expr(e) => {
+            let b = self.build();
+            self.async_stmts(&[b.expr_stmt(b.copy(e))])?
+          }
         };
         return Ok(Stmt::Expr(ran));
       }
     }
     match expr {
-      js::Expr::Assign(assign) if self.cell_of_target(&assign.left).is_some() => {
+      js::Expression::AssignmentExpression(assign) if self.cell_of_target(&assign.left).is_some() => {
         let handle = self.cell_of_target(&assign.left).expect("checked");
-        let read = match &assign.left {
-          js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => js::Expr::Ident(id.id.clone()),
-          js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) => js::Expr::Member(member.clone()),
-          _ => unreachable!("cell_of_target answers for a name or a path"),
-        };
-        let value = match assign.op.to_update() {
+        let b = syntax::Build::new(self.parsed.arena());
+        let read = syntax::target_expr(b, &assign.left).expect("cell_of_target answers for a name or a path");
+        let value = match syntax::compound(b, assign.operator, b.copy(&read), b.copy(&assign.right), assign.span) {
           None => self.expr(&assign.right)?,
-          Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(read.clone()), right: assign.right.clone() }))?,
+          Some(computed) => self.expr(&computed)?,
         };
         let value = match &read {
-          js::Expr::Member(member) => {
+          member_expr if member_expr.is_member_expression() => {
+let member = member_expr.as_member_expression().expect("matched as a member");
             let (_, path) = write_root(member).expect("cell_of_target found the root");
             self.written_at(Expr::ReadCell(Box::new(handle.clone())), &path, value)?
           }
@@ -2158,55 +2351,57 @@ impl<'a> Lowerer<'a> {
         };
         Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(value))))
       }
-      js::Expr::Update(update) if matches!(&*update.arg, js::Expr::Ident(id) if self.cells.iter().any(|(name, _)| *name == *id.sym)) => {
-        let js::Expr::Ident(id) = &*update.arg else { unreachable!() };
-        let handle = self.cells.iter().find(|(name, _)| *name == *id.sym).map(|(_, handle)| handle.clone()).expect("checked");
-        let op = match update.op {
-          js::UpdateOp::PlusPlus => js::BinaryOp::Add,
-          js::UpdateOp::MinusMinus => js::BinaryOp::Sub,
+      js::Expression::UpdateExpression(update) if matches!(&update.argument, js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) if self.cells.iter().any(|(name, _)| *name == id.name.as_str())) => {
+        let js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = &update.argument else { unreachable!() };
+        let handle = self.cells.iter().find(|(name, _)| *name == id.name.as_str()).map(|(_, handle)| handle.clone()).expect("checked");
+        let op = match update.operator {
+          js::UpdateOperator::Increment => js::BinaryOperator::Addition,
+          js::UpdateOperator::Decrement => js::BinaryOperator::Subtraction,
         };
-        let one = js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }));
-        let value = self.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
+        let b = self.build();
+        let one = b.number(1.0, update.span);
+        let value = self.expr(&b.binary(b.updated(&update.argument), op, one, update.span))?;
         Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(value))))
       }
-      js::Expr::Assign(assign) if self.local_target(&assign.left).is_some() => self.local_assign(assign),
-      js::Expr::Update(update) if matches!(&*update.arg, js::Expr::Ident(id) if self.is_local(id.sym.as_ref())) => {
-        let js::Expr::Ident(id) = &*update.arg else { unreachable!() };
-        let op = match update.op {
-          js::UpdateOp::PlusPlus => js::BinaryOp::Add,
-          js::UpdateOp::MinusMinus => js::BinaryOp::Sub,
+      js::Expression::AssignmentExpression(assign) if self.local_target(&assign.left).is_some() => self.local_assign(assign),
+      js::Expression::UpdateExpression(update) if matches!(&update.argument, js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) if self.is_local(id.name.as_str())) => {
+        let js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = &update.argument else { unreachable!() };
+        let op = match update.operator {
+          js::UpdateOperator::Increment => js::BinaryOperator::Addition,
+          js::UpdateOperator::Decrement => js::BinaryOperator::Subtraction,
         };
-        let one = js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }));
-        let expr = self.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
-        Ok(Stmt::Set { name: id.sym.to_string(), expr })
+        let b = self.build();
+        let one = b.number(1.0, update.span);
+        let expr = self.expr(&b.binary(b.updated(&update.argument), op, one, update.span))?;
+        Ok(Stmt::Set { name: id.name.to_string(), expr })
       }
-      js::Expr::Call(call) if self.cell_collection_write(call).is_some() => {
+      js::Expression::CallExpression(call) if self.cell_collection_write(call).is_some() => {
         let (handle, kind, method) = self.cell_collection_write(call).expect("checked");
         let expr = self.collection_written(call, kind, &method, Expr::ReadCell(Box::new(handle.clone())))?;
         Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(expr))))
       }
-      js::Expr::Call(call) if self.local_url_search_write(call).is_some() => {
+      js::Expression::CallExpression(call) if self.local_url_search_write(call).is_some() => {
         let (name, method) = self.local_url_search_write(call).expect("checked");
         let search = Expr::Builtin { name: Builtin::UrlPart, args: vec![Expr::Var(name.clone()), Expr::lit_str("search")] };
         let written = self.collection_written(call, Kind::Query, &method, search)?;
         Ok(Stmt::Set { expr: Expr::Builtin { name: Builtin::UrlSet, args: vec![Expr::Var(name.clone()), Expr::lit_str("search"), written] }, name })
       }
-      js::Expr::Call(call) if self.local_collection_write(call).is_some() => {
+      js::Expression::CallExpression(call) if self.local_collection_write(call).is_some() => {
         let (name, kind, method) = self.local_collection_write(call).expect("checked");
         let expr = self.collection_written(call, kind, &method, Expr::Var(name.clone()))?;
         Ok(Stmt::Set { name, expr })
       }
-      js::Expr::Call(call) if self.unbound_collection_write(call).is_some() => {
+      js::Expression::CallExpression(call) if self.unbound_collection_write(call).is_some() => {
         let (name, span) = self.unbound_collection_write(call).expect("checked");
         self.unbound = Some(name.clone());
         Err(self.residue(span, format!("`{name}` is not bound here; an import the build cannot follow or a name from outside the body")))
       }
-      js::Expr::Call(call) if self.local_push(call).is_some() => {
+      js::Expression::CallExpression(call) if self.local_push(call).is_some() => {
         let (name, method) = self.local_push(call).expect("checked");
-        let mut items = Vec::with_capacity(call.args.len() + 1);
-        for arg in &call.args {
-          let value = self.expr(&arg.expr)?;
-          items.push(if arg.spread.is_some() { Entry::Spread(value) } else { Entry::Item(value) });
+        let mut items = Vec::with_capacity(call.arguments.len() + 1);
+        for arg in &call.arguments {
+          let value = self.expr(crate::syntax::arg_expr(arg))?;
+          items.push(if crate::syntax::is_spread(arg) { Entry::Spread(value) } else { Entry::Item(value) });
         }
         let held = Entry::Spread(Expr::Var(name.clone()));
         if method == "push" {
@@ -2216,39 +2411,42 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Stmt::Set { name, expr: Expr::Array(items) })
       }
-      js::Expr::Assign(assign) => {
-        if assign.op != js::AssignOp::Assign {
+      js::Expression::AssignmentExpression(assign) => {
+        if assign.operator != js::AssignmentOperator::Assign {
           return Err(self.residue(assign.span, "a compound assignment; write the full expression"));
         }
-        let js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) = &assign.left else {
+        let Some(member) = assign.left.as_member_expression() else {
           return Err(self.residue(assign.left.span(), "an assignment to something other than the session"));
         };
         let (key, path) = self.session_target(member)?;
         let value = self.expr(&assign.right)?;
         Ok(Stmt::SessionSet { key, path, value })
       }
-      js::Expr::Unary(unary) if unary.op == js::UnaryOp::Delete => {
-        let member = match &*unary.arg {
-          js::Expr::Member(member) => member.clone(),
-          js::Expr::OptChain(o) => match &*o.base {
-            js::OptChainBase::Member(member) => member.clone(),
-            js::OptChainBase::Call(call) => return Err(self.residue(call.span, "`delete` of a call")),
+      js::Expression::UnaryExpression(unary) if unary.operator == js::UnaryOperator::Delete => {
+        let member = match &unary.argument {
+          js::Expression::ChainExpression(o) => match o.expression.as_member_expression() {
+            Some(member) => member,
+            None => return Err(self.residue(o.expression.span(), "`delete` of a call")),
           },
-          other => return Err(self.residue(other.span(), "`delete` of something other than a session entry")),
+          other => match other.as_member_expression() {
+            Some(member) => member,
+            None => return Err(self.residue(other.span(), "`delete` of something other than a session entry")),
+          },
         };
-        let (key, path) = self.session_target(&member)?;
+        let (key, path) = self.session_target(member)?;
         Ok(Stmt::SessionDelete { key, path })
       }
-      js::Expr::Call(call) if self.parsed.names_server(&call.callee, "redirect") => {
+      js::Expression::CallExpression(call) if self.parsed.names_server(&call.callee, "redirect") => {
         Ok(Stmt::Return(self.redirect_to(call)?))
       }
-      js::Expr::Call(call) if self.parsed.names_server(&call.callee, "after") => Ok(Stmt::Expr(self.after_of(call)?)),
-      js::Expr::Call(call) if self.is_ident_call(call, "fail") => {
-        let stmt = js::Stmt::Expr(js::ExprStmt { span: call.span, expr: Box::new(expr.clone()) });
+      js::Expression::CallExpression(call) if self.parsed.names_server(&call.callee, "after") => Ok(Stmt::Expr(self.after_of(call)?)),
+      js::Expression::CallExpression(call) if self.is_ident_call(call, "fail") => {
+        let b = syntax::Build::new(self.parsed.arena());
+        let stmt = b.expr_stmt(b.copy(expr));
         let (kind, message) = self.as_fail(&stmt).expect("checked");
         Ok(Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), kind: kind?, message: message? })
       }
-      js::Expr::Call(call) if self.is_session_extend(call) => {
+      js::Expression::CallExpression(call) if self.is_session_extend(call) => {
         if !self.extends {
           return Err(self.residue_with(
             call.span,
@@ -2256,27 +2454,27 @@ impl<'a> Lowerer<'a> {
             "a loader runs on every navigation, so extending there is a store write per page view; extend from an action, a route handler or middleware, which can decide when",
           ));
         }
-        let [arg] = call.args.as_slice() else {
+        let [arg] = call.arguments.as_slice() else {
           return Err(self.residue(call.span, "`session.extend` takes seconds, one number"));
         };
-        Ok(Stmt::SessionExtend { seconds: self.expr(&arg.expr)? })
+        Ok(Stmt::SessionExtend { seconds: self.expr(crate::syntax::arg_expr(arg))? })
       }
       other => Ok(Stmt::Expr(self.expr(other)?)),
     }
   }
 
   /// The argument of the global `Promise.all(...)` or, where no handler resumes later, `Promise.resolve(...)`. A body has no promise values, since a call is its answer, so the argument is what it reads as.
-  fn promise_all<'e>(&self, e: &'e js::Expr) -> Option<&'e js::Expr> {
-    let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(m) = &**callee else { return None };
-    let (js::Expr::Ident(promise), js::MemberProp::Ident(all)) = (&*m.obj, &m.prop) else { return None };
-    let settled_here = &*all.sym == "resolve" && !self.reaches(Reach::Later);
-    if promise.ctxt != self.parsed.unresolved || &*promise.sym != "Promise" || !(&*all.sym == "all" || settled_here) {
+  fn promise_all<'e>(&self, e: &'e js::Expression<'e>) -> Option<&'e js::Expression<'e>> {
+    let js::Expression::CallExpression(call) = crate::meaning::bare(e) else { return None };
+    let callee = &call.callee;
+    let Some(m) = (callee).as_member_expression() else { return None };
+    let (js::Expression::Identifier(promise), crate::syntax::MemberProp::Ident(all)) = (m.object(), crate::syntax::prop(m)) else { return None };
+    let settled_here = all.name.as_str() == "resolve" && !self.reaches(Reach::Later);
+    if self.parsed.ctxt(promise) != crate::Ctxt::Unresolved || promise.name.as_str() != "Promise" || !(all.name.as_str() == "all" || settled_here) {
       return None;
     }
-    let [arg] = call.args.as_slice() else { return None };
-    (arg.spread.is_none()).then_some(&*arg.expr)
+    let [arg] = call.arguments.as_slice() else { return None };
+    (!crate::syntax::is_spread(arg)).then_some(crate::syntax::arg_expr(arg))
   }
 
   /// Whether `name` is a binding the body declared, which a write may rebind.
@@ -2289,9 +2487,9 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `x++` or `--x` inside an expression, with `x` a local: the old value is held under a temporary, the write becomes a statement before the one holding it and the expression reads the temporary, the new value for a prefix. Only an update the statement reaches unconditionally is lifted; one under a condition or inside a function stays where it is.
-  pub(crate) fn lift_updates(&mut self, stmt: &js::Stmt, out: &mut Vec<Stmt>) -> Lowered<()> {
-    if let js::Stmt::Expr(e) = stmt {
-      if matches!(strip_parens(&e.expr), js::Expr::Update(_)) {
+  pub(crate) fn lift_updates(&mut self, stmt: &js::Statement, out: &mut Vec<Stmt>) -> Lowered<()> {
+    if let js::Statement::ExpressionStatement(e) = stmt {
+      if matches!(strip_parens(&e.expression), js::Expression::UpdateExpression(_)) {
         return Ok(());
       }
     }
@@ -2308,67 +2506,66 @@ impl<'a> Lowerer<'a> {
       let next = Expr::Arith(op, Box::new(Expr::Var(name.clone())), Box::new(Expr::Lit(Lit::Float(1.0))));
       if prefix {
         out.push(Stmt::Set { name: name.clone(), expr: next });
-        self.premade.insert((span.lo.0, span.hi.0), Expr::Var(name));
+        self.premade.insert((crate::lo(span), crate::hi(span)), Expr::Var(name));
       } else {
         let held = self.temp();
         out.push(Stmt::Let { name: held.clone(), expr: Expr::Var(name.clone()) });
         out.push(Stmt::Set { name, expr: next });
-        self.premade.insert((span.lo.0, span.hi.0), Expr::Var(held));
+        self.premade.insert((crate::lo(span), crate::hi(span)), Expr::Var(held));
       }
     }
     Ok(())
   }
 
   /// The local a write lands on: `x` or `x.field` with `x` declared in the body.
-  fn local_target(&self, target: &js::AssignTarget) -> Option<String> {
+  fn local_target(&self, target: &js::AssignmentTarget) -> Option<String> {
     match target {
-      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.is_local(id.id.sym.as_ref()).then(|| id.id.sym.to_string()),
-      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match write_root(m) {
-        Some((id, _)) if self.is_local(id.sym.as_ref()) => Some(id.sym.to_string()),
+      js::AssignmentTarget::AssignmentTargetIdentifier(id) => self.is_local(id.name.as_str()).then(|| id.name.to_string()),
+      other => match write_root(other.as_member_expression()?) {
+        Some((id, _)) if self.is_local(id.name.as_str()) => Some(id.name.to_string()),
         _ => None,
       },
-      _ => None,
     }
   }
 
   /// `current` with what `path` reaches replaced by `value`, each step on the way copied: a field as a spread with the field changed, an index through `SetAt`.
-  pub(crate) fn written_at(&mut self, current: Expr, path: &[&js::MemberExpr], value: Expr) -> Lowered<Expr> {
+  pub(crate) fn written_at(&mut self, current: Expr, path: &[&js::MemberExpression], value: Expr) -> Lowered<Expr> {
     let Some((step, rest)) = path.split_first() else { return Ok(value) };
     if let Some(field) = self.member_name(step) {
       let inner = self.written_at(current.clone().field(field.clone()), rest, value)?;
       return Ok(Expr::Object(vec![Entry::Spread(current), Entry::Field(field, inner)]));
     }
-    let js::MemberProp::Computed(key) = &step.prop else { return Err(self.residue(step.span, "a write through a private field")) };
-    let key = self.expr(&key.expr)?;
+    let crate::syntax::MemberProp::Computed(key) = crate::syntax::prop(step) else { return Err(self.residue(step.span(), "a write through a private field")) };
+    let key = self.expr(key)?;
     let inner = self.written_at(Expr::Index(Box::new(current.clone()), Box::new(key.clone())), rest, value)?;
     Ok(Expr::Builtin { name: Builtin::SetAt, args: vec![current, key, inner] })
   }
 
   /// Whether `call` is one [`Lowerer::settling`] makes an act of. An async arrow called in place is one too, since it issues an act at its first `await`.
-  pub(crate) fn issues_act(&self, call: &js::CallExpr) -> bool {
+  pub(crate) fn issues_act(&self, call: &js::CallExpression) -> bool {
     if self.async_iife(call).is_some() || self.listens(call) {
       return true;
     }
-    let js::Callee::Expr(callee) = &call.callee else { return false };
-    let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return false };
-    let settler = |e: &js::Expr| matches!(crate::meaning::bare(e), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym));
-    settler(callee) || (self.reaches(Reach::Later) && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = crate::meaning::bare(callee) else { return false };
+    let settler = |e: &js::Expression| matches!(crate::meaning::bare(e), js::Expression::Identifier(id) if self.settlers.iter().any(|s| *s == id.name.as_str()));
+    settler(callee) || (self.reaches(Reach::Later) && id.name.as_str() == "setTimeout" && self.parsed.ctxt(id) == crate::Ctxt::Unresolved && matches!(call.arguments.as_slice(), [callback, _] if settler(crate::syntax::arg_expr(callback)) || matches!(crate::meaning::bare(crate::syntax::arg_expr(callback)), js::Expression::ArrowFunctionExpression(_))))
   }
 
   /// Whether `call` is `system.spawn` from the standard module.
-  pub(crate) fn spawns(&self, call: &js::CallExpr) -> bool {
-    let js::Callee::Expr(callee) = &call.callee else { return false };
+  pub(crate) fn spawns(&self, call: &js::CallExpression) -> bool {
+    let callee = &call.callee;
     self.meanings.as_ref().is_some_and(|meanings| meanings.names_spawn(callee))
   }
 
   /// `spawn(command, args, options)` in a terminal block: a fresh process id and the act [`snapfire_fsr_ir::host::Act::Spawn`] starting it, whose value is the process, [`snapfire_fsr_ir::host::PROCESS`].
-  fn spawn_value(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+  fn spawn_value(&mut self, call: &js::CallExpression) -> Lowered<Expr> {
     let id = self.temp();
     let mut fields = vec![Entry::Field("id".to_owned(), Expr::Var(id.clone()))];
     for (i, key) in ["command", "args", "options"].iter().enumerate() {
-      let value = match call.args.get(i) {
-        Some(arg) if arg.spread.is_some() => return Err(self.residue(arg.expr.span(), "a spread into `spawn`")),
-        Some(arg) => self.expr(&arg.expr)?,
+      let value = match call.arguments.get(i) {
+        Some(arg) if crate::syntax::is_spread(arg) => return Err(self.residue(crate::syntax::arg_expr(arg).span(), "a spread into `spawn`")),
+        Some(arg) => self.expr(crate::syntax::arg_expr(arg))?,
         None => Expr::Lit(Lit::Null),
       };
       fields.push(Entry::Field((*key).to_owned(), value));
@@ -2379,22 +2576,22 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The process, the report and the listener of `sub.on(event, f)`, `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)` on a local a block bound to a spawn; also `stdout.on("resize", f)` and `stdout.off("resize", f)` on the terminal's output, `true` for `off`; the report `None` for `setEncoding`, which a terminal takes as read.
-  fn listener<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, Option<snapfire_fsr_ir::host::Report>, Option<&'c js::Expr>, bool)> {
+  fn listener<'c>(&self, call: &'c js::CallExpression<'c>) -> Option<(&'c js::Expression<'c>, Option<snapfire_fsr_ir::host::Report>, Option<&'c js::Expression<'c>>, bool)> {
     use snapfire_fsr_ir::host::Report;
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
-    let event = call.args.first().and_then(|a| string_literal(&a.expr));
+    let callee = &call.callee;
+    let Some(method) = (crate::meaning::bare(callee)).as_member_expression() else { return None };
+    let event = call.arguments.first().and_then(|a| string_literal(crate::syntax::arg_expr(a)));
     if let (Some(on @ ("on" | "off")), Some(event)) = (self.member_name(method).as_deref(), event.as_deref()) {
       if event == Report::Resize.name() {
-        return Some((&method.obj, Some(Report::Resize), call.args.get(1).map(|a| &*a.expr), on == "off"));
+        return Some((method.object(), Some(Report::Resize), call.arguments.get(1).map(|a| crate::syntax::arg_expr(a)), on == "off"));
       }
     }
-    let (process, stream) = match crate::meaning::bare(&method.obj) {
-      process @ js::Expr::Ident(id) if self.spawned.iter().any(|s| *s == *id.sym) => (process, None),
-      js::Expr::Member(inner) => match (crate::meaning::bare(&inner.obj), self.member_name(inner).as_deref()) {
-        (process @ js::Expr::Ident(id), Some(stream @ ("stdout" | "stderr"))) if self.spawned.iter().any(|s| *s == *id.sym) => (process, Some(if stream == "stdout" { Report::Stdout } else { Report::Stderr })),
+    let (process, stream) = match crate::meaning::bare(method.object()) {
+      process @ js::Expression::Identifier(id) if self.spawned.iter().any(|s| *s == id.name.as_str()) => (process, None),
+      inner_expr if inner_expr.is_member_expression() => { let inner = inner_expr.as_member_expression().expect("matched as a member"); match (crate::meaning::bare(inner.object()), self.member_name(inner).as_deref()) {
+        (process @ js::Expression::Identifier(id), Some(stream @ ("stdout" | "stderr"))) if self.spawned.iter().any(|s| *s == id.name.as_str()) => (process, Some(if stream == "stdout" { Report::Stdout } else { Report::Stderr })),
         _ => return None,
-      },
+      } },
       _ => return None,
     };
     let report = match (stream, self.member_name(method).as_deref(), event.as_deref()) {
@@ -2403,16 +2600,16 @@ impl<'a> Lowerer<'a> {
       (None, Some("on"), Some(event)) => Report::parse(event)?,
       _ => return None,
     };
-    Some((process, Some(report), call.args.get(1).map(|a| &*a.expr), false))
+    Some((process, Some(report), call.arguments.get(1).map(|a| crate::syntax::arg_expr(a)), false))
   }
 
   /// Whether `call` is a listener [`Lowerer::listener`] reads.
-  fn listens(&self, call: &js::CallExpr) -> bool {
+  fn listens(&self, call: &js::CallExpression) -> bool {
     self.reaches(Reach::Process) && self.listener(call).is_some()
   }
 
   /// A listener on a spawned process as the act [`snapfire_fsr_ir::host::Act::Listen`]. Its callback is a continuation with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` settles the promise instead. `None` for any other call.
-  fn listening(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
+  fn listening(&mut self, call: &js::CallExpression) -> Lowered<Option<Stmt>> {
     if !self.reaches(Reach::Process) {
       return Ok(None);
     }
@@ -2424,14 +2621,14 @@ impl<'a> Lowerer<'a> {
     }
     let process = self.expr(process)?;
     let mut fields = vec![Entry::Field("process".to_owned(), process), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
-    if matches!(crate::meaning::bare(callback), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym)) {
+    if matches!(crate::meaning::bare(callback), js::Expression::Identifier(id) if self.settlers.iter().any(|s| *s == id.name.as_str())) {
       fields.push(Entry::Field("settle".to_owned(), self.expr(callback)?));
       return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Listen.name().to_owned(), input: Expr::Object(fields) }));
     }
-    let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.residue(callback.span(), "a process listener that is not an arrow written in place or a promise's `resolve` or `reject`")) };
-    let params: Vec<String> = arrow.params.iter().map(|p| match p {
-      js::Pat::Ident(name) => Ok(name.id.sym.to_string()),
-      other => Err(self.residue(other.span(), "a process listener's parameter that is not a name")),
+    let js::Expression::ArrowFunctionExpression(arrow) = crate::meaning::bare(callback) else { return Err(self.residue(callback.span(), "a process listener that is not an arrow written in place or a promise's `resolve` or `reject`")) };
+    let params: Vec<String> = crate::params_of(&arrow.params).iter().map(|p| match (p.pattern, p.default.is_none() && !p.rest) {
+      (js::BindingPattern::BindingIdentifier(name), true) => Ok(name.name.to_string()),
+      _ => Err(self.residue(p.span, "a process listener's parameter that is not a name")),
     }).collect::<Lowered<_>>()?;
     let exits = matches!(report, snapfire_fsr_ir::host::Report::Exit | snapfire_fsr_ir::host::Report::Close);
     let (event, carry) = self.continuation(call.span, None, |this| {
@@ -2444,9 +2641,12 @@ impl<'a> Lowerer<'a> {
         };
         this.scope.push((param.clone(), bound));
       }
-      match &*arrow.body {
-        js::ArrowFunctionBody::FunctionBody(b) => this.async_stmts(&b.stmts),
-        js::ArrowFunctionBody::Expr(e) => this.async_stmts(&[js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })]),
+      match crate::syntax::arrow_body_of(arrow) {
+        crate::syntax::ArrowBody::Block(b) => this.async_stmts(&b.body),
+        crate::syntax::ArrowBody::Expr(e) => {
+          let b = this.build();
+          this.async_stmts(&[b.expr_stmt(b.copy(e))])
+        }
       }
     })?;
     fields.push(Entry::Field("event".to_owned(), Expr::lit_str(event)));
@@ -2455,27 +2655,30 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `p.then(f)` in a terminal page: a fresh promise and a continuation on `p` running `f` with what `p` resolved to, which settles the fresh one with what `f` returns; one `p` rejects rejects it as well.
-  fn then_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-    let (true, js::Callee::Expr(callee)) = (self.reaches(Reach::Later), &call.callee) else { return Ok(None) };
-    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return Ok(None) };
-    if self.member_name(member).as_deref() != Some("then") || call.args.len() != 1 {
+  fn then_call(&mut self, call: &js::CallExpression) -> Lowered<Option<Expr>> {
+    let (true, callee) = (self.reaches(Reach::Later), &call.callee) else { return Ok(None) };
+    let Some(member) = (crate::meaning::bare(callee)).as_member_expression() else { return Ok(None) };
+    if self.member_name(member).as_deref() != Some("then") || call.arguments.len() != 1 {
       return Ok(None);
     }
-    let Some(js::Expr::Arrow(f)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Ok(None) };
-    let awaited = self.expr(&member.obj)?;
+    let Some(js::Expression::ArrowFunctionExpression(f)) = call.arguments.first().map(|a| crate::meaning::bare(crate::syntax::arg_expr(a))) else { return Ok(None) };
+    let awaited = self.expr(member.object())?;
     let done = self.temp();
-    let param = match f.params.as_slice() {
+    let param = match crate::params_of(&f.params).as_slice() {
       [] => None,
-      [js::Pat::Ident(name)] => Some(name.id.sym.to_string()),
+      [crate::Param { pattern: js::BindingPattern::BindingIdentifier(name), default: None, rest: false, .. }] => Some(name.name.to_string()),
       _ => return Err(self.residue(call.span, "a `then` callback whose parameter is not one name")),
     };
     let finished = Expr::Var(done.clone());
     let (event, carry) = self.continuation(call.span, param, |this| {
-      let stmts = match &*f.body {
-        js::ArrowFunctionBody::FunctionBody(b) => b.stmts.clone(),
-        js::ArrowFunctionBody::Expr(e) => vec![js::Stmt::Return(js::ReturnStmt { span: e.span(), arg: Some(e.clone()) })],
+      let stmts = match crate::syntax::arrow_body_of(f) {
+        crate::syntax::ArrowBody::Block(b) => b.body,
+        crate::syntax::ArrowBody::Expr(e) => {
+          let b = this.build();
+          b.stmts([b.return_stmt(Some(b.copy(e)), e.span())])
+        }
       };
-      let ran = this.async_to(&stmts, Some(finished.clone()))?;
+      let ran = this.async_to(stmts, Some(finished.clone()))?;
       let resumed = Expr::Var("$resume".to_owned());
       let rejected = Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), finished.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(false)))])), Entry::Field("value".to_owned(), resumed.clone().field("value"))]) };
       Ok(Expr::Ternary(Box::new(resumed.field("ok")), Box::new(ran), Box::new(Expr::Block(vec![rejected]))))
@@ -2491,20 +2694,20 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Ink's `suspendTerminal(f)` in a terminal page: `f` run as an async function, then a [`snapfire_fsr_ir::host::Act::Suspend`] asking the terminal to give up the screen until `f`'s promise settles. The call's own promise settles as `f`'s does once the screen is back.
-  fn suspend_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return Ok(None) };
+  fn suspend_call(&mut self, call: &js::CallExpression) -> Lowered<Option<Expr>> {
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = crate::meaning::bare(callee) else { return Ok(None) };
     if !self.reaches(Reach::Process) {
       return Ok(None);
     }
-    let suspends = match self.scope.iter().rev().find(|(n, _)| *n == *id.sym) {
+    let suspends = match self.scope.iter().rev().find(|(n, _)| *n == id.name.as_str()) {
       Some((_, bound)) => crate::terminal::primitive_ref(bound).as_deref() == Some("suspendTerminal"),
       None => self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) == Some(&meaning::Meaning::Library(meaning::Construct::Suspend)),
     };
     if !suspends {
       return Ok(None);
     }
-    let Some(js::Expr::Arrow(f)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.residue(call.span, "`suspendTerminal` of something other than an arrow written in place")) };
+    let Some(js::Expression::ArrowFunctionExpression(f)) = call.arguments.first().map(|a| crate::meaning::bare(crate::syntax::arg_expr(a))) else { return Err(self.residue(call.span, "`suspendTerminal` of something other than an arrow written in place")) };
     let inner = self.async_value(f)?;
     let (until, settles) = (self.temp(), self.temp());
     let suspend = Stmt::Act { action: snapfire_fsr_ir::host::Act::Suspend.name().to_owned(), input: Expr::Object(vec![Entry::Field("until".to_owned(), Expr::Var(until.clone())), Entry::Field("settles".to_owned(), Expr::Var(settles.clone()))]) };
@@ -2512,31 +2715,34 @@ impl<'a> Lowerer<'a> {
   }
 
   /// An async arrow as a value: its statements run as an async function. The promise it returns settles with what the function returns; it rejects with what an awaited promise the function does not catch rejects with.
-  pub(crate) fn async_value(&mut self, f: &js::ArrowExpr) -> Lowered<Expr> {
+  pub(crate) fn async_value(&mut self, f: &js::ArrowFunctionExpression) -> Lowered<Expr> {
     let done = self.temp();
-    let ran = match &*f.body {
-      js::ArrowFunctionBody::FunctionBody(b) => self.async_to(&b.stmts, Some(Expr::Var(done.clone())))?,
-      js::ArrowFunctionBody::Expr(e) => self.async_to(&[js::Stmt::Return(js::ReturnStmt { span: e.span(), arg: Some(e.clone()) })], Some(Expr::Var(done.clone())))?,
+    let ran = match crate::syntax::arrow_body_of(f) {
+      crate::syntax::ArrowBody::Block(b) => self.async_to(&b.body, Some(Expr::Var(done.clone())))?,
+      crate::syntax::ArrowBody::Expr(e) => {
+        let b = self.build();
+        self.async_to(&[b.return_stmt(Some(b.copy(e)), e.span())], Some(Expr::Var(done.clone())))?
+      }
     };
     Ok(Expr::Block(vec![Stmt::Let { name: done.clone(), expr: self.new_deferred() }, Stmt::Expr(ran), Stmt::Return(Expr::Var(done))]))
   }
 
   /// `(async () => { … })()`: an async arrow called where it is written, in a terminal page.
-  pub(crate) fn async_iife<'c>(&self, call: &'c js::CallExpr) -> Option<&'c js::ArrowExpr> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
+  pub(crate) fn async_iife<'c>(&self, call: &'c js::CallExpression<'c>) -> Option<&'c js::ArrowFunctionExpression<'c>> {
+    let callee = &call.callee;
     match crate::meaning::bare(callee) {
-      js::Expr::Arrow(arrow) if self.reaches(Reach::Later) && arrow.is_async && call.args.is_empty() && arrow.params.is_empty() => Some(arrow),
+      js::Expression::ArrowFunctionExpression(arrow) if self.reaches(Reach::Later) && arrow.r#async && call.arguments.is_empty() && crate::params_of(&arrow.params).is_empty() => Some(arrow),
       _ => None,
     }
   }
 
   /// An async function's statements run as far as its first `await`, which hands the awaited promise a continuation, [`snapfire_fsr_ir::host::Act::Then`], holding the rest. The rest lowers as a handler named [`snapfire_fsr_ir::host::Event::Resume`] in [`Lowerer::continuations`]; the names it reads that are not module cells are carried to it with the act.
-  pub(crate) fn async_stmts(&mut self, stmts: &[js::Stmt]) -> Lowered<Expr> {
+  pub(crate) fn async_stmts(&mut self, stmts: &[js::Statement]) -> Lowered<Expr> {
     self.async_to(stmts, None)
   }
 
   /// [`Lowerer::async_stmts`] for a function whose promise is `done`: what it returns settles it; an awaited promise that rejects rejects it.
-  pub(crate) fn async_to(&mut self, stmts: &[js::Stmt], done: Option<Expr>) -> Lowered<Expr> {
+  pub(crate) fn async_to(&mut self, stmts: &[js::Statement], done: Option<Expr>) -> Lowered<Expr> {
     let floor = self.async_floor.replace(self.scope.len());
     let tail = self.loop_tail.take();
     let lowered = self.async_caught(stmts, done, None);
@@ -2546,7 +2752,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// [`Lowerer::async_to`] inside `catch`, where an awaited promise among the statements it covers that rejects runs the `catch` instead.
-  fn async_caught(&mut self, stmts: &[js::Stmt], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
+  fn async_caught(&mut self, stmts: &[js::Statement], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
     let depth = self.scope.len();
     let lowered = self.async_to_in(stmts, done, catch);
     self.scope.truncate(depth);
@@ -2554,7 +2760,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A loop that awaits. Its head is a continuation named for the loop, run through `$run` with the live locals carried: when the test holds it runs one pass, the body and the step, whose every way through ends by running the head again; otherwise it runs the statements after the loop. The locals the head reads are carried by value, so a `let` the body writes reaches the next pass and the statements after.
-  fn awaiting_loop_in(&mut self, stmts: &[js::Stmt], at: usize, looped: AwaitingLoop, done: Option<Expr>, inside: Option<AsyncCatch>) -> Lowered<Expr> {
+  fn awaiting_loop_in(&mut self, stmts: &[js::Statement], at: usize, looped: AwaitingLoop, done: Option<Expr>, inside: Option<AsyncCatch>) -> Lowered<Expr> {
     if looped.exits_deep {
       return Err(self.residue(looped.span, "a `break` inside a loop that awaits or a `continue` or `return` deeper than an `if` at the top of its body"));
     }
@@ -2563,7 +2769,7 @@ impl<'a> Lowerer<'a> {
     }
     let before = self.before_await(&stmts[..at])?;
     let init = self.before_await(&looped.init)?;
-    let event = snapfire_fsr_ir::host::Event::Resume(format!("{}@{}", self.parsed.file, looped.span.lo.0)).name();
+    let event = snapfire_fsr_ir::host::Event::Resume(format!("{}@{}", self.parsed.file, crate::lo(looped.span))).name();
     // Every variable in scope is carried, the function's promise among them: a pass may read or write any of them and a copy of one it does not touch costs nothing.
     let mut carried: Vec<String> = self.scope.iter().filter_map(|(name, expr)| matches!(expr, Expr::Var(var) if var == name).then(|| name.clone())).collect();
     if let Some(done) = &done {
@@ -2601,7 +2807,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The statements before an `await`, as `let`s and effects whose names stay in scope for the awaited value and the continuation.
-  fn before_await(&mut self, stmts: &[js::Stmt]) -> Lowered<Expr> {
+  fn before_await(&mut self, stmts: &[js::Statement]) -> Lowered<Expr> {
     let mut out = Vec::with_capacity(stmts.len());
     for stmt in stmts {
       out.push(self.stmt(stmt)?);
@@ -2609,17 +2815,17 @@ impl<'a> Lowerer<'a> {
     Ok(Expr::Block(out))
   }
 
-  fn async_to_in(&mut self, stmts: &[js::Stmt], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
+  fn async_to_in(&mut self, stmts: &[js::Statement], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
     let settle = |done: &Expr, ok: bool, value: Expr| Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), done.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))])), Entry::Field("value".to_owned(), value)]) };
     let in_pass = self.loop_tail.is_some();
     let Some(at) = stmts.iter().position(|s| awaits(s) || (in_pass && if_ends_in_return(s))) else {
       if let Some(LoopTail { event, carry, done: promise }) = self.loop_tail.clone() {
         // A `return` in the pass settles the function's promise with its value and the loop is done; any other end of the pass runs the head again.
-        if let Some(at) = stmts.iter().position(|s| matches!(s, js::Stmt::Return(_))) {
-          let js::Stmt::Return(ret) = &stmts[at] else { unreachable!("found a return") };
+        if let Some(at) = stmts.iter().position(|s| matches!(s, js::Statement::ReturnStatement(_))) {
+          let js::Statement::ReturnStatement(ret) = &stmts[at] else { unreachable!("found a return") };
           let Some(promise) = promise else { return Err(self.residue(ret.span, "a `return` inside a loop that awaits, in a function with no promise to settle")) };
           let ran = self.before_await(&stmts[..at])?;
-          let value = match &ret.arg {
+          let value = match &ret.argument {
             Some(arg) => self.expr(arg)?,
             None => Expr::Lit(Lit::Undefined),
           };
@@ -2641,72 +2847,78 @@ impl<'a> Lowerer<'a> {
       });
     };
     let inside = catch.filter(|catch| at < catch.covers);
-    if let Some(looped) = awaiting_loop(&stmts[at], self.parsed.top) {
+    if let Some(looped) = awaiting_loop(self.parsed, &stmts[at]) {
       return self.awaiting_loop_in(stmts, at, looped, done, inside);
     }
-    if let js::Stmt::Try(t) = &stmts[at] {
+    if let js::Statement::TryStatement(t) = &stmts[at] {
       if inside.is_some() {
         return Err(self.residue(t.span, "a `try` that awaits inside another"));
       }
-      let finally: Vec<js::Stmt> = t.finalizer.iter().flat_map(|f| f.stmts.iter().cloned()).collect();
-      if !finally.is_empty() && (t.block.stmts.iter().any(crate::component::holds_return) || t.handler.iter().any(|h| h.body.stmts.iter().any(crate::component::holds_return))) {
+      let b = self.build();
+      let finally: Vec<js::Statement<'a>> = t.finalizer.iter().flat_map(|f| f.body.iter().map(|s| b.copy(s))).collect();
+      if !finally.is_empty() && (t.block.body.iter().any(crate::component::holds_return) || t.handler.iter().any(|h| h.body.body.iter().any(crate::component::holds_return))) {
         return Err(self.residue(t.span, "a `return` inside a `try` whose `finally` follows an `await`"));
       }
       let before = self.before_await(&stmts[..at])?;
-      let after: Vec<js::Stmt> = finally.iter().chain(&stmts[at + 1..]).cloned().collect();
+      let after: Vec<js::Statement<'a>> = finally.iter().map(|s| b.copy(s)).chain(stmts[at + 1..].iter().map(|s| b.copy(s))).collect();
       let rethrown = |covers: usize| {
-        let name = format!("$finally{}", t.span.lo.0);
-        let thrown = js::Stmt::Throw(js::ThrowStmt { span: t.span, arg: Box::new(js::Expr::Ident(js::Ident::new_no_ctxt(name.as_str().into(), t.span))) });
-        AsyncCatch { param: Some(name), body: finally.iter().cloned().chain(std::iter::once(thrown)).collect(), covers, inner: None }
+        let name = format!("$finally{}", crate::lo(t.span));
+        let thrown = js::Statement::new_throw_statement(t.span, b.ident(&name, t.span), &b.ast());
+        AsyncCatch { param: Some(name), body: b.stmts(finally.iter().map(|s| b.copy(s)).chain(std::iter::once(thrown))), covers, inner: None }
       };
       let catch = match &t.handler {
         Some(handler) => {
-          let param = match &handler.param {
+          let param = match handler.param.as_ref().map(|p| &p.pattern) {
             None => None,
-            Some(js::Pat::Ident(name)) => Some(name.id.sym.to_string()),
+            Some(js::BindingPattern::BindingIdentifier(name)) => Some(name.name.to_string()),
             Some(other) => return Err(self.residue(other.span(), "a `catch` parameter that is not a name")),
           };
-          let inner = (!finally.is_empty()).then(|| Box::new(rethrown(handler.body.stmts.len())));
-          AsyncCatch { param, body: handler.body.stmts.iter().chain(&after).cloned().collect(), covers: t.block.stmts.len(), inner }
+          let inner = (!finally.is_empty()).then(|| Box::new(rethrown(handler.body.body.len())));
+          AsyncCatch { param, body: b.stmts(handler.body.body.iter().chain(&after).map(|s| b.copy(s))), covers: t.block.body.len(), inner }
         }
-        None => rethrown(t.block.stmts.len()),
+        None => rethrown(t.block.body.len()),
       };
-      let body: Vec<js::Stmt> = t.block.stmts.iter().chain(&after).cloned().collect();
+      let body: Vec<js::Statement<'a>> = t.block.body.iter().chain(&after).map(|s| b.copy(s)).collect();
       let ran = self.async_caught(&body, done, Some(catch))?;
       return Ok(spliced(before, vec![Stmt::Expr(ran)]));
     }
-    if let js::Stmt::If(branch) = &stmts[at] {
+    if let js::Statement::IfStatement(branch) = &stmts[at] {
       let before = self.before_await(&stmts[..at])?;
       let cond = self.expr(&branch.test)?;
-      let arm = |this: &mut Self, arm: Option<&js::Stmt>| -> Lowered<Expr> {
-        let mut joined: Vec<js::Stmt> = match arm {
-          Some(js::Stmt::Block(block)) => block.stmts.clone(),
-          Some(other) => vec![other.clone()],
+      let b = self.build();
+      let arm = |this: &mut Self, arm: Option<&js::Statement>| -> Lowered<Expr> {
+        let mut joined: Vec<js::Statement<'a>> = match arm {
+          Some(js::Statement::BlockStatement(block)) => block.body.iter().map(|s| b.copy(s)).collect(),
+          Some(other) => vec![b.copy(other)],
           None => Vec::new(),
         };
         let covered = inside.clone().map(|catch| AsyncCatch { covers: joined.len() + catch.covers - at - 1, ..catch });
-        joined.extend(stmts[at + 1..].iter().cloned());
+        joined.extend(stmts[at + 1..].iter().map(|s| b.copy(s)));
         this.async_caught(&joined, done.clone(), covered)
       };
-      let then = arm(self, Some(&branch.cons))?;
-      let otherwise = arm(self, branch.alt.as_deref())?;
+      let then = arm(self, Some(&branch.consequent))?;
+      let otherwise = arm(self, branch.alternate.as_ref())?;
       return Ok(spliced(before, vec![Stmt::If { cond, then: vec![Stmt::Expr(then)], r#else: vec![Stmt::Expr(otherwise)] }]));
     }
     let (awaited, bound, assigned) = match &stmts[at] {
-      js::Stmt::Expr(e) => match crate::meaning::bare(&e.expr) {
-        js::Expr::Await(a) => (&*a.arg, None, None),
-        js::Expr::Assign(assign) if assign.op == js::AssignOp::Assign && matches!(crate::meaning::bare(&assign.right), js::Expr::Await(_)) => {
-          let js::Expr::Await(a) = crate::meaning::bare(&assign.right) else { unreachable!("matched an await") };
-          let hidden = format!("$await{}", e.span.lo.0);
-          let value = js::Expr::Ident(js::Ident::new(hidden.clone().into(), e.span, self.parsed.top));
-          let assigned = js::Stmt::Expr(js::ExprStmt { span: e.span, expr: Box::new(js::Expr::Assign(js::AssignExpr { span: assign.span, op: assign.op, left: assign.left.clone(), right: Box::new(value) })) });
-          (&*a.arg, Some(hidden), Some(assigned))
+      js::Statement::ExpressionStatement(e) => match crate::meaning::bare(&e.expression) {
+        js::Expression::AwaitExpression(a) => (&a.argument, None, None),
+        js::Expression::AssignmentExpression(assign) if assign.operator == js::AssignmentOperator::Assign && matches!(crate::meaning::bare(&assign.right), js::Expression::AwaitExpression(_)) => {
+          let js::Expression::AwaitExpression(a) = crate::meaning::bare(&assign.right) else { unreachable!("matched an await") };
+          let hidden = format!("$await{}", crate::lo(e.span));
+          let b = self.build();
+          let value = b.ident(&hidden, e.span);
+          if let js::Expression::Identifier(id) = &value {
+            self.parsed.scope.mark_top(id);
+          }
+          let assigned = b.expr_stmt(js::Expression::new_assignment_expression(assign.span, assign.operator, b.copy(&assign.left), value, &b.ast()));
+          (&a.argument, Some(hidden), Some(assigned))
         }
         _ => return Err(self.residue(e.span, "an `await` inside an expression; await as a statement, a `const`'s value or an assignment")),
       },
-      js::Stmt::Decl(js::Decl::Var(var)) => match (var.decls.as_slice(), var.decls.first().and_then(|d| d.init.as_deref()).map(crate::meaning::bare)) {
-        ([decl], Some(js::Expr::Await(a))) => match &decl.name {
-          js::Pat::Ident(name) => (&*a.arg, Some(name.id.sym.to_string()), None),
+      js::Statement::VariableDeclaration(var) => match (var.declarations.as_slice(), var.declarations.first().and_then(|d| d.init.as_ref()).map(crate::meaning::bare)) {
+        ([decl], Some(js::Expression::AwaitExpression(a))) => match &decl.id {
+          js::BindingPattern::BindingIdentifier(name) => (&a.argument, Some(name.name.to_string()), None),
           _ => return Err(self.residue(decl.span, "an awaited value bound to a pattern")),
         },
         _ => return Err(self.residue(var.span, "an `await` inside an expression; await as a statement, a `const`'s value or an assignment")),
@@ -2716,7 +2928,8 @@ impl<'a> Lowerer<'a> {
     let before = self.before_await(&stmts[..at])?;
     let deferred = self.expr(awaited)?;
     let prepended = assigned.is_some() as usize;
-    let joined: Vec<js::Stmt> = assigned.into_iter().chain(stmts[at + 1..].iter().cloned()).collect();
+    let b = self.build();
+    let joined: Vec<js::Statement<'a>> = assigned.into_iter().chain(stmts[at + 1..].iter().map(|s| b.copy(s))).collect();
     let rest = &joined[..];
     let (event, carry) = self.continuation(stmts[at].span(), bound, |this| {
       let resumed = Expr::Var("$resume".to_owned());
@@ -2766,7 +2979,7 @@ impl<'a> Lowerer<'a> {
     }
     body.push(Stmt::Expr(rest));
     body.push(Stmt::Return(Expr::Object(Vec::new())));
-    let event = snapfire_fsr_ir::host::Event::Resume(format!("{}@{}", self.parsed.file, at.lo.0)).name();
+    let event = snapfire_fsr_ir::host::Event::Resume(format!("{}@{}", self.parsed.file, crate::lo(at))).name();
     if !self.continuations.iter().any(|held| held.event == event) {
       self.continuations.push(snapfire_fsr_ir::ast::Handler { event: event.clone(), body });
     }
@@ -2775,30 +2988,33 @@ impl<'a> Lowerer<'a> {
   }
 
   /// In a promise's executor, `resolve(v)` or `reject(e)` as an [`snapfire_fsr_ir::host::Act::Settle`] and `setTimeout(resolve, ms)` as a timer that settles; `None` for any other call.
-  fn settling(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return Ok(None) };
-    let settler = |this: &Self, e: &js::Expr| matches!(crate::meaning::bare(e), js::Expr::Ident(id) if this.settlers.iter().any(|s| *s == *id.sym));
+  fn settling(&mut self, call: &js::CallExpression) -> Lowered<Option<Stmt>> {
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = crate::meaning::bare(callee) else { return Ok(None) };
+    let settler = |this: &Self, e: &js::Expression| matches!(crate::meaning::bare(e), js::Expression::Identifier(id) if this.settlers.iter().any(|s| *s == id.name.as_str()));
     if settler(self, callee) {
-      let value = match call.args.first() {
-        Some(arg) => self.expr(&arg.expr)?,
+      let value = match call.arguments.first() {
+        Some(arg) => self.expr(crate::syntax::arg_expr(arg))?,
         None => Expr::Lit(Lit::Null),
       };
       let settle = self.expr(callee)?;
       let input = Expr::Object(vec![Entry::Field("settle".to_owned(), settle), Entry::Field("value".to_owned(), value)]);
       return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input }));
     }
-    if id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && self.reaches(Reach::Later) {
-      if let [callback, delay] = call.args.as_slice() {
-        if settler(self, &callback.expr) {
-          let input = Expr::Object(vec![Entry::Field("settle".to_owned(), self.expr(&callback.expr)?), Entry::Field("ms".to_owned(), self.expr(&delay.expr)?)]);
+    if id.name.as_str() == "setTimeout" && self.parsed.ctxt(id) == crate::Ctxt::Unresolved && self.reaches(Reach::Later) {
+      if let [callback, delay] = call.arguments.as_slice() {
+        if settler(self, crate::syntax::arg_expr(callback)) {
+          let input = Expr::Object(vec![Entry::Field("settle".to_owned(), self.expr(crate::syntax::arg_expr(callback))?), Entry::Field("ms".to_owned(), self.expr(crate::syntax::arg_expr(delay))?)]);
           return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Timer.name().to_owned(), input }));
         }
-        if let js::Expr::Arrow(arrow) = crate::meaning::bare(&callback.expr) {
-          let ms = self.expr(&delay.expr)?;
-          let (event, carry) = self.continuation(call.span, None, |this| match &*arrow.body {
-            js::ArrowFunctionBody::FunctionBody(b) => this.async_stmts(&b.stmts),
-            js::ArrowFunctionBody::Expr(e) => this.async_stmts(&[js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })]),
+        if let js::Expression::ArrowFunctionExpression(arrow) = crate::meaning::bare(crate::syntax::arg_expr(callback)) {
+          let ms = self.expr(crate::syntax::arg_expr(delay))?;
+          let (event, carry) = self.continuation(call.span, None, |this| match crate::syntax::arrow_body_of(arrow) {
+            crate::syntax::ArrowBody::Block(b) => this.async_stmts(&b.body),
+            crate::syntax::ArrowBody::Expr(e) => {
+          let b = this.build();
+          this.async_stmts(&[b.expr_stmt(b.copy(e))])
+        }
           })?;
           let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), ms), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("carry".to_owned(), carry)]);
           return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Timer.name().to_owned(), input }));
@@ -2810,33 +3026,29 @@ impl<'a> Lowerer<'a> {
 
   /// `x = e`, `x += e` and their kin on a local; `x.field = e` rebinds `x` to a copy with that field.
   /// The handle of the cell an assignment writes, when it writes a name held in one or a path into one.
-  pub(crate) fn cell_of_target(&self, target: &js::AssignTarget) -> Option<Expr> {
+  pub(crate) fn cell_of_target(&self, target: &js::AssignmentTarget) -> Option<Expr> {
     let id = match target {
-      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => &id.id,
-      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) => write_root(member)?.0,
-      _ => return None,
+      js::AssignmentTarget::AssignmentTargetIdentifier(id) => &**id,
+      other => write_root(other.as_member_expression()?)?.0,
     };
-    self.cells.iter().rev().find(|(name, _)| *name == *id.sym).map(|(_, handle)| handle.clone())
+    self.cells.iter().rev().find(|(name, _)| *name == id.name.as_str()).map(|(_, handle)| handle.clone())
   }
 
-  fn local_assign(&mut self, assign: &js::AssignExpr) -> Lowered<Stmt> {
+  fn local_assign(&mut self, assign: &js::AssignmentExpression) -> Lowered<Stmt> {
     let name = self.local_target(&assign.left).expect("checked");
-    let read = match &assign.left {
-      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => js::Expr::Ident(id.id.clone()),
-      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => js::Expr::Member(m.clone()),
-      _ => unreachable!("local_target answers for these two"),
-    };
-    let value = match assign.op.to_update() {
+    let b = syntax::Build::new(self.parsed.arena());
+    let read = syntax::target_expr(b, &assign.left).expect("local_target answers for a name or a path");
+    let value = match syntax::compound(b, assign.operator, b.copy(&read), b.copy(&assign.right), assign.span) {
       None => self.expr(&assign.right)?,
-      Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(read.clone()), right: assign.right.clone() }))?,
+      Some(computed) => self.expr(&computed)?,
     };
-    let js::Expr::Member(member) = &read else {
+    let Some(member) = (&read).as_member_expression() else {
       return Ok(Stmt::Set { name, expr: value });
     };
-    if let (Some(Kind::Url), js::Expr::Ident(_), js::MemberProp::Ident(part)) = (self.kind_of(&member.obj), &*member.obj, &member.prop) {
-      let part = part.sym.to_string();
+    if let (Some(Kind::Url), js::Expression::Identifier(_), crate::syntax::MemberProp::Ident(part)) = (self.kind_of(member.object()), member.object(), crate::syntax::prop(member)) {
+      let part = part.name.to_string();
       if part == "origin" || !URL_PARTS.contains(&part.as_str()) && part != "href" {
-        return Err(self.residue(member.span, format!("a write to `.{part}` of a `URL`")));
+        return Err(self.residue(member.span(), format!("a write to `.{part}` of a `URL`")));
       }
       return Ok(Stmt::Set { expr: Expr::Builtin { name: Builtin::UrlSet, args: vec![Expr::Var(name.clone()), Expr::lit_str(&part), value] }, name });
     }
@@ -2847,10 +3059,10 @@ impl<'a> Lowerer<'a> {
 
   /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` a local collection: the local, which kind it is and the method.
   /// `held` after `call` changes it, a collection of `kind`.
-  pub(crate) fn collection_written(&mut self, call: &js::CallExpr, kind: Kind, method: &str, held: Expr) -> Lowered<Expr> {
+  pub(crate) fn collection_written(&mut self, call: &js::CallExpression, kind: Kind, method: &str, held: Expr) -> Lowered<Expr> {
     let arg = |this: &mut Self, i: usize| -> Lowered<Expr> {
-      let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
-      this.expr(&a.expr)
+      let a = call.arguments.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
+      this.expr(crate::syntax::arg_expr(a))
     };
     let written = match (kind, method) {
       (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Builtin { name: Builtin::MapKey, args: vec![arg(self, 0)?] }, arg(self, 1)?)]),
@@ -2871,98 +3083,100 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` held in a cell: the cell's handle, the collection's kind and the method.
-  fn cell_collection_write(&self, call: &js::CallExpr) -> Option<(Expr, Kind, String)> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(member) = &**callee else { return None };
-    let js::Expr::Ident(obj) = &*member.obj else { return None };
-    let handle = self.cells.iter().rev().find(|(name, _)| *name == *obj.sym).map(|(_, handle)| handle.clone())?;
-    let kind = self.kind_of(&member.obj)?;
+  fn cell_collection_write(&self, call: &js::CallExpression) -> Option<(Expr, Kind, String)> {
+    let callee = &call.callee;
+    let Some(member) = (callee).as_member_expression() else { return None };
+    let js::Expression::Identifier(obj) = member.object() else { return None };
+    let handle = self.cells.iter().rev().find(|(name, _)| *name == obj.name.as_str()).map(|(_, handle)| handle.clone())?;
+    let kind = self.kind_of(member.object())?;
     let method = self.member_name(member)?;
     matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear").then_some((handle, kind, method))
   }
 
   /// `url.searchParams.set(k, v)`, `.append(k, v)` or `.delete(k)` with `url` a local `URL`: the local and the method.
-  fn local_url_search_write(&self, call: &js::CallExpr) -> Option<(String, String)> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(member) = &**callee else { return None };
-    let js::Expr::Member(params) = &*member.obj else { return None };
-    let (js::Expr::Ident(url), js::MemberProp::Ident(prop)) = (&*params.obj, &params.prop) else { return None };
+  fn local_url_search_write(&self, call: &js::CallExpression) -> Option<(String, String)> {
+    let callee = &call.callee;
+    let Some(member) = (callee).as_member_expression() else { return None };
+    let Some(params) = (member.object()).as_member_expression() else { return None };
+    let (js::Expression::Identifier(url), crate::syntax::MemberProp::Ident(prop)) = (params.object(), crate::syntax::prop(params)) else { return None };
     let method = self.member_name(member)?;
-    (&*prop.sym == "searchParams" && self.kind_of(&params.obj) == Some(Kind::Url) && self.is_local(url.sym.as_ref()) && matches!(method.as_str(), "set" | "append" | "delete")).then(|| (url.sym.to_string(), method))
+    (prop.name.as_str() == "searchParams" && self.kind_of(params.object()) == Some(Kind::Url) && self.is_local(url.name.as_str()) && matches!(method.as_str(), "set" | "append" | "delete")).then(|| (url.name.to_string(), method))
   }
 
   /// `m.set(k, v)` and its kin on a name bound nowhere here, which may be a module-level collection the set binds and retries with: the name and its span.
-  fn unbound_collection_write(&self, call: &js::CallExpr) -> Option<(String, Span)> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(member) = &**callee else { return None };
-    let js::Expr::Ident(obj) = &*member.obj else { return None };
+  fn unbound_collection_write(&self, call: &js::CallExpression) -> Option<(String, Span)> {
+    let callee = &call.callee;
+    let Some(member) = (callee).as_member_expression() else { return None };
+    let js::Expression::Identifier(obj) = member.object() else { return None };
     let method = self.member_name(member)?;
-    if !matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear") || obj.ctxt == self.parsed.unresolved {
+    if !matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear") || self.parsed.ctxt(obj) == crate::Ctxt::Unresolved {
       return None;
     }
-    let name = obj.sym.as_ref();
+    let name = obj.name.as_str();
     let bound = self.scope.iter().any(|(n, _)| n == name) || self.globals.iter().any(|(n, _)| n == name) || self.cells.iter().any(|(n, _)| n == name);
     (!bound).then(|| (name.to_owned(), obj.span))
   }
 
-  fn local_collection_write(&self, call: &js::CallExpr) -> Option<(String, Kind, String)> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(member) = &**callee else { return None };
-    let js::Expr::Ident(obj) = &*member.obj else { return None };
-    let kind = self.kind_of(&member.obj)?;
+  fn local_collection_write(&self, call: &js::CallExpression) -> Option<(String, Kind, String)> {
+    let callee = &call.callee;
+    let Some(member) = (callee).as_member_expression() else { return None };
+    let js::Expression::Identifier(obj) = member.object() else { return None };
+    let kind = self.kind_of(member.object())?;
     let method = self.member_name(member)?;
-    (matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear") && self.is_local(obj.sym.as_ref())).then(|| (obj.sym.to_string(), kind, method))
+    (matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear") && self.is_local(obj.name.as_str())).then(|| (obj.name.to_string(), kind, method))
   }
 
   /// `x.push(...)` or `x.unshift(...)` with `x` a local: the local and the method.
-  fn local_push(&self, call: &js::CallExpr) -> Option<(String, String)> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(member) = &**callee else { return None };
-    let js::Expr::Ident(obj) = &*member.obj else { return None };
+  fn local_push(&self, call: &js::CallExpression) -> Option<(String, String)> {
+    let callee = &call.callee;
+    let Some(member) = (callee).as_member_expression() else { return None };
+    let js::Expression::Identifier(obj) = member.object() else { return None };
     let method = self.member_name(member)?;
-    (matches!(method.as_str(), "push" | "unshift") && self.is_local(obj.sym.as_ref())).then(|| (obj.sym.to_string(), method))
+    (matches!(method.as_str(), "push" | "unshift") && self.is_local(obj.name.as_str())).then(|| (obj.name.to_string(), method))
   }
 
   /// `session.extend(...)` or `ctx.session.extend(...)`.
-  fn is_session_extend(&self, call: &js::CallExpr) -> bool {
-    let js::Callee::Expr(callee) = &call.callee else { return false };
-    let js::Expr::Member(member) = &**callee else { return false };
+  fn is_session_extend(&self, call: &js::CallExpression) -> bool {
+    let callee = &call.callee;
+    let Some(member) = (callee).as_member_expression() else { return false };
     if self.member_name(member).as_deref() != Some("extend") {
       return false;
     }
-    match &*member.obj {
-      js::Expr::Ident(id) => self.root_of(id) == Some(Root::Session),
-      js::Expr::Member(via) => {
-        let js::Expr::Ident(id) = &*via.obj else { return false };
+    match member.object() {
+      js::Expression::Identifier(id) => self.root_of(id) == Some(Root::Session),
+      via_expr if via_expr.is_member_expression() => {
+let via = via_expr.as_member_expression().expect("matched as a member");
+        let js::Expression::Identifier(id) = via.object() else { return false };
         self.root_of(id) == Some(Root::Ctx) && self.member_name(via).as_deref() == Some("session")
       }
       _ => false,
     }
   }
 
-  fn is_ident_call(&self, call: &js::CallExpr, name: &str) -> bool {
-    matches!(&call.callee, js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(id) if id.sym.as_ref() == name))
+  fn is_ident_call(&self, call: &js::CallExpression, name: &str) -> bool {
+    matches!(&call.callee, js::Expression::Identifier(id) if id.name.as_str() == name)
   }
 
   /// `session.key`, `session.key.sub`, `session.key[expr]` or the same
   /// through `ctx.session`. Returns the key and the path beneath it.
-  fn session_target(&mut self, member: &js::MemberExpr) -> Lowered<(String, Vec<Expr>)> {
-    let mut chain = Vec::new();
-    let mut current: &js::Expr = &js::Expr::Member(member.clone());
+  fn session_target(&mut self, member: &js::MemberExpression) -> Lowered<(String, Vec<Expr>)> {
+    let mut chain = vec![member];
+    let mut current = member.object();
     let root_ident = loop {
       match current {
-        js::Expr::Member(m) => {
-          chain.push(m);
-          current = &m.obj;
-        }
-        js::Expr::OptChain(o) => match &*o.base {
-          js::OptChainBase::Member(m) => {
+        js::Expression::ChainExpression(o) => match o.expression.as_member_expression() {
+          Some(m) => {
             chain.push(m);
-            current = &m.obj;
+            current = m.object();
           }
-          js::OptChainBase::Call(call) => return Err(self.residue(call.span, "a call inside a session path")),
+          None => return Err(self.residue(o.expression.span(), "a call inside a session path")),
         },
-        js::Expr::Ident(id) => break id,
+        js::Expression::Identifier(id) => break id,
+        m_expr if m_expr.is_member_expression() => {
+          let m = m_expr.as_member_expression().expect("matched as a member");
+          chain.push(m);
+          current = m.object();
+        }
         other => return Err(self.residue(other.span(), "a session write must start at `session`")),
       }
     };
@@ -2972,54 +3186,54 @@ impl<'a> Lowerer<'a> {
     let first = match root {
       Some(Root::Session) => steps.next(),
       Some(Root::Ctx) => {
-        let via = steps.next().ok_or_else(|| self.residue(member.span, "a write to `ctx` itself"))?;
+        let via = steps.next().ok_or_else(|| self.residue(member.span(), "a write to `ctx` itself"))?;
         if self.member_name(via).as_deref() != Some("session") {
-          return Err(self.residue(via.span, "a write to something other than the session"));
+          return Err(self.residue(via.span(), "a write to something other than the session"));
         }
         steps.next()
       }
       _ => return Err(self.residue(root_ident.span, "a session write must start at `session`")),
     };
     let Some(first) = first else {
-      return Err(self.residue(member.span, "a write to the whole session; write one key"));
+      return Err(self.residue(member.span(), "a write to the whole session; write one key"));
     };
-    let key = self.member_name(first).ok_or_else(|| self.residue(first.span, "the session key must be a name"))?;
+    let key = self.member_name(first).ok_or_else(|| self.residue(first.span(), "the session key must be a name"))?;
     let mut path = Vec::new();
     for step in steps {
-      path.push(match &step.prop {
-        js::MemberProp::Ident(id) => Expr::Lit(Lit::Str(id.sym.to_string())),
-        js::MemberProp::Computed(c) => self.expr(&c.expr)?,
-        js::MemberProp::PrivateName(p) => return Err(self.residue(p.span, "a private name")),
+      path.push(match crate::syntax::prop(step) {
+        crate::syntax::MemberProp::Ident(id) => Expr::Lit(Lit::Str(id.name.to_string())),
+        crate::syntax::MemberProp::Computed(c) => self.expr(c)?,
+        crate::syntax::MemberProp::Private(p) => return Err(self.residue(p.span, "a private name")),
       });
     }
     Ok((key, path))
   }
 
-  fn member_name(&self, member: &js::MemberExpr) -> Option<String> {
-    match &member.prop {
-      js::MemberProp::Ident(id) => Some(id.sym.to_string()),
+  fn member_name(&self, member: &js::MemberExpression) -> Option<String> {
+    match crate::syntax::prop(member) {
+      crate::syntax::MemberProp::Ident(id) => Some(id.name.to_string()),
       _ => None,
     }
   }
 
   /// Whether `call` is middleware's `next(...)` or `ctx.next(...)`.
-  fn calls_next(&self, call: &js::CallExpr) -> bool {
-    let js::Callee::Expr(callee) = &call.callee else { return false };
+  fn calls_next(&self, call: &js::CallExpression) -> bool {
+    let callee = &call.callee;
     match crate::meaning::bare(callee) {
-      js::Expr::Ident(id) => self.root_of(id) == Some(Root::Next),
-      js::Expr::Member(m) => self.middleware && matches!((&*m.obj, &m.prop), (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) if self.root_of(obj) == Some(Root::Ctx) && &*prop.sym == "next"),
+      js::Expression::Identifier(id) => self.root_of(id) == Some(Root::Next),
+      m_expr if m_expr.is_member_expression() => { let m = m_expr.as_member_expression().expect("matched as a member"); self.middleware && matches!((m.object(), crate::syntax::prop(m)), (js::Expression::Identifier(obj), crate::syntax::MemberProp::Ident(prop)) if self.root_of(obj) == Some(Root::Ctx) && prop.name.as_str() == "next") },
       _ => false,
     }
   }
 
   /// `response.headers.get(name)` or `.has(name)` on a `Response`; `None` for any other call.
-  fn response_header_read(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+  fn response_header_read(&mut self, call: &js::CallExpression) -> Lowered<Option<Expr>> {
     let Some((response, op, args)) = self.response_headers_call(call) else { return Ok(None) };
     if !matches!(op.as_str(), "get" | "has") {
       return Err(self.residue(call.span, format!("`headers.{op}` inside an expression; it is a statement")));
     }
     let [name] = args else { return Err(self.residue(call.span, format!("`headers.{op}` takes a header name"))) };
-    let mut lowered = vec![self.expr(response)?, self.expr(&name.expr)?];
+    let mut lowered = vec![self.expr(response)?, self.expr(crate::syntax::arg_expr(name))?];
     if op == "has" {
       lowered.push(Expr::lit_str("has"));
     }
@@ -3027,29 +3241,29 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A call `response.headers.<op>(...)` with `op` one of a `Headers`' `get`, `has`, `set`, `append` and `delete`, on anything not known to be another kind: the response, the operation and the arguments. A value that is not a `Response` fails where it runs.
-  fn response_headers_call<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, String, &'c [js::ExprOrSpread])> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
-    let js::MemberProp::Ident(op) = &method.prop else { return None };
-    let js::Expr::Member(headers) = crate::meaning::bare(&method.obj) else { return None };
-    let js::MemberProp::Ident(field) = &headers.prop else { return None };
-    let known = matches!(op.sym.as_ref(), "get" | "has" | "set" | "append" | "delete");
-    (&*field.sym == "headers" && known && !matches!(self.kind_of(&headers.obj), Some(kind) if kind != Kind::Response)).then(|| (&*headers.obj, op.sym.to_string(), call.args.as_slice()))
+  fn response_headers_call<'c, 'e>(&self, call: &'c js::CallExpression<'e>) -> Option<(&'c js::Expression<'e>, String, &'c [js::Argument<'e>])> {
+    let callee = &call.callee;
+    let Some(method) = (crate::meaning::bare(callee)).as_member_expression() else { return None };
+    let crate::syntax::MemberProp::Ident(op) = crate::syntax::prop(method) else { return None };
+    let Some(headers) = (crate::meaning::bare(method.object())).as_member_expression() else { return None };
+    let crate::syntax::MemberProp::Ident(field) = crate::syntax::prop(headers) else { return None };
+    let known = matches!(op.name.as_str(), "get" | "has" | "set" | "append" | "delete");
+    (field.name.as_str() == "headers" && known && !matches!(self.kind_of(headers.object()), Some(kind) if kind != Kind::Response)).then(|| (headers.object(), op.name.to_string(), call.arguments.as_slice()))
   }
 
-  fn root_of(&self, id: &js::Ident) -> Option<Root> {
-    let name = id.sym.as_ref();
+  fn root_of(&self, id: &js::IdentifierReference) -> Option<Root> {
+    let name = id.name.as_str();
     self.roots.iter().rev().find(|(n, _)| n == name).map(|(_, r)| r.clone())
   }
 
   /// `expr` as a value JavaScript's conversion to a primitive reads the same. A `Map` or a `Set` holds an object or an array at run time, which would convert as one, so its text is decided here where its kind is known.
-  fn as_primitive(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+  fn as_primitive(&mut self, expr: &js::Expression) -> Lowered<Expr> {
     let text = match self.kind_of(expr) {
       Some(Kind::Map) => "[object Map]",
       Some(Kind::Set) => "[object Set]",
       _ => return self.expr(expr),
     };
-    if matches!(crate::meaning::bare(expr), js::Expr::Ident(_)) {
+    if matches!(crate::meaning::bare(expr), js::Expression::Identifier(_)) {
       return Ok(Expr::lit_str(text));
     }
     let held = self.expr(expr)?;
@@ -3058,45 +3272,45 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Whether `expr` changes an object or an array a name reaches: a field written, a mutating method or `Object.assign`.
-  pub(crate) fn object_write(&self, expr: &js::Expr) -> bool {
-    let reached = |target: &js::Expr| -> bool {
+  pub(crate) fn object_write(&self, expr: &js::Expression) -> bool {
+    let reached = |target: &js::Expression| -> bool {
       let root = match crate::meaning::bare(target) {
-        js::Expr::Ident(id) => id,
-        js::Expr::Member(member) => match write_root(member) {
+        js::Expression::Identifier(id) => id,
+        member_expr if member_expr.is_member_expression() => { let member = member_expr.as_member_expression().expect("matched as a member"); match write_root(member) {
           Some((id, _)) => id,
           None => return false,
-        },
+        } },
         _ => return false,
       };
       // A module constant, not module state: that one lowers to a cell or a store key.
-      let global = || self.globals.iter().any(|(name, value)| *name == *root.sym && matches!(value, Expr::Const(_) | Expr::Object(_) | Expr::Array(_)));
-      let bound = self.scope.iter().any(|(name, _)| *name == *root.sym) || global();
+      let global = || self.globals.iter().any(|(name, value)| *name == root.name.as_str() && matches!(value, Expr::Const(_) | Expr::Object(_) | Expr::Array(_)));
+      let bound = self.scope.iter().any(|(name, _)| *name == root.name.as_str()) || global();
       bound && self.root_of(root).is_none() && !matches!(self.kind_of(target), Some(Kind::Url | Kind::Query | Kind::Response | Kind::Date | Kind::Scope))
     };
     // A write into what an expression answers, `f()[0].n = 2`, has no name to check.
-    let written = |target: &js::Expr| -> bool {
+    let written = |target: &js::Expression| -> bool {
       let mut at = crate::meaning::bare(target);
-      while let js::Expr::Member(member) = at {
-        at = crate::meaning::bare(&member.obj);
+      while let Some(member) = (at).as_member_expression() {
+        at = crate::meaning::bare(member.object());
       }
       match at {
-        js::Expr::This(_) => false,
-        js::Expr::Ident(id) if id.sym.as_ref() == crate::classes::THIS => false,
-        js::Expr::Ident(_) => reached(target),
+        js::Expression::ThisExpression(_) => false,
+        js::Expression::Identifier(id) if id.name.as_str() == crate::classes::THIS => false,
+        js::Expression::Identifier(_) => reached(target),
         _ => true,
       }
     };
     match crate::meaning::bare(expr) {
-      js::Expr::Assign(assign) => matches!(&assign.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) if written(&m.obj)),
-      js::Expr::Update(update) => matches!(crate::meaning::bare(&update.arg), js::Expr::Member(m) if written(&m.obj)),
-      js::Expr::Unary(unary) if unary.op == js::UnaryOp::Delete => matches!(crate::meaning::bare(&unary.arg), js::Expr::Member(m) if written(&m.obj)),
-      js::Expr::Call(call) => {
-        let js::Callee::Expr(callee) = &call.callee else { return false };
-        let js::Expr::Member(m) = crate::meaning::bare(callee) else { return false };
+      js::Expression::AssignmentExpression(assign) => assign.left.as_member_expression().is_some_and(|m| written(m.object())),
+      js::Expression::UpdateExpression(update) => update.argument.as_member_expression().is_some_and(|m| written(m.object())),
+      js::Expression::UnaryExpression(unary) if unary.operator == js::UnaryOperator::Delete => (crate::meaning::bare(&unary.argument)).as_member_expression().is_some_and(|m| written(m.object())),
+      js::Expression::CallExpression(call) => {
+        let callee = &call.callee;
+        let Some(m) = (crate::meaning::bare(callee)).as_member_expression() else { return false };
         match self.member_name(m).as_deref() {
-          Some("push" | "unshift" | "pop" | "shift" | "reverse" | "sort") => reached(&m.obj) && !matches!(self.kind_of(&m.obj), Some(Kind::Map | Kind::Set)),
-          Some("set" | "add" | "delete" | "clear") => reached(&m.obj) && matches!(self.kind_of(&m.obj), Some(Kind::Map | Kind::Set)),
-          Some("assign") => matches!(crate::meaning::bare(&m.obj), js::Expr::Ident(id) if id.sym.as_ref() == "Object") && call.args.first().is_some_and(|first| first.spread.is_none() && reached(&first.expr)),
+          Some("push" | "unshift" | "pop" | "shift" | "reverse" | "sort") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("assign") => matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if id.name.as_str() == "Object") && call.arguments.first().is_some_and(|first| !crate::syntax::is_spread(first) && reached(crate::syntax::arg_expr(first))),
           _ => false,
         }
       }
@@ -3105,9 +3319,9 @@ impl<'a> Lowerer<'a> {
   }
 
   /// [`Lowerer::object_write`]'s `expr` as what it answers, its object held once and overwritten through the handle.
-  pub(crate) fn heap_write(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+  pub(crate) fn heap_write(&mut self, expr: &js::Expression) -> Lowered<Expr> {
     let overwrite = |target: &str, next: Expr| Stmt::Expr(Expr::Builtin { name: Builtin::Overwrite, args: vec![Expr::Var(target.to_owned()), next] });
-    let held = |this: &mut Self, target: &js::Expr, lets: &mut Body| -> Lowered<String> {
+    let held = |this: &mut Self, target: &js::Expression, lets: &mut Body| -> Lowered<String> {
       let value = this.expr(target)?;
       let name = this.temp();
       lets.push(Stmt::Let { name: name.clone(), expr: value });
@@ -3115,12 +3329,13 @@ impl<'a> Lowerer<'a> {
     };
     let mut lets = Vec::new();
     let answer = match crate::meaning::bare(expr) {
-      js::Expr::Assign(assign) => {
-        let js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) = &assign.left else { unreachable!() };
-        let target = held(self, &m.obj, &mut lets)?;
-        let value = match assign.op.to_update() {
+      js::Expression::AssignmentExpression(assign) => {
+        let Some(m) = assign.left.as_member_expression() else { unreachable!() };
+        let target = held(self, m.object(), &mut lets)?;
+        let b = syntax::Build::new(self.parsed.arena());
+        let value = match syntax::compound(b, assign.operator, js::Expression::from(b.copy(m)), b.copy(&assign.right), assign.span) {
           None => self.expr(&assign.right)?,
-          Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(js::Expr::Member(m.clone())), right: assign.right.clone() }))?,
+          Some(computed) => self.expr(&computed)?,
         };
         let name = self.temp();
         lets.push(Stmt::Let { name: name.clone(), expr: value });
@@ -3128,13 +3343,14 @@ impl<'a> Lowerer<'a> {
         lets.push(overwrite(&target, next));
         Expr::Var(name)
       }
-      js::Expr::Update(update) => {
-        let js::Expr::Member(m) = crate::meaning::bare(&update.arg) else { unreachable!() };
-        let target = held(self, &m.obj, &mut lets)?;
-        let before = self.expr(&js::Expr::Unary(js::UnaryExpr { span: update.span, op: js::UnaryOp::Plus, arg: update.arg.clone() }))?;
+      js::Expression::UpdateExpression(update) => {
+        let Some(m) = update.argument.as_member_expression() else { unreachable!() };
+        let target = held(self, m.object(), &mut lets)?;
+        let b = self.build();
+        let before = self.expr(&js::Expression::new_unary_expression(update.span, js::UnaryOperator::UnaryPlus, b.updated(&update.argument), &b.ast()))?;
         let old = self.temp();
         lets.push(Stmt::Let { name: old.clone(), expr: before });
-        let op = if update.op == js::UpdateOp::PlusPlus { ArithOp::Add } else { ArithOp::Sub };
+        let op = if update.operator == js::UpdateOperator::Increment { ArithOp::Add } else { ArithOp::Sub };
         let after = Expr::Arith(op, Box::new(Expr::Var(old.clone())), Box::new(Expr::Lit(Lit::Float(1.0))));
         let name = self.temp();
         lets.push(Stmt::Let { name: name.clone(), expr: after });
@@ -3142,34 +3358,34 @@ impl<'a> Lowerer<'a> {
         lets.push(overwrite(&target, next));
         Expr::Var(if update.prefix { name } else { old })
       }
-      js::Expr::Unary(unary) => {
-        let js::Expr::Member(m) = crate::meaning::bare(&unary.arg) else { unreachable!() };
-        let target = held(self, &m.obj, &mut lets)?;
+      js::Expression::UnaryExpression(unary) => {
+        let Some(m) = (crate::meaning::bare(&unary.argument)).as_member_expression() else { unreachable!() };
+        let target = held(self, m.object(), &mut lets)?;
         let key = match self.member_name(m) {
           Some(field) => Expr::lit_str(&field),
           None => {
-            let js::MemberProp::Computed(key) = &m.prop else { return Err(self.residue(m.span, "`delete` of a private field")) };
-            self.expr(&key.expr)?
+            let crate::syntax::MemberProp::Computed(key) = crate::syntax::prop(m) else { return Err(self.residue(m.span(), "`delete` of a private field")) };
+            self.expr(key)?
           }
         };
         lets.push(overwrite(&target, Expr::Builtin { name: Builtin::Omit, args: vec![Expr::Var(target.clone()), key] }));
         Expr::Lit(Lit::Bool(true))
       }
-      js::Expr::Call(call) => {
-        let js::Callee::Expr(callee) = &call.callee else { unreachable!() };
-        let js::Expr::Member(m) = crate::meaning::bare(callee) else { unreachable!() };
+      js::Expression::CallExpression(call) => {
+        let callee = &call.callee;
+        let Some(m) = (crate::meaning::bare(callee)).as_member_expression() else { unreachable!() };
         let method = self.member_name(m).expect("object_write read the name");
         if method == "assign" {
-          let target = held(self, &call.args[0].expr, &mut lets)?;
+          let target = held(self, &crate::syntax::arg_expr(&call.arguments[0]), &mut lets)?;
           let mut entries = vec![Entry::Spread(Expr::Var(target.clone()))];
-          for source in &call.args[1..] {
-            entries.push(Entry::Spread(self.expr(&source.expr)?));
+          for source in &call.arguments[1..] {
+            entries.push(Entry::Spread(self.expr(crate::syntax::arg_expr(source))?));
           }
           lets.push(overwrite(&target, Expr::Object(entries)));
           Expr::Var(target)
         } else {
-          let kind = self.kind_of(&m.obj);
-          let target = held(self, &m.obj, &mut lets)?;
+          let kind = self.kind_of(m.object());
+          let target = held(self, m.object(), &mut lets)?;
           let read = Expr::Var(target.clone());
           match (kind, method.as_str()) {
             (Some(kind @ (Kind::Map | Kind::Set)), _) => {
@@ -3178,10 +3394,10 @@ impl<'a> Lowerer<'a> {
               if method == "delete" { Expr::Lit(Lit::Bool(true)) } else { read }
             }
             (_, "push" | "unshift") => {
-              let mut items = Vec::with_capacity(call.args.len() + 1);
-              for arg in &call.args {
-                let value = self.expr(&arg.expr)?;
-                items.push(if arg.spread.is_some() { Entry::Spread(value) } else { Entry::Item(value) });
+              let mut items = Vec::with_capacity(call.arguments.len() + 1);
+              for arg in &call.arguments {
+                let value = self.expr(crate::syntax::arg_expr(arg))?;
+                items.push(if crate::syntax::is_spread(arg) { Entry::Spread(value) } else { Entry::Item(value) });
               }
               if method == "push" { items.insert(0, Entry::Spread(read.clone())) } else { items.push(Entry::Spread(read.clone())) }
               lets.push(overwrite(&target, Expr::Array(items)));
@@ -3199,9 +3415,9 @@ impl<'a> Lowerer<'a> {
               read
             }
             _ => {
-              let by = match call.args.first().map(|a| &*a.expr) {
+              let by = match call.arguments.first().map(|a| crate::syntax::arg_expr(a)) {
                 None => Expr::Lit(Lit::Null),
-                Some(js::Expr::Arrow(arrow)) => self.lambda(arrow)?,
+                Some(js::Expression::ArrowFunctionExpression(arrow)) => self.lambda(arrow)?,
                 Some(other) => self.expr(other)?,
               };
               lets.push(overwrite(&target, Expr::Sort(Box::new(read.clone()), Box::new(by))));
@@ -3216,21 +3432,21 @@ impl<'a> Lowerer<'a> {
     Ok(Expr::Block(lets))
   }
 
-  fn heap_set(&mut self, target: &str, member: &js::MemberExpr, value: Expr, lets: &mut Body) -> Lowered<Expr> {
+  fn heap_set(&mut self, target: &str, member: &js::MemberExpression, value: Expr, lets: &mut Body) -> Lowered<Expr> {
     if let Some(field) = self.member_name(member) {
       return Ok(Expr::Object(vec![Entry::Spread(Expr::Var(target.to_owned())), Entry::Field(field, value)]));
     }
-    let js::MemberProp::Computed(key) = &member.prop else { return Err(self.residue(member.span, "a write through a private field")) };
-    let key = self.expr(&key.expr)?;
+    let crate::syntax::MemberProp::Computed(key) = crate::syntax::prop(member) else { return Err(self.residue(member.span(), "a write through a private field")) };
+    let key = self.expr(key)?;
     let name = self.temp();
     lets.push(Stmt::Let { name: name.clone(), expr: key });
     Ok(Expr::Builtin { name: Builtin::SetAt, args: vec![Expr::Var(target.to_owned()), Expr::Var(name), value] })
   }
 
-  pub(crate) fn expr(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+  pub(crate) fn expr(&mut self, expr: &js::Expression) -> Lowered<Expr> {
     if !self.premade.is_empty() {
       let span = expr.span();
-      if let Some(made) = self.premade.get(&(span.lo.0, span.hi.0)) {
+      if let Some(made) = self.premade.get(&(crate::lo(span), crate::hi(span))) {
         return Ok(made.clone());
       }
     }
@@ -3241,12 +3457,13 @@ impl<'a> Lowerer<'a> {
       want_heap();
     }
     if heap_pass() {
-      if let js::Expr::Call(call) = crate::meaning::bare(expr) {
-        if let js::Callee::Expr(callee) = &call.callee {
-          if let js::Expr::Member(m) = crate::meaning::bare(callee) {
-            if self.member_name(m).as_deref() == Some("forEach") && call.args.len() == 1 {
-              let over = self.expr(&m.obj)?;
-              let f = self.expr(&call.args[0].expr)?;
+      if let js::Expression::CallExpression(call) = crate::meaning::bare(expr) {
+        {
+      let callee = &call.callee;
+          if let Some(m) = (crate::meaning::bare(callee)).as_member_expression() {
+            if self.member_name(m).as_deref() == Some("forEach") && call.arguments.len() == 1 {
+              let over = self.expr(m.object())?;
+              let f = self.expr(&crate::syntax::arg_expr(&call.arguments[0]))?;
               let ran = self.temp();
               return Ok(Expr::Block(vec![Stmt::Let { name: ran, expr: Expr::Map(Box::new(over), Box::new(f)) }, Stmt::Return(Expr::Lit(Lit::Undefined))]));
             }
@@ -3255,61 +3472,56 @@ impl<'a> Lowerer<'a> {
       }
     }
     match expr {
-      js::Expr::Paren(p) => self.expr(&p.expr),
-      js::Expr::Await(a) => self.expr(&a.arg),
-      js::Expr::Call(_) if self.promise_all(expr).is_some() => {
+      js::Expression::ParenthesizedExpression(p) => self.expr(&p.expression),
+      js::Expression::AwaitExpression(a) => self.expr(&a.argument),
+      js::Expression::CallExpression(_) if self.promise_all(expr).is_some() => {
         let list = self.promise_all(expr).expect("checked by the guard");
         self.expr(list)
       }
-      js::Expr::TsAs(a) => self.expr(&a.expr),
-      js::Expr::TsConstAssertion(a) => self.expr(&a.expr),
-      js::Expr::TsNonNull(a) => self.expr(&a.expr),
-      js::Expr::TsSatisfies(a) => self.expr(&a.expr),
-      js::Expr::TsTypeAssertion(a) => self.expr(&a.expr),
+      js::Expression::TSAsExpression(a) => self.expr(&a.expression),
+      js::Expression::TSNonNullExpression(a) => self.expr(&a.expression),
+      js::Expression::TSSatisfiesExpression(a) => self.expr(&a.expression),
+      js::Expression::TSTypeAssertion(a) => self.expr(&a.expression),
 
-      js::Expr::Ident(id) => self.ident(id),
-      js::Expr::Lit(lit) => self.lit(lit, expr.span()),
-      js::Expr::TaggedTpl(tagged) if matches!(crate::meaning::bare(&tagged.tag), js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if id.sym.as_ref() == "String" && id.ctxt == self.parsed.unresolved) && self.member_name(m).as_deref() == Some("raw")) => {
+      js::Expression::Identifier(id) => self.ident(id),
+      lit if lit.is_literal() => self.lit(lit),
+      js::Expression::TaggedTemplateExpression(tagged) if (crate::meaning::bare(&tagged.tag)).as_member_expression().is_some_and(|m| matches!(m.object(), js::Expression::Identifier(id) if id.name.as_str() == "String" && self.parsed.ctxt(id) == crate::Ctxt::Unresolved) && self.member_name(m).as_deref() == Some("raw")) => {
         // `String.raw` writes each piece as it stands in the source, escapes and all.
         let mut parts = Vec::new();
-        for (i, quasi) in tagged.tpl.quasis.iter().enumerate() {
-          if !quasi.raw.is_empty() {
-            parts.push(Expr::Lit(Lit::Str(quasi.raw.to_string())));
+        for (i, quasi) in tagged.quasi.quasis.iter().enumerate() {
+          if !quasi.value.raw.is_empty() {
+            parts.push(Expr::Lit(Lit::Str(quasi.value.raw.to_string())));
           }
-          if let Some(e) = tagged.tpl.exprs.get(i) {
+          if let Some(e) = tagged.quasi.expressions.get(i) {
             parts.push(self.expr(e)?);
           }
         }
         Ok(Expr::Template(parts))
       }
-      js::Expr::Tpl(tpl) => {
+      js::Expression::TemplateLiteral(tpl) => {
         let mut parts = Vec::new();
         for (i, quasi) in tpl.quasis.iter().enumerate() {
-          let text = quasi
-            .cooked
-            .as_ref()
-            .map(|c| c.to_atom_lossy().to_string())
-            .unwrap_or_else(|| quasi.raw.to_string());
+          let text = quasi.value.cooked.map(crate::lossy).unwrap_or_else(|| quasi.value.raw.to_string());
           if !text.is_empty() {
             parts.push(Expr::Lit(Lit::Str(text)));
           }
-          if let Some(e) = tpl.exprs.get(i) {
+          if let Some(e) = tpl.expressions.get(i) {
             parts.push(self.as_primitive(e)?);
           }
         }
         Ok(Expr::Template(parts))
       }
-      js::Expr::Object(obj) => {
+      js::Expression::ObjectExpression(obj) => {
         let mut entries = Vec::new();
-        for prop in &obj.props {
+        for prop in &obj.properties {
           entries.push(match prop {
-            js::PropOrSpread::Spread(s) => Entry::Spread(self.expr(&s.expr)?),
-            js::PropOrSpread::Prop(p) => match &**p {
-              js::Prop::Shorthand(id) => Entry::Field(id.sym.to_string(), self.ident(id)?),
-              js::Prop::KeyValue(kv) => match &kv.key {
-                js::PropName::Computed(c) => Entry::Computed(self.as_primitive(&c.expr)?, self.expr(&kv.value)?),
-                key => {
-                  let key = prop_name(key).ok_or_else(|| self.residue(key.span(), "a numeric property name"))?;
+            js::ObjectPropertyKind::SpreadProperty(s) => Entry::Spread(self.expr(&s.argument)?),
+            js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
+              crate::syntax::Prop::Shorthand(id) => Entry::Field(id.name.to_string(), self.ident(id)?),
+              crate::syntax::Prop::KeyValue(kv) => match kv.key.as_expression() {
+                Some(key) if kv.computed => Entry::Computed(self.as_primitive(key)?, self.expr(&kv.value)?),
+                _ => {
+                  let key = prop_name(&kv.key, kv.computed).ok_or_else(|| self.residue(kv.key.span(), "a numeric property name"))?;
                   Entry::Field(key, self.expr(&kv.value)?)
                 }
               },
@@ -3319,104 +3531,116 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Expr::Object(entries))
       }
-      js::Expr::Array(arr) => {
+      js::Expression::ArrayExpression(arr) => {
         let mut entries = Vec::new();
-        for elem in arr.elems.iter().flatten() {
-          if let (Some(_), Some(length)) = (elem.spread, self.array_of_length(&elem.expr)) {
+        for elem in &arr.elements {
+          let (spread, item) = match elem {
+            js::ArrayExpressionElement::Elision(_) => continue,
+            js::ArrayExpressionElement::SpreadElement(s) => (true, &s.argument),
+            other => (false, other.to_expression()),
+          };
+          if let (true, Some(length)) = (spread, self.array_of_length(item)) {
             let range = Box::new(Expr::Builtin { name: Builtin::Range, args: vec![self.expr(length)?] });
             entries.push(Entry::Spread(Expr::Map(range, Box::new(Expr::Lambda { params: vec!["$hole".to_owned()], body: Box::new(Expr::Lit(Lit::Undefined)) }))));
             continue;
           }
-          let value = self.expr(&elem.expr)?;
-          entries.push(match elem.spread {
-            Some(_) if self.kind_of(&elem.expr) == Some(Kind::Map) => Entry::Spread(Expr::Entries(Box::new(value))),
-            Some(_) => Entry::Spread(value),
-            None => Entry::Item(value),
+          let value = self.expr(item)?;
+          entries.push(match spread {
+            true if self.kind_of(item) == Some(Kind::Map) => Entry::Spread(Expr::Entries(Box::new(value))),
+            true => Entry::Spread(value),
+            false => Entry::Item(value),
           });
         }
         Ok(Expr::Array(entries))
       }
-      js::Expr::Unary(u) => match u.op {
-        js::UnaryOp::Bang => Ok(Expr::Not(Box::new(self.expr(&u.arg)?))),
-        js::UnaryOp::Minus => match &*u.arg {
-          js::Expr::Lit(js::Lit::Num(n)) => Ok(Expr::Lit(Lit::Float(-n.value))),
-          js::Expr::Lit(js::Lit::BigInt(b)) => Ok(Expr::Lit(Lit::Int(-self.bigint(b)?))),
+      js::Expression::UnaryExpression(u) => match u.operator {
+        js::UnaryOperator::LogicalNot => Ok(Expr::Not(Box::new(self.expr(&u.argument)?))),
+        js::UnaryOperator::UnaryNegation => match &u.argument {
+          js::Expression::NumericLiteral(n) => Ok(Expr::Lit(Lit::Float(-n.value))),
+          js::Expression::BigIntLiteral(b) => Ok(Expr::Lit(Lit::Int(-self.bigint(b)?))),
           other => Ok(Expr::Arith(ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(self.expr(other)?))),
         },
-        js::UnaryOp::Plus => Ok(Expr::Num(Box::new(self.as_primitive(&u.arg)?))),
-        js::UnaryOp::Tilde if self.kind_of(&u.arg) == Some(Kind::BigInt) => Err(self.residue(u.span, "the `~` operator on a `bigint`")),
-        js::UnaryOp::Tilde => Ok(Expr::Arith(ArithOp::BitXor, Box::new(self.expr(&u.arg)?), Box::new(Expr::Lit(Lit::Float(-1.0))))),
-        js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
-        js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
+        js::UnaryOperator::UnaryPlus => Ok(Expr::Num(Box::new(self.as_primitive(&u.argument)?))),
+        js::UnaryOperator::BitwiseNot if self.kind_of(&u.argument) == Some(Kind::BigInt) => Err(self.residue(u.span, "the `~` operator on a `bigint`")),
+        js::UnaryOperator::BitwiseNot => Ok(Expr::Arith(ArithOp::BitXor, Box::new(self.expr(&u.argument)?), Box::new(Expr::Lit(Lit::Float(-1.0))))),
+        js::UnaryOperator::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
+        js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
           Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope) => Expr::lit_str("object"),
-          Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.arg)?] },
+          Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
-        other => Err(self.residue(u.span, format!("the `{}` operator", other))),
+        other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
       },
-      js::Expr::Bin(bin) if bin.op == js::BinaryOp::InstanceOf => self.instance_of(bin),
-      js::Expr::Bin(bin) if is_bitwise(bin.op) && (self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt)) => Err(self.residue(bin.span, format!("the `{}` operator on a `bigint`", bin.op))),
-      js::Expr::Bin(bin) => {
-        let collection = |this: &Self, e: &js::Expr| matches!(this.kind_of(e), Some(Kind::Map | Kind::Set));
-        let two_objects = matches!(bin.op, js::BinaryOp::EqEq | js::BinaryOp::NotEq) && collection(self, &bin.left) && collection(self, &bin.right);
-        let converts = !two_objects && matches!(bin.op, js::BinaryOp::Add | js::BinaryOp::Sub | js::BinaryOp::Mul | js::BinaryOp::Div | js::BinaryOp::Mod | js::BinaryOp::Exp | js::BinaryOp::EqEq | js::BinaryOp::NotEq | js::BinaryOp::Lt | js::BinaryOp::LtEq | js::BinaryOp::Gt | js::BinaryOp::GtEq);
-        let l = Box::new(if converts { self.as_primitive(&bin.left)? } else { self.expr(&bin.left)? });
-        let r = Box::new(if converts { self.as_primitive(&bin.right)? } else { self.expr(&bin.right)? });
-        Ok(match bin.op {
-          js::BinaryOp::Add => Expr::Arith(ArithOp::Add, l, r),
-          js::BinaryOp::Sub => Expr::Arith(ArithOp::Sub, l, r),
-          js::BinaryOp::Mul => Expr::Arith(ArithOp::Mul, l, r),
-          js::BinaryOp::Div if self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt) => Expr::Arith(ArithOp::Quot, l, r),
-          js::BinaryOp::Div => Expr::Arith(ArithOp::Div, l, r),
-          js::BinaryOp::Mod => Expr::Arith(ArithOp::Rem, l, r),
-          js::BinaryOp::Exp => Expr::Arith(ArithOp::Pow, l, r),
-          js::BinaryOp::EqEq | js::BinaryOp::NotEq if matches!(*r, Expr::Lit(Lit::Null | Lit::Undefined)) || matches!(*l, Expr::Lit(Lit::Null | Lit::Undefined)) => {
-            let other = if matches!(*r, Expr::Lit(Lit::Null | Lit::Undefined)) { l } else { r };
-            let nullish = Expr::Builtin { name: Builtin::IsNullish, args: vec![*other] };
-            if bin.op == js::BinaryOp::EqEq { nullish } else { Expr::Not(Box::new(nullish)) }
-          }
-          js::BinaryOp::EqEq => Expr::Builtin { name: Builtin::LooseEq, args: vec![*l, *r] },
-          js::BinaryOp::NotEq => Expr::Not(Box::new(Expr::Builtin { name: Builtin::LooseEq, args: vec![*l, *r] })),
-          js::BinaryOp::EqEqEq => Expr::Compare(CompareOp::Eq, l, r),
-          js::BinaryOp::NotEqEq => Expr::Compare(CompareOp::Ne, l, r),
-          js::BinaryOp::Lt => Expr::Compare(CompareOp::Lt, l, r),
-          js::BinaryOp::LtEq => Expr::Compare(CompareOp::Le, l, r),
-          js::BinaryOp::Gt => Expr::Compare(CompareOp::Gt, l, r),
-          js::BinaryOp::GtEq => Expr::Compare(CompareOp::Ge, l, r),
-          js::BinaryOp::LogicalAnd => Expr::Logic(LogicOp::And, l, r),
-          js::BinaryOp::LogicalOr => Expr::Logic(LogicOp::Or, l, r),
-          js::BinaryOp::NullishCoalescing => Expr::Coalesce(l, r),
-          js::BinaryOp::In => Expr::Builtin { name: Builtin::HasKey, args: vec![*r, *l] },
-          js::BinaryOp::BitAnd => Expr::Arith(ArithOp::BitAnd, l, r),
-          js::BinaryOp::BitOr => Expr::Arith(ArithOp::BitOr, l, r),
-          js::BinaryOp::BitXor => Expr::Arith(ArithOp::BitXor, l, r),
-          js::BinaryOp::LShift => Expr::Arith(ArithOp::Shl, l, r),
-          js::BinaryOp::RShift => Expr::Arith(ArithOp::Shr, l, r),
-          js::BinaryOp::ZeroFillRShift => Expr::Arith(ArithOp::UShr, l, r),
-          other => return Err(self.residue(bin.span, format!("the `{}` operator", other))),
+      js::Expression::BinaryExpression(bin) if bin.operator == js::BinaryOperator::Instanceof => self.instance_of(bin),
+      js::Expression::BinaryExpression(bin) if is_bitwise(bin.operator) && (self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt)) => Err(self.residue(bin.span, format!("the `{}` operator on a `bigint`", bin.operator.as_str()))),
+      js::Expression::LogicalExpression(logic) => {
+        let l = Box::new(self.expr(&logic.left)?);
+        let r = Box::new(self.expr(&logic.right)?);
+        Ok(match logic.operator {
+          js::LogicalOperator::And => Expr::Logic(LogicOp::And, l, r),
+          js::LogicalOperator::Or => Expr::Logic(LogicOp::Or, l, r),
+          js::LogicalOperator::Coalesce => Expr::Coalesce(l, r),
         })
       }
-      js::Expr::Cond(c) => Ok(Expr::Ternary(
+      js::Expression::BinaryExpression(bin) => {
+        let collection = |this: &Self, e: &js::Expression| matches!(this.kind_of(e), Some(Kind::Map | Kind::Set));
+        let two_objects = matches!(bin.operator, js::BinaryOperator::Equality | js::BinaryOperator::Inequality) && collection(self, &bin.left) && collection(self, &bin.right);
+        let converts = !two_objects && matches!(bin.operator, js::BinaryOperator::Addition | js::BinaryOperator::Subtraction | js::BinaryOperator::Multiplication | js::BinaryOperator::Division | js::BinaryOperator::Remainder | js::BinaryOperator::Exponential | js::BinaryOperator::Equality | js::BinaryOperator::Inequality | js::BinaryOperator::LessThan | js::BinaryOperator::LessEqualThan | js::BinaryOperator::GreaterThan | js::BinaryOperator::GreaterEqualThan);
+        let l = Box::new(if converts { self.as_primitive(&bin.left)? } else { self.expr(&bin.left)? });
+        let r = Box::new(if converts { self.as_primitive(&bin.right)? } else { self.expr(&bin.right)? });
+        Ok(match bin.operator {
+          js::BinaryOperator::Addition => Expr::Arith(ArithOp::Add, l, r),
+          js::BinaryOperator::Subtraction => Expr::Arith(ArithOp::Sub, l, r),
+          js::BinaryOperator::Multiplication => Expr::Arith(ArithOp::Mul, l, r),
+          js::BinaryOperator::Division if self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt) => Expr::Arith(ArithOp::Quot, l, r),
+          js::BinaryOperator::Division => Expr::Arith(ArithOp::Div, l, r),
+          js::BinaryOperator::Remainder => Expr::Arith(ArithOp::Rem, l, r),
+          js::BinaryOperator::Exponential => Expr::Arith(ArithOp::Pow, l, r),
+          js::BinaryOperator::Equality | js::BinaryOperator::Inequality if matches!(*r, Expr::Lit(Lit::Null | Lit::Undefined)) || matches!(*l, Expr::Lit(Lit::Null | Lit::Undefined)) => {
+            let other = if matches!(*r, Expr::Lit(Lit::Null | Lit::Undefined)) { l } else { r };
+            let nullish = Expr::Builtin { name: Builtin::IsNullish, args: vec![*other] };
+            if bin.operator == js::BinaryOperator::Equality { nullish } else { Expr::Not(Box::new(nullish)) }
+          }
+          js::BinaryOperator::Equality => Expr::Builtin { name: Builtin::LooseEq, args: vec![*l, *r] },
+          js::BinaryOperator::Inequality => Expr::Not(Box::new(Expr::Builtin { name: Builtin::LooseEq, args: vec![*l, *r] })),
+          js::BinaryOperator::StrictEquality => Expr::Compare(CompareOp::Eq, l, r),
+          js::BinaryOperator::StrictInequality => Expr::Compare(CompareOp::Ne, l, r),
+          js::BinaryOperator::LessThan => Expr::Compare(CompareOp::Lt, l, r),
+          js::BinaryOperator::LessEqualThan => Expr::Compare(CompareOp::Le, l, r),
+          js::BinaryOperator::GreaterThan => Expr::Compare(CompareOp::Gt, l, r),
+          js::BinaryOperator::GreaterEqualThan => Expr::Compare(CompareOp::Ge, l, r),
+          js::BinaryOperator::In => Expr::Builtin { name: Builtin::HasKey, args: vec![*r, *l] },
+          js::BinaryOperator::BitwiseAnd => Expr::Arith(ArithOp::BitAnd, l, r),
+          js::BinaryOperator::BitwiseOR => Expr::Arith(ArithOp::BitOr, l, r),
+          js::BinaryOperator::BitwiseXOR => Expr::Arith(ArithOp::BitXor, l, r),
+          js::BinaryOperator::ShiftLeft => Expr::Arith(ArithOp::Shl, l, r),
+          js::BinaryOperator::ShiftRight => Expr::Arith(ArithOp::Shr, l, r),
+          js::BinaryOperator::ShiftRightZeroFill => Expr::Arith(ArithOp::UShr, l, r),
+          other => return Err(self.residue(bin.span, format!("the `{}` operator", other.as_str()))),
+        })
+      }
+      js::Expression::ConditionalExpression(c) => Ok(Expr::Ternary(
         Box::new(self.expr(&c.test)?),
-        Box::new(self.expr(&c.cons)?),
-        Box::new(self.expr(&c.alt)?),
+        Box::new(self.expr(&c.consequent)?),
+        Box::new(self.expr(&c.alternate)?),
       )),
-      js::Expr::Member(member) => self.member(member),
-      js::Expr::Call(call) => self.call(call),
-      js::Expr::Arrow(arrow) => self.lambda(arrow),
-      js::Expr::OptChain(o) => match &*o.base {
-        js::OptChainBase::Member(member) => self.member(member),
-        js::OptChainBase::Call(call) if o.optional => Err(self.residue_with(call.span, "an optional call of a function value", "write `f ? f(x) : null` or call a helper the build can follow")),
-        js::OptChainBase::Call(call) => self.optional_call(call),
+      member_expr if member_expr.is_member_expression() => { let member = member_expr.as_member_expression().expect("matched as a member"); self.member(member) },
+      js::Expression::CallExpression(call) => self.call(call),
+      js::Expression::ArrowFunctionExpression(arrow) => self.lambda(arrow),
+      js::Expression::ChainExpression(o) => match &o.expression {
+        js::ChainElement::CallExpression(call) if call.optional => Err(self.residue_with(call.span, "an optional call of a function value", "write `f ? f(x) : null` or call a helper the build can follow")),
+        js::ChainElement::CallExpression(call) => self.optional_call(call),
+        js::ChainElement::TSNonNullExpression(e) => self.expr(&e.expression),
+        member => self.member(member.as_member_expression().expect("a chain element is a call, a `!` or a member")),
       },
-      js::Expr::New(n) => self.new_expr(n),
-      js::Expr::Fn(f) => self.function_expr(&f.function),
-      js::Expr::Assign(a) if self.cell_of_target(&a.left).is_some() => match self.effect(expr)? {
+      js::Expression::NewExpression(n) => self.new_expr(n),
+      js::Expression::FunctionExpression(f) => self.function_expr(f),
+      js::Expression::AssignmentExpression(a) if self.cell_of_target(&a.left).is_some() => match self.effect(expr)? {
         Stmt::Expr(write) => Ok(write),
         _ => Err(self.residue(a.span, "an assignment inside an expression")),
       },
-      js::Expr::Assign(a) => Err(self.residue(a.span, "an assignment inside an expression")),
-      js::Expr::This(_) if self.scope.iter().any(|(n, _)| n == "this") => Ok(self.scope.iter().rev().find(|(n, _)| n == "this").map(|(_, e)| e.clone()).expect("checked")),
+      js::Expression::AssignmentExpression(a) => Err(self.residue(a.span, "an assignment inside an expression")),
+      js::Expression::ThisExpression(_) if self.scope.iter().any(|(n, _)| n == "this") => Ok(self.scope.iter().rev().find(|(n, _)| n == "this").map(|(_, e)| e.clone()).expect("checked")),
       other => {
         let (what, hint) = describe_expr(other);
         Err(self.residue_with(other.span(), what, hint))
@@ -3431,8 +3655,8 @@ impl<'a> Lowerer<'a> {
     self.residue_with(span, reason, "as text under an element the browser fills it in when the component hydrates; anywhere else compute it on the server, from `ctx.now` in the loader or a prop")
   }
 
-  pub(crate) fn ident(&mut self, id: &js::Ident) -> Lowered<Expr> {
-    let name = id.sym.as_ref();
+  pub(crate) fn ident(&mut self, id: &js::IdentifierReference) -> Lowered<Expr> {
+    let name = id.name.as_str();
     if let Some((_, bound)) = self.scope.iter().rev().find(|(n, _)| n == name) {
       if self.kinds.iter().rev().any(|(n, held, kind)| n == name && held == bound && *kind == Kind::Browser) {
         return Err(self.browser_only(id.span, format!("`{name}`, a value only the browser knows")));
@@ -3475,7 +3699,7 @@ impl<'a> Lowerer<'a> {
           self.read_below.push((bound.clone(), id.span));
           Ok(Expr::Var(bound))
         }
-        "process" if id.ctxt == self.parsed.unresolved => Err(self.residue_with(id.span, "`process`, which is not FSR's", NOT_FSR)),
+        "process" if self.parsed.ctxt(id) == crate::Ctxt::Unresolved => Err(self.residue_with(id.span, "`process`, which is not FSR's", NOT_FSR)),
         _ => {
           self.unbound = Some(name.to_owned());
           match crate::component::find_import(self.parsed, name) {
@@ -3491,19 +3715,24 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  fn lit(&self, lit: &js::Lit, span: Span) -> Lowered<Expr> {
+  /// A literal: a string, a number, a bigint, a boolean, `null` or a regular expression.
+  fn lit(&self, lit: &js::Expression) -> Lowered<Expr> {
     Ok(Expr::Lit(match lit {
-      js::Lit::Str(s) => Lit::Str(s.value.to_atom_lossy().to_string()),
-      js::Lit::Num(n) => Lit::Float(n.value),
-      js::Lit::BigInt(b) => Lit::Int(self.bigint(b)?),
-      js::Lit::Bool(b) => Lit::Bool(b.value),
-      js::Lit::Null(_) => Lit::Null,
-      js::Lit::Regex(re) => return regex_value(self, re.exp.as_ref(), re.flags.as_ref(), span),
-      js::Lit::JSXText(_) => return Err(self.residue(span, "JSX")),
+      js::Expression::StringLiteral(s) => Lit::Str(crate::lossy(s.value)),
+      js::Expression::NumericLiteral(n) => Lit::Float(n.value),
+      js::Expression::BigIntLiteral(b) => Lit::Int(self.bigint(b)?),
+      js::Expression::BooleanLiteral(b) => Lit::Bool(b.value),
+      js::Expression::NullLiteral(_) => Lit::Null,
+      js::Expression::RegExpLiteral(re) => {
+        let raw = re.raw.as_ref().map(|raw| raw.as_str()).unwrap_or_default();
+        let flags = raw.rsplit_once('/').map(|(_, flags)| flags).unwrap_or_default();
+        return regex_value(self, re.regex.pattern.text.as_str(), flags, re.span);
+      }
+      other => return Err(self.residue(other.span(), "a literal the build does not read")),
     }))
   }
 
-  fn bigint(&self, b: &js::BigInt) -> Lowered<i128> {
+  fn bigint(&self, b: &js::BigIntLiteral) -> Lowered<i128> {
     b.value
       .to_string()
       .parse::<i128>()
@@ -3511,12 +3740,12 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A member read. Context roots become reads; anything else is a field.
-  fn member(&mut self, member: &js::MemberExpr) -> Lowered<Expr> {
+  fn member(&mut self, member: &js::MemberExpression) -> Lowered<Expr> {
     if let Some(compare) = self.collator_compare(member)? {
       return Ok(compare);
     }
-    if let (js::Expr::Ident(id), Some(key)) = (&*member.obj, self.member_name(member)) {
-      if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.meanings.as_ref().and_then(|m| m.of_ident(id)) == Some(&crate::meaning::Meaning::Config(None)) {
+    if let (js::Expression::Identifier(id), Some(key)) = (member.object(), self.member_name(member)) {
+      if !self.scope.iter().any(|(n, _)| n == id.name.as_str()) && self.meanings.as_ref().and_then(|m| m.of_ident(id)) == Some(&crate::meaning::Meaning::Config(None)) {
         return Ok(Expr::Config(key));
       }
     }
@@ -3525,21 +3754,21 @@ impl<'a> Lowerer<'a> {
     }
 
     let prop = |this: &mut Self| -> Lowered<Result<String, Expr>> {
-      Ok(match &member.prop {
-        js::MemberProp::Ident(id) => Ok(id.sym.to_string()),
-        js::MemberProp::Computed(c) => match &*c.expr {
-          js::Expr::Lit(js::Lit::Str(s)) => Ok(s.value.to_atom_lossy().to_string()),
+      Ok(match crate::syntax::prop(member) {
+        crate::syntax::MemberProp::Ident(id) => Ok(id.name.to_string()),
+        crate::syntax::MemberProp::Computed(c) => match c {
+          js::Expression::StringLiteral(s) => Ok(crate::lossy(s.value)),
           other => Err(this.expr(other)?),
         },
-        js::MemberProp::PrivateName(p) => return Err(this.residue(p.span, "a private name")),
+        crate::syntax::MemberProp::Private(p) => return Err(this.residue(p.span, "a private name")),
       })
     };
 
-    if let js::Expr::Ident(id) = &*member.obj {
-      if id.sym.as_ref() == "Math" && !self.scope.iter().any(|(n, _)| n == "Math") && !self.globals.iter().any(|(n, _)| n == "Math") {
-        if let js::MemberProp::Ident(name) = &member.prop {
+    if let js::Expression::Identifier(id) = member.object() {
+      if id.name.as_str() == "Math" && !self.scope.iter().any(|(n, _)| n == "Math") && !self.globals.iter().any(|(n, _)| n == "Math") {
+        if let crate::syntax::MemberProp::Ident(name) = crate::syntax::prop(member) {
           use std::f64::consts;
-          let value = match name.sym.as_ref() {
+          let value = match name.name.as_str() {
             "PI" => Some(consts::PI),
             "E" => Some(consts::E),
             "LN2" => Some(consts::LN_2),
@@ -3555,30 +3784,30 @@ impl<'a> Lowerer<'a> {
           }
         }
       }
-      if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) {
+      if !self.scope.iter().any(|(n, _)| n == id.name.as_str()) {
         match self.root_of(id) {
           Some(Root::Params) => {
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed param name")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed param name")) };
             return Ok(Expr::Param(name));
           }
           Some(Root::Query) => {
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed query key")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed query key")) };
             return Ok(Expr::Query(name));
           }
           Some(Root::Session) => {
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed session key")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed session key")) };
             return Ok(self.session_read(name));
           }
           Some(Root::Identity) => {
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed identity field")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed identity field")) };
             return Ok(Expr::Identity(vec![name]));
           }
           Some(Root::Config) => {
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed config key")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed config key")) };
             return Ok(Expr::Config(name));
           }
           Some(Root::Ctx) => {
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed context field")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed context field")) };
             return match name.as_str() {
               "input" => Ok(Expr::Input),
               "now" => Ok(Expr::Now),
@@ -3589,25 +3818,25 @@ impl<'a> Lowerer<'a> {
               "origin" => Ok(Expr::Origin),
               "address" => Ok(Expr::Address),
               "identity" => Ok(Expr::Identity(Vec::new())),
-              "params" | "query" | "session" | "config" => Err(self.residue(member.span, format!("`ctx.{name}` as a whole; read one of its fields"))),
-              "services" => Err(self.residue(member.span, "`ctx.services` as a value; call a method on it")),
-              "native" => Err(self.residue(member.span, "`ctx.native` as a value; call a method on it")),
-              _ => Err(self.residue(member.span, format!("`{name}` is not a field of the context"))),
+              "params" | "query" | "session" | "config" => Err(self.residue(member.span(), format!("`ctx.{name}` as a whole; read one of its fields"))),
+              "services" => Err(self.residue(member.span(), "`ctx.services` as a value; call a method on it")),
+              "native" => Err(self.residue(member.span(), "`ctx.native` as a value; call a method on it")),
+              _ => Err(self.residue(member.span(), format!("`{name}` is not a field of the context"))),
             };
           }
-          Some(Root::Services) => return Err(self.residue(member.span, "a service as a value; call a method on it")),
-          Some(Root::Native) => return Err(self.residue(member.span, "a native module as a value; call a method on it")),
+          Some(Root::Services) => return Err(self.residue(member.span(), "a service as a value; call a method on it")),
+          Some(Root::Native) => return Err(self.residue(member.span(), "a native module as a value; call a method on it")),
           _ => {}
         }
       }
     }
 
-    if let js::Expr::Member(inner) = &*member.obj {
-      if let js::Expr::Ident(id) = &*inner.obj {
-        if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) {
+    if let Some(inner) = (member.object()).as_member_expression() {
+      if let js::Expression::Identifier(id) = inner.object() {
+        if !self.scope.iter().any(|(n, _)| n == id.name.as_str()) {
           if let Some(Root::Ctx) = self.root_of(id) {
             let via = self.member_name(inner);
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed context field")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed context field")) };
             match via.as_deref() {
               Some("params") => return Ok(Expr::Param(name)),
               Some("query") => return Ok(Expr::Query(name)),
@@ -3617,28 +3846,28 @@ impl<'a> Lowerer<'a> {
             }
           }
           if let Some(Root::Identity) = self.root_of(id) {
-            let Some(first) = self.member_name(inner) else { return Err(self.residue(inner.span, "a computed identity field")) };
-            let Ok(name) = prop(self)? else { return Err(self.residue(member.span, "a computed identity field")) };
+            let Some(first) = self.member_name(inner) else { return Err(self.residue(inner.span(), "a computed identity field")) };
+            let Ok(name) = prop(self)? else { return Err(self.residue(member.span(), "a computed identity field")) };
             return Ok(Expr::Identity(vec![first, name]));
           }
         }
       }
     }
 
-    if self.kind_of(&js::Expr::Member(member.clone())) == Some(Kind::Browser) {
-      let shown = match (&*member.obj, &member.prop) {
-        (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) => format!("`{}.{}`", obj.sym, prop.sym),
+    if self.member_kind(member) == Some(Kind::Browser) {
+      let shown = match (member.object(), crate::syntax::prop(member)) {
+        (js::Expression::Identifier(obj), crate::syntax::MemberProp::Ident(prop)) => format!("`{}.{}`", obj.name, prop.name),
         _ => "a member".to_owned(),
       };
-      return Err(self.browser_only(member.span, format!("{shown}, a value only the browser knows")));
+      return Err(self.browser_only(member.span(), format!("{shown}, a value only the browser knows")));
     }
-    let collection = self.kind_of(&member.obj);
-    let target = self.expr(&member.obj)?;
+    let collection = self.kind_of(member.object());
+    let target = self.expr(member.object())?;
     if collection == Some(Kind::Response) {
       return match prop(self)? {
         Ok(name) if matches!(name.as_str(), "status" | "ok") => Ok(Expr::Builtin { name: Builtin::ResponseMember, args: vec![target, Expr::lit_str(&name)] }),
-        Ok(name) => Err(self.residue(member.span, format!("`.{name}` of a `Response`; `status`, `ok` and `headers.get` are read"))),
-        Err(_) => Err(self.residue(member.span, "a computed member of a `Response`")),
+        Ok(name) => Err(self.residue(member.span(), format!("`.{name}` of a `Response`; `status`, `ok` and `headers.get` are read"))),
+        Err(_) => Err(self.residue(member.span(), "a computed member of a `Response`")),
       };
     }
     if collection == Some(Kind::Url) {
@@ -3646,8 +3875,8 @@ impl<'a> Lowerer<'a> {
         Ok(name) if name == "href" => Ok(target),
         Ok(name) if name == "searchParams" => Ok(Expr::Builtin { name: Builtin::UrlPart, args: vec![target, Expr::lit_str("search")] }),
         Ok(name) if URL_PARTS.contains(&name.as_str()) => Ok(Expr::Builtin { name: Builtin::UrlPart, args: vec![target, Expr::lit_str(&name)] }),
-        Ok(name) => Err(self.residue(member.span, format!("`.{name}` of a `URL`"))),
-        Err(_) => Err(self.residue(member.span, "a computed part of a `URL`")),
+        Ok(name) => Err(self.residue(member.span(), format!("`.{name}` of a `URL`"))),
+        Err(_) => Err(self.residue(member.span(), "a computed part of a `URL`")),
       };
     }
     match prop(self)? {
@@ -3663,13 +3892,13 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `use(X)` or `useContext(X)`, however the call names them, with `X` a context: the nearest provider's value, else the default. `None` for any other call.
-  fn context_read(&mut self, call: &js::CallExpr, callee: &js::Expr) -> Lowered<Option<Expr>> {
+  fn context_read(&mut self, call: &js::CallExpression, callee: &js::Expression) -> Lowered<Option<Expr>> {
     let Some(meanings) = self.meanings.clone() else { return Ok(None) };
     let Some(hook) = meanings.of_expr(callee).and_then(|meant| meant.hook()) else { return Ok(None) };
     if hook != "use" && hook != "useContext" {
       return Ok(None);
     }
-    match call.args.first().and_then(|a| meanings.of_expr(&a.expr)) {
+    match call.arguments.first().and_then(|a| meanings.of_expr(crate::syntax::arg_expr(a))) {
       Some(meaning::Meaning::Context { id, default, .. }) => Ok(Some(Expr::Coalesce(Box::new(Expr::Context(id)), Box::new(default)))),
       _ => Err(match hook {
         "use" => self.residue(call.span, "`use` of something other than a `createContext` value; a promise is awaited in the browser"),
@@ -3679,52 +3908,49 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The length of `Array(n)` or `new Array(n)` with `Array` the global.
-  fn array_of_length<'e>(&self, expr: &'e js::Expr) -> Option<&'e js::Expr> {
-    let (callee, args): (&js::Expr, &[js::ExprOrSpread]) = match strip_parens(expr) {
-      js::Expr::Call(call) => match &call.callee {
-        js::Callee::Expr(callee) => (callee, &call.args),
-        _ => return None,
-      },
-      js::Expr::New(made) => (&made.callee, made.args.as_deref().unwrap_or_default()),
+  fn array_of_length<'s, 'e>(&self, expr: &'s js::Expression<'e>) -> Option<&'s js::Expression<'e>> {
+    let (callee, args): (&'s js::Expression<'e>, &'s [js::Argument<'e>]) = match strip_parens(expr) {
+      js::Expression::CallExpression(call) => (&call.callee, &call.arguments[..]),
+      js::Expression::NewExpression(made) => (&made.callee, &made.arguments[..]),
       _ => return None,
     };
-    let js::Expr::Ident(id) = strip_parens(callee) else { return None };
-    let global = self.meanings.as_ref().is_none_or(|meanings| id.ctxt == meanings.unresolved);
+    let js::Expression::Identifier(id) = strip_parens(callee) else { return None };
+    let global = self.meanings.as_ref().is_none_or(|meanings| meanings.ctxt(id) == Ctxt::Unresolved);
     match args {
-      [length] if id.sym.as_ref() == "Array" && global && length.spread.is_none() => Some(&length.expr),
+      [length] if id.name.as_str() == "Array" && global && !crate::syntax::is_spread(length) => Some(crate::syntax::arg_expr(length)),
       _ => None,
     }
   }
 
   /// What React's server renderer returns for a hook whose value does not wait on the browser: `useDeferredValue`'s initial value when given and its value otherwise, `useFormStatus`'s status of no form pending, `useLinkStatus`'s of no link pending and `useSyncExternalStore`'s server snapshot.
-  pub(crate) fn server_hook_value(&mut self, hook: &str, call: &js::CallExpr) -> Lowered<Expr> {
+  pub(crate) fn server_hook_value(&mut self, hook: &str, call: &js::CallExpression) -> Lowered<Expr> {
     match hook {
-      "useDeferredValue" => match call.args.get(1).or(call.args.first()) {
-        Some(a) => self.expr(&a.expr),
+      "useDeferredValue" => match call.arguments.get(1).or(call.arguments.first()) {
+        Some(a) => self.expr(crate::syntax::arg_expr(a)),
         None => Ok(Expr::Lit(Lit::Null)),
       },
       "useFormStatus" => Ok(Expr::Object(["pending", "data", "method", "action"].map(|key| Entry::Field(key.to_owned(), Expr::Lit(if key == "pending" { Lit::Bool(false) } else { Lit::Null }))).to_vec())),
       "useLinkStatus" => Ok(Expr::Object(vec![Entry::Field("pending".to_owned(), Expr::Lit(Lit::Bool(false)))])),
-      _ => match call.args.get(2) {
-        Some(server) => Ok(Expr::Apply { f: Box::new(self.expr(&server.expr)?), args: Vec::new() }),
+      _ => match call.arguments.get(2) {
+        Some(server) => Ok(Expr::Apply { f: Box::new(self.expr(crate::syntax::arg_expr(server))?), args: Vec::new() }),
         None => Err(self.residue(call.span, "`useSyncExternalStore` without `getServerSnapshot`, which React's server renderer refuses too")),
       },
     }
   }
 
-  pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+  pub(crate) fn call(&mut self, call: &js::CallExpression) -> Lowered<Expr> {
     if let Some(ok) = self.settled_promise(call) {
-      let value = match call.args.as_slice() {
+      let value = match call.arguments.as_slice() {
         [] => Expr::Lit(Lit::Undefined),
-        [value] if value.spread.is_none() => self.expr(&value.expr)?,
+        [value] if !crate::syntax::is_spread(value) => self.expr(crate::syntax::arg_expr(value))?,
         _ => return Err(self.residue(call.span, "`Promise.resolve` or `Promise.reject` with more than one value")),
       };
       return Ok(self.settled(ok, value));
     }
     if self.calls_next(call) {
-      let request = match call.args.as_slice() {
+      let request = match call.arguments.as_slice() {
         [] => Expr::Lit(Lit::Undefined),
-        [request] => self.expr(&request.expr)?,
+        [request] => self.expr(crate::syntax::arg_expr(request))?,
         _ => return Err(self.residue(call.span, "`next` takes one request")),
       };
       return Ok(Expr::Next(Box::new(request)));
@@ -3732,21 +3958,21 @@ impl<'a> Lowerer<'a> {
     if let Some(read) = self.response_header_read(call)? {
       return Ok(read);
     }
-    if let (Some(reader), js::Callee::Expr(callee)) = (&self.reader, &call.callee) {
-      if matches!(&**callee, js::Expr::Ident(id) if id.sym == reader.0 && id.ctxt == reader.1) {
-        let named = call.args.first().ok_or_else(|| self.residue(call.span, "a compute's `read` takes the source key"))?;
-        return match self.expr(&named.expr)? {
+    if let (Some(reader), callee) = (&self.reader, &call.callee) {
+      if matches!(callee, js::Expression::Identifier(id) if self.parsed.ctxt(id) == Ctxt::Local(*reader)) {
+        let named = call.arguments.first().ok_or_else(|| self.residue(call.span, "a compute's `read` takes the source key"))?;
+        return match self.expr(&crate::syntax::arg_expr(&named))? {
           Expr::Lit(Lit::Str(key)) => Ok(Expr::Store(key)),
-          _ => Err(self.residue(named.expr.span(), "a source key the build cannot read")),
+          _ => Err(self.residue(crate::syntax::arg_expr(&named).span(), "a source key the build cannot read")),
         };
       }
     }
     if let Some(suspended) = self.suspend_call(call)? {
       return Ok(suspended);
     }
-    if let (true, js::Callee::Expr(callee), Some(js::Expr::Lit(js::Lit::Str(id)))) = (self.reaches(Reach::Process), &call.callee, call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
+    if let (true, callee, Some(js::Expression::StringLiteral(id))) = (self.reaches(Reach::Process), &call.callee, call.arguments.first().map(|a| crate::meaning::bare(crate::syntax::arg_expr(a)))) {
       if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClientAction)) {
-        return Ok(Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::ACT_REF.to_owned(), Expr::lit_str(id.value.to_string_lossy().into_owned()))]));
+        return Ok(Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::ACT_REF.to_owned(), Expr::lit_str(crate::lossy(id.value)))]));
       }
     }
     if self.reaches(Reach::Process) && self.spawns(call) {
@@ -3755,23 +3981,22 @@ impl<'a> Lowerer<'a> {
     if let Some(chained) = self.then_call(call)? {
       return Ok(chained);
     }
-    if let js::Callee::Expr(callee) = &call.callee {
+    {
+      let callee = &call.callee;
       if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::Emit)) {
         let mut args = Vec::with_capacity(2);
-        for a in call.args.iter().take(2) {
-          args.push(self.expr(&a.expr)?);
+        for a in call.arguments.iter().take(2) {
+          args.push(self.expr(crate::syntax::arg_expr(a))?);
         }
         return Ok(Expr::Builtin { name: Builtin::Emit, args });
       }
       if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)).and_then(|meant| meant.store_call()) == Some("set") {
-        let [key, value] = call.args.as_slice() else { return Err(self.residue(call.span, "`set` takes a key and a value")) };
-        let Expr::Lit(Lit::Str(key)) = self.expr(&key.expr)? else { return Err(self.residue(key.expr.span(), "a store key that is not a string the build can read")) };
-        return Ok(Expr::WriteStore(key, Box::new(self.expr(&value.expr)?)));
+        let [key, value] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`set` takes a key and a value")) };
+        let Expr::Lit(Lit::Str(key)) = self.expr(crate::syntax::arg_expr(key))? else { return Err(self.residue(crate::syntax::arg_expr(key).span(), "a store key that is not a string the build can read")) };
+        return Ok(Expr::WriteStore(key, Box::new(self.expr(crate::syntax::arg_expr(value))?)));
       }
     }
-    let js::Callee::Expr(callee) = &call.callee else {
-      return Err(self.residue(call.span, "`super` or `import()`"));
-    };
+    let callee = &call.callee;
     if let Some(called) = self.class_call(call, callee)? {
       return Ok(called);
     }
@@ -3788,9 +4013,9 @@ impl<'a> Lowerer<'a> {
       if module != "t" {
         return Err(self.residue(callee.span(), format!("`{module}` from the standard library is a module; call one of its members")));
       }
-      let mut args = Vec::with_capacity(call.args.len());
-      for a in &call.args {
-        args.push(self.expr(&a.expr)?);
+      let mut args = Vec::with_capacity(call.arguments.len());
+      for a in &call.arguments {
+        args.push(self.expr(crate::syntax::arg_expr(a))?);
       }
       return Ok(self.candidate(call.span, Expr::Ext { module: "i18n".to_owned(), name: "t".to_owned(), args }));
     }
@@ -3800,9 +4025,9 @@ impl<'a> Lowerer<'a> {
       _ => None,
     };
     if let Some(name) = element_builtin {
-      let mut args = Vec::with_capacity(call.args.len());
-      for a in &call.args {
-        args.push(self.expr(&a.expr)?);
+      let mut args = Vec::with_capacity(call.arguments.len());
+      for a in &call.arguments {
+        args.push(self.expr(crate::syntax::arg_expr(a))?);
       }
       return Ok(Expr::Builtin { name, args });
     }
@@ -3819,55 +4044,55 @@ impl<'a> Lowerer<'a> {
         return Err(self.residue(call.span, format!("a call to `{key}`, which {needs}")));
       }
       self.check_reach(call.span, key, reach)?;
-      let mut args = Vec::with_capacity(call.args.len());
-      for a in &call.args {
-        if a.spread.is_some() {
-          return Err(self.residue(a.expr.span(), format!("a spread into `{key}`")));
+      let mut args = Vec::with_capacity(call.arguments.len());
+      for a in &call.arguments {
+        if crate::syntax::is_spread(a) {
+          return Err(self.residue(crate::syntax::arg_expr(a).span(), format!("a spread into `{key}`")));
         }
-        args.push(self.expr(&a.expr)?);
+        args.push(self.expr(crate::syntax::arg_expr(a))?);
       }
       return Ok(Expr::Ext { module: module.to_owned(), name: member.to_owned(), args });
     }
     if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClassNames)) {
-      let mut items = Vec::with_capacity(call.args.len());
-      for a in &call.args {
-        items.push(Entry::Item(self.expr(&a.expr)?));
+      let mut items = Vec::with_capacity(call.arguments.len());
+      for a in &call.arguments {
+        items.push(Entry::Item(self.expr(crate::syntax::arg_expr(a))?));
       }
       return Ok(Expr::Builtin { name: Builtin::ClassNames, args: vec![Expr::Array(items)] });
     }
-    if let js::Expr::Member(member) = &**callee {
-      if let Some(module) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&member.obj)).and_then(|meant| meant.std()) {
-        let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
+    if let Some(member) = (callee).as_member_expression() {
+      if let Some(module) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(member.object())).and_then(|meant| meant.std()) {
+        let method = self.member_name(member).ok_or_else(|| self.residue(member.span(), "a computed method name"))?;
         let key = format!("{module}.{method}");
-        let reach = standard_reach(module, &method).ok_or_else(|| self.residue(member.span, format!("`{key}` is not a member of the standard library")))?;
+        let reach = standard_reach(module, &method).ok_or_else(|| self.residue(member.span(), format!("`{key}` is not a member of the standard library")))?;
         self.check_reach(call.span, &key, reach)?;
-        let mut args = Vec::with_capacity(call.args.len());
-        for a in &call.args {
-          args.push(self.expr(&a.expr)?);
+        let mut args = Vec::with_capacity(call.arguments.len());
+        for a in &call.arguments {
+          args.push(self.expr(crate::syntax::arg_expr(a))?);
         }
         let expr = Expr::Ext { module: module.to_owned(), name: method, args };
         return Ok(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr });
       }
     }
     if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::StoreKey)) {
-      let named = call.args.first().ok_or_else(|| self.residue(call.span, "`key` takes the key's name"))?;
-      return self.expr(&named.expr);
+      let named = call.arguments.first().ok_or_else(|| self.residue(call.span, "`key` takes the key's name"))?;
+      return self.expr(&crate::syntax::arg_expr(&named));
     }
-    let math = matches!(&**callee, js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if id.sym.as_ref() == "Math"));
-    let applied = matches!(&**callee, js::Expr::Ident(id) if self.scope.iter().any(|(n, _)| *n == *id.sym) || self.local_fns.iter().any(|(n, _)| *n == *id.sym) || self.globals.iter().any(|(n, _)| *n == *id.sym));
-    for arg in &call.args {
-      if arg.spread.is_some() && !math && !applied {
-        if let js::Expr::Ident(id) = &**callee {
-          self.unbound = Some(id.sym.to_string());
+    let math = (callee).as_member_expression().is_some_and(|m| matches!(m.object(), js::Expression::Identifier(id) if id.name.as_str() == "Math"));
+    let applied = matches!(callee, js::Expression::Identifier(id) if self.scope.iter().any(|(n, _)| *n == id.name.as_str()) || self.local_fns.iter().any(|(n, _)| *n == id.name.as_str()) || self.globals.iter().any(|(n, _)| *n == id.name.as_str()));
+    for arg in &call.arguments {
+      if crate::syntax::is_spread(arg) && !math && !applied {
+        if let js::Expression::Identifier(id) = callee {
+          self.unbound = Some(id.name.to_string());
         }
-        return Err(self.residue(arg.expr.span(), "a spread argument"));
+        return Err(self.residue(crate::syntax::arg_expr(arg).span(), "a spread argument"));
       }
     }
 
-    if let js::Expr::Ident(id) = &**callee {
-      let name = id.sym.as_ref();
+    if let js::Expression::Identifier(id) = callee {
+      let name = id.name.as_str();
       if !self.scope.iter().any(|(n, _)| n == name) && self.root_of(id).is_none() {
-        if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| f.clone()) {
+        if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| *f) {
           let f = Box::new(self.function_expr(&function)?);
           return self.applied(f, call);
         }
@@ -3878,9 +4103,9 @@ impl<'a> Lowerer<'a> {
               let key = format!("{module}.{member}");
               let reach = self.natives.iter().find(|(n, _)| *n == key).map(|(_, r)| *r).unwrap_or(Reach::Render);
               self.check_reach(call.span, &key, reach)?;
-              let mut args = Vec::with_capacity(call.args.len());
-              for a in &call.args {
-                args.push(self.expr(&a.expr)?);
+              let mut args = Vec::with_capacity(call.arguments.len());
+              for a in &call.arguments {
+                args.push(self.expr(crate::syntax::arg_expr(a))?);
               }
               let expr = Expr::Ext { module: module.clone(), name: member.clone(), args };
               return Ok(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr });
@@ -3902,13 +4127,13 @@ impl<'a> Lowerer<'a> {
           return Ok(self.candidate(call.span, applied));
         }
         let one = |this: &mut Self| -> Lowered<Box<Expr>> {
-          let a = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{name}` takes one argument")))?;
-          Ok(Box::new(this.expr(&a.expr)?))
+          let a = call.arguments.first().ok_or_else(|| this.residue(call.span, format!("`{name}` takes one argument")))?;
+          Ok(Box::new(this.expr(crate::syntax::arg_expr(a))?))
         };
         return match name {
-          "String" if matches!(call.args.as_slice(), [only] if only.spread.is_none()) => Ok(Expr::Str(Box::new(self.as_primitive(&call.args[0].expr)?))),
+          "String" if matches!(call.arguments.as_slice(), [only] if !crate::syntax::is_spread(only)) => Ok(Expr::Str(Box::new(self.as_primitive(&crate::syntax::arg_expr(&call.arguments[0]))?))),
           "String" => Ok(Expr::Str(one(self)?)),
-          "Number" if matches!(call.args.as_slice(), [only] if only.spread.is_none()) => Ok(Expr::Num(Box::new(self.as_primitive(&call.args[0].expr)?))),
+          "Number" if matches!(call.arguments.as_slice(), [only] if !crate::syntax::is_spread(only)) => Ok(Expr::Num(Box::new(self.as_primitive(&crate::syntax::arg_expr(&call.arguments[0]))?))),
           "Number" => Ok(Expr::Num(one(self)?)),
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
           "Boolean" => Ok(Expr::Not(Box::new(Expr::Not(one(self)?)))),
@@ -3916,17 +4141,17 @@ impl<'a> Lowerer<'a> {
           "decodeURIComponent" => Ok(Expr::Builtin { name: Builtin::DecodeUriComponent, args: vec![*one(self)?] }),
           "isNaN" => Ok(Expr::Builtin { name: Builtin::IsNaN, args: vec![*one(self)?] }),
           "btoa" | "atob" => Ok(Expr::Ext { module: "encoding".to_owned(), name: name.to_owned(), args: vec![*one(self)?] }),
-          "structuredClone" if call.args.len() <= 1 => { let value = *one(self)?; Ok(if heap_pass() { Expr::Builtin { name: Builtin::CopyDeep, args: vec![value] } } else { value }) }
+          "structuredClone" if call.arguments.len() <= 1 => { let value = *one(self)?; Ok(if heap_pass() { Expr::Builtin { name: Builtin::CopyDeep, args: vec![value] } } else { value }) }
           "parseInt" => {
             let mut args = vec![*one(self)?];
-            if let Some(radix) = call.args.get(1) {
-              args.push(self.expr(&radix.expr)?);
+            if let Some(radix) = call.arguments.get(1) {
+              args.push(self.expr(crate::syntax::arg_expr(radix))?);
             }
             Ok(Expr::Builtin { name: Builtin::ParseInt, args })
           }
           name if ERROR_CONSTRUCTORS.contains(&name) => {
-            let message = match call.args.first() {
-              Some(a) => Expr::Str(Box::new(self.expr(&a.expr)?)),
+            let message = match call.arguments.first() {
+              Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
               None => Expr::lit_str(""),
             };
             Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), message)]))
@@ -3934,7 +4159,7 @@ impl<'a> Lowerer<'a> {
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           "redirect" if self.parsed.names_server(&call.callee, "redirect") => self.redirect_to(call),
           "after" if self.parsed.names_server(&call.callee, "after") => self.after_of(call),
-          "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.args.first() {
+          "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.arguments.first() {
             Some(_) => Ok(*one(self)?),
             None => Ok(Expr::Lit(Lit::Null)),
           },
@@ -3953,8 +4178,8 @@ impl<'a> Lowerer<'a> {
       }
     }
 
-    let js::Expr::Member(member) = &**callee else {
-      if matches!(crate::meaning::bare(callee), js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+    let Some(member) = (callee).as_member_expression() else {
+      if matches!(crate::meaning::bare(callee), js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)) {
         return Err(self.residue_with(
           callee.span(),
           "a function called where it is written",
@@ -3967,47 +4192,47 @@ impl<'a> Lowerer<'a> {
     if let Some(applied) = self.function_member(member, call)? {
       return Ok(applied);
     }
-    let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
-    if self.kind_of(&member.obj) == Some(Kind::Scope) {
+    let method = self.member_name(member).ok_or_else(|| self.residue(member.span(), "a computed method name"))?;
+    if self.kind_of(member.object()) == Some(Kind::Scope) {
       return self.scope_call(&method, member, call);
     }
 
-    if let js::Expr::Ident(obj) = &*member.obj {
-      let global = obj.sym.as_ref();
+    if let js::Expression::Identifier(obj) = member.object() {
+      let global = obj.name.as_str();
       if !self.scope.iter().any(|(n, _)| n == global) && !self.globals.iter().any(|(n, _)| n == global) {
         match global {
           "Object" => {
-            let a = call.args.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
-            let target = Box::new(self.expr(&a.expr)?);
+            let a = call.arguments.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
+            let target = Box::new(self.expr(crate::syntax::arg_expr(a))?);
             return match method.as_str() {
               "entries" => Ok(Expr::Entries(target)),
               "fromEntries" => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![*target] }),
               "keys" => Ok(Expr::Keys(target)),
               "values" => Ok(Expr::Values(target)),
-              _ => Err(self.residue(member.span, format!("`Object.{method}`"))),
+              _ => Err(self.residue(member.span(), format!("`Object.{method}`"))),
             };
           }
           "Math" if crate::JS_MATH.contains(&method.as_str()) => {
             let mut args = vec![Expr::lit_str(method.as_str())];
-            for a in &call.args {
-              if a.spread.is_some() {
-                return Err(self.residue(a.expr.span(), "a spread argument"));
+            for a in &call.arguments {
+              if crate::syntax::is_spread(a) {
+                return Err(self.residue(crate::syntax::arg_expr(a).span(), "a spread argument"));
               }
-              args.push(self.expr(&a.expr)?);
+              args.push(self.expr(crate::syntax::arg_expr(a))?);
             }
             return Ok(Expr::Builtin { name: Builtin::Math, args });
           }
           "Number" if method == "parseInt" => {
-            let Some(first) = call.args.first() else { return Err(self.residue(call.span, "`Number.parseInt` takes a string and an optional radix")) };
-            let mut args = vec![self.expr(&first.expr)?];
-            if let Some(radix) = call.args.get(1) {
-              args.push(self.expr(&radix.expr)?);
+            let Some(first) = call.arguments.first() else { return Err(self.residue(call.span, "`Number.parseInt` takes a string and an optional radix")) };
+            let mut args = vec![self.expr(crate::syntax::arg_expr(first))?];
+            if let Some(radix) = call.arguments.get(1) {
+              args.push(self.expr(crate::syntax::arg_expr(radix))?);
             }
             return Ok(Expr::Builtin { name: Builtin::ParseInt, args });
           }
           "Number" if matches!(method.as_str(), "isInteger" | "isSafeInteger" | "isFinite" | "isNaN") => {
-            let Some(arg) = call.args.first() else { return Err(self.residue(call.span, format!("`Number.{method}` takes one argument"))) };
-            let x = self.expr(&arg.expr)?;
+            let Some(arg) = call.arguments.first() else { return Err(self.residue(call.span, format!("`Number.{method}` takes one argument"))) };
+            let x = self.expr(crate::syntax::arg_expr(arg))?;
             let both = |a: Expr, b: Expr| Expr::Logic(LogicOp::And, Box::new(a), Box::new(b));
             let compare = |op: CompareOp, a: Expr, b: Expr| Expr::Compare(op, Box::new(a), Box::new(b));
             let number = compare(CompareOp::Eq, Expr::Builtin { name: Builtin::TypeOf, args: vec![x.clone()] }, Expr::lit_str("number"));
@@ -4020,7 +4245,7 @@ impl<'a> Lowerer<'a> {
               _ => both(number, both(finite, both(whole, compare(CompareOp::Le, Expr::Builtin { name: Builtin::Abs, args: vec![x] }, Expr::Lit(Lit::Int(9_007_199_254_740_991)))))),
             });
           }
-          "Math" if method == "random" && self.reaches(Reach::Terminal) && call.args.is_empty() => {
+          "Math" if method == "random" && self.reaches(Reach::Terminal) && call.arguments.is_empty() => {
             let bytes = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Float(6.0))] };
             let whole = Expr::Builtin { name: Builtin::ParseInt, args: vec![bytes, Expr::Lit(Lit::Float(16.0))] };
             return Ok(Expr::Arith(ArithOp::Div, Box::new(whole), Box::new(Expr::Lit(Lit::Float(281_474_976_710_656.0)))));
@@ -4037,64 +4262,64 @@ impl<'a> Lowerer<'a> {
               "sqrt" => Builtin::Sqrt,
               "trunc" => Builtin::Trunc,
               "sign" => Builtin::Sign,
-              _ => return Err(self.residue(member.span, format!("`Math.{method}`"))),
+              _ => return Err(self.residue(member.span(), format!("`Math.{method}`"))),
             };
-            if matches!(name, Builtin::Min | Builtin::Max) && call.args.iter().any(|a| a.spread.is_some()) {
-              let mut entries = Vec::with_capacity(call.args.len());
-              for a in &call.args {
-                let value = self.expr(&a.expr)?;
-                entries.push(if a.spread.is_some() { Entry::Spread(value) } else { Entry::Item(value) });
+            if matches!(name, Builtin::Min | Builtin::Max) && call.arguments.iter().any(|a| crate::syntax::is_spread(a)) {
+              let mut entries = Vec::with_capacity(call.arguments.len());
+              for a in &call.arguments {
+                let value = self.expr(crate::syntax::arg_expr(a))?;
+                entries.push(if crate::syntax::is_spread(a) { Entry::Spread(value) } else { Entry::Item(value) });
               }
               let name = if name == Builtin::Min { Builtin::MinOf } else { Builtin::MaxOf };
               return Ok(Expr::Builtin { name, args: vec![Expr::Array(entries)] });
             }
-            let mut args = Vec::with_capacity(call.args.len());
-            for a in &call.args {
-              if a.spread.is_some() {
-                return Err(self.residue(a.expr.span(), "a spread argument"));
+            let mut args = Vec::with_capacity(call.arguments.len());
+            for a in &call.arguments {
+              if crate::syntax::is_spread(a) {
+                return Err(self.residue(crate::syntax::arg_expr(a).span(), "a spread argument"));
               }
-              args.push(self.expr(&a.expr)?);
+              args.push(self.expr(crate::syntax::arg_expr(a))?);
             }
             return Ok(Expr::Builtin { name, args });
           }
           "Response" if matches!(method.as_str(), "json" | "redirect") => {
-            let mut args = Vec::with_capacity(call.args.len());
-            for a in &call.args {
-              args.push(self.expr(&a.expr)?);
+            let mut args = Vec::with_capacity(call.arguments.len());
+            for a in &call.arguments {
+              args.push(self.expr(crate::syntax::arg_expr(a))?);
             }
             let name = if method == "json" { Builtin::ResponseJson } else { Builtin::ResponseRedirect };
             return Ok(Expr::Builtin { name, args });
           }
           "JSON" if method == "parse" => {
-            let [arg] = call.args.as_slice() else { return Err(self.residue(call.span, "`JSON.parse` takes the text alone; a reviver is not lowered")) };
-            return Ok(Expr::Builtin { name: Builtin::JsonParse, args: vec![self.expr(&arg.expr)?] });
+            let [arg] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`JSON.parse` takes the text alone; a reviver is not lowered")) };
+            return Ok(Expr::Builtin { name: Builtin::JsonParse, args: vec![self.expr(crate::syntax::arg_expr(arg))?] });
           }
           "JSON" if method == "stringify" => {
-            if call.args.len() > 3 || call.args.get(1).is_some_and(|a| !matches!(&*a.expr, js::Expr::Lit(js::Lit::Null(_)))) {
+            if call.arguments.len() > 3 || call.arguments.get(1).is_some_and(|a| !matches!(crate::syntax::arg_expr(a), js::Expression::NullLiteral(_))) {
               return Err(self.residue(call.span, "`JSON.stringify` with a replacer; it takes a value, `null` and an indent"));
             }
-            let mut args = Vec::with_capacity(call.args.len());
-            for a in &call.args {
-              args.push(self.expr(&a.expr)?);
+            let mut args = Vec::with_capacity(call.arguments.len());
+            for a in &call.arguments {
+              args.push(self.expr(crate::syntax::arg_expr(a))?);
             }
             return Ok(Expr::Builtin { name: Builtin::Json, args });
           }
           "Array" if method == "isArray" => {
-            let [arg] = call.args.as_slice() else { return Err(self.residue(call.span, "`Array.isArray` takes one argument")) };
-            return Ok(Expr::Builtin { name: Builtin::IsArray, args: vec![self.expr(&arg.expr)?] });
+            let [arg] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Array.isArray` takes one argument")) };
+            return Ok(Expr::Builtin { name: Builtin::IsArray, args: vec![self.expr(crate::syntax::arg_expr(arg))?] });
           }
-          "Array" if method == "from" && call.args.first().is_some_and(|a| !matches!(&*a.expr, js::Expr::Object(_))) => {
-            let source = &call.args[0].expr;
+          "Array" if method == "from" && call.arguments.first().is_some_and(|a| !matches!(crate::syntax::arg_expr(a), js::Expression::ObjectExpression(_))) => {
+            let source = &crate::syntax::arg_expr(&call.arguments[0]);
             let mut items = self.expr(source)?;
             items = match self.kind_of(source) {
               Some(Kind::Map) => Expr::Entries(Box::new(items)),
               _ => Expr::Array(vec![Entry::Spread(items)]),
             };
-            return match call.args.get(1) {
+            return match call.arguments.get(1) {
               None => Ok(items),
               Some(f) => {
-                let js::Expr::Arrow(arrow) = &*f.expr else {
-                  return Err(self.residue(f.expr.span(), "`Array.from` takes an arrow function written in place"));
+                let js::Expression::ArrowFunctionExpression(arrow) = &*crate::syntax::arg_expr(&f) else {
+                  return Err(self.residue(crate::syntax::arg_expr(&f).span(), "`Array.from` takes an arrow function written in place"));
                 };
                 Ok(Expr::Map(Box::new(items), Box::new(self.lambda(arrow)?)))
               }
@@ -4116,30 +4341,30 @@ impl<'a> Lowerer<'a> {
             return match method.as_str() {
               "now" => self.date_now(call.span),
               "parse" => {
-                let arg = call.args.first().ok_or_else(|| self.residue(call.span, "`Date.parse` without a string"))?;
-                Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![self.expr(&arg.expr)?] })
+                let arg = call.arguments.first().ok_or_else(|| self.residue(call.span, "`Date.parse` without a string"))?;
+                Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![self.expr(crate::syntax::arg_expr(arg))?] })
               }
-              other => Err(self.residue(member.span, format!("`Date.{other}`"))),
+              other => Err(self.residue(member.span(), format!("`Date.{other}`"))),
             };
           }
           "Array" if method == "from" => {
-            let (Some(shape), Some(f)) = (call.args.first(), call.args.get(1)) else {
+            let (Some(shape), Some(f)) = (call.arguments.first(), call.arguments.get(1)) else {
               return Err(self.residue(call.span, "`Array.from` takes `{ length }` and a function"));
             };
-            let js::Expr::Object(obj) = &*shape.expr else {
-              return Err(self.residue(shape.expr.span(), "`Array.from` over something other than `{ length: n }`"));
+            let js::Expression::ObjectExpression(obj) = crate::syntax::arg_expr(shape) else {
+              return Err(self.residue(crate::syntax::arg_expr(shape).span(), "`Array.from` over something other than `{ length: n }`"));
             };
-            let length = obj.props.iter().find_map(|p| match p {
-              js::PropOrSpread::Prop(p) => match &**p {
-                js::Prop::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("length") => Some(&kv.value),
+            let length = obj.properties.iter().find_map(|p| match p {
+              js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
+                crate::syntax::Prop::KeyValue(kv) if prop_name(&kv.key, kv.computed).as_deref() == Some("length") => Some(&kv.value),
                 _ => None,
               },
               _ => None,
             });
-            let Some(length) = length else { return Err(self.residue(shape.expr.span(), "`Array.from` over something other than `{ length: n }`")) };
+            let Some(length) = length else { return Err(self.residue(crate::syntax::arg_expr(shape).span(), "`Array.from` over something other than `{ length: n }`")) };
             let range = Box::new(Expr::Builtin { name: Builtin::Range, args: vec![self.expr(length)?] });
-            let js::Expr::Arrow(arrow) = &*f.expr else {
-              return Err(self.residue(f.expr.span(), "`Array.from` takes an arrow function written in place"));
+            let js::Expression::ArrowFunctionExpression(arrow) = &*crate::syntax::arg_expr(&f) else {
+              return Err(self.residue(crate::syntax::arg_expr(&f).span(), "`Array.from` takes an arrow function written in place"));
             };
             return Ok(Expr::Map(range, Box::new(self.lambda(arrow)?)));
           }
@@ -4148,22 +4373,22 @@ impl<'a> Lowerer<'a> {
       }
     }
 
-    if let Some((service, _via_ctx)) = self.service_of(&member.obj) {
+    if let Some((service, _via_ctx)) = self.service_of(member.object()) {
       let args = self.object_args(call, "service")?;
       return Ok(Expr::Call { service, method, args });
     }
 
-    if let Some((module, _via_ctx)) = self.native_of(&member.obj) {
+    if let Some((module, _via_ctx)) = self.native_of(member.object()) {
       let args = self.object_args(call, "native")?;
       // `sync` is set by the build from the Rust signature, which this reader cannot see.
       return Ok(Expr::NativeCall { module, method, args, sync: false });
     }
 
     if method == "fill" {
-      if let Some(length) = self.array_of_length(&member.obj) {
+      if let Some(length) = self.array_of_length(member.object()) {
         let length = self.expr(length)?;
-        let value = match call.args.first() {
-          Some(arg) if call.args.len() == 1 => self.expr(&arg.expr)?,
+        let value = match call.arguments.first() {
+          Some(arg) if call.arguments.len() == 1 => self.expr(crate::syntax::arg_expr(arg))?,
           Some(_) => return Err(self.residue(call.span, "`fill` with a start or an end")),
           None => Expr::Lit(Lit::Null),
         };
@@ -4172,13 +4397,10 @@ impl<'a> Lowerer<'a> {
       }
     }
     if method == "segment" || method == "containing" {
-      let (segmenter, text) = match (method.as_str(), strip_parens(&member.obj)) {
-        ("segment", obj) => (self.formatter_of(obj), call.args.first().map(|a| (*a.expr).clone())),
-        ("containing", js::Expr::Call(inner)) => match &inner.callee {
-          js::Callee::Expr(callee) => match strip_parens(callee) {
-            js::Expr::Member(m) if matches!(&m.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "segment") => (self.formatter_of(&m.obj), inner.args.first().map(|a| (*a.expr).clone())),
-            _ => (None, None),
-          },
+      let (segmenter, text) = match (method.as_str(), strip_parens(member.object())) {
+        ("segment", obj) => (self.formatter_of(obj), call.arguments.first().map(crate::syntax::arg_expr)),
+        ("containing", js::Expression::CallExpression(inner)) => match strip_parens(&inner.callee).as_member_expression() {
+          Some(m) if matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "segment") => (self.formatter_of(m.object()), inner.arguments.first().map(crate::syntax::arg_expr)),
           _ => (None, None),
         },
         _ => (None, None),
@@ -4186,31 +4408,31 @@ impl<'a> Lowerer<'a> {
       if let Some(made) = segmenter.filter(|made| platform_object(made) == Some("Segmenter")) {
         self.grapheme_segmenter(&made)?;
         let text = text.ok_or_else(|| self.residue(call.span, "`segment` without a string"))?;
-        let mut args = vec![self.expr(&text)?];
+        let mut args = vec![self.expr(text)?];
         if method == "containing" {
-          let at = call.args.first().ok_or_else(|| self.residue(call.span, "`containing` without an index"))?;
-          args.push(self.expr(&at.expr)?);
+          let at = call.arguments.first().ok_or_else(|| self.residue(call.span, "`containing` without an index"))?;
+          args.push(self.expr(crate::syntax::arg_expr(at))?);
         }
         return Ok(Expr::Builtin { name: Builtin::Graphemes, args });
       }
     }
     if matches!(method.as_str(), "encode" | "decode") {
-      if let Some(made) = self.formatter_of(&member.obj) {
+      if let Some(made) = self.formatter_of(member.object()) {
         match (platform_object(&made), method.as_str()) {
           (Some("TextEncoder"), "encode") | (Some("TextDecoder"), "decode") => {
             if method == "decode" {
-              let args = made.args.as_deref().unwrap_or_default();
-              let utf8 = match args.first().map(|a| strip_parens(&a.expr)) {
+              let args = &made.arguments[..];
+              let utf8 = match args.first().map(|a| strip_parens(crate::syntax::arg_expr(a))) {
                 None => true,
-                Some(js::Expr::Lit(js::Lit::Str(s))) => matches!(s.value.to_atom_lossy().to_ascii_lowercase().as_str(), "utf-8" | "utf8" | "unicode-1-1-utf-8"),
+                Some(js::Expression::StringLiteral(s)) => matches!(crate::lossy(s.value).to_ascii_lowercase().as_str(), "utf-8" | "utf8" | "unicode-1-1-utf-8"),
                 Some(_) => false,
               };
               if !utf8 || args.len() > 1 {
                 return Err(self.residue_with(made.span, "a `TextDecoder` with a label or options", "`new TextDecoder()` decodes UTF-8, which the build reads"));
               }
             }
-            let value = match call.args.first() {
-              Some(a) => self.expr(&a.expr)?,
+            let value = match call.arguments.first() {
+              Some(a) => self.expr(crate::syntax::arg_expr(a))?,
               None => Expr::lit_str(""),
             };
             return Ok(Expr::Ext { module: "encoding".to_owned(), name: method.clone(), args: vec![value] });
@@ -4220,28 +4442,27 @@ impl<'a> Lowerer<'a> {
       }
     }
     if matches!(method.as_str(), "format" | "select" | "compare") {
-      if let Some(made) = self.formatter_of(&member.obj) {
+      if let Some(made) = self.formatter_of(member.object()) {
         let called = match (platform_object(&made), method.as_str()) {
           (Some(formatter @ ("NumberFormat" | "DateTimeFormat" | "ListFormat" | "RelativeTimeFormat")), "format") | (Some(formatter @ "PluralRules"), "select") | (Some(formatter @ "Collator"), "compare") => Some(formatter),
           _ => None,
         };
         if let Some(formatter) = called {
-          let mut values = Vec::with_capacity(call.args.len());
-          for a in &call.args {
-            values.push(self.expr(&a.expr)?);
+          let mut values = Vec::with_capacity(call.arguments.len());
+          for a in &call.arguments {
+            values.push(self.expr(crate::syntax::arg_expr(a))?);
           }
-          let made_args: Vec<js::ExprOrSpread> = made.args.clone().unwrap_or_default();
-          let expr = self.intl_call(formatter, &made_args, values, made.span)?;
+          let expr = self.intl_call(formatter, &made.arguments, values, made.span)?;
           return Ok(self.candidate(call.span, expr));
         }
       }
     }
-    match self.kind_of(&member.obj) {
+    match self.kind_of(member.object()) {
       Some(Kind::Map) => {
-        let target = self.expr(&member.obj)?;
+        let target = self.expr(member.object())?;
         let key = |this: &mut Self| -> Lowered<Expr> {
-          let arg = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{method}` without a key")))?;
-          Ok(Expr::Builtin { name: Builtin::MapKey, args: vec![this.expr(&arg.expr)?] })
+          let arg = call.arguments.first().ok_or_else(|| this.residue(call.span, format!("`{method}` without a key")))?;
+          Ok(Expr::Builtin { name: Builtin::MapKey, args: vec![this.expr(crate::syntax::arg_expr(arg))?] })
         };
         return match method.as_str() {
           "get" => Ok(Expr::Index(Box::new(target), Box::new(key(self)?))),
@@ -4249,79 +4470,79 @@ impl<'a> Lowerer<'a> {
           "keys" => Ok(Expr::Keys(Box::new(target))),
           "values" => Ok(Expr::Values(Box::new(target))),
           "entries" => Ok(Expr::Entries(Box::new(target))),
-          other => Err(self.residue(member.span, format!("`.{other}()` of a `Map`"))),
+          other => Err(self.residue(member.span(), format!("`.{other}()` of a `Map`"))),
         };
       }
       Some(Kind::Set) => {
-        let target = self.expr(&member.obj)?;
+        let target = self.expr(member.object())?;
         return match method.as_str() {
           "has" => {
-            let arg = call.args.first().ok_or_else(|| self.residue(call.span, "`has` without a value"))?;
-            Ok(Expr::Builtin { name: Builtin::Includes, args: vec![target, self.expr(&arg.expr)?] })
+            let arg = call.arguments.first().ok_or_else(|| self.residue(call.span, "`has` without a value"))?;
+            Ok(Expr::Builtin { name: Builtin::Includes, args: vec![target, self.expr(crate::syntax::arg_expr(arg))?] })
           }
           "values" | "keys" => Ok(target),
-          other => Err(self.residue(member.span, format!("`.{other}()` of a `Set`"))),
+          other => Err(self.residue(member.span(), format!("`.{other}()` of a `Set`"))),
         };
       }
       Some(Kind::Query) if method != "toString" => {
-        let target = self.expr(&member.obj)?;
+        let target = self.expr(member.object())?;
         return match method.as_str() {
           "get" => {
-            let arg = call.args.first().ok_or_else(|| self.residue(call.span, "`get` without a key"))?;
-            Ok(Expr::Builtin { name: Builtin::FormGet, args: vec![target, Expr::Str(Box::new(self.expr(&arg.expr)?))] })
+            let arg = call.arguments.first().ok_or_else(|| self.residue(call.span, "`get` without a key"))?;
+            Ok(Expr::Builtin { name: Builtin::FormGet, args: vec![target, Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(arg))?))] })
           }
           "has" | "getAll" => {
-            let arg = call.args.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without a key")))?;
+            let arg = call.arguments.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without a key")))?;
             let name = if method == "has" { Builtin::FormHas } else { Builtin::FormGetAll };
-            Ok(Expr::Builtin { name, args: vec![target, Expr::Str(Box::new(self.expr(&arg.expr)?))] })
+            Ok(Expr::Builtin { name, args: vec![target, Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(arg))?))] })
           }
           "entries" => Ok(Expr::Builtin { name: Builtin::FormEntries, args: vec![target] }),
-          other => Err(self.residue(member.span, format!("`.{other}()` of a `URLSearchParams`"))),
+          other => Err(self.residue(member.span(), format!("`.{other}()` of a `URLSearchParams`"))),
         };
       }
       _ => {}
     }
 
-    let target = Box::new(self.expr(&member.obj)?);
+    let target = Box::new(self.expr(member.object())?);
     let lambda = |this: &mut Self, i: usize| -> Lowered<Box<Expr>> {
-      let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes a function")))?;
-      if let js::Expr::Ident(id) = &*a.expr {
-        let name = id.sym.as_ref();
+      let a = call.arguments.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes a function")))?;
+      if let js::Expression::Identifier(id) = crate::syntax::arg_expr(a) {
+        let name = id.name.as_str();
         if name == "Boolean" && !this.scope.iter().any(|(n, _)| n == name) && this.root_of(id).is_none() && !this.globals.iter().any(|(n, _)| n == name) {
           let item = this.temp();
           return Ok(Box::new(Expr::Lambda { params: vec![item.clone()], body: Box::new(Expr::Not(Box::new(Expr::Not(Box::new(Expr::Var(item)))))) }));
         }
-        if let Some(function) = this.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| f.clone()) {
+        if let Some(function) = this.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| *f) {
           return this.function_expr(&function).map(Box::new);
         }
         let bound = this.scope.iter().rev().find(|(n, _)| n == name).or_else(|| this.globals.iter().rev().find(|(n, _)| n == name)).map(|(_, e)| e.clone());
         match &bound {
-          Some(Expr::Lambda { .. } | Expr::Fix { .. }) => return this.expr(&a.expr).map(Box::new),
-          Some(Expr::Var(v)) if v == name => return this.expr(&a.expr).map(Box::new),
+          Some(Expr::Lambda { .. } | Expr::Fix { .. }) => return this.expr(crate::syntax::arg_expr(a)).map(Box::new),
+          Some(Expr::Var(v)) if v == name => return this.expr(crate::syntax::arg_expr(a)).map(Box::new),
           Some(_) => {}
           None if this.root_of(id).is_none() => {
             this.unbound = Some(name.to_owned());
-            return Err(this.residue(a.expr.span(), format!("`{method}` takes a function; `{name}` is not bound here")));
+            return Err(this.residue(crate::syntax::arg_expr(a).span(), format!("`{method}` takes a function; `{name}` is not bound here")));
           }
           None => {}
         }
       }
-      if let js::Expr::Member(m) = strip_parens(&a.expr) {
+      if let Some(m) = (strip_parens(crate::syntax::arg_expr(a))).as_member_expression() {
         if let Some(compare) = this.collator_compare(m)? {
           return Ok(Box::new(compare));
         }
       }
-      let js::Expr::Arrow(arrow) = &*a.expr else {
-        return Err(this.residue(a.expr.span(), format!("`{method}` takes an arrow function written in place or the name of a function")));
+      let js::Expression::ArrowFunctionExpression(arrow) = crate::syntax::arg_expr(a) else {
+        return Err(this.residue(crate::syntax::arg_expr(a).span(), format!("`{method}` takes an arrow function written in place or the name of a function")));
       };
       let f = this.lambda(arrow)?;
       if let Expr::Lambda { body, .. } = &f {
         if matches!(&**body, Expr::Builtin { name: Builtin::WriteBack, .. }) {
-          let written = crate::component::written_params(&arrow.params, match &*arrow.body {
-            js::ArrowFunctionBody::FunctionBody(b) => &b.stmts,
-            js::ArrowFunctionBody::Expr(_) => &[],
+          let written = crate::component::written_params(&crate::params_of(&arrow.params), match crate::syntax::arrow_body_of(arrow) {
+            crate::syntax::ArrowBody::Block(b) => b.body,
+            crate::syntax::ArrowBody::Expr(_) => &[],
           });
-          let name = written.first().map(|(_, p)| p.sym.to_string()).unwrap_or_default();
+          let name = written.first().map(|(_, p)| p.clone()).unwrap_or_default();
           return Err(this.residue_with(arrow.span, format!("a write to a field of `{name}`, which this body did not declare: `{method}` would change the item in place"), "return a new value from the callback"));
         }
       }
@@ -4335,9 +4556,9 @@ impl<'a> Lowerer<'a> {
       "some" => Ok(Expr::Some(target, lambda(self, 0)?)),
       "every" => Ok(Expr::Every(target, lambda(self, 0)?)),
       "flatMap" => Ok(Expr::FlatMap(target, lambda(self, 0)?)),
-      "flat" if call.args.is_empty() || matches!(&*call.args[0].expr, js::Expr::Lit(js::Lit::Num(n)) if n.value == 1.0) => Ok(Expr::FlatMap(target, Box::new(Expr::Lambda { params: vec!["$item".to_owned()], body: Box::new(Expr::Var("$item".to_owned())) }))),
-      "toString" if call.args.is_empty() => Ok(Expr::Str(target)),
-      "toString" => Ok(Expr::Builtin { name: Builtin::Radix, args: vec![*target, self.expr(&call.args[0].expr)?] }),
+      "flat" if call.arguments.is_empty() || matches!(&*crate::syntax::arg_expr(&call.arguments[0]), js::Expression::NumericLiteral(n) if n.value == 1.0) => Ok(Expr::FlatMap(target, Box::new(Expr::Lambda { params: vec!["$item".to_owned()], body: Box::new(Expr::Var("$item".to_owned())) }))),
+      "toString" if call.arguments.is_empty() => Ok(Expr::Str(target)),
+      "toString" => Ok(Expr::Builtin { name: Builtin::Radix, args: vec![*target, self.expr(&crate::syntax::arg_expr(&call.arguments[0]))?] }),
       "getTime" | "valueOf" => Ok(*target),
       "toISOString" | "toJSON" => Ok(Expr::Builtin { name: Builtin::IsoString, args: vec![*target] }),
       "getUTCFullYear" | "getUTCMonth" | "getUTCDate" | "getUTCDay" | "getUTCHours" | "getUTCMinutes" | "getUTCSeconds" | "getUTCMilliseconds" | "getMilliseconds" => {
@@ -4353,7 +4574,7 @@ impl<'a> Lowerer<'a> {
         };
         Ok(Expr::Builtin { name: Builtin::DatePart, args: vec![*target, Expr::lit_str(part)] })
       }
-      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" if self.reaches(Reach::Terminal) && call.args.is_empty() => {
+      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" if self.reaches(Reach::Terminal) && call.arguments.is_empty() => {
         let part = match method.as_str() {
           "getFullYear" => "year",
           "getMonth" => "month",
@@ -4370,43 +4591,41 @@ impl<'a> Lowerer<'a> {
         Ok(Expr::Apply { f: Box::new(Expr::Lambda { params: vec![at], body: Box::new(body) }), args: vec![*target] })
       }
       "getTimezoneOffset" if self.reaches(Reach::Terminal) => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
-      "toLocaleTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.args.len() <= 1 => {
-        let locale = match call.args.first().map(|a| strip_parens(&a.expr)) {
+      "toLocaleTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.len() <= 1 => {
+        let locale = match call.arguments.first().map(|a| strip_parens(crate::syntax::arg_expr(a))) {
           None => Expr::Lit(Lit::Null),
-          Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => Expr::Lit(Lit::Null),
-          Some(js::Expr::Lit(js::Lit::Str(tag))) => Expr::lit_str(tag.value.to_atom_lossy().to_string()),
+          Some(js::Expression::Identifier(id)) if id.name.as_str() == "undefined" => Expr::Lit(Lit::Null),
+          Some(js::Expression::StringLiteral(tag)) => Expr::lit_str(crate::lossy(tag.value)),
           Some(other) => return Err(self.residue_with(other.span(), "a locale that is not written in place", "write the locale, `\"en-US\"`; `undefined` takes the system's")),
         };
         Ok(Expr::Ext { module: "intl".to_owned(), name: "localTime".to_owned(), args: vec![*target, locale] })
       }
       "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" | "getTimezoneOffset" | "toLocaleTimeString" | "toTimeString" | "toDateString" => {
         let utc = method.replacen("get", "getUTC", 1);
-        let mut residue = self.browser_only(member.span, format!("`.{method}()`, which reads the viewer's time zone"));
+        let mut residue = self.browser_only(member.span(), format!("`.{method}()`, which reads the viewer's time zone"));
         residue.hint = Some(format!("as text under an element the browser fills it in when the component hydrates; the server has no viewer, so `.{utc}()` and `toLocaleDateString(undefined, {{ dateStyle }})` read UTC, which both agree on"));
         Err(residue)
       }
       "localeCompare" => {
-        let other = match call.args.first() {
-          Some(arg) => self.expr(&arg.expr)?,
+        let other = match call.arguments.first() {
+          Some(arg) => self.expr(crate::syntax::arg_expr(arg))?,
           None => return Err(self.residue(call.span, "`localeCompare` without a string to compare with")),
         };
-        let made: Vec<js::ExprOrSpread> = call.args.iter().skip(1).cloned().collect();
-        self.intl_call("Collator", &made, vec![*target, other], call.span)
+        self.intl_call("Collator", call.arguments.get(1..).unwrap_or_default(), vec![*target, other], call.span)
       }
       "toLocaleDateString" => {
-        let mut made = call.args.clone();
-        made.truncate(2);
-        let expr = self.intl_format("DateTimeFormat", &made, *target, call.span)?;
+        let made = &call.arguments[..call.arguments.len().min(2)];
+        let expr = self.intl_format("DateTimeFormat", made, *target, call.span)?;
         Ok(self.candidate(call.span, expr))
       }
       "toSorted" | "sort" | "toReversed" | "reverse" => {
-        if matches!(method.as_str(), "sort" | "reverse") && !fresh_array(&member.obj) {
-          return Err(self.residue_with(member.span, format!("`.{method}()` of an array something else holds, which it rewrites in place"), format!("`[...items].{method}()` or `items.slice().{method}()` gives the same order without the write")));
+        if matches!(method.as_str(), "sort" | "reverse") && !fresh_array(member.object()) {
+          return Err(self.residue_with(member.span(), format!("`.{method}()` of an array something else holds, which it rewrites in place"), format!("`[...items].{method}()` or `items.slice().{method}()` gives the same order without the write")));
         }
         if method.contains("everse") {
           return Ok(Expr::Builtin { name: Builtin::Reverse, args: vec![*target] });
         }
-        let f = match call.args.first() {
+        let f = match call.arguments.first() {
           None => Box::new(Expr::Lit(Lit::Null)),
           Some(_) => lambda(self, 0)?,
         };
@@ -4427,24 +4646,24 @@ impl<'a> Lowerer<'a> {
           _ => Builtin::Substring,
         };
         let mut args = vec![*target];
-        for a in &call.args {
-          if a.spread.is_some() {
-            return Err(self.residue(a.expr.span(), "a spread argument"));
+        for a in &call.arguments {
+          if crate::syntax::is_spread(a) {
+            return Err(self.residue(crate::syntax::arg_expr(a).span(), "a spread argument"));
           }
-          args.push(self.expr(&a.expr)?);
+          args.push(self.expr(crate::syntax::arg_expr(a))?);
         }
         Ok(Expr::Builtin { name, args })
       }
       "reduce" => {
-        let rewritten = match (call.args.first().map(|a| strip_parens(&a.expr)), call.args.get(1).map(|a| strip_parens(&a.expr))) {
-          (Some(js::Expr::Arrow(arrow)), Some(js::Expr::Object(_))) => fresh_accumulator(arrow),
+        let rewritten = match (call.arguments.first().map(|a| strip_parens(crate::syntax::arg_expr(a))), call.arguments.get(1).map(|a| strip_parens(crate::syntax::arg_expr(a)))) {
+          (Some(js::Expression::ArrowFunctionExpression(arrow)), Some(js::Expression::ObjectExpression(_))) => fresh_accumulator(self.build(), arrow),
           _ => None,
         };
         let f = match rewritten {
           Some(arrow) => Box::new(self.lambda(&arrow)?),
           None => lambda(self, 0)?,
         };
-        let Some(init) = call.args.get(1) else {
+        let Some(init) = call.arguments.get(1) else {
           let items = self.temp();
           let whole = Expr::Var(items.clone());
           let f = match *f {
@@ -4464,15 +4683,15 @@ impl<'a> Lowerer<'a> {
           let empty = Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str("Reduce of empty array with no initial value")] };
           return Ok(Expr::Block(vec![Stmt::Let { name: items, expr: *target }, Stmt::Return(Expr::Ternary(Box::new(Expr::Length(Box::new(whole))), Box::new(reduced), Box::new(empty)))]));
         };
-        let init = Box::new(self.expr(&init.expr)?);
+        let init = Box::new(self.expr(crate::syntax::arg_expr(init))?);
         Ok(Expr::Reduce(target, init, f))
       }
-      "trimStart" | "trimEnd" | "trimLeft" | "trimRight" if call.args.is_empty() => {
+      "trimStart" | "trimEnd" | "trimLeft" | "trimRight" if call.arguments.is_empty() => {
         let side = if matches!(method.as_str(), "trimStart" | "trimLeft") { "start" } else { "end" };
         Ok(Expr::Builtin { name: Builtin::Trim, args: vec![*target, Expr::lit_str(side)] })
       }
       "toLocaleString" => {
-        let formatted = self.intl_format("NumberFormat", &call.args, *target, call.span)?;
+        let formatted = self.intl_format("NumberFormat", &call.arguments, *target, call.span)?;
         Ok(self.candidate(call.span, formatted))
       }
       "toFixed" | "repeat" | "join" | "trim" | "toUpperCase" | "toLowerCase" | "includes" => {
@@ -4486,14 +4705,14 @@ impl<'a> Lowerer<'a> {
           _ => Builtin::Includes,
         };
         let mut args = vec![*target];
-        for a in &call.args {
-          args.push(self.expr(&a.expr)?);
+        for a in &call.arguments {
+          args.push(self.expr(crate::syntax::arg_expr(a))?);
         }
         Ok(Expr::Builtin { name, args })
       }
       "test" | "match" | "matchAll" | "search" => {
-        let arg = call.args.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without an argument")))?;
-        let arg = self.expr(&arg.expr)?;
+        let arg = call.arguments.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without an argument")))?;
+        let arg = self.expr(crate::syntax::arg_expr(arg))?;
         Ok(match method.as_str() {
           "test" => Expr::Builtin { name: Builtin::RegexTest, args: vec![*target, arg] },
           "match" => Expr::Builtin { name: Builtin::Match, args: vec![*target, arg] },
@@ -4501,26 +4720,26 @@ impl<'a> Lowerer<'a> {
           _ => Expr::Builtin { name: Builtin::Search, args: vec![*target, arg] },
         })
       }
-      "replace" | "replaceAll" if call.args.len() == 2 && matches!(&*call.args[1].expr, js::Expr::Arrow(_)) => {
-        let js::Expr::Arrow(arrow) = &*call.args[1].expr else { unreachable!("checked") };
-        let pattern = match (&*call.args[0].expr, method.as_str()) {
-          (js::Expr::Lit(js::Lit::Str(s)), "replaceAll") => regex_value(self, &escape_regex(s.value.to_atom_lossy().as_ref()), "g", call.span)?,
-          (js::Expr::Lit(js::Lit::Regex(re)), "replaceAll") if !re.flags.contains('g') => return Err(self.residue(call.span, "`replaceAll` of a regular expression without `g`, which JavaScript throws on")),
-          (pattern, "replaceAll") if !matches!(pattern, js::Expr::Lit(js::Lit::Regex(_))) => return Err(self.residue(call.span, "`replaceAll` of a pattern the build cannot read with a function")),
+      "replace" | "replaceAll" if call.arguments.len() == 2 && matches!(&*crate::syntax::arg_expr(&call.arguments[1]), js::Expression::ArrowFunctionExpression(_)) => {
+        let js::Expression::ArrowFunctionExpression(arrow) = &*crate::syntax::arg_expr(&call.arguments[1]) else { unreachable!("checked") };
+        let pattern = match (&*crate::syntax::arg_expr(&call.arguments[0]), method.as_str()) {
+          (js::Expression::StringLiteral(s), "replaceAll") => regex_value(self, &escape_regex(crate::lossy(s.value).as_ref()), "g", call.span)?,
+          (js::Expression::RegExpLiteral(re), "replaceAll") if !re.regex.flags.contains(js::RegExpFlags::G) => return Err(self.residue(call.span, "`replaceAll` of a regular expression without `g`, which JavaScript throws on")),
+          (pattern, "replaceAll") if !matches!(pattern, js::Expression::RegExpLiteral(_)) => return Err(self.residue(call.span, "`replaceAll` of a pattern the build cannot read with a function")),
           (pattern, _) => self.expr(pattern)?,
         };
         let f = self.lambda(arrow)?;
         Ok(Expr::ReplaceWith(target, Box::new(pattern), Box::new(f)))
       }
       "replaceAll" => {
-        let [from, to] = call.args.as_slice() else { return Err(self.residue(call.span, format!("`replaceAll` takes 2 arguments, got {}", call.args.len()))) };
-        let to = self.expr(&to.expr)?;
-        match &*from.expr {
-          js::Expr::Lit(js::Lit::Regex(re)) => {
-            if !re.flags.contains('g') {
+        let [from, to] = call.arguments.as_slice() else { return Err(self.residue(call.span, format!("`replaceAll` takes 2 arguments, got {}", call.arguments.len()))) };
+        let to = self.expr(crate::syntax::arg_expr(to))?;
+        match crate::syntax::arg_expr(from) {
+          js::Expression::RegExpLiteral(re) => {
+            if !re.regex.flags.contains(js::RegExpFlags::G) {
               return Err(self.residue(call.span, "`replaceAll` of a regular expression without `g`, which JavaScript throws on"));
             }
-            let pattern = self.expr(&from.expr)?;
+            let pattern = self.expr(crate::syntax::arg_expr(from))?;
             Ok(Expr::Builtin { name: Builtin::Replace, args: vec![*target, pattern, to] })
           }
           other => Ok(Expr::Builtin { name: Builtin::ReplaceAll, args: vec![*target, self.expr(other)?, to] }),
@@ -4535,26 +4754,26 @@ impl<'a> Lowerer<'a> {
         };
         // The `position` that `startsWith` and `endsWith` take in JavaScript
         // would otherwise lower to an argument the interpreter ignores.
-        let limited = name == Builtin::Split && call.args.len() == 2;
-        if call.args.len() != arity && !limited {
+        let limited = name == Builtin::Split && call.arguments.len() == 2;
+        if call.arguments.len() != arity && !limited {
           let plural = if arity == 1 { "" } else { "s" };
-          return Err(self.residue(call.span, format!("`{method}` takes {arity} argument{plural}, got {}", call.args.len())));
+          return Err(self.residue(call.span, format!("`{method}` takes {arity} argument{plural}, got {}", call.arguments.len())));
         }
         let mut args = vec![*target];
-        for a in &call.args {
-          args.push(self.expr(&a.expr)?);
+        for a in &call.arguments {
+          args.push(self.expr(crate::syntax::arg_expr(a))?);
         }
         Ok(Expr::Builtin { name, args })
       }
       other if !STANDARD_METHODS.contains(&other) => {
-        let mut args = Vec::with_capacity(call.args.len());
-        for a in &call.args {
-          args.push(self.expr(&a.expr)?);
+        let mut args = Vec::with_capacity(call.arguments.len());
+        for a in &call.arguments {
+          args.push(self.expr(crate::syntax::arg_expr(a))?);
         }
         Ok(Expr::Apply { f: Box::new(Expr::Field(target, other.to_owned())), args })
       }
       other => Err(self.residue_with(
-        member.span,
+        member.span(),
         format!("`.{other}()`, which is not a builtin"),
         "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test`, `localeCompare`, `toLocaleString`, `trimStart`, `trimEnd`, `valueOf`, `getTime`, `toISOString` and `toJSON`, with `sort` and `reverse` on a fresh array; anything else goes in a module-level helper the build can read",
       )),
@@ -4563,54 +4782,55 @@ impl<'a> Lowerer<'a> {
 
   /// The one object literal a service or native method takes, as named
   /// arguments. `kind` names the caller in a diagnostic.
-  fn object_args(&mut self, call: &js::CallExpr, kind: &str) -> Lowered<Vec<(String, Expr)>> {
+  fn object_args(&mut self, call: &js::CallExpression, kind: &str) -> Lowered<Vec<(String, Expr)>> {
     let mut args = Vec::new();
-    if let Some(a) = call.args.first() {
-      let js::Expr::Object(obj) = &*a.expr else {
-        return Err(self.residue(a.expr.span(), format!("{kind} arguments must be an object literal")));
+    if let Some(a) = call.arguments.first() {
+      let js::Expression::ObjectExpression(obj) = crate::syntax::arg_expr(a) else {
+        return Err(self.residue(crate::syntax::arg_expr(a).span(), format!("{kind} arguments must be an object literal")));
       };
-      for prop in &obj.props {
+      for prop in &obj.properties {
         match prop {
-          js::PropOrSpread::Prop(p) => match &**p {
-            js::Prop::Shorthand(id) => args.push((id.sym.to_string(), self.ident(id)?)),
-            js::Prop::KeyValue(kv) => {
-              let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed argument name"))?;
+          js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
+            crate::syntax::Prop::Shorthand(id) => args.push((id.name.to_string(), self.ident(id)?)),
+            crate::syntax::Prop::KeyValue(kv) => {
+              let key = prop_name(&kv.key, kv.computed).ok_or_else(|| self.residue(kv.key.span(), "a computed argument name"))?;
               args.push((key, self.expr(&kv.value)?));
             }
             other => return Err(self.residue(other.span(), "a method in the arguments")),
           },
-          js::PropOrSpread::Spread(s) => return Err(self.residue(s.expr.span(), format!("a spread into {kind} arguments"))),
+          js::ObjectPropertyKind::SpreadProperty(s) => return Err(self.residue(s.argument.span(), format!("a spread into {kind} arguments"))),
         }
       }
     }
-    if call.args.len() > 1 {
+    if call.arguments.len() > 1 {
       return Err(self.residue(call.span, format!("a {kind} method takes one object")));
     }
     Ok(args)
   }
 
   /// `native.<name>` or `ctx.native.<name>`.
-  fn native_of(&self, obj: &js::Expr) -> Option<(String, bool)> {
+  fn native_of(&self, obj: &js::Expression) -> Option<(String, bool)> {
     self.rooted_at(obj, Root::Native, "native")
   }
 
   /// `services.<name>` or `ctx.services.<name>`.
-  fn service_of(&self, obj: &js::Expr) -> Option<(String, bool)> {
+  fn service_of(&self, obj: &js::Expression) -> Option<(String, bool)> {
     self.rooted_at(obj, Root::Services, "services")
   }
 
   /// `<root>.<name>` bare or `ctx.<field>.<name>`; the bool says which.
-  fn rooted_at(&self, obj: &js::Expr, root: Root, field: &str) -> Option<(String, bool)> {
-    let js::Expr::Member(m) = obj else { return None };
+  fn rooted_at(&self, obj: &js::Expression, root: Root, field: &str) -> Option<(String, bool)> {
+    let Some(m) = (obj).as_member_expression() else { return None };
     let name = self.member_name(m)?;
-    match &*m.obj {
-      js::Expr::Ident(id) if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) => match self.root_of(id) {
+    match m.object() {
+      js::Expression::Identifier(id) if !self.scope.iter().any(|(n, _)| n == id.name.as_str()) => match self.root_of(id) {
         Some(held) if held == root => Some((name, false)),
         _ => None,
       },
-      js::Expr::Member(inner) => {
-        let js::Expr::Ident(id) = &*inner.obj else { return None };
-        if self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) {
+      inner_expr if inner_expr.is_member_expression() => {
+let inner = inner_expr.as_member_expression().expect("matched as a member");
+        let js::Expression::Identifier(id) = inner.object() else { return None };
+        if self.scope.iter().any(|(n, _)| n == id.name.as_str()) {
           return None;
         }
         match (self.root_of(id), self.member_name(inner).as_deref()) {
@@ -4627,14 +4847,14 @@ impl<'a> Lowerer<'a> {
   /// indexes of the positional parameter.
   /// `new Date(x)`, `new Map(pairs)`, `new Set(items)` and `new URLSearchParams(x)`; anything else made with `new` is residue.
   /// `Some(true)` for the global `Promise.resolve(…)` and `Some(false)` for `Promise.reject(…)` in a page whose host resumes a handler after its step.
-  fn settled_promise(&self, call: &js::CallExpr) -> Option<bool> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(m) = crate::meaning::bare(callee) else { return None };
-    let (js::Expr::Ident(promise), js::MemberProp::Ident(method)) = (&*m.obj, &m.prop) else { return None };
-    if !self.reaches(Reach::Later) || promise.ctxt != self.parsed.unresolved || &*promise.sym != "Promise" {
+  fn settled_promise(&self, call: &js::CallExpression) -> Option<bool> {
+    let callee = &call.callee;
+    let Some(m) = (crate::meaning::bare(callee)).as_member_expression() else { return None };
+    let (js::Expression::Identifier(promise), crate::syntax::MemberProp::Ident(method)) = (m.object(), crate::syntax::prop(m)) else { return None };
+    if !self.reaches(Reach::Later) || self.parsed.ctxt(promise) != crate::Ctxt::Unresolved || promise.name.as_str() != "Promise" {
       return None;
     }
-    match &*method.sym {
+    match method.name.as_str() {
       "resolve" => Some(true),
       "reject" => Some(false),
       _ => None,
@@ -4654,22 +4874,22 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `new Promise((resolve, reject) => …)` in a terminal page: a fresh deferred, the executor run at once with `resolve` and `reject` held as [`snapfire_fsr_ir::host::SETTLES`] values on it, then the deferred.
-  fn terminal_promise(&mut self, n: &js::NewExpr, args: &[js::ExprOrSpread]) -> Lowered<Expr> {
-    let Some(js::Expr::Arrow(executor)) = args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.residue(n.span, "a `Promise` whose executor is not an arrow written in place")) };
+  fn terminal_promise(&mut self, n: &js::NewExpression, args: &[js::Argument]) -> Lowered<Expr> {
+    let Some(js::Expression::ArrowFunctionExpression(executor)) = args.first().map(|a| crate::meaning::bare(crate::syntax::arg_expr(a))) else { return Err(self.residue(n.span, "a `Promise` whose executor is not an arrow written in place")) };
     let deferred = self.temp();
     let id = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] };
     let mut body = vec![Stmt::Let { name: deferred.clone(), expr: Expr::Object(vec![Entry::Field(snapfire_fsr_ir::render::DEFERRED.to_owned(), id)]) }];
     let depth = self.scope.len();
     let settlers = self.settlers.len();
-    for (param, ok) in executor.params.iter().zip([true, false]) {
-      let js::Pat::Ident(name) = param else { return Err(self.residue(param.span(), "a `Promise` executor's parameter that is not a name")) };
+    for (param, ok) in crate::params_of(&executor.params).into_iter().zip([true, false]) {
+      let (js::BindingPattern::BindingIdentifier(name), None, false) = (param.pattern, param.default, param.rest) else { return Err(self.residue(param.span, "a `Promise` executor's parameter that is not a name")) };
       let settle = Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), Expr::Var(deferred.clone())), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))]);
-      self.scope.push((name.id.sym.to_string(), settle));
-      self.settlers.push(name.id.sym.to_string());
+      self.scope.push((name.name.to_string(), settle));
+      self.settlers.push(name.name.to_string());
     }
-    let ran = match &*executor.body {
-      js::ArrowFunctionBody::FunctionBody(b) => crate::component::block_to_expr(self, &b.stmts),
-      js::ArrowFunctionBody::Expr(e) => self.effect(e).map(|stmt| Expr::Block(vec![stmt])),
+    let ran = match crate::syntax::arrow_body_of(executor) {
+      crate::syntax::ArrowBody::Block(b) => crate::component::block_to_expr(self, b.body),
+      crate::syntax::ArrowBody::Expr(e) => self.effect(e).map(|stmt| Expr::Block(vec![stmt])),
     };
     self.scope.truncate(depth);
     self.settlers.truncate(settlers);
@@ -4678,14 +4898,14 @@ impl<'a> Lowerer<'a> {
     Ok(Expr::Block(body))
   }
 
-  fn new_expr(&mut self, n: &js::NewExpr) -> Lowered<Expr> {
+  fn new_expr(&mut self, n: &js::NewExpression) -> Lowered<Expr> {
     // A `Scope` starts with no value; the cell made for it holds what `run` and `set` set.
-    if matches!(&*n.callee, js::Expr::Ident(id) if id.sym.as_ref() == "Scope") {
+    if matches!(&n.callee, js::Expression::Identifier(id) if id.name.as_str() == "Scope") {
       return Ok(Expr::Lit(Lit::Undefined));
     }
-    let args: Vec<js::ExprOrSpread> = n.args.clone().unwrap_or_default();
-    if let Some(spread) = args.iter().find(|a| a.spread.is_some()) {
-      return Err(self.residue(spread.expr.span(), "a spread argument"));
+    let args = &n.arguments[..];
+    if let Some(spread) = args.iter().find(|a| crate::syntax::is_spread(a)) {
+      return Err(self.residue(crate::syntax::arg_expr(spread).span(), "a spread argument"));
     }
     let svelte = match self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&n.callee)) {
       Some(meaning::Meaning::Library(meaning::Construct::SvelteClass(class))) => Some(class),
@@ -4693,35 +4913,35 @@ impl<'a> Lowerer<'a> {
     };
     if let Some("Spring" | "Tween") = svelte {
       let value = match args.first() {
-        Some(a) => self.expr(&a.expr)?,
+        Some(a) => self.expr(crate::syntax::arg_expr(a))?,
         None => Expr::Lit(Lit::Null),
       };
       return Ok(Expr::Object(vec![Entry::Field("current".to_owned(), value.clone()), Entry::Field("target".to_owned(), value)]));
     }
-    if self.reaches(Reach::Later) && matches!(&*n.callee, js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved && id.sym.as_ref() == "Promise") {
+    if self.reaches(Reach::Later) && matches!(&n.callee, js::Expression::Identifier(id) if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && id.name.as_str() == "Promise") {
       return self.terminal_promise(n, &args);
     }
-    if let js::Expr::Ident(id) = &*n.callee {
-      if id.ctxt == self.parsed.unresolved && ERROR_CONSTRUCTORS.contains(&id.sym.as_ref()) {
+    if let js::Expression::Identifier(id) = &n.callee {
+      if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && ERROR_CONSTRUCTORS.contains(&id.name.as_str()) {
         let message = match args.first() {
-          Some(a) => Expr::Str(Box::new(self.expr(&a.expr)?)),
+          Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
           None => Expr::lit_str(""),
         };
-        return Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(id.sym.as_ref())), Entry::Field("message".to_owned(), message)]));
+        return Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(id.name.as_str())), Entry::Field("message".to_owned(), message)]));
       }
     }
-    let global = match &*n.callee {
+    let global = match &n.callee {
       _ if svelte.is_some() => svelte.expect("checked").to_owned(),
       _ if matches!(platform_object(n), Some("TextEncoder" | "TextDecoder")) => return Err(self.residue_with(n.span, "a `TextEncoder` or `TextDecoder` kept as a value", "call its method where it is made or on a name bound to it: `new TextEncoder().encode(s)`")),
       _ if platform_object(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
-      js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
+      js::Expression::Identifier(id) if self.parsed.ctxt(id) == crate::Ctxt::Unresolved => id.name.to_string(),
       other => match self.class_new(n)? {
         Some(made) => return Ok(made),
         None => return Err(self.residue(other.span(), "`new` of something other than a platform global or a class the build reads")),
       },
     };
     let first = match args.first() {
-      Some(a) => Some(self.expr(&a.expr)?),
+      Some(a) => Some(self.expr(crate::syntax::arg_expr(a))?),
       None => None,
     };
     match (global.as_str(), first) {
@@ -4734,8 +4954,8 @@ impl<'a> Lowerer<'a> {
       ("Set", Some(items)) => Ok(Kind::Set.made(Expr::Builtin { name: Builtin::Unique, args: vec![items] })),
       ("Response", body) => {
         let mut args = vec![body.unwrap_or(Expr::Lit(Lit::Undefined))];
-        if let Some(init) = n.args.as_deref().and_then(|a| a.get(1)) {
-          args.push(self.expr(&init.expr)?);
+        if let Some(init) = n.arguments.get(1) {
+          args.push(self.expr(crate::syntax::arg_expr(init))?);
         }
         Ok(Expr::Builtin { name: Builtin::Response, args })
       }
@@ -4745,23 +4965,23 @@ impl<'a> Lowerer<'a> {
       ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
       ("URL", Some(x)) => {
         let mut args = vec![x];
-        if let Some(base) = n.args.as_deref().and_then(|a| a.get(1)) {
-          args.push(self.expr(&base.expr)?);
+        if let Some(base) = n.arguments.get(1) {
+          args.push(self.expr(crate::syntax::arg_expr(base))?);
         }
         Ok(Expr::Builtin { name: Builtin::UrlParse, args })
       }
-      ("RegExp", Some(_)) if matches!(&*args[0].expr, js::Expr::Lit(js::Lit::Regex(_))) => Err(self.residue(n.span, "`new RegExp` of a regular expression")),
+      ("RegExp", Some(_)) if matches!(crate::syntax::arg_expr(&args[0]), js::Expression::RegExpLiteral(_)) => Err(self.residue(n.span, "`new RegExp` of a regular expression")),
       ("RegExp", Some(pattern)) => {
         let flags = match args.get(1) {
-          Some(a) => Some(&*a.expr),
+          Some(a) => Some(crate::syntax::arg_expr(a)),
           None => None,
         };
-        if let (js::Expr::Lit(js::Lit::Str(p)), None | Some(js::Expr::Lit(js::Lit::Str(_)))) = (&*args[0].expr, flags) {
+        if let (js::Expression::StringLiteral(p), None | Some(js::Expression::StringLiteral(_))) = (crate::syntax::arg_expr(&args[0]), flags) {
           let flags = match flags {
-            Some(js::Expr::Lit(js::Lit::Str(f))) => f.value.to_atom_lossy().to_string(),
+            Some(js::Expression::StringLiteral(f)) => crate::lossy(f.value),
             _ => String::new(),
           };
-          return regex_value(self, p.value.to_atom_lossy().as_ref(), &flags, n.span);
+          return regex_value(self, crate::lossy(p.value).as_ref(), &flags, n.span);
         }
         let flags = match flags {
           Some(f) => Expr::Str(Box::new(self.expr(f)?)),
@@ -4785,15 +5005,15 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Refuses an `Intl.Segmenter` the build does not split as the browser would: one outside a terminal, whose browser may hold other Unicode tables, and one whose granularity is not `"grapheme"`.
-  fn grapheme_segmenter(&mut self, made: &js::NewExpr) -> Lowered<()> {
+  fn grapheme_segmenter(&mut self, made: &js::NewExpression) -> Lowered<()> {
     if !self.reaches(Reach::Terminal) {
       return Err(self.browser_only(made.span, "`Intl.Segmenter`, which splits by the browser's own Unicode tables"));
     }
-    let granularity = made.args.as_ref().and_then(|args| args.get(1)).map(|options| match &*options.expr {
-      js::Expr::Object(obj) => obj.props.iter().find_map(|prop| match prop {
-        js::PropOrSpread::Prop(prop) => match &**prop {
-          js::Prop::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("granularity") => Some(match &*kv.value {
-            js::Expr::Lit(js::Lit::Str(s)) => s.value.to_atom_lossy().to_string(),
+    let granularity = made.arguments.get(1).map(|options| match crate::syntax::arg_expr(options) {
+      js::Expression::ObjectExpression(obj) => obj.properties.iter().find_map(|prop| match prop {
+        js::ObjectPropertyKind::ObjectProperty(prop) => match crate::syntax::prop_of(prop) {
+          crate::syntax::Prop::KeyValue(kv) if prop_name(&kv.key, kv.computed).as_deref() == Some("granularity") => Some(match &kv.value {
+            js::Expression::StringLiteral(s) => crate::lossy(s.value),
             _ => String::new(),
           }),
           _ => None,
@@ -4809,19 +5029,18 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `collator.compare` as a value, a function of two strings, when `collator` is an `Intl.Collator`.
-  fn collator_compare(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
-    if !matches!(&member.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "compare") {
+  fn collator_compare(&mut self, member: &js::MemberExpression) -> Lowered<Option<Expr>> {
+    if !matches!(crate::syntax::prop(member), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "compare") {
       return Ok(None);
     }
-    let Some(made) = self.formatter_of(&member.obj).filter(|made| platform_object(made) == Some("Collator")) else { return Ok(None) };
+    let Some(made) = self.formatter_of(member.object()).filter(|made| platform_object(made) == Some("Collator")) else { return Ok(None) };
     let (a, b) = (self.temp(), self.temp());
-    let made_args: Vec<js::ExprOrSpread> = made.args.clone().unwrap_or_default();
-    let body = self.intl_call("Collator", &made_args, vec![Expr::Var(a.clone()), Expr::Var(b.clone())], made.span)?;
+    let body = self.intl_call("Collator", &made.arguments, vec![Expr::Var(a.clone()), Expr::Var(b.clone())], made.span)?;
     Ok(Some(Expr::Lambda { params: vec![a, b], body: Box::new(body) }))
   }
 
   /// A formatter's call as the `intl` member that answers it the same way under the locale written where it is made, else the request's: `format` of `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.ListFormat` and `Intl.RelativeTimeFormat`, `select` of `Intl.PluralRules` and `compare` of `Intl.Collator`.
-  fn intl_call(&mut self, formatter: &str, made: &[js::ExprOrSpread], mut values: Vec<Expr>, span: Span) -> Lowered<Expr> {
+  fn intl_call(&mut self, formatter: &str, made: &[js::Argument], mut values: Vec<Expr>, span: Span) -> Lowered<Expr> {
     let wants = match formatter {
       "Collator" | "RelativeTimeFormat" => 2,
       _ => 1,
@@ -4846,36 +5065,36 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The locale and the options a formatter is made with: the locale `None` for the request's.
-  fn intl_made(&mut self, formatter: &str, made: &[js::ExprOrSpread]) -> Lowered<(Option<Entry>, Vec<(String, js::Expr)>)> {
-    let locale = match made.first().map(|a| strip_parens(&a.expr)) {
+  fn intl_made<'m>(&mut self, formatter: &str, made: &'m [js::Argument<'m>]) -> Lowered<(Option<Entry>, Vec<(String, &'m js::Expression<'m>)>)> {
+    let locale = match made.first().map(|a| strip_parens(crate::syntax::arg_expr(a))) {
       None => None,
-      Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => None,
-      Some(js::Expr::Lit(js::Lit::Str(s))) => Some(Expr::lit_str(s.value.to_atom_lossy().to_string())),
+      Some(js::Expression::Identifier(id)) if id.name.as_str() == "undefined" => None,
+      Some(js::Expression::StringLiteral(s)) => Some(Expr::lit_str(crate::lossy(s.value))),
       Some(other) => Some(self.expr(other)?),
     };
-    let mut options: Vec<(String, js::Expr)> = Vec::new();
+    let mut options: Vec<(String, &'m js::Expression<'m>)> = Vec::new();
     if let Some(given) = made.get(1) {
-      let js::Expr::Object(obj) = &*given.expr else { return Err(self.residue(given.expr.span(), format!("`Intl.{formatter}` options that are not an object literal"))) };
-      for prop in &obj.props {
-        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.residue(obj.span, format!("a spread in `Intl.{formatter}` options"))) };
-        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.residue(obj.span, format!("an `Intl.{formatter}` option written other than `key: value`"))) };
-        let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), format!("a computed `Intl.{formatter}` option")))?;
-        options.push((key, (*kv.value).clone()));
+      let js::Expression::ObjectExpression(obj) = crate::syntax::arg_expr(given) else { return Err(self.residue(crate::syntax::arg_expr(given).span(), format!("`Intl.{formatter}` options that are not an object literal"))) };
+      for prop in &obj.properties {
+        let js::ObjectPropertyKind::ObjectProperty(prop) = prop else { return Err(self.residue(obj.span, format!("a spread in `Intl.{formatter}` options"))) };
+        let crate::syntax::Prop::KeyValue(kv) = crate::syntax::prop_of(prop) else { return Err(self.residue(obj.span, format!("an `Intl.{formatter}` option written other than `key: value`"))) };
+        let key = prop_name(&kv.key, kv.computed).ok_or_else(|| self.residue(kv.key.span(), format!("a computed `Intl.{formatter}` option")))?;
+        options.push((key, &kv.value));
       }
     }
     Ok((locale.map(|tag| Entry::Field("locale".to_owned(), tag)), options))
   }
 
   /// `options` as entries, each key one `allowed` names; a string written in place must be one of the key's values when it lists any.
-  fn intl_options(&mut self, formatter: &str, options: &[(String, js::Expr)], allowed: &[(&str, &[&str])], span: Span) -> Lowered<Vec<Entry>> {
+  fn intl_options(&mut self, formatter: &str, options: &[(String, &js::Expression)], allowed: &[(&str, &[&str])], span: Span) -> Lowered<Vec<Entry>> {
     let mut entries = Vec::new();
     for (key, v) in options {
       let Some((_, values)) = allowed.iter().find(|(k, _)| k == key) else {
         let read = allowed.iter().map(|(k, _)| format!("`{k}`")).collect::<Vec<_>>();
         return Err(self.residue(span, format!("the `Intl.{formatter}` option `{key}`; {} are read", list_and(&read))));
       };
-      if let js::Expr::Lit(js::Lit::Str(s)) = v {
-        let text = s.value.to_atom_lossy().to_string();
+      if let js::Expression::StringLiteral(s) = v {
+        let text = crate::lossy(s.value);
         if !values.is_empty() && !values.contains(&text.as_str()) {
           let read = values.iter().map(|v| format!("`\"{v}\"`")).collect::<Vec<_>>();
           return Err(self.residue(v.span(), format!("`{key}: \"{text}\"` in `Intl.{formatter}`; {} are read", list_and(&read))));
@@ -4887,10 +5106,10 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `new Intl.NumberFormat(locale, options).format(value)`, `new Intl.DateTimeFormat(locale, options).format(value)` and `new Intl.ListFormat(locale, options).format(items)`.
-  fn intl_format(&mut self, formatter: &str, made: &[js::ExprOrSpread], value: Expr, span: Span) -> Lowered<Expr> {
+  fn intl_format(&mut self, formatter: &str, made: &[js::Argument], value: Expr, span: Span) -> Lowered<Expr> {
     let (locale_entry, options) = self.intl_made(formatter, made)?;
-    let literal = |options: &[(String, js::Expr)], key: &str| options.iter().find(|(k, _)| k == key).and_then(|(_, v)| match v {
-      js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_atom_lossy().to_string()),
+    let literal = |options: &[(String, &js::Expression)], key: &str| options.iter().find(|(k, _)| k == key).and_then(|(_, v)| match v {
+      js::Expression::StringLiteral(s) => Some(crate::lossy(s.value)),
       _ => None,
     });
     match formatter {
@@ -4898,7 +5117,7 @@ impl<'a> Lowerer<'a> {
         let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
         if literal(&options, "style").as_deref() == Some("currency") {
           let Some((_, code)) = options.iter().find(|(k, _)| k == "currency") else { return Err(self.residue(span, "a currency style with no `currency`")) };
-          let code = self.expr(&code.clone())?;
+          let code = self.expr(code)?;
           // The browser's default display is the symbol.
           let display = match literal(&options, "currencyDisplay").as_deref() {
             None | Some("symbol") => "symbol",
@@ -4941,8 +5160,8 @@ impl<'a> Lowerer<'a> {
           if zone.is_none() {
             return Err(self.browser_only(span, "a time of day without `timeZone: \"UTC\"`, which the browser formats in the viewer's time zone"));
           }
-          if let js::Expr::Lit(js::Lit::Str(s)) = time_style {
-            let text = s.value.to_atom_lossy().to_string();
+          if let js::Expression::StringLiteral(s) = time_style {
+            let text = crate::lossy(s.value);
             if !matches!(text.as_str(), "short" | "medium") {
               return Err(self.residue(time_style.span(), format!("`timeStyle: \"{text}\"`, which names the time zone; `timeStyle: \"short\"` and `timeStyle: \"medium\"` are read")));
             }
@@ -4972,7 +5191,7 @@ impl<'a> Lowerer<'a> {
         let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
         for (key, v) in &options {
           let text = match v {
-            js::Expr::Lit(js::Lit::Str(s)) => s.value.to_atom_lossy().to_string(),
+            js::Expression::StringLiteral(s) => crate::lossy(s.value),
             _ => return Err(self.residue(v.span(), format!("a `{key}` that is not written in place"))),
           };
           let read = match (key.as_str(), text.as_str()) {
@@ -4997,18 +5216,19 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `a?.b.c(x)`: the call as written, `null` where an optional link's object is null or undefined.
-  fn optional_call(&mut self, call: &js::OptCall) -> Lowered<Expr> {
+  fn optional_call(&mut self, call: &js::CallExpression) -> Lowered<Expr> {
+    let b = self.build();
     let mut guards = Vec::new();
-    let callee = strip_optional(&call.callee, &mut guards);
+    let callee = strip_optional(b, &call.callee, &mut guards);
     // A call on a value known to be null short-circuits, as JavaScript does, whatever the method.
     for guard in &guards {
-      if let js::Expr::Ident(id) = strip_parens(guard) {
-        if matches!(self.scope.iter().rev().find(|(n, _)| n == id.sym.as_ref()), Some((_, Expr::Lit(Lit::Null)))) {
+      if let js::Expression::Identifier(id) = strip_parens(guard) {
+        if matches!(self.scope.iter().rev().find(|(n, _)| n == id.name.as_str()), Some((_, Expr::Lit(Lit::Null)))) {
           return Ok(Expr::Lit(Lit::Null));
         }
       }
     }
-    let plain = js::CallExpr { span: call.span, ctxt: call.ctxt, callee: js::Callee::Expr(Box::new(callee)), args: call.args.clone(), type_args: None };
+    let plain = js::CallExpression::new(call.span, callee, None, b.copy(&call.arguments), false, &b.ast());
     let mut out = self.call(&plain)?;
     for guard in guards.iter().rev() {
       let object = self.expr(guard)?;
@@ -5020,21 +5240,21 @@ impl<'a> Lowerer<'a> {
 
   /// A `function` expression or a method as the lambda it is; a generator is residue.
   /// `scope.get()`, `scope.run(value, fn, ...args)` and `scope.set(value)` on a `Scope` a module holds as a cell: the cell read; the cell set to `value` around a call of `fn` with the value before put back after, the call's result answered; the cell set. A web page has no process to scope, so there the storage is residue.
-  fn scope_call(&mut self, method: &str, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Expr> {
-    let js::Expr::Ident(id) = crate::meaning::bare(&member.obj) else { return Err(self.residue(member.span, "a `Scope` reached other than by its name")) };
-    let name = id.sym.to_string();
+  fn scope_call(&mut self, method: &str, member: &js::MemberExpression, call: &js::CallExpression) -> Lowered<Expr> {
+    let js::Expression::Identifier(id) = crate::meaning::bare(member.object()) else { return Err(self.residue(member.span(), "a `Scope` reached other than by its name")) };
+    let name = id.name.to_string();
     let Some((_, handle)) = self.cells.iter().find(|(cell, _)| *cell == name).cloned() else {
-      return Err(self.residue(member.span, format!("`{name}`, a `Scope`, outside a terminal page; a web page has no process to scope")));
+      return Err(self.residue(member.span(), format!("`{name}`, a `Scope`, outside a terminal page; a web page has no process to scope")));
     };
-    match (method, call.args.as_slice()) {
+    match (method, call.arguments.as_slice()) {
       ("get", []) => Ok(Expr::ReadCell(Box::new(handle))),
-      ("set", [value]) => Ok(Expr::WriteCell(Box::new(handle), Box::new(self.expr(&value.expr)?))),
+      ("set", [value]) => Ok(Expr::WriteCell(Box::new(handle), Box::new(self.expr(syntax::arg_expr(value))?))),
       ("run", [value, f, rest @ ..]) => {
-        let value = self.expr(&value.expr)?;
-        let f = Box::new(self.expr(&f.expr)?);
+        let value = self.expr(syntax::arg_expr(value))?;
+        let f = Box::new(self.expr(syntax::arg_expr(f))?);
         let mut args = Vec::with_capacity(rest.len());
         for a in rest {
-          args.push(self.expr(&a.expr)?);
+          args.push(self.expr(syntax::arg_expr(a))?);
         }
         let (before, result) = (self.temp(), self.temp());
         Ok(Expr::Block(vec![
@@ -5050,61 +5270,63 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `object.name(args)` or `object[key](args)` where `object` lowers to an object literal whose field (every field, for a computed key) is a function value: that field applied to the arguments. A computed key on an object of no known kind is applied as well, since the build cannot name the method. `None` for any other member.
-  fn function_member(&mut self, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+  fn function_member(&mut self, member: &js::MemberExpression, call: &js::CallExpression) -> Lowered<Option<Expr>> {
     // Only a name or a chain of fields is looked at: lowering a call here and again on the method path would count its hoists twice.
-    let mut at = crate::meaning::bare(&member.obj);
-    while let js::Expr::Member(inner) = at {
-      at = crate::meaning::bare(&inner.obj);
+    let mut at = crate::meaning::bare(member.object());
+    while let Some(inner) = at.as_member_expression() {
+      at = crate::meaning::bare(inner.object());
     }
-    if !matches!(at, js::Expr::Ident(_)) {
+    if !matches!(at, js::Expression::Identifier(_)) {
       return Ok(None);
     }
     let depth = self.scope.len();
-    let object = self.expr(&member.obj);
+    let object = self.expr(member.object());
     self.scope.truncate(depth);
     let Ok(object) = object else { return Ok(None) };
-    if let js::MemberProp::Ident(name) = &member.prop {
-      if self.holds_method(&member.obj, name.sym.as_ref()) {
-        return self.applied(Box::new(object.field(name.sym.to_string())), call).map(Some);
+    if let syntax::MemberProp::Ident(name) = syntax::prop(member) {
+      if self.holds_method(member.object(), name.name.as_str()) {
+        return self.applied(Box::new(object.field(name.name.to_string())), call).map(Some);
       }
     }
     let Expr::Object(entries) = &object else {
       // A computed key on a value of no known kind: whatever the key names is applied, as JavaScript applies it.
-      if let (js::MemberProp::Computed(key), None) = (&member.prop, self.kind_of(&member.obj)) {
-        let key = self.expr(&key.expr)?;
+      if let (syntax::MemberProp::Computed(key), None) = (syntax::prop(member), self.kind_of(member.object())) {
+        let key = self.expr(key)?;
         let callee = Expr::Index(Box::new(object.clone()), Box::new(key));
         return self.applied(Box::new(callee), call).map(Some);
       }
       return Ok(None);
     };
     let is_function = |e: &Expr| matches!(e, Expr::Lambda { .. } | Expr::Fix { .. });
-    let callee = match &member.prop {
-      js::MemberProp::Ident(name) => {
-        let name = name.sym.to_string();
+    let callee = match syntax::prop(member) {
+      syntax::MemberProp::Ident(name) => {
+        let name = name.name.to_string();
         if !entries.iter().any(|entry| matches!(entry, Entry::Field(field, value) if *field == name && is_function(value))) {
           return Ok(None);
         }
         object.clone().field(name)
       }
-      js::MemberProp::Computed(key) => {
+      syntax::MemberProp::Computed(key) => {
         if entries.is_empty() || !entries.iter().all(|entry| matches!(entry, Entry::Field(_, value) if is_function(value))) {
           return Ok(None);
         }
-        let key = self.expr(&key.expr)?;
+        let key = self.expr(key)?;
         Expr::Index(Box::new(object.clone()), Box::new(key))
       }
-      js::MemberProp::PrivateName(_) => return Ok(None),
+      syntax::MemberProp::Private(_) => return Ok(None),
     };
     self.applied(Box::new(callee), call).map(Some)
   }
 
   /// `f` applied to `call`'s arguments: [`Expr::Apply`], or [`Expr::ApplyOf`] over one array when an argument is spread.
-  fn applied(&mut self, f: Box<Expr>, call: &js::CallExpr) -> Lowered<Expr> {
-    let mut args = Vec::with_capacity(call.args.len());
-    for a in &call.args {
+  fn applied(&mut self, f: Box<Expr>, call: &js::CallExpression) -> Lowered<Expr> {
+    let mut args = Vec::with_capacity(call.arguments.len());
+    for a in &call.arguments {
+      let spread = matches!(a, js::Argument::SpreadElement(_));
+      let value = syntax::arg_expr(a);
       // A helper's `Ctx["services"]` parameter is the services root inside it, so its slot carries nothing.
-      let arg = if a.spread.is_none() && self.is_services_root(&a.expr) { Expr::Lit(Lit::Null) } else { self.expr(&a.expr)? };
-      args.push((a.spread.is_some(), arg));
+      let arg = if !spread && self.is_services_root(value) { Expr::Lit(Lit::Null) } else { self.expr(value)? };
+      args.push((spread, arg));
     }
     if args.iter().all(|(spread, _)| !spread) {
       return Ok(Expr::Apply { f, args: args.into_iter().map(|(_, e)| e).collect() });
@@ -5114,7 +5336,7 @@ impl<'a> Lowerer<'a> {
   }
 
   pub(crate) fn function_expr(&mut self, f: &js::Function) -> Lowered<Expr> {
-    if f.is_generator {
+    if f.generator {
       return Err(self.residue(f.span, "a generator function"));
     }
     let depth = self.scope.len();
@@ -5125,7 +5347,7 @@ impl<'a> Lowerer<'a> {
   }
 
   fn function_body(&mut self, f: &js::Function, depth: usize) -> Lowered<Expr> {
-    let pats: Vec<js::Pat> = f.params.iter().map(|p| p.pat.clone()).collect();
+    let pats = params_of(&f.params);
     let params = match crate::component::bind_params(self, &pats) {
       Ok(params) => params,
       Err(residue) => {
@@ -5135,7 +5357,7 @@ impl<'a> Lowerer<'a> {
     };
     let roots = self.bind_services_params(&pats, depth);
     let body = match &f.body {
-      Some(body) => crate::component::block_to_expr(self, &body.stmts),
+      Some(body) => crate::component::block_to_expr(self, &body.statements),
       None => Ok(Expr::Lit(Lit::Null)),
     };
     self.roots.truncate(roots);
@@ -5144,9 +5366,9 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Each parameter typed `Ctx["services"]` leaves the scope and becomes the services root, so `services.<name>.<method>(...)` inside the function is the same static call a loader makes. Returns the roots' depth to restore.
-  pub(crate) fn bind_services_params(&mut self, pats: &[js::Pat], depth: usize) -> usize {
+  pub(crate) fn bind_services_params(&mut self, pats: &[Param<'_>], depth: usize) -> usize {
     let roots = self.roots.len();
-    for name in pats.iter().filter_map(services_param) {
+    for name in pats.iter().copied().filter_map(services_param) {
       let mut at = depth;
       while at < self.scope.len() {
         if self.scope[at].0 == name {
@@ -5161,36 +5383,38 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `services` or `ctx.services` naming the root rather than a local.
-  fn is_services_root(&self, e: &js::Expr) -> bool {
-    match crate::meaning::bare(e) {
-      js::Expr::Ident(id) => !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.root_of(id) == Some(Root::Services),
-      js::Expr::Member(m) => match &*m.obj {
-        js::Expr::Ident(id) => {
-          !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.root_of(id) == Some(Root::Ctx) && self.member_name(m).as_deref() == Some("services")
-        }
+  fn is_services_root(&self, e: &js::Expression) -> bool {
+    let e = crate::meaning::bare(e);
+    if let js::Expression::Identifier(id) = e {
+      return !self.scope.iter().any(|(n, _)| n == id.name.as_str()) && self.root_of(id) == Some(Root::Services);
+    }
+    match e.as_member_expression() {
+      Some(m) => match m.object() {
+        js::Expression::Identifier(id) => !self.scope.iter().any(|(n, _)| n == id.name.as_str()) && self.root_of(id) == Some(Root::Ctx) && self.member_name(m).as_deref() == Some("services"),
         _ => false,
       },
-      _ => false,
+      None => false,
     }
   }
 
-  pub(crate) fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {
+  pub(crate) fn lambda(&mut self, arrow: &js::ArrowFunctionExpression) -> Lowered<Expr> {
     let depth = self.scope.len();
-    let params = match crate::component::bind_params(self, &arrow.params) {
+    let pats = params_of(&arrow.params);
+    let params = match crate::component::bind_params(self, &pats) {
       Ok(params) => params,
       Err(residue) => {
         self.scope.truncate(depth);
         return Err(residue);
       }
     };
-    let roots = self.bind_services_params(&arrow.params, depth);
+    let roots = self.bind_services_params(&pats, depth);
     let defaults = crate::component::held_frame(self, |this| crate::component::settle(this, depth)).0;
-    let body = match &*arrow.body {
-      js::ArrowFunctionBody::Expr(e) => self.expr(e),
-      js::ArrowFunctionBody::FunctionBody(b) if !writes_a_member_of(&b.stmts, &params) => crate::component::block_to_expr_from(self, &b.stmts, depth),
-      js::ArrowFunctionBody::FunctionBody(b) => {
-        let written = crate::component::written_params(&arrow.params, &b.stmts);
-        crate::component::packing_returns(self, &b.stmts, &written).and_then(|packed| crate::component::block_to_expr_from(self, &packed, depth)).map(|packed| crate::component::write_back(packed, &written))
+    let body = match arrow_body(arrow) {
+      FunctionBody::Expr(e) => self.expr(e),
+      FunctionBody::Block(stmts) if !writes_a_member_of(stmts, &params) => crate::component::block_to_expr_from(self, stmts, depth),
+      FunctionBody::Block(stmts) => {
+        let written = crate::component::written_params(&pats, stmts);
+        crate::component::packing_returns(self, stmts, &written).and_then(|packed| crate::component::block_to_expr_from(self, &packed, depth)).map(|packed| crate::component::write_back(packed, &written))
       }
     };
     self.roots.truncate(roots);
@@ -5200,14 +5424,14 @@ impl<'a> Lowerer<'a> {
 }
 
 /// The name of a parameter typed `Ctx["services"]`, with or without `Ctx`'s type arguments.
-fn services_param(pat: &js::Pat) -> Option<String> {
-  let js::Pat::Ident(binding) = pat else { return None };
-  let js::TsType::TsIndexedAccessType(indexed) = &*binding.type_ann.as_ref()?.type_ann else { return None };
-  let js::TsType::TsTypeRef(object) = &*indexed.obj_type else { return None };
-  let js::TsEntityName::Ident(ctx) = &object.type_name else { return None };
-  let js::TsType::TsLitType(index) = &*indexed.index_type else { return None };
-  let js::TsLit::Str(key) = &index.lit else { return None };
-  (ctx.sym == "Ctx" && key.value == "services").then(|| binding.id.sym.to_string())
+fn services_param(param: Param<'_>) -> Option<String> {
+  let binding = param.ident()?;
+  let js::TSType::TSIndexedAccessType(indexed) = &param.type_annotation?.type_annotation else { return None };
+  let js::TSType::TSTypeReference(object) = &indexed.object_type else { return None };
+  let js::TSTypeName::IdentifierReference(ctx) = &object.type_name else { return None };
+  let js::TSType::TSLiteralType(index) = &indexed.index_type else { return None };
+  let js::TSLiteral::StringLiteral(key) = &index.literal else { return None };
+  (ctx.name.as_str() == "Ctx" && key.value == "services").then(|| binding.name.to_string())
 }
 
 /// A regular expression literal as the value the regex builtins read, refused here when the interpreter could not match it as JavaScript does.
@@ -5234,47 +5458,75 @@ fn escape_regex(text: &str) -> String {
 }
 
 /// `e` with each optional member link made plain, the object of each link pushed to `guards`, outermost first.
-fn strip_optional(e: &js::Expr, guards: &mut Vec<js::Expr>) -> js::Expr {
+fn strip_optional<'a>(b: syntax::Build<'a>, e: &js::Expression<'_>, guards: &mut Vec<js::Expression<'a>>) -> js::Expression<'a> {
   match e {
-    js::Expr::OptChain(o) => match &*o.base {
-      js::OptChainBase::Member(m) => {
-        let obj = strip_optional(&m.obj, guards);
-        if o.optional {
-          guards.push(obj.clone());
-        }
-        js::Expr::Member(js::MemberExpr { span: m.span, obj: Box::new(obj), prop: m.prop.clone() })
-      }
-      js::OptChainBase::Call(_) => e.clone(),
+    js::Expression::ChainExpression(chain) => match chain.expression.as_member_expression() {
+      Some(m) => strip_member(b, m, guards),
+      None => b.copy(e),
     },
-    js::Expr::Member(m) => js::Expr::Member(js::MemberExpr { span: m.span, obj: Box::new(strip_optional(&m.obj, guards)), prop: m.prop.clone() }),
-    js::Expr::Paren(p) => strip_optional(&p.expr, guards),
-    other => other.clone(),
+    js::Expression::ParenthesizedExpression(p) => strip_optional(b, &p.expression, guards),
+    other => match other.as_member_expression() {
+      Some(m) => strip_member(b, m, guards),
+      None => chained(b, other),
+    },
   }
 }
 
+fn strip_member<'a>(b: syntax::Build<'a>, m: &js::MemberExpression<'_>, guards: &mut Vec<js::Expression<'a>>) -> js::Expression<'a> {
+  let obj = strip_optional(b, m.object(), guards);
+  if m.optional() {
+    guards.push(b.copy(&obj));
+  }
+  let ast = b.ast();
+  match m {
+    js::MemberExpression::StaticMemberExpression(s) => js::Expression::new_static_member_expression(s.span, obj, b.copy(&s.property), false, &ast),
+    js::MemberExpression::ComputedMemberExpression(c) => js::Expression::new_computed_member_expression(c.span, obj, b.copy(&c.expression), false, &ast),
+    js::MemberExpression::PrivateFieldExpression(p) => js::Expression::new_private_field_expression(p.span, obj, b.copy(&p.field), false, &ast),
+  }
+}
+
+/// A copy of `e`, which sits inside an optional chain, wrapped in a chain of its own when it holds an optional link, so it reads as the chain it was part of.
+fn chained<'a>(b: syntax::Build<'a>, e: &js::Expression<'_>) -> js::Expression<'a> {
+  fn optional(e: &js::Expression) -> bool {
+    match e {
+      js::Expression::CallExpression(call) => call.optional || optional(&call.callee),
+      other => other.as_member_expression().is_some_and(|m| m.optional() || optional(m.object())),
+    }
+  }
+  if !optional(e) {
+    return b.copy(e);
+  }
+  let span = e.span();
+  let element = match b.copy(e) {
+    js::Expression::CallExpression(call) => js::ChainElement::CallExpression(call),
+    js::Expression::StaticMemberExpression(m) => js::ChainElement::StaticMemberExpression(m),
+    js::Expression::ComputedMemberExpression(m) => js::ChainElement::ComputedMemberExpression(m),
+    js::Expression::PrivateFieldExpression(m) => js::ChainElement::PrivateFieldExpression(m),
+    other => return other,
+  };
+  js::Expression::new_chain_expression(span, element, &b.ast())
+}
+
 /// The kind `e` makes in place: a `new Map(...)`, `new Set(...)`, `new URLSearchParams(...)`, `new URL(...)` or `new Date(...)`, a bigint literal or `BigInt(...)`.
-pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
+pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
   match e {
-    js::Expr::Paren(p) => made_kind(&p.expr),
-    js::Expr::TsAs(a) => made_kind(&a.expr),
-    js::Expr::TsNonNull(a) => made_kind(&a.expr),
-    js::Expr::New(n) => match &*n.callee {
-      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Map" | "SvelteMap") => Some(Kind::Map),
-      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Set" | "SvelteSet") => Some(Kind::Set),
-      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URLSearchParams" | "SvelteURLSearchParams") => Some(Kind::Query),
-      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URL" | "SvelteURL") => Some(Kind::Url),
-      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Date" | "SvelteDate") => Some(Kind::Date),
-      js::Expr::Ident(id) if id.sym.as_ref() == "Response" => Some(Kind::Response),
-      js::Expr::Ident(id) if id.sym.as_ref() == "Scope" => Some(Kind::Scope),
+    js::Expression::ParenthesizedExpression(p) => made_kind(&p.expression),
+    js::Expression::TSAsExpression(a) => made_kind(&a.expression),
+    js::Expression::TSNonNullExpression(a) => made_kind(&a.expression),
+    js::Expression::NewExpression(n) => match &n.callee {
+      js::Expression::Identifier(id) if matches!(id.name.as_str(), "Map" | "SvelteMap") => Some(Kind::Map),
+      js::Expression::Identifier(id) if matches!(id.name.as_str(), "Set" | "SvelteSet") => Some(Kind::Set),
+      js::Expression::Identifier(id) if matches!(id.name.as_str(), "URLSearchParams" | "SvelteURLSearchParams") => Some(Kind::Query),
+      js::Expression::Identifier(id) if matches!(id.name.as_str(), "URL" | "SvelteURL") => Some(Kind::Url),
+      js::Expression::Identifier(id) if matches!(id.name.as_str(), "Date" | "SvelteDate") => Some(Kind::Date),
+      js::Expression::Identifier(id) if id.name.as_str() == "Response" => Some(Kind::Response),
+      js::Expression::Identifier(id) if id.name.as_str() == "Scope" => Some(Kind::Scope),
       _ => None,
     },
-    js::Expr::Lit(js::Lit::BigInt(_)) => Some(Kind::BigInt),
-    js::Expr::Call(call) => match &call.callee {
-      js::Callee::Expr(callee) => match &**callee {
-        js::Expr::Ident(id) if id.sym.as_ref() == "BigInt" => Some(Kind::BigInt),
-        js::Expr::Member(m) if matches!((&*m.obj, &m.prop), (js::Expr::Ident(obj), js::MemberProp::Ident(method)) if &*obj.sym == "Response" && matches!(&*method.sym, "json" | "redirect")) => Some(Kind::Response),
-        _ => None,
-      },
+    js::Expression::BigIntLiteral(_) => Some(Kind::BigInt),
+    js::Expression::CallExpression(call) => match &call.callee {
+      js::Expression::Identifier(id) if id.name.as_str() == "BigInt" => Some(Kind::BigInt),
+      js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if obj.name.as_str() == "Response") && matches!(m.property.name.as_str(), "json" | "redirect") => Some(Kind::Response),
       _ => None,
     },
     _ => None,
@@ -5332,40 +5584,42 @@ fn writes_session(body: &[Stmt]) -> bool {
   })
 }
 
-fn strip_parens(e: &js::Expr) -> &js::Expr {
+pub(crate) fn strip_parens<'e, 'a>(e: &'e js::Expression<'a>) -> &'e js::Expression<'a> {
   match e {
-    js::Expr::Paren(p) => strip_parens(&p.expr),
+    js::Expression::ParenthesizedExpression(p) => strip_parens(&p.expression),
     other => other,
   }
 }
 
+/// The text of a template element, cooked where it has a cooked value.
+pub(crate) fn quasi_text(quasi: &js::TemplateElement) -> String {
+  quasi.value.cooked.map(lossy).unwrap_or_else(|| quasi.value.raw.to_string())
+}
+
 /// The text of a string literal or of a template literal with no `${}` part.
-fn string_literal(e: &js::Expr) -> Option<String> {
+fn string_literal(e: &js::Expression) -> Option<String> {
   match crate::meaning::bare(e) {
-    js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_string_lossy().into_owned()),
-    js::Expr::Tpl(tpl) if tpl.exprs.is_empty() && tpl.quasis.len() == 1 => {
-      let quasi = &tpl.quasis[0];
-      Some(quasi.cooked.as_ref().map(|c| c.to_atom_lossy().to_string()).unwrap_or_else(|| quasi.raw.to_string()))
-    }
+    js::Expression::StringLiteral(s) => Some(lossy(s.value)),
+    js::Expression::TemplateLiteral(tpl) if tpl.expressions.is_empty() && tpl.quasis.len() == 1 => Some(quasi_text(&tpl.quasis[0])),
     _ => None,
   }
 }
 
 /// Which platform constructor `n` calls whose methods the build lowers: the `Intl` formatters `NumberFormat`, `DateTimeFormat`, `ListFormat`, `Segmenter`, `PluralRules`, `Collator` and `RelativeTimeFormat`, then `TextEncoder` and `TextDecoder`.
-pub(crate) fn platform_object(n: &js::NewExpr) -> Option<&'static str> {
-  if let js::Expr::Ident(id) = &*n.callee {
-    return match id.sym.as_ref() {
+pub(crate) fn platform_object(n: &js::NewExpression) -> Option<&'static str> {
+  if let js::Expression::Identifier(id) = &n.callee {
+    return match id.name.as_str() {
       "TextEncoder" => Some("TextEncoder"),
       "TextDecoder" => Some("TextDecoder"),
       _ => None,
     };
   }
-  let js::Expr::Member(m) = &*n.callee else { return None };
-  let (js::Expr::Ident(ns), js::MemberProp::Ident(name)) = (&*m.obj, &m.prop) else { return None };
-  if ns.sym.as_ref() != "Intl" {
+  let js::Expression::StaticMemberExpression(m) = &n.callee else { return None };
+  let js::Expression::Identifier(ns) = &m.object else { return None };
+  if ns.name.as_str() != "Intl" {
     return None;
   }
-  match name.sym.as_ref() {
+  match m.property.name.as_str() {
     "NumberFormat" => Some("NumberFormat"),
     "DateTimeFormat" => Some("DateTimeFormat"),
     "ListFormat" => Some("ListFormat"),
@@ -5389,29 +5643,32 @@ fn list_and(items: &[String]) -> String {
 /// Whether a statement of an async function holds an `await`: `await x;` and `const v = await x;` [`Lowerer::async_stmts`] splits at; one deeper it refuses.
 /// The `catch` of a `try` an async function awaits in: its parameter, its statements followed by those after the `try`, and how many of the statements lowering the `try` covers.
 #[derive(Clone)]
-struct AsyncCatch {
+struct AsyncCatch<'a> {
   param: Option<String>,
-  body: Vec<js::Stmt>,
+  body: &'a [js::Statement<'a>],
   covers: usize,
   /// The catch over `body`'s first statements: a `finally` that runs before what the body throws goes on.
-  inner: Option<Box<AsyncCatch>>,
+  inner: Option<Box<AsyncCatch<'a>>>,
 }
 
 /// The local a member write changes and the members from it outward: `x.a[i].b` is `x` with `.a`, `[i]` and `.b`.
-pub(crate) fn write_root(member: &js::MemberExpr) -> Option<(&js::Ident, Vec<&js::MemberExpr>)> {
+pub(crate) fn write_root<'e>(member: &'e js::MemberExpression<'e>) -> Option<(&'e js::IdentifierReference<'e>, Vec<&'e js::MemberExpression<'e>>)> {
   let mut path = vec![member];
   let mut at = member;
   loop {
-    match crate::meaning::bare(&at.obj) {
-      js::Expr::Ident(id) => {
+    let object = crate::meaning::bare(at.object());
+    match object {
+      js::Expression::Identifier(id) => {
         path.reverse();
         return Some((id, path));
       }
-      js::Expr::Member(inner) => {
-        path.push(inner);
-        at = inner;
-      }
-      _ => return None,
+      other => match other.as_member_expression() {
+        Some(inner) => {
+          path.push(inner);
+          at = inner;
+        }
+        None => return None,
+      },
     }
   }
 }
@@ -5432,11 +5689,11 @@ fn splice(expr: Expr, out: &mut Vec<Stmt>) {
 }
 
 /// A loop that awaits, taken apart for [`Lowerer::awaiting_loop_in`]: the statements that set it up, its test, one pass (the body, then the step) and what a `for...of` runs over.
-struct AwaitingLoop {
-  init: Vec<js::Stmt>,
-  test: js::Expr,
-  pass: Vec<js::Stmt>,
-  over: Option<js::Expr>,
+struct AwaitingLoop<'a> {
+  init: Vec<js::Statement<'a>>,
+  test: js::Expression<'a>,
+  pass: Vec<js::Statement<'a>>,
+  over: Option<js::Expression<'a>>,
   span: Span,
   /// Whether the body leaves the loop from somewhere the pass cannot end: a `break` or a `continue` or `return` deeper than an `if` at its top.
   exits_deep: bool,
@@ -5450,95 +5707,126 @@ pub(crate) struct LoopTail {
   done: Option<Expr>,
 }
 
+/// Where `span` starts as a source-map position: one past the byte offset, the first byte of the module being position 1.
+pub(crate) fn lo(span: Span) -> u32 {
+  span.start + 1
+}
+
+/// Where `span` ends as a source-map position, as [`lo`] counts.
+pub(crate) fn hi(span: Span) -> u32 {
+  span.end + 1
+}
+
+/// The statements a loop or branch body holds: a block's own, or the one statement.
+fn body_stmts<'a>(b: syntax::Build<'a>, body: &js::Statement<'_>) -> Vec<js::Statement<'a>> {
+  match body {
+    js::Statement::BlockStatement(block) => block.body.iter().map(|s| b.copy(s)).collect(),
+    other => vec![b.copy(other)],
+  }
+}
+
 /// `for...of` over an array, a counted `for` or a `while` that awaits in its body, as an [`AwaitingLoop`]: `for (const x of xs)` becomes `const $items = xs; let $i = 0;` with the test `$i < $items.length`, a pass starting `const x = $items[$i]` and ending `$i++`.
-fn awaiting_loop(stmt: &js::Stmt, top: swc_core::common::SyntaxContext) -> Option<AwaitingLoop> {
+fn awaiting_loop<'a>(parsed: &'a Parsed<'a>, stmt: &js::Statement<'_>) -> Option<AwaitingLoop<'a>> {
   if !awaits(stmt) {
     return None;
   }
+  let b = syntax::Build::new(parsed.arena());
+  let ast = b.ast();
   let span = stmt.span();
-  let ident = |name: &str| js::Ident::new(name.into(), span, top);
-  let expr_stmt = |e: js::Expr| js::Stmt::Expr(js::ExprStmt { span, expr: Box::new(e) });
-  let decl = |kind: js::VarDeclKind, name: js::Pat, init: js::Expr| js::Stmt::Decl(js::Decl::Var(Box::new(js::VarDecl { span, ctxt: Default::default(), kind, declare: false, decls: vec![js::VarDeclarator { span, name, init: Some(Box::new(init)), definite: false }] })));
-  let body_of = |body: &js::Stmt| -> Vec<js::Stmt> {
-    match body {
-      js::Stmt::Block(b) => b.stmts.clone(),
-      other => vec![other.clone()],
+  let ident = |name: &str| {
+    let made = b.ident(name, span);
+    if let js::Expression::Identifier(id) = &made {
+      parsed.scope.mark_top(id);
     }
+    made
+  };
+  let binding = |name: &str| {
+    let made = b.binding(name, span);
+    if let js::BindingPattern::BindingIdentifier(id) = &made {
+      parsed.scope.mark_top_binding(id);
+    }
+    made
+  };
+  let decl = |kind: js::VariableDeclarationKind, name: js::BindingPattern<'a>, init: js::Expression<'a>| {
+    js::Statement::new_variable_declaration(span, kind, b.vec([js::VariableDeclarator::new(span, name, None, Some(init), false, &ast)]), false, &ast)
   };
   match stmt {
-    js::Stmt::ForOf(for_of) => {
-      let js::ForHead::VarDecl(left) = &for_of.left else { return None };
-      let pattern = left.decls.first()?.name.clone();
-      let (items, index) = (format!("$items{}", span.lo.0), format!("$i{}", span.lo.0));
-      let items_var = || js::Expr::Ident(ident(&items));
-      let index_var = || js::Expr::Ident(ident(&index));
+    js::Statement::ForOfStatement(for_of) => {
+      let js::ForStatementLeft::VariableDeclaration(left) = &for_of.left else { return None };
+      let first = left.declarations.first()?;
+      let pattern = b.copy(&first.id);
+      let (items, index) = (format!("$items{}", lo(span)), format!("$i{}", lo(span)));
       let init = vec![
-        decl(js::VarDeclKind::Const, js::Pat::Ident(js::BindingIdent { id: ident(&items), type_ann: None }), (*for_of.right).clone()),
-        decl(js::VarDeclKind::Let, js::Pat::Ident(js::BindingIdent { id: ident(&index), type_ann: None }), js::Expr::Lit(js::Lit::Num(js::Number { span, value: 0.0, raw: None }))),
+        decl(js::VariableDeclarationKind::Const, binding(&items), b.copy(&for_of.right)),
+        decl(js::VariableDeclarationKind::Let, binding(&index), js::Expression::new_numeric_literal(span, 0.0, None, oxc_syntax::number::NumberBase::Decimal, &ast)),
       ];
-      let length = js::Expr::Member(js::MemberExpr { span, obj: Box::new(items_var()), prop: js::MemberProp::Ident(js::IdentName::new("length".into(), span)) });
-      let test = js::Expr::Bin(js::BinExpr { span, op: js::BinaryOp::Lt, left: Box::new(index_var()), right: Box::new(length) });
-      let item = js::Expr::Member(js::MemberExpr { span, obj: Box::new(items_var()), prop: js::MemberProp::Computed(js::ComputedPropName { span, expr: Box::new(index_var()) }) });
-      let mut body = vec![decl(js::VarDeclKind::Const, pattern, item)];
-      let inner = body_of(&for_of.body);
+      let length = js::Expression::new_static_member_expression(span, ident(&items), js::IdentifierName::new(span, b.str("length"), &ast), false, &ast);
+      let test = js::Expression::new_binary_expression(span, ident(&index), js::BinaryOperator::LessThan, length, &ast);
+      let item = js::Expression::new_computed_member_expression(span, ident(&items), ident(&index), false, &ast);
+      let mut body = vec![decl(js::VariableDeclarationKind::Const, pattern, item)];
+      let inner = body_stmts(b, &for_of.body);
       let exits_deep = exits_deeper(&inner);
       body.extend(inner);
-      let step = vec![expr_stmt(js::Expr::Update(js::UpdateExpr { span, op: js::UpdateOp::PlusPlus, prefix: false, arg: Box::new(index_var()) }))];
-      Some(AwaitingLoop { init, test, pass: continued(body, &step), over: Some((*for_of.right).clone()), span, exits_deep })
+      let target = js::SimpleAssignmentTarget::new_assignment_target_identifier(span, b.str(&index), &ast);
+      if let js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = &target {
+        parsed.scope.mark_top(id);
+      }
+      let step = vec![b.expr_stmt(js::Expression::new_update_expression(span, js::UpdateOperator::Increment, false, target, &ast))];
+      Some(AwaitingLoop { init, test, pass: continued(b, body, &step), over: Some(b.copy(&for_of.right)), span, exits_deep })
     }
-    js::Stmt::For(counted) => {
+    js::Statement::ForStatement(counted) => {
       let init = match &counted.init {
-        Some(js::VarDeclOrExpr::VarDecl(d)) => vec![js::Stmt::Decl(js::Decl::Var(d.clone()))],
-        Some(js::VarDeclOrExpr::Expr(e)) => vec![expr_stmt((**e).clone())],
+        Some(js::ForStatementInit::VariableDeclaration(d)) => vec![js::Statement::VariableDeclaration(b.copy(d))],
+        Some(other) => vec![b.expr_stmt(b.copy(other.to_expression()))],
         None => Vec::new(),
       };
-      let test = counted.test.as_deref().cloned().unwrap_or(js::Expr::Lit(js::Lit::Bool(js::Bool { span, value: true })));
-      let step: Vec<js::Stmt> = counted.update.iter().map(|update| expr_stmt((**update).clone())).collect();
-      let body = body_of(&counted.body);
-      Some(AwaitingLoop { init, test, exits_deep: exits_deeper(&body), pass: continued(body, &step), over: None, span })
+      let test = counted.test.as_ref().map(|t| b.copy(t)).unwrap_or_else(|| b.boolean(true, span));
+      let step: Vec<js::Statement<'a>> = counted.update.iter().map(|update| b.expr_stmt(b.copy(update))).collect();
+      let body = body_stmts(b, &counted.body);
+      Some(AwaitingLoop { init, test, exits_deep: exits_deeper(&body), pass: continued(b, body, &step), over: None, span })
     }
-    js::Stmt::While(looped) => {
-      let body = body_of(&looped.body);
-      Some(AwaitingLoop { init: Vec::new(), test: (*looped.test).clone(), exits_deep: exits_deeper(&body), pass: continued(body, &[]), over: None, span })
+    js::Statement::WhileStatement(looped) => {
+      let body = body_stmts(b, &looped.body);
+      Some(AwaitingLoop { init: Vec::new(), test: b.copy(&looped.test), exits_deep: exits_deeper(&body), pass: continued(b, body, &[]), over: None, span })
     }
     _ => None,
   }
 }
 
 /// `body` with `step` at the end of every way through it, a `continue` or `return` at the body's top or ending an `if` there taken as that way's end: `if (c) continue; rest` becomes `if (c) { step } else { rest; step }` and `if (c) return v; rest` becomes `if (c) { return v } else { rest; step }`.
-fn continued(body: Vec<js::Stmt>, step: &[js::Stmt]) -> Vec<js::Stmt> {
+fn continued<'a>(b: syntax::Build<'a>, body: Vec<js::Statement<'a>>, step: &[js::Statement<'a>]) -> Vec<js::Statement<'a>> {
   let mut out = Vec::with_capacity(body.len() + step.len());
   let mut stmts = body.into_iter();
   while let Some(stmt) = stmts.next() {
     match stmt {
-      js::Stmt::Continue(_) => {
-        out.extend(step.iter().cloned());
+      js::Statement::ContinueStatement(_) => {
+        out.extend(step.iter().map(|s| b.copy(s)));
         return out;
       }
-      ret @ js::Stmt::Return(_) => {
+      ret @ js::Statement::ReturnStatement(_) => {
         out.push(ret);
         return out;
       }
-      js::Stmt::If(branch) if branch.alt.is_none() && (ends_in(&branch.cons, Exit::Continue) || ends_in(&branch.cons, Exit::Return)) => {
+      js::Statement::IfStatement(branch) if branch.alternate.is_none() && (ends_in(&branch.consequent, Exit::Continue) || ends_in(&branch.consequent, Exit::Return)) => {
+        let branch = branch.unbox();
         let span = branch.span;
-        let returns = ends_in(&branch.cons, Exit::Return);
-        let mut taken = match *branch.cons {
-          js::Stmt::Block(block) => block.stmts,
+        let returns = ends_in(&branch.consequent, Exit::Return);
+        let mut taken: Vec<js::Statement<'a>> = match branch.consequent {
+          js::Statement::BlockStatement(block) => block.unbox().body.into_iter().collect(),
           other => vec![other],
         };
         if !returns {
           taken.pop();
-          taken.extend(step.iter().cloned());
+          taken.extend(step.iter().map(|s| b.copy(s)));
         }
-        let rest = continued(stmts.collect(), step);
-        let block = |stmts: Vec<js::Stmt>| Box::new(js::Stmt::Block(js::BlockStmt { span, ctxt: Default::default(), stmts }));
-        out.push(js::Stmt::If(js::IfStmt { span, test: branch.test, cons: block(taken), alt: Some(block(rest)) }));
+        let rest = continued(b, stmts.collect(), step);
+        out.push(js::Statement::new_if_statement(span, branch.test, b.block(taken, span), Some(b.block(rest, span)), &b.ast()));
         return out;
       }
       other => out.push(other),
     }
   }
-  out.extend(step.iter().cloned());
+  out.extend(step.iter().map(|s| b.copy(s)));
   out
 }
 
@@ -5549,28 +5837,28 @@ enum Exit {
 }
 
 /// Whether `stmt` is the exit or a block ending in it.
-fn ends_in(stmt: &js::Stmt, exit: Exit) -> bool {
-  let is = |s: &js::Stmt| match exit {
-    Exit::Continue => matches!(s, js::Stmt::Continue(_)),
-    Exit::Return => matches!(s, js::Stmt::Return(_)),
+fn ends_in(stmt: &js::Statement, exit: Exit) -> bool {
+  let is = |s: &js::Statement| match exit {
+    Exit::Continue => matches!(s, js::Statement::ContinueStatement(_)),
+    Exit::Return => matches!(s, js::Statement::ReturnStatement(_)),
   };
   match stmt {
-    js::Stmt::Block(block) => block.stmts.last().is_some_and(is),
+    js::Statement::BlockStatement(block) => block.body.last().is_some_and(is),
     other => is(other),
   }
 }
 
 /// Whether an `if` ends either branch in a `return`, which splits a pass of a loop that awaits as an `await` does.
-fn if_ends_in_return(stmt: &js::Stmt) -> bool {
-  matches!(stmt, js::Stmt::If(branch) if ends_in(&branch.cons, Exit::Return) || branch.alt.as_deref().is_some_and(|alt| ends_in(alt, Exit::Return)))
+fn if_ends_in_return(stmt: &js::Statement) -> bool {
+  matches!(stmt, js::Statement::IfStatement(branch) if ends_in(&branch.consequent, Exit::Return) || branch.alternate.as_ref().is_some_and(|alt| ends_in(alt, Exit::Return)))
 }
 
 /// Whether `body` leaves the loop from somewhere a pass cannot end: a `break` anywhere or a `continue` or `return` other than at the body's top or ending an `if` there.
-fn exits_deeper(body: &[js::Stmt]) -> bool {
+fn exits_deeper(body: &[js::Statement]) -> bool {
   body.iter().any(|stmt| match stmt {
-    js::Stmt::Continue(_) | js::Stmt::Return(_) => false,
-    js::Stmt::If(branch) if branch.alt.is_none() && (ends_in(&branch.cons, Exit::Continue) || ends_in(&branch.cons, Exit::Return)) => match &*branch.cons {
-      js::Stmt::Block(block) => block.stmts[..block.stmts.len() - 1].iter().any(loop_exits),
+    js::Statement::ContinueStatement(_) | js::Statement::ReturnStatement(_) => false,
+    js::Statement::IfStatement(branch) if branch.alternate.is_none() && (ends_in(&branch.consequent, Exit::Continue) || ends_in(&branch.consequent, Exit::Return)) => match &branch.consequent {
+      js::Statement::BlockStatement(block) => block.body[..block.body.len() - 1].iter().any(loop_exits),
       _ => false,
     },
     other => loop_exits(other),
@@ -5578,50 +5866,47 @@ fn exits_deeper(body: &[js::Stmt]) -> bool {
 }
 
 /// Whether `stmt` leaves the loop around it with `break`, `continue` or `return`, outside any function it declares.
-fn loop_exits(stmt: &js::Stmt) -> bool {
+fn loop_exits(stmt: &js::Statement) -> bool {
   struct Exits(bool);
-  impl swc_core::ecma::visit::Visit for Exits {
-    fn visit_break_stmt(&mut self, _: &js::BreakStmt) {
+  impl<'a> oxc_ast_visit::Visit<'a> for Exits {
+    fn visit_break_statement(&mut self, _: &js::BreakStatement<'a>) {
       self.0 = true;
     }
-    fn visit_continue_stmt(&mut self, _: &js::ContinueStmt) {
+    fn visit_continue_statement(&mut self, _: &js::ContinueStatement<'a>) {
       self.0 = true;
     }
-    fn visit_return_stmt(&mut self, _: &js::ReturnStmt) {
+    fn visit_return_statement(&mut self, _: &js::ReturnStatement<'a>) {
       self.0 = true;
     }
-    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
-    fn visit_function(&mut self, _: &js::Function) {}
+    fn visit_arrow_function_expression(&mut self, _: &js::ArrowFunctionExpression<'a>) {}
+    fn visit_function(&mut self, _: &js::Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
   }
   let mut found = Exits(false);
-  swc_core::ecma::visit::VisitWith::visit_with(stmt, &mut found);
+  oxc_ast_visit::Visit::visit_statement(&mut found, stmt);
   found.0
 }
 
-pub(crate) fn awaits(stmt: &js::Stmt) -> bool {
+pub(crate) fn awaits(stmt: &js::Statement) -> bool {
   struct Awaits(bool);
-  impl swc_core::ecma::visit::Visit for Awaits {
-    fn visit_await_expr(&mut self, _: &js::AwaitExpr) {
+  impl<'a> oxc_ast_visit::Visit<'a> for Awaits {
+    fn visit_await_expression(&mut self, _: &js::AwaitExpression<'a>) {
       self.0 = true;
     }
-    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
-    fn visit_function(&mut self, _: &js::Function) {}
+    fn visit_arrow_function_expression(&mut self, _: &js::ArrowFunctionExpression<'a>) {}
+    fn visit_function(&mut self, _: &js::Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
   }
   let mut found = Awaits(false);
-  swc_core::ecma::visit::VisitWith::visit_with(stmt, &mut found);
+  oxc_ast_visit::Visit::visit_statement(&mut found, stmt);
   found.0
 }
 
 /// Whether `e` builds a new array, which `sort` and `reverse` may rewrite without another holder seeing it.
-fn fresh_array(e: &js::Expr) -> bool {
+fn fresh_array(e: &js::Expression) -> bool {
   match e {
-    js::Expr::Array(_) => true,
-    js::Expr::Paren(p) => fresh_array(&p.expr),
-    js::Expr::Call(call) => match &call.callee {
-      js::Callee::Expr(callee) => match &**callee {
-        js::Expr::Member(m) => matches!(&m.prop, js::MemberProp::Ident(p) if matches!(p.sym.as_ref(), "slice" | "map" | "filter" | "concat" | "toSorted" | "toReversed" | "flat" | "flatMap" | "split" | "keys" | "values" | "entries" | "from")),
-        _ => false,
-      },
+    js::Expression::ArrayExpression(_) => true,
+    js::Expression::ParenthesizedExpression(p) => fresh_array(&p.expression),
+    js::Expression::CallExpression(call) => match &call.callee {
+      js::Expression::StaticMemberExpression(m) => matches!(m.property.name.as_str(), "slice" | "map" | "filter" | "concat" | "toSorted" | "toReversed" | "flat" | "flatMap" | "split" | "keys" | "values" | "entries" | "from"),
       _ => false,
     },
     _ => false,
@@ -5652,105 +5937,121 @@ fn root_named(name: &str) -> Option<Root> {
 /// The `Math` functions `Builtin::Math` computes as V8 does.
 pub(crate) const JS_MATH: [&str; 19] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt"];
 
+/// The object at the root of a chain of members: `a` of `a.b[c].d`.
+pub(crate) fn member_root<'e>(member: &'e js::MemberExpression<'e>) -> &'e js::Expression<'e> {
+  let mut root = member.object();
+  while let Some(inner) = root.as_member_expression() {
+    root = inner.object();
+  }
+  root
+}
+
 /// Whether `stmts` write a field of one of `params`, an object the caller holds too, so the parameters stay unwritable; rebinding a parameter itself is a local write.
-pub(crate) fn writes_a_member_of(stmts: &[js::Stmt], params: &[String]) -> bool {
+pub(crate) fn writes_a_member_of(stmts: &[js::Statement], params: &[String]) -> bool {
   if heap_pass() {
     return false;
   }
-  use swc_core::ecma::visit::{Visit, VisitWith};
-  struct Writes<'a>(&'a [String], bool);
-  impl Visit for Writes<'_> {
-    fn visit_simple_assign_target(&mut self, target: &js::SimpleAssignTarget) {
-      if let js::SimpleAssignTarget::Member(member) = target {
-        let mut root = &*member.obj;
-        while let js::Expr::Member(inner) = root {
-          root = &inner.obj;
-        }
-        if matches!(root, js::Expr::Ident(id) if self.0.iter().any(|p| *p == *id.sym)) {
+  struct Writes<'p>(&'p [String], bool);
+  impl<'a> oxc_ast_visit::Visit<'a> for Writes<'_> {
+    fn visit_simple_assignment_target(&mut self, target: &js::SimpleAssignmentTarget<'a>) {
+      if let Some(member) = target.as_member_expression() {
+        if matches!(member_root(member), js::Expression::Identifier(id) if self.0.iter().any(|p| p == id.name.as_str())) {
           self.1 = true;
         }
       }
-      target.visit_children_with(self);
+      oxc_ast_visit::walk::walk_simple_assignment_target(self, target);
     }
   }
   let mut writes = Writes(params, false);
-  stmts.iter().for_each(|stmt| stmt.visit_with(&mut writes));
+  stmts.iter().for_each(|stmt| oxc_ast_visit::Visit::visit_statement(&mut writes, stmt));
   writes.1
 }
 
 /// A `reduce` callback that writes its accumulator and answers it, `(acc[k] = v, acc)` or `{ acc.k = v; return acc; }`, as one that answers `({ ...acc, [k]: v })`. Only for an accumulator that starts as an object literal, which nothing else holds, so a fresh object answers what the writes would; only the first write may read the accumulator, since a later one would see the earlier write.
-fn fresh_accumulator(arrow: &js::ArrowExpr) -> Option<js::ArrowExpr> {
-  use swc_core::ecma::visit::{Visit, VisitWith};
-  let js::Pat::Ident(acc) = arrow.params.first()? else { return None };
-  let acc = acc.id.sym.clone();
-  let mut writes: Vec<&js::AssignExpr> = Vec::new();
-  let answers_acc = |e: &js::Expr| matches!(strip_parens(e), js::Expr::Ident(id) if id.sym == acc);
-  match &*arrow.body {
-    js::ArrowFunctionBody::Expr(e) => {
-      let js::Expr::Seq(seq) = strip_parens(e) else { return None };
-      let (last, rest) = seq.exprs.split_last()?;
+fn fresh_accumulator<'a>(b: syntax::Build<'a>, arrow: &js::ArrowFunctionExpression<'_>) -> Option<js::ArrowFunctionExpression<'a>> {
+  let acc = first_param(&arrow.params)?.ident()?.name.as_str();
+  let mut writes: Vec<&js::AssignmentExpression> = Vec::new();
+  let answers_acc = |e: &js::Expression| matches!(strip_parens(e), js::Expression::Identifier(id) if id.name.as_str() == acc);
+  match arrow_body(arrow) {
+    FunctionBody::Expr(e) => {
+      let js::Expression::SequenceExpression(seq) = strip_parens(e) else { return None };
+      let (last, rest) = seq.expressions.split_last()?;
       if !answers_acc(last) {
         return None;
       }
       for e in rest {
-        let js::Expr::Assign(assign) = strip_parens(e) else { return None };
+        let js::Expression::AssignmentExpression(assign) = strip_parens(e) else { return None };
         writes.push(assign);
       }
     }
-    js::ArrowFunctionBody::FunctionBody(block) => {
-      let (last, rest) = block.stmts.split_last()?;
-      let js::Stmt::Return(js::ReturnStmt { arg: Some(arg), .. }) = last else { return None };
-      if !answers_acc(&**arg) {
+    FunctionBody::Block(stmts) => {
+      let (last, rest) = stmts.split_last()?;
+      let js::Statement::ReturnStatement(ret) = last else { return None };
+      if !ret.argument.as_ref().is_some_and(|arg| answers_acc(arg)) {
         return None;
       }
       for stmt in rest {
-        let js::Stmt::Expr(js::ExprStmt { expr, .. }) = stmt else { return None };
-        let js::Expr::Assign(assign) = strip_parens(&**expr) else { return None };
+        let js::Statement::ExpressionStatement(stmt) = stmt else { return None };
+        let js::Expression::AssignmentExpression(assign) = strip_parens(&stmt.expression) else { return None };
         writes.push(assign);
       }
     }
   }
-  struct Reads<'a>(&'a swc_core::atoms::Atom, bool);
-  impl Visit for Reads<'_> {
-    fn visit_ident(&mut self, id: &js::Ident) {
-      if id.sym == *self.0 {
+  struct Reads<'n>(&'n str, bool);
+  impl<'a> oxc_ast_visit::Visit<'a> for Reads<'_> {
+    fn visit_identifier_reference(&mut self, id: &js::IdentifierReference<'a>) {
+      if id.name.as_str() == self.0 {
+        self.1 = true;
+      }
+    }
+    fn visit_binding_identifier(&mut self, id: &js::BindingIdentifier<'a>) {
+      if id.name.as_str() == self.0 {
         self.1 = true;
       }
     }
   }
-  let mut props = vec![js::PropOrSpread::Spread(js::SpreadElement { dot3_token: arrow.span, expr: Box::new(js::Expr::Ident(js::Ident::new_no_ctxt(acc.clone(), arrow.span))) })];
+  let ast = b.ast();
+  let mut props = vec![js::ObjectPropertyKind::new_spread_property(arrow.span, b.ident(acc, arrow.span), &ast)];
   for (i, assign) in writes.iter().enumerate() {
-    if assign.op != js::AssignOp::Assign {
+    if assign.operator != js::AssignmentOperator::Assign {
       return None;
     }
-    let js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) = &assign.left else { return None };
-    if !matches!(&*member.obj, js::Expr::Ident(id) if id.sym == acc) {
+    let Some(member) = assign.left.as_member_expression() else { return None };
+    if !matches!(member.object(), js::Expression::Identifier(id) if id.name.as_str() == acc) {
       return None;
     }
-    let key = match &member.prop {
-      js::MemberProp::Ident(name) => js::PropName::Ident(name.clone()),
-      js::MemberProp::Computed(computed) => js::PropName::Computed(computed.clone()),
-      js::MemberProp::PrivateName(_) => return None,
+    let (key, computed) = match syntax::prop(member) {
+      syntax::MemberProp::Ident(name) => (js::PropertyKey::StaticIdentifier(b.boxed(b.copy(name))), false),
+      syntax::MemberProp::Computed(computed) => (js::PropertyKey::from(b.copy(computed)), true),
+      syntax::MemberProp::Private(_) => return None,
     };
     if i > 0 {
-      let mut reads = Reads(&acc, false);
-      assign.right.visit_with(&mut reads);
-      member.prop.visit_with(&mut reads);
+      let mut reads = Reads(acc, false);
+      oxc_ast_visit::Visit::visit_expression(&mut reads, &assign.right);
+      if let syntax::MemberProp::Computed(computed) = syntax::prop(member) {
+        oxc_ast_visit::Visit::visit_expression(&mut reads, computed);
+      }
       if reads.1 {
         return None;
       }
     }
-    props.push(js::PropOrSpread::Prop(Box::new(js::Prop::KeyValue(js::KeyValueProp { key, value: assign.right.clone() }))));
+    props.push(js::ObjectPropertyKind::new_object_property(assign.span, js::PropertyKind::Init, key, b.copy(&assign.right), false, false, computed, &ast));
   }
-  let object = js::Expr::Object(js::ObjectLit { span: arrow.span, props });
-  Some(js::ArrowExpr { body: Box::new(js::ArrowFunctionBody::Expr(Box::new(js::Expr::Paren(js::ParenExpr { span: arrow.span, expr: Box::new(object) })))), ..arrow.clone() })
+  let object = js::Expression::new_object_expression(arrow.span, b.vec(props), &ast);
+  let mut made = b.copy(arrow);
+  made.body = js::ArrowFunctionBody::from(b.paren(object, arrow.span));
+  Some(made)
 }
 
-pub(crate) fn prop_name(name: &js::PropName) -> Option<String> {
-  match name {
-    js::PropName::Ident(id) => Some(id.sym.to_string()),
-    js::PropName::Str(s) => Some(s.value.to_atom_lossy().to_string()),
-    js::PropName::Num(n) => Some(snapfire_fsr_ir::interp::number_key(n.value)),
+/// The name a property key spells: an identifier, a string or a number written out, `None` for one computed.
+pub(crate) fn prop_name(key: &js::PropertyKey, computed: bool) -> Option<String> {
+  if computed {
+    return None;
+  }
+  match key {
+    js::PropertyKey::StaticIdentifier(id) => Some(id.name.to_string()),
+    js::PropertyKey::StringLiteral(s) => Some(lossy(s.value)),
+    js::PropertyKey::NumericLiteral(n) => Some(snapfire_fsr_ir::interp::number_key(n.value)),
     _ => None,
   }
 }
@@ -5763,34 +6064,34 @@ pub(crate) enum Breakable {
 }
 
 /// What the construct is and the rewrite that does the same thing in the IR.
-fn describe_stmt(stmt: &js::Stmt) -> (&'static str, &'static str) {
+fn describe_stmt(stmt: &js::Statement) -> (&'static str, &'static str) {
   match stmt {
-    js::Stmt::While(_) | js::Stmt::DoWhile(_) => ("`while`, a loop whose length the build cannot know", "a body loops over data it already has: `map`, `filter`, `reduce`, `find` and `for...of`"),
-    js::Stmt::For(_) | js::Stmt::ForIn(_) => ("a `for` loop other than `for...of`", "`for...of` over a list, or `map` and `filter`, which the interpreter runs directly"),
-    js::Stmt::Switch(_) => ("`switch`", "a chain of `if`, or a ternary when every arm is an expression"),
-    js::Stmt::Decl(js::Decl::Fn(_)) => ("a function declared inside a body", "declare it at module level and call it; the build follows a module-level helper"),
-    js::Stmt::Decl(js::Decl::Class(_)) => ("a class outside module level", "declare the class at module level or use an object literal"),
-    js::Stmt::Decl(_) => ("a declaration the build does not read", "a body declares values with `const` or `let`"),
-    js::Stmt::Break(_) | js::Stmt::Continue(_) => ("`break` or `continue`", "`find` stops at the first match and `filter` selects, so neither needs to leave a loop early"),
-    js::Stmt::Labeled(_) => ("a label", "a `for...of` in a body runs over every item; `find` and `filter` express the same intent"),
-    js::Stmt::With(_) => ("`with`", "read what the body needs from `ctx` by name"),
-    js::Stmt::Debugger(_) => ("`debugger`", "the body runs in Rust, where there is nothing to attach to; `fsr test` replays it instead"),
-    js::Stmt::Empty(_) => ("an empty statement", "remove the stray `;`"),
-    js::Stmt::Block(_) | js::Stmt::If(_) | js::Stmt::ForOf(_) | js::Stmt::Return(_) | js::Stmt::Expr(_) | js::Stmt::Throw(_) | js::Stmt::Try(_) => unreachable!("`stmt` lowers these itself"),
+    js::Statement::WhileStatement(_) | js::Statement::DoWhileStatement(_) => ("`while`, a loop whose length the build cannot know", "a body loops over data it already has: `map`, `filter`, `reduce`, `find` and `for...of`"),
+    js::Statement::ForStatement(_) | js::Statement::ForInStatement(_) => ("a `for` loop other than `for...of`", "`for...of` over a list, or `map` and `filter`, which the interpreter runs directly"),
+    js::Statement::SwitchStatement(_) => ("`switch`", "a chain of `if`, or a ternary when every arm is an expression"),
+    js::Statement::FunctionDeclaration(_) => ("a function declared inside a body", "declare it at module level and call it; the build follows a module-level helper"),
+    js::Statement::ClassDeclaration(_) => ("a class outside module level", "declare the class at module level or use an object literal"),
+    js::Statement::BreakStatement(_) | js::Statement::ContinueStatement(_) => ("`break` or `continue`", "`find` stops at the first match and `filter` selects, so neither needs to leave a loop early"),
+    js::Statement::LabeledStatement(_) => ("a label", "a `for...of` in a body runs over every item; `find` and `filter` express the same intent"),
+    js::Statement::WithStatement(_) => ("`with`", "read what the body needs from `ctx` by name"),
+    js::Statement::DebuggerStatement(_) => ("`debugger`", "the body runs in Rust, where there is nothing to attach to; `fsr test` replays it instead"),
+    js::Statement::EmptyStatement(_) => ("an empty statement", "remove the stray `;`"),
+    js::Statement::BlockStatement(_) | js::Statement::IfStatement(_) | js::Statement::ForOfStatement(_) | js::Statement::ReturnStatement(_) | js::Statement::ExpressionStatement(_) | js::Statement::ThrowStatement(_) | js::Statement::TryStatement(_) => unreachable!("`stmt` lowers these itself"),
+    _ => ("a declaration the build does not read", "a body declares values with `const` or `let`"),
   }
 }
 
 /// What the construct is and the rewrite that does the same thing in the IR.
-fn describe_expr(expr: &js::Expr) -> (&'static str, &'static str) {
+fn describe_expr(expr: &js::Expression) -> (&'static str, &'static str) {
   match expr {
-    js::Expr::This(_) => ("`this`, and a body has no receiver", "read what the body needs from `ctx`"),
-    js::Expr::Class(_) => ("a class outside module level", "declare the class at module level or use an object literal"),
-    js::Expr::Seq(_) => ("a comma expression", "one expression per statement"),
-    js::Expr::Update(_) => ("`++` or `--` on something this body did not declare", "declare a local with `let` and write that"),
-    js::Expr::Yield(_) => ("`yield`", "a body runs once and returns; there is no generator in the serving path"),
-    js::Expr::TaggedTpl(_) => ("a tagged template", "a plain template literal, or a module-level helper the build can follow"),
-    js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => ("JSX in a body", "a body returns data; the page it feeds is where the markup goes"),
-    js::Expr::MetaProp(_) => ("`import.meta`", "the build resolves every import, so nothing reads them while serving"),
+    js::Expression::ThisExpression(_) => ("`this`, and a body has no receiver", "read what the body needs from `ctx`"),
+    js::Expression::ClassExpression(_) => ("a class outside module level", "declare the class at module level or use an object literal"),
+    js::Expression::SequenceExpression(_) => ("a comma expression", "one expression per statement"),
+    js::Expression::UpdateExpression(_) => ("`++` or `--` on something this body did not declare", "declare a local with `let` and write that"),
+    js::Expression::YieldExpression(_) => ("`yield`", "a body runs once and returns; there is no generator in the serving path"),
+    js::Expression::TaggedTemplateExpression(_) => ("a tagged template", "a plain template literal, or a module-level helper the build can follow"),
+    js::Expression::JSXElement(_) | js::Expression::JSXFragment(_) => ("JSX in a body", "a body returns data; the page it feeds is where the markup goes"),
+    js::Expression::ImportMeta(_) | js::Expression::NewTarget(_) => ("`import.meta`", "the build resolves every import, so nothing reads them while serving"),
     _ => ("an expression outside the IR", "section 2 of snapfire_fsr_lower's API reference lists what a body may say"),
   }
 }
@@ -5817,22 +6118,22 @@ impl Lowerer<'_> {
   /// or a `derived` callback that sets the value runs on subscribe, so either
   /// is refused.
   /// The context a key names, under `framework`: a string key as `framework:` and the string, a name as `framework:` and the file and name it is declared under, followed through its import.
-  pub(crate) fn context_key(&self, framework: &str, key: &js::Expr) -> Lowered<String> {
+  pub(crate) fn context_key(&self, framework: &str, key: &js::Expression) -> Lowered<String> {
     match crate::meaning::bare(key) {
-      js::Expr::Lit(js::Lit::Str(s)) => Ok(format!("{framework}:{}", s.value.to_atom_lossy())),
-      js::Expr::Ident(id) => Ok(match self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).and_then(|meant| meant.origin()) {
+      js::Expression::StringLiteral(s) => Ok(format!("{framework}:{}", lossy(s.value))),
+      js::Expression::Identifier(id) => Ok(match self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).and_then(|meant| meant.origin()) {
         Some((declared, name)) => format!("{framework}:{declared}#{name}"),
-        None => format!("{framework}:{}", id.sym),
+        None => format!("{framework}:{}", id.name),
       }),
       other => Err(self.residue(other.span(), "a context key that is not a string or a name")),
     }
   }
 
-  fn svelte_store(&mut self, store: &str, call: &js::CallExpr) -> Lowered<Expr> {
-    let arg = |i: usize| call.args.get(i).map(|a| &*a.expr);
+  fn svelte_store(&mut self, store: &str, call: &js::CallExpression) -> Lowered<Expr> {
+    let arg = |i: usize| call.arguments.get(i).map(syntax::arg_expr);
     match store {
       "writable" | "readable" => {
-        if call.args.len() > 1 {
+        if call.arguments.len() > 1 {
           return Err(self.residue(call.span, format!("a `{store}` store with a start function, which sets its value when it is subscribed")));
         }
         match arg(0) {
@@ -5867,8 +6168,8 @@ impl Lowerer<'_> {
           return Err(self.residue(call.span, "a `derived` store without its source and callback"));
         };
         let params = match strip_parens(callback) {
-          js::Expr::Arrow(arrow) => arrow.params.len(),
-          js::Expr::Fn(f) => f.function.params.len(),
+          js::Expression::ArrowFunctionExpression(arrow) => params_of(&arrow.params).len(),
+          js::Expression::FunctionExpression(f) => params_of(&f.params).len(),
           _ => return Err(self.residue(callback.span(), "a `derived` callback that is not a function written out")),
         };
         if params != 1 {

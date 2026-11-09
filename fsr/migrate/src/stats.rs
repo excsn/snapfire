@@ -3,11 +3,13 @@
 
 use std::collections::BTreeSet;
 
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, BindingPattern, Expression, ImportDeclarationSpecifier, ModuleExportName, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::Span;
 
 use crate::edit::Edits;
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{argument, is_script, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
@@ -38,15 +40,16 @@ impl Pass for Stats {
       if !text.contains("stat") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let (functions, namespaces) = imported(&parsed);
       if functions.is_empty() && namespaces.is_empty() {
         continue;
       }
       let mut results = Results { functions: &functions, namespaces: &namespaces, names: BTreeSet::new() };
-      parsed.module.visit_with(&mut results);
+      results.visit_program(&parsed.program);
       let mut uses = Uses { parsed: &parsed, text: &text, functions: &functions, namespaces: &namespaces, results: &results.names, edits: Edits::default(), notes: Vec::new() };
-      parsed.module.visit_with(&mut uses);
+      uses.visit_program(&parsed.program);
       let Uses { edits, notes, .. } = uses;
       for (line, note) in notes {
         report.note(&path, line, note);
@@ -62,20 +65,20 @@ impl Pass for Stats {
 /// The names `parsed` imports a `stat` function under and the names it imports a module that exports one under.
 fn imported(parsed: &Parsed) -> (BTreeSet<String>, Vec<(String, &'static [&'static str])>) {
   let mut namespaces = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if !crate::packages::is_std_source(&import.src.value.to_string_lossy()) {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    if !crate::packages::is_std_source(&lossy(import.source.value)) {
       continue;
     }
-    for specifier in &import.specifiers {
-      if let js::ImportSpecifier::Named(n) = specifier {
+    for specifier in import.specifiers.iter().flatten() {
+      if let ImportDeclarationSpecifier::ImportSpecifier(n) = specifier {
         let imported = match &n.imported {
-          Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-          Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-          None => n.local.sym.to_string(),
+          ModuleExportName::IdentifierName(i) => i.name.to_string(),
+          ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+          ModuleExportName::StringLiteral(s) => lossy(s.value),
         };
         if imported == "file" {
-          namespaces.push((n.local.sym.to_string(), STAT));
+          namespaces.push((n.local.name.to_string(), STAT));
         }
       }
     }
@@ -83,24 +86,23 @@ fn imported(parsed: &Parsed) -> (BTreeSet<String>, Vec<(String, &'static [&'stat
   (BTreeSet::new(), namespaces)
 }
 
-fn bare(e: &js::Expr) -> &js::Expr {
+fn bare<'e, 'a>(e: &'e Expression<'a>) -> &'e Expression<'a> {
   match e {
-    js::Expr::Paren(p) => bare(&p.expr),
-    js::Expr::Await(a) => bare(&a.arg),
-    js::Expr::TsAs(a) => bare(&a.expr),
-    js::Expr::TsNonNull(n) => bare(&n.expr),
+    Expression::ParenthesizedExpression(p) => bare(&p.expression),
+    Expression::AwaitExpression(a) => bare(&a.argument),
+    Expression::TSAsExpression(a) => bare(&a.expression),
+    Expression::TSNonNullExpression(n) => bare(&n.expression),
     other => other,
   }
 }
 
 /// Whether `e`, past any `await` or parentheses, calls a `stat` function.
-fn stats(functions: &BTreeSet<String>, namespaces: &[(String, &[&str])], e: &js::Expr) -> bool {
-  let js::Expr::Call(call) = bare(e) else { return false };
-  let js::Callee::Expr(callee) = &call.callee else { return false };
-  match bare(callee) {
-    js::Expr::Ident(i) => functions.contains(&*i.sym),
-    js::Expr::Member(m) => match (bare(&m.obj), &m.prop) {
-      (js::Expr::Ident(object), js::MemberProp::Ident(prop)) => namespaces.iter().any(|(name, exports)| *name == *object.sym && exports.contains(&&*prop.sym)),
+fn stats(functions: &BTreeSet<String>, namespaces: &[(String, &[&str])], e: &Expression) -> bool {
+  let Expression::CallExpression(call) = bare(e) else { return false };
+  match bare(&call.callee) {
+    Expression::Identifier(i) => functions.contains(i.name.as_str()),
+    Expression::StaticMemberExpression(m) => match bare(&m.object) {
+      Expression::Identifier(object) => namespaces.iter().any(|(name, exports)| object.name == name.as_str() && exports.contains(&m.property.name.as_str())),
       _ => false,
     },
     _ => false,
@@ -114,19 +116,19 @@ struct Results<'a> {
   names: BTreeSet<String>,
 }
 
-impl Visit for Results<'_> {
-  fn visit_var_declarator(&mut self, n: &js::VarDeclarator) {
-    if let (js::Pat::Ident(name), Some(init)) = (&n.name, n.init.as_deref()) {
+impl<'a> Visit<'a> for Results<'_> {
+  fn visit_variable_declarator(&mut self, n: &js::VariableDeclarator<'a>) {
+    if let (BindingPattern::BindingIdentifier(name), Some(init)) = (&n.id, &n.init) {
       if stats(self.functions, self.namespaces, init) {
-        self.names.insert(name.id.sym.to_string());
+        self.names.insert(name.name.to_string());
       }
     }
-    n.visit_children_with(self);
+    walk::walk_variable_declarator(self, n);
   }
 }
 
 struct Uses<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   functions: &'a BTreeSet<String>,
   namespaces: &'a [(String, &'static [&'static str])],
@@ -136,60 +138,53 @@ struct Uses<'a> {
 }
 
 impl Uses<'_> {
-  fn written(&self, span: swc_core::common::Span) -> &str {
+  fn written(&self, span: Span) -> &str {
     &self.text[self.parsed.range(span)]
   }
 
   /// Whether `e` is a `stat` result: a call of a `stat` function or a name declared from one.
-  fn result(&self, e: &js::Expr) -> bool {
+  fn result(&self, e: &Expression) -> bool {
     match bare(e) {
-      js::Expr::Ident(i) => self.results.contains(&*i.sym),
+      Expression::Identifier(i) => self.results.contains(i.name.as_str()),
       _ => stats(self.functions, self.namespaces, e),
     }
   }
 
-  fn note(&mut self, span: swc_core::common::Span, note: String) {
+  fn note(&mut self, span: Span, note: String) {
     self.notes.push((self.parsed.line(span), note));
   }
 }
 
-impl Visit for Uses<'_> {
-  fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+impl<'a> Visit<'a> for Uses<'_> {
+  fn visit_import_declaration(&mut self, _: &js::ImportDeclaration<'a>) {}
 
-  fn visit_var_declarator(&mut self, n: &js::VarDeclarator) {
-    n.init.visit_with(self);
+  fn visit_variable_declarator(&mut self, n: &js::VariableDeclarator<'a>) {
+    if let Some(init) = &n.init {
+      self.visit_expression(init);
+    }
   }
 
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let js::Callee::Expr(callee) = &n.callee {
-      if let js::Expr::Member(m) = &**callee {
-        if let js::MemberProp::Ident(prop) = &m.prop {
-          if self.result(&m.obj) && FIELDS.contains(&&*prop.sym) && n.args.is_empty() {
-            let field = self.written(m.span).to_owned();
-            self.edits.replace(self.parsed.range(n.span), field);
-            m.obj.visit_with(self);
-            return;
-          }
-        }
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if let Expression::StaticMemberExpression(m) = &n.callee {
+      if self.result(&m.object) && FIELDS.contains(&m.property.name.as_str()) && n.arguments.is_empty() {
+        let field = self.written(m.span).to_owned();
+        self.edits.replace(self.parsed.range(n.span), field);
+        self.visit_expression(&m.object);
+        return;
       }
     }
-    if n.args.iter().any(|arg| matches!(bare(&arg.expr), js::Expr::Ident(i) if self.results.contains(&*i.sym))) {
+    if n.arguments.iter().any(|arg| matches!(bare(argument(arg)), Expression::Identifier(i) if self.results.contains(i.name.as_str()))) {
       let written = self.written(n.span).to_owned();
       self.note(n.span, format!("`{written}`: the `stat` result is passed on, so `fsr migrate` cannot rewrite an `isFile()` or `isDirectory()` call on it to the field FSR's `file.stat` answers"));
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if let js::MemberProp::Ident(prop) = &n.prop {
-      if self.result(&n.obj) && MISSING.contains(&&*prop.sym) {
-        let written = self.written(n.span).to_owned();
-        self.note(n.span, format!("`{written}`: FSR's `file.stat` answers `isFile`, `isDirectory`, `size` and `mtimeMs` only"));
-      }
+  fn visit_static_member_expression(&mut self, n: &js::StaticMemberExpression<'a>) {
+    if self.result(&n.object) && MISSING.contains(&n.property.name.as_str()) {
+      let written = self.written(n.span).to_owned();
+      self.note(n.span, format!("`{written}`: FSR's `file.stat` answers `isFile`, `isDirectory`, `size` and `mtimeMs` only"));
     }
-    n.obj.visit_with(self);
-    if let js::MemberProp::Computed(c) = &n.prop {
-      c.visit_with(self);
-    }
+    self.visit_expression(&n.object);
   }
 }

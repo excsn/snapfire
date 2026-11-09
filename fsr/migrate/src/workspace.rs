@@ -41,7 +41,8 @@ impl Pass for Workspace {
     let mut queue: Vec<String> = tree.paths().filter(|p| !p.starts_with(WORKSPACE_DIR) && is_script(p)).map(str::to_owned).collect();
     while let Some(path) = queue.pop() {
       let Some(text) = tree.text(&path) else { continue };
-      let Ok(parsed) = parse(&path, text) else { continue };
+      let allocator = oxc_allocator::Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, text) else { continue };
       for spec in specifiers(&parsed) {
         let target = if spec.value.starts_with('.') {
           if !path.starts_with(WORKSPACE_DIR) {

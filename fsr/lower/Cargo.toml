@@ -20,10 +20,15 @@ snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.5.0" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "2"
-
-[dependencies.swc_core]
-version = "84"
-features = ["common", "ecma_ast", "ecma_parser", "ecma_visit", "ecma_transforms"]
+oxc_allocator = "0.155"
+oxc_ast = "0.155"
+oxc_ast_visit = "0.155"
+oxc_diagnostics = "0.155"
+oxc_parser = "0.155"
+oxc_semantic = "0.155"
+oxc_span = "0.155"
+oxc_str = "0.155"
+oxc_syntax = "0.155"
 
 [dev-dependencies]
 snapfire_fsr_test_internal = { path = "../test_internal" }
@@ -37,7 +42,5 @@ snapfire_vue = { path = "../../compiler/vue" }
 snapfire_svelte = { path = "../../compiler/svelte" }
 proptest = "1"
 snapfire_fsr_mdx = { workspace = true, features = ["highlight", "frontmatter"] }
-
-[dev-dependencies.swc_core]
-version = "84"
-features = ["common", "ecma_ast", "ecma_parser", "ecma_codegen", "ecma_visit", "ecma_transforms_typescript"]
+oxc_codegen = "0.155"
+oxc_transformer = "0.155"

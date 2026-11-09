@@ -2,15 +2,15 @@
 
 use std::collections::BTreeSet;
 
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::VisitWith;
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, ArrayExpressionElement, BindingPattern, Declaration, Expression, ObjectPropertyKind, Statement};
+use oxc_span::GetSpan;
 
 use crate::edit::Edits;
 use crate::items::{describe, prune, tidy, Item};
 use crate::lift::{closure, copied, holds, imports_for, reads, request_field, route_kind, ContextUses, RequestReads};
 use crate::relocate::dirname;
-use crate::syntax::{parse, Parsed};
+use crate::syntax::{argument, key_value, params, parse, Node, Param, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) struct GeneratedMeta;
@@ -27,7 +27,8 @@ impl Pass for GeneratedMeta {
       if !text.contains("generateMetadata") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let Some((item, body)) = generate_metadata(&parsed) else { continue };
       let line = parsed.line(item.span());
       let loader_path = format!("{}/{kind}.loader.ts", dirname(&path));
@@ -44,30 +45,30 @@ impl Pass for GeneratedMeta {
 }
 
 /// What `generateMetadata` is made of: its statements before the `return` and the object it returns.
-struct Body<'a> {
-  stmts: Vec<&'a js::Stmt>,
-  returned: &'a js::Expr,
-  ctx: Option<&'a js::Pat>,
+struct Body<'b, 'a> {
+  stmts: Vec<&'b Statement<'a>>,
+  returned: &'b Expression<'a>,
+  ctx: Option<Param<'b, 'a>>,
 }
 
 /// The module item exporting `generateMetadata`, as a function or an arrow, with its body.
-fn generate_metadata(parsed: &Parsed) -> Option<(&js::ModuleItem, Body<'_>)> {
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else { continue };
-    match &export.decl {
-      js::Decl::Fn(f) if &*f.ident.sym == "generateMetadata" => return Some((item, of_block(f.function.body.as_ref()?, f.function.params.first().map(|p| &p.pat))?)),
-      js::Decl::Var(var) => {
-        for decl in &var.decls {
-          let (js::Pat::Ident(name), Some(js::Expr::Arrow(arrow))) = (&decl.name, decl.init.as_deref()) else { continue };
-          if &*name.id.sym != "generateMetadata" {
+fn generate_metadata<'b, 'a>(parsed: &'b Parsed<'a>) -> Option<(&'b Statement<'a>, Body<'b, 'a>)> {
+  for item in parsed.body() {
+    let Statement::ExportDeclaration(export) = item else { continue };
+    match &export.declaration {
+      Declaration::FunctionDeclaration(f) if f.id.as_ref().is_some_and(|id| id.name == "generateMetadata") => return Some((item, of_block(f.body.as_ref()?, params(&f.params).into_iter().next())?)),
+      Declaration::VariableDeclaration(var) => {
+        for decl in &var.declarations {
+          let (BindingPattern::BindingIdentifier(name), Some(Expression::ArrowFunctionExpression(arrow))) = (&decl.id, &decl.init) else { continue };
+          if name.name != "generateMetadata" {
             continue;
           }
-          let ctx = arrow.params.first();
+          let ctx = params(&arrow.params).into_iter().next();
           return Some((
             item,
-            match &*arrow.body {
+            match &arrow.body {
               js::ArrowFunctionBody::FunctionBody(block) => of_block(block, ctx)?,
-              js::ArrowFunctionBody::Expr(e) => Body { stmts: Vec::new(), returned: unparen(e), ctx },
+              e => Body { stmts: Vec::new(), returned: unparen(e.as_expression()?), ctx },
             },
           ));
         }
@@ -78,22 +79,29 @@ fn generate_metadata(parsed: &Parsed) -> Option<(&js::ModuleItem, Body<'_>)> {
   None
 }
 
-fn of_block<'a>(block: &'a js::FunctionBody, ctx: Option<&'a js::Pat>) -> Option<Body<'a>> {
-  let (last, before) = block.stmts.split_last()?;
-  let js::Stmt::Return(js::ReturnStmt { arg: Some(returned), .. }) = last else { return None };
+fn of_block<'b, 'a>(block: &'b js::FunctionBody<'a>, ctx: Option<Param<'b, 'a>>) -> Option<Body<'b, 'a>> {
+  let (last, before) = block.statements.split_last()?;
+  let Statement::ReturnStatement(ret) = last else { return None };
+  let returned = ret.argument.as_ref()?;
   Some(Body { stmts: before.iter().collect(), returned, ctx })
 }
 
 /// The name `generateMetadata` binds its props to whole, `None` when it destructures `params` and `searchParams` by those names.
-fn props_name(ctx: Option<&js::Pat>) -> Result<Option<String>, String> {
+fn props_name(ctx: Option<&Param>) -> Result<Option<String>, String> {
   let Some(ctx) = ctx else { return Ok(None) };
-  match ctx {
-    js::Pat::Ident(id) => Ok(Some(id.id.sym.to_string())),
-    js::Pat::Object(obj) => {
-      for prop in &obj.props {
-        let js::ObjectPatProp::Assign(a) = prop else { return Err("it destructures its props other than as `params` and `searchParams`".to_owned()) };
-        if a.value.is_some() || !["params", "searchParams"].contains(&&*a.key.id.sym) {
-          return Err(format!("it reads `{}` of its props, which `meta` does not receive", a.key.id.sym));
+  match ctx.plain() {
+    Some(BindingPattern::BindingIdentifier(id)) => Ok(Some(id.name.to_string())),
+    Some(BindingPattern::ObjectPattern(obj)) => {
+      if obj.rest.is_some() {
+        return Err("it destructures its props other than as `params` and `searchParams`".to_owned());
+      }
+      for prop in &obj.properties {
+        let js::PropertyKey::StaticIdentifier(key) = &prop.key else { return Err("it destructures its props other than as `params` and `searchParams`".to_owned()) };
+        if !prop.shorthand {
+          return Err("it destructures its props other than as `params` and `searchParams`".to_owned());
+        }
+        if !matches!(prop.value, BindingPattern::BindingIdentifier(_)) || !["params", "searchParams"].contains(&key.name.as_str()) {
+          return Err(format!("it reads `{}` of its props, which `meta` does not receive", key.name));
         }
       }
       Ok(None)
@@ -103,13 +111,10 @@ fn props_name(ctx: Option<&js::Pat>) -> Result<Option<String>, String> {
 }
 
 /// Whether `e` is the request's params or search params or a `.then` on them.
-fn is_request(props: Option<&str>, e: &js::Expr) -> bool {
+fn is_request(props: Option<&str>, e: &Expression) -> bool {
   match e {
-    js::Expr::Ident(i) => ["params", "searchParams"].contains(&&*i.sym),
-    js::Expr::Call(call) => match &call.callee {
-      js::Callee::Expr(callee) => matches!(&**callee, js::Expr::Member(m) if matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "then") && is_request(props, &m.obj)),
-      _ => false,
-    },
+    Expression::Identifier(i) => ["params", "searchParams"].contains(&i.name.as_str()),
+    Expression::CallExpression(call) => matches!(&call.callee, Expression::StaticMemberExpression(m) if m.property.name == "then" && is_request(props, &m.object)),
     other => request_field(props, other).is_some(),
   }
 }
@@ -117,15 +122,15 @@ fn is_request(props: Option<&str>, e: &js::Expr) -> bool {
 /// The text of `node`, its request reads written as FSR's, with what of the request it reads.
 struct AsFsr<'a> {
   text: &'a str,
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   props: Option<String>,
   uses: BTreeSet<&'static str>,
 }
 
 impl AsFsr<'_> {
-  fn write<N: for<'b> VisitWith<ContextUses<'b>> + VisitWith<RequestReads> + Spanned>(&mut self, node: &N) -> String {
+  fn write<'n>(&mut self, node: &impl Node<'n>) -> String {
     let mut reads = RequestReads { props: self.props.clone(), names: BTreeSet::new() };
-    node.visit_with(&mut reads);
+    node.accept(&mut reads);
     if reads.names.contains("params") {
       self.uses.insert("params");
     }
@@ -133,7 +138,7 @@ impl AsFsr<'_> {
       self.uses.insert("query");
     }
     let mut found = ContextUses { props: self.props.clone(), found: Vec::new(), parsed: self.parsed, text: self.text };
-    node.visit_with(&mut found);
+    node.accept(&mut found);
     let range = self.parsed.range(node.span());
     let mut edits = Edits::default();
     for (span, with) in found.found {
@@ -145,9 +150,9 @@ impl AsFsr<'_> {
 }
 
 /// The page without `generateMetadata` and the loader with the `meta` it becomes; the reason it cannot move otherwise.
-fn rewrite(path: &str, text: &str, parsed: &Parsed, item: &js::ModuleItem, body: &Body, loader_path: &str, loader: &str) -> Result<(String, String), String> {
+fn rewrite(path: &str, text: &str, parsed: &Parsed, item: &Statement, body: &Body, loader_path: &str, loader: &str) -> Result<(String, String), String> {
   let returned = loaded_fields(loader_path, loader);
-  let mut fsr = AsFsr { text, parsed, props: props_name(body.ctx)?, uses: BTreeSet::new() };
+  let mut fsr = AsFsr { text, parsed, props: props_name(body.ctx.as_ref())?, uses: BTreeSet::new() };
   let mut statements = String::new();
   let mut locals: BTreeSet<String> = BTreeSet::new();
   let mut needed: BTreeSet<String> = BTreeSet::new();
@@ -166,8 +171,8 @@ fn rewrite(path: &str, text: &str, parsed: &Parsed, item: &js::ModuleItem, body:
           continue;
         }
         dropped.extend(reads(read));
-        let js::Pat::Ident(name) = pat else { return Err(format!("it awaits into `{pattern}`, which is not one name `load` returns")) };
-        let name = name.id.sym.to_string();
+        let BindingPattern::BindingIdentifier(name) = pat else { return Err(format!("it awaits into `{pattern}`, which is not one name `load` returns")) };
+        let name = name.name.to_string();
         if !returned.contains(&name) {
           return Err(format!("it awaits `{name}`, which `load` does not return"));
         }
@@ -196,11 +201,11 @@ fn rewrite(path: &str, text: &str, parsed: &Parsed, item: &js::ModuleItem, body:
     Ok(found) => found,
     Err(why) => return Err(why),
   };
-  let items: Vec<Item> = parsed.module.body.iter().map(|i| describe(i, parsed)).collect();
+  let items: Vec<Item> = parsed.body().iter().map(|i| describe(i, parsed)).collect();
   let declared = declared_in(loader_path, loader);
   let mut wanted = needed.clone();
   let mut taken = closure(&items, &mut wanted);
-  let own = parsed.module.body.iter().position(|i| std::ptr::eq(i, item));
+  let own = parsed.body().iter().position(|i| std::ptr::eq(i, item));
   taken.retain(|n| Some(*n) != own && !items[*n].binds.iter().all(|b| declared.contains(b)));
   let decls = copied(text, parsed, &items, &taken, path, &mut Report::default());
   let imports: String = imports_for(text, parsed, &wanted, path, loader_path).lines().filter(|l| !loader.lines().any(|e| e == *l)).map(|l| format!("{l}\n")).collect();
@@ -225,55 +230,55 @@ fn rewrite(path: &str, text: &str, parsed: &Parsed, item: &js::ModuleItem, body:
 }
 
 /// `const p = await e;` as `p` and `e`; `const [p, q] = await Promise.all([e, f]);` as each pattern and its value.
-fn awaited(stmt: &js::Stmt) -> Option<Vec<(&js::Pat, &js::Expr)>> {
-  let js::Stmt::Decl(js::Decl::Var(var)) = stmt else { return None };
-  let [decl] = var.decls.as_slice() else { return None };
-  let Some(js::Expr::Await(a)) = decl.init.as_deref() else { return None };
-  if let (js::Pat::Array(pats), Some(values)) = (&decl.name, promise_all(&a.arg)) {
-    if pats.elems.len() == values.len() && pats.elems.iter().all(Option::is_some) {
-      return Some(pats.elems.iter().flatten().zip(values).collect());
+fn awaited<'b, 'a>(stmt: &'b Statement<'a>) -> Option<Vec<(&'b BindingPattern<'a>, &'b Expression<'a>)>> {
+  let Statement::VariableDeclaration(var) = stmt else { return None };
+  let [decl] = var.declarations.as_slice() else { return None };
+  let Some(Expression::AwaitExpression(a)) = &decl.init else { return None };
+  if let (BindingPattern::ArrayPattern(pats), Some(values)) = (&decl.id, promise_all(&a.argument)) {
+    if pats.rest.is_none() && pats.elements.len() == values.len() && pats.elements.iter().all(Option::is_some) {
+      return Some(pats.elements.iter().flatten().zip(values).collect());
     }
   }
-  Some(vec![(&decl.name, &*a.arg)])
+  Some(vec![(&decl.id, &a.argument)])
 }
 
 /// The values of `Promise.all([...])`, each without a spread.
-fn promise_all(e: &js::Expr) -> Option<Vec<&js::Expr>> {
-  let js::Expr::Call(call) = e else { return None };
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Member(m) = &**callee else { return None };
-  let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) else { return None };
-  if &*obj.sym != "Promise" || &*prop.sym != "all" {
+fn promise_all<'b, 'a>(e: &'b Expression<'a>) -> Option<Vec<&'b Expression<'a>>> {
+  let Expression::CallExpression(call) = e else { return None };
+  let Expression::StaticMemberExpression(m) = &call.callee else { return None };
+  let Expression::Identifier(obj) = &m.object else { return None };
+  if obj.name != "Promise" || m.property.name != "all" {
     return None;
   }
-  let [arg] = call.args.as_slice() else { return None };
-  let js::Expr::Array(array) = &*arg.expr else { return None };
-  array.elems.iter().map(|e| e.as_ref().filter(|e| e.spread.is_none()).map(|e| &*e.expr)).collect()
+  let [arg] = call.arguments.as_slice() else { return None };
+  let Expression::ArrayExpression(array) = argument(arg) else { return None };
+  if matches!(arg, js::Argument::SpreadElement(_)) {
+    return None;
+  }
+  array.elements.iter().map(|e| match e {
+    ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => None,
+    other => Some(other.to_expression()),
+  }).collect()
 }
 
 /// The names `load` returns in its final `return { ... }`.
 fn loaded_fields(path: &str, loader: &str) -> BTreeSet<String> {
-  let Ok(parsed) = parse(path, loader) else { return BTreeSet::new() };
+  let allocator = Allocator::default();
+  let Ok(parsed) = parse(&allocator, path, loader) else { return BTreeSet::new() };
   let mut out = BTreeSet::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) = item else { continue };
-    if &*f.ident.sym != "load" {
+  for item in parsed.body() {
+    let Statement::ExportDeclaration(export) = item else { continue };
+    let Declaration::FunctionDeclaration(f) = &export.declaration else { continue };
+    if !f.id.as_ref().is_some_and(|id| id.name == "load") {
       continue;
     }
-    let Some(js::Stmt::Return(js::ReturnStmt { arg: Some(arg), .. })) = f.function.body.as_ref().and_then(|b| b.stmts.last()) else { continue };
-    let js::Expr::Object(object) = &**arg else { continue };
-    for prop in &object.props {
-      let js::PropOrSpread::Prop(prop) = prop else { continue };
-      match &**prop {
-        js::Prop::Shorthand(id) => {
-          out.insert(id.sym.to_string());
-        }
-        js::Prop::KeyValue(kv) => {
-          if let js::PropName::Ident(id) = &kv.key {
-            out.insert(id.sym.to_string());
-          }
-        }
-        _ => {}
+    let Some(Statement::ReturnStatement(ret)) = f.body.as_ref().and_then(|b| b.statements.last()) else { continue };
+    let Some(Expression::ObjectExpression(object)) = &ret.argument else { continue };
+    for prop in &object.properties {
+      let ObjectPropertyKind::ObjectProperty(p) = prop else { continue };
+      let js::PropertyKey::StaticIdentifier(id) = &p.key else { continue };
+      if p.shorthand || key_value(prop).is_some() {
+        out.insert(id.name.to_string());
       }
     }
   }
@@ -282,30 +287,23 @@ fn loaded_fields(path: &str, loader: &str) -> BTreeSet<String> {
 
 /// The loader's `meta` when it is `() => ({ head: [...] })`: its rows and its range, so the new `meta` keeps them; nothing when there is none; an error for any other `meta`.
 fn existing_meta(path: &str, loader: &str) -> Result<(Option<String>, Option<std::ops::Range<usize>>), String> {
-  let Ok(parsed) = parse(path, loader) else { return Ok((None, None)) };
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) = item else { continue };
-    for decl in &var.decls {
-      let (js::Pat::Ident(name), Some(init)) = (&decl.name, decl.init.as_deref()) else { continue };
-      if &*name.id.sym != "meta" {
+  let allocator = Allocator::default();
+  let Ok(parsed) = parse(&allocator, path, loader) else { return Ok((None, None)) };
+  for item in parsed.body() {
+    let Statement::ExportDeclaration(export) = item else { continue };
+    let Declaration::VariableDeclaration(var) = &export.declaration else { continue };
+    for decl in &var.declarations {
+      let (BindingPattern::BindingIdentifier(name), Some(init)) = (&decl.id, &decl.init) else { continue };
+      if name.name != "meta" {
         continue;
       }
       let rows = match init {
-        js::Expr::Arrow(arrow) if arrow.params.is_empty() => match &*arrow.body {
-          js::ArrowFunctionBody::Expr(e) => match unparen(e) {
-            js::Expr::Object(object) if object.props.len() == 1 => object.props.first().and_then(|p| match p {
-              js::PropOrSpread::Prop(p) => match &**p {
-                js::Prop::KeyValue(kv) if matches!(&kv.key, js::PropName::Ident(i) if &*i.sym == "head") => match &*kv.value {
-                  js::Expr::Array(array) => Some(array.elems.iter().flatten().map(|e| loader[parsed.range(e.span())].to_owned()).collect::<Vec<_>>().join(", ")),
-                  _ => None,
-                },
-                _ => None,
-              },
-              _ => None,
-            }),
+        Expression::ArrowFunctionExpression(arrow) if params(&arrow.params).is_empty() => match arrow.body.as_expression().map(unparen) {
+          Some(Expression::ObjectExpression(object)) if object.properties.len() == 1 => object.properties.first().and_then(|p| match key_value(p) {
+            Some(("head", Expression::ArrayExpression(array))) => Some(array.elements.iter().filter(|e| !matches!(e, ArrayExpressionElement::Elision(_))).map(|e| loader[parsed.range(e.span())].to_owned()).collect::<Vec<_>>().join(", ")),
             _ => None,
-          },
-          js::ArrowFunctionBody::FunctionBody(_) => None,
+          }),
+          _ => None,
         },
         _ => None,
       };
@@ -318,17 +316,18 @@ fn existing_meta(path: &str, loader: &str) -> Result<(Option<String>, Option<std
   Ok((None, None))
 }
 
-fn unparen(e: &js::Expr) -> &js::Expr {
+fn unparen<'e, 'a>(e: &'e Expression<'a>) -> &'e Expression<'a> {
   match e {
-    js::Expr::Paren(p) => unparen(&p.expr),
+    Expression::ParenthesizedExpression(p) => unparen(&p.expression),
     other => other,
   }
 }
 
 /// Every name the loader declares at its top, imports included.
 fn declared_in(path: &str, loader: &str) -> BTreeSet<String> {
-  let Ok(parsed) = parse(path, loader) else { return BTreeSet::new() };
-  parsed.module.body.iter().flat_map(|i| describe(i, &parsed).binds).collect()
+  let allocator = Allocator::default();
+  let Ok(parsed) = parse(&allocator, path, loader) else { return BTreeSet::new() };
+  parsed.body().iter().flat_map(|i| describe(i, &parsed).binds).collect()
 }
 
 /// `loader` importing `fromNextMetadata` beside any head helper it already imports.

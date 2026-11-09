@@ -2,11 +2,12 @@
 //! would migrate, followed from where the source keeps them, each one that is
 //! CommonJS with where that shows.
 
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, Argument, AssignmentTarget, Expression, ModuleDeclaration};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
-use crate::syntax::{is_script, parse};
+use crate::syntax::{is_script, lossy, parse};
 use crate::{Note, Source, Tree};
 
 /// The directories an Ink application's sources live in, beside the entries `package.json` names.
@@ -33,9 +34,10 @@ pub(crate) fn refusals(tree: &Tree, source: Source) -> Vec<Note> {
     }
     seen.push(path.clone());
     let Some(text) = tree.text(&path) else { continue };
-    let Ok(parsed) = parse(&path, text) else { continue };
+    let allocator = Allocator::default();
+    let Ok(parsed) = parse(&allocator, &path, text) else { continue };
     let mut found = Found::default();
-    parsed.module.visit_with(&mut found);
+    found.visit_program(&parsed.program);
     let dir = path.rsplit_once('/').map(|(dir, _)| format!("{dir}/")).unwrap_or_default();
     for spec in &found.relative {
       if let Some(next) = resolve(tree, &dir, spec) {
@@ -95,63 +97,62 @@ struct Found {
   /// The module imports or exports.
   modular: bool,
   /// The first CommonJS use and how it reads.
-  commonjs: Option<(swc_core::common::Span, String)>,
+  commonjs: Option<(Span, String)>,
   /// The relative specifiers it loads, by `require`, `importJsx` or `import`.
   relative: Vec<String>,
 }
 
 impl Found {
-  fn note(&mut self, span: swc_core::common::Span, what: String) {
-    if self.commonjs.as_ref().is_none_or(|(held, _)| span.lo < held.lo) {
+  fn note(&mut self, span: Span, what: String) {
+    if self.commonjs.as_ref().is_none_or(|(held, _)| span.start < held.start) {
       self.commonjs = Some((span, what));
     }
   }
 }
 
-impl Visit for Found {
-  fn visit_module_decl(&mut self, n: &js::ModuleDecl) {
+impl<'a> Visit<'a> for Found {
+  fn visit_module_declaration(&mut self, n: &ModuleDeclaration<'a>) {
     self.modular = true;
-    if let js::ModuleDecl::Import(import) = n {
-      let spec = import.src.value.to_string_lossy().into_owned();
+    if let ModuleDeclaration::ImportDeclaration(import) = n {
+      let spec = lossy(import.source.value);
       if spec.starts_with('.') {
         self.relative.push(spec);
       }
     }
-    n.visit_children_with(self);
+    walk::walk_module_declaration(self, n);
   }
 
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let js::Callee::Expr(callee) = &n.callee {
-      if let js::Expr::Ident(id) = &**callee {
-        let loads = matches!(id.sym.as_ref(), "require" | "importJsx");
-        if loads {
-          if let Some(js::Expr::Lit(js::Lit::Str(spec))) = n.args.first().map(|a| &*a.expr) {
-            let spec = spec.value.to_string_lossy().into_owned();
-            if spec.starts_with('.') {
-              self.relative.push(spec);
-            }
+  fn visit_ts_import_equals_declaration(&mut self, n: &js::TSImportEqualsDeclaration<'a>) {
+    self.modular = true;
+    walk::walk_ts_import_equals_declaration(self, n);
+  }
+
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if let Expression::Identifier(id) = &n.callee {
+      let loads = matches!(id.name.as_str(), "require" | "importJsx");
+      if loads {
+        if let Some(Argument::StringLiteral(spec)) = n.arguments.first() {
+          let spec = lossy(spec.value);
+          if spec.starts_with('.') {
+            self.relative.push(spec);
           }
         }
-        if id.sym.as_ref() == "require" {
-          self.note(n.span, "`require`".to_owned());
-        }
+      }
+      if id.name == "require" {
+        self.note(n.span, "`require`".to_owned());
       }
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 
-  fn visit_assign_expr(&mut self, n: &js::AssignExpr) {
-    if let js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) = &n.left {
-      let field = match &member.prop {
-        js::MemberProp::Ident(prop) => Some(prop.sym.to_string()),
-        _ => None,
-      };
-      match (&*member.obj, field.as_deref()) {
-        (js::Expr::Ident(obj), Some("exports")) if obj.sym.as_ref() == "module" => self.note(n.span(), "`module.exports =`".to_owned()),
-        (js::Expr::Ident(obj), Some(name)) if obj.sym.as_ref() == "exports" => self.note(n.span(), format!("`exports.{name} =`")),
+  fn visit_assignment_expression(&mut self, n: &js::AssignmentExpression<'a>) {
+    if let AssignmentTarget::StaticMemberExpression(member) = &n.left {
+      match (&member.object, member.property.name.as_str()) {
+        (Expression::Identifier(obj), "exports") if obj.name == "module" => self.note(n.span(), "`module.exports =`".to_owned()),
+        (Expression::Identifier(obj), name) if obj.name == "exports" => self.note(n.span(), format!("`exports.{name} =`")),
         _ => {}
       }
     }
-    n.visit_children_with(self);
+    walk::walk_assignment_expression(self, n);
   }
 }

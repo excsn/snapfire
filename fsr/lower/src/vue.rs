@@ -8,7 +8,6 @@
 //! steps or leaves its reason on the element. Anything else outside that is
 //! residue and the component stays foreign.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -20,11 +19,11 @@ use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, ScopedStyle, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{CONTEXT_PREFIX, HANDLER_ATTR, RAW_ATTR, SLOT_CONTENT_PREFIX, SLOT_OUT_PREFIX, SLOT_PROPS, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Owner;
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
+use oxc_span::GetSpan;
+use oxc_ast::ast as js;
 
 use crate::assets::AssetResolver;
-use crate::component::{action_alias_of, arrow_body, bind_object, bind_pattern, block_to_expr, generated_action_of, holds_act, patterns, reach_under, FunctionBody, HandlerWalk, HeadRow};
+use crate::component::{action_alias_of, arrow_body, bind_object, bind_pattern, block_to_expr, generated_action_of, holds_act, reach_under, FunctionBody, HandlerWalk, HeadRow};
 use crate::placements::{self, At, Attr, Placer, Value};
 use crate::{Lowered, Lowerer, Residue};
 
@@ -136,30 +135,32 @@ pub fn props_declaration(file: &str, described: &Described) -> Option<String> {
   if script.lang != snapfire_compiler_wire::Lang::Ts {
     return None;
   }
-  let parsed = crate::parse_with(file, &script.content, false).ok()?;
-  let text = |span: swc_core::common::Span| script.content[parsed.range(span)].to_owned();
+  let arena = oxc_allocator::Allocator::default();
+  let parsed = crate::parse_with(&arena, file, &script.content, false).ok()?;
+  let text = |span: oxc_span::Span| script.content[parsed.range(span)].to_owned();
   let mut kept: Vec<String> = Vec::new();
   let mut props: Option<String> = None;
-  for item in &parsed.module.body {
+  for item in &parsed.module().body {
     match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
-        let type_only = import.type_only || (!import.specifiers.is_empty() && import.specifiers.iter().all(|s| matches!(s, js::ImportSpecifier::Named(named) if named.is_type_only)));
+      js::Statement::ImportDeclaration(import) => {
+        let specifiers = import.specifiers.as_ref().map(|s| s.as_slice()).unwrap_or_default();
+        let type_only = import.import_kind.is_type() || (!specifiers.is_empty() && specifiers.iter().all(|s| matches!(s, js::ImportDeclarationSpecifier::ImportSpecifier(named) if named.import_kind.is_type())));
         if type_only {
           kept.push(text(import.span));
         }
       }
-      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::TsInterface(decl))) => kept.push(text(decl.span)),
-      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::TsTypeAlias(decl))) => kept.push(text(decl.span)),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) if matches!(export.decl, js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => kept.push(text(export.span)),
-      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) => {
-        for decl in &var.decls {
-          if let Some(found) = decl.init.as_deref().and_then(|init| declared_props(init, &text)) {
+      js::Statement::TSInterfaceDeclaration(decl) => kept.push(text(decl.span)),
+      js::Statement::TSTypeAliasDeclaration(decl) => kept.push(text(decl.span)),
+      js::Statement::ExportDeclaration(export) if matches!(export.declaration, js::Declaration::TSInterfaceDeclaration(_) | js::Declaration::TSTypeAliasDeclaration(_)) => kept.push(text(export.span)),
+      js::Statement::VariableDeclaration(var) => {
+        for decl in &var.declarations {
+          if let Some(found) = decl.init.as_ref().and_then(|init| declared_props(init, &text)) {
             props = Some(found);
           }
         }
       }
-      js::ModuleItem::Stmt(js::Stmt::Expr(stmt)) => {
-        if let Some(found) = declared_props(&stmt.expr, &text) {
+      js::Statement::ExpressionStatement(stmt) => {
+        if let Some(found) = declared_props(&stmt.expression, &text) {
           props = Some(found);
         }
       }
@@ -289,33 +290,32 @@ fn anchors(tmpl: Tmpl) -> Tmpl {
   }
 }
 
-fn declared_props(expr: &js::Expr, text: &dyn Fn(swc_core::common::Span) -> String) -> Option<String> {
-  let js::Expr::Call(call) = unwrap_types(expr) else { return None };
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Ident(name) = &**callee else { return None };
-  match name.sym.as_ref() {
+fn declared_props(expr: &js::Expression, text: &dyn Fn(oxc_span::Span) -> String) -> Option<String> {
+  let js::Expression::CallExpression(call) = unwrap_types(expr) else { return None };
+  let callee = &call.callee;
+  let js::Expression::Identifier(name) = callee else { return None };
+  match name.name.as_str() {
     "defineProps" => {
-      let given = call.type_args.as_ref()?.params.first()?;
+      let given = call.type_arguments.as_ref()?.params.first()?;
       Some(format!("({})", text(given.span())))
     }
     "withDefaults" => {
-      let declared = declared_props(&call.args.first()?.expr, text)?;
-      let js::Expr::Object(defaults) = unwrap_types(&call.args.get(1)?.expr) else { return Some(declared) };
+      let declared = declared_props(crate::syntax::arg_expr(call.arguments.first()?), text)?;
+      let js::Expression::ObjectExpression(defaults) = unwrap_types(crate::syntax::arg_expr(call.arguments.get(1)?)) else { return Some(declared) };
       let mut keys = Vec::new();
-      for prop in &defaults.props {
-        let js::PropOrSpread::Prop(prop) = prop else { return None };
-        let key = match &**prop {
-          js::Prop::KeyValue(kv) => &kv.key,
-          js::Prop::Method(m) => &m.key,
-          js::Prop::Shorthand(id) => {
-            keys.push(serde_json::to_string(id.sym.as_ref()).expect("a string serializes"));
+      for prop in &defaults.properties {
+        let js::ObjectPropertyKind::ObjectProperty(prop) = prop else { return None };
+        let key = match crate::syntax::prop_of(prop) {
+          crate::syntax::Prop::KeyValue(kv) | crate::syntax::Prop::Method(kv) if !kv.computed => &kv.key,
+          crate::syntax::Prop::Shorthand(id) => {
+            keys.push(serde_json::to_string(id.name.as_str()).expect("a string serializes"));
             continue;
           }
           _ => return None,
         };
         match key {
-          js::PropName::Ident(id) => keys.push(serde_json::to_string(id.sym.as_ref()).expect("a string serializes")),
-          js::PropName::Str(s) => keys.push(serde_json::to_string(&s.value.to_atom_lossy().to_string()).expect("a string serializes")),
+          js::PropertyKey::StaticIdentifier(id) => keys.push(serde_json::to_string(id.name.as_str()).expect("a string serializes")),
+          js::PropertyKey::StringLiteral(s) => keys.push(serde_json::to_string(&crate::lossy(s.value)).expect("a string serializes")),
           _ => return None,
         }
       }
@@ -332,16 +332,16 @@ fn declared_props(expr: &js::Expr, text: &dyn Fn(swc_core::common::Span) -> Stri
 /// The props a `<script setup>` declares through `defineModel`: its name, `modelValue` when it names none.
 pub(crate) fn model_props(parsed: &crate::Parsed) -> Vec<String> {
   let mut out = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) = item else { continue };
-    for decl in &var.decls {
-      let Some(js::Expr::Call(call)) = decl.init.as_deref().map(unwrap_types) else { continue };
-      let js::Callee::Expr(callee) = &call.callee else { continue };
-      if !matches!(&**callee, js::Expr::Ident(id) if id.sym.as_ref() == "defineModel") {
+  for item in &parsed.module().body {
+    let js::Statement::VariableDeclaration(var) = item else { continue };
+    for decl in &var.declarations {
+      let Some(js::Expression::CallExpression(call)) = decl.init.as_ref().map(unwrap_types) else { continue };
+      let callee = &call.callee;
+      if !matches!(callee, js::Expression::Identifier(id) if id.name.as_str() == "defineModel") {
         continue;
       }
-      out.push(match call.args.first().map(|a| unwrap_types(&a.expr)) {
-        Some(js::Expr::Lit(js::Lit::Str(s))) => s.value.to_atom_lossy().to_string(),
+      out.push(match call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a))) {
+        Some(js::Expression::StringLiteral(s)) => crate::lossy(s.value),
         _ => "modelValue".to_owned(),
       });
     }
@@ -352,23 +352,23 @@ pub(crate) fn model_props(parsed: &crate::Parsed) -> Vec<String> {
 /// A property key's name when it is written out.
 /// An entry of `computed` or `methods`: a method or a value written after its key.
 enum OptionValue<'p> {
-  Method(&'p js::Function),
-  Expr(&'p js::Expr),
+  Method(&'p js::Function<'p>),
+  Expr(&'p js::Expression<'p>),
 }
 
 /// The names a function body reads, for the order computed values are lowered in.
 fn names_read(body: &FunctionBody<'_>) -> Vec<String> {
-  use swc_core::ecma::visit::{Visit, VisitWith};
+  use crate::syntax::Walk;
   struct Names(Vec<String>);
-  impl Visit for Names {
-    fn visit_ident(&mut self, id: &js::Ident) {
-      self.0.push(id.sym.to_string());
+  impl<'a> oxc_ast_visit::Visit<'a> for Names {
+    fn visit_identifier_reference(&mut self, id: &js::IdentifierReference<'a>) {
+      self.0.push(id.name.to_string());
     }
   }
   let mut names = Names(Vec::new());
   match body {
-    FunctionBody::Expr(e) => e.visit_with(&mut names),
-    FunctionBody::Block(stmts) => stmts.iter().for_each(|stmt| stmt.visit_with(&mut names)),
+    FunctionBody::Expr(e) => e.walk(&mut names),
+    FunctionBody::Block(stmts) => stmts.iter().for_each(|stmt| stmt.walk(&mut names)),
   }
   names.0
 }
@@ -397,18 +397,18 @@ pub(crate) fn root_kind(render: &Tmpl) -> RootKind {
 
 /// Whether a component lets attributes it does not declare fall through onto its root: not when its options or `defineOptions` say `inheritAttrs: false`.
 pub(crate) fn inherits_attrs(parsed: &crate::Parsed) -> bool {
-  use swc_core::ecma::visit::{Visit, VisitWith};
+  use crate::syntax::Walk;
   struct Finds(bool);
-  impl Visit for Finds {
-    fn visit_key_value_prop(&mut self, kv: &js::KeyValueProp) {
-      if prop_name_of_key(&kv.key).as_deref() == Some("inheritAttrs") && matches!(&*kv.value, js::Expr::Lit(js::Lit::Bool(js::Bool { value: false, .. }))) {
+  impl<'a> oxc_ast_visit::Visit<'a> for Finds {
+    fn visit_object_property(&mut self, kv: &js::ObjectProperty<'a>) {
+      if prop_name_of_key(&kv.key).as_deref() == Some("inheritAttrs") && matches!(&kv.value, js::Expression::BooleanLiteral(b) if !b.value) {
         self.0 = true;
       }
-      kv.visit_children_with(self);
+      oxc_ast_visit::walk::walk_object_property(self, kv);
     }
   }
   let mut finds = Finds(false);
-  parsed.module.visit_with(&mut finds);
+  parsed.module().walk(&mut finds);
   !finds.0
 }
 
@@ -452,31 +452,32 @@ pub(crate) fn fall_through(tmpl: &mut Tmpl, strays: &HashMap<String, Vec<(String
 /// The names an options object's `props` declares, as a list or as an object's keys, `defineComponent`'s included.
 pub(crate) fn option_props(parsed: &crate::Parsed) -> Vec<String> {
   let mut names = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) = item else { continue };
-    let object = match unwrap_types(&e.expr) {
-      js::Expr::Object(object) => object,
-      js::Expr::Call(call) => match call.args.first().map(|a| unwrap_types(&a.expr)) {
-        Some(js::Expr::Object(object)) => object,
+  for item in &parsed.module().body {
+    let js::Statement::ExportDefaultDeclaration(e) = item else { continue };
+    let Some(value) = e.declaration.as_expression() else { continue };
+    let object = match unwrap_types(value) {
+      js::Expression::ObjectExpression(object) => object,
+      js::Expression::CallExpression(call) => match call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a))) {
+        Some(js::Expression::ObjectExpression(object)) => object,
         _ => continue,
       },
       _ => continue,
     };
-    for prop in &object.props {
-      let js::PropOrSpread::Prop(prop) = prop else { continue };
-      let js::Prop::KeyValue(kv) = &**prop else { continue };
+    for prop in &object.properties {
+      let js::ObjectPropertyKind::ObjectProperty(prop) = prop else { continue };
+      let crate::syntax::Prop::KeyValue(kv) = crate::syntax::prop_of(prop) else { continue };
       if prop_name_of_key(&kv.key).as_deref() != Some("props") {
         continue;
       }
       match unwrap_types(&kv.value) {
-        js::Expr::Array(list) => names.extend(list.elems.iter().flatten().filter_map(|item| match unwrap_types(&item.expr) {
-          js::Expr::Lit(js::Lit::Str(name)) => Some(name.value.to_atom_lossy().to_string()),
+        js::Expression::ArrayExpression(list) => names.extend(list.elements.iter().filter_map(|item| item.as_expression()).filter_map(|item| match unwrap_types(item) {
+          js::Expression::StringLiteral(name) => Some(crate::lossy(name.value)),
           _ => None,
         })),
-        js::Expr::Object(declared) => names.extend(declared.props.iter().filter_map(|p| match p {
-          js::PropOrSpread::Prop(p) => match &**p {
-            js::Prop::KeyValue(kv) => prop_name_of_key(&kv.key),
-            js::Prop::Shorthand(id) => Some(id.sym.to_string()),
+        js::Expression::ObjectExpression(declared) => names.extend(declared.properties.iter().filter_map(|p| match p {
+          js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
+            crate::syntax::Prop::KeyValue(kv) => prop_name_of_key(&kv.key),
+            crate::syntax::Prop::Shorthand(id) => Some(id.name.to_string()),
             _ => None,
           },
           _ => None,
@@ -489,38 +490,39 @@ pub(crate) fn option_props(parsed: &crate::Parsed) -> Vec<String> {
 }
 
 /// Rewrites each `this.name` in an options object's own functions to the name, which the lowering binds to the prop, the `data` entry, the computed value or the method it reads. A `this` inside a nested `function` is that function's and is left alone.
-pub(crate) fn name_this(module: &mut js::Module) {
-  use swc_core::ecma::visit::{VisitMut, VisitMutWith};
-  struct NameThis {
+pub(crate) fn name_this<'a>(arena: &'a oxc_allocator::Allocator, module: &mut js::Program<'a>) {
+  use crate::syntax::WalkMut;
+  struct NameThis<'a> {
     depth: usize,
+    build: crate::syntax::Build<'a>,
   }
-  impl VisitMut for NameThis {
-    fn visit_mut_function(&mut self, f: &mut js::Function) {
+  impl<'a> oxc_ast_visit::VisitMut<'a> for NameThis<'a> {
+    fn visit_function(&mut self, f: &mut js::Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
       self.depth += 1;
       if self.depth == 1 {
-        f.visit_mut_children_with(self);
+        oxc_ast_visit::walk_mut::walk_function(self, f, flags);
       }
       self.depth -= 1;
     }
-    fn visit_mut_expr(&mut self, expr: &mut js::Expr) {
+    fn visit_expression(&mut self, expr: &mut js::Expression<'a>) {
       if self.depth == 1 {
-        if let js::Expr::Member(member) = expr {
-          if let (js::Expr::This(_), js::MemberProp::Ident(prop)) = (&*member.obj, &member.prop) {
-            *expr = js::Expr::Ident(js::Ident::new_no_ctxt(prop.sym.clone(), member.span));
+        if let Some(member) = (expr).as_member_expression() {
+          if let (js::Expression::ThisExpression(_), crate::syntax::MemberProp::Ident(prop)) = (member.object(), crate::syntax::prop(member)) {
+            *expr = self.build.ident(prop.name.as_str(), member.span());
             return;
           }
         }
       }
-      expr.visit_mut_children_with(self);
+      oxc_ast_visit::walk_mut::walk_expression(self, expr);
     }
   }
-  module.visit_mut_with(&mut NameThis { depth: 0 });
+  module.walk_mut(&mut NameThis { depth: 0, build: crate::syntax::Build::new(arena) });
 }
 
-fn prop_name_of_key(key: &js::PropName) -> Option<String> {
+fn prop_name_of_key(key: &js::PropertyKey) -> Option<String> {
   match key {
-    js::PropName::Ident(i) => Some(i.sym.to_string()),
-    js::PropName::Str(s) => Some(s.value.to_atom_lossy().to_string()),
+    js::PropertyKey::StaticIdentifier(i) => Some(i.name.to_string()),
+    js::PropertyKey::StringLiteral(s) => Some(crate::lossy(s.value)),
     _ => None,
   }
 }
@@ -570,7 +572,7 @@ pub(crate) struct VueLowerer<'a, 'p> {
   /// The scope at the end of `<script setup>`, which a setup function's body reads.
   script_scope: Vec<(String, Expr)>,
   /// Setup functions by name, which a template handler names or calls.
-  handler_fns: HashMap<String, (Vec<js::Pat>, FunctionBody<'p>)>,
+  handler_fns: HashMap<String, (Vec<crate::Param<'p>>, FunctionBody<'p>)>,
   handlers: Vec<Handler>,
   /// The setup functions a handler is inside, outermost first.
   calling: Vec<String>,
@@ -656,11 +658,11 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       });
     }
     let parsed = self.lowerer.parsed;
-    for item in &parsed.module.body {
+    for item in &parsed.module().body {
       match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(_)) => {}
-        js::ModuleItem::ModuleDecl(other) => return Err(self.lowerer.residue(other.span(), "an export in `<script setup>`")),
-        js::ModuleItem::Stmt(stmt) => self.setup_stmt(stmt)?,
+        js::Statement::ImportDeclaration(_) => {}
+        other if other.is_module_declaration() => return Err(self.lowerer.residue(other.span(), "an export in `<script setup>`")),
+        stmt => self.setup_stmt(stmt)?,
       }
     }
     self.script_scope = self.lowerer.scope.clone();
@@ -670,41 +672,42 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// A plain `<script>` exporting an options object (or `defineComponent` of one): `props` read from `$props` with their defaults, `data()` as state, `computed` in the order they read each other and `methods` as the functions handlers and the template call. The browser alone runs the lifecycle hooks and `watch`.
   fn options(&mut self) -> Lowered<()> {
     let parsed = self.lowerer.parsed;
-    let mut object: Option<&'p js::ObjectLit> = None;
-    for item in &parsed.module.body {
+    let mut object: Option<&'p js::ObjectExpression<'p>> = None;
+    for item in &parsed.module().body {
       match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(_)) => {}
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => {
-          object = Some(match unwrap_types(&e.expr) {
-            js::Expr::Object(object) => object,
-            js::Expr::Call(call) if matches!(self.callee(call), Some((name, Some(source))) if name == "defineComponent" && source == "vue") => match call.args.first().map(|a| unwrap_types(&a.expr)) {
-              Some(js::Expr::Object(object)) => object,
+        js::Statement::ImportDeclaration(_) => {}
+        js::Statement::ExportDefaultDeclaration(e) if e.declaration.is_expression() => {
+          object = Some(match unwrap_types(e.declaration.to_expression()) {
+            js::Expression::ObjectExpression(object) => object,
+            js::Expression::CallExpression(call) if matches!(self.callee(call), Some((name, Some(source))) if name == "defineComponent" && source == "vue") => match call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a))) {
+              Some(js::Expression::ObjectExpression(object)) => object,
               _ => return Err(self.lowerer.residue(call.span, "`defineComponent` of something other than an options object")),
             },
             other => return Err(self.lowerer.residue(other.span(), "a default export that is not an options object")),
           });
         }
-        js::ModuleItem::ModuleDecl(other) => return Err(self.lowerer.residue(other.span(), "an export beside the options object")),
-        js::ModuleItem::Stmt(stmt) => self.setup_stmt(stmt)?,
+        other if other.is_module_declaration() => return Err(self.lowerer.residue(other.span(), "an export beside the options object")),
+        stmt => self.setup_stmt(stmt)?,
       }
     }
     let Some(object) = object else {
       let (line, column) = self.described.script.as_ref().map_or((1, 1), |s| (s.line as usize, s.column as usize));
       return Err(self.at(line, column, "a `<script>` without `setup` that exports no options object"));
     };
-    let mut options: Vec<(String, &'p js::Prop)> = Vec::new();
-    for prop in &object.props {
-      let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(object.span, "a spread in the options object")) };
-      let key = match &**prop {
-        js::Prop::KeyValue(kv) => prop_name_of_key(&kv.key),
-        js::Prop::Method(m) => prop_name_of_key(&m.key),
-        js::Prop::Shorthand(id) => Some(id.sym.to_string()),
+    let mut options: Vec<(String, crate::syntax::Prop<'p>)> = Vec::new();
+    for prop in &object.properties {
+      let js::ObjectPropertyKind::ObjectProperty(prop) = prop else { return Err(self.lowerer.residue(object.span, "a spread in the options object")) };
+      let prop = crate::syntax::prop_of(prop);
+      let key = match prop {
+        crate::syntax::Prop::KeyValue(kv) => prop_name_of_key(&kv.key),
+        crate::syntax::Prop::Method(m) => prop_name_of_key(&m.key),
+        crate::syntax::Prop::Shorthand(id) => Some(id.name.to_string()),
         _ => None,
       };
       let key = key.ok_or_else(|| self.lowerer.residue(prop.span(), "an option the build does not read"))?;
       match key.as_str() {
         "name" | "components" | "emits" | "inheritAttrs" | "expose" | "watch" | "beforeMount" | "mounted" | "beforeUpdate" | "updated" | "beforeUnmount" | "unmounted" | "activated" | "deactivated" | "errorCaptured" | "renderTracked" | "renderTriggered" => {}
-        "props" | "data" | "computed" | "methods" | "created" => options.push((key, &**prop)),
+        "props" | "data" | "computed" | "methods" | "created" => options.push((key, prop)),
         other => return Err(self.lowerer.residue(prop.span(), format!("the `{other}` option, which the build does not read"))),
       }
     }
@@ -715,19 +718,21 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     if let Some(prop) = option("data") {
       let returned = self.returned_object(prop, "data")?;
       let mut lifted = Vec::new();
-      self.lowerer.lift_updates(&js::Stmt::Expr(js::ExprStmt { span: returned.span, expr: Box::new(js::Expr::Object(returned.clone())) }), &mut lifted)?;
+      let build = crate::syntax::Build::new(self.lowerer.parsed.arena());
+      let whole = build.expr_stmt(js::Expression::ObjectExpression(build.boxed(build.copy(returned))));
+      self.lowerer.lift_updates(&whole, &mut lifted)?;
       self.lets.extend(lifted.into_iter().map(|step| match step {
         Stmt::Set { name, expr } => Stmt::Let { name, expr },
         other => other,
       }));
-      for entry in &returned.props {
-        let js::PropOrSpread::Prop(entry) = entry else { return Err(self.lowerer.residue(returned.span, "a spread in what `data` returns")) };
-        let (name, value): (String, js::Expr) = match &**entry {
-          js::Prop::KeyValue(kv) => (prop_name_of_key(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed `data` key"))?, (*kv.value).clone()),
-          js::Prop::Shorthand(id) => (id.sym.to_string(), js::Expr::Ident(id.clone())),
+      for entry in &returned.properties {
+        let js::ObjectPropertyKind::ObjectProperty(entry) = entry else { return Err(self.lowerer.residue(returned.span, "a spread in what `data` returns")) };
+        let name: String = match crate::syntax::prop_of(entry) {
+          crate::syntax::Prop::KeyValue(kv) => prop_name_of_key(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed `data` key"))?,
+          crate::syntax::Prop::Shorthand(id) => id.name.to_string(),
           other => return Err(self.lowerer.residue(other.span(), "a `data` entry the build does not read")),
         };
-        let expr = self.lowerer.expr(&value)?;
+        let expr = self.lowerer.expr(&entry.value)?;
         if self.component_writes.contains(&name) {
           let read = Expr::ReadCell(Box::new(Expr::Var(name.clone())));
           self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Cell(Box::new(expr)) });
@@ -745,9 +750,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       let mut getters: Vec<(String, FunctionBody<'p>)> = Vec::new();
       for (name, value) in entries {
         let body = match value {
-          OptionValue::Method(f) => FunctionBody::Block(f.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or_default()),
-          OptionValue::Expr(js::Expr::Fn(f)) => FunctionBody::Block(f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or_default()),
-          OptionValue::Expr(js::Expr::Arrow(arrow)) => arrow_body(arrow),
+          OptionValue::Method(f) => FunctionBody::Block(f.body.as_ref().map(|b| b.statements.as_slice()).unwrap_or_default()),
+          OptionValue::Expr(js::Expression::FunctionExpression(f)) => FunctionBody::Block(f.body.as_ref().map(|b| b.statements.as_slice()).unwrap_or_default()),
+          OptionValue::Expr(js::Expression::ArrowFunctionExpression(arrow)) => arrow_body(arrow),
           OptionValue::Expr(other) => return Err(self.lowerer.residue(other.span(), "a computed value other than a getter; a writable computed is not lowered")),
         };
         getters.push((name, body));
@@ -775,19 +780,21 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         match value {
           OptionValue::Method(f) => {
             if let Some(body) = &f.body {
-              self.handler_fns.insert(name.clone(), (patterns(f), FunctionBody::Block(&body.stmts)));
-              self.callable(&name, js::Expr::Fn(js::FnExpr { ident: None, function: Box::new(f.clone()) }));
+              self.handler_fns.insert(name.clone(), (crate::params_of(&f.params), FunctionBody::Block(&body.statements)));
+              let build = crate::syntax::Build::new(self.lowerer.parsed.arena());
+              let function = js::Expression::FunctionExpression(build.boxed(build.copy(f)));
+              self.callable(&name, &function);
             }
           }
-          OptionValue::Expr(js::Expr::Fn(f)) => {
-            if let Some(body) = &f.function.body {
-              self.handler_fns.insert(name.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
-              self.callable(&name, js::Expr::Fn(f.clone()));
+          OptionValue::Expr(function @ js::Expression::FunctionExpression(f)) => {
+            if let Some(body) = &f.body {
+              self.handler_fns.insert(name.clone(), (crate::params_of(&f.params), FunctionBody::Block(&body.statements)));
+              self.callable(&name, function);
             }
           }
-          OptionValue::Expr(js::Expr::Arrow(arrow)) => {
-            self.handler_fns.insert(name.clone(), (arrow.params.clone(), arrow_body(arrow)));
-            self.callable(&name, js::Expr::Arrow(arrow.clone()));
+          OptionValue::Expr(function @ js::Expression::ArrowFunctionExpression(arrow)) => {
+            self.handler_fns.insert(name.clone(), (crate::params_of(&arrow.params), arrow_body(arrow)));
+            self.callable(&name, function);
           }
           OptionValue::Expr(other) => return Err(self.lowerer.residue(other.span(), "a method that is not a function")),
         }
@@ -795,17 +802,17 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     }
     if let Some(prop) = option("created") {
       let function = match prop {
-        js::Prop::Method(method) => &*method.function,
-        js::Prop::KeyValue(kv) => match unwrap_types(&kv.value) {
-          js::Expr::Fn(f) => &*f.function,
+        crate::syntax::Prop::Method(method) => crate::syntax::method_function(method).expect("a method holds a function"),
+        crate::syntax::Prop::KeyValue(kv) => match unwrap_types(&kv.value) {
+          js::Expression::FunctionExpression(f) => &**f,
           _ => return Err(self.lowerer.residue(prop.span(), "a `created` option that is not a function")),
         },
         _ => return Err(self.lowerer.residue(prop.span(), "a `created` option that is not a function")),
       };
-      for stmt in function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or_default() {
+      for stmt in function.body.as_ref().map(|b| b.statements.as_slice()).unwrap_or_default() {
         let emitted = match stmt {
-          js::Stmt::Expr(e) => match &*e.expr {
-            js::Expr::Call(call) => self.this_emitted(call)?,
+          js::Statement::ExpressionStatement(e) => match &e.expression {
+            js::Expression::CallExpression(call) => self.this_emitted(call)?,
             _ => None,
           },
           _ => None,
@@ -820,11 +827,11 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   }
 
   /// `this.$emit("event", ...args)` in an options component, read as `$emit` once `this.` is taken off, which calls the parent's listener as `emit` does in `<script setup>`.
-  fn this_emitted(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let emits = match &**callee {
-      js::Expr::Ident(id) => id.sym == "$emit",
-      js::Expr::Member(member) => matches!(&*member.obj, js::Expr::This(_)) && matches!(&member.prop, js::MemberProp::Ident(prop) if prop.sym == "$emit"),
+  fn this_emitted(&mut self, call: &js::CallExpression) -> Lowered<Option<Expr>> {
+    let callee = &call.callee;
+    let emits = match callee {
+      js::Expression::Identifier(id) => id.name == "$emit",
+      member_expr if member_expr.is_member_expression() => { let member = member_expr.as_member_expression().expect("matched as a member"); matches!(member.object(), js::Expression::ThisExpression(_)) && matches!(crate::syntax::prop(member), crate::syntax::MemberProp::Ident(prop) if prop.name == "$emit") },
       _ => false,
     };
     match emits {
@@ -834,12 +841,12 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   }
 
   /// Binds `name` to `function` as a value the template calls when its body lowers; one that does not stays a handler the browser runs.
-  fn callable(&mut self, name: &str, function: js::Expr) {
-    if matches!(&function, js::Expr::Fn(f) if f.function.is_async || f.function.is_generator) || matches!(&function, js::Expr::Arrow(a) if a.is_async || a.is_generator) {
+  fn callable(&mut self, name: &str, function: &js::Expression) {
+    if matches!(function, js::Expression::FunctionExpression(f) if f.r#async || f.generator) || matches!(function, js::Expression::ArrowFunctionExpression(a) if a.r#async) {
       return;
     }
     let before = self.lowerer.scope.len();
-    let lowered = self.lowerer.expr(&function);
+    let lowered = self.lowerer.expr(function);
     self.lowerer.scope.truncate(before);
     match lowered {
       Ok(lambda) => {
@@ -851,37 +858,42 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   }
 
   /// The `props` option, a list of names or an object of each prop's type or `{ type, default }`, with the defaults under `$props`.
-  fn options_props(&mut self, prop: &'p js::Prop) -> Lowered<()> {
-    let js::Prop::KeyValue(kv) = prop else { return Err(self.lowerer.residue(prop.span(), "a `props` option that is not a list or an object")) };
+  fn options_props(&mut self, prop: crate::syntax::Prop<'p>) -> Lowered<()> {
+    let crate::syntax::Prop::KeyValue(kv) = prop else { return Err(self.lowerer.residue(prop.span(), "a `props` option that is not a list or an object")) };
     let mut names: Vec<String> = Vec::new();
     let mut defaults: Vec<Entry> = Vec::new();
     match unwrap_types(&kv.value) {
-      js::Expr::Array(list) => {
-        for item in list.elems.iter().flatten() {
-          let js::Expr::Lit(js::Lit::Str(name)) = unwrap_types(&item.expr) else { return Err(self.lowerer.residue(item.expr.span(), "a prop name that is not a string")) };
-          names.push(name.value.to_atom_lossy().to_string());
+      js::Expression::ArrayExpression(list) => {
+        for item in &list.elements {
+          let item = match item {
+            js::ArrayExpressionElement::Elision(_) => continue,
+            js::ArrayExpressionElement::SpreadElement(s) => &s.argument,
+            other => other.to_expression(),
+          };
+          let js::Expression::StringLiteral(name) = unwrap_types(item) else { return Err(self.lowerer.residue(item.span(), "a prop name that is not a string")) };
+          names.push(crate::lossy(name.value));
         }
       }
-      js::Expr::Object(object) => {
-        for entry in &object.props {
-          let js::PropOrSpread::Prop(entry) = entry else { return Err(self.lowerer.residue(object.span, "a spread in `props`")) };
-          let js::Prop::KeyValue(declared) = &**entry else { return Err(self.lowerer.residue(entry.span(), "a prop declared other than `name: type`")) };
+      js::Expression::ObjectExpression(object) => {
+        for entry in &object.properties {
+          let js::ObjectPropertyKind::ObjectProperty(entry) = entry else { return Err(self.lowerer.residue(object.span, "a spread in `props`")) };
+          let crate::syntax::Prop::KeyValue(declared) = crate::syntax::prop_of(entry) else { return Err(self.lowerer.residue(entry.span(), "a prop declared other than `name: type`")) };
           let name = prop_name_of_key(&declared.key).ok_or_else(|| self.lowerer.residue(declared.key.span(), "a computed prop name"))?;
-          if let js::Expr::Object(spec) = unwrap_types(&declared.value) {
-            let default = spec.props.iter().find_map(|p| match p {
-              js::PropOrSpread::Prop(p) => match &**p {
-                js::Prop::KeyValue(kv) if prop_name_of_key(&kv.key).as_deref() == Some("default") => Some(&*kv.value),
+          if let js::Expression::ObjectExpression(spec) = unwrap_types(&declared.value) {
+            let default = spec.properties.iter().find_map(|p| match p {
+              js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
+                crate::syntax::Prop::KeyValue(kv) if prop_name_of_key(&kv.key).as_deref() == Some("default") => Some(&kv.value),
                 _ => None,
               },
               _ => None,
             });
             if let Some(default) = default {
               let value = match unwrap_types(default) {
-                js::Expr::Arrow(arrow) if arrow.params.is_empty() => match arrow_body(arrow) {
+                js::Expression::ArrowFunctionExpression(arrow) if crate::params_of(&arrow.params).is_empty() => match arrow_body(arrow) {
                   FunctionBody::Expr(e) => self.lowerer.expr(e)?,
                   FunctionBody::Block(stmts) => block_to_expr(&mut self.lowerer, stmts)?,
                 },
-                js::Expr::Fn(_) | js::Expr::Arrow(_) => return Err(self.lowerer.residue(default.span(), "a prop default made by a function with parameters")),
+                js::Expression::FunctionExpression(_) | js::Expression::ArrowFunctionExpression(_) => return Err(self.lowerer.residue(default.span(), "a prop default made by a function with parameters")),
                 other => self.lowerer.expr(other)?,
               };
               defaults.push(Entry::Field(name.clone(), value));
@@ -903,73 +915,77 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   }
 
   /// The object a `data`-style option returns: `data() { return { … } }`, `data: () => ({ … })` or `data: function () { return { … } }`.
-  fn returned_object(&self, prop: &'p js::Prop, option: &str) -> Lowered<&'p js::ObjectLit> {
+  fn returned_object(&self, prop: crate::syntax::Prop<'p>, option: &str) -> Lowered<&'p js::ObjectExpression<'p>> {
     let body = match prop {
-      js::Prop::Method(m) => m.function.body.as_ref().map(|b| FunctionBody::Block(&b.stmts)),
-      js::Prop::KeyValue(kv) => match unwrap_types(&kv.value) {
-        js::Expr::Arrow(arrow) => Some(arrow_body(arrow)),
-        js::Expr::Fn(f) => f.function.body.as_ref().map(|b| FunctionBody::Block(&b.stmts)),
+      crate::syntax::Prop::Method(m) => crate::syntax::method_function(m).and_then(|f| f.body.as_ref()).map(|b| FunctionBody::Block(&b.statements)),
+      crate::syntax::Prop::KeyValue(kv) => match unwrap_types(&kv.value) {
+        js::Expression::ArrowFunctionExpression(arrow) => Some(arrow_body(arrow)),
+        js::Expression::FunctionExpression(f) => f.body.as_ref().map(|b| FunctionBody::Block(&b.statements)),
         _ => None,
       },
       _ => None,
     };
     let returned = match body {
       Some(FunctionBody::Expr(e)) => Some(e),
-      Some(FunctionBody::Block([js::Stmt::Return(js::ReturnStmt { arg: Some(e), .. })])) => Some(&**e),
+      Some(FunctionBody::Block([js::Statement::ReturnStatement(ret)])) => ret.argument.as_ref(),
       _ => None,
     };
     match returned.map(unwrap_types) {
-      Some(js::Expr::Object(object)) => Ok(object),
+      Some(js::Expression::ObjectExpression(object)) => Ok(object),
       _ => Err(self.lowerer.residue(prop.span(), format!("a `{option}` option other than a function returning an object literal"))),
     }
   }
 
   /// The entries of an object-valued option, `computed` or `methods`, by name.
-  fn option_entries(&self, prop: &'p js::Prop, option: &str) -> Lowered<Vec<(String, OptionValue<'p>)>> {
-    let js::Prop::KeyValue(kv) = prop else { return Err(self.lowerer.residue(prop.span(), format!("a `{option}` option that is not an object"))) };
-    let js::Expr::Object(object) = unwrap_types(&kv.value) else { return Err(self.lowerer.residue(kv.value.span(), format!("a `{option}` option that is not an object"))) };
+  fn option_entries(&self, prop: crate::syntax::Prop<'p>, option: &str) -> Lowered<Vec<(String, OptionValue<'p>)>> {
+    let crate::syntax::Prop::KeyValue(kv) = prop else { return Err(self.lowerer.residue(prop.span(), format!("a `{option}` option that is not an object"))) };
+    let js::Expression::ObjectExpression(object) = unwrap_types(&kv.value) else { return Err(self.lowerer.residue(kv.value.span(), format!("a `{option}` option that is not an object"))) };
     let mut out = Vec::new();
-    for entry in &object.props {
-      let js::PropOrSpread::Prop(entry) = entry else { return Err(self.lowerer.residue(object.span, format!("a spread in `{option}`"))) };
-      match &**entry {
-        js::Prop::Method(m) => out.push((prop_name_of_key(&m.key).ok_or_else(|| self.lowerer.residue(m.function.span, "a computed name"))?, OptionValue::Method(&m.function))),
-        js::Prop::KeyValue(kv) => out.push((prop_name_of_key(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed name"))?, OptionValue::Expr(unwrap_types(&kv.value)))),
+    for entry in &object.properties {
+      let js::ObjectPropertyKind::ObjectProperty(entry) = entry else { return Err(self.lowerer.residue(object.span, format!("a spread in `{option}`"))) };
+      match crate::syntax::prop_of(entry) {
+        crate::syntax::Prop::Method(m) => out.push((prop_name_of_key(&m.key).ok_or_else(|| self.lowerer.residue(m.span, "a computed name"))?, OptionValue::Method(crate::syntax::method_function(m).expect("a method holds a function")))),
+        crate::syntax::Prop::KeyValue(kv) => out.push((prop_name_of_key(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed name"))?, OptionValue::Expr(unwrap_types(&kv.value)))),
         other => return Err(self.lowerer.residue(other.span(), format!("a `{option}` entry the build does not read"))),
       }
     }
     Ok(out)
   }
 
-  fn setup_stmt(&mut self, stmt: &'p js::Stmt) -> Lowered<()> {
+  fn setup_stmt(&mut self, stmt: &'p js::Statement<'p>) -> Lowered<()> {
     match stmt {
-      js::Stmt::Decl(js::Decl::Var(var)) => {
+      js::Statement::VariableDeclaration(var) => {
         let mut lifted = Vec::new();
         self.lowerer.lift_updates(stmt, &mut lifted)?;
         self.lets.extend(lifted.into_iter().map(|step| match step {
           Stmt::Set { name, expr } => Stmt::Let { name, expr },
           other => other,
         }));
-        for decl in &var.decls {
+        for decl in &var.declarations {
           self.setup_decl(decl)?;
         }
         Ok(())
       }
-      js::Stmt::Decl(js::Decl::Fn(f)) => {
-        if let Some(body) = &f.function.body {
-          self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
-          self.callable(&f.ident.sym, js::Expr::Fn(js::FnExpr { ident: None, function: f.function.clone() }));
+      js::Statement::FunctionDeclaration(f) => {
+        if let (Some(body), Some(id)) = (&f.body, &f.id) {
+          self.handler_fns.insert(id.name.to_string(), (crate::params_of(&f.params), FunctionBody::Block(&body.statements)));
+          let build = crate::syntax::Build::new(self.lowerer.parsed.arena());
+          let mut copied = build.copy(&**f);
+          copied.id = None;
+          let function = js::Expression::FunctionExpression(build.boxed(copied));
+          self.callable(&id.name, &function);
         }
         Ok(())
       }
-      js::Stmt::Decl(js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
-      js::Stmt::Decl(js::Decl::TsEnum(e)) => Err(self.lowerer.residue(e.span, "an enum in `<script setup>`")),
-      js::Stmt::Decl(js::Decl::Class(c)) => Err(self.lowerer.residue(c.class.span, "a class in `<script setup>`")),
-      js::Stmt::Expr(e) => {
-        if let js::Expr::Call(call) = &*e.expr {
+      js::Statement::TSInterfaceDeclaration(_) | js::Statement::TSTypeAliasDeclaration(_) => Ok(()),
+      js::Statement::TSEnumDeclaration(e) => Err(self.lowerer.residue(e.span, "an enum in `<script setup>`")),
+      js::Statement::ClassDeclaration(c) => Err(self.lowerer.residue(c.span, "a class in `<script setup>`")),
+      js::Statement::ExpressionStatement(e) => {
+        if let js::Expression::CallExpression(call) = &e.expression {
           if matches!(self.callee(call), Some((name, Some(source))) if name == "provide" && source == "vue") {
-            let (Some(key), Some(value)) = (call.args.first(), call.args.get(1)) else { return Err(self.lowerer.residue(call.span, "`provide` takes a key and a value")) };
-            let key = self.injection_key(&key.expr)?;
-            let value = match self.lowerer.expr(&value.expr)? {
+            let (Some(key), Some(value)) = (call.arguments.first(), call.arguments.get(1)) else { return Err(self.lowerer.residue(call.span, "`provide` takes a key and a value")) };
+            let key = self.injection_key(crate::syntax::arg_expr(key))?;
+            let value = match self.lowerer.expr(crate::syntax::arg_expr(value))? {
               Expr::Object(entries) if matches!(entries.as_slice(), [Entry::Field(field, _)] if field == "value") => match entries.into_iter().next() {
                 Some(Entry::Field(_, inner)) => inner,
                 _ => unreachable!("matched one field"),
@@ -990,7 +1006,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             _ => {}
           }
         }
-        if let js::Expr::Await(a) = &*e.expr {
+        if let js::Expression::AwaitExpression(a) = &e.expression {
           return Err(self.lowerer.residue(a.span, SETUP_AWAIT));
         }
         Err(self.setup_residue(e.span))
@@ -1000,29 +1016,29 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   }
 
   /// `emit("event", ...args)` through a `defineEmits` binding: a call of the handler the parent passed as `onEvent`, nothing when it passed none, as Vue's `emit` calls the listener while the child sets up.
-  fn emitted(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let js::Expr::Ident(id) = &**callee else { return Ok(None) };
-    if !self.emits.iter().any(|name| *name == *id.sym) {
+  fn emitted(&mut self, call: &js::CallExpression) -> Lowered<Option<Expr>> {
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = callee else { return Ok(None) };
+    if !self.emits.iter().any(|name| *name == id.name.as_str()) {
       return Ok(None);
     }
     self.emit_call(call)
   }
 
   /// The call of the parent's listener an emit names: its first argument the event, the rest the listener's arguments.
-  fn emit_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-    let Some(js::Expr::Lit(js::Lit::Str(event))) = call.args.first().map(|a| unwrap_types(&a.expr)) else {
+  fn emit_call(&mut self, call: &js::CallExpression) -> Lowered<Option<Expr>> {
+    let Some(js::Expression::StringLiteral(event)) = call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a))) else {
       return Err(self.lowerer.residue(call.span, "an `emit` whose event is not a string literal"));
     };
-    let handler = Expr::Var("$props".to_owned()).field(handler_key(&event.value.to_atom_lossy()));
+    let handler = Expr::Var("$props".to_owned()).field(handler_key(&crate::lossy(event.value)));
     let mut args = Vec::new();
-    for arg in &call.args[1..] {
-      args.push(self.lowerer.expr(&arg.expr)?);
+    for arg in &call.arguments[1..] {
+      args.push(self.lowerer.expr(crate::syntax::arg_expr(arg))?);
     }
     Ok(Some(Expr::Ternary(Box::new(handler.clone()), Box::new(Expr::Apply { f: Box::new(handler), args }), Box::new(Expr::Lit(Lit::Null)))))
   }
 
-  fn setup_residue(&self, span: swc_core::common::Span) -> Residue {
+  fn setup_residue(&self, span: oxc_span::Span) -> Residue {
     self.lowerer.residue_with(span, "a statement in `<script setup>` the build cannot follow", "a setup block the build reads is `const` bindings, `ref`, `computed`, `defineProps`, functions and the lifecycle calls the browser alone runs")
   }
 
@@ -1030,30 +1046,30 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// library: Vue's composition functions as `vue`, the client's `useStore` as
   /// its Vue adapter. Any other binding is its own name with an empty library,
   /// and a name nothing binds, a compiler macro like `defineProps`, has none.
-  fn callee(&self, call: &js::CallExpr) -> Option<(String, Option<String>)> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Ident(id) = &**callee else { return None };
+  fn callee(&self, call: &js::CallExpression) -> Option<(String, Option<String>)> {
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = callee else { return None };
     let meant = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id));
     Some(match meant {
       Some(meant) if meant.vue().is_some() => (meant.vue().unwrap_or_default().to_owned(), Some("vue".to_owned())),
       Some(meant) if meant.hook().is_some() => (meant.hook().unwrap_or_default().to_owned(), Some(VUE_CLIENT.to_owned())),
-      Some(_) => (id.sym.to_string(), Some(String::new())),
-      None => (id.sym.to_string(), None),
+      Some(_) => (id.name.to_string(), Some(String::new())),
+      None => (id.name.to_string(), None),
     })
   }
 
-  fn setup_decl(&mut self, decl: &'p js::VarDeclarator) -> Lowered<()> {
-    let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+  fn setup_decl(&mut self, decl: &'p js::VariableDeclarator<'p>) -> Lowered<()> {
+    let init = decl.init.as_ref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
     let init = unwrap_types(init);
-    if let js::Expr::Await(a) = init {
+    if let js::Expression::AwaitExpression(a) = init {
       return Err(self.lowerer.residue(a.span, SETUP_AWAIT));
     }
-    match &decl.name {
-      js::Pat::Ident(name) => self.setup_binding(name.id.sym.to_string(), init, decl.span),
-      pattern @ (js::Pat::Object(_) | js::Pat::Array(_)) => {
+    match &decl.id {
+      js::BindingPattern::BindingIdentifier(name) => self.setup_binding(name.name.to_string(), init, decl.span),
+      pattern @ (js::BindingPattern::ObjectPattern(_) | js::BindingPattern::ArrayPattern(_)) => {
         let before = self.lowerer.scope.len();
         match (pattern, self.props_call(init)) {
-          (js::Pat::Object(obj), Some((call, defaults))) => {
+          (js::BindingPattern::ObjectPattern(obj), Some((call, defaults))) => {
             self.props_defaults(call, defaults)?;
             bind_object(&mut self.lowerer, obj, Expr::Var("$props".to_owned()))?;
           }
@@ -1075,14 +1091,14 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
 
   /// `defineProps(...)` or `withDefaults(defineProps(...), { ... })`: the
   /// call and the defaults object when there is one.
-  fn props_call<'e>(&self, init: &'e js::Expr) -> Option<(&'e js::CallExpr, Option<&'e js::Expr>)> {
-    let js::Expr::Call(call) = init else { return None };
+  fn props_call<'e>(&self, init: &'e js::Expression<'e>) -> Option<(&'e js::CallExpression<'e>, Option<&'e js::Expression<'e>>)> {
+    let js::Expression::CallExpression(call) = init else { return None };
     match self.callee(call)?.0.as_str() {
-      "defineProps" => Some((call, None)),
+      "defineProps" => Some((&**call, None)),
       "withDefaults" => {
-        let inner = call.args.first().map(|a| unwrap_types(&a.expr))?;
-        let js::Expr::Call(inner) = inner else { return None };
-        (self.callee(inner)?.0 == "defineProps").then(|| (inner, call.args.get(1).map(|a| &*a.expr)))
+        let inner = call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a)))?;
+        let js::Expression::CallExpression(inner) = inner else { return None };
+        (self.callee(inner)?.0 == "defineProps").then(|| (&**inner, call.arguments.get(1).map(|a| crate::syntax::arg_expr(a))))
       }
       _ => None,
     }
@@ -1090,9 +1106,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
 
   /// Rebinds `$props` with the defaults under it, so a prop the placement
   /// left out reads its default wherever it is read.
-  fn props_defaults(&mut self, _call: &js::CallExpr, defaults: Option<&js::Expr>) -> Lowered<()> {
+  fn props_defaults(&mut self, _call: &js::CallExpression, defaults: Option<&js::Expression>) -> Lowered<()> {
     let Some(defaults) = defaults else { return Ok(()) };
-    let js::Expr::Object(_) = defaults else {
+    let js::Expression::ObjectExpression(_) = defaults else {
       return Err(self.lowerer.residue(defaults.span(), "`withDefaults` takes its defaults as an object literal"));
     };
     let defaults = self.lowerer.expr(defaults)?;
@@ -1100,24 +1116,22 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     Ok(())
   }
 
-  fn setup_binding(&mut self, name: String, init: &'p js::Expr, span: swc_core::common::Span) -> Lowered<()> {
+  fn setup_binding(&mut self, name: String, init: &'p js::Expression<'p>, span: oxc_span::Span) -> Lowered<()> {
     if let Some((call, defaults)) = self.props_call(init) {
       self.props_defaults(call, defaults)?;
       self.bind(name, Expr::Var("$props".to_owned()), Expr::Var("$props".to_owned()));
       return Ok(());
     }
-    if let js::Expr::Call(call) = init {
-      if let js::Callee::Expr(callee) = &call.callee {
-        if matches!(self.lowerer.meanings.as_ref().and_then(|m| m.of_expr(callee)), Some(crate::meaning::Meaning::Library(crate::meaning::Construct::AsyncComponent))) {
-          return Ok(());
-        }
+    if let js::Expression::CallExpression(call) = init {
+      if matches!(self.lowerer.meanings.as_ref().and_then(|m| m.of_expr(&call.callee)), Some(crate::meaning::Meaning::Library(crate::meaning::Construct::AsyncComponent))) {
+        return Ok(());
       }
       if let Some((callee, source)) = self.callee(call) {
         let from_vue = source.as_deref() == Some("vue");
         match callee.as_str() {
           "ref" | "shallowRef" if from_vue => {
-            let expr = match call.args.first() {
-              Some(a) => self.lowerer.expr(&a.expr)?,
+            let expr = match call.arguments.first() {
+              Some(a) => self.lowerer.expr(crate::syntax::arg_expr(a))?,
               None => Expr::Lit(Lit::Null),
             };
             if self.component_writes.contains(&name) {
@@ -1133,36 +1147,36 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             return Ok(());
           }
           "computed" if from_vue => {
-            let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`computed` without a getter")) };
-            let js::Expr::Arrow(arrow) = unwrap_types(&arg.expr) else {
-              return Err(self.lowerer.residue(arg.expr.span(), "`computed` of something other than an arrow; a writable computed is not lowered"));
+            let Some(arg) = call.arguments.first() else { return Err(self.lowerer.residue(call.span, "`computed` without a getter")) };
+            let js::Expression::ArrowFunctionExpression(arrow) = unwrap_types(crate::syntax::arg_expr(arg)) else {
+              return Err(self.lowerer.residue(crate::syntax::arg_expr(arg).span(), "`computed` of something other than an arrow; a writable computed is not lowered"));
             };
-            if !arrow.params.is_empty() {
+            if !crate::params_of(&arrow.params).is_empty() {
               return Err(self.lowerer.residue(arrow.span, "a `computed` getter with a parameter"));
             }
-            let expr = match &*arrow.body {
-              js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e)?,
-              js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts)?,
+            let expr = match &arrow.body {
+              js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.statements)?,
+              e => self.lowerer.expr(e.as_expression().expect("an arrow body is a block or an expression"))?,
             };
             self.lets.push(Stmt::Let { name: name.clone(), expr });
             self.bind(name.clone(), Self::holder(&name), Expr::Var(name));
             return Ok(());
           }
           "reactive" | "shallowReactive" | "readonly" if from_vue => {
-            let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, format!("`{callee}` without a value"))) };
-            let expr = self.lowerer.expr(&arg.expr)?;
+            let Some(arg) = call.arguments.first() else { return Err(self.lowerer.residue(call.span, format!("`{callee}` without a value"))) };
+            let expr = self.lowerer.expr(crate::syntax::arg_expr(arg))?;
             self.lets.push(Stmt::Let { name: name.clone(), expr });
             self.bind(name.clone(), Expr::Var(name.clone()), Expr::Var(name));
             return Ok(());
           }
           "useStore" if source.as_deref() == Some(VUE_CLIENT) => {
-            let Some(first) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`useStore` without a key")) };
-            let key = match self.lowerer.expr(&first.expr)? {
+            let Some(first) = call.arguments.first() else { return Err(self.lowerer.residue(call.span, "`useStore` without a key")) };
+            let key = match self.lowerer.expr(crate::syntax::arg_expr(first))? {
               Expr::Lit(Lit::Str(key)) => key,
-              _ => return Err(self.lowerer.residue(first.expr.span(), "a `useStore` key that is not a string the build can read")),
+              _ => return Err(self.lowerer.residue(crate::syntax::arg_expr(first).span(), "a `useStore` key that is not a string the build can read")),
             };
-            let initial = match call.args.get(1) {
-              Some(a) => self.lowerer.expr(&a.expr)?,
+            let initial = match call.arguments.get(1) {
+              Some(a) => self.lowerer.expr(crate::syntax::arg_expr(a))?,
               None => Expr::Lit(Lit::Null),
             };
             self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Coalesce(Box::new(Expr::Store(key.clone())), Box::new(initial)) });
@@ -1186,18 +1200,18 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             return Ok(());
           }
           "defineModel" => {
-            let (prop, options) = match call.args.first().map(|a| unwrap_types(&a.expr)) {
-              Some(js::Expr::Lit(js::Lit::Str(s))) => (s.value.to_atom_lossy().to_string(), call.args.get(1).map(|a| unwrap_types(&a.expr))),
-              Some(js::Expr::Object(_)) => ("modelValue".to_owned(), call.args.first().map(|a| unwrap_types(&a.expr))),
+            let (prop, options) = match call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a))) {
+              Some(js::Expression::StringLiteral(s)) => (crate::lossy(s.value), call.arguments.get(1).map(|a| unwrap_types(crate::syntax::arg_expr(a)))),
+              Some(js::Expression::ObjectExpression(_)) => ("modelValue".to_owned(), call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a)))),
               None => ("modelValue".to_owned(), None),
               Some(other) => return Err(self.lowerer.residue(other.span(), "a `defineModel` name that is not a string literal")),
             };
             let read = Expr::Var("$props".to_owned()).field(prop);
             let expr = match options {
-              Some(js::Expr::Object(obj)) => {
-                let default = obj.props.iter().find_map(|p| match p {
-                  js::PropOrSpread::Prop(p) => match &**p {
-                    js::Prop::KeyValue(kv) if prop_name_of_key(&kv.key).as_deref() == Some("default") => Some(&*kv.value),
+              Some(js::Expression::ObjectExpression(obj)) => {
+                let default = obj.properties.iter().find_map(|p| match p {
+                  js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
+                    crate::syntax::Prop::KeyValue(kv) if prop_name_of_key(&kv.key).as_deref() == Some("default") => Some(&kv.value),
                     _ => None,
                   },
                   _ => None,
@@ -1215,13 +1229,13 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           }
           "toRef" | "toRefs" | "customRef" | "useTemplateRef" | "useId" if from_vue => return Err(self.lowerer.residue(call.span, format!("`{callee}`"))),
           "inject" if from_vue => {
-            let key = match call.args.first() {
-              Some(arg) => self.injection_key(&arg.expr)?,
+            let key = match call.arguments.first() {
+              Some(arg) => self.injection_key(crate::syntax::arg_expr(arg))?,
               None => return Err(self.lowerer.residue(call.span, "`inject` without a key")),
             };
-            let default = match call.args.get(1) {
-              Some(arg) if call.args.len() > 2 => return Err(self.lowerer.residue(arg.expr.span(), "`inject` with a default factory")),
-              Some(arg) => self.lowerer.expr(&arg.expr)?,
+            let default = match call.arguments.get(1) {
+              Some(arg) if call.arguments.len() > 2 => return Err(self.lowerer.residue(crate::syntax::arg_expr(arg).span(), "`inject` with a default factory")),
+              Some(arg) => self.lowerer.expr(crate::syntax::arg_expr(arg))?,
               None => Expr::Lit(Lit::Null),
             };
             self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Coalesce(Box::new(Expr::Context(key)), Box::new(default)) });
@@ -1234,13 +1248,13 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       }
     }
     match init {
-      js::Expr::Arrow(arrow) => {
-        self.handler_fns.insert(name, (arrow.params.clone(), arrow_body(arrow)));
+      js::Expression::ArrowFunctionExpression(arrow) => {
+        self.handler_fns.insert(name, (crate::params_of(&arrow.params), arrow_body(arrow)));
         return Ok(());
       }
-      js::Expr::Fn(f) => {
-        if let Some(body) = &f.function.body {
-          self.handler_fns.insert(name, (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+      js::Expression::FunctionExpression(f) => {
+        if let Some(body) = &f.body {
+          self.handler_fns.insert(name, (crate::params_of(&f.params), FunctionBody::Block(&body.statements)));
         }
         return Ok(());
       }
@@ -1277,7 +1291,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   }
 
   /// The context an `inject` or a `provide` key names: `vue:` and a string key, `vue:` and the name a key binding is declared under for a name, followed through its import.
-  fn injection_key(&self, key: &js::Expr) -> Lowered<String> {
+  fn injection_key(&self, key: &js::Expression) -> Lowered<String> {
     self.lowerer.context_key("vue", key)
   }
 
@@ -1322,7 +1336,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// it cannot see them.
   fn element(&mut self, node: &Node) -> Lowered<Placed> {
     let mut branch: Option<Branch> = None;
-    let mut each: Option<(Expr, Vec<(String, Option<js::Pat>)>)> = None;
+    let mut each: Option<(Expr, Vec<(String, Option<&'p js::BindingPattern<'p>>)>)> = None;
     for prop in node.props.iter().filter(|p| p.prop == "directive") {
       match prop.name.as_str() {
         "if" | "else-if" => {
@@ -1336,14 +1350,19 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           let (aliases, source) = for_parts(exp).ok_or_else(|| self.at(prop.line, prop.column, format!("`v-for=\"{exp}\"`; write `item in items` or `(item, index) in items`")))?;
           let over = self.expr_at(source, prop.exp_line, prop.exp_column)?;
           let parsed = self.lowerer.parsed.parse_expr_at(&format!("({aliases}) => 0"), prop.exp_line, prop.exp_column).map_err(|message| self.at(prop.line, prop.column, format!("`v-for` aliases `{aliases}`: {message}")))?;
-          let js::Expr::Arrow(arrow) = *parsed else { return Err(self.at(prop.line, prop.column, format!("`v-for` aliases `{aliases}`"))) };
-          if arrow.params.len() > 2 {
+          let parsed: &'p js::Expression<'p> = self.lowerer.parsed.arena().alloc(parsed);
+          let js::Expression::ArrowFunctionExpression(arrow) = parsed else { return Err(self.at(prop.line, prop.column, format!("`v-for` aliases `{aliases}`"))) };
+          let aliased = crate::params_of(&arrow.params);
+          if aliased.len() > 2 {
             return Err(self.at(prop.line, prop.column, "`v-for` with three aliases, which iterates an object; a list has an item and an index"));
           }
           let mut params = Vec::new();
-          for pat in arrow.params {
-            match pat {
-              js::Pat::Ident(id) => params.push((id.id.sym.to_string(), None)),
+          for param in aliased {
+            if param.default.is_some() || param.rest {
+              return Err(self.at(prop.line, prop.column, format!("`v-for` aliases `{aliases}`")));
+            }
+            match param.pattern {
+              js::BindingPattern::BindingIdentifier(id) => params.push((id.name.to_string(), None)),
               pattern => params.push((self.lowerer.temp(), Some(pattern))),
             }
           }
@@ -1533,9 +1552,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     let depth = self.lowerer.scope.len();
     if let Some(exp) = prop.exp.as_deref().filter(|e| !e.trim().is_empty()) {
       let arrow = self.lowerer.parsed.parse_expr_at(&format!("({exp}) => 0"), prop.exp_line, prop.exp_column.saturating_sub(1)).map_err(|message| self.at(prop.exp_line, prop.exp_column, format!("`{}`: {message}", exp.trim())))?;
-      let js::Expr::Arrow(arrow) = &*arrow else { return Err(self.at(prop.exp_line, prop.exp_column, "slot params that are not a pattern")) };
-      if let Some(param) = arrow.params.first() {
-        bind_pattern(&mut self.lowerer, param, Expr::Var(SLOT_PROPS.to_owned()))?;
+      let js::Expression::ArrowFunctionExpression(arrow) = &arrow else { return Err(self.at(prop.exp_line, prop.exp_column, "slot params that are not a pattern")) };
+      if let Some(param) = crate::params_of(&arrow.params).into_iter().next() {
+        crate::component::bind_param(&mut self.lowerer, &param, Expr::Var(SLOT_PROPS.to_owned()))?;
       }
     }
     let content = self.children(nodes);
@@ -1636,7 +1655,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// attribute as text, `:name` as its expression and `v-bind` as a spread.
   /// Event handlers belong to the browser and the structural directives were
   /// read by the element already.
-  fn placement_attrs(&mut self, node: &Node) -> Lowered<Vec<Attr<'static>>> {
+  fn placement_attrs(&mut self, node: &Node) -> Lowered<Vec<Attr<'p>>> {
     let mut out = Vec::new();
     for prop in &node.props {
       let at = At::Line(prop.line, prop.column);
@@ -1654,8 +1673,8 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-bind` without an expression")) };
           let expr = self.lowerer.parsed.parse_expr_at(exp, prop.exp_line, prop.exp_column).map_err(|message| self.at(prop.exp_line, prop.exp_column, format!("`{}`: {message}", exp.trim())))?;
           match (&prop.arg, prop.arg_static) {
-            (Some(name), true) => out.push(Attr { name: name.clone(), value: Value::Script(Cow::Owned(*expr)), at }),
-            (None, _) => out.push(Attr { name: String::new(), value: Value::Spread(Cow::Owned(*expr)), at }),
+            (Some(name), true) => out.push(Attr { name: name.clone(), value: Value::Script(self.lowerer.parsed.arena().alloc(expr)), at }),
+            (None, _) => out.push(Attr { name: String::new(), value: Value::Spread(self.lowerer.parsed.arena().alloc(expr)), at }),
             (Some(_), false) => return Err(self.at(prop.line, prop.column, "a bound attribute whose name is an expression")),
           }
         }
@@ -1905,16 +1924,16 @@ impl VueLowerer<'_, '_> {
     Ok((event, self.handlers.len() - 1))
   }
 
-  fn on_body(&mut self, expr: &js::Expr) -> Lowered<Vec<Stmt>> {
+  fn on_body(&mut self, expr: &js::Expression) -> Lowered<Vec<Stmt>> {
     let mut walk = VueWalk::default();
     let event = || vec![Expr::Var("$event".to_owned())];
     match unwrap_types(expr) {
-      js::Expr::Arrow(arrow) => self.handler_fn(&arrow.params, arrow_body(arrow), event(), &mut walk)?,
-      js::Expr::Fn(f) => {
-        let Some(body) = &f.function.body else { return Err(self.lowerer.residue(f.function.span, "a handler without a body")) };
-        self.handler_fn(&patterns(&f.function), FunctionBody::Block(&body.stmts), event(), &mut walk)?
+      js::Expression::ArrowFunctionExpression(arrow) => self.handler_fn(&crate::params_of(&arrow.params), arrow_body(arrow), event(), &mut walk)?,
+      js::Expression::FunctionExpression(f) => {
+        let Some(body) = &f.body else { return Err(self.lowerer.residue(f.span, "a handler without a body")) };
+        self.handler_fn(&crate::params_of(&f.params), FunctionBody::Block(&body.statements), event(), &mut walk)?
       }
-      js::Expr::Ident(id) if self.handler_fns.contains_key(id.sym.as_ref()) => self.call_setup(id.sym.as_ref(), event(), id.span, &mut walk)?,
+      js::Expression::Identifier(id) if self.handler_fns.contains_key(id.name.as_str()) => self.call_setup(id.name.as_str(), event(), id.span, &mut walk)?,
       other => {
         self.lowerer.scope.push(("$event".to_owned(), Expr::Var("$event".to_owned())));
         self.handler_stmt(other, &mut walk)?;
@@ -1928,11 +1947,11 @@ impl VueLowerer<'_, '_> {
   }
 
   /// A function's body with its parameters bound to `args`, in the scope that holds it.
-  fn handler_fn(&mut self, params: &[js::Pat], body: FunctionBody<'_>, args: Vec<Expr>, walk: &mut VueWalk) -> Lowered<()> {
+  fn handler_fn(&mut self, params: &[crate::Param], body: FunctionBody<'_>, args: Vec<Expr>, walk: &mut VueWalk) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
     for (param, arg) in params.iter().zip(args.into_iter().chain(std::iter::repeat(Expr::Lit(Lit::Null)))) {
-      let js::Pat::Ident(id) = param else { return Err(self.lowerer.residue(param.span(), "a handler parameter that is not a name")) };
-      self.lowerer.scope.push((id.id.sym.to_string(), arg));
+      let Some(id) = param.ident() else { return Err(self.lowerer.residue(param.span, "a handler parameter that is not a name")) };
+      self.lowerer.scope.push((id.name.to_string(), arg));
     }
     let result = match body {
       FunctionBody::Expr(e) => self.handler_stmt(e, walk),
@@ -1944,7 +1963,7 @@ impl VueLowerer<'_, '_> {
   }
 
   /// A setup function inlined: its body reads the script's scope, with what the handler wrote so far.
-  fn call_setup(&mut self, name: &str, args: Vec<Expr>, span: swc_core::common::Span, walk: &mut VueWalk) -> Lowered<()> {
+  fn call_setup(&mut self, name: &str, args: Vec<Expr>, span: oxc_span::Span, walk: &mut VueWalk) -> Lowered<()> {
     if self.calling.iter().any(|c| c == name) {
       return Err(self.lowerer.residue(span, format!("`{name}` calls itself")));
     }
@@ -1975,13 +1994,13 @@ impl VueLowerer<'_, '_> {
   }
 
   /// The state an assignment target writes: a `ref` by its name where the scope unwraps it, `x.value` where the scope holds it.
-  fn target_state(&self, target: &js::Expr, walk: &VueWalk) -> Option<String> {
+  fn target_state(&self, target: &js::Expression, walk: &VueWalk) -> Option<String> {
     let (name, held) = match unwrap_types(target) {
-      js::Expr::Ident(id) => (id.sym.to_string(), false),
-      js::Expr::Member(m) => match (&*m.obj, &m.prop) {
-        (js::Expr::Ident(id), js::MemberProp::Ident(prop)) if prop.sym.as_ref() == "value" => (id.sym.to_string(), true),
+      js::Expression::Identifier(id) => (id.name.to_string(), false),
+      m_expr if m_expr.is_member_expression() => { let m = m_expr.as_member_expression().expect("matched as a member"); match (m.object(), crate::syntax::prop(m)) {
+        (js::Expression::Identifier(id), crate::syntax::MemberProp::Ident(prop)) if prop.name.as_str() == "value" => (id.name.to_string(), true),
         _ => return None,
-      },
+      } },
       _ => return None,
     };
     if !self.state.contains(&name) {
@@ -2012,16 +2031,16 @@ impl VueLowerer<'_, '_> {
     self.lowerer.scope.push((state, if shape { Self::holder(&name) } else { Expr::Var(name) }));
   }
 
-  fn handler_block(&mut self, stmts: &[js::Stmt], walk: &mut VueWalk) -> Lowered<bool> {
+  fn handler_block(&mut self, stmts: &[js::Statement], walk: &mut VueWalk) -> Lowered<bool> {
     for stmt in stmts {
       match stmt {
-        js::Stmt::Expr(e) => self.handler_stmt(&e.expr, walk)?,
-        js::Stmt::Decl(js::Decl::Var(var)) => {
-          for decl in &var.decls {
-            let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
-            let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+        js::Statement::ExpressionStatement(e) => self.handler_stmt(&e.expression, walk)?,
+        js::Statement::VariableDeclaration(var) => {
+          for decl in &var.declarations {
+            let js::BindingPattern::BindingIdentifier(name) = &decl.id else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
+            let init = decl.init.as_ref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
             let expr = self.lowerer.expr(init)?;
-            let local = name.id.sym.to_string();
+            let local = name.name.to_string();
             walk.walk.locals += 1;
             let bound = format!("{local}${}", walk.walk.locals);
             let expr = match &walk.walk.reach {
@@ -2032,11 +2051,11 @@ impl VueLowerer<'_, '_> {
             walk.walk.out.push(Stmt::Let { name: bound, expr });
           }
         }
-        js::Stmt::Return(r) if r.arg.is_none() => return Ok(true),
-        js::Stmt::If(branch) => self.handler_if(branch, walk)?,
-        js::Stmt::Block(block) => {
+        js::Statement::ReturnStatement(r) if r.argument.is_none() => return Ok(true),
+        js::Statement::IfStatement(branch) => self.handler_if(branch, walk)?,
+        js::Statement::BlockStatement(block) => {
           let depth = self.lowerer.scope.len();
-          let returned = self.handler_block(&block.stmts, walk);
+          let returned = self.handler_block(&block.body, walk);
           self.lowerer.scope.truncate(depth);
           self.rebind(walk);
           if returned? {
@@ -2049,17 +2068,17 @@ impl VueLowerer<'_, '_> {
     Ok(false)
   }
 
-  fn handler_if(&mut self, branch: &js::IfStmt, walk: &mut VueWalk) -> Lowered<()> {
+  fn handler_if(&mut self, branch: &js::IfStatement, walk: &mut VueWalk) -> Lowered<()> {
     let cond = self.lowerer.expr(&branch.test)?;
     let outer = walk.walk.reach.clone();
     let depth = self.lowerer.scope.len();
     walk.walk.reach = Some(reach_under(&outer, cond.clone()));
-    let then_returned = self.handler_branch(&branch.cons, walk);
+    let then_returned = self.handler_branch(&branch.consequent, walk);
     self.lowerer.scope.truncate(depth);
     self.rebind(walk);
     let then_returned = then_returned?;
     let mut else_returned = false;
-    if let Some(alt) = &branch.alt {
+    if let Some(alt) = &branch.alternate {
       walk.walk.reach = Some(reach_under(&outer, Expr::Not(Box::new(cond.clone()))));
       let returned = self.handler_branch(alt, walk);
       self.lowerer.scope.truncate(depth);
@@ -2075,61 +2094,72 @@ impl VueLowerer<'_, '_> {
     Ok(())
   }
 
-  fn handler_branch(&mut self, stmt: &js::Stmt, walk: &mut VueWalk) -> Lowered<bool> {
+  fn handler_branch(&mut self, stmt: &js::Statement, walk: &mut VueWalk) -> Lowered<bool> {
     match stmt {
-      js::Stmt::Block(block) => self.handler_block(&block.stmts, walk),
+      js::Statement::BlockStatement(block) => self.handler_block(&block.body, walk),
       other => self.handler_block(std::slice::from_ref(other), walk),
     }
   }
 
-  fn handler_stmt(&mut self, e: &js::Expr, walk: &mut VueWalk) -> Lowered<()> {
+  fn handler_stmt(&mut self, e: &js::Expression, walk: &mut VueWalk) -> Lowered<()> {
     match e {
-      js::Expr::Paren(p) => self.handler_stmt(&p.expr, walk),
-      js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, walk),
-      js::Expr::Await(a) => self.handler_stmt(&a.arg, walk),
-      js::Expr::Seq(seq) => seq.exprs.iter().try_for_each(|e| self.handler_stmt(e, walk)),
-      js::Expr::Assign(assign) => {
+      js::Expression::ParenthesizedExpression(p) => self.handler_stmt(&p.expression, walk),
+      js::Expression::UnaryExpression(u) if u.operator == js::UnaryOperator::Void => self.handler_stmt(&u.argument, walk),
+      js::Expression::AwaitExpression(a) => self.handler_stmt(&a.argument, walk),
+      js::Expression::SequenceExpression(seq) => seq.expressions.iter().try_for_each(|e| self.handler_stmt(e, walk)),
+      js::Expression::AssignmentExpression(assign) => {
+        let b = self.lowerer.build();
         let target = match &assign.left {
-          js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => js::Expr::Ident(id.id.clone()),
-          js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => js::Expr::Member(m.clone()),
-          js::AssignTarget::Simple(js::SimpleAssignTarget::Paren(p)) => (*p.expr).clone(),
-          _ => return Err(self.lowerer.residue(assign.span, "an assignment a handler cannot make")),
+          js::AssignmentTarget::AssignmentTargetIdentifier(id) => js::Expression::Identifier(b.boxed(b.copy(&**id))),
+          other => match other.as_member_expression() {
+            Some(m) => js::Expression::from(b.copy(m)),
+            None => return Err(self.lowerer.residue(assign.span, "an assignment a handler cannot make")),
+          },
         };
+        let target = b.alloc(target);
         let Some(state) = self.target_state(&target, walk) else {
           return Err(self.lowerer.residue(assign.span, "an assignment to something other than a `ref` or a store this component holds"));
         };
-        let value = match assign.op.to_update() {
+        let value = match crate::syntax::compound(b, assign.operator, b.copy(target), b.copy(&assign.right), assign.span) {
           None => self.lowerer.expr(&assign.right)?,
-          Some(op) => self.lowerer.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(target), right: assign.right.clone() }))?,
+          Some(combined) => self.lowerer.expr(&combined)?,
         };
         self.write(state, value, walk);
         Ok(())
       }
-      js::Expr::Update(update) => {
-        let Some(state) = self.target_state(&update.arg, walk) else {
+      js::Expression::UpdateExpression(update) => {
+        let b = self.lowerer.build();
+        let target = match &update.argument {
+          js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) => js::Expression::Identifier(b.boxed(b.copy(&**id))),
+          other => match other.as_member_expression() {
+            Some(m) => js::Expression::from(b.copy(m)),
+            None => return Err(self.lowerer.residue(update.span, "an update to something other than a `ref` or a store this component holds")),
+          },
+        };
+        let target = b.alloc(target);
+        let Some(state) = self.target_state(target, walk) else {
           return Err(self.lowerer.residue(update.span, "an update to something other than a `ref` or a store this component holds"));
         };
-        let op = match update.op {
-          js::UpdateOp::PlusPlus => js::BinaryOp::Add,
-          js::UpdateOp::MinusMinus => js::BinaryOp::Sub,
+        let op = match update.operator {
+          js::UpdateOperator::Increment => js::BinaryOperator::Addition,
+          js::UpdateOperator::Decrement => js::BinaryOperator::Subtraction,
         };
-        let one = js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }));
-        let value = self.lowerer.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
+        let value = self.lowerer.expr(&b.binary(b.copy(target), op, b.number(1.0, update.span), update.span))?;
         self.write(state, value, walk);
         Ok(())
       }
-      js::Expr::Call(call) => {
-        let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
+      js::Expression::CallExpression(call) => {
+        let callee = &call.callee;
         match unwrap_types(callee) {
-          js::Expr::Ident(id) => {
-            let name = id.sym.to_string();
+          js::Expression::Identifier(id) => {
+            let name = id.name.to_string();
             if self.handler_fns.contains_key(&name) {
-              let args = call.args.iter().map(|a| self.lowerer.expr(&a.expr)).collect::<Lowered<Vec<_>>>()?;
+              let args = call.arguments.iter().map(|a| self.lowerer.expr(crate::syntax::arg_expr(a))).collect::<Lowered<Vec<_>>>()?;
               return self.call_setup(&name, args, call.span, walk);
             }
             if let Some(action) = action_alias_of(self.lowerer.parsed, &name) {
-              let input = match call.args.first() {
-                Some(arg) => self.lowerer.expr(&arg.expr)?,
+              let input = match call.arguments.first() {
+                Some(arg) => self.lowerer.expr(crate::syntax::arg_expr(arg))?,
                 None => Expr::Object(Vec::new()),
               };
               walk.walk.act(action, input);
@@ -2137,17 +2167,18 @@ impl VueLowerer<'_, '_> {
             }
             Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not an action or a function this component declares")))
           }
-          js::Expr::Member(m) => {
-            let method = match &m.prop {
-              js::MemberProp::Ident(i) => i.sym.to_string(),
+          m_expr if m_expr.is_member_expression() => {
+let m = m_expr.as_member_expression().expect("matched as a member");
+            let method = match crate::syntax::prop(m) {
+              crate::syntax::MemberProp::Ident(i) => i.name.to_string(),
               _ => String::new(),
             };
             if method == "preventDefault" || method == "stopPropagation" {
               return Ok(());
             }
             if let Some(action) = generated_action_of(self.lowerer.parsed, callee) {
-              let input = match call.args.first() {
-                Some(arg) => self.lowerer.expr(&arg.expr)?,
+              let input = match call.arguments.first() {
+                Some(arg) => self.lowerer.expr(crate::syntax::arg_expr(arg))?,
                 None => Expr::Object(Vec::new()),
               };
               walk.walk.act(action, input);
@@ -2261,13 +2292,13 @@ fn for_parts(exp: &str) -> Option<(&str, &str)> {
 }
 
 /// The expression under the TypeScript forms that change nothing at run time.
-fn unwrap_types(expr: &js::Expr) -> &js::Expr {
+fn unwrap_types<'e>(expr: &'e js::Expression<'e>) -> &'e js::Expression<'e> {
   match expr {
-    js::Expr::TsAs(a) => unwrap_types(&a.expr),
-    js::Expr::TsNonNull(a) => unwrap_types(&a.expr),
-    js::Expr::TsSatisfies(a) => unwrap_types(&a.expr),
-    js::Expr::TsTypeAssertion(a) => unwrap_types(&a.expr),
-    js::Expr::Paren(p) => unwrap_types(&p.expr),
+    js::Expression::TSAsExpression(a) => unwrap_types(&a.expression),
+    js::Expression::TSNonNullExpression(a) => unwrap_types(&a.expression),
+    js::Expression::TSSatisfiesExpression(a) => unwrap_types(&a.expression),
+    js::Expression::TSTypeAssertion(a) => unwrap_types(&a.expression),
+    js::Expression::ParenthesizedExpression(p) => unwrap_types(&p.expression),
     other => other,
   }
 }
@@ -2283,14 +2314,14 @@ fn handler_key(event: &str) -> String {
 }
 
 /// The names the `@event` handlers on child components write, which a child may run while it sets up.
-fn component_handler_writes(parsed: &crate::Parsed, nodes: &[Node]) -> Vec<String> {
+fn component_handler_writes(parsed_module: &crate::Parsed, nodes: &[Node]) -> Vec<String> {
   let mut out = Vec::new();
   for node in nodes {
     if node.kind == 1 {
       for prop in node.props.iter().filter(|p| p.prop == "directive" && p.name == "on") {
         let Some(exp) = &prop.exp else { continue };
-        let Ok(parsed) = parsed.parse_expr_at(exp, prop.exp_line, prop.exp_column) else { continue };
-        let stmt = js::Stmt::Expr(js::ExprStmt { span: parsed.span(), expr: parsed });
+        let Ok(parsed) = parsed_module.parse_expr_at(exp, prop.exp_line, prop.exp_column) else { continue };
+        let stmt = crate::syntax::Build::new(parsed_module.arena()).expr_stmt(parsed);
         for name in crate::component::written_names(std::slice::from_ref(&stmt), true) {
           if !out.contains(&name) {
             out.push(name);
@@ -2298,7 +2329,7 @@ fn component_handler_writes(parsed: &crate::Parsed, nodes: &[Node]) -> Vec<Strin
         }
       }
     }
-    for name in component_handler_writes(parsed, &node.children) {
+    for name in component_handler_writes(parsed_module, &node.children) {
       if !out.contains(&name) {
         out.push(name);
       }

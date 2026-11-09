@@ -178,7 +178,8 @@ pub(crate) fn relocate(old: &Tree, moves: &BTreeMap<String, String>, aliases: &A
 }
 
 fn rewrite(old: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, from: &str, to: &str, text: &str, report: &mut Report) -> Option<String> {
-  let parsed = match parse(from, text) {
+  let allocator = oxc_allocator::Allocator::default();
+  let parsed = match parse(&allocator, from, text) {
     Ok(p) => p,
     Err(e) => {
       report.note(from, 0, format!("does not parse, so its imports were not rewritten: {e}"));

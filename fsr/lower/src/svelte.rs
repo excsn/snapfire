@@ -14,9 +14,9 @@ use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{ArithOp, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{CHOSEN_TAG, CONTEXT_PREFIX, RAW_ATTR, SLOTS_GIVEN, SLOT_CONTENT_PREFIX, SLOT_OUT_PREFIX, SLOT_PROPS, SVELTE_FLAGS, SVELTE_SELECTED};
 use snapfire_fsr_ir::Owner;
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{VisitMut, VisitMutWith, VisitWith};
+use oxc_span::GetSpan;
+use oxc_ast::ast as js;
+use crate::syntax::Walk;
 
 use crate::assets::AssetResolver;
 use crate::component::{bind_object, block_to_expr, HeadRow};
@@ -160,7 +160,7 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   /// The names the script binds at its top level, which a template expression reads there; any other name it reads that no block binds is a global.
   module_names: Vec<String>,
   /// The classes the script declares, which a `new` in a declaration builds as the object its constructor leaves.
-  classes: Vec<(String, &'p js::Class)>,
+  classes: Vec<(String, &'p js::Class<'p>)>,
   /// The names a function in the script writes, which the script holds in cells.
   function_writes: Vec<String>,
   /// Set while the `<script module>` block is read, whose cells the instances of one render share.
@@ -168,7 +168,7 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   /// The names `$props.id()` is bound to, whose ids the component's markup opens with as `<!--$sN-->`, which Svelte's client reads back when it hydrates.
   props_ids: Vec<String>,
   /// The script's function declarations not yet lowered, which a call before them may name since JavaScript hoists them.
-  hoisted: Vec<&'p js::FnDecl>,
+  hoisted: Vec<&'p js::Function<'p>>,
 }
 
 impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
@@ -209,7 +209,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     }
     let fragment = template.fragment.clone();
     self.template = Some(template);
-    self.module_names = top_level_names(&self.lowerer.parsed.module, self.lowerer.parsed.top);
+    self.module_names = top_level_names(self.lowerer.parsed);
     self.lets.push(Stmt::Let { name: PROPS.to_owned(), expr: props_with_slots() });
     awaited_names(value, &mut self.awaited);
     let reads_slots = value.to_string().contains("$$slots") || self.described.script.as_ref().is_some_and(|s| s.content.contains("$$slots"));
@@ -260,58 +260,70 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   /// `const name = new Class(args)` for a class the script declares: its fields in order, `$state` holding its value, then the constructor's `this.field = value` writes, then each `$derived` field and getter read once construction ends, bound as an object of the public fields and getters with each method a function the browser runs.
-  fn instance(&mut self, name: &str, class: &'p js::Class, made: &js::NewExpr) -> Lowered<()> {
-    if let Some(parent) = &class.super_class {
-      return Err(self.lowerer.residue(parent.span(), "a class that extends another"));
+  fn instance(&mut self, name: &str, class: &'p js::Class<'p>, made: &js::NewExpression) -> Lowered<()> {
+    if let Some(parent) = &class.heritage {
+      return Err(self.lowerer.residue(parent.expression.span(), "a class that extends another"));
     }
     let scope_before = self.lowerer.scope.len();
-    let constructor = class.body.iter().find_map(|member| match member {
-      js::ClassMember::Constructor(c) => Some(c),
+    let constructor = class.body.body.iter().find_map(|member| match member {
+      js::ClassElement::MethodDefinition(m) if m.kind == js::MethodDefinitionKind::Constructor => Some(m),
       _ => None,
     });
-    let given = made.args.as_deref().unwrap_or_default();
+    let given = &made.arguments[..];
     let mut params: Vec<(String, Expr)> = Vec::new();
     if let Some(constructor) = constructor {
-      for (i, param) in constructor.params.iter().enumerate() {
-        let js::ParamOrTsParamProp::Param(param) = param else { return Err(self.lowerer.residue(constructor.span, "a constructor parameter property")) };
-        let js::Pat::Ident(id) = &param.pat else { return Err(self.lowerer.residue(param.span, "a constructor parameter that is not a name")) };
+      let formals = &constructor.value.params;
+      if let Some(rest) = &formals.rest {
+        return Err(self.lowerer.residue(rest.span, "a constructor parameter that is not a name"));
+      }
+      for (i, param) in formals.items.iter().enumerate() {
+        if param.accessibility.is_some() || param.readonly || param.r#override {
+          return Err(self.lowerer.residue(constructor.span, "a constructor parameter property"));
+        }
+        let (js::BindingPattern::BindingIdentifier(id), None) = (&param.pattern, &param.initializer) else { return Err(self.lowerer.residue(param.span, "a constructor parameter that is not a name")) };
         let value = match given.get(i) {
-          Some(arg) if arg.spread.is_some() => return Err(self.lowerer.residue(arg.expr.span(), "a spread argument")),
-          Some(arg) => self.lowerer.expr(&arg.expr)?,
+          Some(arg) if crate::syntax::is_spread(arg) => return Err(self.lowerer.residue(crate::syntax::arg_expr(arg).span(), "a spread argument")),
+          Some(arg) => self.lowerer.expr(crate::syntax::arg_expr(arg))?,
           None => Expr::Lit(Lit::Null),
         };
         let temp = self.lowerer.temp();
         self.lets.push(Stmt::Let { name: temp.clone(), expr: value });
-        params.push((id.id.sym.to_string(), Expr::Var(temp)));
+        params.push((id.name.to_string(), Expr::Var(temp)));
       }
     }
     let mut public: Vec<(String, bool)> = Vec::new();
-    let mut deferred: Vec<(String, &'p js::Expr)> = Vec::new();
+    let mut deferred: Vec<(String, &'p js::Expression<'p>)> = Vec::new();
     let mut setters: Vec<String> = Vec::new();
-    for member in &class.body {
+    for member in &class.body.body {
       let (key, value, shown) = match member {
-        js::ClassMember::ClassProp(prop) if !prop.is_static => {
-          let key = crate::prop_name(&prop.key).ok_or_else(|| self.lowerer.residue(prop.span, "a computed class field"))?;
-          (key, prop.value.as_deref(), true)
-        }
-        js::ClassMember::PrivateProp(prop) if !prop.is_static => (format!("#{}", prop.key.name), prop.value.as_deref(), false),
-        js::ClassMember::Method(method) if !method.is_static => {
-          let key = crate::prop_name(&method.key).ok_or_else(|| self.lowerer.residue(method.span, "a computed method name"))?;
+        js::ClassElement::PropertyDefinition(prop) if !prop.r#static => match &prop.key {
+          js::PropertyKey::PrivateIdentifier(private) => (format!("#{}", private.name), prop.value.as_ref(), false),
+          key => {
+            let key = crate::prop_name(key, prop.computed).ok_or_else(|| self.lowerer.residue(prop.span, "a computed class field"))?;
+            (key, prop.value.as_ref(), true)
+          }
+        },
+        js::ClassElement::MethodDefinition(method) if matches!(method.key, js::PropertyKey::PrivateIdentifier(_)) || method.kind == js::MethodDefinitionKind::Constructor => continue,
+        js::ClassElement::MethodDefinition(method) if !method.r#static => {
+          let key = crate::prop_name(&method.key, method.computed).ok_or_else(|| self.lowerer.residue(method.span, "a computed method name"))?;
           match method.kind {
-            js::MethodKind::Method => public.push((key, false)),
-            js::MethodKind::Getter => {
-              let body = method.function.body.as_ref().map(|body| body.stmts.as_slice()).unwrap_or_default();
-              let [js::Stmt::Return(js::ReturnStmt { arg: Some(value), .. })] = body else {
+            js::MethodDefinitionKind::Method => public.push((key, false)),
+            js::MethodDefinitionKind::Get => {
+              let body = method.value.body.as_ref().map(|body| body.statements.as_slice()).unwrap_or_default();
+              let [js::Statement::ReturnStatement(ret)] = body else {
+                return Err(self.lowerer.residue(method.span, "a getter whose body is not one `return`"));
+              };
+              let Some(value) = &ret.argument else {
                 return Err(self.lowerer.residue(method.span, "a getter whose body is not one `return`"));
               };
               deferred.push((key.clone(), value));
               public.push((key, true));
             }
-            js::MethodKind::Setter => setters.push(key),
+            js::MethodDefinitionKind::Set => setters.push(key),
+            js::MethodDefinitionKind::Constructor => {}
           }
           continue;
         }
-        js::ClassMember::PrivateMethod(_) | js::ClassMember::Constructor(_) | js::ClassMember::Empty(_) => continue,
         other => return Err(self.lowerer.residue(other.span(), "a class member the build does not read")),
       };
       if shown {
@@ -319,14 +331,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       }
       let value = match value.map(unwrap_types) {
         None => Expr::Lit(Lit::Null),
-        Some(js::Expr::Call(call)) if matches!(callee_name(call).as_deref(), Some("$derived")) => {
-          let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`$derived` without a value")) };
-          deferred.push((key, &*arg.expr));
+        Some(js::Expression::CallExpression(call)) if matches!(callee_name(call).as_deref(), Some("$derived")) => {
+          let Some(arg) = call.arguments.first() else { return Err(self.lowerer.residue(call.span, "`$derived` without a value")) };
+          deferred.push((key, crate::syntax::arg_expr(arg)));
           continue;
         }
-        Some(js::Expr::Call(call)) if matches!(callee_name(call).as_deref(), Some("$derived.by")) => return Err(self.lowerer.residue(call.span, "`$derived.by` in a class field")),
-        Some(js::Expr::Call(call)) if matches!(callee_name(call).as_deref(), Some("$state" | "$state.raw")) => match call.args.first() {
-          Some(arg) => self.through_this(&arg.expr)?,
+        Some(js::Expression::CallExpression(call)) if matches!(callee_name(call).as_deref(), Some("$derived.by")) => return Err(self.lowerer.residue(call.span, "`$derived.by` in a class field")),
+        Some(js::Expression::CallExpression(call)) if matches!(callee_name(call).as_deref(), Some("$state" | "$state.raw")) => match call.arguments.first() {
+          Some(arg) => self.through_this(crate::syntax::arg_expr(arg))?,
           None => Expr::Lit(Lit::Null),
         },
         Some(other) => self.through_this(other)?,
@@ -336,14 +348,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     for (param, value) in params {
       self.bind(param, value);
     }
-    for stmt in constructor.and_then(|c| c.body.as_ref()).map(|body| body.stmts.as_slice()).unwrap_or_default() {
-      let js::Stmt::Expr(js::ExprStmt { expr, .. }) = stmt else { return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")) };
-      let js::Expr::Assign(assign) = &**expr else { return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")) };
-      let key = match &assign.left {
-        js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) if assign.op == js::AssignOp::Assign && matches!(&*member.obj, js::Expr::This(_)) => match &member.prop {
-          js::MemberProp::Ident(prop) => prop.sym.to_string(),
-          js::MemberProp::PrivateName(prop) => format!("#{}", prop.name),
-          js::MemberProp::Computed(_) => return Err(self.lowerer.residue(assign.span, "a constructor write to a computed field")),
+    for stmt in constructor.and_then(|c| c.value.body.as_ref()).map(|body| body.statements.as_slice()).unwrap_or_default() {
+      let js::Statement::ExpressionStatement(e) = stmt else { return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")) };
+      let js::Expression::AssignmentExpression(assign) = &e.expression else { return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")) };
+      let key = match assign.left.as_member_expression() {
+        Some(member) if assign.operator == js::AssignmentOperator::Assign && matches!(member.object(), js::Expression::ThisExpression(_)) => match crate::syntax::prop(member) {
+          crate::syntax::MemberProp::Ident(prop) => prop.name.to_string(),
+          crate::syntax::MemberProp::Private(prop) => format!("#{}", prop.name),
+          crate::syntax::MemberProp::Computed(_) => return Err(self.lowerer.residue(assign.span, "a constructor write to a computed field")),
         },
         _ => return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")),
       };
@@ -383,67 +395,69 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   /// `expr` lowered with each `this.field` and `this.#field` read as the value the instance holds for it.
-  fn through_this(&mut self, expr: &js::Expr) -> Lowered<Expr> {
-    struct This;
-    impl VisitMut for This {
-      fn visit_mut_expr(&mut self, expr: &mut js::Expr) {
-        if let js::Expr::Member(member) = expr {
-          if matches!(&*member.obj, js::Expr::This(_)) {
-            let key = match &member.prop {
-              js::MemberProp::Ident(prop) => Some(prop.sym.to_string()),
-              js::MemberProp::PrivateName(prop) => Some(format!("#{}", prop.name)),
-              js::MemberProp::Computed(_) => None,
-            };
-            if let Some(key) = key {
-              *expr = js::Expr::Ident(js::Ident::new_no_ctxt(format!("this@{key}").into(), member.span));
-              return;
-            }
-          }
+  fn through_this(&mut self, expr: &js::Expression) -> Lowered<Expr> {
+    struct This<'a>(crate::syntax::Build<'a>);
+    impl<'a> oxc_ast_visit::VisitMut<'a> for This<'a> {
+      fn visit_expression(&mut self, expr: &mut js::Expression<'a>) {
+        let read = expr.as_member_expression().filter(|member| matches!(member.object(), js::Expression::ThisExpression(_))).and_then(|member| {
+          let key = match crate::syntax::prop(member) {
+            crate::syntax::MemberProp::Ident(prop) => prop.name.to_string(),
+            crate::syntax::MemberProp::Private(prop) => format!("#{}", prop.name),
+            crate::syntax::MemberProp::Computed(_) => return None,
+          };
+          Some((key, member.span()))
+        });
+        if let Some((key, span)) = read {
+          *expr = self.0.ident(&format!("this@{key}"), span);
+          return;
         }
-        expr.visit_mut_children_with(self);
+        oxc_ast_visit::walk_mut::walk_expression(self, expr);
       }
-      fn visit_mut_function(&mut self, _: &mut js::Function) {}
+      fn visit_function(&mut self, _: &mut js::Function<'a>, _: oxc_syntax::scope::ScopeFlags) {}
     }
-    let mut expr = expr.clone();
-    expr.visit_mut_with(&mut This);
+    let build = crate::syntax::Build::new(self.lowerer.parsed.arena());
+    let mut expr = build.copy(expr);
+    oxc_ast_visit::VisitMut::visit_expression(&mut This(build), &mut expr);
     self.lowerer.expr(&expr)
   }
 
   /// Whether `call` calls `export` of a library the meaning table speaks for, `svelte`'s `setContext` for one.
-  fn calls_library(&self, call: &js::CallExpr, export: &str) -> bool {
-    let js::Callee::Expr(callee) = &call.callee else { return false };
+  fn calls_library(&self, call: &js::CallExpression, export: &str) -> bool {
+    let callee = &call.callee;
     matches!(self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)), Some(crate::meaning::Meaning::Library(crate::meaning::Construct::SvelteStore(name))) if name == export)
   }
 
   /// Gives each name `parsed` reads that no block binds the syntax context of where it resolves: the module's top level for a name the script binds there, the unresolved context for a global.
-  fn to_top_level(&self, parsed: &mut js::Expr) {
-    if let Some(meanings) = self.lowerer.meanings.as_ref() {
+  fn to_top_level(&self, parsed: &mut js::Expression<'p>) {
+    if self.lowerer.meanings.is_some() {
       let local: Vec<String> = self.lowerer.scope.iter().map(|(name, _)| name.clone()).collect();
-      parsed.visit_mut_with(&mut TopLevel { top: meanings.top, unresolved: meanings.unresolved, local, module: &self.module_names });
+      let scope = self.lowerer.parsed.scope.clone();
+      let arena = self.lowerer.parsed.arena();
+      oxc_ast_visit::VisitMut::visit_expression(&mut TopLevel { scope: &scope, build: crate::syntax::Build::new(arena), local, module: &self.module_names }, parsed);
     }
   }
 
   /// `picture({ … })`, the adapter's `picture` as the value it answers.
-  fn picture_call(&mut self, expr: &js::Expr, at: At) -> Lowered<Option<Expr>> {
-    let js::Expr::Call(call) = unwrap_types(expr) else { return Ok(None) };
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let js::Expr::Ident(id) = &**callee else { return Ok(None) };
-    let meaning = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(id.sym.as_ref())).and_then(|meant| meant.placement());
+  fn picture_call(&mut self, expr: &js::Expression, at: At) -> Lowered<Option<Expr>> {
+    let js::Expression::CallExpression(call) = unwrap_types(expr) else { return Ok(None) };
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = callee else { return Ok(None) };
+    let meaning = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(id.name.as_str())).and_then(|meant| meant.placement());
     if meaning != Some("picture") {
       return Ok(None);
     }
-    let Some(js::Expr::Object(object)) = call.args.first().map(|a| unwrap_types(&a.expr)) else {
+    let Some(js::Expression::ObjectExpression(object)) = call.arguments.first().map(|a| unwrap_types(crate::syntax::arg_expr(a))) else {
       return Err(self.residue_at(at, "`picture()` options that are not an object literal".to_owned()));
     };
-    let mut placed: Vec<placements::Attr<'static>> = Vec::new();
-    for prop in &object.props {
-      let js::PropOrSpread::Prop(prop) = prop else { return Err(self.residue_at(at, "a spread in `picture()` options".to_owned())) };
-      let (name, value) = match &**prop {
-        js::Prop::KeyValue(kv) => (crate::prop_name(&kv.key).ok_or_else(|| self.residue_at(at, "a computed key in `picture()` options".to_owned()))?, kv.value.clone()),
-        js::Prop::Shorthand(id) => (id.sym.to_string(), Box::new(js::Expr::Ident(id.clone()))),
+    let mut placed: Vec<placements::Attr<'_>> = Vec::new();
+    for prop in &object.properties {
+      let js::ObjectPropertyKind::ObjectProperty(prop) = prop else { return Err(self.residue_at(at, "a spread in `picture()` options".to_owned())) };
+      let name = match crate::syntax::prop_of(prop) {
+        crate::syntax::Prop::KeyValue(kv) => crate::prop_name(&kv.key, kv.computed).ok_or_else(|| self.residue_at(at, "a computed key in `picture()` options".to_owned()))?,
+        crate::syntax::Prop::Shorthand(id) => id.name.to_string(),
         _ => return Err(self.residue_at(at, "a `picture()` option that is not `key: value`".to_owned())),
       };
-      placed.push(placements::Attr { name, value: placements::Value::Script(std::borrow::Cow::Owned(*value)), at });
+      placed.push(placements::Attr { name, value: placements::Value::Script(&prop.value), at });
     }
     placements::picture_data(self, &placed, at).map(Some)
   }
@@ -456,15 +470,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       return Ok(());
     }
     let parsed = self.lowerer.parsed;
-    let start = parsed.cm.files().first().map(|f| f.start_pos.0).unwrap_or(0);
-    let offset = |span: swc_core::common::Span| span.lo.0.saturating_sub(start);
+    let offset = |span: oxc_span::Span| span.start;
     let within = |range: Option<(u32, u32)>, at: u32| range.is_some_and(|(from, to)| at >= from && at < to);
-    self.function_writes = function_writes(&parsed.module.body);
-    self.hoisted = parsed.module.body.iter().filter_map(|item| match item {
-      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => Some(f),
+    self.function_writes = function_writes(&parsed.module().body);
+    self.hoisted = parsed.module().body.iter().filter_map(|item| match item {
+      js::Statement::FunctionDeclaration(f) => Some(&**f),
       _ => None,
     }).collect();
-    for item in &parsed.module.body {
+    for item in &parsed.module().body {
       let at = offset(item.span());
       let in_instance = within(instance, at);
       if !in_instance && !within(module, at) {
@@ -472,65 +485,65 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       }
       self.in_module = !in_instance;
       match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
-          if import.src.value.to_atom_lossy().ends_with(".svelte") {
-            for specifier in &import.specifiers {
-              if let js::ImportSpecifier::Default(default) = specifier {
-                let local = default.local.sym.to_string();
+        js::Statement::ImportDeclaration(import) => {
+          if crate::lossy(import.source.value).ends_with(".svelte") {
+            for specifier in import.specifiers.iter().flatten() {
+              if let js::ImportDeclarationSpecifier::ImportDefaultSpecifier(default) = specifier {
+                let local = default.local.name.to_string();
                 self.bind(local.clone(), call(Builtin::ComponentRef, vec![text(&local)]));
               }
             }
           }
         }
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => match &export.decl {
-          js::Decl::Var(var) if !runes && in_instance => self.export_lets(var)?,
-          js::Decl::Var(var) => self.declaration(var, runes)?,
-          js::Decl::Fn(_) | js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_) => {}
+        js::Statement::ExportDeclaration(export) => match &export.declaration {
+          js::Declaration::VariableDeclaration(var) if !runes && in_instance => self.export_lets(var)?,
+          js::Declaration::VariableDeclaration(var) => self.declaration(var, runes)?,
+          js::Declaration::FunctionDeclaration(_) | js::Declaration::TSInterfaceDeclaration(_) | js::Declaration::TSTypeAliasDeclaration(_) => {}
           other => return Err(self.lowerer.residue(other.span(), "an export the build does not read")),
         },
-        js::ModuleItem::ModuleDecl(other) => return Err(self.lowerer.residue(other.span(), "an export the build does not read")),
-        js::ModuleItem::Stmt(stmt) => self.statement(stmt, runes)?,
+        other if other.is_module_declaration() => return Err(self.lowerer.residue(other.span(), "an export the build does not read")),
+        stmt => self.statement(stmt, runes)?,
       }
     }
     Ok(())
   }
 
-  fn statement(&mut self, stmt: &'p js::Stmt, runes: bool) -> Lowered<()> {
+  fn statement(&mut self, stmt: &'p js::Statement<'p>, runes: bool) -> Lowered<()> {
     match stmt {
-      js::Stmt::Decl(js::Decl::Var(var)) => self.declaration(var, runes),
-      js::Stmt::Decl(js::Decl::Fn(f)) => {
-        if let Some(at) = self.hoisted.iter().position(|h| std::ptr::eq(*h, f)) {
+      js::Statement::VariableDeclaration(var) => self.declaration(var, runes),
+      js::Statement::FunctionDeclaration(f) => {
+        if let Some(at) = self.hoisted.iter().position(|h| std::ptr::eq(*h, &**f)) {
           self.hoisted.remove(at);
           self.function(f);
         }
         Ok(())
       }
-      js::Stmt::Decl(js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
-      js::Stmt::Decl(js::Decl::Class(c)) => {
-        self.classes.push((c.ident.sym.to_string(), &c.class));
+      js::Statement::TSInterfaceDeclaration(_) | js::Statement::TSTypeAliasDeclaration(_) => Ok(()),
+      js::Statement::ClassDeclaration(c) => {
+        self.classes.push((c.id.as_ref().map(|id| id.name.to_string()).unwrap_or_default(), &**c));
         Ok(())
       }
-      js::Stmt::Expr(_) if !self.hoisted.is_empty() => {
+      js::Statement::ExpressionStatement(_) if !self.hoisted.is_empty() => {
         self.hoist_functions();
         self.statement(stmt, runes)
       }
-      js::Stmt::Expr(e) => match &*e.expr {
-        js::Expr::Call(call) if callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call) => Ok(()),
-        js::Expr::Call(call) if subscribed(call).is_some() => self.subscription(call),
-        js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(callee), .. }) if matches!(&**callee, js::Expr::Ident(id) if self.lowerer.browser_effects.iter().any(|name| *name == *id.sym)) => Ok(()),
-        js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(callee), .. }) if matches!(&**callee, js::Expr::Ident(id) if self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).is_some_and(|meant| meant.origin().is_some())) => {
-          let js::Expr::Ident(id) = &**callee else { unreachable!("matched a name") };
-          self.lowerer.unbound = Some(id.sym.to_string());
+      js::Statement::ExpressionStatement(e) => match &e.expression {
+        js::Expression::CallExpression(call) if callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call) => Ok(()),
+        js::Expression::CallExpression(call) if subscribed(call).is_some() => self.subscription(call),
+        js::Expression::CallExpression(call) if matches!(&call.callee, js::Expression::Identifier(id) if self.lowerer.browser_effects.iter().any(|name| *name == id.name.as_str())) => Ok(()),
+        js::Expression::CallExpression(call) if matches!(&call.callee, js::Expression::Identifier(id) if self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).is_some_and(|meant| meant.origin().is_some())) => {
+          let js::Expression::Identifier(id) = &call.callee else { unreachable!("matched a name") };
+          self.lowerer.unbound = Some(id.name.to_string());
           Err(self.statement_residue(e.span))
         }
-        js::Expr::Call(call) if self.calls_library(call, "setContext") => {
-          let (Some(key), Some(value)) = (call.args.first(), call.args.get(1)) else { return Err(self.lowerer.residue(call.span, "`setContext` takes a key and a value")) };
-          let key = self.lowerer.context_key("svelte", &key.expr)?;
-          let value = self.lowerer.expr(&value.expr)?;
+        js::Expression::CallExpression(call) if self.calls_library(call, "setContext") => {
+          let (Some(key), Some(value)) = (call.arguments.first(), call.arguments.get(1)) else { return Err(self.lowerer.residue(call.span, "`setContext` takes a key and a value")) };
+          let key = self.lowerer.context_key("svelte", crate::syntax::arg_expr(key))?;
+          let value = self.lowerer.expr(crate::syntax::arg_expr(value))?;
           self.lowerer.provided.push((key, value));
           Ok(())
         }
-        js::Expr::Call(_) => match self.lowerer.expr(&e.expr) {
+        js::Expression::CallExpression(_) => match self.lowerer.expr(&e.expression) {
           Ok(call) => {
             let name = self.lowerer.temp();
             self.lets.push(Stmt::Let { name, expr: call });
@@ -543,8 +556,8 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         },
         _ => Err(self.statement_residue(e.span)),
       },
-      js::Stmt::Labeled(labeled) if !runes && labeled.label.sym == "$" => self.reactive(labeled),
-      js::Stmt::Empty(_) => Ok(()),
+      js::Statement::LabeledStatement(labeled) if !runes && labeled.label.name == "$" => self.reactive(labeled),
+      js::Statement::EmptyStatement(_) => Ok(()),
       other => Err(self.statement_residue(other.span())),
     }
   }
@@ -554,22 +567,26 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// cannot lower (or that is `async` and so answers a promise) is the
   /// browser's: read as a value it is a function that renders nothing, which
   /// is all a handler passed to a child is on the server.
-  fn function(&mut self, f: &'p js::FnDecl) {
-    let name = f.ident.sym.to_string();
-    if f.function.is_async || f.function.is_generator {
+  fn function(&mut self, f: &'p js::Function<'p>) {
+    let name = f.id.as_ref().map(|id| id.name.to_string()).unwrap_or_default();
+    if f.r#async || f.generator {
       self.lowerer.browser_functions.push(name);
       return;
     }
-    if f.function.body.as_ref().is_some_and(|body| !body.stmts.is_empty() && body.stmts.iter().all(browser_only_call)) {
-      let params = f.function.params.iter().map(|p| match &p.pat {
-        js::Pat::Ident(id) => id.id.sym.to_string(),
-        _ => self.lowerer.temp(),
+    if f.body.as_ref().is_some_and(|body| !body.statements.is_empty() && body.statements.iter().all(browser_only_call)) {
+      let params = crate::params_of(&f.params).iter().map(|p| match p.ident() {
+        Some(id) => id.name.to_string(),
+        None => self.lowerer.temp(),
       }).collect();
       self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Lambda { params, body: Box::new(Expr::Lit(Lit::Null)) } });
       self.bind(name.clone(), Expr::Var(name));
       return;
     }
-    let value = js::Expr::Fn(js::FnExpr { ident: None, function: f.function.clone() });
+    let build = self.lowerer.build();
+    let mut function = build.copy(f);
+    function.id = None;
+    function.r#type = js::FunctionType::FunctionExpression;
+    let value = js::Expression::FunctionExpression(build.boxed(function));
     let before = self.lowerer.scope.len();
     let lowered = self.lowerer.expr(&value);
     self.lowerer.scope.truncate(before);
@@ -595,19 +612,19 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// Whether `name`, which the template awaits, holds a promise: its value,
   /// under `$state` or `$derived` when it is wrapped in one, is a call other
   /// than a rune that the build cannot lower. Svelte's server writes the pending branch for it.
-  fn promised(&mut self, name: &str, init: &'p js::Expr) -> bool {
+  fn promised(&mut self, name: &str, init: &'p js::Expression<'p>) -> bool {
     if !self.awaited.iter().any(|awaited| awaited == name) {
       return false;
     }
     let value = match unwrap_types(init) {
-      js::Expr::Call(call) if matches!(callee_name(call).as_deref(), Some("$state" | "$state.raw" | "$derived")) => match call.args.first() {
-        Some(arg) => &*arg.expr,
+      js::Expression::CallExpression(call) if matches!(callee_name(call).as_deref(), Some("$state" | "$state.raw" | "$derived")) => match call.arguments.first() {
+        Some(arg) => crate::syntax::arg_expr(arg),
         None => return false,
       },
       other => other,
     };
     match unwrap_types(value) {
-      js::Expr::Call(call) if !callee_name(call).is_some_and(|name| name.starts_with('$')) => {}
+      js::Expression::CallExpression(call) if !callee_name(call).is_some_and(|name| name.starts_with('$')) => {}
       _ => return false,
     }
     let before = self.lowerer.scope.len();
@@ -620,36 +637,43 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// Whether a prop's expression is a function written out, which on the
   /// server is a handler the child runs in the browser.
   fn is_function(&self, code: &Code) -> bool {
-    self.lowerer.parsed.parse_expr_at(&code.code, code.at.0, code.at.1).is_ok_and(|e| matches!(unwrap_types(&e), js::Expr::Arrow(_) | js::Expr::Fn(_)))
+    self.lowerer.parsed.parse_expr_at(&code.code, code.at.0, code.at.1).is_ok_and(|e| matches!(unwrap_types(&e), js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)))
   }
 
   /// `store.subscribe(fn)` at the top of a script: Svelte's server calls `fn`
   /// with the store's value as it subscribes, so its writes hold for the render.
-  fn subscription(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
+  fn subscription(&mut self, call: &'p js::CallExpression<'p>) -> Lowered<()> {
     let (store, callback) = subscribed(call).expect("checked by the caller");
     let value = self.lowerer.expr(store)?;
-    let (params, body): (Vec<&js::Pat>, Vec<js::Stmt>) = match unwrap_types(callback) {
-      js::Expr::Arrow(arrow) => (arrow.params.iter().collect(), match &*arrow.body {
-        js::ArrowFunctionBody::FunctionBody(block) => block.stmts.clone(),
-        js::ArrowFunctionBody::Expr(e) => vec![js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })],
+    let build = crate::syntax::Build::new(self.lowerer.parsed.arena());
+    let (params, body): (&js::FormalParameters, &[js::Statement]) = match unwrap_types(callback) {
+      js::Expression::ArrowFunctionExpression(arrow) => (&arrow.params, match &arrow.body {
+        js::ArrowFunctionBody::FunctionBody(block) => &block.statements[..],
+        e => {
+          let e = e.as_expression().expect("an arrow body is a block or an expression");
+          &build.alloc(build.vec([build.expr_stmt(build.copy(e))]))[..]
+        }
       }),
-      js::Expr::Fn(f) => (f.function.params.iter().map(|p| &p.pat).collect(), f.function.body.as_ref().map(|b| b.stmts.clone()).unwrap_or_default()),
+      js::Expression::FunctionExpression(f) => (&f.params, f.body.as_ref().map(|b| &b.statements[..]).unwrap_or_default()),
       _ => return Err(self.lowerer.residue(call.span, "a `subscribe` callback that is not a function written out")),
     };
     let scope_before = self.lowerer.scope.len();
-    if let Some(js::Pat::Ident(param)) = params.first() {
-      let name = param.id.sym.to_string();
+    if let Some(param) = crate::first_param(params).and_then(|p| match p.pattern {
+      js::BindingPattern::BindingIdentifier(id) if !p.rest => Some(id),
+      _ => None,
+    }) {
+      let name = param.name.to_string();
       self.lets.push(Stmt::Let { name: name.clone(), expr: value });
       self.bind(name.clone(), Expr::Var(name));
     }
-    let lowered = self.lowerer.block(&body);
+    let lowered = self.lowerer.block(body);
     self.lowerer.scope.truncate(scope_before);
     let ran = self.lowerer.temp();
     self.lets.push(Stmt::Let { name: ran, expr: Expr::Block(lowered?) });
     Ok(())
   }
 
-  fn statement_residue(&self, span: swc_core::common::Span) -> Residue {
+  fn statement_residue(&self, span: oxc_span::Span) -> Residue {
     self.lowerer.residue_with(span, "a statement in a Svelte script the build cannot follow", "a script the build reads is declarations, runes, `useStore` and the calls the browser alone runs: `$effect`, `$inspect`, `onMount` and the other lifecycle functions")
   }
 
@@ -658,11 +682,11 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// statement runs as a block whose writes reach the names declared before
   /// it. A name a `$:` assigns that nothing declares is declared first, as
   /// Svelte does.
-  fn reactive(&mut self, labeled: &'p js::LabeledStmt) -> Lowered<()> {
-    if let js::Stmt::Expr(e) = &*labeled.body {
-      if let js::Expr::Assign(assign) = &*e.expr {
-        if let (Some(js::SimpleAssignTarget::Ident(target)), js::AssignOp::Assign) = (assign.left.as_simple(), assign.op) {
-          let name = target.id.sym.to_string();
+  fn reactive(&mut self, labeled: &'p js::LabeledStatement<'p>) -> Lowered<()> {
+    if let js::Statement::ExpressionStatement(e) = &labeled.body {
+      if let js::Expression::AssignmentExpression(assign) = &e.expression {
+        if let (js::AssignmentTarget::AssignmentTargetIdentifier(target), js::AssignmentOperator::Assign) = (&assign.left, assign.operator) {
+          let name = target.name.to_string();
           let expr = self.lowerer.expr(&assign.right)?;
           self.lets.push(Stmt::Let { name: name.clone(), expr });
           self.bind(format!("${name}"), Expr::Var(name.clone()));
@@ -671,13 +695,13 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         }
       }
     }
-    if let js::Stmt::Expr(e) = &*labeled.body {
-      if let js::Expr::Assign(assign) = unwrap_types(&e.expr) {
-        if let (js::AssignTarget::Pat(target), js::AssignOp::Assign) = (&assign.left, assign.op) {
+    if let js::Statement::ExpressionStatement(e) = &labeled.body {
+      if let js::Expression::AssignmentExpression(assign) = unwrap_types(&e.expression) {
+        let pattern = assign.left.as_assignment_target_pattern().filter(|_| assign.operator == js::AssignmentOperator::Assign);
+        if let Some(pat) = pattern.and_then(|target| crate::syntax::target_pattern(crate::syntax::Build::new(self.lowerer.parsed.arena()), target)) {
           let holder = self.lowerer.temp();
           let value = self.lowerer.expr(&assign.right)?;
           self.lets.push(Stmt::Let { name: holder.clone(), expr: value });
-          let pat: js::Pat = target.clone().into();
           let before = self.lowerer.scope.len();
           crate::component::bind_pattern(&mut self.lowerer, &pat, Expr::Var(holder))?;
           let bound: Vec<(String, Expr)> = self.lowerer.scope.drain(before..).collect();
@@ -699,8 +723,8 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         self.bind(name.clone(), Expr::Var(name));
       }
     }
-    let body = match &*labeled.body {
-      js::Stmt::Block(block) => self.lowerer.block(&block.stmts)?,
+    let body = match &labeled.body {
+      js::Statement::BlockStatement(block) => self.lowerer.block(&block.body)?,
       stmt => self.lowerer.block(std::slice::from_ref(stmt))?,
     };
     let ran = self.lowerer.temp();
@@ -709,10 +733,10 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   /// `export let a = 1` in Svelte 4: the prop, else its default.
-  fn export_lets(&mut self, var: &'p js::VarDecl) -> Lowered<()> {
-    for decl in &var.decls {
-      let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "an exported prop that is not a name")) };
-      let name = name.id.sym.to_string();
+  fn export_lets(&mut self, var: &'p js::VariableDeclaration<'p>) -> Lowered<()> {
+    for decl in &var.declarations {
+      let js::BindingPattern::BindingIdentifier(name) = &decl.id else { return Err(self.lowerer.residue(decl.span, "an exported prop that is not a name")) };
+      let name = name.name.to_string();
       let read = Expr::var(PROPS).field(name.clone());
       self.prop_keys.push((name.clone(), name.clone()));
       let expr = match &decl.init {
@@ -726,17 +750,17 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     Ok(())
   }
 
-  fn declaration(&mut self, var: &'p js::VarDecl, runes: bool) -> Lowered<()> {
-    for decl in &var.decls {
-      if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
-        let name = id.id.sym.to_string();
+  fn declaration(&mut self, var: &'p js::VariableDeclaration<'p>, runes: bool) -> Lowered<()> {
+    for decl in &var.declarations {
+      if let (js::BindingPattern::BindingIdentifier(id), Some(init)) = (&decl.id, decl.init.as_ref()) {
+        let name = id.name.to_string();
         if self.promised(&name, init) {
           self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Lit(Lit::Null) });
           self.promises.push(name.clone());
           self.bind(name.clone(), Expr::Var(name));
           continue;
         }
-        if let js::Expr::Call(call) = unwrap_types(init) {
+        if let js::Expression::CallExpression(call) = unwrap_types(init) {
           if subscribed(call).is_some() {
             self.subscription(call)?;
             self.lowerer.browser_functions.push(name);
@@ -746,9 +770,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         if self.lowerer.bind_formatter(&name, init) {
           continue;
         }
-        if let js::Expr::New(made) = unwrap_types(init) {
+        if let js::Expression::NewExpression(made) = unwrap_types(init) {
           let class = match unwrap_types(&made.callee) {
-            js::Expr::Ident(id) => self.classes.iter().rev().find(|(declared, _)| *declared == *id.sym).map(|(_, class)| *class),
+            js::Expression::Identifier(id) => self.classes.iter().rev().find(|(declared, _)| *declared == id.name.as_str()).map(|(_, class)| *class),
             _ => None,
           };
           if let Some(class) = class {
@@ -757,9 +781,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           }
         }
       }
-      let Some(init) = decl.init.as_deref() else {
-        if let js::Pat::Ident(name) = &decl.name {
-          let name = name.id.sym.to_string();
+      let Some(init) = decl.init.as_ref() else {
+        if let js::BindingPattern::BindingIdentifier(name) = &decl.id {
+          let name = name.name.to_string();
           self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Lit(Lit::Null) });
           self.bind(name.clone(), Expr::Var(name));
           continue;
@@ -768,22 +792,22 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       };
       let init = unwrap_types(init);
       let called = match init {
-        js::Expr::Call(call) => callee_name(call),
+        js::Expression::CallExpression(call) => callee_name(call),
         _ => None,
       };
-      match (called.as_deref(), &decl.name) {
-        (Some("$props"), js::Pat::Object(obj)) if runes => {
-          let obj = without_bindable(obj);
-          let rest = obj.props.iter().any(|p| matches!(p, js::ObjectPatProp::Rest(_)));
-          for prop in &obj.props {
+      match (called.as_deref(), &decl.id) {
+        (Some("$props"), js::BindingPattern::ObjectPattern(obj)) if runes => {
+          let obj = without_bindable(crate::syntax::Build::new(self.lowerer.parsed.arena()), obj);
+          let rest = obj.rest.is_some();
+          for prop in crate::syntax::pat_props(&obj) {
             match prop {
-              js::ObjectPatProp::Assign(a) => self.prop_keys.push((a.key.id.sym.to_string(), a.key.id.sym.to_string())),
-              js::ObjectPatProp::KeyValue(kv) => {
-                if let (Some(key), js::Pat::Ident(local)) = (crate::prop_name(&kv.key), unwrap_assign(&kv.value)) {
-                  self.prop_keys.push((local.id.sym.to_string(), key));
+              crate::syntax::PatProp::Assign(a) => self.prop_keys.push((a.key.name.to_string(), a.key.name.to_string())),
+              crate::syntax::PatProp::KeyValue(kv) => {
+                if let (Some(key), js::BindingPattern::BindingIdentifier(local)) = (crate::prop_name(&kv.key, kv.computed), unwrap_assign(&kv.value)) {
+                  self.prop_keys.push((local.name.to_string(), key));
                 }
               }
-              js::ObjectPatProp::Rest(_) => {}
+              crate::syntax::PatProp::Rest(_) => {}
             }
           }
           bind_object(&mut self.lowerer, &obj, if rest { Expr::Var("$props".to_owned()) } else { Expr::var(PROPS) })?;
@@ -794,12 +818,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
             }
           }
         }
-        (Some("$props"), js::Pat::Ident(name)) if runes => self.bind(name.id.sym.to_string(), Expr::Var("$props".to_owned())),
+        (Some("$props"), js::BindingPattern::BindingIdentifier(name)) if runes => self.bind(name.name.to_string(), Expr::Var("$props".to_owned())),
         (Some("$props"), other) if runes => return Err(self.lowerer.residue(other.span(), "`$props()` bound to a pattern the build does not read")),
-        (Some(rune), js::Pat::Ident(name)) if runes && rune.starts_with('$') => {
-          let name = name.id.sym.to_string();
-          let js::Expr::Call(call) = init else { unreachable!("a rune is a call") };
-          let arg = call.args.first().map(|a| &*a.expr);
+        (Some(rune), js::BindingPattern::BindingIdentifier(name)) if runes && rune.starts_with('$') => {
+          let name = name.name.to_string();
+          let js::Expression::CallExpression(call) = init else { unreachable!("a rune is a call") };
+          let arg = call.arguments.first().map(|a| crate::syntax::arg_expr(a));
           let expr = match rune {
             "$state" | "$state.raw" => match arg {
               Some(arg) => self.lowerer.expr(arg)?,
@@ -810,9 +834,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
               None => return Err(self.lowerer.residue(call.span, "`$derived` without a value")),
             },
             "$derived.by" => match arg.map(unwrap_types) {
-              Some(js::Expr::Arrow(arrow)) if arrow.params.is_empty() => match &*arrow.body {
-                js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e)?,
-                js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts)?,
+              Some(js::Expression::ArrowFunctionExpression(arrow)) if crate::params_of(&arrow.params).is_empty() => match &arrow.body {
+                js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.statements)?,
+                e => self.lowerer.expr(e.as_expression().expect("an arrow body is a block or an expression"))?,
               },
               Some(f) => Expr::Apply { f: Box::new(self.lowerer.expr(f)?), args: Vec::new() },
               None => return Err(self.lowerer.residue(call.span, "`$derived.by` without a function")),
@@ -836,9 +860,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           }
           self.bind(name.clone(), Expr::Var(name));
         }
-        (_, js::Pat::Ident(name)) => self.binding(name.id.sym.to_string(), init, decl.span, runes)?,
+        (_, js::BindingPattern::BindingIdentifier(name)) => self.binding(name.name.to_string(), init, decl.span, runes)?,
         (_, pattern) => {
-          if matches!(unwrap_types(init), js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+          if matches!(unwrap_types(init), js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)) {
             continue;
           }
           let holder = self.lowerer.temp();
@@ -861,18 +885,18 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     Ok(())
   }
 
-  fn binding(&mut self, name: String, init: &'p js::Expr, span: swc_core::common::Span, runes: bool) -> Lowered<()> {
-    if let js::Expr::Call(call) = init {
+  fn binding(&mut self, name: String, init: &'p js::Expression<'p>, span: oxc_span::Span, runes: bool) -> Lowered<()> {
+    if let js::Expression::CallExpression(call) = init {
       if let Some(hook) = self.adapter_hook(call) {
         match hook {
           "useStore" => {
-            let Some(first) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`useStore` without a key")) };
-            let key = match self.lowerer.expr(&first.expr)? {
+            let Some(first) = call.arguments.first() else { return Err(self.lowerer.residue(call.span, "`useStore` without a key")) };
+            let key = match self.lowerer.expr(crate::syntax::arg_expr(first))? {
               Expr::Lit(Lit::Str(key)) => key,
-              _ => return Err(self.lowerer.residue(first.expr.span(), "a `useStore` key that is not a string the build can read")),
+              _ => return Err(self.lowerer.residue(crate::syntax::arg_expr(first).span(), "a `useStore` key that is not a string the build can read")),
             };
-            let initial = match call.args.get(1) {
-              Some(a) => self.lowerer.expr(&a.expr)?,
+            let initial = match call.arguments.get(1) {
+              Some(a) => self.lowerer.expr(crate::syntax::arg_expr(a))?,
               None => Expr::Lit(Lit::Null),
             };
             self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Coalesce(Box::new(Expr::Store(key.clone())), Box::new(initial)) });
@@ -898,7 +922,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         }
       }
     }
-    if matches!(unwrap_types(init), js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+    if matches!(unwrap_types(init), js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)) {
       return Ok(());
     }
     if let Some(picture) = self.picture_call(init, At::Span(init.span()))? {
@@ -932,9 +956,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   /// The adapter function a call names, followed through its import.
-  fn adapter_hook(&self, call: &js::CallExpr) -> Option<&'static str> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Ident(id) = &**callee else { return None };
+  fn adapter_hook(&self, call: &js::CallExpression) -> Option<&'static str> {
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = callee else { return None };
     self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).and_then(|meant| meant.hook())
   }
 
@@ -1127,17 +1151,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let mut parsed = self.lowerer.parsed.parse_expr_at(code, line, column).map_err(|message| self.at(line, column, format!("`{}`: {message}", code.trim())))?;
     self.to_top_level(&mut parsed);
     let (callee, args) = match unwrap_types(&parsed) {
-      js::Expr::Call(call) => match &call.callee {
-        js::Callee::Expr(callee) => (&**callee, &call.args[..]),
-        _ => return Ok(None),
-      },
-      js::Expr::New(made) => (&*made.callee, made.args.as_deref().unwrap_or_default()),
+      js::Expression::CallExpression(call) => (&call.callee, &call.arguments[..]),
+      js::Expression::NewExpression(made) => (&made.callee, &made.arguments[..]),
       _ => return Ok(None),
     };
-    let js::Expr::Ident(id) = unwrap_types(callee) else { return Ok(None) };
-    let global = self.lowerer.meanings.as_ref().is_none_or(|meanings| id.ctxt == meanings.unresolved);
+    let js::Expression::Identifier(id) = unwrap_types(callee) else { return Ok(None) };
+    let global = self.lowerer.meanings.is_none() || self.lowerer.parsed.ctxt(id) == crate::Ctxt::Unresolved;
     match args {
-      [length] if id.sym.as_ref() == "Array" && global && length.spread.is_none() => Ok(Some(self.lowerer.expr(&length.expr)?)),
+      [length] if id.name.as_str() == "Array" && global && !crate::syntax::is_spread(length) => Ok(Some(self.lowerer.expr(crate::syntax::arg_expr(length))?)),
       _ => Ok(None),
     }
   }
@@ -1289,23 +1310,23 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// The names an expression reads (with `declared` the names an arrow's parameters bind).
   fn names_in(&self, code: &str, declared: bool) -> Vec<String> {
     struct Names(Vec<String>, bool);
-    impl swc_core::ecma::visit::Visit for Names {
-      fn visit_ident(&mut self, id: &js::Ident) {
+    impl<'a> oxc_ast_visit::Visit<'a> for Names {
+      fn visit_identifier_reference(&mut self, id: &js::IdentifierReference<'a>) {
         if !self.1 {
-          self.0.push(id.sym.to_string());
+          self.0.push(id.name.to_string());
         }
       }
-      fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
+      fn visit_binding_identifier(&mut self, id: &js::BindingIdentifier<'a>) {
         if self.1 {
-          self.0.push(id.id.sym.to_string());
+          self.0.push(id.name.to_string());
         }
       }
     }
     let Ok(parsed) = self.lowerer.parsed.parse_expr_at(code, 1, 1) else { return Vec::new() };
     let mut names = Names(Vec::new(), declared);
-    match (&*parsed, declared) {
-      (js::Expr::Arrow(arrow), true) => arrow.params.visit_with(&mut names),
-      (expr, _) => expr.visit_with(&mut names),
+    match (&parsed, declared) {
+      (js::Expression::ArrowFunctionExpression(arrow), true) => arrow.params.walk(&mut names),
+      (expr, _) => expr.walk(&mut names),
     }
     names.0
   }
@@ -1322,9 +1343,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let (line, column) = code.at;
     let wrapped = format!("({text}) => 0");
     let parsed = self.lowerer.parsed.parse_expr_at(&wrapped, line, column.saturating_sub(1).max(1)).map_err(|message| self.at(line, column, format!("`{text}`: {message}")))?;
-    let js::Expr::Arrow(arrow) = &*parsed else { return Err(self.at(line, column, format!("`{text}`, a pattern the build does not read"))) };
-    let Some(pat) = arrow.params.first() else { return Err(self.at(line, column, format!("`{text}`, a pattern the build does not read"))) };
-    crate::component::bind_pattern(&mut self.lowerer, pat, Expr::Var(holder.to_owned()))
+    let js::Expression::ArrowFunctionExpression(arrow) = &parsed else { return Err(self.at(line, column, format!("`{text}`, a pattern the build does not read"))) };
+    let Some(param) = crate::params_of(&arrow.params).into_iter().next() else { return Err(self.at(line, column, format!("`{text}`, a pattern the build does not read"))) };
+    crate::component::bind_param(&mut self.lowerer, &param, Expr::Var(holder.to_owned()))
   }
 
   /// The variable a template binding is held in: its own name (a fresh one for a pattern).
@@ -1472,7 +1493,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
 
   /// An FSR component as the shared placement writes it, with the anchors `svelte/server` writes for the Svelte component of that name the build supplies.
   fn placed_component(&mut self, placement: &'static str, attrs: &[Attr], fragment: &Fragment, at: (usize, usize)) -> Lowered<Tmpl> {
-    let mut placed: Vec<placements::Attr<'static>> = Vec::new();
+    let mut placed: Vec<placements::Attr<'_>> = Vec::new();
     for attr in attrs {
       match attr {
         Attr::Attr { name, value, at } => {
@@ -1483,7 +1504,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
               [Part::Text { text }] => placements::Value::Text(text.clone()),
               [Part::Code(code)] => {
                 let expr = self.lowerer.parsed.parse_expr_at(&code.code, code.at.0, code.at.1).map_err(|message| self.at(code.at.0, code.at.1, format!("`{}`: {message}", code.code.trim())))?;
-                placements::Value::Script(std::borrow::Cow::Owned(*expr))
+                placements::Value::Script(self.lowerer.parsed.arena().alloc(expr))
               }
               _ => return Err(self.at(at.0, at.1, format!("an attribute of text and expressions on `<{placement}>`"))),
             },
@@ -1492,7 +1513,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         }
         Attr::Spread { code, at } => {
           let expr = self.lowerer.parsed.parse_expr_at(code, at.0, at.1).map_err(|message| self.at(at.0, at.1, format!("`{}`: {message}", code.trim())))?;
-          placed.push(placements::Attr { name: String::new(), value: placements::Value::Spread(std::borrow::Cow::Owned(*expr)), at: At::Line(at.0, at.1) });
+          placed.push(placements::Attr { name: String::new(), value: placements::Value::Spread(self.lowerer.parsed.arena().alloc(expr)), at: At::Line(at.0, at.1) });
         }
         Attr::Attach { at, .. } | Attr::Directive { at, .. } => return Err(self.at(at.0, at.1, format!("a directive on `<{placement}>`"))),
       }
@@ -1664,15 +1685,16 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   /// The adapter placement a spread calls, `link({ href })`, with its options object.
-  fn placement_spread(&mut self, code: &str, at: (usize, usize)) -> Lowered<Option<(&'static str, Box<js::Expr>)>> {
+  fn placement_spread(&mut self, code: &str, at: (usize, usize)) -> Lowered<Option<(&'static str, &'p js::Expression<'p>)>> {
     let parsed = self.lowerer.parsed.parse_expr_at(code, at.0, at.1).map_err(|message| self.at(at.0, at.1, format!("`{}`: {message}", code.trim())))?;
-    let js::Expr::Call(call) = &*parsed else { return Ok(None) };
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    let js::Expr::Ident(id) = &**callee else { return Ok(None) };
-    let meaning = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(id.sym.as_ref())).and_then(|meant| meant.placement());
+    let parsed: &'p js::Expression<'p> = self.lowerer.parsed.arena().alloc(parsed);
+    let js::Expression::CallExpression(call) = parsed else { return Ok(None) };
+    let callee = &call.callee;
+    let js::Expression::Identifier(id) = callee else { return Ok(None) };
+    let meaning = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(id.name.as_str())).and_then(|meant| meant.placement());
     let Some(placement) = meaning else { return Ok(None) };
-    match call.args.first() {
-      Some(arg) => Ok(Some((placement, arg.expr.clone()))),
+    match call.arguments.first() {
+      Some(arg) => Ok(Some((placement, crate::syntax::arg_expr(arg)))),
       None => Err(self.at(at.0, at.1, format!("`{placement}()` without its options"))),
     }
   }
@@ -1680,17 +1702,17 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// `<a {...link({ href })} class="x">`: the options and the element's own
   /// attributes as one `Link` placement, which writes the marks the
   /// navigator reads the way the adapter's `link` does in the browser.
-  fn link_element(&mut self, options: &js::Expr, attrs: &[Attr], fragment: &Fragment, at: (usize, usize)) -> Lowered<Tmpl> {
-    let js::Expr::Object(object) = options else { return Err(self.at(at.0, at.1, "`link()` options that are not an object literal")) };
-    let mut placed: Vec<placements::Attr<'static>> = Vec::new();
-    for prop in &object.props {
-      let js::PropOrSpread::Prop(prop) = prop else { return Err(self.at(at.0, at.1, "a spread in `link()` options")) };
-      let (name, value) = match &**prop {
-        js::Prop::KeyValue(kv) => (crate::prop_name(&kv.key).ok_or_else(|| self.at(at.0, at.1, "a computed key in `link()` options"))?, kv.value.clone()),
-        js::Prop::Shorthand(id) => (id.sym.to_string(), Box::new(js::Expr::Ident(id.clone()))),
+  fn link_element(&mut self, options: &js::Expression, attrs: &[Attr], fragment: &Fragment, at: (usize, usize)) -> Lowered<Tmpl> {
+    let js::Expression::ObjectExpression(object) = options else { return Err(self.at(at.0, at.1, "`link()` options that are not an object literal")) };
+    let mut placed: Vec<placements::Attr<'_>> = Vec::new();
+    for prop in &object.properties {
+      let js::ObjectPropertyKind::ObjectProperty(prop) = prop else { return Err(self.at(at.0, at.1, "a spread in `link()` options")) };
+      let name = match crate::syntax::prop_of(prop) {
+        crate::syntax::Prop::KeyValue(kv) => crate::prop_name(&kv.key, kv.computed).ok_or_else(|| self.at(at.0, at.1, "a computed key in `link()` options"))?,
+        crate::syntax::Prop::Shorthand(id) => id.name.to_string(),
         _ => return Err(self.at(at.0, at.1, "a `link()` option that is not `key: value`")),
       };
-      placed.push(placements::Attr { name, value: placements::Value::Script(std::borrow::Cow::Owned(*value)), at: At::Line(at.0, at.1) });
+      placed.push(placements::Attr { name, value: placements::Value::Script(&prop.value), at: At::Line(at.0, at.1) });
     }
     let mut extra: Vec<Entry> = Vec::new();
     for attr in attrs {
@@ -1723,7 +1745,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     for attr in attrs {
       if let Attr::Spread { code, at: spread_at } = attr {
         match self.placement_spread(code, *spread_at)? {
-          Some(("link", options)) if name == "a" => return self.link_element(&options, attrs, fragment, *at),
+          Some(("link", options)) if name == "a" => return self.link_element(options, attrs, fragment, *at),
           Some((placement, _)) => return Err(self.at(spread_at.0, spread_at.1, format!("a `{placement}()` spread on `<{name}>`"))),
           None => {}
         }
@@ -2068,13 +2090,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     };
     let parsed = self.lowerer.parsed.parse_expr_at(code, at.0, at.1).map_err(|message| self.at(at.0, at.1, format!("`{}`: {message}", code.trim())))?;
     match unwrap_types(&parsed) {
-      js::Expr::Seq(seq) if !seq.exprs.is_empty() => match unwrap_types(&seq.exprs[0]) {
-        js::Expr::Arrow(arrow) if arrow.params.is_empty() => match &*arrow.body {
-          js::ArrowFunctionBody::Expr(body) => Ok((self.lowerer.expr(body)?, true)),
-          js::ArrowFunctionBody::FunctionBody(block) => Ok((crate::component::block_to_expr(&mut self.lowerer, &block.stmts)?, true)),
+      js::Expression::SequenceExpression(seq) if !seq.expressions.is_empty() => match unwrap_types(&seq.expressions[0]) {
+        js::Expression::ArrowFunctionExpression(arrow) if arrow.params.items.is_empty() && arrow.params.rest.is_none() => match &arrow.body {
+          js::ArrowFunctionBody::FunctionBody(block) => Ok((crate::component::block_to_expr(&mut self.lowerer, &block.statements)?, true)),
+          body => Ok((self.lowerer.expr(body.as_expression().expect("an arrow body is a block or an expression"))?, true)),
         },
-        _ => {
-          let call = js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(seq.exprs[0].clone()), ..Default::default() });
+        getter => {
+          let build = crate::syntax::Build::new(self.lowerer.parsed.arena());
+          let call = js::Expression::new_call_expression(getter.span(), build.copy(getter), None, build.vec([]), false, &build.ast());
           Ok((self.lowerer.expr(&call)?, true))
         }
       },
@@ -2362,9 +2385,9 @@ fn slot_name(prop: &str) -> &str {
   if prop == "children" { "default" } else { prop }
 }
 
-fn unwrap_assign(pat: &js::Pat) -> &js::Pat {
+fn unwrap_assign<'e>(pat: &'e js::BindingPattern<'e>) -> &'e js::BindingPattern<'e> {
   match pat {
-    js::Pat::Assign(assign) => &assign.left,
+    js::BindingPattern::AssignmentPattern(assign) => &assign.left,
     other => other,
   }
 }
@@ -2591,160 +2614,173 @@ fn awaited_names(template: &serde_json::Value, out: &mut Vec<String>) {
 
 /// `$inspect(…).with(…)`, which only the browser runs.
 /// A statement that is a call only the browser runs: an effect, a lifecycle function or `$inspect`.
-fn browser_only_call(stmt: &js::Stmt) -> bool {
+fn browser_only_call(stmt: &js::Statement) -> bool {
   match stmt {
-    js::Stmt::Expr(e) => match &*e.expr {
-      js::Expr::Call(call) => callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call),
+    js::Statement::ExpressionStatement(e) => match &e.expression {
+      js::Expression::CallExpression(call) => callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call),
       _ => false,
     },
     _ => false,
   }
 }
 
-fn inspects(call: &js::CallExpr) -> bool {
-  let js::Callee::Expr(callee) = &call.callee else { return false };
-  let js::Expr::Member(member) = &**callee else { return false };
-  matches!(&*member.obj, js::Expr::Call(inner) if callee_name(inner).as_deref() == Some("$inspect"))
+fn inspects(call: &js::CallExpression) -> bool {
+  let callee = &call.callee;
+  let Some(member) = (callee).as_member_expression() else { return false };
+  matches!(member.object(), js::Expression::CallExpression(inner) if callee_name(inner).as_deref() == Some("$inspect"))
 }
 
 /// `name.subscribe(fn)`: the store and the function.
-fn subscribed(call: &js::CallExpr) -> Option<(&js::Expr, &js::Expr)> {
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Member(member) = &**callee else { return None };
-  let js::MemberProp::Ident(prop) = &member.prop else { return None };
-  if prop.sym != "subscribe" || call.args.len() != 1 || !matches!(&*member.obj, js::Expr::Ident(_)) {
+fn subscribed<'e>(call: &'e js::CallExpression<'e>) -> Option<(&'e js::Expression<'e>, &'e js::Expression<'e>)> {
+  let callee = &call.callee;
+  let Some(member) = (callee).as_member_expression() else { return None };
+  let crate::syntax::MemberProp::Ident(prop) = crate::syntax::prop(member) else { return None };
+  if prop.name != "subscribe" || call.arguments.len() != 1 || !matches!(member.object(), js::Expression::Identifier(_)) {
     return None;
   }
-  Some((&member.obj, &call.args[0].expr))
+  Some((member.object(), crate::syntax::arg_expr(&call.arguments[0])))
 }
 
 /// Each name an assignment in `stmt` writes, its patterns included.
-fn assigned_names(stmt: &js::Stmt, out: &mut Vec<String>) {
+fn assigned_names(stmt: &js::Statement, out: &mut Vec<String>) {
   struct Assigned<'o>(&'o mut Vec<String>);
-  impl swc_core::ecma::visit::Visit for Assigned<'_> {
-    fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
+  impl<'a> oxc_ast_visit::Visit<'a> for Assigned<'_> {
+    fn visit_assignment_expression(&mut self, assign: &js::AssignmentExpression<'a>) {
       match &assign.left {
-        js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.0.push(id.id.sym.to_string()),
-        js::AssignTarget::Pat(pat) => {
-          struct Bound<'o>(&'o mut Vec<String>);
-          impl swc_core::ecma::visit::Visit for Bound<'_> {
-            fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
-              self.0.push(id.id.sym.to_string());
+        js::AssignmentTarget::AssignmentTargetIdentifier(id) => self.0.push(id.name.to_string()),
+        target => {
+          if let Some(pattern) = target.as_assignment_target_pattern() {
+            struct Bound<'o>(&'o mut Vec<String>);
+            impl<'a> oxc_ast_visit::Visit<'a> for Bound<'_> {
+              fn visit_simple_assignment_target(&mut self, target: &js::SimpleAssignmentTarget<'a>) {
+                if let js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) = target {
+                  self.0.push(id.name.to_string());
+                }
+              }
+              fn visit_assignment_target_property_identifier(&mut self, prop: &js::AssignmentTargetPropertyIdentifier<'a>) {
+                self.0.push(prop.binding.name.to_string());
+              }
+              fn visit_expression(&mut self, _: &js::Expression<'a>) {}
             }
-            fn visit_expr(&mut self, _: &js::Expr) {}
+            oxc_ast_visit::Visit::visit_assignment_target_pattern(&mut Bound(self.0), pattern);
           }
-          pat.visit_with(&mut Bound(self.0));
         }
-        _ => {}
       }
-      assign.right.visit_with(self);
+      self.visit_expression(&assign.right);
     }
   }
-  stmt.visit_with(&mut Assigned(out));
+  oxc_ast_visit::Visit::visit_statement(&mut Assigned(out), stmt);
 }
 
 /// Gives a template expression's free names the script's top-level context,
 /// which is what they name in Svelte's scope, so the library ones read by
 /// what they are bound to. A name the template binds keeps its own.
-struct TopLevel<'m> {
-  top: swc_core::common::SyntaxContext,
-  unresolved: swc_core::common::SyntaxContext,
+struct TopLevel<'m, 'a> {
+  scope: &'m crate::scope::Scope,
+  build: crate::syntax::Build<'a>,
   local: Vec<String>,
   module: &'m [String],
 }
 
-/// The names `module` binds at its top level: those of its identifiers swc's resolver gave the top-level context.
-fn top_level_names(module: &js::Module, top: swc_core::common::SyntaxContext) -> Vec<String> {
-  struct Names(swc_core::common::SyntaxContext, Vec<String>);
-  impl swc_core::ecma::visit::Visit for Names {
-    fn visit_ident(&mut self, id: &js::Ident) {
-      if id.ctxt == self.0 && !self.1.iter().any(|name| *name == *id.sym) {
-        self.1.push(id.sym.to_string());
+/// The names `parsed` binds at its top level: each identifier semantic analysis resolved to a module-level binding.
+fn top_level_names(parsed: &crate::Parsed) -> Vec<String> {
+  struct Names<'s>(&'s crate::scope::Scope, Vec<String>);
+  impl Names<'_> {
+    fn note(&mut self, name: &str) {
+      if !self.1.iter().any(|n| n == name) {
+        self.1.push(name.to_owned());
       }
     }
   }
-  let mut names = Names(top, Vec::new());
-  swc_core::ecma::visit::VisitWith::visit_with(module, &mut names);
+  impl<'a> oxc_ast_visit::Visit<'a> for Names<'_> {
+    fn visit_identifier_reference(&mut self, id: &js::IdentifierReference<'a>) {
+      if self.0.of(id) == crate::scope::Ctxt::Top {
+        self.note(&id.name);
+      }
+    }
+    fn visit_binding_identifier(&mut self, id: &js::BindingIdentifier<'a>) {
+      if self.0.of_binding(id) == crate::scope::Ctxt::Top {
+        self.note(&id.name);
+      }
+    }
+  }
+  let mut names = Names(&parsed.scope, Vec::new());
+  oxc_ast_visit::Visit::visit_program(&mut names, parsed.module());
   names.1
 }
 
-impl VisitMut for TopLevel<'_> {
+impl<'a> oxc_ast_visit::VisitMut<'a> for TopLevel<'_, 'a> {
   /// What Svelte's server writes for a rune a template reads:
   /// `$state.snapshot(x)` is `x`, `$effect.tracking()` is `false` and
   /// `$effect.pending()` is `0`.
-  fn visit_mut_expr(&mut self, expr: &mut js::Expr) {
-    if let js::Expr::Call(call) = expr {
+  fn visit_expression(&mut self, expr: &mut js::Expression<'a>) {
+    if let js::Expression::CallExpression(call) = expr {
       let rune = callee_name(call);
+      let span = call.span;
       match rune.as_deref() {
-        Some("$state.snapshot") if call.args.len() == 1 => {
-          *expr = *call.args[0].expr.clone();
+        Some("$state.snapshot") if call.arguments.len() == 1 => {
+          *expr = self.build.copy(crate::syntax::arg_expr(&call.arguments[0]));
         }
-        Some("$effect.tracking") => *expr = js::Expr::Lit(js::Lit::Bool(js::Bool { span: call.span, value: false })),
-        Some("$effect.pending") => *expr = js::Expr::Lit(js::Lit::Num(js::Number { span: call.span, value: 0.0, raw: None })),
+        Some("$effect.tracking") => *expr = self.build.boolean(false, span),
+        Some("$effect.pending") => *expr = js::Expression::new_numeric_literal(span, 0.0, None, oxc_syntax::number::NumberBase::Decimal, &self.build.ast()),
         _ => {}
       }
     }
-    expr.visit_mut_children_with(self);
+    oxc_ast_visit::walk_mut::walk_expression(self, expr);
   }
 
-  fn visit_mut_ident(&mut self, id: &mut js::Ident) {
-    if id.ctxt == swc_core::common::SyntaxContext::empty() && !self.local.iter().any(|name| *name == *id.sym) {
-      id.ctxt = if self.module.iter().any(|name| *name == *id.sym) { self.top } else { self.unresolved };
+  fn visit_identifier_reference(&mut self, id: &mut js::IdentifierReference<'a>) {
+    if self.scope.of(id) == crate::scope::Ctxt::Written && !self.local.iter().any(|name| *name == id.name.as_str()) {
+      if self.module.iter().any(|name| *name == id.name.as_str()) {
+        self.scope.mark_top(id);
+      } else {
+        self.scope.mark_unresolved(id);
+      }
     }
   }
 }
 
-fn callee_name(call: &js::CallExpr) -> Option<String> {
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  match &**callee {
-    js::Expr::Ident(id) => Some(id.sym.to_string()),
-    js::Expr::Member(m) => match (&*m.obj, &m.prop) {
-      (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) => Some(format!("{}.{}", obj.sym, prop.sym)),
+fn callee_name(call: &js::CallExpression) -> Option<String> {
+  let callee = &call.callee;
+  match callee {
+    js::Expression::Identifier(id) => Some(id.name.to_string()),
+    m_expr if m_expr.is_member_expression() => { let m = m_expr.as_member_expression().expect("matched as a member"); match (m.object(), crate::syntax::prop(m)) {
+      (js::Expression::Identifier(obj), crate::syntax::MemberProp::Ident(prop)) => Some(format!("{}.{}", obj.name, prop.name)),
       _ => None,
-    },
+    } },
     _ => None,
   }
 }
 
 /// `{ a = $bindable(1) }` read as `{ a = 1 }`: on the server a bindable prop is a prop.
-fn without_bindable(obj: &js::ObjectPat) -> js::ObjectPat {
-  let mut obj = obj.clone();
-  for prop in &mut obj.props {
-    match prop {
-      js::ObjectPatProp::Assign(assign) => {
-        if let Some(value) = &mut assign.value {
-          unwrap_bindable(value);
-        }
-      }
-      js::ObjectPatProp::KeyValue(kv) => {
-        if let js::Pat::Assign(assign) = &mut *kv.value {
-          unwrap_bindable(&mut assign.right);
-        }
-      }
-      js::ObjectPatProp::Rest(_) => {}
+fn without_bindable<'a>(build: crate::syntax::Build<'a>, obj: &js::ObjectPattern) -> js::ObjectPattern<'a> {
+  let mut obj = build.copy(obj);
+  for prop in obj.properties.iter_mut() {
+    if let js::BindingPattern::AssignmentPattern(assign) = &mut prop.value {
+      unwrap_bindable(build, &mut assign.right);
     }
   }
   obj
 }
 
-fn unwrap_bindable(value: &mut Box<js::Expr>) {
-  let js::Expr::Call(call) = &**value else { return };
+fn unwrap_bindable<'a>(build: crate::syntax::Build<'a>, value: &mut js::Expression<'a>) {
+  let js::Expression::CallExpression(call) = &*value else { return };
   if callee_name(call).as_deref() != Some("$bindable") {
     return;
   }
-  *value = match call.args.first() {
-    Some(arg) => arg.expr.clone(),
-    None => Box::new(js::Expr::Ident(js::Ident::new_no_ctxt("undefined".into(), call.span))),
+  *value = match call.arguments.first() {
+    Some(arg) => build.copy(crate::syntax::arg_expr(arg)),
+    None => build.ident("undefined", call.span),
   };
 }
 
-fn unwrap_types(expr: &js::Expr) -> &js::Expr {
+fn unwrap_types<'e, 'a>(expr: &'e js::Expression<'a>) -> &'e js::Expression<'a> {
   match expr {
-    js::Expr::TsAs(e) => unwrap_types(&e.expr),
-    js::Expr::TsSatisfies(e) => unwrap_types(&e.expr),
-    js::Expr::TsNonNull(e) => unwrap_types(&e.expr),
-    js::Expr::TsTypeAssertion(e) => unwrap_types(&e.expr),
-    js::Expr::Paren(e) => unwrap_types(&e.expr),
+    js::Expression::TSAsExpression(e) => unwrap_types(&e.expression),
+    js::Expression::TSSatisfiesExpression(e) => unwrap_types(&e.expression),
+    js::Expression::TSNonNullExpression(e) => unwrap_types(&e.expression),
+    js::Expression::TSTypeAssertion(e) => unwrap_types(&e.expression),
+    js::Expression::ParenthesizedExpression(e) => unwrap_types(&e.expression),
     other => other,
   }
 }
@@ -2807,27 +2843,27 @@ fn plus(a: Expr, n: i128) -> Expr {
 }
 
 /// The names the script's functions write: every declared function's body and every function a declaration holds, nested functions included.
-fn function_writes(items: &[js::ModuleItem]) -> Vec<String> {
-  let mut bodies: Vec<&[js::Stmt]> = Vec::new();
+fn function_writes(items: &[js::Statement]) -> Vec<String> {
+  let mut bodies: Vec<&[js::Statement]> = Vec::new();
   for item in items {
     let stmt = match item {
-      js::ModuleItem::Stmt(stmt) => stmt,
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => match &export.decl {
-        js::Decl::Fn(f) => {
-          bodies.extend(f.function.body.as_ref().map(|b| b.stmts.as_slice()));
+      js::Statement::ExportDeclaration(export) => match &export.declaration {
+        js::Declaration::FunctionDeclaration(f) => {
+          bodies.extend(f.body.as_ref().map(|b| b.statements.as_slice()));
           continue;
         }
-        js::Decl::Var(var) => {
-          bodies.extend(var.decls.iter().filter_map(|d| d.init.as_deref()).filter_map(function_body));
+        js::Declaration::VariableDeclaration(var) => {
+          bodies.extend(var.declarations.iter().filter_map(|d| d.init.as_ref()).filter_map(function_body));
           continue;
         }
         _ => continue,
       },
-      _ => continue,
+      other if other.is_module_declaration() => continue,
+      stmt => stmt,
     };
     match stmt {
-      js::Stmt::Decl(js::Decl::Fn(f)) => bodies.extend(f.function.body.as_ref().map(|b| b.stmts.as_slice())),
-      js::Stmt::Decl(js::Decl::Var(var)) => bodies.extend(var.decls.iter().filter_map(|d| d.init.as_deref()).filter_map(function_body)),
+      js::Statement::FunctionDeclaration(f) => bodies.extend(f.body.as_ref().map(|b| b.statements.as_slice())),
+      js::Statement::VariableDeclaration(var) => bodies.extend(var.declarations.iter().filter_map(|d| d.init.as_ref()).filter_map(function_body)),
       _ => {}
     }
   }
@@ -2842,12 +2878,12 @@ fn function_writes(items: &[js::ModuleItem]) -> Vec<String> {
   names
 }
 
-fn function_body(init: &js::Expr) -> Option<&[js::Stmt]> {
+fn function_body<'e, 'a>(init: &'e js::Expression<'a>) -> Option<&'e [js::Statement<'a>]> {
   match unwrap_types(init) {
-    js::Expr::Fn(f) => f.function.body.as_ref().map(|b| b.stmts.as_slice()),
-    js::Expr::Arrow(arrow) => match &*arrow.body {
-      js::ArrowFunctionBody::FunctionBody(b) => Some(b.stmts.as_slice()),
-      js::ArrowFunctionBody::Expr(_) => None,
+    js::Expression::FunctionExpression(f) => f.body.as_ref().map(|b| b.statements.as_slice()),
+    js::Expression::ArrowFunctionExpression(arrow) => match &arrow.body {
+      js::ArrowFunctionBody::FunctionBody(b) => Some(b.statements.as_slice()),
+      _ => None,
     },
     _ => None,
   }

@@ -4,15 +4,16 @@
 
 use std::collections::BTreeMap;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, ArrayExpressionElement, BindingPattern, Declaration, Expression, ImportDeclarationSpecifier, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, ModuleExportName, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::{drop_named_import, line_range, tidy};
 use crate::lift::route_kind;
 use crate::relocate::dirname;
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{is_script, jsx_ident, key_value, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) struct Scripts;
@@ -29,7 +30,8 @@ impl Pass for Scripts {
       if !text.contains("next/script") && !text.contains("@next/third-parties/google") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       convert(tree, &path, &text, &parsed, report);
     }
   }
@@ -39,25 +41,25 @@ impl Pass for Scripts {
 /// imported.
 fn imported(parsed: &Parsed) -> BTreeMap<String, String> {
   let mut out = BTreeMap::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    match &*import.src.value.to_string_lossy() {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    match lossy(import.source.value).as_str() {
       "next/script" => {
-        for s in &import.specifiers {
-          if let js::ImportSpecifier::Default(d) = s {
-            out.insert(d.local.sym.to_string(), "Script".to_owned());
+        for s in import.specifiers.iter().flatten() {
+          if let ImportDeclarationSpecifier::ImportDefaultSpecifier(d) = s {
+            out.insert(d.local.name.to_string(), "Script".to_owned());
           }
         }
       }
       "@next/third-parties/google" => {
-        for s in &import.specifiers {
-          if let js::ImportSpecifier::Named(n) = s {
+        for s in import.specifiers.iter().flatten() {
+          if let ImportDeclarationSpecifier::ImportSpecifier(n) = s {
             let name = match &n.imported {
-              Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-              _ => n.local.sym.to_string(),
+              ModuleExportName::IdentifierName(i) => i.name.to_string(),
+              _ => n.local.name.to_string(),
             };
             if name == "GoogleMapsEmbed" || name == "YouTubeEmbed" {
-              out.insert(n.local.sym.to_string(), name);
+              out.insert(n.local.name.to_string(), name);
             }
           }
         }
@@ -68,35 +70,50 @@ fn imported(parsed: &Parsed) -> BTreeMap<String, String> {
   out
 }
 
+/// An element that names an imported `Script` or embed, read as the conversion needs it.
+struct Found {
+  local: String,
+  span: Span,
+  attrs: Vec<(String, Value, String)>,
+  /// Whether it holds anything but whitespace between its tags.
+  holds_code: bool,
+}
+
 struct Elements<'a> {
   names: &'a BTreeMap<String, String>,
-  found: Vec<js::JSXElement>,
+  text: &'a str,
+  parsed: &'a Parsed<'a>,
+  found: Vec<Found>,
   /// Spans of elements that are a function's whole result.
   returned: Vec<Span>,
 }
 
-impl Visit for Elements<'_> {
-  fn visit_jsx_element(&mut self, n: &js::JSXElement) {
-    if let js::JSXElementName::Ident(i) = &n.opening.name {
-      if self.names.contains_key(&*i.sym) {
-        self.found.push(n.clone());
+impl<'a> Visit<'a> for Elements<'_> {
+  fn visit_jsx_element(&mut self, n: &js::JSXElement<'a>) {
+    if let Some((name, _)) = jsx_ident(&n.opening_element.name) {
+      if self.names.contains_key(name) {
+        let holds_code = n.children.iter().any(|c| match c {
+          JSXChild::Text(t) => !t.value.trim().is_empty(),
+          _ => true,
+        });
+        self.found.push(Found { local: name.to_owned(), span: n.span, attrs: attrs(self.text, self.parsed, &n.opening_element), holds_code });
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_jsx_element(self, n);
   }
 
-  fn visit_return_stmt(&mut self, n: &js::ReturnStmt) {
-    if let Some(js::Expr::JSXElement(e)) = n.arg.as_deref().map(unparen) {
+  fn visit_return_statement(&mut self, n: &js::ReturnStatement<'a>) {
+    if let Some(Expression::JSXElement(e)) = n.argument.as_ref().map(unparen) {
       self.returned.push(e.span);
     }
-    n.visit_children_with(self);
+    walk::walk_return_statement(self, n);
   }
 }
 
-fn unparen(e: &js::Expr) -> &js::Expr {
+fn unparen<'e, 'a>(e: &'e Expression<'a>) -> &'e Expression<'a> {
   match e {
-    js::Expr::Paren(p) => unparen(&p.expr),
+    Expression::ParenthesizedExpression(p) => unparen(&p.expression),
     other => other,
   }
 }
@@ -110,27 +127,28 @@ enum Value {
 /// Each attribute by name: its value and the text of the whole attribute.
 fn attrs(text: &str, parsed: &Parsed, opening: &js::JSXOpeningElement) -> Vec<(String, Value, String)> {
   opening
-    .attrs
+    .attributes
     .iter()
     .filter_map(|a| match a {
-      js::JSXAttrOrSpread::JSXAttr(attr) => {
+      JSXAttributeItem::Attribute(attr) => {
         let name = match &attr.name {
-          js::JSXAttrName::Ident(i) => i.sym.to_string(),
-          js::JSXAttrName::JSXNamespacedName(n) => format!("{}:{}", n.ns.sym, n.name.sym),
+          JSXAttributeName::Identifier(i) => i.name.to_string(),
+          JSXAttributeName::NamespacedName(n) => format!("{}:{}", n.namespace.name, n.name.name),
         };
         let value = match &attr.value {
           None => Value::True,
-          Some(js::JSXAttrValue::Str(s)) => Value::Str(s.value.to_string_lossy().into_owned()),
-          Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) => match unparen(e) {
-            js::Expr::Lit(js::Lit::Str(s)) => Value::Str(s.value.to_string_lossy().into_owned()),
-            js::Expr::Lit(js::Lit::Bool(b)) if b.value => Value::True,
-            other => Value::Expr(text[parsed.range(other.span())].to_owned()),
+          Some(JSXAttributeValue::StringLiteral(s)) => Value::Str(lossy(s.value)),
+          Some(JSXAttributeValue::ExpressionContainer(c)) => match c.expression.as_expression().map(unparen) {
+            Some(Expression::StringLiteral(s)) => Value::Str(lossy(s.value)),
+            Some(Expression::BooleanLiteral(b)) if b.value => Value::True,
+            Some(other) => Value::Expr(text[parsed.range(other.span())].to_owned()),
+            None => Value::Expr(text[parsed.range(c.span)].to_owned()),
           },
           Some(other) => Value::Expr(text[parsed.range(other.span())].to_owned()),
         };
         Some((name, value, text[parsed.range(attr.span)].to_owned()))
       }
-      js::JSXAttrOrSpread::SpreadElement(_) => None,
+      JSXAttributeItem::SpreadAttribute(_) => None,
     })
     .collect()
 }
@@ -140,19 +158,18 @@ fn convert(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, report: &mu
   if names.is_empty() {
     return;
   }
-  let mut found = Elements { names: &names, found: Vec::new(), returned: Vec::new() };
-  parsed.module.visit_with(&mut found);
+  let mut found = Elements { names: &names, text, parsed, found: Vec::new(), returned: Vec::new() };
+  found.visit_program(&parsed.program);
   let route = route_kind(path);
   let mut edits = Edits::default();
   let mut rows: Vec<String> = Vec::new();
   let mut left: Vec<String> = Vec::new();
   for element in &found.found {
-    let js::JSXElementName::Ident(tag) = &element.opening.name else { continue };
-    let local = tag.sym.to_string();
+    let local = element.local.clone();
     let line = parsed.line(element.span);
-    let attrs = attrs(text, parsed, &element.opening);
+    let attrs = &element.attrs;
     let replaced = match names[&local].as_str() {
-      "Script" => match script_row(element, &attrs) {
+      "Script" => match script_row(element.holds_code, attrs) {
         Err(why) => {
           report.note(path, line, format!("`<{local}>` {why}, so it was left for you"));
           None
@@ -166,8 +183,8 @@ fn convert(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, report: &mu
           Some(String::new())
         }
       },
-      "GoogleMapsEmbed" => Some(maps_iframe(&attrs)),
-      _ => Some(youtube_iframe(&attrs)),
+      "GoogleMapsEmbed" => Some(maps_iframe(attrs)),
+      _ => Some(youtube_iframe(attrs)),
     };
     match replaced {
       Some(with) if with.is_empty() => {
@@ -208,11 +225,7 @@ fn convert(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, report: &mu
 }
 
 /// The `meta` head row a `<Script src>` is; the reason it is none otherwise.
-fn script_row(element: &js::JSXElement, attrs: &[(String, Value, String)]) -> Result<String, String> {
-  let code = element.children.iter().any(|c| match c {
-    js::JSXElementChild::JSXText(t) => !t.value.to_string_lossy().trim().is_empty(),
-    _ => true,
-  });
+fn script_row(code: bool, attrs: &[(String, Value, String)]) -> Result<String, String> {
   if code || attrs.iter().any(|(n, _, _)| n == "dangerouslySetInnerHTML") {
     return Err("runs inline code, which FSR keeps in a module `src/main.ts` imports".to_owned());
   }
@@ -315,31 +328,26 @@ fn youtube_iframe(attrs: &[(String, Value, String)]) -> String {
 /// `loader` with `rows` joined to its `meta` head, a `meta` written when it
 /// has none; `None` when its `meta` is not an object literal.
 pub(crate) fn with_head(loader: &str, path: &str, rows: &[String]) -> Option<String> {
-  let parsed = parse(path, loader).ok()?;
+  let allocator = Allocator::default();
+  let parsed = parse(&allocator, path, loader).ok()?;
   let joined = rows.join(", ");
   let mut edits = Edits::default();
   let mut has_meta = false;
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else { continue };
-    let js::Decl::Var(var) = &export.decl else { continue };
-    for decl in &var.decls {
-      let (js::Pat::Ident(name), Some(init)) = (&decl.name, &decl.init) else { continue };
-      if &*name.id.sym != "meta" {
+  for item in parsed.body() {
+    let Statement::ExportDeclaration(export) = item else { continue };
+    let Declaration::VariableDeclaration(var) = &export.declaration else { continue };
+    for decl in &var.declarations {
+      let (BindingPattern::BindingIdentifier(name), Some(init)) = (&decl.id, &decl.init) else { continue };
+      if name.name != "meta" {
         continue;
       }
       has_meta = true;
-      let js::Expr::Arrow(arrow) = unparen(init) else { return None };
-      let js::ArrowFunctionBody::Expr(body) = &*arrow.body else { return None };
-      let js::Expr::Object(object) = unparen(body) else { return None };
-      let head = object.props.iter().find_map(|p| match p {
-        js::PropOrSpread::Prop(prop) => match &**prop {
-          js::Prop::KeyValue(kv) if matches!(&kv.key, js::PropName::Ident(i) if &*i.sym == "head") => Some(&kv.value),
-          _ => None,
-        },
-        _ => None,
-      });
+      let Expression::ArrowFunctionExpression(arrow) = unparen(init) else { return None };
+      let Some(body) = arrow.body.as_expression() else { return None };
+      let Expression::ObjectExpression(object) = unparen(body) else { return None };
+      let head = object.properties.iter().find_map(|p| key_value(p).filter(|(key, _)| *key == "head").map(|(_, value)| value));
       match head.map(|h| unparen(h)) {
-        Some(js::Expr::Array(array)) => match array.elems.iter().flatten().last() {
+        Some(Expression::ArrayExpression(array)) => match array.elements.iter().filter(|e| !matches!(e, ArrayExpressionElement::Elision(_))).last() {
           Some(last) => {
             let end = parsed.range(last.span()).end;
             edits.replace(end..end, format!(", {joined}"));
@@ -347,7 +355,7 @@ pub(crate) fn with_head(loader: &str, path: &str, rows: &[String]) -> Option<Str
           None => edits.replace(parsed.range(array.span), format!("[{joined}]")),
         },
         Some(_) => return None,
-        None => match object.props.last() {
+        None => match object.properties.last() {
           Some(last) => {
             let end = parsed.range(last.span()).end;
             edits.replace(end..end, format!(", head: [{joined}]"));

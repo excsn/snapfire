@@ -4,16 +4,18 @@
 
 use std::collections::BTreeMap;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, BindingPattern, Declaration, Expression, ImportDeclarationSpecifier, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXElementName, JSXMemberExpressionObject, ModuleExportName, ObjectPropertyKind, PropertyKey, PropertyKind, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 
 use snapfire_fsr_lower::meaning::awaited_imports;
 
 use crate::lift::ctx_type;
 use crate::next::{read_packages_but, source_path};
 use crate::relocate::{dirname, find, normalize, relocate, Aliases};
-use crate::syntax::{is_script, parse, SCRIPT_EXTENSIONS};
+use crate::syntax::{argument, import_specifiers, is_script, lossy, parse, SCRIPT_EXTENSIONS};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
@@ -119,9 +121,10 @@ fn entry(tree: &Tree, root: &str) -> Option<Entry> {
       continue;
     }
     let Some(text) = tree.text(path) else { continue };
-    let Ok(parsed) = parse(path, text) else { continue };
+    let allocator = Allocator::default();
+    let Ok(parsed) = parse(&allocator, path, text) else { continue };
     let mut calls = Renders { render: None, found: Vec::new(), dynamic: Vec::new(), branches: 0, callbacks: 0, parsed: &parsed, text };
-    parsed.module.visit_with(&mut calls);
+    calls.visit_program(&parsed.program);
     // The root page is the last render on the straight-line path, outside every branch and callback; the first render when every one is inside a branch.
     let chosen = calls.found.iter().rposition(|(.., straight)| *straight).or_else(|| (!calls.found.is_empty()).then_some(0));
     if let Some(at) = chosen {
@@ -134,7 +137,7 @@ fn entry(tree: &Tree, root: &str) -> Option<Entry> {
 }
 
 struct Renders<'a> {
-  parsed: &'a crate::syntax::Parsed,
+  parsed: &'a crate::syntax::Parsed<'a>,
   text: &'a str,
   /// The local name `render` from `ink` is imported under.
   render: Option<String>,
@@ -146,33 +149,26 @@ struct Renders<'a> {
   callbacks: usize,
 }
 
-impl Renders<'_> {
-  fn branched<N: VisitWith<Self>>(&mut self, n: &N) {
-    self.branches += 1;
-    n.visit_children_with(self);
-    self.branches -= 1;
-  }
-}
-
-impl Visit for Renders<'_> {
-  fn visit_import_decl(&mut self, n: &js::ImportDecl) {
-    if n.src.value.as_str() != Some("ink") {
+impl<'a> Visit<'a> for Renders<'_> {
+  fn visit_import_declaration(&mut self, n: &js::ImportDeclaration<'a>) {
+    if n.source.value != "ink" {
       return;
     }
-    for spec in &n.specifiers {
-      if let js::ImportSpecifier::Named(named) = spec {
-        let imported = named.imported.as_ref().map(|i| match i {
-          js::ModuleExportName::Ident(id) => id.sym.to_string(),
-          js::ModuleExportName::Str(s) => s.value.to_string_lossy().into_owned(),
-        });
-        if imported.as_deref().unwrap_or(named.local.sym.as_ref()) == "render" {
-          self.render = Some(named.local.sym.to_string());
+    for spec in import_specifiers(n) {
+      if let ImportDeclarationSpecifier::ImportSpecifier(named) = spec {
+        let imported = match &named.imported {
+          ModuleExportName::IdentifierName(id) => id.name.to_string(),
+          ModuleExportName::IdentifierReference(id) => id.name.to_string(),
+          ModuleExportName::StringLiteral(s) => lossy(s.value),
+        };
+        if imported == "render" {
+          self.render = Some(named.local.name.to_string());
         }
       }
     }
   }
 
-  fn visit_stmt(&mut self, s: &js::Stmt) {
+  fn visit_statement(&mut self, s: &Statement<'a>) {
     for binding in awaited_imports(s) {
       match binding.imported.as_deref() {
         Some("render") if binding.source == "ink" => self.render = Some(binding.local),
@@ -182,159 +178,153 @@ impl Visit for Renders<'_> {
         None => self.dynamic.push((binding.local.clone(), binding.source, format!("* as {}", binding.local))),
       }
     }
-    s.visit_children_with(self);
+    match s {
+      Statement::IfStatement(_) | Statement::SwitchStatement(_) | Statement::TryStatement(_) | Statement::ForStatement(_) | Statement::ForOfStatement(_) | Statement::ForInStatement(_) | Statement::WhileStatement(_) => {
+        self.branches += 1;
+        walk::walk_statement(self, s);
+        self.branches -= 1;
+      }
+      _ => walk::walk_statement(self, s),
+    }
   }
 
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let (Some(render), js::Callee::Expr(callee)) = (&self.render, &n.callee) {
-      if matches!(&**callee, js::Expr::Ident(id) if *id.sym == **render) {
-        if let Some(arg) = n.args.first() {
-          if let Some((component, passed)) = rendered(self.parsed, self.text, &arg.expr) {
-            self.found.push((self.parsed.line(n.span()), n.span(), component, passed, self.branches == 0 && self.callbacks == 0));
+  fn visit_expression(&mut self, n: &Expression<'a>) {
+    match n {
+      Expression::ConditionalExpression(_) => {
+        self.branches += 1;
+        walk::walk_expression(self, n);
+        self.branches -= 1;
+      }
+      Expression::FunctionExpression(f) => {
+        self.callbacks += 1;
+        walk::walk_function(self, f, ScopeFlags::Function);
+        self.callbacks -= 1;
+      }
+      _ => walk::walk_expression(self, n),
+    }
+  }
+
+  fn visit_object_property(&mut self, n: &js::ObjectProperty<'a>) {
+    match (&n.value, n.method || n.kind != PropertyKind::Init) {
+      (Expression::FunctionExpression(f), true) => {
+        self.visit_property_key(&n.key);
+        walk::walk_function(self, f, ScopeFlags::Function);
+      }
+      _ => walk::walk_object_property(self, n),
+    }
+  }
+
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if let (Some(render), Expression::Identifier(id)) = (&self.render, &n.callee) {
+      if id.name == render.as_str() {
+        if let Some(arg) = n.arguments.first() {
+          if let Some((component, passed)) = rendered(self.parsed, self.text, argument(arg)) {
+            self.found.push((self.parsed.line(n.span), n.span, component, passed, self.branches == 0 && self.callbacks == 0));
           }
         }
       }
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 
-  fn visit_if_stmt(&mut self, n: &js::IfStmt) {
-    self.branched(n);
-  }
-  fn visit_switch_stmt(&mut self, n: &js::SwitchStmt) {
-    self.branched(n);
-  }
-  fn visit_try_stmt(&mut self, n: &js::TryStmt) {
-    self.branched(n);
-  }
-  fn visit_for_stmt(&mut self, n: &js::ForStmt) {
-    self.branched(n);
-  }
-  fn visit_for_of_stmt(&mut self, n: &js::ForOfStmt) {
-    self.branched(n);
-  }
-  fn visit_for_in_stmt(&mut self, n: &js::ForInStmt) {
-    self.branched(n);
-  }
-  fn visit_while_stmt(&mut self, n: &js::WhileStmt) {
-    self.branched(n);
-  }
-  fn visit_cond_expr(&mut self, n: &js::CondExpr) {
-    self.branched(n);
-  }
-  fn visit_arrow_expr(&mut self, n: &js::ArrowExpr) {
+  fn visit_arrow_function_expression(&mut self, n: &js::ArrowFunctionExpression<'a>) {
     self.callbacks += 1;
-    n.visit_children_with(self);
-    self.callbacks -= 1;
-  }
-  fn visit_fn_expr(&mut self, n: &js::FnExpr) {
-    self.callbacks += 1;
-    n.visit_children_with(self);
+    walk::walk_arrow_function_expression(self, n);
     self.callbacks -= 1;
   }
 }
 
 /// The component `render`'s argument renders: `<Name …/>`, `Name(…)` or `React.createElement(Name, props)`, with the root's name as the entry writes it.
-fn rendered(parsed: &crate::syntax::Parsed, text: &str, e: &js::Expr) -> Option<(String, Passed)> {
+fn rendered(parsed: &crate::syntax::Parsed, text: &str, e: &Expression) -> Option<(String, Passed)> {
+  let attr_name = |name: &JSXAttributeName| match name {
+    JSXAttributeName::Identifier(id) => id.name.to_string(),
+    JSXAttributeName::NamespacedName(ns) => format!("{}:{}", ns.namespace.name, ns.name.name),
+  };
   match e {
-    js::Expr::Paren(p) => rendered(parsed, text, &p.expr),
-    js::Expr::JSXElement(el) => {
-      let root = match &el.opening.name {
-        js::JSXElementName::Ident(name) => name.sym.to_string(),
-        js::JSXElementName::JSXMemberExpr(m) => jsx_root(&m.obj).to_owned(),
-        js::JSXElementName::JSXNamespacedName(_) => return None,
+    Expression::ParenthesizedExpression(p) => rendered(parsed, text, &p.expression),
+    Expression::JSXElement(el) => {
+      let opening = &el.opening_element;
+      let root = match &opening.name {
+        JSXElementName::Identifier(name) => name.name.to_string(),
+        JSXElementName::IdentifierReference(name) => name.name.to_string(),
+        JSXElementName::MemberExpression(m) => jsx_root(&m.object).to_owned(),
+        JSXElementName::ThisExpression(_) => "this".to_owned(),
+        JSXElementName::NamespacedName(_) => return None,
       };
-      let props = el
-        .opening
-        .attrs
+      let props = opening
+        .attributes
         .iter()
         .map(|attr| match attr {
-          js::JSXAttrOrSpread::JSXAttr(a) => match &a.name {
-            js::JSXAttrName::Ident(id) => id.sym.to_string(),
-            js::JSXAttrName::JSXNamespacedName(ns) => format!("{}:{}", ns.ns.sym, ns.name.sym),
-          },
-          js::JSXAttrOrSpread::SpreadElement(_) => "...".to_owned(),
+          JSXAttributeItem::Attribute(a) => attr_name(&a.name),
+          JSXAttributeItem::SpreadAttribute(_) => "...".to_owned(),
         })
         .collect();
-      let values = el
-        .opening
-        .attrs
+      let values = opening
+        .attributes
         .iter()
         .filter_map(|attr| match attr {
-          js::JSXAttrOrSpread::JSXAttr(a) => {
-            let name = match &a.name {
-              js::JSXAttrName::Ident(id) => id.sym.to_string(),
-              js::JSXAttrName::JSXNamespacedName(ns) => format!("{}:{}", ns.ns.sym, ns.name.sym),
-            };
+          JSXAttributeItem::Attribute(a) => {
             let value = match &a.value {
               None => "true".to_owned(),
-              Some(js::JSXAttrValue::JSXExprContainer(c)) => match &c.expr {
-                js::JSXExpr::Expr(e) => text[parsed.range(e.span())].to_owned(),
-                js::JSXExpr::JSXEmptyExpr(_) => "undefined".to_owned(),
+              Some(JSXAttributeValue::ExpressionContainer(c)) => match c.expression.as_expression() {
+                Some(e) => text[parsed.range(e.span())].to_owned(),
+                None => "undefined".to_owned(),
               },
               Some(other) => text[parsed.range(other.span())].to_owned(),
             };
-            Some((name, value))
+            Some((attr_name(&a.name), value))
           }
-          js::JSXAttrOrSpread::SpreadElement(_) => None,
+          JSXAttributeItem::SpreadAttribute(_) => None,
         })
         .collect();
       let mut reads = Reads(Vec::new());
-      el.visit_with(&mut reads);
-      let range = parsed.range(el.span());
+      reads.visit_jsx_element(el);
+      let range = parsed.range(el.span);
       Some((root, Passed::Element { text: text[range].to_owned(), props, values, names: reads.0 }))
     }
-    js::Expr::Call(call) => match &call.callee {
-      js::Callee::Expr(callee) => match &**callee {
-        js::Expr::Ident(id) => Some((id.sym.to_string(), Passed::Arguments(call.args.len()))),
-        js::Expr::Member(m) if matches!(&m.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "createElement") => {
-          let component = match call.args.first().map(|a| &*a.expr) {
-            Some(js::Expr::Ident(id)) => id.sym.to_string(),
-            _ => return None,
-          };
-          let props = match call.args.get(1).map(|a| &*a.expr) {
-            Some(js::Expr::Object(obj)) => obj
-              .props
-              .iter()
-              .map(|p| match p {
-                js::PropOrSpread::Prop(prop) => match &**prop {
-                  js::Prop::Shorthand(id) => id.sym.to_string(),
-                  js::Prop::KeyValue(kv) => prop_key(&kv.key),
-                  js::Prop::Method(m) => prop_key(&m.key),
-                  js::Prop::Getter(g) => prop_key(&g.key),
-                  js::Prop::Setter(st) => prop_key(&st.key),
-                  js::Prop::Assign(a) => a.key.sym.to_string(),
-                },
-                js::PropOrSpread::Spread(_) => "...".to_owned(),
-              })
-              .collect(),
-            Some(js::Expr::Lit(js::Lit::Null(_))) | None => Vec::new(),
-            Some(_) => vec!["...".to_owned()],
-          };
-          Some((component, Passed::Props(props)))
-        }
-        _ => None,
-      },
+    Expression::CallExpression(call) => match &call.callee {
+      Expression::Identifier(id) => Some((id.name.to_string(), Passed::Arguments(call.arguments.len()))),
+      Expression::StaticMemberExpression(m) if m.property.name == "createElement" => {
+        let component = match call.arguments.first().map(argument) {
+          Some(Expression::Identifier(id)) => id.name.to_string(),
+          _ => return None,
+        };
+        let props = match call.arguments.get(1).map(argument) {
+          Some(Expression::ObjectExpression(obj)) => obj
+            .properties
+            .iter()
+            .map(|p| match p {
+              ObjectPropertyKind::ObjectProperty(prop) if prop.computed => "[computed]".to_owned(),
+              ObjectPropertyKind::ObjectProperty(prop) => prop_key(&prop.key),
+              ObjectPropertyKind::SpreadProperty(_) => "...".to_owned(),
+            })
+            .collect(),
+          Some(Expression::NullLiteral(_)) | None => Vec::new(),
+          Some(_) => vec!["...".to_owned()],
+        };
+        Some((component, Passed::Props(props)))
+      }
       _ => None,
     },
     _ => None,
   }
 }
 
-fn prop_key(key: &js::PropName) -> String {
+fn prop_key(key: &PropertyKey) -> String {
   match key {
-    js::PropName::Ident(id) => id.sym.to_string(),
-    js::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
-    js::PropName::Num(n) => n.value.to_string(),
-    js::PropName::BigInt(b) => b.value.to_string(),
-    js::PropName::Computed(_) => "[computed]".to_owned(),
+    PropertyKey::StaticIdentifier(id) => id.name.to_string(),
+    PropertyKey::StringLiteral(s) => lossy(s.value),
+    PropertyKey::NumericLiteral(n) => n.value.to_string(),
+    PropertyKey::BigIntLiteral(b) => b.value.to_string(),
+    _ => "[computed]".to_owned(),
   }
 }
 
-fn jsx_root(obj: &js::JSXObject) -> &str {
+fn jsx_root<'n>(obj: &'n JSXMemberExpressionObject) -> &'n str {
   match obj {
-    js::JSXObject::Ident(id) => id.sym.as_ref(),
-    js::JSXObject::JSXMemberExpr(m) => jsx_root(&m.obj),
+    JSXMemberExpressionObject::IdentifierReference(id) => id.name.as_str(),
+    JSXMemberExpressionObject::MemberExpression(m) => jsx_root(&m.object),
+    JSXMemberExpressionObject::ThisExpression(_) => "this",
   }
 }
 
@@ -349,75 +339,69 @@ impl Reads {
   }
 }
 
-impl Visit for Reads {
-  fn visit_jsx_element_name(&mut self, n: &js::JSXElementName) {
+impl<'a> Visit<'a> for Reads {
+  fn visit_jsx_element_name(&mut self, n: &JSXElementName<'a>) {
     match n {
-      js::JSXElementName::Ident(id) => self.note(id.sym.as_ref()),
-      js::JSXElementName::JSXMemberExpr(m) => {
-        let root = jsx_root(&m.obj).to_owned();
+      JSXElementName::Identifier(id) => self.note(id.name.as_str()),
+      JSXElementName::IdentifierReference(id) => self.note(id.name.as_str()),
+      JSXElementName::MemberExpression(m) => {
+        let root = jsx_root(&m.object).to_owned();
         self.note(&root);
       }
-      js::JSXElementName::JSXNamespacedName(_) => {}
+      JSXElementName::ThisExpression(_) => self.note("this"),
+      JSXElementName::NamespacedName(_) => {}
     }
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    self.note(n.sym.as_ref());
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    self.note(n.name.as_str());
   }
 
-  fn visit_jsx_attr_name(&mut self, _: &js::JSXAttrName) {}
-
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    n.obj.visit_with(self);
-    if let js::MemberProp::Computed(c) = &n.prop {
-      c.visit_with(self);
-    }
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    self.note(n.name.as_str());
   }
 
-  fn visit_jsx_closing_element(&mut self, _: &js::JSXClosingElement) {}
+  fn visit_jsx_closing_element(&mut self, _: &js::JSXClosingElement<'a>) {}
 }
 
 /// The entry's text with the component it renders exported, the `render` call taken out and `render` dropped from its `ink` import, when the entry declares that component itself; `None` when it imports it.
 fn keep_entry(tree: &Tree, entry: &Entry) -> Option<String> {
   let text = tree.text(&entry.path)?;
-  let parsed = parse(&entry.path, text).ok()?;
+  let allocator = Allocator::default();
+  let parsed = parse(&allocator, &entry.path, text).ok()?;
   let mut edits = crate::edit::Edits::default();
   let mut declared = false;
-  for item in &parsed.module.body {
+  let declared_name = |decl: &Declaration, single: bool| -> Option<String> {
+    match decl {
+      Declaration::FunctionDeclaration(f) => f.id.as_ref().map(|id| id.name.to_string()),
+      Declaration::ClassDeclaration(c) => c.id.as_ref().map(|id| id.name.to_string()),
+      Declaration::VariableDeclaration(v) => match v.declarations.first().map(|d| &d.id) {
+        Some(BindingPattern::BindingIdentifier(id)) if !single || v.declarations.len() == 1 => Some(id.name.to_string()),
+        _ => None,
+      },
+      _ => None,
+    }
+  };
+  for item in parsed.body() {
     match item {
-      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => {
-        let (name, span) = match decl {
-          js::Decl::Fn(f) => (f.ident.sym.to_string(), f.span()),
-          js::Decl::Class(c) => (c.ident.sym.to_string(), c.span()),
-          js::Decl::Var(v) => match v.decls.first().map(|d| &d.name) {
-            Some(js::Pat::Ident(id)) if v.decls.len() == 1 => (id.id.sym.to_string(), v.span()),
-            _ => continue,
-          },
-          _ => continue,
-        };
+      Statement::ExportDeclaration(export) => {
+        let Some(name) = declared_name(&export.declaration, false) else { continue };
+        declared |= name == entry.component;
+      }
+      other if other.as_declaration().is_some() => {
+        let decl = other.as_declaration().expect("checked");
+        let Some(name) = declared_name(decl, true) else { continue };
         if name == entry.component {
-          let start = parsed.range(span).start;
+          let start = parsed.range(decl.span()).start;
           edits.replace(start..start, "export ");
           declared = true;
-        } else if let js::Decl::Var(v) = decl {
-          if v.decls.iter().any(|d| d.init.as_deref().is_some_and(renders)) {
-            edits.replace(crate::items::line_range(text, parsed.range(v.span())), String::new());
+        } else if let Declaration::VariableDeclaration(v) = decl {
+          if v.declarations.iter().any(|d| d.init.as_ref().is_some_and(renders)) {
+            edits.replace(crate::items::line_range(text, parsed.range(v.span)), String::new());
           }
         }
       }
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => {
-        let name = match &export.decl {
-          js::Decl::Fn(f) => f.ident.sym.to_string(),
-          js::Decl::Class(c) => c.ident.sym.to_string(),
-          js::Decl::Var(v) => match v.decls.first().map(|d| &d.name) {
-            Some(js::Pat::Ident(id)) => id.id.sym.to_string(),
-            _ => continue,
-          },
-          _ => continue,
-        };
-        declared |= name == entry.component;
-      }
-      js::ModuleItem::Stmt(stmt) if holds_render(stmt) => {
+      stmt if !stmt.is_module_declaration() && holds_render(stmt) => {
         edits.replace(crate::items::line_range(text, parsed.range(stmt.span())), String::new());
       }
       _ => {}
@@ -432,65 +416,60 @@ fn keep_entry(tree: &Tree, entry: &Entry) -> Option<String> {
 }
 
 /// Whether a top-level statement calls `render` anywhere in it: the call itself, or an `if` choosing between two.
-fn holds_render(stmt: &js::Stmt) -> bool {
+fn holds_render(stmt: &Statement) -> bool {
   struct Found(bool);
-  impl Visit for Found {
-    fn visit_call_expr(&mut self, n: &js::CallExpr) {
-      if let js::Callee::Expr(callee) = &n.callee {
-        if matches!(&**callee, js::Expr::Ident(id) if id.sym.as_ref() == "render") {
-          self.0 = true;
-        }
+  impl<'a> Visit<'a> for Found {
+    fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+      if matches!(&n.callee, Expression::Identifier(id) if id.name == "render") {
+        self.0 = true;
       }
-      n.visit_children_with(self);
+      walk::walk_call_expression(self, n);
     }
-    fn visit_function(&mut self, _: &js::Function) {}
-    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+    fn visit_function(&mut self, _: &js::Function<'a>, _: ScopeFlags) {}
+    fn visit_arrow_function_expression(&mut self, _: &js::ArrowFunctionExpression<'a>) {}
   }
   let mut found = Found(false);
-  stmt.visit_with(&mut found);
+  found.visit_statement(stmt);
   found.0
 }
 
 /// Whether `e` is a call of `render`, Ink's or anyone's by that name.
-fn renders(e: &js::Expr) -> bool {
+fn renders(e: &Expression) -> bool {
   let mut e = e;
-  while let js::Expr::Paren(p) = e {
-    e = &p.expr;
+  while let Expression::ParenthesizedExpression(p) = e {
+    e = &p.expression;
   }
-  let js::Expr::Call(call) = e else { return false };
-  let js::Callee::Expr(callee) = &call.callee else { return false };
-  matches!(&**callee, js::Expr::Ident(id) if id.sym.as_ref() == "render")
+  let Expression::CallExpression(call) = e else { return false };
+  matches!(&call.callee, Expression::Identifier(id) if id.name == "render")
 }
 
 /// The entry's static imports: each local name, the specifier it came from and the clause that imports it again.
 fn imports_of(parsed: &crate::syntax::Parsed) -> Vec<(String, String, String)> {
   let mut imports: Vec<(String, String, String)> = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(decl)) = item else { continue };
-    for spec in &decl.specifiers {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(decl) = item else { continue };
+    for spec in import_specifiers(decl) {
       let (local, clause) = match spec {
-        js::ImportSpecifier::Default(d) => {
-          let local = d.local.sym.to_string();
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => {
+          let local = d.local.name.to_string();
           (local.clone(), local)
         }
-        js::ImportSpecifier::Named(n) => {
-          let imported = n.imported.as_ref().map(|i| match i {
-            js::ModuleExportName::Ident(id) => id.sym.to_string(),
-            js::ModuleExportName::Str(s) => s.value.to_string_lossy().into_owned(),
-          });
-          let local = n.local.sym.to_string();
-          let clause = match imported {
-            Some(imported) if imported != local => format!("{{ {imported} as {local} }}"),
-            _ => format!("{{ {local} }}"),
+        ImportDeclarationSpecifier::ImportSpecifier(n) => {
+          let imported = match &n.imported {
+            ModuleExportName::IdentifierName(id) => id.name.to_string(),
+            ModuleExportName::IdentifierReference(id) => id.name.to_string(),
+            ModuleExportName::StringLiteral(s) => lossy(s.value),
           };
+          let local = n.local.name.to_string();
+          let clause = if imported != local { format!("{{ {imported} as {local} }}") } else { format!("{{ {local} }}") };
           (local, clause)
         }
-        js::ImportSpecifier::Namespace(n) => {
-          let local = n.local.sym.to_string();
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(n) => {
+          let local = n.local.name.to_string();
           (local.clone(), format!("* as {local}"))
         }
       };
-      imports.push((local, decl.src.value.to_string_lossy().into_owned(), clause));
+      imports.push((local, lossy(decl.source.value), clause));
     }
   }
   imports
@@ -533,52 +512,56 @@ fn listed(names: &[String]) -> String {
 /// The statements before the one holding `call` in the innermost function around it, as byte ranges of `text`, with that function's parameter names and every name those statements read; the module's top-level statements when no function holds the call.
 fn enclosing(parsed: &crate::syntax::Parsed, call: Span) -> (Vec<std::ops::Range<usize>>, Vec<String>, Vec<String>) {
   struct Enclosing<'a> {
-    parsed: &'a crate::syntax::Parsed,
+    parsed: &'a crate::syntax::Parsed<'a>,
     call: Span,
     best: Option<(Span, Vec<std::ops::Range<usize>>, Vec<String>, Vec<String>)>,
   }
   impl Enclosing<'_> {
-    fn consider(&mut self, span: Span, stmts: &[js::Stmt], params: &[js::Pat]) {
-      if span.lo > self.call.lo || span.hi < self.call.hi {
+    fn consider(&mut self, span: Span, stmts: &[Statement], params: &js::FormalParameters) {
+      if span.start > self.call.start || span.end < self.call.end {
         return;
       }
-      if self.best.as_ref().is_some_and(|(best, ..)| best.lo >= span.lo && best.hi <= span.hi) {
+      if self.best.as_ref().is_some_and(|(best, ..)| best.start >= span.start && best.end <= span.end) {
         return;
       }
-      let before: Vec<&js::Stmt> = stmts.iter().take_while(|s| s.span().hi <= self.call.lo).filter(|s| awaited_imports(s).is_empty()).collect();
+      let before: Vec<&Statement> = stmts.iter().take_while(|s| s.span().end <= self.call.start).filter(|s| awaited_imports(s).is_empty()).collect();
       let mut reads = Reads(Vec::new());
-      before.iter().for_each(|s| s.visit_with(&mut reads));
+      before.iter().for_each(|s| reads.visit_statement(s));
       let mut names = Vec::new();
-      params.iter().for_each(|p| crate::items::pat_names(p, &mut names));
+      params.items.iter().for_each(|p| crate::items::pat_names(&p.pattern, &mut names));
+      if let Some(rest) = &params.rest {
+        crate::items::pat_names(&rest.rest.argument, &mut names);
+      }
       self.best = Some((span, before.iter().map(|s| self.parsed.range(s.span())).collect(), names, reads.0));
     }
   }
-  impl Visit for Enclosing<'_> {
-    fn visit_function(&mut self, f: &js::Function) {
+  impl<'a> Visit<'a> for Enclosing<'_> {
+    fn visit_function(&mut self, f: &js::Function<'a>, flags: ScopeFlags) {
       if let Some(body) = &f.body {
-        let params: Vec<js::Pat> = f.params.iter().map(|p| p.pat.clone()).collect();
-        self.consider(f.span(), &body.stmts, &params);
+        self.consider(f.span, &body.statements, &f.params);
       }
-      f.visit_children_with(self);
+      walk::walk_function(self, f, flags);
     }
-    fn visit_arrow_expr(&mut self, a: &js::ArrowExpr) {
-      if let js::ArrowFunctionBody::FunctionBody(body) = &*a.body {
-        self.consider(a.span(), &body.stmts, &a.params);
+    fn visit_arrow_function_expression(&mut self, a: &js::ArrowFunctionExpression<'a>) {
+      if let js::ArrowFunctionBody::FunctionBody(body) = &a.body {
+        self.consider(a.span, &body.statements, &a.params);
       }
-      a.visit_children_with(self);
+      walk::walk_arrow_function_expression(self, a);
     }
   }
   let mut search = Enclosing { parsed, call, best: None };
-  parsed.module.visit_with(&mut search);
+  search.visit_program(&parsed.program);
   if let Some((_, before, params, names)) = search.best {
     return (before, params, names);
   }
   let mut before = Vec::new();
   let mut reads = Reads(Vec::new());
-  for item in &parsed.module.body {
-    let js::ModuleItem::Stmt(stmt) = item else { continue };
-    if stmt.span().hi <= call.lo && awaited_imports(stmt).is_empty() {
-      stmt.visit_with(&mut reads);
+  for stmt in parsed.body() {
+    if stmt.is_module_declaration() {
+      continue;
+    }
+    if stmt.span().end <= call.start && awaited_imports(stmt).is_empty() {
+      reads.visit_statement(stmt);
       before.push(parsed.range(stmt.span()));
     }
   }
@@ -592,7 +575,8 @@ fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, 
     return None;
   }
   let text = tree.text(&entry.path)?;
-  let parsed = parse(&entry.path, text).ok()?;
+  let allocator = Allocator::default();
+  let parsed = parse(&allocator, &entry.path, text).ok()?;
   let (before, params, mut names) = enclosing(&parsed, entry.call);
   names.extend(value_names.iter().cloned());
   let carried = carried_declarations(&parsed, entry.call, &mut names);
@@ -641,24 +625,26 @@ fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, 
 /// The top-level declarations of the entry that `names` read, a function, a class or a `const` or `let`, and each one those read in turn, in source order, as byte ranges of its text; what they read is added to `names`. The declaration holding the `render` call at `call` stays behind.
 fn carried_declarations(parsed: &crate::syntax::Parsed, call: Span, names: &mut Vec<String>) -> Vec<std::ops::Range<usize>> {
   let mut declared: Vec<(Span, Vec<String>, Vec<String>)> = Vec::new();
-  for item in &parsed.module.body {
+  for item in parsed.body() {
     let decl = match item {
-      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
-      _ => continue,
+      Statement::ExportDeclaration(export) => &export.declaration,
+      other => match other.as_declaration() {
+        Some(decl) => decl,
+        None => continue,
+      },
     };
-    if decl.span().lo <= call.lo && decl.span().hi >= call.hi {
+    if decl.span().start <= call.start && decl.span().end >= call.end {
       continue;
     }
     let mut bound = Vec::new();
     match decl {
-      js::Decl::Fn(f) => bound.push(f.ident.sym.to_string()),
-      js::Decl::Class(c) => bound.push(c.ident.sym.to_string()),
-      js::Decl::Var(var) => var.decls.iter().for_each(|d| crate::items::pat_names(&d.name, &mut bound)),
+      Declaration::FunctionDeclaration(f) => bound.extend(f.id.as_ref().map(|id| id.name.to_string())),
+      Declaration::ClassDeclaration(c) => bound.extend(c.id.as_ref().map(|id| id.name.to_string())),
+      Declaration::VariableDeclaration(var) => var.declarations.iter().for_each(|d| crate::items::pat_names(&d.id, &mut bound)),
       _ => continue,
     }
     let mut reads = Reads(Vec::new());
-    decl.visit_with(&mut reads);
+    reads.visit_declaration(decl);
     declared.push((item.span(), bound, reads.0));
   }
   let mut taken = vec![false; declared.len()];
@@ -685,7 +671,8 @@ fn carried_declarations(parsed: &crate::syntax::Parsed, call: Span, names: &mut 
 /// `app/routes/page.tsx` rendering what the entry rendered: the element tree as written when every name it reads is an import of the entry; the root with each prop from `RootProps` when `routes/page.loader.ts` was written (`loaded`); otherwise the root component alone with no props and a note. Each import is rewritten to where its file went; `None` with a note when the root's import cannot be followed.
 fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entry: &Entry, kept: bool, loaded: bool, report: &mut Report) -> Option<String> {
   let text = tree.text(&entry.path)?;
-  let parsed = parse(&entry.path, text).ok()?;
+  let allocator = Allocator::default();
+  let parsed = parse(&allocator, &entry.path, text).ok()?;
   let mut imports = imports_of(&parsed);
   imports.extend(entry.imports.iter().cloned());
   if kept {

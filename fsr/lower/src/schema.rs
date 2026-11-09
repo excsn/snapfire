@@ -1,9 +1,9 @@
 //! Reads the TypeScript interface subset the contract accepts, so a session
 //! schema or an action input declared in TypeScript becomes contract types.
 
+use oxc_ast::ast as js;
+use oxc_span::GetSpan;
 use snapfire_fsr_service::{Field, Type, TypeDef, Variant};
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
 
 use crate::{parse, LowerError, Lowerer, Parsed, Residue, SessionDefaults};
 
@@ -35,54 +35,53 @@ pub fn builtin_types() -> Vec<SchemaType> {
 
 /// Every exported `interface` and string-literal-union `type` in the module.
 pub fn read_schema(file: &str, source: &str) -> Result<Vec<SchemaType>, LowerError> {
-  let parsed = parse(file, source)?;
+  let arena = oxc_allocator::Allocator::default();
+  let parsed = parse(&arena, file, source)?;
   let mut out = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else {
+  for stmt in &parsed.module().body {
+    let js::Statement::ExportDeclaration(export) = stmt else {
       continue;
     };
-    match &export.decl {
-      js::Decl::TsInterface(interface) => {
+    match &export.declaration {
+      js::Declaration::TSInterfaceDeclaration(interface) => {
         if !interface.extends.is_empty() {
           return Err(parsed.residue(interface.span, "`extends` on a schema interface").into());
         }
-        if interface.type_params.is_some() {
+        if interface.type_parameters.is_some() {
           return Err(parsed.residue(interface.span, "a generic schema interface").into());
         }
         let mut fields = Vec::new();
         for member in &interface.body.body {
-          let js::TsTypeElement::TsPropertySignature(prop) = member else {
+          let js::TSSignature::TSPropertySignature(prop) = member else {
             return Err(parsed.residue(member.span(), "a method or index signature in a schema").into());
           };
-          let js::Expr::Ident(key) = &*prop.key else {
+          let (js::PropertyKey::StaticIdentifier(key), false) = (&prop.key, prop.computed) else {
             return Err(parsed.residue(prop.key.span(), "a computed property name in a schema").into());
           };
-          let ann = prop
-            .type_ann
-            .as_ref()
-            .ok_or_else(|| parsed.residue(prop.span, "a schema field without a type"))?;
-          let mut ty = ts_type(&parsed, &ann.type_ann)?;
+          let ann = prop.type_annotation.as_ref().ok_or_else(|| parsed.residue(prop.span, "a schema field without a type"))?;
+          let mut ty = ts_type(&parsed, &ann.type_annotation)?;
           if prop.optional && !matches!(ty, Type::Optional(_)) {
             ty = Type::optional(ty);
           }
-          fields.push(Field::new(key.sym.to_string(), ty));
+          fields.push(Field::new(key.name.to_string(), ty));
         }
-        out.push(SchemaType { name: interface.id.sym.to_string(), def: TypeDef::record(fields) });
+        out.push(SchemaType { name: interface.id.name.to_string(), def: TypeDef::record(fields) });
       }
-      js::Decl::TsTypeAlias(alias) => {
-        let js::TsType::TsUnionOrIntersectionType(js::TsUnionOrIntersectionType::TsUnionType(union)) = &*alias.type_ann else {
+      js::Declaration::TSTypeAliasDeclaration(alias) => {
+        let js::TSType::TSUnionType(union) = &alias.type_annotation else {
           return Err(parsed.residue(alias.span, "a type alias that is not a union of string literals; use an interface").into());
         };
         let mut variants = Vec::new();
         for arm in &union.types {
-          match &**arm {
-            js::TsType::TsLitType(js::TsLitType { lit: js::TsLit::Str(s), .. }) => {
-              variants.push(Variant::unit(s.value.to_atom_lossy().to_string()));
-            }
+          match arm {
+            js::TSType::TSLiteralType(lit) => match &lit.literal {
+              js::TSLiteral::StringLiteral(s) => variants.push(Variant::unit(crate::lossy(s.value))),
+              _ => return Err(parsed.residue(lit.span, "a union arm that is not a string literal").into()),
+            },
             other => return Err(parsed.residue(other.span(), "a union arm that is not a string literal").into()),
           }
         }
-        out.push(SchemaType { name: alias.id.sym.to_string(), def: TypeDef::Union { variants } });
+        out.push(SchemaType { name: alias.id.name.to_string(), def: TypeDef::Union { variants } });
       }
       _ => {}
     }
@@ -90,27 +89,32 @@ pub fn read_schema(file: &str, source: &str) -> Result<Vec<SchemaType>, LowerErr
   Ok(out)
 }
 
-fn ts_type(parsed: &Parsed, ty: &js::TsType) -> Result<Type, Residue> {
+/// Whether `t` is `null` or `undefined`.
+fn nullish(t: &js::TSType) -> bool {
+  matches!(t, js::TSType::TSNullKeyword(_) | js::TSType::TSUndefinedKeyword(_))
+}
+
+fn ts_type(parsed: &Parsed, ty: &js::TSType) -> Result<Type, Residue> {
   Ok(match ty {
-    js::TsType::TsParenthesizedType(p) => ts_type(parsed, &p.type_ann)?,
-    js::TsType::TsKeywordType(k) => match k.kind {
-      js::TsKeywordTypeKind::TsStringKeyword => Type::Str,
-      js::TsKeywordTypeKind::TsNumberKeyword => Type::F64,
-      js::TsKeywordTypeKind::TsBigIntKeyword => Type::I64,
-      js::TsKeywordTypeKind::TsBooleanKeyword => Type::Bool,
-      js::TsKeywordTypeKind::TsNullKeyword | js::TsKeywordTypeKind::TsUndefinedKeyword => Type::Null,
-      _ => return Err(parsed.residue(k.span, "a keyword type outside the contract; use string, number, bigint, boolean or null")),
-    },
-    js::TsType::TsArrayType(a) => Type::list(ts_type(parsed, &a.elem_type)?),
-    js::TsType::TsTypeRef(r) => {
-      let js::TsEntityName::Ident(id) = &r.type_name else {
+    js::TSType::TSParenthesizedType(p) => ts_type(parsed, &p.type_annotation)?,
+    js::TSType::TSStringKeyword(_) => Type::Str,
+    js::TSType::TSNumberKeyword(_) => Type::F64,
+    js::TSType::TSBigIntKeyword(_) => Type::I64,
+    js::TSType::TSBooleanKeyword(_) => Type::Bool,
+    t if nullish(t) => Type::Null,
+    js::TSType::TSAnyKeyword(_) | js::TSType::TSUnknownKeyword(_) | js::TSType::TSNeverKeyword(_) | js::TSType::TSObjectKeyword(_) | js::TSType::TSSymbolKeyword(_) | js::TSType::TSVoidKeyword(_) | js::TSType::TSIntrinsicKeyword(_) => {
+      return Err(parsed.residue(ty.span(), "a keyword type outside the contract; use string, number, bigint, boolean or null"));
+    }
+    js::TSType::TSArrayType(a) => Type::list(ts_type(parsed, &a.element_type)?),
+    js::TSType::TSTypeReference(r) => {
+      let js::TSTypeName::IdentifierReference(id) = &r.type_name else {
         return Err(parsed.residue(r.span, "a qualified type name"));
       };
-      let args: Vec<&js::TsType> = r.type_params.as_ref().map(|p| p.params.iter().map(|t| &**t).collect()).unwrap_or_default();
-      match (id.sym.as_ref(), args.as_slice()) {
+      let args: Vec<&js::TSType> = r.type_arguments.as_ref().map(|p| p.params.iter().collect()).unwrap_or_default();
+      match (id.name.as_str(), args.as_slice()) {
         ("Array", [inner]) => Type::list(ts_type(parsed, inner)?),
         ("Record", [key, value]) => {
-          if !matches!(key, js::TsType::TsKeywordType(k) if k.kind == js::TsKeywordTypeKind::TsStringKeyword) {
+          if !matches!(key, js::TSType::TSStringKeyword(_)) {
             return Err(parsed.residue(key.span(), "a `Record` key that is not `string`"));
           }
           Type::map(ts_type(parsed, value)?)
@@ -129,19 +133,18 @@ fn ts_type(parsed: &Parsed, ty: &js::TsType) -> Result<Type, Residue> {
         (name, _) => return Err(parsed.residue(r.span, format!("a generic reference to `{name}`"))),
       }
     }
-    js::TsType::TsUnionOrIntersectionType(js::TsUnionOrIntersectionType::TsUnionType(union)) => {
+    js::TSType::TSUnionType(union) => {
       let mut inner = None;
       let mut nullable = false;
       for arm in &union.types {
-        match &**arm {
-          js::TsType::TsKeywordType(k) if matches!(k.kind, js::TsKeywordTypeKind::TsNullKeyword | js::TsKeywordTypeKind::TsUndefinedKeyword) => nullable = true,
-          other => {
-            if inner.is_some() {
-              return Err(parsed.residue(union.span, "a union of two types; declare a named union of string literals instead"));
-            }
-            inner = Some(ts_type(parsed, other)?);
-          }
+        if nullish(arm) {
+          nullable = true;
+          continue;
         }
+        if inner.is_some() {
+          return Err(parsed.residue(union.span, "a union of two types; declare a named union of string literals instead"));
+        }
+        inner = Some(ts_type(parsed, arm)?);
       }
       match (inner, nullable) {
         (Some(t), true) => Type::optional(t),
@@ -149,63 +152,73 @@ fn ts_type(parsed: &Parsed, ty: &js::TsType) -> Result<Type, Residue> {
         (None, _) => Type::Null,
       }
     }
-    js::TsType::TsTypeLit(lit) => return Err(parsed.residue(lit.span, "an inline object type; declare an interface and name it")),
-    js::TsType::TsLitType(lit) => return Err(parsed.residue(lit.span, "a literal type outside a named union")),
+    js::TSType::TSTypeLiteral(lit) => return Err(parsed.residue(lit.span, "an inline object type; declare an interface and name it")),
+    js::TSType::TSLiteralType(lit) => return Err(parsed.residue(lit.span, "a literal type outside a named union")),
     other => return Err(parsed.residue(other.span(), "a type outside the contract")),
   })
+}
+
+/// The name an export specifier exports under.
+pub(crate) fn export_name(name: &js::ModuleExportName) -> String {
+  match name {
+    js::ModuleExportName::IdentifierName(id) => id.name.to_string(),
+    js::ModuleExportName::IdentifierReference(id) => id.name.to_string(),
+    js::ModuleExportName::StringLiteral(s) => crate::lossy(s.value),
+  }
 }
 
 /// `export const defaults: Session = { ... }` in a schema module: one literal
 /// per session key. Absent when the module declares none.
 pub fn read_session_defaults(file: &str, source: &str) -> Result<SessionDefaults, LowerError> {
-  let parsed = parse(file, source)?;
+  let arena = oxc_allocator::Allocator::default();
+  let parsed = parse(&arena, file, source)?;
   let empty = SessionDefaults::new();
-  for item in &parsed.module.body {
-    if let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) = item {
-      for spec in &named.specifiers {
-        let js::ExportSpecifier::Named(spec) = spec else { continue };
-        let exported = match spec.exported.as_ref().unwrap_or(&spec.orig) {
-          js::ModuleExportName::Ident(id) => id.sym.to_string(),
-          js::ModuleExportName::Str(str) => str.value.to_atom_lossy().to_string(),
-        };
-        if exported == "defaults" {
+  for stmt in &parsed.module().body {
+    let specifiers = match stmt {
+      js::Statement::ExportNamedDeclaration(named) => Some(&named.specifiers),
+      js::Statement::ExportFromDeclaration(from) => Some(&from.specifiers),
+      _ => None,
+    };
+    if let Some(specifiers) = specifiers {
+      for spec in specifiers {
+        if export_name(&spec.exported) == "defaults" {
           return Err(parsed.residue(spec.span, "`defaults` exported apart from its declaration; the build reads `export const defaults = { … }`").into());
         }
       }
       continue;
     }
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else {
+    let js::Statement::ExportDeclaration(export) = stmt else {
       continue;
     };
-    let js::Decl::Var(var) = &export.decl else { continue };
-    for decl in &var.decls {
-      let js::Pat::Ident(name) = &decl.name else {
+    let js::Declaration::VariableDeclaration(var) = &export.declaration else { continue };
+    for decl in &var.declarations {
+      let js::BindingPattern::BindingIdentifier(name) = &decl.id else {
         return Err(parsed.residue(decl.span, "a destructuring export in a session module; `defaults` is an object literal bound to its own name").into());
       };
-      if name.id.sym.as_ref() != "defaults" {
+      if name.name.as_str() != "defaults" {
         continue;
       }
       let Some(init) = &decl.init else {
         return Err(parsed.residue(decl.span, "`defaults` without a value").into());
       };
-      let js::Expr::Object(obj) = &**init else {
+      let js::Expression::ObjectExpression(obj) = init else {
         return Err(parsed.residue(init.span(), "`defaults` must be an object literal").into());
       };
       let mut out = SessionDefaults::new();
       let mut lowerer = Lowerer::new(&parsed, &empty);
-      for prop in &obj.props {
-        let js::PropOrSpread::Prop(p) = prop else {
+      for prop in &obj.properties {
+        let js::ObjectPropertyKind::ObjectProperty(p) = prop else {
           return Err(parsed.residue(prop.span(), "a spread in `defaults`").into());
         };
-        let js::Prop::KeyValue(kv) = &**p else {
-          return Err(parsed.residue(p.span(), "`defaults` entries are `key: literal`").into());
-        };
-        let key = match &kv.key {
-          js::PropName::Ident(id) => id.sym.to_string(),
-          js::PropName::Str(s) => s.value.to_atom_lossy().to_string(),
+        if p.kind != js::PropertyKind::Init || p.shorthand || p.method {
+          return Err(parsed.residue(p.span, "`defaults` entries are `key: literal`").into());
+        }
+        let key = match &p.key {
+          js::PropertyKey::StaticIdentifier(id) if !p.computed => id.name.to_string(),
+          js::PropertyKey::StringLiteral(s) if !p.computed => crate::lossy(s.value),
           other => return Err(parsed.residue(other.span(), "a computed key in `defaults`").into()),
         };
-        out.push((key, lowerer.literal(&kv.value)?));
+        out.push((key, lowerer.literal(&p.value)?));
       }
       return Ok(out);
     }

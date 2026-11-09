@@ -3,13 +3,12 @@
 //! its attributes as written; what the markup is gets decided here, once, for
 //! JSX, a Vue template and any front end after them.
 
-use std::borrow::Cow;
 use std::rc::Rc;
 
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Tmpl};
 use snapfire_fsr_ir::render::html_attr_name;
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
+use oxc_span::{GetSpan, Span};
+use oxc_ast::ast as js;
 
 use crate::assets::{self, AssetResolver, ImageFacts, ImageRequest};
 use crate::component::{asset_facts, asset_path, is_asset_record, HeadRow, RAW_ESCAPE};
@@ -29,9 +28,9 @@ pub(crate) enum Value<'v> {
   /// A static string.
   Text(String),
   /// An expression, lowered here.
-  Script(Cow<'v, js::Expr>),
+  Script(&'v js::Expression<'v>),
   /// `{...rest}`, whose entries become attributes.
-  Spread(Cow<'v, js::Expr>),
+  Spread(&'v js::Expression<'v>),
 }
 
 pub(crate) struct Attr<'v> {
@@ -70,22 +69,22 @@ pub(crate) fn value<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Ex
 /// ir before 0.15.2 writes the keys a plan holds as they stand.
 pub(crate) fn style<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Expr> {
   let Value::Script(expr) = &attr.value else { return value(cx, attr) };
-  let js::Expr::Object(obj) = &**expr else {
+  let js::Expression::ObjectExpression(obj) = *expr else {
     return cx.lowerer().expr(expr);
   };
   let mut entries = Vec::new();
-  for prop in &obj.props {
+  for prop in &obj.properties {
     let (key, value) = match prop {
-      js::PropOrSpread::Spread(spread) => {
-        entries.push(Entry::Spread(cx.lowerer().expr(&spread.expr)?));
+      js::ObjectPropertyKind::SpreadProperty(spread) => {
+        entries.push(Entry::Spread(cx.lowerer().expr(&spread.argument)?));
         continue;
       }
-      js::PropOrSpread::Prop(p) => match &**p {
-        js::Prop::KeyValue(kv) => {
-          let Some(key) = prop_name(&kv.key) else { return Err(refuse(cx, At::Span(kv.key.span()), "a computed style property")) };
+      js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
+        crate::syntax::Prop::KeyValue(kv) => {
+          let Some(key) = prop_name(&kv.key, kv.computed) else { return Err(refuse(cx, At::Span(kv.key.span()), "a computed style property")) };
           (key, cx.lowerer().expr(&kv.value)?)
         }
-        js::Prop::Shorthand(id) => (id.sym.to_string(), cx.lowerer().ident(id)?),
+        crate::syntax::Prop::Shorthand(id) => (id.name.to_string(), cx.lowerer().ident(id)?),
         other => return Err(refuse(cx, At::Span(other.span()), "a method in a style")),
       },
     };
@@ -403,24 +402,25 @@ pub(crate) fn asset_import(lowerer: &Lowerer<'_>, local: &str) -> Option<String>
 /// of imports indexed by a key, or any other value.
 fn picture_src<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<PictureSrc> {
   if let Value::Script(expr) = &attr.value {
-    match &**expr {
-      js::Expr::Ident(id) => {
-        if let Some(path) = asset_import(cx.lowerer(), id.sym.as_ref()) {
+    match *expr {
+      js::Expression::Identifier(id) => {
+        if let Some(path) = asset_import(cx.lowerer(), id.name.as_str()) {
           return Ok(PictureSrc::Local(path));
         }
       }
-      js::Expr::Member(m) => {
-        if let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) {
-          if prop.sym.as_ref() == "src" {
-            if let Some(path) = asset_import(cx.lowerer(), obj.sym.as_ref()) {
+      m_expr if m_expr.is_member_expression() => {
+let m = m_expr.as_member_expression().expect("matched as a member");
+        if let (js::Expression::Identifier(obj), crate::syntax::MemberProp::Ident(prop)) = (m.object(), crate::syntax::prop(m)) {
+          if prop.name.as_str() == "src" {
+            if let Some(path) = asset_import(cx.lowerer(), obj.name.as_str()) {
               return Ok(PictureSrc::Local(path));
             }
           }
         }
-        if let (js::Expr::Ident(obj), js::MemberProp::Computed(key)) = (&*m.obj, &m.prop) {
+        if let (js::Expression::Identifier(obj), crate::syntax::MemberProp::Computed(key)) = (m.object(), crate::syntax::prop(m)) {
           let bound = cx.lowerer().ident(obj)?;
           if let Some(entries) = asset_record(&bound) {
-            let key = cx.lowerer().expr(&key.expr)?;
+            let key = cx.lowerer().expr(key)?;
             return Ok(PictureSrc::Keyed(key, entries));
           }
         }

@@ -4,13 +4,14 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::{Allocator, CloneIn};
+use oxc_ast::ast::{self as js, ArrayExpressionElement, BindingPattern, Declaration, Expression, ImportDeclarationSpecifier, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, ModuleExportName, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::line_range;
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{argument, import_specifiers, is_script, jsx_ident, key_value, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
@@ -23,10 +24,10 @@ fn scripts(tree: &Tree) -> Vec<String> {
 
 /// The default import of `module` in `parsed`: the declaration and the
 /// local name.
-fn default_import<'a>(parsed: &'a Parsed, module: &str) -> Option<(&'a js::ImportDecl, String)> {
-  parsed.module.body.iter().find_map(|item| match item {
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if import.src.value.to_string_lossy() == module => import.specifiers.iter().find_map(|s| match s {
-      js::ImportSpecifier::Default(d) => Some((import, d.local.sym.to_string())),
+fn default_import<'p, 'a>(parsed: &'p Parsed<'a>, module: &str) -> Option<(&'p js::ImportDeclaration<'a>, String)> {
+  parsed.body().iter().find_map(|item| match item {
+    Statement::ImportDeclaration(import) if import.source.value == module => import_specifiers(import).iter().find_map(|s| match s {
+      ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => Some((&**import, d.local.name.to_string())),
       _ => None,
     }),
     _ => None,
@@ -52,29 +53,30 @@ impl Pass for Links {
       if !text.contains("next/link") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
-      let Some(import) = parsed.module.body.iter().find_map(|item| match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if import.src.value.to_string_lossy() == "next/link" => Some(import),
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
+      let Some(import) = parsed.body().iter().find_map(|item| match item {
+        Statement::ImportDeclaration(import) if import.source.value == "next/link" => Some(import),
         _ => None,
       }) else {
         continue;
       };
       let mut local = None;
       let mut status = None;
-      for specifier in &import.specifiers {
+      for specifier in import_specifiers(import) {
         match specifier {
-          js::ImportSpecifier::Default(d) => local = Some(d.local.sym.to_string()),
-          js::ImportSpecifier::Named(n) => {
+          ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => local = Some(d.local.name.to_string()),
+          ImportDeclarationSpecifier::ImportSpecifier(n) => {
             let imported = match &n.imported {
-              Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-              Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-              None => n.local.sym.to_string(),
+              ModuleExportName::IdentifierName(i) => i.name.to_string(),
+              ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+              ModuleExportName::StringLiteral(s) => lossy(s.value),
             };
             if imported == "useLinkStatus" {
-              status = Some(n.local.sym.to_string());
+              status = Some(n.local.name.to_string());
             }
           }
-          js::ImportSpecifier::Namespace(_) => {}
+          ImportDeclarationSpecifier::ImportNamespaceSpecifier(_) => {}
         }
       }
       let mut lines = Vec::new();
@@ -95,15 +97,15 @@ impl Pass for Links {
         tree.insert(path, edits.apply(&text));
         continue;
       };
-      let mut found = Elements { name: local, found: Vec::new() };
-      parsed.module.visit_with(&mut found);
+      let mut found = Elements { name: local, allocator: &allocator, found: Vec::new() };
+      found.visit_program(&parsed.program);
       for opening in &found.found {
-        for attr in &opening.attrs {
-          let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { continue };
-          let js::JSXAttrName::Ident(name) = &attr.name else { continue };
+        for attr in &opening.attributes {
+          let JSXAttributeItem::Attribute(attr) = attr else { continue };
+          let JSXAttributeName::Identifier(name) = &attr.name else { continue };
           let line = parsed.line(attr.span);
           let range = with_space_before(&text, parsed.range(attr.span));
-          match &*name.sym {
+          match name.name.as_str() {
             "prefetch" => match attr.value.as_ref().map(|v| bool_value(v)) {
               Some(Some(false)) => edits.replace(parsed.range(attr.span), "prefetch=\"none\""),
               None | Some(Some(true)) => edits.replace(range, ""),
@@ -112,15 +114,15 @@ impl Pass for Links {
             "passHref" => edits.replace(range, ""),
             "replace" | "scroll" | "shallow" | "locale" => {
               edits.replace(range, "");
-              report.note(&path, line, format!("`{}` was dropped: FSR's `Link` has no such prop; `navigate(href, true, {{ replace, scroll }})` from `@snapfire/fsr/client` takes `replace` and `scroll`", name.sym));
+              report.note(&path, line, format!("`{}` was dropped: FSR's `Link` has no such prop; `navigate(href, true, {{ replace, scroll }})` from `@snapfire/fsr/client` takes `replace` and `scroll`", name.name));
             }
             "legacyBehavior" => {
               edits.replace(range, "");
               report.note(&path, line, "`legacyBehavior` was dropped: FSR's `Link` is the anchor, so an `<a>` inside it is one anchor too many");
             }
             "href" => {
-              if let Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) = &attr.value {
-                if matches!(&**e, js::Expr::Object(_)) {
+              if let Some(JSXAttributeValue::ExpressionContainer(c)) = &attr.value {
+                if matches!(c.expression.as_expression(), Some(Expression::ObjectExpression(_))) {
                   report.note(&path, line, "an `href` object is a string in FSR: the path and its query written out");
                 }
               }
@@ -182,32 +184,33 @@ impl Pass for CatchErrors {
       if !text.contains("next/error") && !text.contains("unstable_rethrow") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let mut edits = Edits::default();
       let mut rethrow: Option<String> = None;
-      for item in &parsed.module.body {
-        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-        let module = import.src.value.to_string_lossy();
+      for item in parsed.body() {
+        let Statement::ImportDeclaration(import) = item else { continue };
+        let module = lossy(import.source.value);
         if module != "next/error" && module != "next/navigation" {
           continue;
         }
         let mut moved = Vec::new();
         let mut kept = Vec::new();
-        for specifier in &import.specifiers {
-          let js::ImportSpecifier::Named(n) = specifier else {
+        for specifier in import_specifiers(import) {
+          let ImportDeclarationSpecifier::ImportSpecifier(n) = specifier else {
             kept.push(text[parsed.range(specifier.span())].to_owned());
             continue;
           };
           let imported = match &n.imported {
-            Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-            Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-            None => n.local.sym.to_string(),
+            ModuleExportName::IdentifierName(i) => i.name.to_string(),
+            ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+            ModuleExportName::StringLiteral(s) => lossy(s.value),
           };
-          let local = n.local.sym.to_string();
-          match (module.as_ref(), imported.as_str()) {
+          let local = n.local.name.to_string();
+          match (module.as_str(), imported.as_str()) {
             ("next/error", "catchError" | "unstable_catchError" | "ErrorInfo") => {
               let name = if imported == "ErrorInfo" { "ErrorInfo" } else { "catchError" };
-              let typed = if n.is_type_only || import.type_only { "type " } else { "" };
+              let typed = if n.import_kind.is_type() || import.import_kind.is_type() { "type " } else { "" };
               moved.push(if local == name { format!("{typed}{name}") } else { format!("{typed}{name} as {local}") });
             }
             ("next/navigation", "unstable_rethrow") => rethrow = Some(local),
@@ -219,7 +222,7 @@ impl Pass for CatchErrors {
         }
         let mut lines = Vec::new();
         if !kept.is_empty() {
-          let (defaults, named): (Vec<String>, Vec<String>) = kept.into_iter().partition(|k| !k.starts_with('*') && import.specifiers.iter().any(|s| matches!(s, js::ImportSpecifier::Default(d) if d.local.sym == **k)));
+          let (defaults, named): (Vec<String>, Vec<String>) = kept.into_iter().partition(|k| !k.starts_with('*') && import_specifiers(import).iter().any(|s| matches!(s, ImportDeclarationSpecifier::ImportDefaultSpecifier(d) if d.local.name == k.as_str())));
           let mut clause = defaults;
           if !named.is_empty() {
             clause.push(format!("{{ {} }}", named.join(", ")));
@@ -237,7 +240,7 @@ impl Pass for CatchErrors {
       }
       if let Some(name) = &rethrow {
         let mut calls = Rethrows { name: name.clone(), found: Vec::new() };
-        parsed.module.visit_with(&mut calls);
+        calls.visit_program(&parsed.program);
         for span in &calls.found {
           edits.replace(line_range(&text, parsed.range(*span)), "");
           report.note(&path, parsed.line(*span), "`unstable_rethrow` was dropped: FSR's `redirect` returns a `Response` and a failure a `catch` takes is the body's own, so there is nothing to throw on");
@@ -257,24 +260,22 @@ struct Rethrows {
   found: Vec<Span>,
 }
 
-impl Visit for Rethrows {
-  fn visit_expr_stmt(&mut self, stmt: &js::ExprStmt) {
-    if let js::Expr::Call(call) = &*stmt.expr {
-      if let js::Callee::Expr(callee) = &call.callee {
-        if matches!(&**callee, js::Expr::Ident(id) if *id.sym == *self.name) {
-          self.found.push(stmt.span);
-        }
+impl<'a> Visit<'a> for Rethrows {
+  fn visit_expression_statement(&mut self, stmt: &js::ExpressionStatement<'a>) {
+    if let Expression::CallExpression(call) = &stmt.expression {
+      if matches!(&call.callee, Expression::Identifier(id) if id.name == self.name.as_str()) {
+        self.found.push(stmt.span);
       }
     }
-    stmt.visit_children_with(self);
+    walk::walk_expression_statement(self, stmt);
   }
 }
 
-fn bool_value(value: &js::JSXAttrValue) -> Option<bool> {
+fn bool_value(value: &JSXAttributeValue) -> Option<bool> {
   match value {
-    js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. }) => match &**e {
-      js::Expr::Lit(js::Lit::Bool(b)) => Some(b.value),
-      js::Expr::Lit(js::Lit::Null(_)) => Some(true),
+    JSXAttributeValue::ExpressionContainer(c) => match c.expression.as_expression() {
+      Some(Expression::BooleanLiteral(b)) => Some(b.value),
+      Some(Expression::NullLiteral(_)) => Some(true),
       _ => None,
     },
     _ => None,
@@ -289,19 +290,20 @@ fn with_space_before(text: &str, range: Range<usize>) -> Range<usize> {
   start..range.end
 }
 
-struct Elements {
+struct Elements<'a> {
   name: String,
-  found: Vec<js::JSXOpeningElement>,
+  allocator: &'a Allocator,
+  found: Vec<js::JSXOpeningElement<'a>>,
 }
 
-impl Visit for Elements {
-  fn visit_jsx_opening_element(&mut self, n: &js::JSXOpeningElement) {
-    if let js::JSXElementName::Ident(i) = &n.name {
-      if *i.sym == *self.name {
-        self.found.push(n.clone());
+impl<'a> Visit<'a> for Elements<'_> {
+  fn visit_jsx_opening_element(&mut self, n: &js::JSXOpeningElement<'a>) {
+    if let Some((name, _)) = jsx_ident(&n.name) {
+      if name == self.name {
+        self.found.push(n.clone_in(self.allocator));
       }
     }
-    n.visit_children_with(self);
+    walk::walk_jsx_opening_element(self, n);
   }
 }
 
@@ -323,27 +325,28 @@ impl Pass for Images {
       if !text.contains("next/image") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let Some((import, local)) = default_import(&parsed, "next/image").or_else(|| default_import(&parsed, "next/legacy/image")) else { continue };
       let mut edits = Edits::default();
       let clause = if local == "Picture" { "{ Picture }".to_owned() } else { format!("{{ Picture as {local} }}") };
       edits.replace(parsed.range(import.span), format!("import {clause} from \"@snapfire/fsr/components\";"));
-      let mut found = Elements { name: local, found: Vec::new() };
-      parsed.module.visit_with(&mut found);
+      let mut found = Elements { name: local, allocator: &allocator, found: Vec::new() };
+      found.visit_program(&parsed.program);
       for opening in &found.found {
-        for attr in &opening.attrs {
-          let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { continue };
-          let js::JSXAttrName::Ident(name) = &attr.name else { continue };
+        for attr in &opening.attributes {
+          let JSXAttributeItem::Attribute(attr) = attr else { continue };
+          let JSXAttributeName::Identifier(name) = &attr.name else { continue };
           let line = parsed.line(attr.span);
           let range = with_space_before(&text, parsed.range(attr.span));
-          match &*name.sym {
+          match name.name.as_str() {
             "placeholder" | "blurDataURL" | "unoptimized" => {
               edits.replace(range, "");
-              report.note(&path, line, format!("`{}` was dropped: FSR builds each image's variants itself", name.sym));
+              report.note(&path, line, format!("`{}` was dropped: FSR builds each image's variants itself", name.name));
             }
             "fill" | "loader" | "layout" | "objectFit" | "objectPosition" => {
               edits.replace(range, "");
-              report.note(&path, line, format!("`{}` was dropped: `Picture` has no such prop; size the image with CSS, an `[images.sources]` entry serves a remote one", name.sym));
+              report.note(&path, line, format!("`{}` was dropped: `Picture` has no such prop; size the image with CSS, an `[images.sources]` entry serves a remote one", name.name));
             }
             _ => {}
           }
@@ -374,12 +377,13 @@ impl Pass for Fonts {
       if !text.contains("next/font") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let mut edits = Edits::default();
       let mut loaders: BTreeMap<String, String> = BTreeMap::new();
-      for item in &parsed.module.body {
-        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-        let module = import.src.value.to_string_lossy();
+      for item in parsed.body() {
+        let Statement::ImportDeclaration(import) = item else { continue };
+        let module = lossy(import.source.value);
         if module == "next/font/local" {
           report.note(&path, parsed.line(import.span), "a local font is `[fonts.<key>]` with `files` in `config/app.toml`, the files under `app/fonts/`");
           continue;
@@ -387,14 +391,14 @@ impl Pass for Fonts {
         if module != "next/font/google" {
           continue;
         }
-        for s in &import.specifiers {
-          if let js::ImportSpecifier::Named(n) = s {
+        for s in import_specifiers(import) {
+          if let ImportDeclarationSpecifier::ImportSpecifier(n) = s {
             let imported = match &n.imported {
-              Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-              Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-              None => n.local.sym.to_string(),
+              ModuleExportName::IdentifierName(i) => i.name.to_string(),
+              ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+              ModuleExportName::StringLiteral(s) => lossy(s.value),
             };
-            loaders.insert(n.local.sym.to_string(), imported);
+            loaders.insert(n.local.name.to_string(), imported);
           }
         }
         edits.replace(line_range(&text, parsed.range(import.span)), "");
@@ -403,31 +407,33 @@ impl Pass for Fonts {
         continue;
       }
       let mut fonts: BTreeMap<String, String> = BTreeMap::new();
-      for item in &parsed.module.body {
+      for item in parsed.body() {
         let decl = match item {
-          js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(v))) => v,
-          js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(v), .. })) => v,
+          Statement::VariableDeclaration(v) => v,
+          Statement::ExportDeclaration(e) => match &e.declaration {
+            Declaration::VariableDeclaration(v) => v,
+            _ => continue,
+          },
           _ => continue,
         };
-        let [d] = decl.decls.as_slice() else { continue };
-        let (js::Pat::Ident(name), Some(js::Expr::Call(call))) = (&d.name, d.init.as_deref()) else { continue };
-        let js::Callee::Expr(callee) = &call.callee else { continue };
-        let js::Expr::Ident(callee) = &**callee else { continue };
-        let Some(family) = loaders.get(&*callee.sym) else { continue };
+        let [d] = decl.declarations.as_slice() else { continue };
+        let (BindingPattern::BindingIdentifier(name), Some(Expression::CallExpression(call))) = (&d.id, &d.init) else { continue };
+        let Expression::Identifier(callee) = &call.callee else { continue };
+        let Some(family) = loaders.get(callee.name.as_str()) else { continue };
         let family = family.replace('_', " ");
         let key = family.to_lowercase().replace(' ', "-");
-        let weights = call.args.first().map(|a| weights(&a.expr)).unwrap_or_default();
+        let weights = call.arguments.first().map(|a| weights(argument(a))).unwrap_or_default();
         let entry = families.entry(key.clone()).or_insert_with(|| (family.clone(), Vec::new()));
         for w in weights {
           if !entry.1.contains(&w) {
             entry.1.push(w);
           }
         }
-        fonts.insert(name.id.sym.to_string(), key);
+        fonts.insert(name.name.to_string(), key);
         edits.replace(line_range(&text, parsed.range(item.span())), "");
       }
       let mut uses = Uses { fonts: &fonts, found: Vec::new(), other: Vec::new() };
-      parsed.module.visit_with(&mut uses);
+      uses.visit_program(&parsed.program);
       for (span, key, field) in uses.found {
         let with = match field.as_str() {
           "className" => format!("\"font-{key}\""),
@@ -479,12 +485,13 @@ impl Pass for Stylesheets {
       if !text.contains(".css") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let mut edits = Edits::default();
-      for item in &parsed.module.body {
-        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-        let spec = import.src.value.to_string_lossy().into_owned();
-        if !import.specifiers.is_empty() || !spec.ends_with(".css") || spec.ends_with(".module.css") {
+      for item in parsed.body() {
+        let Statement::ImportDeclaration(import) = item else { continue };
+        let spec = lossy(import.source.value);
+        if !import_specifiers(import).is_empty() || !spec.ends_with(".css") || spec.ends_with(".module.css") {
           continue;
         }
         let target = if let Some(rest) = spec.strip_prefix("@src/") {
@@ -596,22 +603,17 @@ fn tailwind_four(css: &str) -> Option<String> {
 
 /// The weights a font loader's options name, `weight: "400"` or
 /// `weight: ["400", "700"]`.
-fn weights(options: &js::Expr) -> Vec<String> {
-  let js::Expr::Object(object) = options else { return Vec::new() };
+fn weights(options: &Expression) -> Vec<String> {
+  let Expression::ObjectExpression(object) = options else { return Vec::new() };
   let mut out = Vec::new();
-  for prop in &object.props {
-    let js::PropOrSpread::Prop(prop) = prop else { continue };
-    let js::Prop::KeyValue(kv) = &**prop else { continue };
-    let js::PropName::Ident(k) = &kv.key else { continue };
-    if &*k.sym != "weight" {
-      continue;
-    }
-    match &*kv.value {
-      js::Expr::Lit(js::Lit::Str(s)) => out.push(s.value.to_string_lossy().into_owned()),
-      js::Expr::Array(a) => {
-        for e in a.elems.iter().flatten() {
-          if let js::Expr::Lit(js::Lit::Str(s)) = &*e.expr {
-            out.push(s.value.to_string_lossy().into_owned());
+  for prop in &object.properties {
+    let Some(("weight", value)) = key_value(prop) else { continue };
+    match value {
+      Expression::StringLiteral(s) => out.push(lossy(s.value)),
+      Expression::ArrayExpression(a) => {
+        for e in &a.elements {
+          if let ArrayExpressionElement::StringLiteral(s) = e {
+            out.push(lossy(s.value));
           }
         }
       }
@@ -628,25 +630,31 @@ struct Uses<'a> {
   other: Vec<Span>,
 }
 
-impl Visit for Uses<'_> {
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*n.obj, &n.prop) {
-      if let Some(key) = self.fonts.get(&*obj.sym) {
-        self.found.push((n.span, key.clone(), prop.sym.to_string()));
+impl<'a> Visit<'a> for Uses<'_> {
+  fn visit_static_member_expression(&mut self, n: &js::StaticMemberExpression<'a>) {
+    if let Expression::Identifier(obj) = &n.object {
+      if let Some(key) = self.fonts.get(obj.name.as_str()) {
+        self.found.push((n.span, key.clone(), n.property.name.to_string()));
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_static_member_expression(self, n);
   }
 
-  fn visit_var_declarator(&mut self, n: &js::VarDeclarator) {
+  fn visit_variable_declarator(&mut self, n: &js::VariableDeclarator<'a>) {
     if let Some(init) = &n.init {
-      init.visit_with(self);
+      self.visit_expression(init);
     }
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    if self.fonts.contains_key(&*n.sym) {
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    if self.fonts.contains_key(n.name.as_str()) {
+      self.other.push(n.span);
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    if self.fonts.contains_key(n.name.as_str()) {
       self.other.push(n.span);
     }
   }

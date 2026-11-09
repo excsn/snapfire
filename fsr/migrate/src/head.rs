@@ -2,13 +2,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::{Allocator, CloneIn};
+use oxc_ast::ast::{self as js, BindingPattern, ExportDefaultDeclarationKind, ImportDeclarationSpecifier, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXChild, Statement, VariableDeclarationKind};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::{drop_named_import, import_text, line_range, local, tidy};
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{import_specifiers, is_script, jsx_ident, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 /// Each `<Head>` taken out of the module that places it. In a page or a
@@ -30,10 +31,11 @@ impl Pass for Head {
       if !text.contains("next/head") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
-      let Some(local_name) = parsed.module.body.iter().find_map(|item| match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if import.src.value.to_string_lossy() == "next/head" => import.specifiers.iter().find_map(|s| match s {
-          js::ImportSpecifier::Default(d) => Some(d.local.sym.to_string()),
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
+      let Some(local_name) = parsed.body().iter().find_map(|item| match item {
+        Statement::ImportDeclaration(import) if import.source.value == "next/head" => import_specifiers(import).iter().find_map(|s| match s {
+          ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => Some(d.local.name.to_string()),
           _ => None,
         }),
         _ => None,
@@ -42,8 +44,8 @@ impl Pass for Head {
       };
       let route = route_kind(&path);
       let scope = Scope::of(&text, &parsed, route == Some("page"));
-      let mut found = Heads { name: local_name.clone(), found: Vec::new() };
-      parsed.module.visit_with(&mut found);
+      let mut found = Heads { name: local_name.clone(), allocator: &allocator, found: Vec::new() };
+      found.visit_program(&parsed.program);
       let mut edits = Edits::default();
       let mut fields: Vec<(String, String)> = Vec::new();
       let mut helpers: BTreeSet<&'static str> = BTreeSet::new();
@@ -51,7 +53,7 @@ impl Pass for Head {
       let mut head: Vec<String> = Vec::new();
       for element in &found.found {
         for child in &element.children {
-          let js::JSXElementChild::JSXElement(tag) = child else { continue };
+          let JSXChild::Element(tag) = child else { continue };
           let line = parsed.line(tag.span);
           match convert(&text, &parsed, tag) {
             Converted::Dropped => {}
@@ -160,20 +162,26 @@ enum Converted {
 }
 
 fn attr<'a>(text: &'a str, parsed: &Parsed, opening: &js::JSXOpeningElement, name: &str) -> Option<String> {
-  opening.attrs.iter().find_map(|a| match a {
-    js::JSXAttrOrSpread::JSXAttr(js::JSXAttr { name: js::JSXAttrName::Ident(n), value: Some(value), .. }) if &*n.sym == name => Some(match value {
-      js::JSXAttrValue::Str(s) => format!("{:?}", s.value.to_string_lossy()),
-      js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. }) => text[parsed.range(e.span())].to_owned(),
-      other => text[parsed.range(other.span())].to_owned(),
-    }),
+  opening.attributes.iter().find_map(|a| match a {
+    JSXAttributeItem::Attribute(attr) => match (&attr.name, &attr.value) {
+      (JSXAttributeName::Identifier(n), Some(value)) if n.name == name => Some(match value {
+        JSXAttributeValue::StringLiteral(s) => format!("{:?}", lossy(s.value)),
+        JSXAttributeValue::ExpressionContainer(c) => match c.expression.as_expression() {
+          Some(e) => text[parsed.range(e.span())].to_owned(),
+          None => text[parsed.range(c.span)].to_owned(),
+        },
+        other => text[parsed.range(other.span())].to_owned(),
+      }),
+      _ => None,
+    },
     _ => None,
   })
 }
 
 fn convert(text: &str, parsed: &Parsed, tag: &js::JSXElement) -> Converted {
-  let js::JSXElementName::Ident(name) = &tag.opening.name else { return Converted::Unknown("an element".to_owned()) };
-  let attr = |n: &str| attr(text, parsed, &tag.opening, n);
-  match &*name.sym {
+  let Some((name, _)) = jsx_ident(&tag.opening_element.name) else { return Converted::Unknown("an element".to_owned()) };
+  let attr = |n: &str| attr(text, parsed, &tag.opening_element, n);
+  match name {
     "title" => match title(text, parsed, tag) {
       Some(t) => Converted::Field("title".to_owned(), t),
       None => Converted::Unknown("a `<title>` this pass cannot read".to_owned()),
@@ -203,8 +211,11 @@ fn convert(text: &str, parsed: &Parsed, tag: &js::JSXElement) -> Converted {
       if rel == "\"canonical\"" {
         return Converted::Head("canonical".to_owned(), href);
       }
-      let others: Vec<String> = tag.opening.attrs.iter().filter_map(|a| match a {
-        js::JSXAttrOrSpread::JSXAttr(js::JSXAttr { name: js::JSXAttrName::Ident(n), .. }) if !["rel", "href", "key"].contains(&&*n.sym) => Some(n.sym.to_string()),
+      let others: Vec<String> = tag.opening_element.attributes.iter().filter_map(|a| match a {
+        JSXAttributeItem::Attribute(attr) => match &attr.name {
+          JSXAttributeName::Identifier(n) if !["rel", "href", "key"].contains(&n.name.as_str()) => Some(n.name.to_string()),
+          _ => None,
+        },
         _ => None,
       }).collect();
       if !others.is_empty() {
@@ -222,8 +233,8 @@ fn title(text: &str, parsed: &Parsed, tag: &js::JSXElement) -> Option<String> {
   let mut parts: Vec<Result<String, String>> = Vec::new();
   for child in &tag.children {
     match child {
-      js::JSXElementChild::JSXText(t) => {
-        let value = t.value.to_string_lossy();
+      JSXChild::Text(t) => {
+        let value = t.value.as_str();
         let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
         if !collapsed.is_empty() {
           let lead = if value.starts_with(char::is_whitespace) && !parts.is_empty() { " " } else { "" };
@@ -233,8 +244,11 @@ fn title(text: &str, parsed: &Parsed, tag: &js::JSXElement) -> Option<String> {
           parts.push(Ok(" ".to_owned()));
         }
       }
-      js::JSXElementChild::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. }) => parts.push(Err(text[parsed.range(e.span())].to_owned())),
-      js::JSXElementChild::JSXExprContainer(_) => {}
+      JSXChild::ExpressionContainer(c) => {
+        if let Some(e) = c.expression.as_expression() {
+          parts.push(Err(text[parsed.range(e.span())].to_owned()));
+        }
+      }
       _ => return None,
     }
   }
@@ -272,13 +286,13 @@ struct Scope {
 impl Scope {
   fn of(text: &str, parsed: &Parsed, page: bool) -> Self {
     let mut scope = Scope { props: BTreeSet::new(), props_object: None, imports: BTreeSet::new(), declarations: BTreeMap::new() };
-    for item in &parsed.module.body {
+    for item in parsed.body() {
       match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(i)) => scope.imports.extend(i.specifiers.iter().map(local)),
-        js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(v))) if v.kind == js::VarDeclKind::Const => {
-          for d in &v.decls {
-            if let js::Pat::Ident(i) = &d.name {
-              scope.declarations.insert(i.id.sym.to_string(), text[parsed.range(item.span())].to_owned());
+        Statement::ImportDeclaration(i) => scope.imports.extend(import_specifiers(i).iter().map(local)),
+        Statement::VariableDeclaration(v) if v.kind == VariableDeclarationKind::Const => {
+          for d in &v.declarations {
+            if let BindingPattern::BindingIdentifier(i) = &d.id {
+              scope.declarations.insert(i.name.to_string(), text[parsed.range(item.span())].to_owned());
             }
           }
         }
@@ -286,26 +300,28 @@ impl Scope {
       }
     }
     if page {
-      if let Some(function) = default_component(&parsed.module) {
-        match function.params.first().map(|p| &p.pat) {
-          Some(js::Pat::Object(o)) => {
-            for p in &o.props {
-              match p {
-                js::ObjectPatProp::Assign(a) => {
-                  scope.props.insert(a.key.sym.to_string());
-                }
-                js::ObjectPatProp::KeyValue(kv) => {
-                  if let (js::PropName::Ident(k), js::Pat::Ident(v)) = (&kv.key, &*kv.value) {
-                    if k.sym == v.id.sym {
-                      scope.props.insert(k.sym.to_string());
-                    }
-                  }
-                }
-                js::ObjectPatProp::Rest(_) => {}
+      if let Some(function) = default_component(parsed) {
+        match function.params.items.first().map(|p| &p.pattern) {
+          Some(BindingPattern::ObjectPattern(o)) => {
+            for p in &o.properties {
+              if p.computed {
+                continue;
+              }
+              let js::PropertyKey::StaticIdentifier(k) = &p.key else { continue };
+              let bound = match &p.value {
+                BindingPattern::BindingIdentifier(v) => Some(v),
+                BindingPattern::AssignmentPattern(a) if p.shorthand => match &a.left {
+                  BindingPattern::BindingIdentifier(v) => Some(v),
+                  _ => None,
+                },
+                _ => None,
+              };
+              if bound.is_some_and(|v| v.name == k.name) {
+                scope.props.insert(k.name.to_string());
               }
             }
           }
-          Some(js::Pat::Ident(i)) => scope.props_object = Some(i.id.sym.to_string()),
+          Some(BindingPattern::BindingIdentifier(i)) => scope.props_object = Some(i.name.to_string()),
           _ => {}
         }
       }
@@ -318,9 +334,10 @@ impl Scope {
   /// the module does not bind at its top.
   fn rewrite(&self, expression: &str) -> Option<(String, BTreeSet<String>)> {
     let wrapped = format!("({expression})");
-    let inner = parse("meta.tsx", &wrapped).ok()?;
+    let allocator = Allocator::default();
+    let inner = parse(&allocator, "meta.tsx", &wrapped).ok()?;
     let mut reads = Free { found: Vec::new() };
-    inner.module.visit_with(&mut reads);
+    reads.visit_program(&inner.program);
     let mut edits = Edits::default();
     let mut uses = BTreeSet::new();
     for (span, name) in reads.found {
@@ -343,9 +360,9 @@ impl Scope {
   /// has left out.
   fn imports_for(&self, text: &str, parsed: &Parsed, needed: &BTreeSet<String>, existing: &str) -> String {
     let mut out = String::new();
-    for item in &parsed.module.body {
-      let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-      let kept: Vec<&js::ImportSpecifier> = import.specifiers.iter().filter(|s| needed.contains(&local(s))).collect();
+    for item in parsed.body() {
+      let Statement::ImportDeclaration(import) = item else { continue };
+      let kept: Vec<&ImportDeclarationSpecifier> = import_specifiers(import).iter().filter(|s| needed.contains(&local(s))).collect();
       if kept.is_empty() {
         continue;
       }
@@ -360,22 +377,19 @@ impl Scope {
 
 const GLOBALS: &[&str] = &["undefined", "String", "Number", "Math", "JSON", "Date", "Boolean", "Array", "Object"];
 
-fn default_component(module: &js::Module) -> Option<&js::Function> {
+fn default_component<'p, 'a>(parsed: &'p Parsed<'a>) -> Option<&'p js::Function<'a>> {
   let mut named = None;
-  for item in &module.body {
-    match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(js::ExportDefaultDecl { decl: js::DefaultDecl::Fn(f), .. })) => return Some(&f.function),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => {
-        if let js::Expr::Ident(i) = &*e.expr {
-          named = Some(i.sym.to_string());
-        }
-      }
+  for item in parsed.body() {
+    let Statement::ExportDefaultDeclaration(e) = item else { continue };
+    match &e.declaration {
+      ExportDefaultDeclarationKind::FunctionDeclaration(f) => return Some(f),
+      ExportDefaultDeclarationKind::Identifier(i) => named = Some(i.name.to_string()),
       _ => {}
     }
   }
   let named = named?;
-  module.body.iter().find_map(|item| match item {
-    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) if f.ident.sym == *named => Some(&*f.function),
+  parsed.body().iter().find_map(|item| match item {
+    Statement::FunctionDeclaration(f) if f.id.as_ref().is_some_and(|id| id.name == named.as_str()) => Some(&**f),
     _ => None,
   })
 }
@@ -385,33 +399,38 @@ struct Free {
   found: Vec<(Span, String)>,
 }
 
-impl Visit for Free {
-  fn visit_ident(&mut self, n: &js::Ident) {
-    self.found.push((n.span, n.sym.to_string()));
+impl<'a> Visit<'a> for Free {
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    self.found.push((n.span, n.name.to_string()));
   }
 
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    n.obj.visit_with(self);
-    if let js::MemberProp::Computed(c) = &n.prop {
-      c.visit_with(self);
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    self.found.push((n.span, n.name.to_string()));
+  }
+
+  fn visit_jsx_element_name(&mut self, n: &js::JSXElementName<'a>) {
+    if let js::JSXElementName::Identifier(i) = n {
+      self.found.push((i.span, i.name.to_string()));
     }
+    walk::walk_jsx_element_name(self, n);
   }
 }
 
-struct Heads {
+struct Heads<'a> {
   name: String,
-  found: Vec<js::JSXElement>,
+  allocator: &'a Allocator,
+  found: Vec<js::JSXElement<'a>>,
 }
 
-impl Visit for Heads {
-  fn visit_jsx_element(&mut self, n: &js::JSXElement) {
-    if let js::JSXElementName::Ident(i) = &n.opening.name {
-      if *i.sym == *self.name {
-        self.found.push(n.clone());
+impl<'a> Visit<'a> for Heads<'_> {
+  fn visit_jsx_element(&mut self, n: &js::JSXElement<'a>) {
+    if let Some((name, _)) = jsx_ident(&n.opening_element.name) {
+      if name == self.name {
+        self.found.push(n.clone_in(self.allocator));
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_jsx_element(self, n);
   }
 }
 

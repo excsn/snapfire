@@ -4,13 +4,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use schemars::JsonSchema;
 use serde::Deserialize;
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, Expression, ImportDeclarationSpecifier, ModuleExportName, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::line_range;
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{argument, is_script, lossy, parse, Parsed};
 use crate::workspace::WORKSPACE_DIR;
 use crate::{Pass, Report, Tree};
 
@@ -68,7 +69,8 @@ impl Pass for Map {
       if !map.keys().any(|k| text.contains(k.split('#').next().unwrap_or(k))) {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       if let Some(rewritten) = rewrite(&path, &text, &parsed, &map, report) {
         tree.insert(path, rewritten);
       }
@@ -132,28 +134,29 @@ struct Mapped<'a> {
 fn rewrite(path: &str, text: &str, parsed: &Parsed, map: &BTreeMap<String, Entry>, report: &mut Report) -> Option<String> {
   let shown = path.strip_prefix(WORKSPACE_DIR).unwrap_or(path);
   let mut edits = Edits::default();
-  let mut mapped_imports: Vec<(&js::ImportDecl, Vec<Mapped>)> = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    let source = import.src.value.to_string_lossy().into_owned();
+  let mut mapped_imports: Vec<(&js::ImportDeclaration, Vec<Mapped>)> = Vec::new();
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    let source = lossy(import.source.value);
+    let type_only = import.import_kind.is_type();
     let mut found = Vec::new();
-    for spec in &import.specifiers {
+    for spec in import.specifiers.iter().flatten() {
       let (local, export, type_only) = match spec {
-        js::ImportSpecifier::Named(n) => {
+        ImportDeclarationSpecifier::ImportSpecifier(n) => {
           let export = match &n.imported {
-            Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-            Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-            None => n.local.sym.to_string(),
+            ModuleExportName::IdentifierName(i) => i.name.to_string(),
+            ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+            ModuleExportName::StringLiteral(s) => lossy(s.value),
           };
-          (n.local.sym.to_string(), export, n.is_type_only || import.type_only)
+          (n.local.name.to_string(), export, n.import_kind.is_type() || type_only)
         }
-        js::ImportSpecifier::Default(d) => (d.local.sym.to_string(), "default".to_owned(), import.type_only),
-        js::ImportSpecifier::Namespace(ns) => {
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => (d.local.name.to_string(), "default".to_owned(), type_only),
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) => {
           if map.keys().any(|k| k.starts_with(&format!("{source}#"))) && !map.contains_key(&source) {
-            report.note(shown, parsed.line(import.span), format!("`* as {}` imports `{source}`, which the map names export by export, so it was left", ns.local.sym));
+            report.note(shown, parsed.line(import.span), format!("`* as {}` imports `{source}`, which the map names export by export, so it was left", ns.local.name));
           }
           if let Some(entry) = map.get(&source) {
-            found.push(Mapped { local: ns.local.sym.to_string(), export: "*".to_owned(), type_only: import.type_only, entry, key: source.clone() });
+            found.push(Mapped { local: ns.local.name.to_string(), export: "*".to_owned(), type_only, entry, key: source.clone() });
           }
           continue;
         }
@@ -177,7 +180,7 @@ fn rewrite(path: &str, text: &str, parsed: &Parsed, map: &BTreeMap<String, Entry
   }
   let replaced: BTreeMap<String, &Entry> = mapped_imports.iter().flat_map(|(_, f)| f.iter()).filter(|m| m.entry.call.is_some() || m.entry.drop).map(|m| (m.local.clone(), m.entry)).collect();
   let mut uses = Uses { locals: replaced.keys().cloned().collect(), calls: Vec::new(), other: BTreeSet::new() };
-  parsed.module.visit_with(&mut uses);
+  uses.visit_program(&parsed.program);
   let route = is_route(path);
   let mut kept: BTreeSet<String> = uses.other.clone();
   for call in &uses.calls {
@@ -212,17 +215,14 @@ fn rewrite(path: &str, text: &str, parsed: &Parsed, map: &BTreeMap<String, Entry
 }
 
 /// `import` written again: the names the map sends elsewhere imported from where it sends them, the rest from where they were.
-fn imports_for(text: &str, parsed: &Parsed, import: &js::ImportDecl, found: &[Mapped], kept: &BTreeSet<String>) -> String {
-  let source = import.src.value.to_string_lossy().into_owned();
+fn imports_for(text: &str, parsed: &Parsed, import: &js::ImportDeclaration, found: &[Mapped], kept: &BTreeSet<String>) -> String {
+  let source = lossy(import.source.value);
+  let import_type_only = import.import_kind.is_type();
   let mut by_source: BTreeMap<String, Vec<String>> = BTreeMap::new();
   let mut defaults: BTreeMap<String, String> = BTreeMap::new();
   let mut namespaces: Vec<(String, String)> = Vec::new();
-  for spec in &import.specifiers {
-    let local = match spec {
-      js::ImportSpecifier::Named(n) => n.local.sym.to_string(),
-      js::ImportSpecifier::Default(d) => d.local.sym.to_string(),
-      js::ImportSpecifier::Namespace(ns) => ns.local.sym.to_string(),
-    };
+  for spec in import.specifiers.iter().flatten() {
+    let local = spec.local().name.to_string();
     let mapped = found.iter().find(|m| m.local == local);
     let (target, export, type_only) = match mapped {
       Some(m) if (m.entry.call.is_some() || m.entry.drop) && !kept.contains(&local) => continue,
@@ -233,11 +233,11 @@ fn imports_for(text: &str, parsed: &Parsed, import: &js::ImportDecl, found: &[Ma
       _ => {
         let written = text[parsed.range(spec.span())].to_owned();
         match spec {
-          js::ImportSpecifier::Default(_) => {
+          ImportDeclarationSpecifier::ImportDefaultSpecifier(_) => {
             defaults.insert(source.clone(), local);
           }
-          js::ImportSpecifier::Namespace(_) => namespaces.push((source.clone(), local)),
-          js::ImportSpecifier::Named(_) => by_source.entry(source.clone()).or_default().push(written.trim_start_matches("type ").to_owned()),
+          ImportDeclarationSpecifier::ImportNamespaceSpecifier(_) => namespaces.push((source.clone(), local)),
+          ImportDeclarationSpecifier::ImportSpecifier(_) => by_source.entry(source.clone()).or_default().push(written.trim_start_matches("type ").to_owned()),
         }
         continue;
       }
@@ -248,10 +248,10 @@ fn imports_for(text: &str, parsed: &Parsed, import: &js::ImportDecl, found: &[Ma
       defaults.insert(target, local);
     } else {
       let named = if export == local { local } else { format!("{export} as {local}") };
-      by_source.entry(target).or_default().push(if type_only && !import.type_only { format!("type {named}") } else { named });
+      by_source.entry(target).or_default().push(if type_only && !import_type_only { format!("type {named}") } else { named });
     }
   }
-  let keyword = if import.type_only { "import type" } else { "import" };
+  let keyword = if import_type_only { "import type" } else { "import" };
   let mut out = String::new();
   let sources: BTreeSet<&String> = by_source.keys().chain(defaults.keys()).collect();
   for target in sources {
@@ -286,50 +286,54 @@ struct Uses {
 
 impl Uses {
   /// The call `e` is when it calls a mapped name directly or through `await`.
-  fn call_of<'e>(&self, e: &'e js::Expr) -> Option<(&'e js::CallExpr, Span)> {
+  fn call_of<'e, 'a>(&self, e: &'e Expression<'a>) -> Option<(&'e js::CallExpression<'a>, Span)> {
     let (call, outer) = match e {
-      js::Expr::Await(a) => match &*a.arg {
-        js::Expr::Call(c) => (c, a.span),
+      Expression::AwaitExpression(a) => match &a.argument {
+        Expression::CallExpression(c) => (&**c, a.span),
         _ => return None,
       },
-      js::Expr::Call(c) => (c, c.span),
+      Expression::CallExpression(c) => (&**c, c.span),
       _ => return None,
     };
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Ident(id) = &**callee else { return None };
-    self.locals.contains(id.sym.as_ref()).then_some((call, outer))
+    let Expression::Identifier(id) = &call.callee else { return None };
+    self.locals.contains(id.name.as_str()).then_some((call, outer))
   }
 
-  fn record(&mut self, call: &js::CallExpr, outer: Span, stmt: Option<Span>) {
-    let js::Callee::Expr(callee) = &call.callee else { return };
-    let js::Expr::Ident(id) = &**callee else { return };
-    self.calls.push(Call { local: id.sym.to_string(), outer, args: call.args.iter().map(|a| a.expr.span()).collect(), stmt });
-    for arg in &call.args {
-      arg.visit_with(self);
+  fn record<'a>(&mut self, call: &js::CallExpression<'a>, outer: Span, stmt: Option<Span>) {
+    let Expression::Identifier(id) = &call.callee else { return };
+    self.calls.push(Call { local: id.name.to_string(), outer, args: call.arguments.iter().map(|a| argument(a).span()).collect(), stmt });
+    for arg in &call.arguments {
+      self.visit_argument(arg);
     }
   }
 }
 
-impl Visit for Uses {
-  fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+impl<'a> Visit<'a> for Uses {
+  fn visit_import_declaration(&mut self, _: &js::ImportDeclaration<'a>) {}
 
-  fn visit_expr_stmt(&mut self, n: &js::ExprStmt) {
-    match self.call_of(&n.expr) {
+  fn visit_expression_statement(&mut self, n: &js::ExpressionStatement<'a>) {
+    match self.call_of(&n.expression) {
       Some((call, outer)) => self.record(call, outer, Some(n.span)),
-      None => n.visit_children_with(self),
+      None => walk::walk_expression_statement(self, n),
     }
   }
 
-  fn visit_expr(&mut self, n: &js::Expr) {
+  fn visit_expression(&mut self, n: &Expression<'a>) {
     match self.call_of(n) {
       Some((call, outer)) => self.record(call, outer, None),
-      None => n.visit_children_with(self),
+      None => walk::walk_expression(self, n),
     }
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    if self.locals.contains(n.sym.as_ref()) {
-      self.other.insert(n.sym.to_string());
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    if self.locals.contains(n.name.as_str()) {
+      self.other.insert(n.name.to_string());
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    if self.locals.contains(n.name.as_str()) {
+      self.other.insert(n.name.to_string());
     }
   }
 }

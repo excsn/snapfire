@@ -4,14 +4,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, ArrayExpressionElement, BindingPattern, Declaration, ExportDefaultDeclarationKind, Expression, ImportDeclarationSpecifier, LogicalOperator, MemberExpression, ModuleExportName, Statement, UnaryOperator};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
+use oxc_syntax::scope::ScopeFlags;
 
 use crate::edit::Edits;
 use crate::items::{describe, import_text, line_range, local, tidy, Item, Reads};
 use crate::relocate::{dirname, normalize, relative};
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{argument, import_specifiers, is_script, jsx_ident, lossy, params, parse, Node, Param, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
@@ -20,24 +22,19 @@ pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
 
 /// The default export of `module` when it is a function: its declaration
 /// and its name.
-pub(crate) fn default_function(module: &js::Module) -> Option<(&js::Function, Option<String>)> {
+pub(crate) fn default_function<'p, 'a>(parsed: &'p Parsed<'a>) -> Option<(&'p js::Function<'a>, Option<String>)> {
   let mut named = None;
-  for item in &module.body {
-    match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(js::ExportDefaultDecl { decl: js::DefaultDecl::Fn(f), .. })) => {
-        return Some((&f.function, f.ident.as_ref().map(|i| i.sym.to_string())));
-      }
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => {
-        if let js::Expr::Ident(i) = &*e.expr {
-          named = Some(i.sym.to_string());
-        }
-      }
+  for item in parsed.body() {
+    let Statement::ExportDefaultDeclaration(e) = item else { continue };
+    match &e.declaration {
+      ExportDefaultDeclarationKind::FunctionDeclaration(f) => return Some((f, f.id.as_ref().map(|i| i.name.to_string()))),
+      ExportDefaultDeclarationKind::Identifier(i) => named = Some(i.name.to_string()),
       _ => {}
     }
   }
   let named = named?;
-  module.body.iter().find_map(|item| match item {
-    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) if f.ident.sym == *named => Some((&*f.function, Some(named.clone()))),
+  parsed.body().iter().find_map(|item| match item {
+    Statement::FunctionDeclaration(f) if f.id.as_ref().is_some_and(|id| id.name == named.as_str()) => Some((&**f, Some(named.clone()))),
     _ => None,
   })
 }
@@ -125,64 +122,64 @@ pub(crate) struct Holds {
   depth: usize,
 }
 
-impl Visit for Holds {
-  fn visit_jsx_element(&mut self, _: &js::JSXElement) {
+impl<'a> Visit<'a> for Holds {
+  fn visit_jsx_element(&mut self, _: &js::JSXElement<'a>) {
     self.jsx = true;
   }
 
-  fn visit_jsx_fragment(&mut self, _: &js::JSXFragment) {
+  fn visit_jsx_fragment(&mut self, _: &js::JSXFragment<'a>) {
     self.jsx = true;
   }
 
-  fn visit_await_expr(&mut self, n: &js::AwaitExpr) {
+  fn visit_await_expression(&mut self, n: &js::AwaitExpression<'a>) {
     if self.depth == 0 {
       self.awaits = true;
     }
-    n.visit_children_with(self);
+    walk::walk_await_expression(self, n);
   }
 
-  fn visit_return_stmt(&mut self, n: &js::ReturnStmt) {
+  fn visit_return_statement(&mut self, n: &js::ReturnStatement<'a>) {
     if self.depth == 0 {
       self.returns = true;
     }
-    n.visit_children_with(self);
+    walk::walk_return_statement(self, n);
   }
 
-  fn visit_function(&mut self, n: &js::Function) {
+  fn visit_function(&mut self, n: &js::Function<'a>, flags: ScopeFlags) {
     self.depth += 1;
-    n.visit_children_with(self);
+    walk::walk_function(self, n, flags);
     self.depth -= 1;
   }
 
-  fn visit_arrow_expr(&mut self, n: &js::ArrowExpr) {
+  fn visit_arrow_function_expression(&mut self, n: &js::ArrowFunctionExpression<'a>) {
     self.depth += 1;
-    n.visit_children_with(self);
+    walk::walk_arrow_function_expression(self, n);
     self.depth -= 1;
   }
 }
 
-pub(crate) fn holds(node: &impl VisitWith<Holds>) -> Holds {
+pub(crate) fn holds<'a>(node: &impl Node<'a>) -> Holds {
   let mut h = Holds::default();
-  node.visit_with(&mut h);
+  node.accept(&mut h);
   h
 }
 
-pub(crate) fn reads(node: &impl VisitWith<Reads>) -> BTreeSet<String> {
+pub(crate) fn reads<'a>(node: &impl Node<'a>) -> BTreeSet<String> {
   let mut r = Reads { names: BTreeSet::new() };
-  node.visit_with(&mut r);
+  node.accept(&mut r);
   r.names
 }
 
-pub(crate) fn binds(stmt: &js::Stmt) -> Vec<String> {
+pub(crate) fn binds(stmt: &Statement) -> Vec<String> {
   match stmt {
-    js::Stmt::Decl(js::Decl::Var(v)) => {
+    Statement::VariableDeclaration(v) => {
       let mut out = Vec::new();
-      for d in &v.decls {
-        crate::items::pat_names(&d.name, &mut out);
+      for d in &v.declarations {
+        crate::items::pat_names(&d.id, &mut out);
       }
       out
     }
-    js::Stmt::Decl(js::Decl::Fn(f)) => vec![f.ident.sym.to_string()],
+    Statement::FunctionDeclaration(f) => f.id.iter().map(|id| id.name.to_string()).collect(),
     _ => Vec::new(),
   }
 }
@@ -209,14 +206,14 @@ pub(crate) fn closure(items: &[Item], needed: &mut BTreeSet<String>) -> BTreeSet
 /// where they were written for one at `from`.
 pub(crate) fn imports_for(text: &str, parsed: &Parsed, needed: &BTreeSet<String>, from: &str, to: &str) -> String {
   let mut out = String::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    let kept: Vec<&js::ImportSpecifier> = import.specifiers.iter().filter(|s| needed.contains(&local(s))).collect();
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    let kept: Vec<&ImportDeclarationSpecifier> = import_specifiers(import).iter().filter(|s| needed.contains(&local(s))).collect();
     if kept.is_empty() {
       continue;
     }
     let mut line = import_text(text, parsed, import, &kept);
-    let spec = import.src.value.to_string_lossy().into_owned();
+    let spec = lossy(import.source.value);
     if spec.starts_with("./") || spec.starts_with("../") {
       if let Some(target) = normalize(dirname(from), &spec) {
         let rebased = relative(dirname(to), &target);
@@ -231,16 +228,16 @@ pub(crate) fn imports_for(text: &str, parsed: &Parsed, needed: &BTreeSet<String>
 /// `await new Promise((resolve) => setTimeout(resolve, n))` and its kin: a
 /// delay a demo adds to make waiting visible, which changes nothing a render
 /// shows.
-fn is_delay(stmt: &js::Stmt) -> bool {
-  let js::Stmt::Expr(e) = stmt else { return false };
-  let js::Expr::Await(a) = &*e.expr else { return false };
-  let js::Expr::New(n) = &*a.arg else { return false };
-  let js::Expr::Ident(callee) = &*n.callee else { return false };
-  if &*callee.sym != "Promise" {
+fn is_delay(stmt: &Statement) -> bool {
+  let Statement::ExpressionStatement(e) = stmt else { return false };
+  let Expression::AwaitExpression(a) = &e.expression else { return false };
+  let Expression::NewExpression(n) = &a.argument else { return false };
+  let Expression::Identifier(callee) = &n.callee else { return false };
+  if callee.name != "Promise" {
     return false;
   }
   let mut found = Calls { names: Vec::new() };
-  n.visit_with(&mut found);
+  found.visit_new_expression(n);
   found.names.iter().any(|c| c == "setTimeout")
 }
 
@@ -248,21 +245,19 @@ struct Calls {
   names: Vec<String>,
 }
 
-impl Visit for Calls {
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let js::Callee::Expr(e) = &n.callee {
-      if let js::Expr::Ident(i) = &**e {
-        self.names.push(i.sym.to_string());
-      }
+impl<'a> Visit<'a> for Calls {
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if let Expression::Identifier(i) = &n.callee {
+      self.names.push(i.name.to_string());
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 }
 
 /// `text` with every artificial delay among `stmts` taken out, each a note.
-fn without_delays(text: &str, parsed: &Parsed, node: &impl VisitWith<Delays>, base: usize, edits: &mut Edits, path: &str, report: &mut Report) {
+fn without_delays<'a>(text: &str, parsed: &Parsed, node: &impl Node<'a>, base: usize, edits: &mut Edits, path: &str, report: &mut Report) {
   let mut found = Delays { found: Vec::new() };
-  node.visit_with(&mut found);
+  node.accept(&mut found);
   for span in found.found {
     let range = parsed.range(span);
     report.note(path, parsed.line(span), "an artificial delay was dropped: it changes when data arrives, not what renders");
@@ -274,13 +269,13 @@ struct Delays {
   found: Vec<Span>,
 }
 
-impl Visit for Delays {
-  fn visit_stmt(&mut self, n: &js::Stmt) {
+impl<'a> Visit<'a> for Delays {
+  fn visit_statement(&mut self, n: &Statement<'a>) {
     if is_delay(n) {
       self.found.push(n.span());
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_statement(self, n);
   }
 }
 
@@ -292,10 +287,13 @@ pub(crate) fn copied(text: &str, parsed: &Parsed, items: &[Item], taken: &BTreeS
   let mut memo_maps = BTreeSet::new();
   let mut bodies: BTreeMap<usize, String> = BTreeMap::new();
   for &n in taken {
-    let item = &parsed.module.body[n];
+    let item = &parsed.body()[n];
     let function = match item {
-      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => &*f.function,
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) => &*f.function,
+      Statement::FunctionDeclaration(f) => &**f,
+      Statement::ExportDeclaration(e) => match &e.declaration {
+        Declaration::FunctionDeclaration(f) => &**f,
+        _ => continue,
+      },
       _ => continue,
     };
     if let Some((map, call)) = memoized(text, parsed, function) {
@@ -317,11 +315,11 @@ pub(crate) fn copied(text: &str, parsed: &Parsed, items: &[Item], taken: &BTreeS
       Some(body) => body.clone(),
       None => {
         let mut e = Edits::default();
-        without_delays(text, parsed, &parsed.module.body[n], item.range.start, &mut e, path, report);
+        without_delays(text, parsed, &parsed.body()[n], item.range.start, &mut e, path, report);
         e.apply(&text[item.range.clone()])
       }
     };
-    let exported = matches!(parsed.module.body[n], js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(_)));
+    let exported = matches!(parsed.body()[n], Statement::ExportDeclaration(_));
     out.push_str(if exported { copy.strip_prefix("export ").unwrap_or(&copy) } else { &copy });
     out.push_str("\n\n");
   }
@@ -335,9 +333,9 @@ pub(crate) fn copied(text: &str, parsed: &Parsed, items: &[Item], taken: &BTreeS
 fn inline_memoized(tree: &Tree, parsed: &Parsed, needed: &mut BTreeSet<String>, from: &str, to: &str, report: &mut Report) -> (String, String) {
   let mut imports = String::new();
   let mut decls = String::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    let spec = import.src.value.to_string_lossy().into_owned();
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    let spec = lossy(import.source.value);
     let base = if let Some(rest) = spec.strip_prefix("@src/") {
       Some(format!("app/src/{rest}"))
     } else if spec.starts_with("./") || spec.starts_with("../") {
@@ -348,26 +346,30 @@ fn inline_memoized(tree: &Tree, parsed: &Parsed, needed: &mut BTreeSet<String>, 
     let Some(base) = base else { continue };
     let Some(target) = std::iter::once(base.clone()).chain(crate::syntax::SCRIPT_EXTENSIONS.iter().map(|e| format!("{base}{e}"))).find(|c| tree.contains(c)) else { continue };
     let Some(target_text) = tree.text(&target) else { continue };
-    let Ok(target_parsed) = parse(&target, target_text) else { continue };
-    for s in &import.specifiers {
-      let js::ImportSpecifier::Named(named) = s else { continue };
-      let local_name = named.local.sym.to_string();
+    let allocator = Allocator::default();
+    let Ok(target_parsed) = parse(&allocator, &target, target_text) else { continue };
+    for s in import_specifiers(import) {
+      let ImportDeclarationSpecifier::ImportSpecifier(named) = s else { continue };
+      let local_name = named.local.name.to_string();
       if !needed.contains(&local_name) {
         continue;
       }
       let imported = match &named.imported {
-        Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-        Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-        None => local_name.clone(),
+        ModuleExportName::IdentifierName(i) => i.name.to_string(),
+        ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+        ModuleExportName::StringLiteral(s) => lossy(s.value),
       };
-      let memo = target_parsed.module.body.iter().any(|item| match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) => *f.ident.sym == *imported && memoized(target_text, &target_parsed, &f.function).is_some(),
+      let memo = target_parsed.body().iter().any(|item| match item {
+        Statement::ExportDeclaration(e) => match &e.declaration {
+          Declaration::FunctionDeclaration(f) => f.id.as_ref().is_some_and(|id| id.name == imported.as_str()) && memoized(target_text, &target_parsed, f).is_some(),
+          _ => false,
+        },
         _ => false,
       });
       if !memo {
         continue;
       }
-      let items: Vec<Item> = target_parsed.module.body.iter().map(|item| describe(item, &target_parsed)).collect();
+      let items: Vec<Item> = target_parsed.body().iter().map(|item| describe(item, &target_parsed)).collect();
       let mut wanted: BTreeSet<String> = [imported.clone()].into_iter().collect();
       let taken = closure(&items, &mut wanted);
       decls.push_str(&copied(target_text, &target_parsed, &items, &taken, &target, report));
@@ -385,34 +387,36 @@ fn inline_memoized(tree: &Tree, parsed: &Parsed, needed: &mut BTreeSet<String>, 
 /// `cache` a module-level `Map`: the map's name and `f(k)`.
 fn memoized(text: &str, parsed: &Parsed, function: &js::Function) -> Option<(String, String)> {
   let body = function.body.as_ref()?;
-  let [js::Stmt::If(check), js::Stmt::Return(ret)] = body.stmts.as_slice() else { return None };
-  let js::Expr::Unary(js::UnaryExpr { op: js::UnaryOp::Bang, arg, .. }) = &*check.test else { return None };
-  let (map, "has", has_args) = method_call(arg)? else { return None };
-  let set = match &*check.cons {
-    js::Stmt::Expr(e) => &*e.expr,
-    js::Stmt::Block(b) => match b.stmts.as_slice() {
-      [js::Stmt::Expr(e)] => &*e.expr,
+  let [Statement::IfStatement(check), Statement::ReturnStatement(ret)] = body.statements.as_slice() else { return None };
+  let Expression::UnaryExpression(not) = &check.test else { return None };
+  if not.operator != UnaryOperator::LogicalNot {
+    return None;
+  }
+  let (map, "has", has_args) = method_call(&not.argument)? else { return None };
+  let set = match &check.consequent {
+    Statement::ExpressionStatement(e) => &e.expression,
+    Statement::BlockStatement(b) => match b.body.as_slice() {
+      [Statement::ExpressionStatement(e)] => &e.expression,
       _ => return None,
     },
     _ => return None,
   };
   let (set_map, "set", set_args) = method_call(set)? else { return None };
-  let (get_map, "get", get_args) = method_call(ret.arg.as_deref()?)? else { return None };
+  let (get_map, "get", get_args) = method_call(ret.argument.as_ref()?)? else { return None };
   let [key, value] = set_args else { return None };
-  let same_key = |args: &[js::ExprOrSpread]| args.len() == 1 && text[parsed.range(args[0].expr.span())] == text[parsed.range(key.expr.span())];
-  if check.alt.is_some() || map != set_map || map != get_map || !same_key(has_args) || !same_key(get_args) {
+  let same_key = |args: &[js::Argument]| args.len() == 1 && text[parsed.range(argument(&args[0]).span())] == text[parsed.range(argument(key).span())];
+  if check.alternate.is_some() || map != set_map || map != get_map || !same_key(has_args) || !same_key(get_args) {
     return None;
   }
-  Some((map.to_owned(), text[parsed.range(value.expr.span())].to_owned()))
+  Some((map.to_owned(), text[parsed.range(argument(value).span())].to_owned()))
 }
 
 /// `map.method(args)` with `map` a plain name.
-fn method_call(e: &js::Expr) -> Option<(&str, &str, &[js::ExprOrSpread])> {
-  let js::Expr::Call(call) = e else { return None };
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Member(m) = &**callee else { return None };
-  let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) else { return None };
-  Some((&obj.sym, &prop.sym, &call.args))
+fn method_call<'e, 'a>(e: &'e Expression<'a>) -> Option<(&'e str, &'e str, &'e [js::Argument<'a>])> {
+  let Expression::CallExpression(call) = e else { return None };
+  let Expression::StaticMemberExpression(m) = &call.callee else { return None };
+  let Expression::Identifier(obj) = &m.object else { return None };
+  Some((obj.name.as_str(), m.property.name.as_str(), &call.arguments))
 }
 
 fn shift(range: Range<usize>, by: usize) -> Range<usize> {
@@ -438,9 +442,10 @@ impl Pass for RouteLift {
       if !text.contains("async") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
-      let Some((function, _)) = default_function(&parsed.module) else { continue };
-      if !function.is_async {
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
+      let Some((function, _)) = default_function(&parsed) else { continue };
+      if !function.r#async {
         continue;
       }
       let loader_path = format!("{}/{kind}.loader.ts", dirname(&path));
@@ -485,27 +490,26 @@ struct Load {
 }
 
 /// The `linkTag` row a `preconnect(href)` or `prefetchDNS(href)` from `react-dom` is.
-fn resource_hint(stmt: &js::Stmt, text: &str, parsed: &Parsed) -> Option<(String, String)> {
-  let js::Stmt::Expr(e) = stmt else { return None };
-  let js::Expr::Call(call) = &*e.expr else { return None };
-  let js::Callee::Expr(callee) = &call.callee else { return None };
-  let js::Expr::Ident(name) = &**callee else { return None };
-  let rel = match &*name.sym {
+fn resource_hint(stmt: &Statement, text: &str, parsed: &Parsed) -> Option<(String, String)> {
+  let Statement::ExpressionStatement(e) = stmt else { return None };
+  let Expression::CallExpression(call) = &e.expression else { return None };
+  let Expression::Identifier(name) = &call.callee else { return None };
+  let rel = match name.name.as_str() {
     "preconnect" => "preconnect",
     "prefetchDNS" => "dns-prefetch",
     _ => return None,
   };
-  let [href] = &call.args[..] else { return None };
-  if href.spread.is_some() || !imports_from(parsed, &name.sym, "react-dom") {
+  let [href] = &call.arguments[..] else { return None };
+  if matches!(href, js::Argument::SpreadElement(_)) || !imports_from(parsed, &name.name, "react-dom") {
     return None;
   }
-  Some((name.sym.to_string(), format!("linkTag(\"{rel}\", {})", &text[parsed.range(href.expr.span())])))
+  Some((name.name.to_string(), format!("linkTag(\"{rel}\", {})", &text[parsed.range(href.span())])))
 }
 
 /// Whether the module imports `local` from `module`.
 fn imports_from(parsed: &Parsed, local: &str, module: &str) -> bool {
-  parsed.module.body.iter().any(|item| match item {
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(i)) => &*i.src.value == module && i.specifiers.iter().any(|s| matches!(s, js::ImportSpecifier::Named(n) if &*n.local.sym == local)),
+  parsed.body().iter().any(|item| match item {
+    Statement::ImportDeclaration(i) => i.source.value == module && import_specifiers(i).iter().any(|s| matches!(s, ImportDeclarationSpecifier::ImportSpecifier(n) if n.local.name == local)),
     _ => false,
   })
 }
@@ -513,17 +517,18 @@ fn imports_from(parsed: &Parsed, local: &str, module: &str) -> bool {
 fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &js::Function, loader_path: &str, report: &mut Report) -> Option<(String, Load, bool)> {
   let body = function.body.as_ref()?;
   let line = parsed.line(function.span);
-  let Some((last, before)) = body.stmts.split_last() else { return None };
-  if !matches!(last, js::Stmt::Return(_)) {
+  let Some((last, before)) = body.statements.split_last() else { return None };
+  if !matches!(last, Statement::ReturnStatement(_)) {
     report.note(path, line, "the async component does not end in a `return`, so what it awaits was left in it");
     return None;
   }
-  let props = match function.params.first().map(|p| &p.pat) {
-    Some(js::Pat::Ident(i)) => Some(i.id.sym.to_string()),
+  let formals = params(&function.params);
+  let props = match formals.first().and_then(Param::plain) {
+    Some(BindingPattern::BindingIdentifier(i)) => Some(i.name.to_string()),
     _ => None,
   };
-  let mut moved: Vec<&js::Stmt> = Vec::new();
-  let mut kept: Vec<&js::Stmt> = Vec::new();
+  let mut moved: Vec<&Statement> = Vec::new();
+  let mut kept: Vec<&Statement> = Vec::new();
   let mut kept_binds: BTreeSet<String> = props.iter().cloned().collect();
   for stmt in before {
     let h = holds(stmt);
@@ -532,7 +537,7 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
       return None;
     }
     let mut r = RequestReads { props: props.clone(), names: BTreeSet::new() };
-    stmt.visit_with(&mut r);
+    stmt.accept(&mut r);
     if h.jsx || r.names.iter().any(|n| kept_binds.contains(n)) {
       kept_binds.extend(binds(stmt));
       kept.push(stmt);
@@ -560,13 +565,13 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   for stmt in &moved {
     moved_reads.extend(reads(*stmt));
     let mut r = RequestReads { props: props.clone(), names: BTreeSet::new() };
-    stmt.visit_with(&mut r);
+    stmt.accept(&mut r);
     moved_reads.extend(r.names);
   }
   let reads_params = moved_reads.contains("params") || later_reads.contains("params");
   let reads_query = moved_reads.contains("searchParams") || later_reads.contains("searchParams");
 
-  let items: Vec<Item> = parsed.module.body.iter().map(|item| describe(item, parsed)).collect();
+  let items: Vec<Item> = parsed.body().iter().map(|item| describe(item, parsed)).collect();
   let mut needed = moved_reads.clone();
   let taken = closure(&items, &mut needed);
 
@@ -585,8 +590,8 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
     }
     let range = parsed.range(stmt.span());
     let mut edits = Edits::default();
-    let mut found = ContextUses { props: props.clone(), found: Vec::new(), parsed: &parsed, text: &text };
-    stmt.visit_with(&mut found);
+    let mut found = ContextUses { props: props.clone(), found: Vec::new(), parsed, text };
+    stmt.accept(&mut found);
     for (span, with) in found.found {
       if with.starts_with("fail(") {
         fails = true;
@@ -607,7 +612,7 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   for name in &returned {
     let mut uses = CallUses { name, parsed, text, calls: Vec::new(), other: false };
     for stmt in kept.iter().copied().chain(std::iter::once(last)) {
-      stmt.visit_with(&mut uses);
+      stmt.accept(&mut uses);
     }
     if uses.other || uses.calls.is_empty() {
       fields.push(name.clone());
@@ -667,7 +672,7 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   let props_type = (route_kind(path) == Some("page") && (path.ends_with(".tsx") || path.ends_with(".ts"))).then(|| props_name(&route_id(path)));
   let typed = props_type.as_deref().map(|t| format!(": {t}")).unwrap_or_default();
   let new_param = if prop_names.is_empty() { String::new() } else { format!("{{ {} }}{typed}", prop_names.join(", ")) };
-  match (function.params.first(), &props) {
+  match (formals.first(), &props) {
     (Some(param), Some(name)) => {
       page.replace(parsed.range(param.span()), format!("{name}{typed}"));
       if let (Some(body), false) = (&function.body, fields.is_empty()) {
@@ -694,28 +699,32 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
 /// Where a statement calls `name` with literal arguments and whether it uses `name` any other way.
 struct CallUses<'a> {
   name: &'a str,
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   calls: Vec<(Range<usize>, String)>,
   other: bool,
 }
 
-impl Visit for CallUses<'_> {
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let js::Callee::Expr(callee) = &n.callee {
-      if matches!(&**callee, js::Expr::Ident(i) if &*i.sym == self.name) {
-        if n.args.iter().all(|a| a.spread.is_none() && matches!(&*a.expr, js::Expr::Lit(js::Lit::Str(_) | js::Lit::Num(_) | js::Lit::Bool(_)))) {
-          let range = self.parsed.range(n.span);
-          return self.calls.push((range.clone(), self.text[range].to_owned()));
-        }
-        self.other = true;
+impl<'a> Visit<'a> for CallUses<'_> {
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if matches!(&n.callee, Expression::Identifier(i) if i.name == self.name) {
+      if n.arguments.iter().all(|a| matches!(a, js::Argument::StringLiteral(_) | js::Argument::NumericLiteral(_) | js::Argument::BooleanLiteral(_))) {
+        let range = self.parsed.range(n.span);
+        return self.calls.push((range.clone(), self.text[range].to_owned()));
       }
+      self.other = true;
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    if &*n.sym == self.name {
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    if n.name == self.name {
+      self.other = true;
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    if n.name == self.name {
       self.other = true;
     }
   }
@@ -745,16 +754,10 @@ fn call_prop(name: &str, call: &str, taken: &[(String, String)]) -> String {
 
 fn param_names(function: &js::Function) -> Vec<String> {
   let mut out = Vec::new();
-  if let Some(js::Pat::Object(o)) = function.params.first().map(|p| &p.pat) {
-    for p in &o.props {
-      match p {
-        js::ObjectPatProp::Assign(a) => out.push(a.key.sym.to_string()),
-        js::ObjectPatProp::KeyValue(kv) => {
-          if let js::PropName::Ident(k) = &kv.key {
-            out.push(k.sym.to_string());
-          }
-        }
-        js::ObjectPatProp::Rest(_) => {}
+  if let Some(BindingPattern::ObjectPattern(o)) = params(&function.params).first().and_then(Param::plain) {
+    for p in &o.properties {
+      if let (js::PropertyKey::StaticIdentifier(k), false) = (&p.key, p.computed) {
+        out.push(k.name.to_string());
       }
     }
   }
@@ -763,23 +766,23 @@ fn param_names(function: &js::Function) -> Vec<String> {
 
 /// `const params = await params` and `const params = props.params`: a
 /// binding the loader's own `params` already is.
-fn binds_request_params(stmt: &js::Stmt, props: Option<&str>) -> bool {
-  let js::Stmt::Decl(js::Decl::Var(v)) = stmt else { return false };
-  let [d] = v.decls.as_slice() else { return false };
-  let (js::Pat::Ident(name), Some(init)) = (&d.name, d.init.as_deref()) else { return false };
-  if &*name.id.sym != "params" {
+fn binds_request_params(stmt: &Statement, props: Option<&str>) -> bool {
+  let Statement::VariableDeclaration(v) = stmt else { return false };
+  let [d] = v.declarations.as_slice() else { return false };
+  let (BindingPattern::BindingIdentifier(name), Some(init)) = (&d.id, &d.init) else { return false };
+  if name.name != "params" {
     return false;
   }
   let init = match init {
-    js::Expr::Await(a) => &*a.arg,
+    Expression::AwaitExpression(a) => &a.argument,
     other => other,
   };
-  matches!(init, js::Expr::Ident(i) if &*i.sym == "params") || request_field(props, init) == Some("params")
+  matches!(init, Expression::Identifier(i) if i.name == "params") || request_field(props, init) == Some("params")
 }
 
-fn found_redirect(stmt: &js::Stmt) -> bool {
+fn found_redirect(stmt: &Statement) -> bool {
   let mut c = Calls { names: Vec::new() };
-  stmt.visit_with(&mut c);
+  c.visit_statement(stmt);
   c.names.iter().any(|n| n == "redirect" || n == "permanentRedirect")
 }
 
@@ -789,24 +792,29 @@ pub(crate) struct ContextUses<'a> {
   /// The name the component binds its whole props to, when it does.
   pub(crate) props: Option<String>,
   pub(crate) found: Vec<(Span, String)>,
-  pub(crate) parsed: &'a Parsed,
+  pub(crate) parsed: &'a Parsed<'a>,
   pub(crate) text: &'a str,
 }
 
 impl ContextUses<'_> {
   /// `params` or `query` for `props.params` or `props.searchParams`.
-  fn request_field(&self, e: &js::Expr) -> Option<&'static str> {
+  fn request_field(&self, e: &Expression) -> Option<&'static str> {
     request_field(self.props.as_deref(), e)
   }
 }
 
-pub(crate) fn request_field(props: Option<&str>, e: &js::Expr) -> Option<&'static str> {
-  let js::Expr::Member(m) = e else { return None };
-  let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) else { return None };
-  if Some(&*obj.sym) != props {
+pub(crate) fn request_field(props: Option<&str>, e: &Expression) -> Option<&'static str> {
+  request_member(props, e.as_member_expression()?)
+}
+
+/// `params` or `query` for the member `props.params` or `props.searchParams`.
+fn request_member(props: Option<&str>, m: &MemberExpression) -> Option<&'static str> {
+  let MemberExpression::StaticMemberExpression(m) = m else { return None };
+  let Expression::Identifier(obj) = &m.object else { return None };
+  if Some(obj.name.as_str()) != props {
     return None;
   }
-  match &*prop.sym {
+  match m.property.name.as_str() {
     "params" => Some("params"),
     "searchParams" => Some("query"),
     _ => None,
@@ -821,29 +829,33 @@ pub(crate) struct RequestReads {
   pub(crate) names: BTreeSet<String>,
 }
 
-impl Visit for RequestReads {
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    match request_field(self.props.as_deref(), &js::Expr::Member(n.clone())) {
+impl<'a> Visit<'a> for RequestReads {
+  fn visit_member_expression(&mut self, n: &MemberExpression<'a>) {
+    match request_member(self.props.as_deref(), n) {
       Some("params") => {
         self.names.insert("params".to_owned());
       }
       Some(_) => {
         self.names.insert("searchParams".to_owned());
       }
-      None => n.visit_children_with(self),
+      None => walk::walk_member_expression(self, n),
     }
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    self.names.insert(n.sym.to_string());
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    self.names.insert(n.name.to_string());
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    self.names.insert(n.name.to_string());
   }
 }
 
 impl ContextUses<'_> {
   /// `params` or `query` for `params`, `searchParams` or either read off the props.
-  fn request_value(&self, e: &js::Expr) -> Option<&'static str> {
-    if let js::Expr::Ident(i) = e {
-      return match &*i.sym {
+  fn request_value(&self, e: &Expression) -> Option<&'static str> {
+    if let Expression::Identifier(i) = e {
+      return match i.name.as_str() {
         "params" => Some("params"),
         "searchParams" => Some("query"),
         _ => None,
@@ -851,56 +863,60 @@ impl ContextUses<'_> {
     }
     self.request_field(e)
   }
+
+  fn searched(&mut self, name: &str, span: Span) {
+    if name == "searchParams" {
+      self.found.push((span, "query".to_owned()));
+    }
+  }
 }
 
-impl Visit for ContextUses<'_> {
-  fn visit_await_expr(&mut self, n: &js::AwaitExpr) {
-    if let Some(field) = self.request_field(&n.arg) {
+impl<'a> Visit<'a> for ContextUses<'_> {
+  fn visit_await_expression(&mut self, n: &js::AwaitExpression<'a>) {
+    if let Some(field) = self.request_field(&n.argument) {
       return self.found.push((n.span, field.to_owned()));
     }
-    if let js::Expr::Ident(i) = &*n.arg {
-      match &*i.sym {
+    if let Expression::Identifier(i) = &n.argument {
+      match i.name.as_str() {
         "params" => return self.found.push((n.span, "params".to_owned())),
         "searchParams" => return self.found.push((n.span, "query".to_owned())),
         _ => {}
       }
     }
-    n.visit_children_with(self);
+    walk::walk_await_expression(self, n);
   }
 
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if let Some(field) = request_field(self.props.as_deref(), &js::Expr::Member(n.clone())) {
-      return self.found.push((n.span, field.to_owned()));
+  fn visit_member_expression(&mut self, n: &MemberExpression<'a>) {
+    if let Some(field) = request_member(self.props.as_deref(), n) {
+      return self.found.push((n.span(), field.to_owned()));
     }
-    n.visit_children_with(self);
+    walk::walk_member_expression(self, n);
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    if &*n.sym == "searchParams" {
-      self.found.push((n.span, "query".to_owned()));
-    }
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    self.searched(&n.name, n.span);
   }
 
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let (js::Callee::Expr(callee), [arg]) = (&n.callee, &n.args[..]) {
-      if let (js::Expr::Member(m), None) = (&**callee, arg.spread) {
-        if let (js::MemberProp::Ident(then), Some(field)) = (&m.prop, self.request_value(&m.obj)) {
-          if &*then.sym == "then" {
-            let f = &self.text[self.parsed.range(arg.expr.span())];
-            let f = if matches!(&*arg.expr, js::Expr::Ident(_) | js::Expr::Member(_)) { f.to_owned() } else { format!("({f})") };
-            return self.found.push((n.span, format!("{f}({field})")));
-          }
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    self.searched(&n.name, n.span);
+  }
+
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if let (Expression::StaticMemberExpression(m), [arg]) = (&n.callee, &n.arguments[..]) {
+      if let (false, Some(field)) = (matches!(arg, js::Argument::SpreadElement(_)), self.request_value(&m.object)) {
+        if m.property.name == "then" {
+          let f = &self.text[self.parsed.range(arg.span())];
+          let f = if matches!(arg, js::Argument::Identifier(_)) || arg.is_member_expression() { f.to_owned() } else { format!("({f})") };
+          return self.found.push((n.span, format!("{f}({field})")));
         }
       }
     }
-    if let js::Callee::Expr(e) = &n.callee {
-      if let js::Expr::Ident(i) = &**e {
-        if &*i.sym == "notFound" && n.args.is_empty() {
-          return self.found.push((n.span, "fail(\"not_found\", \"not found\")".to_owned()));
-        }
+    if let Expression::Identifier(i) = &n.callee {
+      if i.name == "notFound" && n.arguments.is_empty() {
+        return self.found.push((n.span, "fail(\"not_found\", \"not found\")".to_owned()));
       }
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 }
 
@@ -932,18 +948,19 @@ impl Pass for ComponentLift {
       if !text.contains("await") && !text.contains("use(") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
-      let items: Vec<Item> = parsed.module.body.iter().map(|item| describe(item, &parsed)).collect();
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
+      let items: Vec<Item> = parsed.body().iter().map(|item| describe(item, &parsed)).collect();
       let module_names: BTreeSet<String> = items.iter().flat_map(|i| i.binds.iter().cloned()).collect();
       let mut edits = Edits::default();
       let mut lifted: Vec<(String, Vec<Read>, &js::Function)> = Vec::new();
-      for item in &parsed.module.body {
+      for item in parsed.body() {
         let Some((name, function)) = component(item) else { continue };
         let Some(reads) = component_reads(&text, &parsed, function, &module_names, &path, report) else { continue };
         if reads.is_empty() {
           continue;
         }
-        if function.is_async {
+        if function.r#async {
           let span = parsed.range(item.span());
           if let Some(at) = text[span.clone()].find("async ") {
             edits.replace(span.start + at..span.start + at + "async ".len(), "");
@@ -974,14 +991,15 @@ impl Pass for ComponentLift {
         for read in reads {
           let key_id = format!("{}/{}", component.to_lowercase(), read.name);
           let key_name = format!("{}{}", lower_first(component), upper_first(&read.name));
-          let wrapped = parse("x.ts", &format!("({})", read.expr)).ok();
+          let wrapped_allocator = Allocator::default();
+          let wrapped = parse(&wrapped_allocator, "x.ts", &format!("({})", read.expr)).ok();
           if let Some(w) = wrapped {
             needed.extend(reads_of(&w));
           }
           loads.push_str(&format!("  const {key_name} = await {};\n", read.expr));
           let mut uses = CallUses { name: &read.name, parsed: &parsed, text: &text, calls: Vec::new(), other: false };
-          for stmt in function.body.iter().flat_map(|b| &b.stmts).filter(|s| parsed.range(s.span()) != read.stmt) {
-            stmt.visit_with(&mut uses);
+          for stmt in function.body.iter().flat_map(|b| &b.statements).filter(|s| parsed.range(s.span()) != read.stmt) {
+            stmt.accept(&mut uses);
           }
           if uses.other || uses.calls.is_empty() {
             fields.push(key_name.clone());
@@ -1070,17 +1088,21 @@ impl Pass for ComponentLift {
 
 /// `existing` with `loads` run before the final `return { ... }` of its `load` and `fields` joined to what it returns; `None` for any other `load`.
 fn merged_load(existing: &str, path: &str, loads: &str, fields: &[String]) -> Option<String> {
-  let parsed = parse(path, existing).ok()?;
-  let function = parsed.module.body.iter().find_map(|item| match item {
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) if &*f.ident.sym == "load" => Some(&f.function),
+  let allocator = Allocator::default();
+  let parsed = parse(&allocator, path, existing).ok()?;
+  let function = parsed.body().iter().find_map(|item| match item {
+    Statement::ExportDeclaration(e) => match &e.declaration {
+      Declaration::FunctionDeclaration(f) if f.id.as_ref().is_some_and(|id| id.name == "load") => Some(f),
+      _ => None,
+    },
     _ => None,
   })?;
-  let js::Stmt::Return(ret) = function.body.as_ref()?.stmts.last()? else { return None };
-  let js::Expr::Object(object) = &**ret.arg.as_ref()? else { return None };
+  let Statement::ReturnStatement(ret) = function.body.as_ref()?.statements.last()? else { return None };
+  let Expression::ObjectExpression(object) = ret.argument.as_ref()? else { return None };
   let at = parsed.range(ret.span).start;
   let mut edits = Edits::default();
   edits.replace(at..at, format!("{}\n  ", loads.trim_end().trim_start()));
-  match object.props.last() {
+  match object.properties.last() {
     Some(last) => {
       let end = parsed.range(last.span()).end;
       edits.replace(end..end, format!(", {}", fields.join(", ")));
@@ -1091,7 +1113,7 @@ fn merged_load(existing: &str, path: &str, loads: &str, fields: &[String]) -> Op
 }
 
 fn reads_of(parsed: &Parsed) -> BTreeSet<String> {
-  reads(&parsed.module)
+  reads(&parsed.program)
 }
 
 fn lower_first(s: &str) -> String {
@@ -1105,15 +1127,22 @@ fn upper_first(s: &str) -> String {
 }
 
 /// A top-level function whose name starts with a capital: a component.
-fn component(item: &js::ModuleItem) -> Option<(String, &js::Function)> {
-  let (ident, function) = match item {
-    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => (&f.ident, &*f.function),
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) => (&f.ident, &*f.function),
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(js::ExportDefaultDecl { decl: js::DefaultDecl::Fn(f), .. })) => (f.ident.as_ref()?, &*f.function),
+fn component<'p, 'a>(item: &'p Statement<'a>) -> Option<(String, &'p js::Function<'a>)> {
+  let function = match item {
+    Statement::FunctionDeclaration(f) => &**f,
+    Statement::ExportDeclaration(e) => match &e.declaration {
+      Declaration::FunctionDeclaration(f) => &**f,
+      _ => return None,
+    },
+    Statement::ExportDefaultDeclaration(e) => match &e.declaration {
+      ExportDefaultDeclarationKind::FunctionDeclaration(f) => &**f,
+      _ => return None,
+    },
     _ => return None,
   };
-  ident.sym.chars().next().filter(|c| c.is_uppercase())?;
-  Some((ident.sym.to_string(), function))
+  let ident = function.id.as_ref()?;
+  ident.name.chars().next().filter(|c| c.is_uppercase())?;
+  Some((ident.name.to_string(), function))
 }
 
 /// The reads a component makes that the lift can move: `None` when it
@@ -1121,16 +1150,16 @@ fn component(item: &js::ModuleItem) -> Option<(String, &js::Function)> {
 fn component_reads(text: &str, parsed: &Parsed, function: &js::Function, module_names: &BTreeSet<String>, path: &str, report: &mut Report) -> Option<Vec<Read>> {
   let body = function.body.as_ref()?;
   let mut out = Vec::new();
-  for stmt in &body.stmts {
-    let js::Stmt::Decl(js::Decl::Var(var)) = stmt else {
-      if function.is_async && holds(stmt).awaits {
+  for stmt in &body.statements {
+    let Statement::VariableDeclaration(var) = stmt else {
+      if function.r#async && holds(stmt).awaits {
         report.note(path, parsed.line(stmt.span()), "the component awaits in a statement the lift does not move, so it was left as it is");
         return None;
       }
       continue;
     };
-    let [decl] = var.decls.as_slice() else { continue };
-    if let Some(pairs) = awaited_all(&decl.name, decl.init.as_deref()) {
+    let [decl] = var.declarations.as_slice() else { continue };
+    if let Some(pairs) = awaited_all(&decl.id, decl.init.as_ref()) {
       for (name, call) in pairs {
         let free = reads(call);
         if let Some(local) = free.iter().find(|n| !module_names.contains(*n) && !GLOBALS.contains(&n.as_str())) {
@@ -1141,23 +1170,23 @@ fn component_reads(text: &str, parsed: &Parsed, function: &js::Function, module_
       }
       continue;
     }
-    let (js::Pat::Ident(name), Some(init)) = (&decl.name, decl.init.as_deref()) else {
-      if function.is_async && holds(stmt).awaits {
+    let (BindingPattern::BindingIdentifier(name), Some(init)) = (&decl.id, &decl.init) else {
+      if function.r#async && holds(stmt).awaits {
         report.note(path, parsed.line(stmt.span()), "the component awaits into a pattern the lift does not move, so it was left as it is");
         return None;
       }
       continue;
     };
     let call = match init {
-      js::Expr::Await(a) => Some(&*a.arg),
-      js::Expr::Call(c) => match &c.callee {
-        js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(i) if &*i.sym == "use") => c.args.first().map(|a| &*a.expr),
+      Expression::AwaitExpression(a) => Some(&a.argument),
+      Expression::CallExpression(c) => match &c.callee {
+        Expression::Identifier(i) if i.name == "use" => c.arguments.first().map(argument),
         _ => None,
       },
       _ => None,
     };
     let Some(call) = call else {
-      if function.is_async && holds(stmt).awaits {
+      if function.r#async && holds(stmt).awaits {
         report.note(path, parsed.line(stmt.span()), "the component awaits inside an expression the lift does not move, so it was left as it is");
         return None;
       }
@@ -1166,34 +1195,36 @@ fn component_reads(text: &str, parsed: &Parsed, function: &js::Function, module_
     let free = reads(call);
     if let Some(local) = free.iter().find(|n| !module_names.contains(*n) && !GLOBALS.contains(&n.as_str())) {
       report.note(path, parsed.line(stmt.span()), format!("the read depends on `{local}`, which is not known before the component renders, so it stays in the browser"));
-      if function.is_async {
+      if function.r#async {
         return None;
       }
       continue;
     }
-    out.push(Read { name: name.id.sym.to_string(), expr: text[parsed.range(call.span())].to_owned(), stmt: parsed.range(stmt.span()) });
+    out.push(Read { name: name.name.to_string(), expr: text[parsed.range(call.span())].to_owned(), stmt: parsed.range(stmt.span()) });
   }
   Some(out)
 }
 
 /// Each name of `const [a, b] = await Promise.all([f(), g()])` with the read it binds.
-fn awaited_all<'a>(pattern: &js::Pat, init: Option<&'a js::Expr>) -> Option<Vec<(String, &'a js::Expr)>> {
-  let (js::Pat::Array(names), Some(js::Expr::Await(awaited))) = (pattern, init) else { return None };
-  let js::Expr::Call(all) = &*awaited.arg else { return None };
-  let js::Callee::Expr(callee) = &all.callee else { return None };
-  let js::Expr::Member(m) = &**callee else { return None };
-  let (js::Expr::Ident(promise), js::MemberProp::Ident(method)) = (&*m.obj, &m.prop) else { return None };
-  if &*promise.sym != "Promise" || &*method.sym != "all" {
+fn awaited_all<'e, 'a>(pattern: &BindingPattern, init: Option<&'e Expression<'a>>) -> Option<Vec<(String, &'e Expression<'a>)>> {
+  let (BindingPattern::ArrayPattern(names), Some(Expression::AwaitExpression(awaited))) = (pattern, init) else { return None };
+  let Expression::CallExpression(all) = &awaited.argument else { return None };
+  let Expression::StaticMemberExpression(m) = &all.callee else { return None };
+  let Expression::Identifier(promise) = &m.object else { return None };
+  if promise.name != "Promise" || m.property.name != "all" {
     return None;
   }
-  let [arg] = &all.args[..] else { return None };
-  let js::Expr::Array(reads) = &*arg.expr else { return None };
+  let [arg] = &all.arguments[..] else { return None };
+  let js::Argument::ArrayExpression(reads) = arg else { return None };
   let mut out = Vec::new();
-  for (at, name) in names.elems.iter().enumerate() {
+  for (at, name) in names.elements.iter().enumerate() {
     let Some(name) = name else { continue };
-    let js::Pat::Ident(name) = name else { return None };
-    let read = reads.elems.get(at)?.as_ref().filter(|e| e.spread.is_none())?;
-    out.push((name.id.sym.to_string(), &*read.expr));
+    let BindingPattern::BindingIdentifier(name) = name else { return None };
+    let read = match reads.elements.get(at)? {
+      ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => return None,
+      read => read.to_expression(),
+    };
+    out.push((name.name.to_string(), read));
   }
   Some(out)
 }
@@ -1208,9 +1239,10 @@ fn placed_unconditionally(tree: &Tree, component: &str) -> bool {
     if !text.contains(component) {
       continue;
     }
-    let Ok(parsed) = parse(path, text) else { continue };
+    let allocator = Allocator::default();
+    let Ok(parsed) = parse(&allocator, path, text) else { continue };
     let mut placements = Placements { name: component, depth: 0, unconditional: false };
-    parsed.module.visit_with(&mut placements);
+    placements.visit_program(&parsed.program);
     if placements.unconditional {
       return true;
     }
@@ -1224,37 +1256,39 @@ struct Placements<'a> {
   unconditional: bool,
 }
 
-impl Visit for Placements<'_> {
-  fn visit_jsx_opening_element(&mut self, n: &js::JSXOpeningElement) {
-    if let js::JSXElementName::Ident(i) = &n.name {
-      if *i.sym == *self.name && self.depth == 0 {
+impl<'a> Visit<'a> for Placements<'_> {
+  fn visit_jsx_opening_element(&mut self, n: &js::JSXOpeningElement<'a>) {
+    if let Some((name, _)) = jsx_ident(&n.name) {
+      if name == self.name && self.depth == 0 {
         self.unconditional = true;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_jsx_opening_element(self, n);
   }
 
-  fn visit_cond_expr(&mut self, n: &js::CondExpr) {
-    n.test.visit_with(self);
+  fn visit_conditional_expression(&mut self, n: &js::ConditionalExpression<'a>) {
+    self.visit_expression(&n.test);
     self.depth += 1;
-    n.cons.visit_with(self);
-    n.alt.visit_with(self);
+    self.visit_expression(&n.consequent);
+    self.visit_expression(&n.alternate);
     self.depth -= 1;
   }
 
-  fn visit_bin_expr(&mut self, n: &js::BinExpr) {
-    n.left.visit_with(self);
-    let conditional = matches!(n.op, js::BinaryOp::LogicalAnd | js::BinaryOp::LogicalOr | js::BinaryOp::NullishCoalescing);
+  fn visit_logical_expression(&mut self, n: &js::LogicalExpression<'a>) {
+    self.visit_expression(&n.left);
+    let conditional = matches!(n.operator, LogicalOperator::And | LogicalOperator::Or | LogicalOperator::Coalesce);
     self.depth += conditional as usize;
-    n.right.visit_with(self);
+    self.visit_expression(&n.right);
     self.depth -= conditional as usize;
   }
 
-  fn visit_if_stmt(&mut self, n: &js::IfStmt) {
-    n.test.visit_with(self);
+  fn visit_if_statement(&mut self, n: &js::IfStatement<'a>) {
+    self.visit_expression(&n.test);
     self.depth += 1;
-    n.cons.visit_with(self);
-    n.alt.visit_with(self);
+    self.visit_statement(&n.consequent);
+    if let Some(alt) = &n.alternate {
+      self.visit_statement(alt);
+    }
     self.depth -= 1;
   }
 }
@@ -1265,7 +1299,8 @@ fn imports_graph(tree: &Tree) -> BTreeMap<String, Vec<String>> {
   let mut graph = BTreeMap::new();
   for path in tree.paths().filter(|p| p.starts_with("app/") && is_script(p)) {
     let Some(text) = tree.text(path) else { continue };
-    let Ok(parsed) = parse(path, text) else { continue };
+    let allocator = Allocator::default();
+    let Ok(parsed) = parse(&allocator, path, text) else { continue };
     let mut targets = Vec::new();
     for spec in crate::syntax::specifiers(&parsed) {
       let base = if let Some(rest) = spec.value.strip_prefix("@src/") {

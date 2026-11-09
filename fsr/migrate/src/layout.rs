@@ -4,11 +4,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, Expression, ImportDeclarationSpecifier, ModuleExportName, Statement};
+use oxc_ast_visit::{walk, Visit};
 
 use crate::edit::Edits;
-use crate::syntax::{is_script, parse, specifiers, Parsed};
+use crate::syntax::{is_script, lossy, parse, specifiers, Parsed};
 use crate::{Report, Tree};
 
 const OLD_CLIENT: &str = "@snapfire/fsr-client";
@@ -78,7 +79,8 @@ pub fn relayout(tree: &Tree, supplied: &[(String, String)]) -> (Tree, Report) {
     let rewritten = if path.ends_with("importmap.json") {
       import_map(text, supplied)
     } else if is_script(&path) {
-      match parse(&path, text) {
+      let allocator = Allocator::default();
+      match parse(&allocator, &path, text) {
         Ok(parsed) => script(&parsed, text, terminal || is_body(&path)),
         Err(e) => {
           report.note(&path, 0, format!("not rewritten, it does not parse: {e}"));
@@ -124,25 +126,30 @@ fn members_read(parsed: &Parsed, local: &str) -> Option<BTreeSet<String>> {
     names: BTreeSet<String>,
     whole: bool,
   }
-  impl Visit for Reads<'_> {
-    fn visit_member_expr(&mut self, m: &js::MemberExpr) {
-      if let (js::Expr::Ident(id), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) {
-        if id.sym.as_ref() == self.local {
-          self.names.insert(prop.sym.to_string());
+  impl<'a> Visit<'a> for Reads<'_> {
+    fn visit_static_member_expression(&mut self, m: &js::StaticMemberExpression<'a>) {
+      if let Expression::Identifier(id) = &m.object {
+        if id.name == self.local {
+          self.names.insert(m.property.name.to_string());
           return;
         }
       }
-      m.visit_children_with(self);
+      walk::walk_static_member_expression(self, m);
     }
-    fn visit_ident(&mut self, id: &js::Ident) {
-      if id.sym.as_ref() == self.local {
+    fn visit_identifier_reference(&mut self, id: &js::IdentifierReference<'a>) {
+      if id.name == self.local {
         self.whole = true;
       }
     }
-    fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+    fn visit_binding_identifier(&mut self, id: &js::BindingIdentifier<'a>) {
+      if id.name == self.local {
+        self.whole = true;
+      }
+    }
+    fn visit_import_declaration(&mut self, _: &js::ImportDeclaration<'a>) {}
   }
   let mut reads = Reads { local, names: BTreeSet::new(), whole: false };
-  parsed.module.visit_with(&mut reads);
+  reads.visit_program(&parsed.program);
   (!reads.whole).then_some(reads.names)
 }
 
@@ -178,38 +185,38 @@ fn split_home(source: &str, imported: &str) -> String {
 }
 
 /// One import's named specifiers grouped by where each goes, every group written as its own import.
-fn regroup(import: &js::ImportDecl, text: &str, parsed: &Parsed, home: impl Fn(&str, &str) -> String) -> String {
+fn regroup(import: &js::ImportDeclaration, text: &str, parsed: &Parsed, home: impl Fn(&str, &str) -> String) -> String {
   let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
-  for spec in &import.specifiers {
+  for spec in import.specifiers.iter().flatten() {
     let (imported, local, written) = match spec {
-      js::ImportSpecifier::Named(named) => {
+      ImportDeclarationSpecifier::ImportSpecifier(named) => {
         let imported = match &named.imported {
-          Some(js::ModuleExportName::Ident(id)) => id.sym.to_string(),
-          Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-          None => named.local.sym.to_string(),
+          ModuleExportName::IdentifierName(id) => id.name.to_string(),
+          ModuleExportName::IdentifierReference(id) => id.name.to_string(),
+          ModuleExportName::StringLiteral(s) => lossy(s.value),
         };
-        (imported, named.local.sym.to_string(), text[parsed.range(named.span)].to_owned())
+        (imported, named.local.name.to_string(), text[parsed.range(named.span)].to_owned())
       }
-      js::ImportSpecifier::Default(d) => ("default".to_owned(), d.local.sym.to_string(), String::new()),
-      js::ImportSpecifier::Namespace(ns) => ("*".to_owned(), ns.local.sym.to_string(), String::new()),
+      ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => ("default".to_owned(), d.local.name.to_string(), String::new()),
+      ImportDeclarationSpecifier::ImportNamespaceSpecifier(ns) => ("*".to_owned(), ns.local.name.to_string(), String::new()),
     };
     let target = home(&imported, &local);
     match spec {
-      js::ImportSpecifier::Named(_) => groups.entry(target).or_default().push(written),
-      js::ImportSpecifier::Namespace(_) => return format!("import * as {local} from \"{target}\";"),
-      js::ImportSpecifier::Default(_) => return format!("import {local} from \"{target}\";"),
+      ImportDeclarationSpecifier::ImportSpecifier(_) => groups.entry(target).or_default().push(written),
+      ImportDeclarationSpecifier::ImportNamespaceSpecifier(_) => return format!("import * as {local} from \"{target}\";"),
+      ImportDeclarationSpecifier::ImportDefaultSpecifier(_) => return format!("import {local} from \"{target}\";"),
     }
   }
-  let keyword = if import.type_only { "import type" } else { "import" };
+  let keyword = if import.import_kind.is_type() { "import type" } else { "import" };
   groups.into_iter().map(|(target, names)| format!("{keyword} {{ {} }} from \"{target}\";", names.join(", "))).collect::<Vec<_>>().join("\n")
 }
 
 fn script(parsed: &Parsed, text: &str, host: bool) -> String {
   let mut edits = Edits::default();
   let mut whole: Vec<std::ops::Range<usize>> = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    let source = import.src.value.to_string_lossy().into_owned();
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    let source = lossy(import.source.value);
     let range = parsed.range(import.span);
     let replaced = match source.as_str() {
       OLD_STD => Some(regroup(import, text, parsed, |imported, local| std_home(parsed, imported, local, host))),

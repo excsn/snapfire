@@ -222,7 +222,8 @@ fn imported_packages(tree: &Tree) -> Vec<String> {
   let mut out = Vec::new();
   for (path, _) in tree.iter().filter(|(p, _)| p.starts_with("app/") && syntax::is_script(p)) {
     let Some(text) = tree.text(path) else { continue };
-    let Ok(parsed) = syntax::parse(path, text) else { continue };
+    let allocator = oxc_allocator::Allocator::default();
+    let Ok(parsed) = syntax::parse(&allocator, path, text) else { continue };
     const ALIASES: &[&str] = &["@src/", "@generated/", "@schemas/", "@routes/", "@snapfire/"];
     let bare = |s: &String| !s.starts_with('.') && !s.starts_with('/') && !ALIASES.iter().any(|a| s.starts_with(a));
     out.extend(syntax::specifiers(&parsed).into_iter().map(|s| s.value).filter(bare));

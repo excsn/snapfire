@@ -5,13 +5,14 @@
 use std::collections::BTreeSet;
 use std::ops::Range;
 
-use swc_core::common::Spanned;
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, Argument, BindingPattern, Expression, ImportDeclarationSpecifier, MemberExpression, ModuleExportName, ObjectPropertyKind, PropertyKey, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::{line_range, tidy};
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{argument, import_specifiers, is_script, key_value, lossy, parse, Parsed};
 use crate::{Pass, Report, Tree};
 use snapfire_fsr_lower::terminal::REPLACED;
 
@@ -37,18 +38,19 @@ impl Pass for Terminal {
       if !TERMINAL.iter().map(|(package, _)| package).chain(REPLACED.iter().map(|(package, _)| package)).any(|package| text.contains(package)) {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let mut edits = Edits::default();
-      for item in &parsed.module.body {
-        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-        let source = import.src.value.to_string_lossy();
+      for item in parsed.body() {
+        let Statement::ImportDeclaration(import) = item else { continue };
+        let source = lossy(import.source.value);
         if let Some((_, fsr)) = REPLACED.iter().find(|(package, _)| *package == source) {
-          edits.replace(parsed.range(import.src.span), format!("\"{fsr}\""));
+          edits.replace(parsed.range(import.source.span), format!("\"{fsr}\""));
           continue;
         }
         let Some((_, member)) = TERMINAL.iter().find(|(package, _)| *package == source) else { continue };
-        let [js::ImportSpecifier::Default(d)] = import.specifiers.as_slice() else { continue };
-        let local = d.local.sym.to_string();
+        let [ImportDeclarationSpecifier::ImportDefaultSpecifier(d)] = import_specifiers(import) else { continue };
+        let local = d.local.name.to_string();
         let named = if local == *member { local } else { format!("{member} as {local}") };
         edits.replace(parsed.range(import.span), format!("import {{ {named} }} from \"@snapfire/fsr/terminal\";"));
       }
@@ -92,14 +94,15 @@ impl Pass for Clipboardy {
       if !text.contains("clipboardy") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let held = held(&parsed, &text, "clipboardy");
       if held.is_empty() {
         continue;
       }
       let (member, import) = std_member(&parsed, "clipboard");
       let mut uses = ClipboardUses { parsed: &parsed, text: &text, held: &held, member: &member, edits: Edits::default(), unmapped: Vec::new() };
-      parsed.module.visit_with(&mut uses);
+      uses.visit_program(&parsed.program);
       let ClipboardUses { mut edits, unmapped, .. } = uses;
       if !unmapped.is_empty() {
         for (line, written) in unmapped {
@@ -116,7 +119,7 @@ impl Pass for Clipboardy {
         }
       }
       if let Some(import) = import {
-        let at = parsed.module.body.first().map(|item| parsed.range(item.span()).start).unwrap_or(0);
+        let at = parsed.body().first().map(|item| parsed.range(item.span()).start).unwrap_or(0);
         edits.replace(at..at, format!("{import}\n"));
       }
       tree.insert(path, edits.apply(&text));
@@ -125,7 +128,7 @@ impl Pass for Clipboardy {
 }
 
 struct ClipboardUses<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   held: &'a [Held],
   member: &'a str,
@@ -136,16 +139,14 @@ struct ClipboardUses<'a> {
 
 impl ClipboardUses<'_> {
   /// `x.write(text)` or `x.read()` written as the member call, for a call of `clipboardy`'s own methods; `write` and `read` answer a promise, so only where it is awaited or the call is a statement (`settled`).
-  fn mapped(&self, call: &js::CallExpr, settled: bool) -> Option<String> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    let js::Expr::Member(m) = &**callee else { return None };
-    let js::Expr::Ident(obj) = &*m.obj else { return None };
-    if !self.held.iter().any(|h| h.local == *obj.sym && !h.namespace) {
+  fn mapped(&self, call: &js::CallExpression, settled: bool) -> Option<String> {
+    let Expression::StaticMemberExpression(m) = &call.callee else { return None };
+    let Expression::Identifier(obj) = &m.object else { return None };
+    if !self.held.iter().any(|h| obj.name == h.local.as_str() && !h.namespace) {
       return None;
     }
-    let js::MemberProp::Ident(method) = &m.prop else { return None };
-    let args: Vec<&str> = call.args.iter().map(|a| &self.text[self.parsed.range(a.span())]).collect();
-    match (&*method.sym, args.as_slice()) {
+    let args: Vec<&str> = call.arguments.iter().map(|a| &self.text[self.parsed.range(a.span())]).collect();
+    match (m.property.name.as_str(), args.as_slice()) {
       ("writeSync", [text]) => Some(format!("{}.write({text})", self.member)),
       ("write", [text]) if settled => Some(format!("{}.write({text})", self.member)),
       ("readSync", []) => Some(format!("{}.read()", self.member)),
@@ -155,26 +156,26 @@ impl ClipboardUses<'_> {
   }
 }
 
-impl Visit for ClipboardUses<'_> {
-  fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+impl<'a> Visit<'a> for ClipboardUses<'_> {
+  fn visit_import_declaration(&mut self, _: &js::ImportDeclaration<'a>) {}
 
-  fn visit_expr_stmt(&mut self, n: &js::ExprStmt) {
-    if let js::Expr::Call(call) = &*n.expr {
+  fn visit_expression_statement(&mut self, n: &js::ExpressionStatement<'a>) {
+    if let Expression::CallExpression(call) = &n.expression {
       if let Some(written) = self.mapped(call, true) {
         self.edits.replace(self.parsed.range(call.span), written);
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_expression_statement(self, n);
   }
 
-  fn visit_expr(&mut self, n: &js::Expr) {
+  fn visit_expression(&mut self, n: &Expression<'a>) {
     let call = match n {
-      js::Expr::Await(a) => match &*a.arg {
-        js::Expr::Call(call) => Some((a.span, call, true)),
+      Expression::AwaitExpression(a) => match &a.argument {
+        Expression::CallExpression(call) => Some((a.span, call, true)),
         _ => None,
       },
-      js::Expr::Call(call) => Some((call.span, call, false)),
+      Expression::CallExpression(call) => Some((call.span, call, false)),
       _ => None,
     };
     if let Some((span, call, settled)) = call {
@@ -183,22 +184,28 @@ impl Visit for ClipboardUses<'_> {
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_expression(self, n);
   }
 
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if let js::Expr::Ident(obj) = &*n.obj {
-      if self.held.iter().any(|h| h.local == *obj.sym) {
-        self.unmapped.push((self.parsed.line(n.span), self.text[self.parsed.range(n.span)].to_owned()));
+  fn visit_member_expression(&mut self, n: &MemberExpression<'a>) {
+    if let Expression::Identifier(obj) = n.object() {
+      if self.held.iter().any(|h| obj.name == h.local.as_str()) {
+        self.unmapped.push((self.parsed.line(n.span()), self.text[self.parsed.range(n.span())].to_owned()));
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_member_expression(self, n);
   }
 
-  fn visit_ident(&mut self, n: &js::Ident) {
-    if self.held.iter().any(|h| h.local == *n.sym) {
-      self.unmapped.push((self.parsed.line(n.span), n.sym.to_string()));
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    if self.held.iter().any(|h| n.name == h.local.as_str()) {
+      self.unmapped.push((self.parsed.line(n.span), n.name.to_string()));
+    }
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    if self.held.iter().any(|h| n.name == h.local.as_str()) {
+      self.unmapped.push((self.parsed.line(n.span), n.name.to_string()));
     }
   }
 }
@@ -215,51 +222,52 @@ struct Held {
 /// Every name `parsed` binds `package` to, by a static import or an awaited `import()`.
 fn held(parsed: &Parsed, text: &str, package: &str) -> Vec<Held> {
   let mut out = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if import.src.value.to_string_lossy() != package || import.type_only {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    if import.source.value != package || import.import_kind.is_type() {
       continue;
     }
-    for specifier in &import.specifiers {
+    for specifier in import_specifiers(import) {
       let (local, namespace) = match specifier {
-        js::ImportSpecifier::Default(d) => (d.local.sym.to_string(), false),
-        js::ImportSpecifier::Namespace(n) => (n.local.sym.to_string(), true),
-        js::ImportSpecifier::Named(n) => (n.local.sym.to_string(), false),
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(d) => (d.local.name.to_string(), false),
+        ImportDeclarationSpecifier::ImportNamespaceSpecifier(n) => (n.local.name.to_string(), true),
+        ImportDeclarationSpecifier::ImportSpecifier(n) => (n.local.name.to_string(), false),
       };
       out.push(Held { local, namespace, binding: parsed.range(import.span), dynamic: false });
     }
   }
   let mut dynamic = Dynamic { parsed, text, package, found: Vec::new() };
-  parsed.module.visit_with(&mut dynamic);
+  dynamic.visit_program(&parsed.program);
   out.extend(dynamic.found);
   out
 }
 
 struct Dynamic<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   package: &'a str,
   found: Vec<Held>,
 }
 
-impl Visit for Dynamic<'_> {
-  fn visit_var_decl(&mut self, n: &js::VarDecl) {
-    if let [declarator] = n.decls.as_slice() {
-      let imports = declarator.init.as_deref().is_some_and(|init| match init {
-        js::Expr::Await(awaited) => matches!(&*awaited.arg, js::Expr::Call(call) if matches!(call.callee, js::Callee::Import(_)) && matches!(call.args.first().map(|a| &*a.expr), Some(js::Expr::Lit(js::Lit::Str(s))) if s.value.to_string_lossy() == self.package)),
+impl<'a> Visit<'a> for Dynamic<'_> {
+  fn visit_variable_declaration(&mut self, n: &js::VariableDeclaration<'a>) {
+    if let [declarator] = n.declarations.as_slice() {
+      let imports = declarator.init.as_ref().is_some_and(|init| match init {
+        Expression::AwaitExpression(awaited) => matches!(&awaited.argument, Expression::ImportExpression(call) if matches!(&call.source, Expression::StringLiteral(s) if s.value == self.package)),
         _ => false,
       });
       if imports {
         let binding = line_range(self.text, self.parsed.range(n.span));
-        match &declarator.name {
-          js::Pat::Ident(i) => self.found.push(Held { local: i.id.sym.to_string(), namespace: true, binding, dynamic: true }),
-          js::Pat::Object(o) => {
-            for prop in &o.props {
-              if let js::ObjectPatProp::KeyValue(kv) = prop {
-                if let (js::PropName::Ident(key), js::Pat::Ident(value)) = (&kv.key, &*kv.value) {
-                  if &*key.sym == "default" {
-                    self.found.push(Held { local: value.id.sym.to_string(), namespace: false, binding: binding.clone(), dynamic: true });
-                  }
+        match &declarator.id {
+          BindingPattern::BindingIdentifier(i) => self.found.push(Held { local: i.name.to_string(), namespace: true, binding, dynamic: true }),
+          BindingPattern::ObjectPattern(o) => {
+            for prop in &o.properties {
+              if prop.shorthand || prop.computed {
+                continue;
+              }
+              if let (PropertyKey::StaticIdentifier(key), BindingPattern::BindingIdentifier(value)) = (&prop.key, &prop.value) {
+                if key.name == "default" {
+                  self.found.push(Held { local: value.name.to_string(), namespace: false, binding: binding.clone(), dynamic: true });
                 }
               }
             }
@@ -269,32 +277,32 @@ impl Visit for Dynamic<'_> {
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_variable_declaration(self, n);
   }
 }
 
 /// The name the standard module's `member` is held under in `parsed` and the import to add when none is.
 pub(crate) fn std_member(parsed: &Parsed, member: &str) -> (String, Option<String>) {
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if !is_std_source(&import.src.value.to_string_lossy()) {
+  for item in parsed.body() {
+    let Statement::ImportDeclaration(import) = item else { continue };
+    if !is_std_source(&lossy(import.source.value)) {
       continue;
     }
-    for specifier in &import.specifiers {
-      if let js::ImportSpecifier::Named(n) = specifier {
+    for specifier in import_specifiers(import) {
+      if let ImportDeclarationSpecifier::ImportSpecifier(n) = specifier {
         let imported = match &n.imported {
-          Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
-          Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
-          None => n.local.sym.to_string(),
+          ModuleExportName::IdentifierName(i) => i.name.to_string(),
+          ModuleExportName::IdentifierReference(i) => i.name.to_string(),
+          ModuleExportName::StringLiteral(s) => lossy(s.value),
         };
         if imported == member {
-          return (n.local.sym.to_string(), None);
+          return (n.local.name.to_string(), None);
         }
       }
     }
   }
   let mut names = Names(BTreeSet::new());
-  parsed.module.visit_with(&mut names);
+  names.visit_program(&parsed.program);
   if names.0.contains(member) {
     (format!("std_{member}"), Some(format!("import {{ {member} as std_{member} }} from \"{}\";", std_home(member))))
   } else {
@@ -302,15 +310,30 @@ pub(crate) fn std_member(parsed: &Parsed, member: &str) -> (String, Option<Strin
   }
 }
 
+/// Every name a file writes: identifiers, labels and the tag of a JSX element.
 struct Names(BTreeSet<String>);
 
-impl Visit for Names {
-  fn visit_ident(&mut self, n: &js::Ident) {
-    self.0.insert(n.sym.to_string());
+impl<'a> Visit<'a> for Names {
+  fn visit_identifier_reference(&mut self, n: &js::IdentifierReference<'a>) {
+    self.0.insert(n.name.to_string());
+  }
+
+  fn visit_binding_identifier(&mut self, n: &js::BindingIdentifier<'a>) {
+    self.0.insert(n.name.to_string());
+  }
+
+  fn visit_label_identifier(&mut self, n: &js::LabelIdentifier<'a>) {
+    self.0.insert(n.name.to_string());
+  }
+
+  fn visit_jsx_element_name(&mut self, n: &js::JSXElementName<'a>) {
+    if let js::JSXElementName::Identifier(i) = n {
+      self.0.insert(i.name.to_string());
+    }
+    walk::walk_jsx_element_name(self, n);
   }
 }
 
-/// `gray-matter`'s function as `text.frontMatter` and its `stringify` of a `{ content }` file as `text.withFrontMatter(content, ...)`. A file that uses it any other way is left as written with a note for each use.
 struct GrayMatter;
 
 impl Pass for GrayMatter {
@@ -325,14 +348,15 @@ impl Pass for GrayMatter {
       if !text.contains("gray-matter") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let held = held(&parsed, &text, "gray-matter");
       if held.is_empty() {
         continue;
       }
       let (member, import) = std_member(&parsed, "text");
       let mut uses = Uses { parsed: &parsed, text: &text, held: &held, member: &member, edits: Edits::default(), unmapped: Vec::new() };
-      parsed.module.visit_with(&mut uses);
+      uses.visit_program(&parsed.program);
       let Uses { mut edits, unmapped, .. } = uses;
       if !unmapped.is_empty() {
         for (line, written) in unmapped {
@@ -349,7 +373,7 @@ impl Pass for GrayMatter {
         }
       }
       if let Some(import) = import {
-        let at = parsed.module.body.first().map(|item| parsed.range(item.span()).start).unwrap_or(0);
+        let at = parsed.body().first().map(|item| parsed.range(item.span()).start).unwrap_or(0);
         edits.replace(at..at, format!("{import}\n"));
       }
       tree.insert(path, edits.apply(&text));
@@ -358,7 +382,7 @@ impl Pass for GrayMatter {
 }
 
 struct Uses<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   held: &'a [Held],
   member: &'a str,
@@ -373,85 +397,95 @@ impl Uses<'_> {
   }
 
   /// Whether `e` is the package's function: a name holding it or a namespace's `default`.
-  fn is_function(&self, e: &js::Expr) -> bool {
+  fn is_function(&self, e: &Expression) -> bool {
     match e {
-      js::Expr::Ident(i) => self.held(&i.sym).is_some_and(|h| !h.namespace),
-      js::Expr::Member(m) => matches!(&*m.obj, js::Expr::Ident(i) if self.held(&i.sym).is_some_and(|h| h.namespace)) && matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "default"),
-      js::Expr::Paren(p) => self.is_function(&p.expr),
+      Expression::Identifier(i) => self.held(&i.name).is_some_and(|h| !h.namespace),
+      Expression::StaticMemberExpression(m) => matches!(&m.object, Expression::Identifier(i) if self.held(&i.name).is_some_and(|h| h.namespace)) && m.property.name == "default",
+      Expression::ParenthesizedExpression(p) => self.is_function(&p.expression),
       _ => false,
     }
   }
 
-  fn written(&self, span: swc_core::common::Span) -> String {
+  fn written(&self, span: Span) -> String {
     self.text[self.parsed.range(span)].to_owned()
   }
 
   /// The `content` of a `{ content }` file literal, as written.
-  fn content(&self, arg: &js::ExprOrSpread) -> Option<String> {
-    let js::Expr::Object(object) = &*arg.expr else { return None };
-    let [prop] = object.props.as_slice() else { return None };
+  fn content(&self, arg: &Argument) -> Option<String> {
+    let Expression::ObjectExpression(object) = argument(arg) else { return None };
+    let [prop] = object.properties.as_slice() else { return None };
     match prop {
-      js::PropOrSpread::Prop(prop) => match &**prop {
-        js::Prop::Shorthand(i) if &*i.sym == "content" => Some(i.sym.to_string()),
-        js::Prop::KeyValue(kv) if matches!(&kv.key, js::PropName::Ident(k) if &*k.sym == "content") => Some(self.written(kv.value.span())),
+      ObjectPropertyKind::ObjectProperty(p) if p.shorthand => match &p.key {
+        PropertyKey::StaticIdentifier(k) if k.name == "content" => Some(k.name.to_string()),
         _ => None,
       },
-      js::PropOrSpread::Spread(_) => None,
+      other => match key_value(other) {
+        Some(("content", value)) => Some(self.written(value.span())),
+        _ => None,
+      },
     }
   }
 }
 
-impl Visit for Uses<'_> {
-  fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+impl<'a> Visit<'a> for Uses<'_> {
+  fn visit_import_declaration(&mut self, _: &js::ImportDeclaration<'a>) {}
 
-  fn visit_var_decl(&mut self, n: &js::VarDecl) {
+  fn visit_object_property(&mut self, n: &js::ObjectProperty<'a>) {
+    if n.shorthand {
+      return;
+    }
+    walk::walk_object_property(self, n);
+  }
+
+  fn visit_variable_declaration(&mut self, n: &js::VariableDeclaration<'a>) {
     let binds = self.held.iter().any(|h| h.dynamic && h.binding.contains(&self.parsed.range(n.span).start));
     if !binds {
-      n.visit_children_with(self);
+      walk::walk_variable_declaration(self, n);
     }
   }
 
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    let js::Callee::Expr(callee) = &n.callee else {
-      n.visit_children_with(self);
-      return;
-    };
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    let callee = &n.callee;
     if self.is_function(callee) {
       self.edits.replace(self.parsed.range(callee.span()), format!("{}.frontMatter", self.member));
-      n.args.visit_with(self);
+      for arg in &n.arguments {
+        self.visit_argument(arg);
+      }
       return;
     }
-    if let js::Expr::Member(m) = &**callee {
-      if self.is_function(&m.obj) && matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "stringify") {
-        if let Some(content) = n.args.first().and_then(|a| self.content(a)) {
+    if let Expression::StaticMemberExpression(m) = callee {
+      if self.is_function(&m.object) && m.property.name == "stringify" {
+        if let Some(content) = n.arguments.first().and_then(|a| self.content(a)) {
           self.edits.replace(self.parsed.range(callee.span()), format!("{}.withFrontMatter", self.member));
-          self.edits.replace(self.parsed.range(n.args[0].span()), content);
-          n.args[1..].visit_with(self);
+          self.edits.replace(self.parsed.range(n.arguments[0].span()), content);
+          for arg in &n.arguments[1..] {
+            self.visit_argument(arg);
+          }
           return;
         }
         self.unmapped.push((self.parsed.line(n.span), self.written(n.span)));
         return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if self.is_function(&n.obj) || matches!(&*n.obj, js::Expr::Ident(i) if self.held(&i.sym).is_some()) {
-      self.unmapped.push((self.parsed.line(n.span), self.written(n.span)));
+  fn visit_member_expression(&mut self, n: &MemberExpression<'a>) {
+    if self.is_function(n.object()) || matches!(n.object(), Expression::Identifier(i) if self.held(&i.name).is_some()) {
+      self.unmapped.push((self.parsed.line(n.span()), self.written(n.span())));
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_member_expression(self, n);
   }
 
-  fn visit_expr(&mut self, n: &js::Expr) {
-    if let js::Expr::Ident(i) = n {
-      if self.held(&i.sym).is_some() {
-        self.unmapped.push((self.parsed.line(i.span), i.sym.to_string()));
+  fn visit_expression(&mut self, n: &Expression<'a>) {
+    if let Expression::Identifier(i) = n {
+      if self.held(&i.name).is_some() {
+        self.unmapped.push((self.parsed.line(i.span), i.name.to_string()));
       }
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_expression(self, n);
   }
 }
 
@@ -482,17 +516,18 @@ impl Pass for Loggers {
       if !LOGGING.iter().any(|p| text.contains(p)) {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let held: Vec<(&'static str, Held)> = LOGGING.iter().flat_map(|p| held(&parsed, &text, p).into_iter().map(move |h| (*p, h))).collect();
       if held.is_empty() {
         continue;
       }
       let mut made = Made { parsed: &parsed, text: &text, held: &held, loggers: Vec::new(), options: Vec::new(), unmapped: Vec::new() };
-      parsed.module.visit_with(&mut made);
+      made.visit_program(&parsed.program);
       let Made { loggers, options, unmapped, .. } = made;
       let (member, import) = std_member(&parsed, "log");
       let mut calls = Calls { parsed: &parsed, text: &text, held: &held, loggers: &loggers, member: &member, edits: Edits::default(), unmapped };
-      parsed.module.visit_with(&mut calls);
+      calls.visit_program(&parsed.program);
       let Calls { mut edits, unmapped, .. } = calls;
       if !unmapped.is_empty() {
         for (line, written) in unmapped {
@@ -517,7 +552,7 @@ impl Pass for Loggers {
         }
       }
       if let Some(import) = import {
-        let at = parsed.module.body.first().map(|item| parsed.range(item.span()).start).unwrap_or(0);
+        let at = parsed.body().first().map(|item| parsed.range(item.span()).start).unwrap_or(0);
         edits.replace(at..at, format!("{import}\n"));
       }
       tree.insert(path, tidy(&edits.apply(&text)));
@@ -525,19 +560,18 @@ impl Pass for Loggers {
   }
 }
 
-fn ident<'e>(e: &'e js::Expr) -> Option<&'e str> {
+fn ident<'e>(e: &'e Expression) -> Option<&'e str> {
   match e {
-    js::Expr::Ident(i) => Some(&i.sym),
-    js::Expr::Paren(p) => ident(&p.expr),
+    Expression::Identifier(i) => Some(i.name.as_str()),
+    Expression::ParenthesizedExpression(p) => ident(&p.expression),
     _ => None,
   }
 }
 
 /// `object.name`, with `object` a plain name.
-fn member_of<'e>(e: &'e js::Expr) -> Option<(&'e str, &'e str)> {
-  let js::Expr::Member(m) = e else { return None };
-  let js::MemberProp::Ident(prop) = &m.prop else { return None };
-  Some((ident(&m.obj)?, &prop.sym))
+fn member_of<'e>(e: &'e Expression) -> Option<(&'e str, &'e str)> {
+  let Expression::StaticMemberExpression(m) = e else { return None };
+  Some((ident(&m.object)?, m.property.name.as_str()))
 }
 
 /// The text inside an object literal's braces, trimmed.
@@ -547,7 +581,7 @@ fn inside(written: &str) -> &str {
 
 /// Finds the loggers a file makes and the uses that rule the file out before any call is read.
 struct Made<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   held: &'a [(&'static str, Held)],
   loggers: Vec<Logger>,
@@ -561,42 +595,40 @@ impl Made<'_> {
   }
 
   /// The package whose logger `call` makes: `pino(...)`, `winston.createLogger(...)` or a named `createLogger(...)`.
-  fn makes(&self, call: &js::CallExpr) -> Option<&'static str> {
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    if let Some(name) = ident(callee) {
+  fn makes(&self, call: &js::CallExpression) -> Option<&'static str> {
+    if let Some(name) = ident(&call.callee) {
       return self.package_of(name);
     }
-    let (object, prop) = member_of(callee)?;
+    let (object, prop) = member_of(&call.callee)?;
     (prop == "createLogger").then(|| self.package_of(object)).flatten().filter(|p| *p == "winston")
   }
 }
 
-impl Visit for Made<'_> {
-  fn visit_export_decl(&mut self, n: &js::ExportDecl) {
+impl<'a> Visit<'a> for Made<'_> {
+  fn visit_export_declaration(&mut self, n: &js::ExportDeclaration<'a>) {
     let before = self.loggers.len();
-    n.visit_children_with(self);
+    walk::walk_export_declaration(self, n);
     if self.loggers.len() > before {
       let span = self.parsed.range(n.span);
       self.unmapped.push((self.parsed.line(n.span), self.text[span].to_owned()));
     }
   }
 
-  fn visit_var_decl(&mut self, n: &js::VarDecl) {
-    let [declarator] = n.decls.as_slice() else { return n.visit_children_with(self) };
-    let (js::Pat::Ident(name), Some(js::Expr::Call(call))) = (&declarator.name, declarator.init.as_deref()) else { return n.visit_children_with(self) };
+  fn visit_variable_declaration(&mut self, n: &js::VariableDeclaration<'a>) {
+    let [declarator] = n.declarations.as_slice() else { return walk::walk_variable_declaration(self, n) };
+    let (BindingPattern::BindingIdentifier(name), Some(Expression::CallExpression(call))) = (&declarator.id, &declarator.init) else { return walk::walk_variable_declaration(self, n) };
     let line = line_range(self.text, self.parsed.range(n.span));
     if let Some(package) = self.makes(call) {
-      if !call.args.is_empty() {
+      if !call.arguments.is_empty() {
         self.options.push((self.parsed.line(call.span), self.text[self.parsed.range(call.span)].to_owned()));
       }
-      self.loggers.push(Logger { name: name.id.sym.to_string(), package, bindings: None, line });
+      self.loggers.push(Logger { name: name.name.to_string(), package, bindings: None, line });
       return;
     }
-    let js::Callee::Expr(callee) = &call.callee else { return };
-    let Some((object, "child")) = member_of(callee) else { return n.visit_children_with(self) };
+    let Some((object, "child")) = member_of(&call.callee) else { return walk::walk_variable_declaration(self, n) };
     let Some(parent) = self.loggers.iter().find(|l| l.name == object) else { return };
-    let fields = match call.args.as_slice() {
-      [arg] if arg.spread.is_none() && matches!(&*arg.expr, js::Expr::Object(_)) => inside(&self.text[self.parsed.range(arg.expr.span())]).to_owned(),
+    let fields = match call.arguments.as_slice() {
+      [Argument::ObjectExpression(object)] => inside(&self.text[self.parsed.range(object.span)]).to_owned(),
       _ => {
         self.unmapped.push((self.parsed.line(call.span), self.text[self.parsed.range(call.span)].to_owned()));
         return;
@@ -607,13 +639,13 @@ impl Visit for Made<'_> {
       None => fields,
     };
     let package = parent.package;
-    self.loggers.push(Logger { name: name.id.sym.to_string(), package, bindings: Some(bindings), line });
+    self.loggers.push(Logger { name: name.name.to_string(), package, bindings: Some(bindings), line });
   }
 }
 
 /// Rewrites each level call on a logger.
 struct Calls<'a> {
-  parsed: &'a Parsed,
+  parsed: &'a Parsed<'a>,
   text: &'a str,
   held: &'a [(&'static str, Held)],
   loggers: &'a [Logger],
@@ -623,7 +655,7 @@ struct Calls<'a> {
 }
 
 impl Calls<'_> {
-  fn written(&self, span: swc_core::common::Span) -> &str {
+  fn written(&self, span: Span) -> &str {
     &self.text[self.parsed.range(span)]
   }
 
@@ -632,12 +664,12 @@ impl Calls<'_> {
   }
 
   /// `fields` with the logger's `child` fields before them.
-  fn merged(&self, logger: &Logger, fields: Option<&js::Expr>) -> Option<String> {
+  fn merged(&self, logger: &Logger, fields: Option<&Expression>) -> Option<String> {
     match (&logger.bindings, fields) {
       (None, None) => None,
       (None, Some(fields)) => Some(self.written(fields.span()).to_owned()),
       (Some(bound), None) => Some(format!("{{ {bound} }}")),
-      (Some(bound), Some(js::Expr::Object(object))) => match inside(self.written(object.span)) {
+      (Some(bound), Some(Expression::ObjectExpression(object))) => match inside(self.written(object.span)) {
         "" => Some(format!("{{ {bound} }}")),
         fields => Some(format!("{{ {bound}, {fields} }}")),
       },
@@ -661,18 +693,18 @@ impl Calls<'_> {
   }
 
   /// `call` written as a `log` call, `None` when its arguments have no such form.
-  fn rewrite(&self, logger: &Logger, method: &str, call: &js::CallExpr) -> Option<String> {
-    let args: Vec<&js::Expr> = call.args.iter().map(|a| a.spread.is_none().then_some(&*a.expr)).collect::<Option<_>>()?;
+  fn rewrite(&self, logger: &Logger, method: &str, call: &js::CallExpression) -> Option<String> {
+    let args: Vec<&Expression> = call.arguments.iter().map(|a| a.as_expression()).collect::<Option<_>>()?;
     let (level, args) = match (logger.package, method) {
       ("winston", "log") => match args.split_first()? {
-        (js::Expr::Lit(js::Lit::Str(level)), rest) => (Self::level("winston", &level.value.to_string_lossy())?, rest.to_vec()),
+        (Expression::StringLiteral(level), rest) => (Self::level("winston", &lossy(level.value))?, rest.to_vec()),
         _ => return None,
       },
       (package, method) => (Self::level(package, method)?, args),
     };
-    let textual = |e: &js::Expr| matches!(e, js::Expr::Lit(js::Lit::Str(_)) | js::Expr::Tpl(_));
+    let textual = |e: &Expression| matches!(e, Expression::StringLiteral(_) | Expression::TemplateLiteral(_));
     let (message, fields) = match (logger.package, args.as_slice()) {
-      ("pino", [only]) if matches!(only, js::Expr::Object(_)) => ("\"\"".to_owned(), Some(*only)),
+      ("pino", [only]) if matches!(only, Expression::ObjectExpression(_)) => ("\"\"".to_owned(), Some(*only)),
       ("pino", [message]) => (self.written(message.span()).to_owned(), None),
       ("pino", [fields, message]) if !textual(fields) => (self.written(message.span()).to_owned(), Some(*fields)),
       ("winston", [message]) => (self.written(message.span()).to_owned(), None),
@@ -686,46 +718,51 @@ impl Calls<'_> {
   }
 }
 
-impl Visit for Calls<'_> {
-  fn visit_import_decl(&mut self, _: &js::ImportDecl) {}
+impl<'a> Visit<'a> for Calls<'_> {
+  fn visit_import_declaration(&mut self, _: &js::ImportDeclaration<'a>) {}
 
-  fn visit_var_decl(&mut self, n: &js::VarDecl) {
+  fn visit_object_property(&mut self, n: &js::ObjectProperty<'a>) {
+    if n.shorthand {
+      return;
+    }
+    walk::walk_object_property(self, n);
+  }
+
+  fn visit_variable_declaration(&mut self, n: &js::VariableDeclaration<'a>) {
     let start = self.parsed.range(n.span).start;
     if !self.loggers.iter().any(|l| l.line.contains(&start)) {
-      n.visit_children_with(self);
+      walk::walk_variable_declaration(self, n);
     }
   }
 
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let js::Callee::Expr(callee) = &n.callee {
-      if let Some((object, method)) = member_of(callee) {
-        if let Some(logger) = self.logger(object) {
-          match self.rewrite(logger, method, n) {
-            Some(written) => self.edits.replace(self.parsed.range(n.span), written),
-            None => self.unmapped.push((self.parsed.line(n.span), self.written(n.span).to_owned())),
-          }
-          return;
+  fn visit_call_expression(&mut self, n: &js::CallExpression<'a>) {
+    if let Some((object, method)) = member_of(&n.callee) {
+      if let Some(logger) = self.logger(object) {
+        match self.rewrite(logger, method, n) {
+          Some(written) => self.edits.replace(self.parsed.range(n.span), written),
+          None => self.unmapped.push((self.parsed.line(n.span), self.written(n.span).to_owned())),
         }
+        return;
       }
     }
-    n.visit_children_with(self);
+    walk::walk_call_expression(self, n);
   }
 
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
-    if ident(&n.obj).is_some_and(|name| self.logger(name).is_some() || self.held.iter().any(|(_, h)| h.local == name)) {
-      self.unmapped.push((self.parsed.line(n.span), self.written(n.span).to_owned()));
+  fn visit_member_expression(&mut self, n: &MemberExpression<'a>) {
+    if ident(n.object()).is_some_and(|name| self.logger(name).is_some() || self.held.iter().any(|(_, h)| h.local == name)) {
+      self.unmapped.push((self.parsed.line(n.span()), self.written(n.span()).to_owned()));
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_member_expression(self, n);
   }
 
-  fn visit_expr(&mut self, n: &js::Expr) {
-    if let js::Expr::Ident(i) = n {
-      if self.logger(&i.sym).is_some() || self.held.iter().any(|(_, h)| h.local == &*i.sym) {
-        self.unmapped.push((self.parsed.line(i.span), i.sym.to_string()));
+  fn visit_expression(&mut self, n: &Expression<'a>) {
+    if let Expression::Identifier(i) = n {
+      if self.logger(&i.name).is_some() || self.held.iter().any(|(_, h)| i.name == h.local.as_str()) {
+        self.unmapped.push((self.parsed.line(i.span), i.name.to_string()));
       }
       return;
     }
-    n.visit_children_with(self);
+    walk::walk_expression(self, n);
   }
 }

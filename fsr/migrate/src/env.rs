@@ -4,15 +4,16 @@
 
 use std::collections::BTreeSet;
 
-use swc_core::common::{Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{Visit, VisitWith};
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{self as js, BindingPattern, Declaration, Expression, MemberExpression, Statement};
+use oxc_ast_visit::{walk, Visit};
+use oxc_span::{GetSpan, Span};
 
 use crate::edit::Edits;
 use crate::items::{line_range, tidy};
 use crate::lift::{ctx_type, default_function, props_name, route_id, route_kind};
 use crate::relocate::dirname;
-use crate::syntax::{is_script, parse, Parsed};
+use crate::syntax::{is_script, last_property, lossy, params, parse, Param, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) struct PublicEnv;
@@ -30,9 +31,10 @@ impl Pass for PublicEnv {
       if !text.contains("process") {
         continue;
       }
-      let Ok(parsed) = parse(&path, &text) else { continue };
+      let allocator = Allocator::default();
+      let Ok(parsed) = parse(&allocator, &path, &text) else { continue };
       let mut reads = EnvReads { found: Vec::new() };
-      parsed.module.visit_with(&mut reads);
+      reads.visit_program(&parsed.program);
       if reads.found.is_empty() {
         continue;
       }
@@ -69,20 +71,19 @@ impl Pass for PublicEnv {
 }
 
 /// `process.env.NAME` or `process.env["NAME"]`, by `NAME`.
-fn env_name(e: &js::MemberExpr) -> Option<String> {
-  let js::Expr::Member(inner) = &*e.obj else { return None };
-  let js::Expr::Ident(process) = &*inner.obj else { return None };
-  let js::MemberProp::Ident(env) = &inner.prop else { return None };
-  if &*process.sym != "process" || &*env.sym != "env" {
+fn env_name(e: &MemberExpression) -> Option<String> {
+  let Expression::StaticMemberExpression(inner) = e.object() else { return None };
+  let Expression::Identifier(process) = &inner.object else { return None };
+  if process.name != "process" || inner.property.name != "env" {
     return None;
   }
-  match &e.prop {
-    js::MemberProp::Ident(name) => Some(name.sym.to_string()),
-    js::MemberProp::Computed(c) => match &*c.expr {
-      js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_string_lossy().into_owned()),
+  match e {
+    MemberExpression::StaticMemberExpression(m) => Some(m.property.name.to_string()),
+    MemberExpression::ComputedMemberExpression(c) => match &c.expression {
+      Expression::StringLiteral(s) => Some(lossy(s.value)),
       _ => None,
     },
-    _ => None,
+    MemberExpression::PrivateFieldExpression(_) => None,
   }
 }
 
@@ -95,11 +96,11 @@ struct EnvReads {
   found: Vec<EnvRead>,
 }
 
-impl Visit for EnvReads {
-  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
+impl<'a> Visit<'a> for EnvReads {
+  fn visit_member_expression(&mut self, n: &MemberExpression<'a>) {
     match env_name(n) {
-      Some(name) => self.found.push(EnvRead { span: n.span, name }),
-      None => n.visit_children_with(self),
+      Some(name) => self.found.push(EnvRead { span: n.span(), name }),
+      None => walk::walk_member_expression(self, n),
     }
   }
 }
@@ -121,11 +122,11 @@ fn lower_camel(key: &str) -> String {
 }
 
 /// `e` without the `as T`, `!` and parentheses around it.
-fn unwrapped(e: &js::Expr) -> &js::Expr {
+fn unwrapped<'e, 'a>(e: &'e Expression<'a>) -> &'e Expression<'a> {
   match e {
-    js::Expr::TsAs(a) => unwrapped(&a.expr),
-    js::Expr::TsNonNull(n) => unwrapped(&n.expr),
-    js::Expr::Paren(p) => unwrapped(&p.expr),
+    Expression::TSAsExpression(a) => unwrapped(&a.expression),
+    Expression::TSNonNullExpression(n) => unwrapped(&n.expression),
+    Expression::ParenthesizedExpression(p) => unwrapped(&p.expression),
     other => other,
   }
 }
@@ -135,19 +136,19 @@ fn unwrapped(e: &js::Expr) -> &js::Expr {
 /// when a read sits where a prop does not reach or the loader's returns are
 /// not object literals.
 fn route_component(tree: &mut Tree, path: &str, kind: &str, text: &str, parsed: &Parsed, public: &[(EnvRead, String)], report: &mut Report) -> Option<BTreeSet<String>> {
-  let Some((function, _)) = default_function(&parsed.module) else {
+  let Some((function, _)) = default_function(parsed) else {
     report.note(path, parsed.line(public[0].0.span), "reads a public variable outside a default-exported component, so it was left for you");
     return None;
   };
   let inside = parsed.range(function.span);
   let mut constants: Vec<(Span, String)> = Vec::new();
-  for item in &parsed.module.body {
-    let js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) = item else { continue };
-    let [decl] = var.decls.as_slice() else { continue };
-    let (js::Pat::Ident(name), Some(init)) = (&decl.name, &decl.init) else { continue };
-    if let js::Expr::Member(m) = unwrapped(init) {
+  for item in parsed.body() {
+    let Statement::VariableDeclaration(var) = item else { continue };
+    let [decl] = var.declarations.as_slice() else { continue };
+    let (BindingPattern::BindingIdentifier(name), Some(init)) = (&decl.id, &decl.init) else { continue };
+    if let Some(m) = unwrapped(init).as_member_expression() {
       if env_name(m).is_some_and(|n| n.starts_with("NEXT_PUBLIC_")) {
-        constants.push((var.span, name.id.sym.to_string()));
+        constants.push((var.span, name.name.to_string()));
       }
     }
   }
@@ -184,9 +185,12 @@ fn route_component(tree: &mut Tree, path: &str, kind: &str, text: &str, parsed: 
   let props_type = props_name(&id);
   let names: Vec<&str> = fields.iter().map(|(p, _)| p.as_str()).collect();
   let mut edits = Edits::default();
-  let param = function.params.first().map(|p| &p.pat);
-  let holder = match param {
-    Some(js::Pat::Ident(i)) => Some(i.id.sym.to_string()),
+  let param = params(&function.params).into_iter().next();
+  let holder = match &param {
+    Some(Param::Plain(p)) => match &p.pattern {
+      BindingPattern::BindingIdentifier(i) => Some(i.name.to_string()),
+      _ => None,
+    },
     _ => None,
   };
   for (span, prop) in &reads {
@@ -199,12 +203,12 @@ fn route_component(tree: &mut Tree, path: &str, kind: &str, text: &str, parsed: 
   for (span, _) in &constants {
     edits.replace(line_range(text, parsed.range(*span)), "");
   }
-  let annotation = |type_ann: &Option<Box<js::TsTypeAnn>>, pattern_end: usize, edits: &mut Edits| {
+  let annotation = |type_ann: &Option<oxc_allocator::Box<js::TSTypeAnnotation>>, pattern_end: usize, edits: &mut Edits| {
     if !typed {
       return;
     }
     match type_ann {
-      Some(t) if text[parsed.range(t.type_ann.span())].trim() == props_type => {}
+      Some(t) if text[parsed.range(t.type_annotation.span())].trim() == props_type => {}
       Some(t) => {
         let end = parsed.range(t.span).end;
         edits.replace(end..end, format!(" & {props_type}"));
@@ -212,23 +216,30 @@ fn route_component(tree: &mut Tree, path: &str, kind: &str, text: &str, parsed: 
       None => edits.replace(pattern_end..pattern_end, format!(": {props_type}")),
     }
   };
-  match param {
+  let plain = match param {
+    None => None,
+    Some(Param::Plain(p)) => Some(p),
+    Some(Param::Other(_)) => {
+      report.note(path, parsed.line(function.span), "the component's props are not a destructuring or a name, so its public variables were left for you");
+      return None;
+    }
+  };
+  match plain.map(|p| (p, &p.pattern)) {
     None => {
       let open = text[inside.clone()].find('(').map(|i| inside.start + i + 1)?;
       let typed = if typed { format!(": {props_type}") } else { String::new() };
       edits.replace(open..open, format!("{{ {} }}{typed}", names.join(", ")));
     }
-    Some(js::Pat::Object(obj)) => {
+    Some((param, BindingPattern::ObjectPattern(obj))) => {
       let pattern = parsed.range(obj.span);
-      let have: Vec<String> = obj.props.iter().filter_map(|p| match p {
-        js::ObjectPatProp::Assign(a) => Some(a.key.sym.to_string()),
-        js::ObjectPatProp::KeyValue(kv) => match &kv.key { js::PropName::Ident(i) => Some(i.sym.to_string()), _ => None },
-        js::ObjectPatProp::Rest(_) => None,
+      let have: Vec<String> = obj.properties.iter().filter_map(|p| match &p.key {
+        js::PropertyKey::StaticIdentifier(i) if !p.computed => Some(i.name.to_string()),
+        _ => None,
       }).collect();
       let added: Vec<&str> = names.iter().copied().filter(|n| !have.iter().any(|h| h == n)).collect();
-      match obj.props.last() {
+      match last_property(obj) {
         Some(last) if !added.is_empty() => {
-          let end = parsed.range(last.span()).end;
+          let end = parsed.range(last).end;
           let line_start = text[..end].rfind('\n').map_or(0, |i| i + 1);
           let indent: String = text[line_start..].chars().take_while(|c| c.is_whitespace()).collect();
           let sep = if text[pattern.start..end].contains('\n') { format!(",\n{indent}") } else { ", ".to_owned() };
@@ -240,10 +251,10 @@ fn route_component(tree: &mut Tree, path: &str, kind: &str, text: &str, parsed: 
         }
         _ => {}
       }
-      let end = obj.type_ann.as_ref().map_or(pattern.end, |t| parsed.range(t.span).start);
-      annotation(&obj.type_ann, end, &mut edits);
+      let end = param.type_annotation.as_ref().map_or(pattern.end, |t| parsed.range(t.span).start);
+      annotation(&param.type_annotation, end, &mut edits);
     }
-    Some(js::Pat::Ident(i)) => annotation(&i.type_ann, parsed.range(i.span).end, &mut edits),
+    Some((param, BindingPattern::BindingIdentifier(i))) => annotation(&param.type_annotation, parsed.range(i.span).end, &mut edits),
     Some(_) => {
       report.note(path, parsed.line(function.span), "the component's props are not a destructuring or a name, so its public variables were left for you");
       return None;
@@ -263,22 +274,23 @@ fn route_component(tree: &mut Tree, path: &str, kind: &str, text: &str, parsed: 
 /// not an object literal.
 fn with_fields(loader: &str, path: &str, fields: &[(String, String)]) -> Option<String> {
   let entries = |config: &str| fields.iter().map(|(prop, key)| format!("{prop}: {config}.{key}")).collect::<Vec<_>>().join(", ");
-  let parsed = parse(path, loader).ok()?;
-  let Some((params, body)) = load_function(&parsed.module) else {
+  let allocator = Allocator::default();
+  let parsed = parse(&allocator, path, loader).ok()?;
+  let Some((formals, body)) = load_function(&parsed) else {
     let import = ctx_import(loader);
     let sep = if loader.is_empty() { "" } else { "\n" };
     return Some(format!("{import}{loader}{sep}export async function load({{ config }}: {}) {{\n  return {{ {} }};\n}}\n", ctx_type(path), entries("config")));
   };
   let mut edits = Edits::default();
-  let config = config_param(loader, &parsed, &params, body, path, &mut edits)?;
+  let config = config_param(loader, &parsed, formals, body, path, &mut edits)?;
   let mut returns = Returns { found: Vec::new() };
-  body.stmts.iter().for_each(|s| returns.stmt(s));
+  body.statements.iter().for_each(|s| returns.stmt(s));
   if returns.found.is_empty() {
     return None;
   }
   for arg in returns.found {
-    let js::Expr::Object(obj) = unwrapped(arg?) else { return None };
-    match obj.props.last() {
+    let Expression::ObjectExpression(obj) = unwrapped(arg?) else { return None };
+    match obj.properties.last() {
       Some(last) => {
         let end = parsed.range(last.span()).end;
         edits.replace(end..end, format!(", {}", entries(&config)));
@@ -286,7 +298,7 @@ fn with_fields(loader: &str, path: &str, fields: &[(String, String)]) -> Option<
       None => edits.replace(parsed.range(obj.span), format!("{{ {} }}", entries(&config))),
     }
   }
-  let import = if params.is_empty() { ctx_import(loader) } else { String::new() };
+  let import = if params(formals).is_empty() { ctx_import(loader) } else { String::new() };
   Some(format!("{import}{}", edits.apply(loader)))
 }
 
@@ -296,19 +308,23 @@ fn ctx_import(text: &str) -> String {
 
 /// How `load` reaches `config`, `config` from its destructuring or
 /// `ctx.config`, with the edits that give it the field when it had none.
-fn config_param(loader: &str, parsed: &Parsed, params: &[&js::Pat], body: &js::FunctionBody, path: &str, edits: &mut Edits) -> Option<String> {
-  match params.first() {
+fn config_param(loader: &str, parsed: &Parsed, formals: &js::FormalParameters, body: &js::FunctionBody, path: &str, edits: &mut Edits) -> Option<String> {
+  let first = params(formals).into_iter().next().map(|p| match p {
+    Param::Plain(p) => Some(&p.pattern),
+    Param::Other(_) => None,
+  });
+  match first {
     None => {
       let open = loader[..parsed.range(body.span).start].rfind('(')? + 1;
       edits.replace(open..open, format!("{{ config }}: {}", ctx_type(path)));
       Some("config".to_owned())
     }
-    Some(js::Pat::Object(obj)) => {
-      let has = obj.props.iter().any(|p| matches!(p, js::ObjectPatProp::Assign(a) if &*a.key.sym == "config"));
+    Some(Some(BindingPattern::ObjectPattern(obj))) => {
+      let has = obj.properties.iter().any(|p| p.shorthand && matches!(&p.key, js::PropertyKey::StaticIdentifier(k) if k.name == "config"));
       if !has {
-        match obj.props.last() {
+        match last_property(obj) {
           Some(last) => {
-            let end = parsed.range(last.span()).end;
+            let end = parsed.range(last).end;
             edits.replace(end..end, ", config");
           }
           None => {
@@ -319,7 +335,7 @@ fn config_param(loader: &str, parsed: &Parsed, params: &[&js::Pat], body: &js::F
       }
       Some("config".to_owned())
     }
-    Some(js::Pat::Ident(i)) => Some(format!("{}.config", i.id.sym)),
+    Some(Some(BindingPattern::BindingIdentifier(i))) => Some(format!("{}.config", i.name)),
     Some(_) => None,
   }
 }
@@ -327,7 +343,7 @@ fn config_param(loader: &str, parsed: &Parsed, params: &[&js::Pat], body: &js::F
 /// A loader whose `load` reads `NEXT_PUBLIC_` variables, each read becoming
 /// one of `config`, answering the keys it used.
 fn loader_reads(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, public: &[(EnvRead, String)], report: &mut Report) -> Option<BTreeSet<String>> {
-  let Some((params, body)) = load_function(&parsed.module) else {
+  let Some((formals, body)) = load_function(parsed) else {
     report.note(path, parsed.line(public[0].0.span), format!("`{}` is read outside `load`, where `config` does not reach, so it was left for you", public[0].0.name));
     return None;
   };
@@ -337,33 +353,33 @@ fn loader_reads(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, public
     return None;
   }
   let mut edits = Edits::default();
-  let config = config_param(text, parsed, &params, body, path, &mut edits)?;
+  let config = config_param(text, parsed, formals, body, path, &mut edits)?;
   for (read, key) in public {
     edits.replace(parsed.range(read.span), format!("{config}.{key}"));
   }
-  let import = if params.is_empty() { ctx_import(text) } else { String::new() };
+  let import = if params(formals).is_empty() { ctx_import(text) } else { String::new() };
   tree.insert(path.to_owned(), tidy(&format!("{import}{}", edits.apply(text))));
   Some(public.iter().map(|(_, key)| key.clone()).collect())
 }
 
 /// The parameters and body of the `load` a loader exports.
-fn load_function(module: &js::Module) -> Option<(Vec<&js::Pat>, &js::FunctionBody)> {
-  for item in &module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else { continue };
-    match &export.decl {
-      js::Decl::Fn(f) if &*f.ident.sym == "load" => return Some((f.function.params.iter().map(|p| &p.pat).collect(), f.function.body.as_ref()?)),
-      js::Decl::Var(var) => {
-        for decl in &var.decls {
-          let (js::Pat::Ident(name), Some(init)) = (&decl.name, &decl.init) else { continue };
-          if &*name.id.sym != "load" {
+fn load_function<'p, 'a>(parsed: &'p Parsed<'a>) -> Option<(&'p js::FormalParameters<'a>, &'p js::FunctionBody<'a>)> {
+  for item in parsed.body() {
+    let Statement::ExportDeclaration(export) = item else { continue };
+    match &export.declaration {
+      Declaration::FunctionDeclaration(f) if f.id.as_ref().is_some_and(|id| id.name == "load") => return Some((&f.params, f.body.as_ref()?)),
+      Declaration::VariableDeclaration(var) => {
+        for decl in &var.declarations {
+          let (BindingPattern::BindingIdentifier(name), Some(init)) = (&decl.id, &decl.init) else { continue };
+          if name.name != "load" {
             continue;
           }
-          match &**init {
-            js::Expr::Arrow(a) => match &*a.body {
-              js::ArrowFunctionBody::FunctionBody(b) => return Some((a.params.iter().collect(), b)),
-              js::ArrowFunctionBody::Expr(_) => return None,
+          match init {
+            Expression::ArrowFunctionExpression(a) => match &a.body {
+              js::ArrowFunctionBody::FunctionBody(b) => return Some((&a.params, b)),
+              _ => return None,
             },
-            js::Expr::Fn(f) => return Some((f.function.params.iter().map(|p| &p.pat).collect(), f.function.body.as_ref()?)),
+            Expression::FunctionExpression(f) => return Some((&f.params, f.body.as_ref()?)),
             _ => return None,
           }
         }
@@ -376,32 +392,32 @@ fn load_function(module: &js::Module) -> Option<(Vec<&js::Pat>, &js::FunctionBod
 
 /// The values of the `return`s a body makes itself, not those of the
 /// functions inside it; `None` for a bare `return`.
-struct Returns<'a> {
-  found: Vec<Option<&'a js::Expr>>,
+struct Returns<'b, 'a> {
+  found: Vec<Option<&'b Expression<'a>>>,
 }
 
-impl<'a> Returns<'a> {
-  fn stmt(&mut self, stmt: &'a js::Stmt) {
+impl<'b, 'a> Returns<'b, 'a> {
+  fn stmt(&mut self, stmt: &'b Statement<'a>) {
     match stmt {
-      js::Stmt::Return(r) => self.found.push(r.arg.as_deref()),
-      js::Stmt::Block(b) => b.stmts.iter().for_each(|s| self.stmt(s)),
-      js::Stmt::If(i) => {
-        self.stmt(&i.cons);
-        if let Some(alt) = &i.alt {
+      Statement::ReturnStatement(r) => self.found.push(r.argument.as_ref()),
+      Statement::BlockStatement(b) => b.body.iter().for_each(|s| self.stmt(s)),
+      Statement::IfStatement(i) => {
+        self.stmt(&i.consequent);
+        if let Some(alt) = &i.alternate {
           self.stmt(alt);
         }
       }
-      js::Stmt::Try(t) => {
-        t.block.stmts.iter().for_each(|s| self.stmt(s));
+      Statement::TryStatement(t) => {
+        t.block.body.iter().for_each(|s| self.stmt(s));
         if let Some(handler) = &t.handler {
-          handler.body.stmts.iter().for_each(|s| self.stmt(s));
+          handler.body.body.iter().for_each(|s| self.stmt(s));
         }
       }
-      js::Stmt::For(f) => self.stmt(&f.body),
-      js::Stmt::ForOf(f) => self.stmt(&f.body),
-      js::Stmt::ForIn(f) => self.stmt(&f.body),
-      js::Stmt::While(w) => self.stmt(&w.body),
-      js::Stmt::Switch(s) => s.cases.iter().flat_map(|c| &c.cons).for_each(|s| self.stmt(s)),
+      Statement::ForStatement(f) => self.stmt(&f.body),
+      Statement::ForOfStatement(f) => self.stmt(&f.body),
+      Statement::ForInStatement(f) => self.stmt(&f.body),
+      Statement::WhileStatement(w) => self.stmt(&w.body),
+      Statement::SwitchStatement(s) => s.cases.iter().flat_map(|c| &c.consequent).for_each(|s| self.stmt(s)),
       _ => {}
     }
   }
