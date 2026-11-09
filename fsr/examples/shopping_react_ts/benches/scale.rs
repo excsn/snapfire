@@ -154,9 +154,11 @@ fn bench(c: &mut Criterion) {
     unsafe { std::env::set_var("SNAPFIREC", &workspace_snapfirec) };
   }
   let built = build(&app, &Options::default()).expect("fsr build app");
+  snapfire_fsr_cli::write_overlay(&app, &built).expect("bundle overlay");
+  snapfire_fsr_cli::write_generated(&app, &built).expect("generated files");
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let catalogue = components.get(CATALOGUE).cloned().expect("the catalogue page lowered");
-  let interpreter = Interpreter::default();
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(built.manifest.consts.clone())));
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
   let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
   let prepared = prepare(&app, &built.browser_files, &compositions, &[], &built.composition_files, &built.added, &mut plugins).expect("fsr test's preparation");
@@ -194,7 +196,7 @@ fn bench(c: &mut Criterion) {
   // and a flat column across the rows is linear scaling.
   let props = Arc::new(catalogue_props(12));
   for &threads in THREADS {
-    let interpreter = Arc::new(Interpreter::default());
+    let interpreter = Arc::new(interpreter.clone());
     c.bench_with_input(BenchmarkId::new("scale/threads", threads), &threads, |b, &threads| {
       b.iter(|| {
         let done = Arc::new(AtomicUsize::new(0));

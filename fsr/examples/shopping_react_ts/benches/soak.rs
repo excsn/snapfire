@@ -23,6 +23,9 @@ use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_payload::value_to_json;
 
+mod support;
+use support::page_tree;
+
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -115,6 +118,7 @@ fn machine_state() -> String {
 fn soak<T>(requesters: usize, window: Duration, build_worker: impl Fn() -> T + Send + Sync + 'static, render: impl Fn(&mut T) + Send + Sync + 'static) -> (u64, Duration) {
   let build_worker = Arc::new(build_worker);
   let render = Arc::new(render);
+  render(&mut build_worker());
   let ready = Arc::new(Barrier::new(requesters + 1));
   let go = Arc::new(Barrier::new(requesters + 1));
   let stop = Arc::new(AtomicBool::new(false));
@@ -157,8 +161,11 @@ fn main() {
     unsafe { std::env::set_var("SNAPFIREC", &workspace_snapfirec) };
   }
   let built = build(&app, &Options::default()).expect("fsr build app");
+  snapfire_fsr_cli::write_overlay(&app, &built).expect("bundle overlay");
+  snapfire_fsr_cli::write_generated(&app, &built).expect("generated files");
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let component = components.get(MODULE).cloned().expect("the page lowered");
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(built.manifest.consts.clone())));
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
   let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
   let prepared = prepare(&app, &built.browser_files, &compositions, &[], &built.composition_files, &built.added, &mut plugins).expect("fsr test's preparation");
@@ -172,14 +179,15 @@ fn main() {
   resolution.overrides.insert("react-dom/server".to_owned(), server);
   let module = prepared.test_dir.join(format!("bench-{PAGE}.js"));
   let page = Arc::new(props());
-  let json = value_to_json(&Value::Map((*page).clone())).to_string();
+  let rendered = interpreter.render_module(MODULE, &component, &page, &components).expect("renders");
+  let json = value_to_json(&page_tree(MODULE, &page, &rendered)).to_string();
 
   eprintln!("machine before: {}", machine_state());
   eprintln!("window {seconds}s per row, catalog with twelve products\n");
   println!("engine     requesters   renders      renders/sec   system/render   per requester");
 
   for &requesters in REQUESTERS {
-    let (interpreter, component, components, page) = (Interpreter::default(), Arc::clone(&component), Arc::clone(&components), Arc::clone(&page));
+    let (interpreter, component, components, page) = (interpreter.clone(), Arc::clone(&component), Arc::clone(&components), Arc::clone(&page));
     let (count, elapsed) = soak(
       requesters,
       window,

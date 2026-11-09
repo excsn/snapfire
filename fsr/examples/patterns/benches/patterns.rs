@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use criterion::{black_box, BenchmarkId, Criterion};
-use patterns::react::react_engine;
+use patterns::react::{react_engine, set_props};
 use patterns::{app_of, cases, flatten, normalised, outcome, root, without_fsr_markers, PAGE};
 use snapfire_fsr_core::ValueMap;
 use snapfire_fsr_engine::Engine;
@@ -15,6 +15,7 @@ struct Ready {
   name: String,
   component: Arc<snapfire_fsr_ir::ast::Component>,
   components: Arc<Components>,
+  interpreter: Interpreter,
   engine: Option<Engine>,
 }
 
@@ -24,7 +25,6 @@ fn bench(c: &mut Criterion) {
   let _ = std::fs::remove_dir_all(&scratch);
   let cache = scratch.join("react-dom-server");
   let rt = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
-  let interpreter = Interpreter::default();
   let mut rows = vec!["case\toutcome\treact\tir_bytes\treact_bytes".to_owned()];
   let mut ready = Vec::new();
   for case in cases() {
@@ -40,9 +40,14 @@ fn bench(c: &mut Criterion) {
       rows.push(format!("{}\t{kind}\tno page\t-\t-", case.name));
       continue;
     };
-    let ir = interpreter.render(&component, &ValueMap::default(), &components).map(|r| flatten(&r));
+    let interpreter = Interpreter::default().with_consts(Some(Arc::new(built.manifest.consts.clone())));
+    let rendered = interpreter.render_module(PAGE, &component, &ValueMap::default(), &components);
+    let ir = rendered.as_ref().map(flatten);
     let react = react_engine(&app, &built, &cache, &rt).and_then(|engine| {
-      let html = engine.eval_string("__render({})").map_err(|e| format!("react: {e}"))?;
+      if let Ok(rendered) = &rendered {
+        set_props(&engine, rendered)?;
+      }
+      let html = engine.eval_string("__render(__props)").map_err(|e| format!("react: {e}"))?;
       Ok((engine, html))
     });
     let (verdict, ir_bytes, react_bytes, engine) = match (&ir, react) {
@@ -61,7 +66,7 @@ fn bench(c: &mut Criterion) {
     };
     rows.push(format!("{}\t{kind}\t{verdict}\t{ir_bytes}\t{react_bytes}", case.name));
     if ir.is_ok() {
-      ready.push(Ready { name: case.name.clone(), component, components, engine });
+      ready.push(Ready { name: case.name.clone(), component, components, interpreter, engine });
     }
   }
   let table = rows.join("\n") + "\n";
@@ -69,9 +74,9 @@ fn bench(c: &mut Criterion) {
   std::fs::write(root().join("results").join(format!("{label}.tsv")), &table).expect("results/");
   eprintln!("{table}");
   for case in &ready {
-    c.bench_with_input(BenchmarkId::new(format!("{label}/ir"), &case.name), case, |b, case| b.iter(|| interpreter.render(black_box(&case.component), black_box(&ValueMap::default()), &case.components).expect("ir renders")));
+    c.bench_with_input(BenchmarkId::new(format!("{label}/ir"), &case.name), case, |b, case| b.iter(|| case.interpreter.render_module(PAGE, black_box(&case.component), black_box(&ValueMap::default()), &case.components).expect("ir renders")));
     if let Some(engine) = &case.engine {
-      c.bench_with_input(BenchmarkId::new(format!("{label}/react"), &case.name), case, |b, _| b.iter(|| engine.eval_string("__render({})").expect("react renders")));
+      c.bench_with_input(BenchmarkId::new(format!("{label}/react"), &case.name), case, |b, _| b.iter(|| engine.eval_string("__render(__props)").expect("react renders")));
     }
   }
 }

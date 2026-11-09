@@ -20,8 +20,11 @@ use snapfire_fsr_cli::{Options, build};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
 use snapfire_fsr_ir::Interpreter;
-use snapfire_fsr_ir::render::{Components, HOISTED_PROP, ISLAND_MARK, Rendered};
+use snapfire_fsr_ir::render::{Components, ISLAND_MARK, Rendered};
 use snapfire_fsr_payload::value_to_json;
+
+mod support;
+use support::page_tree;
 
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
@@ -177,7 +180,7 @@ fn roots_dist(prepared: &Prepared, islands: &std::collections::BTreeSet<String>)
   roots
 }
 
-/// A module that renders one page the way the server does: the page as one root and each island as a root of its own with its own hoisted table, each island's markup spliced into the marker its placement left. `__render` takes the tree `render_tree` builds.
+/// A module that renders one page the way the server does: the page as one root and each island as a root of its own with its own hoisted table, each island's markup spliced into the marker its placement left. `__render` takes the tree `support::page_tree` builds.
 fn bench_module(prepared: &Prepared, page: &Page, islands: &std::collections::BTreeSet<String>) -> std::path::PathBuf {
   let path = prepared.test_dir.join(format!("bench-{}.js", page.name));
   let mut source = String::from("import { createElement } from \"react\";\nimport { renderToString } from \"react-dom/server\";\nimport { decodeValue } from \"@snapfire/fsr/client\";\nimport { withHoisted } from \"@snapfire/fsr/client/react\";\n");
@@ -207,15 +210,6 @@ fn island_modules(rendered: &Rendered, out: &mut std::collections::BTreeSet<Stri
     out.insert(island.module.clone());
     island_modules(&island.body, out);
   }
-}
-
-/// What React renders for a page: the page root with its props and its own hoisted table, then each island as the browser would mount it, `mount_props` and all, with the islands inside it the same way.
-fn render_tree(module: &str, props: ValueMap, body: &Rendered) -> Value {
-  let mut tree = ValueMap::default();
-  tree.insert("module".to_owned(), Value::str(module));
-  tree.insert("props".to_owned(), Value::Map(props));
-  tree.insert("islands".to_owned(), Value::seq(body.islands.iter().map(|island| render_tree(&island.module, island.mount_props(), &island.body)).collect::<Vec<_>>()));
-  Value::Map(tree)
 }
 
 /// The page's markup with every island's body spliced into its marker, the whole document the server writes.
@@ -304,6 +298,8 @@ fn bench(c: &mut Criterion) {
     unsafe { std::env::set_var("SNAPFIREC", &workspace_snapfirec) };
   }
   let built = build(&app, &Options::default()).expect("fsr build app");
+  snapfire_fsr_cli::write_overlay(&app, &built).expect("bundle overlay");
+  snapfire_fsr_cli::write_generated(&app, &built).expect("generated files");
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
   let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
@@ -330,7 +326,7 @@ fn bench(c: &mut Criterion) {
   )
   .expect("dump");
 
-  let interpreter = Interpreter::default();
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(built.manifest.consts.clone())));
   let rt = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
   let components_json = serde_json::to_string(&built.manifest.components).expect("components serialise");
 
@@ -349,11 +345,7 @@ fn bench(c: &mut Criterion) {
     let ir_html = flatten(&rendered);
     let module = bench_module(&prepared, &page, &islands);
     let engine = engine_for(&resolution, &prepared.dom, &module, &rt);
-    let mut page_props = page.props.clone();
-    if !rendered.hoisted.is_empty() {
-      page_props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
-    }
-    let json = value_to_json(&render_tree(page.module, page_props, &rendered)).to_string();
+    let json = value_to_json(&page_tree(page.module, &page.props, &rendered)).to_string();
     engine.eval_string(&format!("globalThis.__json = {}; globalThis.__props = __decode(__json); ''", serde_json::to_string(&json).expect("a JSON string"))).expect("props set");
     let js_html = engine.eval_string("__render(__props)").expect("react renders");
     eprintln!("{}: ir {} bytes, react {} bytes, {}", page.name, ir_html.len(), js_html.len(), if normalised(&ir_html) == normalised(&js_html) { "identical" } else { "DIFFERENT" });

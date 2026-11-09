@@ -9,6 +9,7 @@ use snapfire_fsr_cli::vendor::{VendorManifest, ESM_HOST};
 use snapfire_fsr_cli::xwpm::Layout;
 use snapfire_fsr_core::Value;
 use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
+use snapfire_fsr_ir::render::{Rendered, HOISTED_PROP};
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_payload::value_to_json;
 
@@ -78,20 +79,36 @@ pub fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, r
   std::fs::create_dir_all(&reference).map_err(|e| format!("ref: {e}"))?;
   let app = std::fs::canonicalize(app).map_err(|e| format!("app: {e}"))?;
   let root = app.display().to_string();
-  let tsconfig = format!("{{ \"compilerOptions\": {{ \"target\": \"es2022\", \"outDir\": \"dist\", \"rootDir\": {root:?}, \"allowJs\": true, \"jsx\": \"react-jsx\", \"jsxImportSource\": \"react\", \"baseUrl\": {root:?}, \"paths\": {{ \"@app/*\": [\"./*\"], \"@routes/*\": [\"./routes/*\"], \"@src/*\": [\"./src/*\"] }} }}, \"include\": [{routes:?}, {src:?}] }}\n", routes = format!("{root}/routes/**/*"), src = format!("{root}/src/**/*"));
+  let tsconfig = format!("{{ \"compilerOptions\": {{ \"target\": \"es2022\", \"outDir\": \"dist\", \"rootDir\": {root:?}, \"allowJs\": true, \"jsx\": \"react-jsx\", \"jsxImportSource\": \"react\", \"baseUrl\": {root:?}, \"paths\": {{ \"@app/*\": [\"./*\"], \"@routes/*\": [\"./routes/*\"], \"@src/*\": [\"./src/*\"] }} }}, \"include\": [{routes:?}], \"files\": {files:?} }}\n", routes = format!("{root}/routes/**/*"), files = built.added.iter().filter(|file| file.starts_with("routes/")).map(|file| format!("{root}/{file}")).collect::<Vec<_>>());
   std::fs::write(reference.join("tsconfig.json"), tsconfig).map_err(|e| format!("ref: {e}"))?;
   let snapfirec = std::env::var_os("SNAPFIREC").unwrap_or_else(|| "snapfirec".into());
-  let compiled = std::process::Command::new(snapfirec).arg("--import-map").arg(app.join("importmap.json")).current_dir(&reference).output().map_err(|e| format!("snapfirec: {e}"))?;
+  let mut command = std::process::Command::new(snapfirec);
+  command.arg("--root").arg(&app).arg("--config").arg(reference.join("tsconfig.json")).arg("--import-map").arg(prepared.test_dir.join("importmap.json")).current_dir(&reference);
+  let overlay = app.join(snapfire_fsr_cli::dev::BUNDLE_OVERLAY);
+  if overlay.is_dir() {
+    command.arg("--overlay").arg(snapfire_fsr_cli::dev::BUNDLE_OVERLAY);
+  }
+  let compiled = command.output().map_err(|e| format!("snapfirec: {e}"))?;
   if !compiled.status.success() {
     return Err(format!("snapfirec: {}", String::from_utf8_lossy(&compiled.stderr).lines().next().unwrap_or_default()));
   }
   let module = prepared.test_dir.join("bench-page.js");
   std::fs::write(prepared.test_dir.join("bench-channel.js"), CHANNEL).map_err(|e| format!("module: {e}"))?;
-  std::fs::write(&module, "import \"./bench-channel.js\";\nimport { createElement } from \"react\";\nimport { renderToString } from \"react-dom/server\";\nimport Page from \"./ref/dist/routes/page.js\";\nglobalThis.__render = (props) => renderToString(createElement(Page, props));\n").map_err(|e| format!("module: {e}"))?;
+  std::fs::write(&module, "import \"./bench-channel.js\";\nimport { createElement } from \"react\";\nimport { renderToString } from \"react-dom/server\";\nimport { decodeValue } from \"@snapfire/fsr/client\";\nimport { withHoisted } from \"@snapfire/fsr/client/react\";\nimport Page from \"./ref/dist/routes/page.js\";\nglobalThis.__decode = (json) => decodeValue(JSON.parse(json));\nglobalThis.__render = ({ $h, ...props }) => renderToString(withHoisted($h ?? null, createElement(Page, props)));\n").map_err(|e| format!("module: {e}"))?;
   let engine = Engine::new(resolution, &prepared.dom, Rc::new(NoHooks { interpreter: Interpreter::default() }), JsCalls::new()).map_err(|e| format!("engine: {e}"))?;
   let local = tokio::task::LocalSet::new();
   rt.block_on(local.run_until(engine.import(&module))).map_err(|e| format!("import: {e}"))?;
   Ok(engine)
+}
+
+/// Sets `__props` in `engine` to the page's props: none of its own, plus the hoisted table the IR's render of the page took.
+pub fn set_props(engine: &Engine, rendered: &Rendered) -> Result<(), String> {
+  let mut props = snapfire_fsr_core::ValueMap::default();
+  if !rendered.hoisted.is_empty() {
+    props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
+  }
+  let json = value_to_json(&Value::Map(props)).to_string();
+  engine.eval_string(&format!("globalThis.__props = __decode({}); ''", serde_json::to_string(&json).expect("a JSON string"))).map(|_| ()).map_err(|e| format!("props: {e}"))
 }
 
 /// React 19's server build reaches for `MessageChannel` as it loads, which QuickJS lacks: a pair of ports that deliver on a microtask, which `renderToString` never waits on.
