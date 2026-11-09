@@ -630,7 +630,7 @@ The hoist candidates of one component as the lowerer meets them. `Default`, `#[n
 
 * `pub fn side_modules(side: Side) -> Vec<(&'static str, Vec<&'static str>)>`: each standard module under `side` with its members, from `snapfire_fsr_ir::STANDARD` by reach.
 * `pub fn reference() -> String`: the Markdown table of every platform form the build reads and every standard member with its paths and where it runs.
-* `pub fn awaited_imports(stmt: &Stmt) -> Vec<ImportBinding>`: the bindings `stmt` makes through awaited dynamic imports, including `await Promise.all([import(...), ...])`. Empty for any other statement.
+* `pub fn awaited_imports(stmt: &oxc_ast::ast::Statement<'_>) -> Vec<ImportBinding>`: the bindings `stmt` makes through awaited dynamic imports, including `await Promise.all([import(...), ...])`. Empty for any other statement.
 * `pub fn terminal_primitives() -> impl Iterator<Item = (&'static str, &'static [Signature])>`: each terminal primitive's name with its signatures.
 
 ### Meaning Constants

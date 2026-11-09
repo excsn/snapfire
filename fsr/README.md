@@ -152,8 +152,8 @@ Application developers write TypeScript and never need to touch Rust. Platform d
 
 FSR stands on the work of these projects and the people who maintain them:
 
-- [swc](https://swc.rs) parses, transforms and minifies TypeScript and JavaScript in `snapfirec`, the build and `fsr migrate`.
-- [Oxc](https://oxc.rs) writes the `.d.ts` declarations `snapfirec` emits.
+- [swc](https://swc.rs) parses, transforms and minifies TypeScript and JavaScript in `snapfirec` and writes the `.d.ts` declarations it emits.
+- [Oxc](https://oxc.rs) parses TypeScript, JavaScript and JSX for the build, `fsr migrate`, `fsr lint` and the MDX checks.
 - [Lightning CSS](https://lightningcss.dev) parses, transforms and minifies every stylesheet.
 - [Tailwind CSS](https://tailwindcss.com): `snapfire_tailwind` follows its v4 specification and carries its sources and tests.
 - [markdown-rs](https://github.com/wooorm/markdown-rs) and the [MDX](https://mdxjs.com) team: FSR reads MDX through markdown-rs.
