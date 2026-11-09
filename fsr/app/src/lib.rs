@@ -14,7 +14,7 @@ use snapfire_fsr_ir::{body_visit, Component, Expr, Extensions, Interpreter, IrAc
 use snapfire_fsr_runtime::store::Derived;
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
-  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, Reads, RequestCtx, Runtime, Seeds, Static, SubtreeReads, TableResolver, subtree_shape,
+  HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, Metadata, NodeCache, PathMatcher, Paths, Reads, RequestCtx, Runtime, Seeds, Static, SubtreeReads, TableResolver, subtree_shape,
 };
 use snapfire_fsr_service::{Contract, Services, Type};
 
@@ -212,7 +212,7 @@ impl std::fmt::Display for Report {
 /// Everything a request needs, plus what the host bound to produce it.
 #[non_exhaustive]
 pub struct App {
-  pub matcher: MatchitMatcher,
+  pub matcher: PathMatcher,
   pub resolver: TableResolver,
   /// Route handlers: a method and a pattern answered with a value.
   pub handlers: Handlers,
@@ -287,7 +287,7 @@ impl std::fmt::Debug for App {
 /// on the route's pattern, in file order under it.
 #[derive(Default)]
 pub struct Intercepts {
-  matcher: MatchitMatcher,
+  matcher: PathMatcher,
   plans: HashMap<snapfire_fsr_runtime::EntryId, Vec<PlanNode>>,
 }
 
@@ -338,7 +338,7 @@ impl Handlers {
 /// The generated card images a host answers, matched by URL.
 #[derive(Default)]
 pub struct Images {
-  matcher: MatchitMatcher,
+  matcher: PathMatcher,
   under_catch_all: Vec<CatchAllImage>,
   entries: Vec<snapfire_fsr_plan::ImageEntry>,
   /// Each entry's lowered `images` body, by the entry's index.
@@ -348,7 +348,7 @@ pub struct Images {
 /// An image under a catch-all page. matchit allows nothing after `{*name}`,
 /// so the page's own pattern is matched once the image's tail is off the path.
 struct CatchAllImage {
-  page: MatchitMatcher,
+  page: PathMatcher,
   /// `/opengraph-image.png`, or `/opengraph-image` when the module lists its images.
   tail: String,
   listed: bool,
@@ -379,7 +379,7 @@ impl CatchAllImage {
 impl Images {
   fn new(rows: Vec<(snapfire_fsr_plan::ImageEntry, Option<snapfire_fsr_ir::PreparedBody>)>) -> Result<Self, BindError> {
     let (entries, listings): (Vec<_>, Vec<_>) = rows.into_iter().unzip();
-    let mut matcher = MatchitMatcher::new();
+    let mut matcher = PathMatcher::new();
     let mut under_catch_all = Vec::new();
     let listed_tail = format!("/{{{}}}", snapfire_fsr_plan::IMAGE_PARAM);
     for (i, entry) in entries.iter().enumerate() {
@@ -395,7 +395,7 @@ impl Images {
       if tail.contains('{') {
         return Err(BindError::Image(entry.pattern.clone(), "a parameter after a catch-all is not routed".to_owned()));
       }
-      let mut page_matcher = MatchitMatcher::new();
+      let mut page_matcher = PathMatcher::new();
       page_matcher.insert(page, id).map_err(|e| BindError::Image(entry.pattern.clone(), e.to_string()))?;
       under_catch_all.push(CatchAllImage { page: page_matcher, tail: tail.to_owned(), listed, entry: id });
     }
@@ -1341,7 +1341,7 @@ impl AppBuilder {
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 
-    let mut matcher = MatchitMatcher::new();
+    let mut matcher = PathMatcher::new();
     let mut resolver = TableResolver::new();
     let patterns: Vec<String> = resolved.iter().map(|(p, _, _)| p.clone()).collect();
     for (index, (pattern, plan, _)) in resolved.into_iter().enumerate() {

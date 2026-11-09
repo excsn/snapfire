@@ -28,7 +28,7 @@ pub use ctx::{Address, AfterHandle, CsrfHandle, FAILURE_KEY, Identity, Locale, R
 pub use data::{DataSource, DataSources, LoadError, LoadKeyer, NoLoadKey};
 pub use evaluator::{slot_regions, Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use islands::{IslandEvent, IslandHandler, IslandRegistry, island_data};
-pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher, RouteMatch};
+pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, PathMatcher, RouteConflict, RouteMatch};
 pub use meta::{is_data_block, DocumentTheme, Head, HeadEl, HeadRows, Meta, Metadata, PATH_MARK};
 pub use resolver::{Resolver, TableResolver};
 pub use response::{HttpResponse, REDIRECT_STATUSES, RESPONSE_TAG};

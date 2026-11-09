@@ -61,7 +61,7 @@ use futures_util::{stream, StreamExt};
 use snapfire_fsr_core::{Data, ModuleId, Node, NodeId, PlanNode, SlotName};
 use snapfire_fsr_runtime::{
   assemble, html_stream, Chunk, DataSources, EntryId, Evaluator, Evaluators, Matcher,
-  MatchitMatcher, NodeChunks, RequestCtx, Resolver, Runtime, TableResolver,
+  NodeChunks, PathMatcher, RequestCtx, Resolver, Runtime, TableResolver,
 };
 
 const DASH: EntryId = EntryId(0);
@@ -80,7 +80,7 @@ impl Evaluator for Shell {
 }
 
 fn main() {
-  let mut matcher = MatchitMatcher::new();
+  let mut matcher = PathMatcher::new();
   matcher.insert("/dash/{section}", DASH).expect("route pattern");
 
   let mut plan = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
@@ -221,15 +221,15 @@ let source = runtime.sources.get(&DataSourceId("meta_loader".into()));
 
 ## Matching a Path
 
-`MatchitMatcher` wraps `matchit`, so patterns are `matchit` patterns and named captures become params.
+`PathMatcher` wraps `matchit`, so patterns are `matchit` patterns and named captures become params.
 
 ```rust
-use snapfire_fsr_runtime::{EntryId, Matcher, MatchitMatcher};
+use snapfire_fsr_runtime::{EntryId, Matcher, PathMatcher};
 
 pub const DASH: EntryId = EntryId(0);
 pub const SLOW: EntryId = EntryId(1);
 
-let mut matcher = MatchitMatcher::new();
+let mut matcher = PathMatcher::new();
 matcher.insert("/dash/{section}", DASH).expect("route pattern");
 matcher.insert("/slow/{section}", SLOW).expect("route pattern");
 
@@ -238,7 +238,7 @@ assert_eq!(matched.entry, DASH);
 assert_eq!(matched.params["section"], "servers");
 ```
 
-`insert` returns `matchit::InsertError` for a conflicting or malformed pattern, so route tables are validated at construction. `match_path` returns `None` for no match, which is the caller's 404.
+`insert` returns `RouteConflict` for a conflicting or malformed pattern, so route tables are validated at construction. `match_path` returns `None` for no match, which is the caller's 404.
 
 Any other router works: implement `Matcher` and hand back the same `RouteMatch`.
 

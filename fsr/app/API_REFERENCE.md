@@ -33,7 +33,7 @@ Everything a request needs, plus what was bound to produce it. `Debug`. `#[non_e
 
 Fields:
 
-* `pub matcher: MatchitMatcher`
+* `pub matcher: PathMatcher`
 * `pub resolver: TableResolver`
 * `pub handlers: Handlers`: the route handlers.
 * `pub images: Images`: the generated card images.
@@ -208,7 +208,7 @@ Routes from the plan file, from Rust or both. A pattern claimed twice is refused
 * `pub fn not_found(self, plan: impl IntoPlan) -> Self`: the tree for a path no route matches, replacing the plan file's. Its sources count as declared.
 * `pub fn has_not_found(&self) -> bool`
 * `pub fn patterns(&self) -> Vec<&str>`
-* `pub fn build(self) -> Result<(MatchitMatcher, TableResolver), BindError>`: entry ids are positions in file order followed by Rust order.
+* `pub fn build(self) -> Result<(PathMatcher, TableResolver), BindError>`: entry ids are positions in file order followed by Rust order.
 
 ### `Plan`
 

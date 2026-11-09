@@ -8,9 +8,10 @@ The request pipeline of SnapFire FSR: matching, resolution, data sources, evalua
   * [`EntryId`](#entryid)
   * [`RouteMatch`](#routematch)
   * [`Matcher`](#matcher)
-  * [`MatchitMatcher`](#matchitmatcher)
+  * [`PathMatcher`](#pathmatcher)
   * [`HandlerMatcher`](#handlermatcher)
   * [`HandlerMatch`](#handlermatch)
+  * [`RouteConflict`](#routeconflict)
 * [2. Resolution](#2-resolution)
   * [`Resolver`](#resolver)
   * [`TableResolver`](#tableresolver)
@@ -145,12 +146,12 @@ What a matcher returns. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
 
 * `pub trait Matcher: Send + Sync { fn match_path(&self, path: &str) -> Option<RouteMatch>; }`: `None` means no route.
 
-### MatchitMatcher
+### PathMatcher
 
 A `matchit::Router<EntryId>` behind `Matcher`. `Default`.
 
 * `new() -> Self`
-* `insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), matchit::InsertError>`: `pattern` is a `matchit` pattern, such as `/dash/{section}`. A conflicting or malformed pattern fails here.
+* `insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), RouteConflict>`: `pattern` is a `matchit` pattern, such as `/dash/{section}`. A conflicting or malformed pattern fails here.
 * `match_path` answers named captures as params, in the order `matchit` yields them.
 
 ### HandlerMatcher
@@ -158,7 +159,7 @@ A `matchit::Router<EntryId>` behind `Matcher`. `Default`.
 One `matchit` router per HTTP method, resolving to a handler id. `Default`.
 
 * `new() -> Self`
-* `insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), matchit::InsertError>`: the method is upper-cased.
+* `insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), RouteConflict>`: the method is upper-cased.
 * `match_request(&self, method: &str, path: &str) -> Option<HandlerMatch>`: a HEAD with no handler of its own is answered by the GET handler.
 * `allowed(&self, path: &str) -> Vec<String>`: the methods some handler answers at `path`, sorted, with HEAD wherever GET is. Empty when no handler claims the path.
 * `is_empty(&self) -> bool`
@@ -166,6 +167,13 @@ One `matchit` router per HTTP method, resolving to a handler id. `Default`.
 ### HandlerMatch
 
 * `pub struct HandlerMatch { pub id: String, pub params: Params }`
+
+### RouteConflict
+
+A pattern `insert` refused. `#[non_exhaustive]`, `Error`. `Display` prints `reason`.
+
+* `pub pattern: String`
+* `pub reason: String`
 
 ## 2. Resolution
 

@@ -75,7 +75,7 @@ fn main() {
 
 | Problem | Piece |
 | :--- | :--- |
-| Turn a path into a route entry plus params | `Matcher`, `MatchitMatcher` |
+| Turn a path into a route entry plus params | `Matcher`, `PathMatcher` |
 | Turn a route entry into a render plan | `Resolver`, `TableResolver` |
 | Load a part's data before anything renders | `DataSources::insert_fn` |
 | Turn a module plus props into nodes | `Evaluator`, `Chunk`, `NodeChunks` |

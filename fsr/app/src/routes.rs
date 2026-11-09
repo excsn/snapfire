@@ -1,6 +1,6 @@
 use snapfire_fsr_core::PlanNode;
 use snapfire_fsr_plan::Manifest;
-use snapfire_fsr_runtime::{EntryId, MatchitMatcher, TableResolver};
+use snapfire_fsr_runtime::{EntryId, PathMatcher, TableResolver};
 
 use crate::{BindError, IntoPlan, Owner};
 
@@ -113,8 +113,8 @@ impl Routes {
     Ok(kept)
   }
 
-  pub fn build(self) -> Result<(MatchitMatcher, TableResolver), BindError> {
-    let mut matcher = MatchitMatcher::new();
+  pub fn build(self) -> Result<(PathMatcher, TableResolver), BindError> {
+    let mut matcher = PathMatcher::new();
     let mut resolver = TableResolver::new();
     for (index, (pattern, plan, _)) in self.resolved()?.into_iter().enumerate() {
       let entry = EntryId(index as u32);

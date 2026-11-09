@@ -16,22 +16,42 @@ impl RouteMatch {
   }
 }
 
+/// A pattern that cannot be registered beside the ones already there. `Display` prints `reason`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RouteConflict {
+  pub pattern: String,
+  pub reason: String,
+}
+
+impl std::fmt::Display for RouteConflict {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str(&self.reason)
+  }
+}
+
+impl std::error::Error for RouteConflict {}
+
+fn conflict(pattern: &str, e: matchit::InsertError) -> RouteConflict {
+  RouteConflict { pattern: pattern.to_owned(), reason: e.to_string() }
+}
+
 pub trait Matcher: Send + Sync {
   fn match_path(&self, path: &str) -> Option<RouteMatch>;
 }
 
 #[derive(Default)]
-pub struct MatchitMatcher {
+pub struct PathMatcher {
   router: matchit::Router<EntryId>,
 }
 
-impl MatchitMatcher {
+impl PathMatcher {
   pub fn new() -> Self {
     Self::default()
   }
 
-  pub fn insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), matchit::InsertError> {
-    self.router.insert(pattern, entry)
+  pub fn insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), RouteConflict> {
+    self.router.insert(pattern, entry).map_err(|e| conflict(pattern, e))
   }
 }
 
@@ -53,12 +73,13 @@ impl HandlerMatcher {
     Self::default()
   }
 
-  pub fn insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), matchit::InsertError> {
+  pub fn insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), RouteConflict> {
     self
       .routers
       .entry(method.to_ascii_uppercase())
       .or_default()
       .insert(pattern, id.into())
+      .map_err(|e| conflict(pattern, e))
   }
 
   /// The handler for `method` at `path`. A HEAD with no handler of its own is answered by the GET handler.
@@ -94,7 +115,7 @@ impl HandlerMatcher {
   }
 }
 
-impl Matcher for MatchitMatcher {
+impl Matcher for PathMatcher {
   fn match_path(&self, path: &str) -> Option<RouteMatch> {
     let found = self.router.at(path).ok()?;
     let mut params = Params::new();

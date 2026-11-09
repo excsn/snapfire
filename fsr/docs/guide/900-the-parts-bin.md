@@ -60,7 +60,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 - **`snapfire_fsr_host::actix::serve`**, the shim that mounts the host in actix; `Host::serve` for hyper.
 - **`snapfire_fsr::App`** and **`AppBuilder`**, the binding layer under the host, for a host of your own.
 - **`snapfire_fsr::Routes`**, plan-file routes plus Rust ones, refusing a pattern claimed twice.
-- **`snapfire_fsr_runtime::MatchitMatcher`** and **`TableResolver`**, pattern to entry, entry to plan.
+- **`snapfire_fsr_runtime::PathMatcher`** and **`TableResolver`**, pattern to entry, entry to plan.
 
 ## I want a session or an identity
 
