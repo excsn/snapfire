@@ -30,6 +30,33 @@ The bench prepares the app the way `fsr test` does, compiling the pages into `ap
 
 ## Results
 
+### 2026-11-09, `e2e52913`, MacBook M4 Pro
+
+Criterion, release profile, `--features mimalloc`, one run. The fidelity line read `identical` on all three pages. Page sizes: catalog 21215 bytes, product 2537 bytes, cart 3792 bytes.
+
+| Benchmark | Lower | Estimate | Upper |
+| --- | --- | --- | --- |
+| `ir/load_components` | 240.36 µs | 240.76 µs | 241.17 µs |
+| `ir/render/catalog_12` | 106.29 µs | 106.44 µs | 106.59 µs |
+| `quickjs/render/catalog_12` | 884.21 µs | 887.18 µs | 891.25 µs |
+| `quickjs/render_with_decode/catalog_12` | 1.1538 ms | 1.1570 ms | 1.1606 ms |
+| `quickjs/cold_context/catalog_12` | 28.419 ms | 28.509 ms | 28.608 ms |
+| `quickjs/eval_overhead/catalog_12` | 485.82 ns | 487.11 ns | 488.56 ns |
+| `quickjs/threads/1` | 44.299 ms | 44.375 ms | 44.459 ms |
+| `quickjs/threads/2` | 45.327 ms | 45.457 ms | 45.596 ms |
+| `quickjs/threads/4` | 47.424 ms | 47.565 ms | 47.716 ms |
+| `quickjs/threads/8` | 52.713 ms | 52.952 ms | 53.211 ms |
+| `ir/render/product` | 14.449 µs | 14.484 µs | 14.520 µs |
+| `quickjs/render/product` | 144.98 µs | 145.26 µs | 145.56 µs |
+| `quickjs/render_with_decode/product` | 182.44 µs | 186.32 µs | 191.38 µs |
+| `quickjs/cold_context/product` | 28.398 ms | 28.456 ms | 28.518 ms |
+| `quickjs/eval_overhead/product` | 498.99 ns | 500.94 ns | 502.75 ns |
+| `ir/render/cart_3` | 17.604 µs | 17.650 µs | 17.698 µs |
+| `quickjs/render/cart_3` | 271.34 µs | 272.10 µs | 272.94 µs |
+| `quickjs/render_with_decode/cart_3` | 336.25 µs | 336.80 µs | 337.38 µs |
+| `quickjs/cold_context/cart_3` | 29.529 ms | 29.847 ms | 30.223 ms |
+| `quickjs/eval_overhead/cart_3` | 477.37 ns | 478.81 ns | 480.25 ns |
+
 ### 2026-09-07, `8bf357a`, MacBook M4 Pro
 
 Every group re-run back to back on one machine state. The fidelity line read `identical` on all three pages in every group. This run follows a day of renderer work: the catalogue went from 992.74 µs to 127.67 µs on the system allocator, **7.8x** and to 82.29 µs with mimalloc under it.
