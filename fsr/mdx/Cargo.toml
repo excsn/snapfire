@@ -21,6 +21,11 @@ highlight = ["dep:syntect", "dep:two-face"]
 frontmatter = ["dep:yaml-rust2", "dep:toml"]
 
 [dependencies]
+oxc_allocator = "0.155"
+oxc_ast = "0.155"
+oxc_diagnostics = "0.155"
+oxc_parser = "0.155"
+oxc_span = "0.155"
 markdown = "1"
 serde_json.workspace = true
 thiserror = "2"
@@ -29,6 +34,3 @@ two-face = { version = "0.5.2", default-features = false, features = ["syntect-f
 yaml-rust2 = { version = "0.13", optional = true }
 toml = { version = "1", optional = true }
 
-[dependencies.swc_core]
-version = "84"
-features = ["common", "ecma_ast", "ecma_parser"]

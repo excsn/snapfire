@@ -1,15 +1,13 @@
-//! The JavaScript inside an MDX file, read with swc: the callbacks markdown-rs
+//! The JavaScript inside an MDX file, read with oxc: the callbacks markdown-rs
 //! asks whether an ESM block or an expression is complete, and what an ESM
 //! block exports.
 
 use markdown::{MdxExpressionKind, MdxSignal};
-use swc_core::common::{sync::Lrc, BytePos, FileName, SourceMap, Span, Spanned};
-use swc_core::ecma::ast as js;
-use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
-
-fn syntax() -> Syntax {
-  Syntax::Typescript(TsSyntax { tsx: true, ..Default::default() })
-}
+use oxc_allocator::Allocator;
+use oxc_ast::ast::{BindingPattern, Declaration, ExportDefaultDeclarationKind, ExportSpecifier, ImportOrExportKind, Statement};
+use oxc_diagnostics::OxcDiagnostic;
+use oxc_parser::Parser;
+use oxc_span::{GetSpan, SourceType};
 
 fn signal(message: String, relative: usize, len: usize) -> MdxSignal {
   match relative >= len {
@@ -18,27 +16,23 @@ fn signal(message: String, relative: usize, len: usize) -> MdxSignal {
   }
 }
 
-fn parse_module(value: &str) -> Result<(js::Module, BytePos), (String, usize)> {
-  let cm: Lrc<SourceMap> = Default::default();
-  let fm = cm.new_source_file(Lrc::new(FileName::Anon), value.to_owned());
-  let lexer = Lexer::new(syntax(), js::EsVersion::latest(), StringInput::from(&*fm), None);
-  let mut parser = Parser::new_from(lexer);
-  let module = parser.parse_module().map_err(|e| (e.kind().msg().to_string(), (e.span().lo.0 - fm.start_pos.0) as usize))?;
-  if let Some(e) = parser.take_errors().into_iter().next() {
-    return Err((e.kind().msg().to_string(), (e.span().lo.0 - fm.start_pos.0) as usize));
-  }
-  Ok((module, fm.start_pos))
+/// A diagnostic's message and the byte offset it points at.
+fn located(diagnostic: &OxcDiagnostic) -> (String, usize) {
+  let at = diagnostic.labels.first().map(|label| label.offset() as usize).unwrap_or(0);
+  (diagnostic.message.to_string(), at)
 }
 
 /// Whether `value` is a whole ESM block holding only imports and exports.
 pub(crate) fn esm(value: &str) -> MdxSignal {
-  let (module, start) = match parse_module(value) {
-    Ok(parsed) => parsed,
-    Err((message, at)) => return signal(message, at, value.len()),
-  };
-  for item in &module.body {
-    if let js::ModuleItem::Stmt(stmt) = item {
-      let at = (stmt.span().lo.0 - start.0) as usize;
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, value, SourceType::tsx()).parse();
+  if let Some(first) = parsed.diagnostics.first() {
+    let (message, at) = located(first);
+    return signal(message, at, value.len());
+  }
+  for statement in &parsed.program.body {
+    if !statement.is_module_declaration() {
+      let at = statement.span().start as usize;
       return MdxSignal::Error("Unexpected statement in code: only import and export statements are supported in ESM".to_owned(), at, Box::new("mdx".to_owned()), Box::new("esm".to_owned()));
     }
   }
@@ -58,16 +52,13 @@ pub(crate) fn expression(value: &str, kind: &MdxExpressionKind) -> MdxSignal {
     MdxExpressionKind::AttributeExpression => 4,
     _ => 1,
   };
-  let cm: Lrc<SourceMap> = Default::default();
-  let fm = cm.new_source_file(Lrc::new(FileName::Anon), wrapped.clone());
-  let lexer = Lexer::new(syntax(), js::EsVersion::latest(), StringInput::from(&*fm), None);
-  let mut parser = Parser::new_from(lexer);
-  match parser.parse_expr() {
-    Ok(_) => match parser.take_errors().into_iter().next() {
-      None => MdxSignal::Ok,
-      Some(e) => signal(e.kind().msg().to_string(), ((e.span().lo.0 - fm.start_pos.0) as usize).saturating_sub(offset), value.len()),
-    },
-    Err(e) => signal(e.kind().msg().to_string(), ((e.span().lo.0 - fm.start_pos.0) as usize).saturating_sub(offset), value.len()),
+  let allocator = Allocator::default();
+  match Parser::new(&allocator, &wrapped, SourceType::tsx()).parse_expression() {
+    Ok(_) => MdxSignal::Ok,
+    Err(errors) => {
+      let (message, at) = errors.first().map(located).unwrap_or_else(|| ("Unexpected end of expression".to_owned(), wrapped.len()));
+      signal(message, at.saturating_sub(offset), value.len())
+    }
   }
 }
 
@@ -94,46 +85,43 @@ pub(crate) struct DefaultExport {
 }
 
 pub(crate) fn facts(value: &str) -> Facts {
-  let Ok((module, start)) = parse_module(value) else { return Facts::default() };
-  let at = |span: Span| (span.lo.0 - start.0) as usize;
+  let allocator = Allocator::default();
+  let parsed = Parser::new(&allocator, value, SourceType::tsx()).parse();
+  if !parsed.diagnostics.is_empty() {
+    return Facts::default();
+  }
+  let named = |specifiers: &[ExportSpecifier], kind: ImportOrExportKind, into: &mut Vec<String>| {
+    if kind.is_type() {
+      return;
+    }
+    into.extend(specifiers.iter().map(|spec| spec.exported.name().to_string()));
+  };
   let mut facts = Facts::default();
-  for item in &module.body {
-    let js::ModuleItem::ModuleDecl(decl) = item else { continue };
-    match decl {
-      js::ModuleDecl::ExportDecl(export) => match &export.decl {
-        js::Decl::Var(var) => {
-          for d in &var.decls {
-            if let js::Pat::Ident(id) = &d.name {
-              facts.exports.push(id.id.sym.to_string());
+  for statement in &parsed.program.body {
+    match statement {
+      Statement::ExportDeclaration(export) => match &export.declaration {
+        Declaration::VariableDeclaration(var) => {
+          for d in &var.declarations {
+            if let BindingPattern::BindingIdentifier(id) = &d.id {
+              facts.exports.push(id.name.to_string());
             }
           }
         }
-        js::Decl::Fn(f) => facts.exports.push(f.ident.sym.to_string()),
-        js::Decl::Class(c) => facts.exports.push(c.ident.sym.to_string()),
+        Declaration::FunctionDeclaration(f) => facts.exports.extend(f.id.as_ref().map(|id| id.name.to_string())),
+        Declaration::ClassDeclaration(c) => facts.exports.extend(c.id.as_ref().map(|id| id.name.to_string())),
         _ => {}
       },
-      js::ModuleDecl::ExportNamed(named) if !named.type_only => {
-        for spec in &named.specifiers {
-          if let js::ExportSpecifier::Named(spec) = spec {
-            let name = match spec.exported.as_ref().unwrap_or(&spec.orig) {
-              js::ModuleExportName::Ident(id) => id.sym.to_string(),
-              js::ModuleExportName::Str(s) => s.value.to_atom_lossy().to_string(),
-            };
-            facts.exports.push(name);
-          }
-        }
-      }
-      js::ModuleDecl::ExportDefaultDecl(d) => {
-        let begin = at(d.span);
-        let (name, body) = match &d.decl {
-          js::DefaultDecl::Fn(f) => (f.ident.as_ref().map(|i| i.sym.to_string()), at(f.function.span)),
-          js::DefaultDecl::Class(c) => (c.ident.as_ref().map(|i| i.sym.to_string()), at(c.class.span)),
-          js::DefaultDecl::TsInterfaceDecl(_) => continue,
+      Statement::ExportNamedDeclaration(export) => named(&export.specifiers, export.export_kind, &mut facts.exports),
+      Statement::ExportFromDeclaration(export) => named(&export.specifiers, export.export_kind, &mut facts.exports),
+      Statement::ExportDefaultDeclaration(d) => {
+        let begin = d.span.start as usize;
+        let (name, body) = match &d.declaration {
+          ExportDefaultDeclarationKind::FunctionDeclaration(f) => (f.id.as_ref().map(|id| id.name.to_string()), f.span.start as usize),
+          ExportDefaultDeclarationKind::ClassDeclaration(c) => (c.id.as_ref().map(|id| id.name.to_string()), c.span.start as usize),
+          ExportDefaultDeclarationKind::TSInterfaceDeclaration(_) => continue,
+          other => (None, other.span().start as usize),
         };
         facts.default = Some(DefaultExport { keywords: begin..body, name });
-      }
-      js::ModuleDecl::ExportDefaultExpr(e) => {
-        facts.default = Some(DefaultExport { keywords: at(e.span)..at(e.expr.span()), name: None });
       }
       _ => {}
     }
