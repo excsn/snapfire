@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_svelte"
-version = "0.2.0"
+version = "0.2.1"
 include = ["/src/**/*.rs", "/src/**/*.js", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/vendor/**", "/LICENSE"]
 description = "Compile Svelte components for snapfirec. No NodeJS required."
 

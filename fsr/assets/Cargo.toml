@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_assets"
-version = "0.3.1"
+version = "0.3.2"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "What FSR derives from an image or a font: resized and re-encoded variants under one policy, a face's metrics and the fallback that matches them"
 keywords = ["snapfire", "fsr", "image", "font", "avif"]

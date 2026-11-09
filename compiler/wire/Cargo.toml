@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_compiler_wire"
-version = "0.5.0"
+version = "0.5.1"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "The wire contract between snapfirec and a framework compiler plugin."
 

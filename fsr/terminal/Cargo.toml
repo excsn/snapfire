@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_terminal"
-version = "0.2.1"
+version = "0.2.2"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "Ink's Box and Text laid out with flexbox and drawn to a terminal as cells."
 keywords = ["snapfire", "fsr", "terminal", "tui", "ink"]
