@@ -256,6 +256,9 @@ pub(crate) fn clients_of(
       if let Some(timeout) = client.timeout.as_deref().and_then(crate::config::parse_duration) {
         transport = transport.timeout(timeout);
       }
+      if let Some(n) = client.max_connections {
+        transport = transport.max_connections(n);
+      }
       for (path, route) in &imported.routes {
         transport = transport.route(path.clone(), route.clone());
       }

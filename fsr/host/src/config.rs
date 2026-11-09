@@ -1084,6 +1084,9 @@ pub struct ClientConfig {
   /// How long an HTTP client's call waits for the whole answer, a duration such as `5s`; 30 seconds when absent.
   #[serde(default)]
   pub timeout: Option<String>,
+  /// The most connections an HTTP client opens to its backend at once; 32 when absent.
+  #[serde(default)]
+  pub max_connections: Option<usize>,
 }
 
 /// `credential = { secret = "cms" }`: the secret `[secrets.cms]` holds, sent
@@ -3046,8 +3049,8 @@ impl Config {
         }
       }
       let over_http = client.document.as_deref().is_none_or(|d| !d.ends_with(".proto") && !d.ends_with(".graphql"));
-      if !over_http && (client.user_agent.is_some() || client.timeout.is_some()) {
-        return Err(HostError::Config(at.clone(), format!("clients.{name}: `user_agent` and `timeout` apply only to an OpenAPI client")));
+      if !over_http && (client.user_agent.is_some() || client.timeout.is_some() || client.max_connections.is_some()) {
+        return Err(HostError::Config(at.clone(), format!("clients.{name}: `user_agent`, `timeout` and `max_connections` apply only to an OpenAPI client")));
       }
     }
     for (name, client) in &clients {

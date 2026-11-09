@@ -348,3 +348,30 @@ async fn a_backend_that_answers_slower_than_the_transport_s_timeout_fails_as_a_t
   assert_eq!(failed.kind, FailureKind::Timeout, "{failed:?}");
   assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_transport_opens_at_most_max_connections_to_its_backend() {
+  let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+  let base = format!("http://{}", listener.local_addr().unwrap());
+  let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let count = accepted.clone();
+  std::thread::spawn(move || {
+    let mut held = Vec::new();
+    for stream in listener.incoming() {
+      count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+      held.push(stream);
+    }
+  });
+  let transport = HttpTransport::new(&base).max_connections(2).timeout(std::time::Duration::from_millis(500));
+  let services = Arc::new(Services::builder().contract(contract()).default_transport(Arc::new(transport)).build());
+  let calls: Vec<_> = (0..6)
+    .map(|i| {
+      let services = services.clone();
+      tokio::spawn(async move { services.bind_anonymous().call("fleet", "get", args(vec![("name", Value::str(format!("web-{i}")))])).await })
+    })
+    .collect();
+  for call in calls {
+    assert_eq!(call.await.unwrap().unwrap_err().kind, FailureKind::Timeout);
+  }
+  assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 2);
+}

@@ -17,7 +17,7 @@ use crate::transport::Transport;
 pub struct HttpTransport {
   base: String,
   routes: HashMap<String, Route>,
-  client: reqwest::Client,
+  client: fibre_http::AsyncClient,
   /// Sent on every call before the call's own metadata: an application
   /// credential, which no interceptor or trace sees since it is not metadata.
   headers: Vec<(String, String)>,
@@ -30,6 +30,14 @@ pub struct HttpTransport {
 /// What [`HttpTransport::new`] and [`HttpTransport::with_timeout`] send as `User-Agent`. Some services, GitHub's API among them, refuse a request without one.
 pub const HTTP_USER_AGENT: &str = concat!("snapfire_fsr_service/", env!("CARGO_PKG_VERSION"));
 
+/// Connections [`HttpTransport::new`] opens to its backend at most.
+pub const HTTP_MAX_CONNECTIONS: usize = 32;
+
+fn client(max_connections: usize) -> fibre_http::AsyncClient {
+  let pool = fibre_http::Pool::builder().max_per_host(max_connections).build();
+  fibre_http::AsyncClient::builder().pool(&pool).build_async().expect("the default TLS configuration is valid")
+}
+
 /// How long [`HttpTransport::new`] waits for a backend's whole answer.
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -41,17 +49,23 @@ impl HttpTransport {
 
   /// Sends [`HTTP_USER_AGENT`] and waits `timeout` for an answer.
   pub fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self {
-    Self::with_client(base, reqwest::Client::new()).user_agent(HTTP_USER_AGENT).timeout(timeout)
+    Self::with_client(base, client(HTTP_MAX_CONNECTIONS)).user_agent(HTTP_USER_AGENT).timeout(timeout)
   }
 
   /// Over `client` as it was built: its own user agent and timeout, if any.
-  pub fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self {
+  pub fn with_client(base: impl Into<String>, client: fibre_http::AsyncClient) -> Self {
     Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client, headers: Vec::new(), query: Vec::new(), user_agent: None, timeout: None }
   }
 
   /// The `User-Agent` every call sends.
   pub fn user_agent(mut self, agent: impl Into<String>) -> Self {
     self.user_agent = Some(agent.into());
+    self
+  }
+
+  /// The most connections calls open to the backend at once, [`HTTP_MAX_CONNECTIONS`] when not set. Replaces a client given to [`HttpTransport::with_client`].
+  pub fn max_connections(mut self, n: usize) -> Self {
+    self.client = client(n);
     self
   }
 
@@ -112,12 +126,12 @@ impl Transport for HttpTransport {
       Err(why) => return Box::pin(async move { Err(fail(FailureKind::Invalid, why)) }),
     };
 
-    let Ok(verb) = reqwest::Method::from_bytes(method.as_bytes()) else {
+    let Ok(verb) = http::Method::from_bytes(method.as_bytes()) else {
       return Box::pin(async move { Err(fail(FailureKind::Internal, format!("bad method `{method}`"))) });
     };
     let mut request = self.client.request(verb.clone(), &url);
     if let Some(agent) = &self.user_agent {
-      request = request.header(reqwest::header::USER_AGENT, agent.as_str());
+      request = request.header("user-agent", agent.as_str());
     }
     if let Some(timeout) = self.timeout {
       request = request.timeout(timeout);
@@ -132,12 +146,12 @@ impl Transport for HttpTransport {
       };
       request = request.header(key.as_str(), value.as_str());
     }
-    if verb != reqwest::Method::GET && verb != reqwest::Method::DELETE {
+    if verb != http::Method::GET && verb != http::Method::DELETE {
       let text = match snapfire_fsr_core::json::stringify(&Value::Map(body), "", snapfire_fsr_core::json::Integers::Digits) {
         Ok(text) => text,
         Err(e) => return Box::pin(async move { Err(fail(FailureKind::Internal, e.0)) }),
       };
-      request = request.header(reqwest::header::CONTENT_TYPE, "application/json").body(text);
+      request = request.header("content-type", "application/json").body(text);
     } else {
       let query: Vec<(String, String)> =
         body.iter().map(|(k, v)| (k.to_string(), scalar_to_path(v))).collect();
@@ -150,9 +164,9 @@ impl Transport for HttpTransport {
     Box::pin(async move {
       let response = request.send().await.map_err(|e| {
         tracing::warn!(target: "fsr::service", error = %e, "backend request failed");
-        match e.is_timeout() {
-          true => fail(FailureKind::Timeout, "the backend timed out".to_owned()),
-          false => fail(FailureKind::Unavailable, "the backend did not answer".to_owned()),
+        match e {
+          fibre_http::Error::Timeout => fail(FailureKind::Timeout, "the backend timed out".to_owned()),
+          _ => fail(FailureKind::Unavailable, "the backend did not answer".to_owned()),
         }
       })?;
       let status = response.status().as_u16();
