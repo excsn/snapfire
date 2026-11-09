@@ -18,13 +18,13 @@ snapfire_fsr_core.workspace = true
 snapfire_fsr_payload.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_session.workspace = true
-fibre_cache = { version = "0.4", features = ["tokio"] }
+fibre_cache.workspace = true
 futures-util = "0.3"
-indexmap = { version = "2", features = ["serde"] }
+indexmap.workspace = true
 parking_lot = "0.13"
 fibre_http = { version = "0.5.2", optional = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde.workspace = true
+serde_json.workspace = true
 thiserror = "2"
 tracing = "0.1"
 protox = { version = "0.9", optional = true }

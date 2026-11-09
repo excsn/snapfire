@@ -19,7 +19,7 @@ fast_image_resize = { version = "6", features = ["image"] }
 webp = "0.3"
 snapfire_media = { path = "../../media", version = "0.3.0" }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-serde = { version = "1", features = ["derive"] }
+serde.workspace = true
 thiserror = "2"
 
 # rav1e's x86_64 assembly needs nasm on the machine that builds it.

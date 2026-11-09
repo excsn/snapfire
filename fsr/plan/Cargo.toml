@@ -16,8 +16,8 @@ readme = "README.md"
 [dependencies]
 snapfire_fsr_core.workspace = true
 snapfire_fsr_ir.workspace = true
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde.workspace = true
+serde_json.workspace = true
 thiserror = "2"
 
 [dev-dependencies]
