@@ -156,6 +156,13 @@ fn a_hoisted_read_inside_a_local_records_as_it_does_inline() {
 }
 
 #[test]
+fn markup_a_caller_passes_as_a_function_keys_under_the_caller_not_the_component_calling_it() {
+  let page = rendered("children_fn", &[("routes/page.tsx", "function Value({ children }: { children: (v: number) => any }) {\n  return <div>{children(42)}</div>;\n}\nexport default function Page() {\n  return <Value>{(v) => <i>{v}</i>}</Value>;\n}\n")]).unwrap();
+  assert_eq!(page.html, "<div><i>42</i></div>");
+  assert_eq!(page.hoisted.get("routes/page.tsx#Value|0@c0"), Some(&Value::str("<i>42</i>")), "the subtree the browser asks Value for: {:?}", page.hoisted);
+}
+
+#[test]
 fn a_read_no_placement_fills_is_left_plain() {
   let reads = |set: &ComponentSet, module: &str| format!("{:?}", set.components.iter().find(|(m, _)| m == module).unwrap().1.render).matches(SLOT_READ_PREFIX).count();
   let plain = lowered("plain", &[("src/Card.tsx", CARD), ("routes/page.tsx", "import { Card } from \"@src/Card\";\nexport default function Page() {\n  return <Card title=\"t\" body=\"b\" />;\n}\n")]).unwrap();

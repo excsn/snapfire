@@ -479,8 +479,15 @@ fn does_work(t: &Tmpl) -> bool {
 /// every other `CHUNK_ATTR` and returns the chunks kept. A subtree inside a
 /// loop over state is never kept: the browser can grow the loop past what
 /// the server rendered. One under a branch on state is kept and marked
-/// `UNTAKEN_ATTR`, so the server records it in either branch.
+/// `UNTAKEN_ATTR`, so the server records it in either branch. A subtree in
+/// markup held as a value is never kept: it renders under whichever
+/// component interpolates it, where its id would key another's chunk.
 pub fn chunks(component: &mut Component, state: &[String], pure: &HashMap<String, bool>) -> Vec<Chunk> {
+  component.visit_mut(&mut |e| {
+    if let Expr::Markup(tmpl) = e {
+      clear_chunks(std::sync::Arc::make_mut(tmpl));
+    }
+  });
   let mut tainted: Vec<String> = state.to_vec();
   for stmt in &component.body {
     let Stmt::Let { name, expr } = stmt else { continue };
