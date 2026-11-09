@@ -84,19 +84,6 @@ impl FixKind {
     ///
     /// Here, `self` is the set of allowed [`FixKind`]s, and `rule_fix` is the
     /// kind of fixed produced by the rule.
-    ///
-    /// # Example
-    /// ```
-    /// use oxc_linter::FixKind;
-    ///
-    /// // `none` means no fixes will be applied at all
-    /// assert!(!FixKind::None.can_apply(FixKind::SafeFix));
-    ///
-    /// // allow safe fixes
-    /// assert!(FixKind::SafeFix.can_apply(FixKind::SafeFix));
-    /// assert!(!FixKind::SafeFix.can_apply(FixKind::DangerousFix)); // not safe
-    /// assert!(!FixKind::SafeFix.can_apply(FixKind::Suggestion));   // not a fix
-    /// ```
     #[inline]
     pub fn can_apply(self, rule_fix: Self) -> bool {
         self.contains(rule_fix)
@@ -663,6 +650,17 @@ impl Display for MergeFixesError {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn can_apply() {
+        // `none` means no fixes will be applied at all
+        assert!(!FixKind::None.can_apply(FixKind::SafeFix));
+
+        // allow safe fixes
+        assert!(FixKind::SafeFix.can_apply(FixKind::SafeFix));
+        assert!(!FixKind::SafeFix.can_apply(FixKind::DangerousFix)); // not safe
+        assert!(!FixKind::SafeFix.can_apply(FixKind::Suggestion)); // not a fix
+    }
 
     impl Clone for CompositeFix {
         fn clone(&self) -> Self {
