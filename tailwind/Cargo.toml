@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_tailwind"
 version = "0.3.0"
-include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE", "/css/**"]
+include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE", "/css/**"]
 description = "Tailwind CSS v4 in Rust: builds the stylesheet for a set of class names from a CSS-first configuration, with no Node"
 keywords = ["snapfire", "tailwind", "css", "utility"]
 categories = ["web-programming", "development-tools::build-utils"]
