@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_media"
 version = "0.3.1"
-include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
+include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "What an image or a font file says about itself: a header's displayed size and orientation, a face's family, weight, style and metrics"
 keywords = ["snapfire", "image", "font", "exif", "metrics"]
 categories = ["multimedia::images", "web-programming"]

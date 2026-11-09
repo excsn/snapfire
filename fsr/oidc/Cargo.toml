@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_oidc"
 version = "0.3.0"
-include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
+include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "OpenID Connect sign-in for SnapFire FSR: an IdentityProvider over any issuer, with presets for the common ones."
 keywords = ["snapfire", "fsr", "oidc", "openid", "authentication"]
 categories = ["web-programming", "authentication"]
