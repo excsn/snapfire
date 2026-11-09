@@ -174,6 +174,7 @@ pub struct ComponentSet {
   class_graphs: HashSet<String>,
   /// What each type alias resolved so far stands for as a kind, by `file#name`.
   aliases: HashMap<String, Option<crate::AliasKind>>,
+  parses: std::cell::RefCell<HashMap<String, Rc<Cached>>>,
   /// The markup helpers placed by their own recursion, by `file#name`, whose props are their arguments by position.
   positional: HashSet<String>,
   /// Components of another framework a React component renders inline, as
@@ -266,7 +267,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), reaches: Vec::new(), sources: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), recursive: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new(), positional: HashSet::new() }
+    Self { app: app.to_path_buf(), reaches: Vec::new(), sources: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), recursive: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new(), parses: std::cell::RefCell::new(HashMap::new()), positional: HashSet::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -418,8 +419,8 @@ impl ComponentSet {
   pub fn lower_derives(&mut self, file: &str) -> Result<Vec<LoweredDerive>, LowerError> {
     self.load(file)?;
     let meanings = self.meanings(file);
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let module_level: Vec<Span> = parsed
       .module()
       .body
@@ -518,8 +519,8 @@ impl ComponentSet {
   /// Anything but a literal is refused, since the build reads it rather than running it.
   pub fn theme_export(&mut self, file: &str) -> Result<Option<ThemeExport>, LowerError> {
     self.load(file)?;
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     for item in &parsed.module().body {
       let js::Statement::ExportDeclaration(export) = item else { continue };
       let js::Declaration::VariableDeclaration(var) = &export.declaration else { continue };
@@ -576,8 +577,8 @@ impl ComponentSet {
     self.meanings(file);
     let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone(), classes: Some(self.classes.clone()), type_kinds: self.alias_kinds(file), reaches: self.reaches.clone() };
     loop {
-      let arena = Allocator::default();
-      let parsed = self.parsed(&arena, file);
+      let parsed_cached = self.parsed(file);
+      let parsed = parsed_cached.get();
       let defaults = self.defaults.clone();
       match lower(&parsed, &defaults, &resolved) {
         Ok(done) => return Ok(done),
@@ -609,8 +610,8 @@ impl ComponentSet {
   pub fn lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError> {
     self.load(file)?;
     self.meanings(file);
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let names: Vec<String> = parsed.exports().map(|(name, _)| name.to_owned()).collect();
     let mut rows = Vec::new();
     for name in names {
@@ -647,8 +648,7 @@ impl ComponentSet {
       return false;
     }
     let mut found = Found(false);
-    let arena = Allocator::default();
-    self.parsed(&arena, file).module().walk(&mut found);
+    self.parsed(file).get().module().walk(&mut found);
     found.0
   }
 
@@ -656,8 +656,8 @@ impl ComponentSet {
   /// module is asked about its file.
   pub fn imports_value_from(&self, module: &str, source: &str) -> bool {
     let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
-    let arena = Allocator::default();
-    let Some(parsed) = self.parsed_if(&arena, file) else { return false };
+    let Some(parsed_cached) = self.parsed_if(file) else { return false };
+    let parsed = parsed_cached.get();
     parsed.module().body.iter().any(|item| match item {
       js::Statement::ImportDeclaration(import) => !import.import_kind.is_type() && crate::lossy(import.source.value) == source && import.specifiers.iter().flatten().any(|spec| !matches!(spec, js::ImportDeclarationSpecifier::ImportSpecifier(named) if named.import_kind.is_type())),
       _ => false,
@@ -684,8 +684,8 @@ impl ComponentSet {
 
   /// The line of the first import or re-export in `file` from `@snapfire/fsr/host` or a module under it, which the browser cannot load.
   pub fn host_import(&mut self, file: &str) -> Option<u32> {
-    let arena = Allocator::default();
-    let parsed = self.script_of(&arena, file)?;
+    let parsed_cached = self.script_of(file)?;
+    let parsed = parsed_cached.get();
     let host = crate::meaning::HOST_ROOT;
     let found = value_sources(&parsed.module()).find(|src| {
       let source = crate::lossy(src.value);
@@ -699,8 +699,8 @@ impl ComponentSet {
   /// component's from its script. None when it does not parse. An imported asset is not a
   /// script and is left out.
   pub fn local_imports(&mut self, file: &str) -> Vec<String> {
-    let arena = Allocator::default();
-    let Some(parsed) = self.script_of(&arena, file) else { return Vec::new() };
+    let Some(parsed_cached) = self.script_of(file) else { return Vec::new() };
+    let parsed = parsed_cached.get();
     let sources: Vec<String> = value_sources(&parsed.module()).map(|src| crate::lossy(src.value)).chain(dynamic_sources(&parsed.module())).collect();
     sources
       .iter()
@@ -713,8 +713,8 @@ impl ComponentSet {
   /// (`import "./card.css"`) plus, for each Vue or Svelte component it imports, the sheet compiling
   /// that component writes beside it (`Card.vue.css`), which exists only when it has a style block.
   pub fn sheets(&mut self, file: &str) -> Vec<String> {
-    let arena = Allocator::default();
-    let Some(parsed) = self.script_of(&arena, file) else { return Vec::new() };
+    let Some(parsed_cached) = self.script_of(file) else { return Vec::new() };
+    let parsed = parsed_cached.get();
     let sources: Vec<(bool, String)> = parsed
       .module()
       .body
@@ -738,29 +738,40 @@ impl ComponentSet {
   }
 
   /// `file` parsed, a described foreign component's script for one. None when it does not parse.
-  fn script_of<'a>(&mut self, arena: &'a Allocator, file: &str) -> Option<Parsed<'a>> {
+  fn script_of(&mut self, file: &str) -> Option<Rc<Cached>> {
     match self.described.get(file).and_then(|described| described.script.as_ref()).or_else(|| self.scripts_only.get(file)) {
-      Some(script) => parse_with(arena, file, &script.content, false).ok(),
+      Some(script) => Cached::new(|arena| parse_with(arena, file, &script.content, false)).ok().map(Rc::new),
       None => {
         self.load(file).ok()?;
-        Some(self.parsed(arena, file))
+        Some(self.parsed(file))
       }
     }
   }
 
   /// `file` parsed into `arena`, with what its names mean once the set has read them. The file has loaded.
-  fn parsed<'a>(&self, arena: &'a Allocator, file: &str) -> Parsed<'a> {
-    self.parsed_if(arena, file).unwrap_or_else(|| panic!("`{file}` is read only once it has loaded"))
+  fn parsed(&self, file: &str) -> Rc<Cached> {
+    self.parsed_if(file).unwrap_or_else(|| panic!("`{file}` is read only once it has loaded"))
   }
 
   /// `file` parsed into `arena`, `None` when it has not loaded.
-  fn parsed_if<'a>(&self, arena: &'a Allocator, file: &str) -> Option<Parsed<'a>> {
-    let source = self.sources.get(file)?;
-    let parsed = source.parse(arena).ok()?;
-    if let Some(meanings) = self.meanings.get(file) {
-      let _ = parsed.meanings.set(Rc::new(meanings.with_scope(parsed.scope.clone())));
+  fn parsed_if(&self, file: &str) -> Option<Rc<Cached>> {
+    let known = self.parses.borrow().get(file).cloned();
+    let cached = match known {
+      Some(cached) => cached,
+      None => {
+        let source = self.sources.get(file)?;
+        let cached = Rc::new(Cached::new(|arena| source.parse(arena)).ok()?);
+        self.parses.borrow_mut().insert(file.to_owned(), cached.clone());
+        cached
+      }
+    };
+    let parsed = cached.get();
+    if parsed.meanings.get().is_none() {
+      if let Some(meanings) = self.meanings.get(file) {
+        let _ = parsed.meanings.set(Rc::new(meanings.with_scope(parsed.scope.clone())));
+      }
     }
-    Some(parsed)
+    Some(cached)
   }
 
   /// Holds `source` as what `file` is parsed from once it parses, and registers the classes it declares.
@@ -778,8 +789,8 @@ impl ComponentSet {
     if self.load(file).is_err() {
       return Vec::new();
     }
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let source = parsed.text();
     let mut out = Vec::new();
     for item in &parsed.module().body {
@@ -819,8 +830,8 @@ impl ComponentSet {
     if self.load(&file).is_err() {
       return Ok(None);
     }
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, &file);
+    let parsed_cached = self.parsed(&file);
+    let parsed = parsed_cached.get();
     let export = module.split_once('#').map(|(_, export)| export).unwrap_or("default");
     if async_function_span(&parsed, export).is_some() && !find_function(&parsed, export).is_some_and(|f| awaits_only_imports(&f)) {
       return Ok(None);
@@ -848,6 +859,7 @@ impl ComponentSet {
     self.sources.remove(file);
     self.failed.remove(file);
     self.meanings.clear();
+    self.parses.borrow_mut().clear();
   }
 
   pub fn lower_route(&mut self, module: &str) -> Result<Option<Extracted>, LowerError> {
@@ -860,8 +872,8 @@ impl ComponentSet {
     if residue.file != file || !residue.via.is_empty() || residue.message == ASYNC_COMPONENT {
       return Err(error);
     }
-    let arena = Allocator::default();
-    let Some(parsed) = self.parsed_if(&arena, &file) else { return Err(error) };
+    let Some(parsed_cached) = self.parsed_if(&file) else { return Err(error) };
+    let parsed = parsed_cached.get();
     let Some(offset) = parsed.offset(residue.line, residue.column).and_then(|offset| crate::extract::page_offset(&parsed, offset)) else { return Err(error) };
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
     let forget = |set: &mut Self| {
@@ -983,8 +995,8 @@ impl ComponentSet {
   /// is refused, since the build reads them rather than running them.
   pub fn image_exports(&mut self, file: &str) -> Result<ImageExports, LowerError> {
     self.load(file)?;
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let mut out = ImageExports::default();
     for item in &parsed.module().body {
       let js::Statement::ExportDeclaration(export) = item else { continue };
@@ -1183,8 +1195,8 @@ impl ComponentSet {
   /// names it, and as globals every value each of those files exports, keyed
   /// `file#export`, so a destructured `meta` picks among them.
   fn template_imports(&mut self, file: &str) -> Result<(HashMap<u32, Vec<(String, String)>>, Vec<(String, Expr)>), LowerError> {
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let mut imports = HashMap::new();
     let mut globals = Vec::new();
     for (lo, prefix, suffix) in template_import_calls(&parsed.module()) {
@@ -1249,8 +1261,8 @@ impl ComponentSet {
   /// not follow.
   /// Adds each class `file` declares to the table, its parent resolved through the import that binds it.
   fn register_classes(&mut self, file: &str) {
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     for (name, class) in crate::classes::declared(&parsed.module()) {
       let id = format!("{file}#{name}");
       if self.classes.borrow().get(&id).is_some() {
@@ -1267,8 +1279,8 @@ impl ComponentSet {
 
   /// The id of the class `name` names in `file`: declared there, or imported from a file the set can read.
   fn class_id(&mut self, file: &str, name: &str) -> Option<String> {
-    let arena = Allocator::default();
-    let parsed = self.parsed_if(&arena, file)?;
+    let parsed_cached = self.parsed_if(file)?;
+    let parsed = parsed_cached.get();
     if crate::classes::declared(&parsed.module()).iter().any(|(n, _)| n == name) {
       return Some(format!("{file}#{name}"));
     }
@@ -1296,8 +1308,8 @@ impl ComponentSet {
 
   /// The class `export { name } from "…"` or `export * from "…"` in `file` hands on.
   fn reexported_class(&mut self, file: &str, name: &str) -> Option<String> {
-    let arena = Allocator::default();
-    let parsed = self.parsed_if(&arena, file)?;
+    let parsed_cached = self.parsed_if(file)?;
+    let parsed = parsed_cached.get();
     for item in &parsed.module().body {
       let (source, named) = match item {
         js::Statement::ExportFromDeclaration(e) => (crate::lossy(e.source.value), e.specifiers.iter().find_map(|n| (crate::schema::export_name(&n.exported) == name).then(|| crate::schema::export_name(&n.local)))),
@@ -1323,8 +1335,8 @@ impl ComponentSet {
       if !self.class_graphs.insert(at.clone()) || self.load(&at).is_err() {
         continue;
       }
-      let arena = Allocator::default();
-      let parsed = self.parsed(&arena, &at);
+      let parsed_cached = self.parsed(&at);
+      let parsed = parsed_cached.get();
       for item in &parsed.module().body {
         let source = match item {
           js::Statement::ImportDeclaration(import) => crate::lossy(import.source.value),
@@ -1381,8 +1393,8 @@ impl ComponentSet {
     let continued = self.continuations.len();
     let mut module_bindings: Vec<(String, String, Expr)> = Vec::new();
     if self.reaches(Reach::Later) {
-      let arena = Allocator::default();
-      let parsed = self.parsed(&arena, file);
+      let parsed_cached = self.parsed(file);
+      let parsed = parsed_cached.get();
       for (name, _, written) in module_lets_of(&parsed) {
         if written {
           let seed = self.module_init(file, &name)?;
@@ -1396,8 +1408,8 @@ impl ComponentSet {
     // hoisting records or rewrites.
     let element_template = self.elements.values().any(|m| *m == module);
     let meanings = self.meanings(file);
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     if let Some(span) = tree_call(&parsed, &meanings).filter(|_| export == "default") {
       return Err(LowerError::Retired(parsed.residue(span, "`tree(...)` is gone: a layout is composition and its page renders in a region of its own, so `export default` the layout itself and share state with the page through the store")));
     }
@@ -1414,11 +1426,10 @@ impl ComponentSet {
     let mut positional_refs: Vec<String>;
     let ((component, refs, providers, own_heads), hoisting) = loop {
       let meanings = self.meanings(file);
-      let hook_arena = Allocator::default();
-      let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed(&hook_arena, at), export.clone())).collect();
+      let hook_sources: Vec<(String, Rc<Cached>, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed(at), export.clone())).collect();
       let (result, unbound, hoisting) = {
-        let arena = Allocator::default();
-        let parsed = self.parsed(&arena, file);
+        let parsed_cached = self.parsed(file);
+        let parsed = parsed_cached.get();
         let defaults = self.defaults.clone();
         let (function, class) = match find_function(&parsed, export) {
           Some(function) => (function, None),
@@ -1477,7 +1488,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None, hook_renames: Vec::new(), named_listeners: Vec::new(), positional: self.positional.contains(&module), positional_refs: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), parsed.get(), export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None, hook_renames: Vec::new(), named_listeners: Vec::new(), positional: self.positional.contains(&module), positional_refs: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -1518,7 +1529,7 @@ impl ComponentSet {
         Err(residue) => {
           if let Some((name, origin)) = wanted_hook {
             if let Some((declared, declared_name)) = origin.filter(|_| !hook_files.iter().any(|(n, _, _)| *n == name)) {
-              if self.load(&declared).is_ok() && find_function(&self.parsed(&Allocator::default(), &declared), &declared_name).is_some() {
+              if self.load(&declared).is_ok() && find_function(self.parsed(&declared).get(), &declared_name).is_some() {
                 self.meanings(&declared);
                 hook_files.push((name, declared, declared_name));
                 continue;
@@ -1558,8 +1569,8 @@ impl ComponentSet {
           }
           {
             let declared_file = key.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_default();
-            let arena = Allocator::default();
-            let parsed = self.parsed(&arena, &declared_file);
+            let parsed_cached = self.parsed(&declared_file);
+            let parsed = parsed_cached.get();
             let mut read = Vec::new();
             expr.free_vars(&mut read);
             for (held, _, written) in module_lets_of(&parsed) {
@@ -1782,8 +1793,8 @@ impl ComponentSet {
       }
       self.pure.insert(module.clone(), pure);
       self.stateless.insert(module.clone(), state.is_empty() && !leaves_to_browser);
-      let arena = Allocator::default();
-      let parsed = self.parsed(&arena, file);
+      let parsed_cached = self.parsed(file);
+      let parsed = parsed_cached.get();
       for range in candidates.remaining(&kept, &chunks) {
         let (line, column) = parsed.position(range.start);
         self.remaining.push((module.clone(), format!("{file}:{line}:{column}")));
@@ -1831,8 +1842,8 @@ impl ComponentSet {
     let mut global_kinds = Vec::new();
     let component = loop {
       let (result, unbound) = {
-        let arena = Allocator::default();
-        let parsed = self.parsed(&arena, file);
+        let parsed_cached = self.parsed(file);
+        let parsed = parsed_cached.get();
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.reaches = self.reaches.clone();
@@ -1903,9 +1914,8 @@ impl ComponentSet {
       };
       let child_file = target.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_else(|| target.clone());
       let mut declared: Vec<String> = self.described.get(&child_file).map(|d| d.bindings.iter().filter(|(_, kind)| kind.as_str() == "props").map(|(name, _)| name.clone()).collect()).unwrap_or_default();
-      let child_arena = Allocator::default();
-      let child_parsed = self.parsed_if(&child_arena, &child_file);
-      if let Some(parsed) = &child_parsed {
+      let child_parsed = self.parsed_if(&child_file);
+      if let Some(parsed) = child_parsed.as_ref().map(|c| c.get()) {
         declared.extend(crate::vue::model_props(parsed));
         declared.extend(crate::vue::option_props(parsed));
       }
@@ -1919,7 +1929,7 @@ impl ComponentSet {
           true => own_root,
           false => self.components.iter().find(|(m, _)| *m == target).map_or(crate::vue::RootKind::Element, |(_, c)| crate::vue::root_kind(&c.render)),
         };
-        let inherits = child_parsed.as_ref().is_none_or(crate::vue::inherits_attrs);
+        let inherits = child_parsed.as_ref().is_none_or(|c| crate::vue::inherits_attrs(c.get()));
         match root {
           _ if !inherits => {}
           crate::vue::RootKind::Element => {}
@@ -1959,8 +1969,8 @@ impl ComponentSet {
     if self.load(&declared).is_err() {
       return false;
     }
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, &declared);
+    let parsed_cached = self.parsed(&declared);
+    let parsed = parsed_cached.get();
     let Some(Found::Declared(_, stmts, _)) = find_function(&parsed, &declared_name) else { return false };
     let lifecycle = |callee: &js::Expression| match callee {
       js::Expression::Identifier(id) if parsed.ctxt(id) == crate::Ctxt::Top => find_import(&parsed, id.name.as_str()).is_some_and(|(source, imported)| source == "svelte" && matches!(imported.as_str(), "onMount" | "onDestroy" | "beforeUpdate" | "afterUpdate")),
@@ -1993,8 +2003,8 @@ impl ComponentSet {
     let mut browser_effects: Vec<String> = Vec::new();
     let component = loop {
       let (result, unbound) = {
-        let arena = Allocator::default();
-        let parsed = self.parsed(&arena, file);
+        let parsed_cached = self.parsed(file);
+        let parsed = parsed_cached.get();
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.reaches = self.reaches.clone();
@@ -2138,8 +2148,8 @@ impl ComponentSet {
         self.exported_component(&declared, &declared_name)
       }
       Some(Meaning::Foreign) => {
-        let arena = Allocator::default();
-        let parsed = self.parsed(&arena, file);
+        let parsed_cached = self.parsed(file);
+        let parsed = parsed_cached.get();
         let lazy = || match find_value(&parsed, looked) {
           Some(Global::Const(js::Expression::CallExpression(call))) => lazy_import_source(call),
           _ => None,
@@ -2156,8 +2166,8 @@ impl ComponentSet {
   /// names with the timing and mode it set, so a page importing the alias
   /// places the island the way the aliasing module declared it.
   fn exported_component(&mut self, file: &str, export: &str) -> Result<(String, Option<IslandTiming>), String> {
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let meanings = self.meanings(file);
     match island_alias_of(&parsed, &meanings, export) {
       Ok(Some(alias)) => {
@@ -2184,8 +2194,8 @@ impl ComponentSet {
       return Rc::new(Meanings::default());
     }
     self.meaning_in_progress.push(file.to_owned());
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let mut meanings = Meanings { scope: Some(parsed.scope.clone()), ..Meanings::default() };
     for item in &parsed.module().body {
       let js::Statement::ImportDeclaration(import) = item else { continue };
@@ -2384,8 +2394,8 @@ impl ComponentSet {
       return Ok(Some((Expr::Var(name.to_owned()), key)));
     }
     let meanings = self.meanings(file);
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     if let Some(id) = crate::classes::declared(&parsed.module()).iter().any(|(n, _)| n == name).then(|| format!("{file}#{name}")) {
       self.lower_class(&id)?;
       return Ok(Some((crate::classes::class_value(&id), key)));
@@ -2481,8 +2491,8 @@ impl ComponentSet {
 
   /// The module's initialisation up to `upto` as a block: each top-level `let` and `const` bound in order, with every call a `const` makes applied, then `upto`'s value returned. A `let` a function writes is advanced by those calls, so what comes out is the value the browser's copy of the module starts with.
   fn module_init(&mut self, file: &str, upto: &str) -> Result<Expr, LowerError> {
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let mut body = Vec::new();
     for (name, init, written) in module_lets_of(&parsed) {
       let expr = match init {
@@ -2507,8 +2517,8 @@ impl ComponentSet {
         return self.global_kind(&declared, &declared_name);
       }
     }
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     Ok(match find_value(&parsed, name) {
       Some(Global::Const(init)) => crate::made_kind(init),
       _ => None,
@@ -2523,8 +2533,8 @@ impl ComponentSet {
         return self.global_return_kind(&declared, &declared_name);
       }
     }
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let Some(returned) = declared_return(&parsed.module(), name) else { return Ok(None) };
     let aliases = self.alias_kinds(file);
     Ok(crate::Kind::of_type_in(returned, &aliases))
@@ -2532,8 +2542,8 @@ impl ComponentSet {
 
   /// Every type alias `file` declares or imports that stands for a kind, by its local name.
   pub(crate) fn alias_kinds(&mut self, file: &str) -> Vec<(String, crate::AliasKind)> {
-    let arena = Allocator::default();
-    let Some(parsed) = self.parsed_if(&arena, file) else { return Vec::new() };
+    let Some(parsed_cached) = self.parsed_if(file) else { return Vec::new() };
+    let parsed = parsed_cached.get();
     let mut names: Vec<String> = parsed.module().body.iter().filter_map(|item| type_alias_decl(item).map(|a| a.id.name.to_string())).collect();
     for item in &parsed.module().body {
       let js::Statement::ImportDeclaration(import) = item else { continue };
@@ -2559,8 +2569,8 @@ impl ComponentSet {
   }
 
   fn resolve_alias_uncached(&mut self, file: &str, name: &str) -> Option<crate::AliasKind> {
-    let arena = Allocator::default();
-    let parsed = self.parsed_if(&arena, file)?;
+    let parsed_cached = self.parsed_if(file)?;
+    let parsed = parsed_cached.get();
     if let Some(alias) = parsed.module().body.iter().filter_map(type_alias_decl).find(|a| a.id.name.as_str() == name) {
       let params: Vec<String> = alias.type_parameters.as_ref().map(|p| p.params.iter().map(|p| p.name.name.to_string()).collect()).unwrap_or_default();
       return self.alias_body_kind(file, &alias.type_annotation, &params);
@@ -2631,8 +2641,8 @@ impl ComponentSet {
         return self.global_formatter(&declared, &declared_name);
       }
     }
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     Ok(match find_value(&parsed, name) {
       Some(Global::Const(init)) => match crate::strip_parens(init) {
         js::Expression::NewExpression(n) if crate::platform_object(n).is_some() => Some(parsed.text()[parsed.range(n.span)].to_owned()),
@@ -2655,8 +2665,8 @@ impl ComponentSet {
     if let Some(parent) = &parent {
       self.consts.insert(crate::classes::class_parent_key(id), Expr::lit_str(parent));
     }
-    let arena = Allocator::default();
-    let parsed = self.parsed(&arena, file);
+    let parsed_cached = self.parsed(file);
+    let parsed = parsed_cached.get();
     let Some((_, class)) = crate::classes::declared(&parsed.module()).into_iter().find(|(n, _)| n == name) else { return Ok(()) };
     let mut members: Vec<(String, Member<'_>)> = vec![(crate::classes::constructor_key(id), Member::Constructor)];
     for member in &class.body.body {
@@ -2707,8 +2717,8 @@ impl ComponentSet {
     let mut global_kinds = Vec::new();
     let mut global_formatters = Vec::new();
     loop {
-      let arena = Allocator::default();
-      let parsed = self.parsed(&arena, file);
+      let parsed_cached = self.parsed(file);
+      let parsed = parsed_cached.get();
       let defaults = self.defaults.clone();
       let meanings = self.meanings(file);
       let mut lowerer = Lowerer::new(&parsed, &defaults);
@@ -3480,6 +3490,30 @@ fn declared_return<'a>(module: &'a js::Program<'a>, name: &str) -> Option<&'a js
       _ => None,
     }
   })
+}
+
+/// A file parsed once for the build: the arena and the program parsed into it, kept together so every lookup reads the same parse.
+pub(crate) struct Cached {
+  // Borrows `_arena`. Declared first so it drops before the arena does.
+  parsed: Parsed<'static>,
+  // Boxed so the arena stays at one address when `Cached` moves.
+  _arena: Box<Allocator>,
+}
+
+impl Cached {
+  fn new(parse: impl FnOnce(&'static Allocator) -> Result<Parsed<'static>, LowerError>) -> Result<Self, LowerError> {
+    let arena = Box::new(Allocator::default());
+    // SAFETY: the box is never moved out of or replaced while `parsed` lives, and `parsed` drops first, so every
+    // reference into the arena is dead before the arena is freed. `get` hands out borrows no longer than `&self`.
+    let static_arena: &'static Allocator = unsafe { &*(arena.as_ref() as *const Allocator) };
+    let parsed = parse(static_arena)?;
+    Ok(Cached { parsed, _arena: arena })
+  }
+
+  fn get<'s>(&'s self) -> &'s Parsed<'s> {
+    // SAFETY: shortening the arena lifetime to the borrow of `self`, which owns the arena.
+    unsafe { std::mem::transmute::<&'s Parsed<'static>, &'s Parsed<'s>>(&self.parsed) }
+  }
 }
 
 fn find_value<'a>(parsed: &'a Parsed<'a>, name: &str) -> Option<Global<'a>> {
