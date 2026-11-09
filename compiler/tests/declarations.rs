@@ -139,3 +139,20 @@ fn test_an_export_that_needs_inference_fails_the_build() {
     .stderr(predicate::str::contains("inferred.ts:3:14"))
     .stderr(predicate::str::contains("TS9010"));
 }
+
+#[test]
+fn test_a_doc_comment_stays_on_its_own_line_above_what_it_documents() {
+  let fixture = Fixture::new("declaration-doc-comments");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--declaration"));
+
+  let declared = fs::read_to_string(fixture.root().join("dist/index.d.ts")).unwrap();
+  let lines: Vec<&str> = declared.lines().collect();
+  for doc in ["/** Adds two numbers. */", "/** How many times `bump` ran. */", "/** Adds one to `count`. */", "/** The first value. */"] {
+    let at = lines.iter().position(|line| line.trim() == doc).unwrap_or_else(|| panic!("{doc} is not alone on a line: {declared}"));
+    assert!(lines.get(at + 1).is_some_and(|next| !next.trim().is_empty() && !next.trim_start().starts_with("/*")), "{doc} documents nothing below it: {declared}");
+  }
+  assert!(declared.contains(" * Each call to `bump` adds one.\n */\nexport declare class Counter"), "the block comment does not end its own line: {declared}");
+  assert!(!lines.iter().any(|line| line.contains("*/") && !line.trim_end().ends_with("*/")), "a declaration shares a line with a comment: {declared}");
+}

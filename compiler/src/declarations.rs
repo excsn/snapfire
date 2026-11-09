@@ -2,9 +2,10 @@ use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 use swc_core::common::comments::SingleThreadedComments;
-use swc_core::common::{FileName, GLOBALS, Globals, Mark, SourceMap, sync::Lrc};
+use swc_core::common::{BytePos, FileName, GLOBALS, Globals, Mark, SourceMap, Span, sync::Lrc};
 use swc_core::ecma::ast::{EsVersion, ModuleDecl, ModuleItem, Program, Str};
-use swc_core::ecma::codegen::{Config as CodegenConfig, Emitter, text_writer::JsWriter};
+use swc_core::ecma::codegen::text_writer::{BindingStorage, JsWriter, ScopeKind, WriteJs};
+use swc_core::ecma::codegen::{Config as CodegenConfig, Emitter};
 use swc_core::ecma::parser::{Parser, StringInput, Syntax, TsSyntax, lexer::Lexer};
 use swc_core::ecma::transforms::base::resolver;
 use swc_core::typescript::fast_dts::{FastDts, FastDtsOptions};
@@ -84,7 +85,7 @@ pub fn declare(path: &Path, aliases: &Aliases, source_text: &Result<String>) -> 
 
     let mut buf = vec![];
     {
-      let mut emitter = Emitter { cfg: CodegenConfig::default(), cm: cm.clone(), comments: Some(&comments), wr: JsWriter::new(cm.clone(), "\n", &mut buf, None) };
+      let mut emitter = Emitter { cfg: CodegenConfig::default(), cm: cm.clone(), comments: Some(&comments), wr: DocCommentLines::new(JsWriter::new(cm.clone(), "\n", &mut buf, None)) };
       emitter.emit_program(&program).context("Failed to emit declarations")?;
     }
     Ok(String::from_utf8(buf)?)
@@ -98,5 +99,115 @@ fn module_source(item: &mut ModuleItem) -> Option<&mut Str> {
     ModuleItem::ModuleDecl(ModuleDecl::ExportAll(export)) => Some(&mut export.src),
     ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export)) => export.src.as_deref_mut(),
     _ => None,
+  }
+}
+
+/// A writer that ends the line after a `/** … */` doc comment where swc's emitter writes a space, so the comment stands above the declaration it documents.
+struct DocCommentLines<W> {
+  inner: W,
+  opened: bool,
+  in_doc: bool,
+  after_doc: bool,
+}
+
+impl<W> DocCommentLines<W> {
+  fn new(inner: W) -> Self {
+    Self { inner, opened: false, in_doc: false, after_doc: false }
+  }
+}
+
+impl<W: WriteJs> WriteJs for DocCommentLines<W> {
+  fn increase_indent(&mut self) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.increase_indent()
+  }
+  fn decrease_indent(&mut self) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.decrease_indent()
+  }
+  fn write_semi(&mut self, span: Option<Span>) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_semi(span)
+  }
+  fn write_space(&mut self) -> std::io::Result<()> {
+    if std::mem::take(&mut self.after_doc) {
+      return self.inner.write_line();
+    }
+    self.inner.write_space()
+  }
+  fn write_keyword(&mut self, span: Option<Span>, s: &'static str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_keyword(span, s)
+  }
+  fn write_operator(&mut self, span: Option<Span>, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_operator(span, s)
+  }
+  fn write_param(&mut self, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_param(s)
+  }
+  fn write_property(&mut self, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_property(s)
+  }
+  fn write_line(&mut self) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_line()
+  }
+  fn write_lit(&mut self, span: Span, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_lit(span, s)
+  }
+  fn write_comment(&mut self, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    if s == "/*" {
+      self.opened = true;
+    } else if s == "*/" {
+      self.after_doc = std::mem::take(&mut self.in_doc);
+    } else if std::mem::take(&mut self.opened) {
+      self.in_doc = s.starts_with('*');
+    }
+    self.inner.write_comment(s)
+  }
+  fn write_str_lit(&mut self, span: Span, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_str_lit(span, s)
+  }
+  fn write_str(&mut self, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_str(s)
+  }
+  fn write_symbol(&mut self, span: Span, s: &str) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_symbol(span, s)
+  }
+  fn write_punct(&mut self, span: Option<Span>, s: &'static str, commit_pending_semi: bool) -> std::io::Result<()> {
+    self.after_doc = false;
+    self.inner.write_punct(span, s, commit_pending_semi)
+  }
+  fn care_about_srcmap(&self) -> bool {
+    self.inner.care_about_srcmap()
+  }
+  fn add_srcmap(&mut self, pos: BytePos) -> std::io::Result<()> {
+    self.inner.add_srcmap(pos)
+  }
+  fn commit_pending_semi(&mut self) -> std::io::Result<()> {
+    self.inner.commit_pending_semi()
+  }
+  fn can_ignore_invalid_unicodes(&mut self) -> bool {
+    self.inner.can_ignore_invalid_unicodes()
+  }
+  fn has_scope_tracking(&self) -> bool {
+    self.inner.has_scope_tracking()
+  }
+  fn start_scope(&mut self, name: Option<&str>, kind: ScopeKind, is_stack_frame: bool, is_hidden: bool, original_span: Option<Span>) -> std::io::Result<()> {
+    self.inner.start_scope(name, kind, is_stack_frame, is_hidden, original_span)
+  }
+  fn end_scope(&mut self) -> std::io::Result<()> {
+    self.inner.end_scope()
+  }
+  fn add_scope_variable(&mut self, name: &str, expression: Option<&str>, storage: BindingStorage) -> std::io::Result<()> {
+    self.inner.add_scope_variable(name, expression, storage)
   }
 }
