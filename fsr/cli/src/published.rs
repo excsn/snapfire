@@ -370,58 +370,47 @@ fn crawl(name: &str, package: &mut Package, rel: &str, bare: &mut Vec<String>) -
 }
 
 /// Each static or dynamic import's and each re-export's specifier with the
-/// byte range between its quotes, in source order, as SWC's parser reads the
+/// byte range between its quotes, in source order, as oxc's parser reads the
 /// module. A file that does not parse as a module is refused with the reason.
 pub fn imports_of(text: &str) -> Result<Vec<(std::ops::Range<usize>, String)>, String> {
-  use swc_core::common::{sync::Lrc, FileName, SourceMap, Spanned};
-  use swc_core::ecma::ast::{CallExpr, Callee, ExportAll, Expr, ImportDecl, Lit, NamedExport, Str};
-  use swc_core::ecma::parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax};
-  use swc_core::ecma::visit::{Visit, VisitWith};
+  use oxc_ast::ast::{ExportAllDeclaration, ExportFromDeclaration, Expression, ImportDeclaration, ImportExpression, StringLiteral};
+  use oxc_ast_visit::{Visit, walk};
 
   struct Found<'t> {
-    start: u32,
     text: &'t str,
     out: Vec<(std::ops::Range<usize>, String)>,
   }
   impl Found<'_> {
-    fn add(&mut self, src: &Str) {
-      let span = src.span();
-      let range = (span.lo.0 - self.start) as usize + 1..(span.hi.0 - self.start) as usize - 1;
+    fn add(&mut self, src: &StringLiteral) {
+      let range = src.span.start as usize + 1..src.span.end as usize - 1;
       self.out.push((range.clone(), self.text[range].to_owned()));
     }
   }
-  impl Visit for Found<'_> {
-    fn visit_import_decl(&mut self, n: &ImportDecl) {
-      self.add(&n.src);
+  impl<'a> Visit<'a> for Found<'_> {
+    fn visit_import_declaration(&mut self, n: &ImportDeclaration<'a>) {
+      self.add(&n.source);
     }
-    fn visit_export_all(&mut self, n: &ExportAll) {
-      self.add(&n.src);
+    fn visit_export_all_declaration(&mut self, n: &ExportAllDeclaration<'a>) {
+      self.add(&n.source);
     }
-    fn visit_named_export(&mut self, n: &NamedExport) {
-      if let Some(src) = &n.src {
+    fn visit_export_from_declaration(&mut self, n: &ExportFromDeclaration<'a>) {
+      self.add(&n.source);
+    }
+    fn visit_import_expression(&mut self, n: &ImportExpression<'a>) {
+      if let Expression::StringLiteral(src) = &n.source {
         self.add(src);
       }
-    }
-    fn visit_call_expr(&mut self, n: &CallExpr) {
-      if let (Callee::Import(_), Some(arg)) = (&n.callee, n.args.first()) {
-        if let (None, Expr::Lit(Lit::Str(src))) = (arg.spread, &*arg.expr) {
-          self.add(src);
-        }
-      }
-      n.visit_children_with(self);
+      walk::walk_import_expression(self, n);
     }
   }
 
-  let cm: Lrc<SourceMap> = Default::default();
-  let fm = cm.new_source_file(Lrc::new(FileName::Anon), text.to_owned());
-  let lexer = Lexer::new(Syntax::Es(EsSyntax::default()), Default::default(), StringInput::from(&*fm), None);
-  let mut parser = Parser::new_from(lexer);
-  let module = parser.parse_module().map_err(|e| e.kind().msg().into_owned())?;
-  if let Some(error) = parser.take_errors().first() {
-    return Err(error.kind().msg().into_owned());
+  let allocator = oxc_allocator::Allocator::default();
+  let parsed = oxc_parser::Parser::new(&allocator, text, oxc_span::SourceType::mjs()).parse();
+  if let Some(error) = parsed.diagnostics.first() {
+    return Err(error.message.to_string());
   }
-  let mut found = Found { start: fm.start_pos.0, text, out: Vec::new() };
-  module.visit_with(&mut found);
+  let mut found = Found { text, out: Vec::new() };
+  found.visit_program(&parsed.program);
   found.out.sort_by_key(|(span, _)| span.start);
   Ok(found.out)
 }

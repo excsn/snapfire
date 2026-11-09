@@ -1098,7 +1098,7 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `pub fn published::compiler(app: &Path, name: &str, version: &str, file: &str) -> Result<PathBuf, BuildError>`: `file` of `name@version` at `<app>/.fsr/compilers/<name>/<version>/<file name>`, fetched and checked the first time.
 * A `version` that does not parse is refused.
 * `pub const published::COMPILERS: &str = ".fsr/compilers"`.
-* `pub fn published::imports_of(text: &str) -> Result<Vec<(Range<usize>, String)>, String>`: the specifier of every static import, dynamic `import("…")` and re-export, with the byte range between its quotes, in source order. Read with SWC's parser.
+* `pub fn published::imports_of(text: &str) -> Result<Vec<(Range<usize>, String)>, String>`: the specifier of every static import, dynamic `import("…")` and re-export, with the byte range between its quotes, in source order. Read with oxc's parser.
 * `Err` with the parser's message when the text is not a module.
 
 ### Direction

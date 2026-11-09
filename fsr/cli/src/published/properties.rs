@@ -14,13 +14,17 @@ fn quote() -> impl Strategy<Value = char> {
   prop::sample::select(vec!['"', '\''])
 }
 
-/// One statement and the specifier it imports, when it imports one: an
-/// import form the reader must find or text that only looks like one.
-fn statement() -> impl Strategy<Value = (String, Option<String>)> {
-  let q = || quote();
-  let real = |form: &'static str| (specifier(), quote()).prop_map(move |(s, q)| (form.replace("{q}", &q.to_string()).replace("{s}", &s), Some(s)));
-  let fake = |form: &'static str| (specifier(), quote()).prop_map(move |(s, q)| (form.replace("{q}", &q.to_string()).replace("{s}", &s), None));
-  let _ = q;
+/// One statement, the specifier it imports when it imports one and the name it
+/// exports when it exports one: an import form the reader must find or text
+/// that only looks like one.
+fn statement() -> impl Strategy<Value = (String, Option<String>, Option<&'static str>)> {
+  let form = |form: &'static str, imports: bool, exports: Option<&'static str>| {
+    (specifier(), quote()).prop_map(move |(s, q)| (form.replace("{q}", &q.to_string()).replace("{s}", &s), imports.then_some(s), exports))
+  };
+  let real = move |f: &'static str| form(f, true, None);
+  let fake = move |f: &'static str| form(f, false, None);
+  let real_exporting = move |f: &'static str, name: &'static str| form(f, true, Some(name));
+  let fake_exporting = move |f: &'static str, name: &'static str| form(f, false, Some(name));
   prop_oneof![
     real("import x from {q}{s}{q};"),
     real("import { a, b as c } from {q}{s}{q};"),
@@ -30,9 +34,9 @@ fn statement() -> impl Strategy<Value = (String, Option<String>)> {
     real("import d, { e } from {q}{s}{q};"),
     real("import j from {q}{s}{q} with { type: 'json' };"),
     real("export * from {q}{s}{q};"),
-    real("export { a } from {q}{s}{q};"),
-    real("export { default } from {q}{s}{q};"),
-    real("export * as ns from {q}{s}{q};"),
+    real_exporting("export { a } from {q}{s}{q};", "a"),
+    real_exporting("export { default } from {q}{s}{q};", "default"),
+    real_exporting("export * as ns from {q}{s}{q};", "ns"),
     real("const m = await import({q}{s}{q});"),
     real("f(() => import( {q}{s}{q} ));"),
     real("const u = {q}/*{q}; import z from {q}{s}{q}; // */"),
@@ -51,14 +55,18 @@ fn statement() -> impl Strategy<Value = (String, Option<String>)> {
     fake("const dyn = import(name + '{s}');"),
     fake("const url = new URL('{s}', import.meta.url);"),
     fake("const from = '{s}'; let importer = from;"),
-    fake("export default function f() { return 'from \"{s}\"'; }"),
+    fake_exporting("export default function f() { return 'from \"{s}\"'; }", "default"),
   ]
 }
 
+/// A module of generated statements, each exported name at most once, since a
+/// module that exports a name twice is a syntax error.
 fn module() -> impl Strategy<Value = (String, Vec<String>)> {
   prop::collection::vec(statement(), 0..8).prop_map(|statements| {
-    let text = statements.iter().map(|(s, _)| s.as_str()).collect::<Vec<_>>().join("\n") + "\n";
-    let expected = statements.into_iter().filter_map(|(_, s)| s).collect();
+    let mut exported = std::collections::HashSet::new();
+    let statements: Vec<_> = statements.into_iter().filter(|(_, _, name)| name.is_none_or(|n| exported.insert(n))).collect();
+    let text = statements.iter().map(|(s, _, _)| s.as_str()).collect::<Vec<_>>().join("\n") + "\n";
+    let expected = statements.into_iter().filter_map(|(_, s, _)| s).collect();
     (text, expected)
   })
 }

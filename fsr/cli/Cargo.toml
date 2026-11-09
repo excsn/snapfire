@@ -51,6 +51,11 @@ terminal = ["dep:crossterm", "dep:snapfire_fsr_terminal"]
 desktop = ["web", "dep:bytes", "dep:http", "dep:http-body-util", "dep:muda", "dep:open", "dep:rfd", "dep:tao", "dep:wry"]
 
 [dependencies]
+oxc_allocator = "0.155"
+oxc_ast = "0.155"
+oxc_ast_visit = "0.155"
+oxc_parser = "0.155"
+oxc_span = "0.155"
 clap = { version = "4", features = ["derive"] }
 fibre = "0.6"
 syn = { version = "3", features = ["full"] }
@@ -100,9 +105,6 @@ tao = { version = "0.37", optional = true }
 wry = { version = "0.57", optional = true }
 toml = "1"
 
-[dependencies.swc_core]
-version = "84"
-features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
