@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_runtime"
 version = "0.15.0"
-include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "Request blocks for SnapFire FSR: matching, resolution, data sources, evaluation and assembly."
 keywords = ["snapfire", "fsr", "ssr", "streaming", "cache"]
 categories = ["web-programming::http-server"]

@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_passkey"
 version = "0.3.0"
-include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md"]
+include = ["/src/**", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "Passkey sign-in for SnapFire FSR: WebAuthn as an IdentityProvider, with a credential store seam."
 keywords = ["snapfire", "fsr", "passkey", "webauthn", "authentication"]
 categories = ["web-programming", "authentication"]
