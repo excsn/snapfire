@@ -2,14 +2,14 @@ import { type Props } from "./boot.js";
 /** True when `el` is mounted as a server island. */
 export declare function isServerIsland(el: Element): boolean;
 /**
-* Mounts `el` as a server island with `encoded`, the props script as the
-* server wrote it, whose `$s` is the state it rendered from. Both are kept
-* encoded and handed back untouched: this browser is a courier for a
-* component that runs on the server and decoding a double here would hand
-* back an integer, since JavaScript has one number type and the tag is the
-* only thing that says which this was. Listens for every event its markup
-* binds.
-*/
+ * Mounts `el` as a server island with `encoded`, the props script as the
+ * server wrote it, whose `$s` is the state it rendered from. Both are kept
+ * encoded and handed back untouched: this browser is a courier for a
+ * component that runs on the server and decoding a double here would hand
+ * back an integer, since JavaScript has one number type and the tag is the
+ * only thing that says which this was. Listens for every event its markup
+ * binds.
+ */
 export declare function mountServer(el: Element, module: string, encoded: unknown): void;
 /** Holds the server island at `el` while its nodes are out of the document, its props and state kept. False when none is mounted there. */
 export declare function pauseServer(el: Element): boolean;
@@ -23,15 +23,15 @@ export declare function endServer(el: Element): void;
 export declare function morph(el: Element, html: string, before?: string): void;
 /** What a morph asks of its caller. `nested` settles an island marker the new markup places again, along with the props script after it, which the walk leaves alone. `adopt` answers a keyed new node none of the siblings carries with a node from elsewhere to move in. Null has the new one imported. `drop` is told of each node the walk is about to remove, before it goes. */
 export interface MorphHooks {
-	nested: (current: Element, next: Element) => void;
-	adopt?: (key: string) => Node | null;
-	drop?: (node: Node) => void;
-	/** An element the walk keeps as it stands, attributes and children alike, when the new markup places one like it there. */
-	opaque?: (current: Element) => boolean;
-	/** Whether a form control keeps the value and the check the visitor left in it rather than taking the new markup's. A textarea keeps its text as well. */
-	values?: "kept";
-	/** Told of each node the walk brings in from the new markup, once it is in place. */
-	imported?: (node: Node) => void;
+    nested: (current: Element, next: Element) => void;
+    adopt?: (key: string) => Node | null;
+    drop?: (node: Node) => void;
+    /** An element the walk keeps as it stands, attributes and children alike, when the new markup places one like it there. */
+    opaque?: (current: Element) => boolean;
+    /** Whether a form control keeps the value and the check the visitor left in it rather than taking the new markup's. A textarea keeps its text as well. */
+    values?: "kept";
+    /** Told of each node the walk brings in from the new markup, once it is in place. */
+    imported?: (node: Node) => void;
 }
 /** Patches `old`, a run of `parent`'s children, to match `fresh` by the rules of `morph`. What is new once the run is used up goes in before `end`. A node of the run that something moved to another parent is no longer part of it. `before` is the run as the server wrote it last: a node of the run that none of it pairs with is left where it stands. Each paired one changes only where `before` and `fresh` differ. Null takes the run as it stands for the server's. */
 export declare function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node | null, hooks: MorphHooks, before?: Node[] | null): void;

@@ -12,7 +12,7 @@ export declare function setLocale(tag: string): void;
 export declare function adoptLocale(): void;
 /** A locale's message table: dotted keys to strings, already merged over the default locale's on the server. */
 export type Catalog = {
-	readonly [key: string]: string;
+    readonly [key: string]: string;
 };
 /** The message table held for `tag` or null when the server has sent none. */
 export declare function catalog(tag: string): Catalog | null;
@@ -20,4 +20,4 @@ export declare function catalog(tag: string): Catalog | null;
 export declare function setCatalog(tag: string, table: Catalog): void;
 /** Reads the catalog the server embedded in the document, `<script type="application/json" data-sf-i18n="fr_FR">`. Nothing embedded leaves what is held. */
 export declare function adoptCatalog(): void;
-export {};
+export { };

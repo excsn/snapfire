@@ -1,32 +1,32 @@
 /** A step of a sign-in as the host answers it: where the browser goes, what the page acts on or where the flow landed. */
 export type AuthStep = {
-	next: "redirect";
-	to: string;
+    next: "redirect";
+    to: string;
 } | {
-	next: "present";
-	kind: string;
-	data: Record<string, unknown>;
+    next: "present";
+    kind: string;
+    data: Record<string, unknown>;
 } | {
-	next: "complete";
-	to: string;
+    next: "complete";
+    to: string;
 };
 /** A step the host refused: `denied` when the visitor is not permitted, `invalid` for a malformed answer or no flow in progress, `unsupported` for a passkey step this browser cannot run. */
 export declare class AuthFailure extends Error {
-	readonly kind: string;
-	constructor(kind: string, message: string);
+    readonly kind: string;
+    constructor(kind: string, message: string);
 }
 export interface AuthOptions {
-	/** The path on this origin the flow lands on; the current page when absent. */
-	returnTo?: string;
-	/** The method to use, for a provider offering several. */
-	method?: string;
-	/** Answers a step the page shows, such as a form's fields or a code sent elsewhere; nothing stops the loop and returns the step to the caller. Passkey steps are answered without it. */
-	present?: (step: {
-		kind: string;
-		data: Record<string, unknown>;
-	}) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
-	/** Whether a redirect or a completed flow moves the browser; `true` when absent. */
-	navigate?: boolean;
+    /** The path on this origin the flow lands on; the current page when absent. */
+    returnTo?: string;
+    /** The method to use, for a provider offering several. */
+    method?: string;
+    /** Answers a step the page shows, such as a form's fields or a code sent elsewhere; nothing stops the loop and returns the step to the caller. Passkey steps are answered without it. */
+    present?: (step: {
+        kind: string;
+        data: Record<string, unknown>;
+    }) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined;
+    /** Whether a redirect or a completed flow moves the browser; `true` when absent. */
+    navigate?: boolean;
 }
 /** Posts an answer to the step in progress and returns the next step without following it. */
 export declare function answer(params: Record<string, unknown>): Promise<AuthStep>;

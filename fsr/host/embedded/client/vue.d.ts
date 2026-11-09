@@ -6,29 +6,29 @@ export declare const vueUnmounter: Unmounter;
 export declare const vuePatcher: Patcher;
 /** The neutral store as a Vue ref: `const region = useStore(regionKey, "all")`, readable and writable, following every other island that shares the key. A hydrating island starts from the value the server rendered it from, which its props carry, or from `initial` for a key the server held none of, and moves to the store's once mounted, so a key that moved in the meantime never fails the hydration. Call it in `setup`, so the subscription ends with the component. */
 export declare function useStore<T>(key: StoreKey<T>, initial: T): {
-	value: T;
+    value: T;
 };
 /** The document's locale as a Vue ref, following every navigation that changes it. Call it in `setup`, so the subscription ends with the component. */
 export declare function useLocale(): Readonly<Ref<string>>;
 /** Whether the navigation a click on the enclosing link started is still in flight, as a reactive `{ pending }`: the `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Call it in `setup`, so the subscription ends with the component. */
 export declare function useLinkStatus(): {
-	readonly pending: boolean;
+    readonly pending: boolean;
 };
 /** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, plus the timing that schedules it. */
 export interface MountProps {
-	module: string;
-	props?: Props;
-	when?: MountTiming;
+    module: string;
+    props?: Props;
+    when?: MountTiming;
 }
 /** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes falling through. The server writes what is placed at it inside it. Vue leaves an element with no children of its own as it finds it, in an island as in the shell. */
 export declare const Place: Component;
 /**
-* Places an island by module id inside a Vue tree, for a component holding
-* one another framework mounts: the registry entry decides the mounter, so
-* this writes the marker the boot runtime reads and never renders the child
-* itself. Nothing rendered it on the server, so it is mounted fresh and
-* patched from here whenever its props change.
-*/
+ * Places an island by module id inside a Vue tree, for a component holding
+ * one another framework mounts: the registry entry decides the mounter, so
+ * this writes the marker the boot runtime reads and never renders the child
+ * itself. Nothing rendered it on the server, so it is mounted fresh and
+ * patched from here whenever its props change.
+ */
 export declare const Mount: Component;
 /** An anchor with the marks the navigator reads, for a Vue island. Attributes pass through as `<a>`'s. */
 export declare const Link: Component;

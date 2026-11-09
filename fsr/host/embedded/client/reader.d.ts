@@ -1,131 +1,131 @@
 import { type Contribution } from "./store.js";
 import { SfValue } from "./values.js";
 export type SfNode = {
-	kind: "text";
-	text: string;
+    kind: "text";
+    text: string;
 } | {
-	kind: "raw";
-	html: string;
+    kind: "raw";
+    html: string;
 } | {
-	kind: "seq";
-	children: SfNode[];
+    kind: "seq";
+    children: SfNode[];
 } | {
-	kind: "client";
-	module: string;
-	props: {
-		[key: string]: SfValue;
-	};
-	/** `props` as the server encoded them, which is what a props script holds and a server island hands back: decoding a double and encoding it again gives an integer, since JavaScript has one number type. Absent on a node no payload brought, whose `props` are encoded where they are written. */
-	encoded?: unknown;
-	/** The island's markup: what the server rendered when `rendered`, else the regions it offers the browser. */
-	children: SfNode[];
-	/** Whether the server rendered the island's markup, which the browser then hydrates rather than mounts. */
-	rendered: boolean;
+    kind: "client";
+    module: string;
+    props: {
+        [key: string]: SfValue;
+    };
+    /** `props` as the server encoded them, which is what a props script holds and a server island hands back: decoding a double and encoding it again gives an integer, since JavaScript has one number type. Absent on a node no payload brought, whose `props` are encoded where they are written. */
+    encoded?: unknown;
+    /** The island's markup: what the server rendered when `rendered`, else the regions it offers the browser. */
+    children: SfNode[];
+    /** Whether the server rendered the island's markup, which the browser then hydrates rather than mounts. */
+    rendered: boolean;
 } | {
-	kind: "pending";
-	slot: number;
-	fallback: SfNode;
+    kind: "pending";
+    slot: number;
+    fallback: SfNode;
 } | {
-	kind: "placed";
-	target: string;
-	children: SfNode[];
+    kind: "placed";
+    target: string;
+    children: SfNode[];
 } | {
-	kind: "outlet";
-	name: string;
+    kind: "outlet";
+    name: string;
 };
 export interface Segment {
-	k: string;
-	/** The fingerprint of what the segment rendered, its child segments elided. Two payloads agreeing on it agree on the DOM, whatever the key says. Absent for a deferred segment, which arrives as its own fill. */
-	d?: string;
-	/** The slot this segment fills in its parent; absent at the root. */
-	n?: string;
-	p?: number[];
-	s?: number;
-	c: Segment[];
-	/** Slots of this segment the payload left unfilled and the browser keeps as they stand. */
-	keep?: string[];
+    k: string;
+    /** The fingerprint of what the segment rendered, its child segments elided. Two payloads agreeing on it agree on the DOM, whatever the key says. Absent for a deferred segment, which arrives as its own fill. */
+    d?: string;
+    /** The slot this segment fills in its parent; absent at the root. */
+    n?: string;
+    p?: number[];
+    s?: number;
+    c: Segment[];
+    /** Slots of this segment the payload left unfilled and the browser keeps as they stand. */
+    keep?: string[];
 }
 /** What a route says about the document; a field left out keeps what the document has. */
 /** One head element as an `H` row carries it: its tag, its attributes in order and, for a tag that takes content, its text. */
 export interface HeadRow {
-	tag: string;
-	attrs: [string, string][];
-	children?: string;
+    tag: string;
+    attrs: [string, string][];
+    children?: string;
 }
 export interface Head {
-	title?: string;
-	description?: string;
-	/** Every head element the document carries under this row besides its script rows, which replaces the ones the document holds. */
-	head?: HeadRow[];
-	/** The attributes of each script row the route's `meta` declared, as the document's inert marker carries them. */
-	scripts?: Record<string, string>[];
-	/** The document's named theme, `<html data-sf-theme>`; null is the root theme. Absent when the application has no themes. */
-	theme?: string | null;
-	/** Light or dark, `<html data-sf-scheme>`; null leaves the attribute off. */
-	scheme?: string | null;
-	/** Whether the route forces its theme and the document kept it, `<html data-sf-theme-forced>`. */
-	forced?: boolean;
+    title?: string;
+    description?: string;
+    /** Every head element the document carries under this row besides its script rows, which replaces the ones the document holds. */
+    head?: HeadRow[];
+    /** The attributes of each script row the route's `meta` declared, as the document's inert marker carries them. */
+    scripts?: Record<string, string>[];
+    /** The document's named theme, `<html data-sf-theme>`; null is the root theme. Absent when the application has no themes. */
+    theme?: string | null;
+    /** Light or dark, `<html data-sf-scheme>`; null leaves the attribute off. */
+    scheme?: string | null;
+    /** Whether the route forces its theme and the document kept it, `<html data-sf-theme-forced>`. */
+    forced?: boolean;
 }
 export interface Payload {
-	format: number;
-	encoding: string;
-	tree: SfNode;
-	segments: Segment | null;
-	/** The document's title and description, from the eager wave then from each resolution that set them, in order. */
-	heads: Head[];
-	/** What the route's segments seeded, one list per `T` row: the eager wave's, then each resolution's ahead of its `S` row, in order. */
-	seeds: Contribution[][];
-	/** The locale the response was rendered in, as the application spells it; null when the server has none. */
-	locale: string | null;
-	/** The locale's message table, a `D` row, sent when the request did not say it already holds it; null otherwise. */
-	catalog: {
-		[key: string]: string;
-	} | null;
-	/** A module to load before this response's islands can mount, a mounted site's entry; null when the document's own entry covers them. */
-	entry: string | null;
-	/** Stylesheets this response needs beyond the document's own, a mounted site's; empty when it needs none, which is also what says to drop the ones a previous response added. */
-	styles: string[];
-	resolutions: {
-		slot: number;
-		node: SfNode;
-	}[];
+    format: number;
+    encoding: string;
+    tree: SfNode;
+    segments: Segment | null;
+    /** The document's title and description, from the eager wave then from each resolution that set them, in order. */
+    heads: Head[];
+    /** What the route's segments seeded, one list per `T` row: the eager wave's, then each resolution's ahead of its `S` row, in order. */
+    seeds: Contribution[][];
+    /** The locale the response was rendered in, as the application spells it; null when the server has none. */
+    locale: string | null;
+    /** The locale's message table, a `D` row, sent when the request did not say it already holds it; null otherwise. */
+    catalog: {
+        [key: string]: string;
+    } | null;
+    /** A module to load before this response's islands can mount, a mounted site's entry; null when the document's own entry covers them. */
+    entry: string | null;
+    /** Stylesheets this response needs beyond the document's own, a mounted site's; empty when it needs none, which is also what says to drop the ones a previous response added. */
+    styles: string[];
+    resolutions: {
+        slot: number;
+        node: SfNode;
+    }[];
 }
 /** One row of a payload, by its tag. */
 export type Row = {
-	tag: "V";
-	format: number;
-	encoding: string;
+    tag: "V";
+    format: number;
+    encoding: string;
 } | {
-	tag: "N";
-	tree: SfNode;
+    tag: "N";
+    tree: SfNode;
 } | {
-	tag: "G";
-	segments: Segment;
+    tag: "G";
+    segments: Segment;
 } | {
-	tag: "H";
-	head: Head;
+    tag: "H";
+    head: Head;
 } | {
-	tag: "T";
-	contributions: Contribution[];
+    tag: "T";
+    contributions: Contribution[];
 } | {
-	tag: "L";
-	locale: string;
+    tag: "L";
+    locale: string;
 } | {
-	tag: "E";
-	entry: string;
+    tag: "E";
+    entry: string;
 } | {
-	tag: "C";
-	styles: string[];
+    tag: "C";
+    styles: string[];
 } | {
-	tag: "D";
-	catalog: {
-		[key: string]: string;
-	};
+    tag: "D";
+    catalog: {
+        [key: string]: string;
+    };
 } | {
-	tag: "S";
-	slot: number;
-	node: SfNode;
-	segments: Segment[];
+    tag: "S";
+    slot: number;
+    node: SfNode;
+    segments: Segment[];
 };
 export declare function decodeNode(row: unknown): SfNode;
 /** Reads one row: its tag, a space, then its body. Throws on a tag the grammar lacks. */

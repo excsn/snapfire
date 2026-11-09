@@ -1,12 +1,12 @@
 /** One run of placed content: its opening template, what it holds and its closing template. */
 export interface Piece {
-	/** The segment that placed it. */
-	key: string;
-	/** The island whose markup placed it, by its region key or else its id. */
-	island: string | null;
-	/** The place it belongs in when that is not the end of the body. */
-	to: string | null;
-	nodes: ChildNode[];
+    /** The segment that placed it. */
+    key: string;
+    /** The island whose markup placed it, by its region key or else its id. */
+    island: string | null;
+    /** The place it belongs in when that is not the end of the body. */
+    to: string | null;
+    nodes: ChildNode[];
 }
 /** Every run of placed content in the document, at the end of the body or inside a place, in document order. */
 export declare function placedPieces(): Piece[];

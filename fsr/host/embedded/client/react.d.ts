@@ -6,50 +6,50 @@ import { type ImageAsset } from "./picture.js";
 export type { ImageAsset } from "./picture.js";
 import { type StoreKey } from "./store.js";
 export interface IslandProps {
-	/** When the island hydrates: immediately, when scrolled into view or when the main thread is idle. Defaults to the registry's timing, else "load". */
-	when?: MountTiming;
-	/** `server`: the island's events round-trip to the server, which re-renders it; no React root is mounted. */
-	mode?: "server";
-	/** The module that defines the custom element inside, imported at the island's timing rather than at load. The child is then an element, its markup written by the server, with nothing mounted over it. Not combinable with `mode`. */
-	define?: string;
-	children?: ReactNode;
+    /** When the island hydrates: immediately, when scrolled into view or when the main thread is idle. Defaults to the registry's timing, else "load". */
+    when?: MountTiming;
+    /** `server`: the island's events round-trip to the server, which re-renders it; no React root is mounted. */
+    mode?: "server";
+    /** The module that defines the custom element inside, imported at the island's timing rather than at load. The child is then an element, its markup written by the server, with nothing mounted over it. Not combinable with `mode`. */
+    define?: string;
+    children?: ReactNode;
 }
 /** Places its one child component as an island of its own: on the server the child renders inside an `<sf-s data-sf-island>` region as a nested island; in the browser this element adopts that region as it stands and never reconciles it, while the boot runtime mounts the child in its own root at the timing asked for. Lowered by the build, so the child is never rendered here.
-*
-* The region is claimed once, by the key the build splices in and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it or renders its child inline when no payload describes one. */
+ *
+ * The region is claimed once, by the key the build splices in and after that only the island's own root writes inside it. A re-render hands the mounted root the props the parent just computed; a placement the parent has only now added takes its markup from the payload that added it or renders its child inline when no payload describes one. */
 export declare function Island({ when, mode, children }: IslandProps): ReactElement;
 export interface MountProps {
-	/** The module id the registry knows the island under, `src/ui/Chart.vue#default` for one. */
-	module: string;
-	/** What the island is mounted with, re-applied as a patch when they change. */
-	props?: Props;
-	when?: MountTiming;
+    /** The module id the registry knows the island under, `src/ui/Chart.vue#default` for one. */
+    module: string;
+    /** What the island is mounted with, re-applied as a patch when they change. */
+    props?: Props;
+    when?: MountTiming;
 }
 /**
-* Places an island by module id rather than by component, for a React tree
-* holding an island another framework mounts: the registry entry decides the
-* mounter, so this writes the marker the boot runtime reads and never renders
-* the child itself. `<Island>` is the one to use for a React child, since it
-* adopts the region the server rendered; nothing rendered this one, so it is
-* mounted fresh and patched from here whenever `props` change.
-*/
+ * Places an island by module id rather than by component, for a React tree
+ * holding an island another framework mounts: the registry entry decides the
+ * mounter, so this writes the marker the boot runtime reads and never renders
+ * the child itself. `<Island>` is the one to use for a React child, since it
+ * adopts the region the server rendered; nothing rendered this one, so it is
+ * mounted fresh and patched from here whenever `props` change.
+ */
 export declare function Mount({ module, props, when }: MountProps): ReactElement;
 /** The property a `foreign` component carries its module id under. */
 export declare const FOREIGN: unique symbol;
 /** A component another framework mounts, as a React component placing it by module id through `Mount`. The build writes `const Chart = foreign("src/ui/Chart.vue#default")` in place of a React-JSX file's import of one, so `<Chart />` places that island. Children cannot cross into another framework's component. */
 export declare function foreign<P extends Props>(module: string): ((props: P) => ReactElement) & {
-	[FOREIGN]: string;
+    [FOREIGN]: string;
 };
 /** `component` as a component that places it as an island with `options.when` and `options.mode` wherever it is used: `const LazyChart = island(Chart, { when: "visible" })`. */
 export declare function island<P extends object>(component: ComponentType<P>, options?: {
-	when?: MountTiming;
-	mode?: "server";
+    when?: MountTiming;
+    mode?: "server";
 }): (props: P) => ReactElement;
 export interface SlotProps {
-	/** The slot's name: a `slots/<name>` directory beside the layout or the slot a `page.<name>.tsx` under it renders into. */
-	name: string;
-	/** What the slot shows while nothing fills it. Rendered by the server, lowered by the build; never rendered here. */
-	children?: ReactNode;
+    /** The slot's name: a `slots/<name>` directory beside the layout or the slot a `page.<name>.tsx` under it renders into. */
+    name: string;
+    /** What the slot shows while nothing fills it. Rendered by the server, lowered by the build; never rendered here. */
+    children?: ReactNode;
 }
 /** A named slot of a layout: the region a parallel route renders into or an intercepted route opens in. On the server it is `<sf-s data-sf-name>` around the segment or around the fallback children while nothing fills it; in the browser this element adopts the region as it stands and navigation fills and empties it without React reconciling it. */
 export declare function Slot({ name }: SlotProps): ReactElement;
@@ -58,50 +58,50 @@ export declare function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) =
 /** The document's locale as the application spells it, `fr_FR` or `fr`. The server renders it from the request, so the first paint and the hydration agree; a navigation that changes it re-renders every island reading it. The build lowers this call. */
 export declare function useLocale(): string;
 export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
-	/** Always the document's rendering of the target, never an intercept into a slot. */
-	full?: boolean;
-	/** Renders the target into this slot of the nearest live layout that declares it, whether or not the server would intercept from here. */
-	into?: string;
-	/** Whether the navigator fetches the target ahead of a click. */
-	prefetch?: PrefetchTiming;
-	/** Leaves the click to the browser: a full document load. */
-	native?: boolean;
-	/** Whether a segment whose key changed but whose module did not is morphed in place, keeping the islands its new markup places again, rather than replaced. Left out, the navigator keeps them when only the query changes. */
-	keep?: boolean;
-	/** When the link is marked `aria-current`: `"exact"`, the default, on the page its `href` names; `"prefix"` on that page and anything under it; `"none"` never. An `href` carrying a query or a fragment never matches. */
-	match?: "exact" | "prefix" | "none";
-	/** Which path the mark is judged against: `"url"`, the default, the address bar; `"document"`, the page beneath an open intercept, so a nav describing the section a drawer or a modal opened over stays where it was. The two differ only while an intercept is open. */
-	current?: "url" | "document";
+    /** Always the document's rendering of the target, never an intercept into a slot. */
+    full?: boolean;
+    /** Renders the target into this slot of the nearest live layout that declares it, whether or not the server would intercept from here. */
+    into?: string;
+    /** Whether the navigator fetches the target ahead of a click. */
+    prefetch?: PrefetchTiming;
+    /** Leaves the click to the browser: a full document load. */
+    native?: boolean;
+    /** Whether a segment whose key changed but whose module did not is morphed in place, keeping the islands its new markup places again, rather than replaced. Left out, the navigator keeps them when only the query changes. */
+    keep?: boolean;
+    /** When the link is marked `aria-current`: `"exact"`, the default, on the page its `href` names; `"prefix"` on that page and anything under it; `"none"` never. An `href` carrying a query or a fragment never matches. */
+    match?: "exact" | "prefix" | "none";
+    /** Which path the mark is judged against: `"url"`, the default, the address bar; `"document"`, the page beneath an open intercept, so a nav describing the section a drawer or a modal opened over stays where it was. The two differ only while an intercept is open. */
+    current?: "url" | "document";
 }
 /** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes, `match` as the `data-sf-link` the navigator re-reads after each navigation and `current` as `data-sf-current` when it is the document's. */
 export declare function Link(props: LinkProps): ReactElement;
 /** Whether the navigation a click on the enclosing link started is still in flight: the `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Outside a link `pending` is always false. */
 export declare function useLinkStatus(): {
-	pending: boolean;
+    pending: boolean;
 };
 export interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> {
-	/** An imported image, or a string: a URL as written, or the value a named source's template takes. */
-	src: ImageAsset | string;
-	/** The `[images.sources]` entry a string `src` goes through. */
-	source?: string;
-	/** The largest contentful image: loaded eagerly at high priority and preloaded by the server. */
-	priority?: boolean;
-	/** The widths to offer instead of the policy's; never upscaled past the image's own. */
-	widths?: number[];
-	/** The quality the build encodes this image at, which changes the bytes and never the markup. */
-	quality?: number | {
-		avif?: number;
-		webp?: number;
-	};
+    /** An imported image, or a string: a URL as written, or the value a named source's template takes. */
+    src: ImageAsset | string;
+    /** The `[images.sources]` entry a string `src` goes through. */
+    source?: string;
+    /** The largest contentful image: loaded eagerly at high priority and preloaded by the server. */
+    priority?: boolean;
+    /** The widths to offer instead of the policy's; never upscaled past the image's own. */
+    widths?: number[];
+    /** The quality the build encodes this image at, which changes the bytes and never the markup. */
+    quality?: number | {
+        avif?: number;
+        webp?: number;
+    };
 }
 /** The markup the server wrote for the same props: a `<picture>` with a `<source>` per format and the hashed original as its `<img>`; an `<img>` alone for an image served as it is; for a string `src`, an `<img>` whose `srcset` a named source's template writes. */
 export declare function Picture(props: PictureProps): ReactElement;
 export interface PlaceProps {
-	/** The place's name, which is the element's id and what `<Teleport to="#name">` names. Letters, digits, `-` and `_`. */
-	name: string;
-	/** The tag, `div` unless given. */
-	as?: string;
-	[attribute: string]: unknown;
+    /** The place's name, which is the element's id and what `<Teleport to="#name">` names. Letters, digits, `-` and `_`. */
+    name: string;
+    /** The tag, `div` unless given. */
+    as?: string;
+    [attribute: string]: unknown;
 }
 /** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes as given. The server writes what is placed at it inside it. Its children are not React's: empty inner HTML React does not compare makes hydration and every render leave them where they are, in an island as in the shell. */
 export declare function Place({ name, as, ...attrs }: PlaceProps): ReactElement;
@@ -109,33 +109,30 @@ export declare function Place({ name, as, ...attrs }: PlaceProps): ReactElement;
 export declare function Embed(props: EmbedOptions): ReactElement;
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
 export type Hoisted = {
-	readonly [key: string]: unknown;
+    readonly [key: string]: unknown;
 };
 /** The reader the build binds at the top of a component it rewrote: `r` in place of a render-path call whose inputs are props only, so hydration reads what the server rendered instead of computing it again; `l` around each JSX `.map` callback, so a read inside it knows its iteration. */
 export interface HoistReader {
-	/** The server's value for hoist `id` at the current loop indices or `compute()` when it recorded none. */
-	r<T>(id: number, compute: () => T): T;
-	/** `f` with its index argument pushed onto the loop path while it runs. */
-	l<
-		A extends unknown[],
-		R
-	>(f: (...args: A) => R): (...args: A) => R;
-	/** The element for a static subtree: `hit` with the server's inner markup for chunk `id` when the table holds it, else `miss`, the original JSX. */
-	c(id: number, hit: (html: {
-		__html: string;
-	}) => ReactElement, miss: () => ReactElement): ReactElement;
-	/** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists and marked `i`. */
-	k(id: number): string;
-	/** `element`, a keyed placement `id` of a component, under a provider whose path is the current one plus `c<id>`, so what that component keys sits below this placement and two placements of it key apart. */
-	p(id: number, element: ReactElement): ReactElement;
-	/** Enters iteration `index` of a `for…of` or counted `for` the server lowered, pushing it onto the loop path until `x`. */
-	e(index: number): void;
-	/** Leaves the iteration `e` entered. */
-	x(): void;
-	/** `value` as the loop body pushes it: an element under a provider holding the current path, as `l` gives a `.map` callback's element; anything else as it is. */
-	w<T>(value: T): T;
-	/** The id for the `useId` call `id`, `_S_` plus the key plus `_`, which is what the server wrote: the build replaces the call with this. Unique within a root, as React's own is. */
-	id(id: number): string;
+    /** The server's value for hoist `id` at the current loop indices or `compute()` when it recorded none. */
+    r<T>(id: number, compute: () => T): T;
+    /** `f` with its index argument pushed onto the loop path while it runs. */
+    l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R;
+    /** The element for a static subtree: `hit` with the server's inner markup for chunk `id` when the table holds it, else `miss`, the original JSX. */
+    c(id: number, hit: (html: {
+        __html: string;
+    }) => ReactElement, miss: () => ReactElement): ReactElement;
+    /** The region key for the island placement `id` at the current loop indices, the same string the server wrote on the region. Placements are numbered apart from the hoists and marked `i`. */
+    k(id: number): string;
+    /** `element`, a keyed placement `id` of a component, under a provider whose path is the current one plus `c<id>`, so what that component keys sits below this placement and two placements of it key apart. */
+    p(id: number, element: ReactElement): ReactElement;
+    /** Enters iteration `index` of a `for…of` or counted `for` the server lowered, pushing it onto the loop path until `x`. */
+    e(index: number): void;
+    /** Leaves the iteration `e` entered. */
+    x(): void;
+    /** `value` as the loop body pushes it: an element under a provider holding the current path, as `l` gives a `.map` callback's element; anything else as it is. */
+    w<T>(value: T): T;
+    /** The id for the `useId` call `id`, `_S_` plus the key plus `_`, which is what the server wrote: the build replaces the call with this. Unique within a root, as React's own is. */
+    id(id: number): string;
 }
 /** A value only the browser knows, the viewer's clock for one, which the server rendered as nothing. The reader answers null until the component has mounted, so the first render matches the server's markup, then computes the value and renders once more. The build wraps each such expression in the browser copy. */
 export declare function useBrowser(): <T>(compute: () => T) => T | null;

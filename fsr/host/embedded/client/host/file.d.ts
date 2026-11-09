@@ -1,3 +1,4 @@
+// Written from the standard library's table by `FSR_WRITE_FACADES=1 cargo nextest run -p snapfire_fsr_lower --test facades`. Do not edit.
 import { file } from "../std.js";
 export type { FileStat } from "../std.js";
 /** The file as text, bytes that are not UTF-8 as U+FFFD. Runs in every host body: loaders, actions, route handlers, middleware and terminal programs. */

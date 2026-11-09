@@ -1,170 +1,170 @@
 /** The document's locale as BCP 47, `fr-FR` for `fr_FR`; `en` before any document says. The server converts the same way. */
 export declare function localeTag(): string;
 export declare const text: {
-	/** Decomposed, marks dropped, lowercased, every run outside `a-z0-9` one hyphen and no hyphen at either end. */
-	slug(s: string): string;
-	/** The first `max` characters and `ellipsis` when `s` is longer, else `s`. Characters are code points. */
-	truncate(s: string, max: number, ellipsis?: string): string;
-	/** The YAML block between two delimiter lines at the top of `source` as `data`, the rest as `content`, read as gray-matter reads it. `delimiters` is one string for both lines or `[open, close]`, `---` by default. Host only. */
-	frontMatter<T = {
-		[key: string]: unknown;
-	}>(source: string, options?: FrontMatterOptions): {
-		data: T;
-		content: string;
-	};
-	/** `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes it; empty `data` writes no block. Host only. */
-	withFrontMatter(content: string, data: {
-		[key: string]: unknown;
-	}, options?: FrontMatterOptions): string;
+    /** Decomposed, marks dropped, lowercased, every run outside `a-z0-9` one hyphen and no hyphen at either end. */
+    slug(s: string): string;
+    /** The first `max` characters and `ellipsis` when `s` is longer, else `s`. Characters are code points. */
+    truncate(s: string, max: number, ellipsis?: string): string;
+    /** The YAML block between two delimiter lines at the top of `source` as `data`, the rest as `content`, read as gray-matter reads it. `delimiters` is one string for both lines or `[open, close]`, `---` by default. Host only. */
+    frontMatter<T = {
+        [key: string]: unknown;
+    }>(source: string, options?: FrontMatterOptions): {
+        data: T;
+        content: string;
+    };
+    /** `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes it; empty `data` writes no block. Host only. */
+    withFrontMatter(content: string, data: {
+        [key: string]: unknown;
+    }, options?: FrontMatterOptions): string;
 };
 export interface FrontMatterOptions {
-	delimiters?: string | [string, string];
+    delimiters?: string | [string, string];
 }
 /** What `file.stat` answers. */
 export interface FileStat {
-	isFile: boolean;
-	isDirectory: boolean;
-	size: number;
-	mtimeMs: number;
+    isFile: boolean;
+    isDirectory: boolean;
+    size: number;
+    mtimeMs: number;
 }
 /** The files a host body reads and writes: the directories `[files] roots` names on a web host and the machine a terminal program runs on. A failure throws an `Error` whose `code` is the POSIX name, `ENOENT` for a missing file. Host only. */
 export declare const file: {
-	/** The file as text, bytes that are not UTF-8 as U+FFFD. */
-	read(path: string): string;
-	/** Writes `data` as the file's text, a value that is not text as JSON. */
-	write(path: string, data: unknown): void;
-	/** Whether anything is at `path`. */
-	exists(path: string): boolean;
-	/** The names of a directory's entries, sorted. */
-	list(path: string): string[];
-	/** Makes the directory, its parents too with `recursive`. */
-	makeDir(path: string, options?: {
-		recursive?: boolean;
-	}): void;
-	/** What is at `path`: whether it is a file or a directory, its size in bytes and when it last changed. */
-	stat(path: string): FileStat;
+    /** The file as text, bytes that are not UTF-8 as U+FFFD. */
+    read(path: string): string;
+    /** Writes `data` as the file's text, a value that is not text as JSON. */
+    write(path: string, data: unknown): void;
+    /** Whether anything is at `path`. */
+    exists(path: string): boolean;
+    /** The names of a directory's entries, sorted. */
+    list(path: string): string[];
+    /** Makes the directory, its parents too with `recursive`. */
+    makeDir(path: string, options?: {
+        recursive?: boolean;
+    }): void;
+    /** What is at `path`: whether it is a file or a directory, its size in bytes and when it last changed. */
+    stat(path: string): FileStat;
 };
 /** POSIX paths as text. `resolve` and `relative` read the working directory and run in a host only; the rest give the same answer on the server and in the browser. */
 export declare const path: {
-	/** The parts joined by `/` and normalized; `.` for none. */
-	join(...parts: string[]): string;
-	/** The parts right to left until one is absolute, the working directory before them otherwise. Host only. */
-	resolve(...parts: string[]): string;
-	/** `.` and empty segments dropped, `..` resolved against what precedes it. */
-	normalize(p: string): string;
-	/** Everything before the last segment. */
-	dirname(p: string): string;
-	/** The last segment, without `ext` when it ends with it. */
-	basename(p: string, ext?: string): string;
-	/** The last segment's extension from its last `.`, empty for none. */
-	extname(p: string): string;
-	/** The path from `from` to `to`, both resolved. Host only. */
-	relative(from: string, to: string): string;
-	/** Whether `p` starts with `/`. */
-	isAbsolute(p: string): boolean;
+    /** The parts joined by `/` and normalized; `.` for none. */
+    join(...parts: string[]): string;
+    /** The parts right to left until one is absolute, the working directory before them otherwise. Host only. */
+    resolve(...parts: string[]): string;
+    /** `.` and empty segments dropped, `..` resolved against what precedes it. */
+    normalize(p: string): string;
+    /** Everything before the last segment. */
+    dirname(p: string): string;
+    /** The last segment, without `ext` when it ends with it. */
+    basename(p: string, ext?: string): string;
+    /** The last segment's extension from its last `.`, empty for none. */
+    extname(p: string): string;
+    /** The path from `from` to `to`, both resolved. Host only. */
+    relative(from: string, to: string): string;
+    /** Whether `p` starts with `/`. */
+    isAbsolute(p: string): boolean;
 };
 /** The system clipboard of the machine a terminal page runs on, through its own copy and paste commands. Terminal pages only. */
 export declare const clipboard: {
-	/** Puts `text` on the clipboard. */
-	write(text: string): void;
-	/** What the clipboard holds as text. */
-	read(): string;
+    /** Puts `text` on the clipboard. */
+    write(text: string): void;
+    /** What the clipboard holds as text. */
+    read(): string;
 };
 /** The machine a terminal page runs on. Terminal pages only. */
 export declare const system: {
-	/** The environment variable `name`, null when it is not set. */
-	env(name: string): string | null;
-	/** The home directory. */
-	home(): string;
-	/** The operating system: `macos`, `linux`, `windows` or another name Rust gives one. */
-	platform(): string;
-	/** The temporary directory, no trailing `/`. */
-	tempDir(): string;
-	/** The line ending: `"\r\n"` on Windows, `"\n"` elsewhere. */
-	lineEnd(): string;
-	/** The working directory. */
-	cwd(): string;
-	/** The resident set of the running page, in bytes. */
-	memory(): number;
-	/** Starts `command` with `args`, its output piped, as a process the page hears from: `stdout.on("data", f)` and `stderr.on("data", f)` hear its output, `on("exit", f)` and `on("close", f)` its code and signal and `on("error", f)` a failure to start. `options` are `cwd`, `env`, `shell` and `stdio: "inherit"` for a process that owns the terminal. Terminal pages only. */
-	spawn(command: string, args?: string[], options?: SpawnOptions): Spawned;
+    /** The environment variable `name`, null when it is not set. */
+    env(name: string): string | null;
+    /** The home directory. */
+    home(): string;
+    /** The operating system: `macos`, `linux`, `windows` or another name Rust gives one. */
+    platform(): string;
+    /** The temporary directory, no trailing `/`. */
+    tempDir(): string;
+    /** The line ending: `"\r\n"` on Windows, `"\n"` elsewhere. */
+    lineEnd(): string;
+    /** The working directory. */
+    cwd(): string;
+    /** The resident set of the running page, in bytes. */
+    memory(): number;
+    /** Starts `command` with `args`, its output piped, as a process the page hears from: `stdout.on("data", f)` and `stderr.on("data", f)` hear its output, `on("exit", f)` and `on("close", f)` its code and signal and `on("error", f)` a failure to start. `options` are `cwd`, `env`, `shell` and `stdio: "inherit"` for a process that owns the terminal. Terminal pages only. */
+    spawn(command: string, args?: string[], options?: SpawnOptions): Spawned;
 };
 export interface SpawnOptions {
-	cwd?: string;
-	env?: {
-		[name: string]: string;
-	};
-	shell?: boolean | string;
-	stdio?: "inherit" | "pipe";
+    cwd?: string;
+    env?: {
+        [name: string]: string;
+    };
+    shell?: boolean | string;
+    stdio?: "inherit" | "pipe";
 }
 /** What a process `system.spawn` started writes, handed over as text, so `setEncoding` changes nothing. */
 export interface SpawnedOutput {
-	on(event: "data", f: (chunk: string) => void): void;
-	setEncoding(encoding: string): void;
+    on(event: "data", f: (chunk: string) => void): void;
+    setEncoding(encoding: string): void;
 }
 /** A process's standard input, which the page writes text to and then closes. */
 export interface SpawnedInput {
-	write(text: string): void;
-	end(): void;
+    write(text: string): void;
+    end(): void;
 }
 /** A process `system.spawn` started. */
 export interface Spawned {
-	stdin: SpawnedInput;
-	stdout: SpawnedOutput;
-	stderr: SpawnedOutput;
-	on(event: "exit" | "close", f: (code: number | null, signal: string | null) => void): void;
-	on(event: "error", f: (error: Error) => void): void;
-	off(event: "exit" | "close" | "error", f: (...args: never[]) => void): void;
+    stdin: SpawnedInput;
+    stdout: SpawnedOutput;
+    stderr: SpawnedOutput;
+    on(event: "exit" | "close", f: (code: number | null, signal: string | null) => void): void;
+    on(event: "error", f: (error: Error) => void): void;
+    off(event: "exit" | "close" | "error", f: (...args: never[]) => void): void;
 }
 /** A value scoped to a call: `run(value, fn)` holds `value` while `fn` runs, `get()` reads it (`undefined` outside any `run`) and `set(value)` holds it from then on. A terminal page keeps it across the awaits inside `fn`. */
 export declare class Scope<T> {
-	#private;
-	run<R>(value: T, fn: (...args: never[]) => R, ...args: never[]): R;
-	get(): T | undefined;
-	set(value: T): void;
+    #private;
+    run<R>(value: T, fn: (...args: never[]) => R, ...args: never[]): R;
+    get(): T | undefined;
+    set(value: T): void;
 }
 export declare const time: {
-	/** `when` in UTC with `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced and every other character kept. */
-	format(when: number, pattern: string): string;
-	/** The instant `amount` units after `when`. */
-	add(when: number, amount: number, unit: string): number;
-	/** `later` minus `earlier` in units, fractional. */
-	diff(later: number, earlier: number, unit: string): number;
-	/** `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`, as milliseconds since the epoch; a date alone or a bare time is UTC. `null` for anything else. */
-	parse(s: string): number | null;
+    /** `when` in UTC with `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced and every other character kept. */
+    format(when: number, pattern: string): string;
+    /** The instant `amount` units after `when`. */
+    add(when: number, amount: number, unit: string): number;
+    /** `later` minus `earlier` in units, fractional. */
+    diff(later: number, earlier: number, unit: string): number;
+    /** `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`, as milliseconds since the epoch; a date alone or a bare time is UTC. `null` for anything else. */
+    parse(s: string): number | null;
 };
 /** A structured line at each level, `fields` whatever goes with the message; on the server it is a `tracing` event under `fsr::app`, here a console line. `fatal` is `error` in the console. */
 export declare const log: {
-	/** `message` at trace level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
-	trace(message: string, fields?: unknown): null;
-	/** `message` at debug level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
-	debug(message: string, fields?: unknown): null;
-	/** `message` at info level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
-	info(message: string, fields?: unknown): null;
-	/** `message` at warn level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
-	warn(message: string, fields?: unknown): null;
-	/** `message` at error level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
-	error(message: string, fields?: unknown): null;
-	/** `message` at fatal level with `fields` beside it: the server traces it at error under `fsr::app`, the browser writes it to the console. */
-	fatal(message: string, fields?: unknown): null;
+    /** `message` at trace level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
+    trace(message: string, fields?: unknown): null;
+    /** `message` at debug level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
+    debug(message: string, fields?: unknown): null;
+    /** `message` at info level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
+    info(message: string, fields?: unknown): null;
+    /** `message` at warn level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
+    warn(message: string, fields?: unknown): null;
+    /** `message` at error level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. */
+    error(message: string, fields?: unknown): null;
+    /** `message` at fatal level with `fields` beside it: the server traces it at error under `fsr::app`, the browser writes it to the console. */
+    fatal(message: string, fields?: unknown): null;
 };
 export declare const crypto: {
-	/** SHA-256 of `s` as lowercase hex. */
-	hash(s: string): string;
-	/** Whether `hash` is the hash of `s`. */
-	verify(s: string, hash: string): boolean;
-	/** `bytes` random bytes as `hex` (the default) or `base64`. Server only on a render path. */
-	random(bytes: number, encoding?: "hex" | "base64"): string;
-	/** The hash of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. */
-	digest(algorithm: string, encoding: string, ...parts: string[]): string;
+    /** SHA-256 of `s` as lowercase hex. */
+    hash(s: string): string;
+    /** Whether `hash` is the hash of `s`. */
+    verify(s: string, hash: string): boolean;
+    /** `bytes` random bytes as `hex` (the default) or `base64`. Server only on a render path. */
+    random(bytes: number, encoding?: "hex" | "base64"): string;
+    /** The hash of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. */
+    digest(algorithm: string, encoding: string, ...parts: string[]): string;
 };
 /** The message under `key` in the document's locale, `{name}` placeholders filled from `args`; with `args.count`, the `key.<plural category>` form, then `key.other`, then `key`. A key the catalog lacks answers as itself. Under `fsr test` the runner answers with the Rust half. */
 export declare function t(key: string, args?: {
-	[name: string]: unknown;
+    [name: string]: unknown;
 }): string;
 export declare const id: {
-	/** A fresh identifier: a UUID, version 7 on the server. Server only on a render path. */
-	new(): string;
+    /** A fresh identifier: a UUID, version 7 on the server. Server only on a render path. */
+    new(): string;
 };
 /** Declares the browser half of a native pair under `name`, `module.member`, whose Rust half the host registers under the same name. With `f`, the pair has `render` reach and `f` is what the browser runs; without, it has `body` reach and calling it in the browser throws. The build reads the declaration, so `name` must be a string literal. */
 export declare function native<F extends (...args: never[]) => unknown>(name: string, f?: F): F;

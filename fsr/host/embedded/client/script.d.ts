@@ -1,10 +1,10 @@
 /** When a script loads: now, once the main thread is idle or on the visitor's first pointer, key, touch or scroll. */
 export type ScriptTiming = "load" | "idle" | "interaction";
 export interface ScriptOptions {
-	/** Defaults to `"load"`. */
-	when?: ScriptTiming;
-	/** Attributes the element carries, `integrity`, `crossorigin` or a vendor's `data-*` among them. `async` is set unless this names it. */
-	attrs?: Record<string, string | boolean>;
+    /** Defaults to `"load"`. */
+    when?: ScriptTiming;
+    /** Attributes the element carries, `integrity`, `crossorigin` or a vendor's `data-*` among them. `async` is set unless this names it. */
+    attrs?: Record<string, string | boolean>;
 }
 /** Forgets every script loaded so far: what a new document starts from. The test runner's `load` calls it, since its documents share one module instance where a browser's do not. */
 export declare function forgetLoadedScripts(): void;

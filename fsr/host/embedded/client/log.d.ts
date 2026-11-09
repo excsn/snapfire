@@ -1,3 +1,4 @@
+// Written from the standard library's table by `FSR_WRITE_FACADES=1 cargo nextest run -p snapfire_fsr_lower --test facades`. Do not edit.
 import { log } from "./std.js";
 /** `message` at trace level with `fields` beside it: the server traces it under `fsr::app`, the browser writes it to the console. Runs in a server render and in the browser. */
 export declare const trace: typeof log.trace;

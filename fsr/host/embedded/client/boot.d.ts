@@ -1,6 +1,6 @@
 import { SfValue } from "./values.js";
 export type Props = {
-	[key: string]: SfValue;
+    [key: string]: SfValue;
 };
 /** Mounts an island at `el`. `children` is what the server placed as the island's children, read once by boot, null when it placed none: an adapter renders them in its own tree, the islands among them of its own framework included. */
 export type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean, children: Piece[] | null) => unknown;
@@ -14,65 +14,65 @@ export type MountTiming = "load" | "visible" | "idle";
 /** One node of an island's children as the server wrote them. */
 export type Piece = TextPiece | CommentPiece | ElementPiece | IslandPiece;
 export interface TextPiece {
-	kind: "text";
-	text: string;
+    kind: "text";
+    text: string;
 }
 export interface CommentPiece {
-	kind: "comment";
-	text: string;
+    kind: "comment";
+    text: string;
 }
 export interface ElementPiece {
-	kind: "element";
-	/** The element as the server wrote it, for an adapter to take over whole when no island of its framework is under it. */
-	node: Element;
-	tag: string;
-	attrs: {
-		[name: string]: string;
-	};
-	children: Piece[];
+    kind: "element";
+    /** The element as the server wrote it, for an adapter to take over whole when no island of its framework is under it. */
+    node: Element;
+    tag: string;
+    attrs: {
+        [name: string]: string;
+    };
+    children: Piece[];
 }
 export interface IslandPiece {
-	kind: "island";
-	/** The marker as the server wrote it, holding the island's markup. */
-	marker: Element;
-	/** The props script after the marker, which the piece takes in with it. */
-	script: Element | null;
-	moduleId: string;
-	/** The registry's entry for the module, undefined while no registry has named it. */
-	entry: IslandEntry | undefined;
-	props: Props;
-	/** The props as the server encoded them. */
-	encoded: unknown;
-	when: MountTiming;
-	/** Whether the server rendered the island's own markup. */
-	ssr: boolean;
-	/** The island's own children, null when the server placed none. */
-	children: Piece[] | null;
+    kind: "island";
+    /** The marker as the server wrote it, holding the island's markup. */
+    marker: Element;
+    /** The props script after the marker, which the piece takes in with it. */
+    script: Element | null;
+    moduleId: string;
+    /** The registry's entry for the module, undefined while no registry has named it. */
+    entry: IslandEntry | undefined;
+    props: Props;
+    /** The props as the server encoded them. */
+    encoded: unknown;
+    when: MountTiming;
+    /** Whether the server rendered the island's own markup. */
+    ssr: boolean;
+    /** The island's own children, null when the server placed none. */
+    children: Piece[] | null;
 }
 export interface IslandEntry {
-	loader: () => Promise<unknown>;
-	mount: Mounter;
-	/** When hydration happens: immediately, when scrolled into view or when the main thread is idle. Defaults to "load". Per island, not per page. */
-	when?: MountTiming;
-	patch?: Patcher;
-	/** Called by `discard` for an island whose marker is leaving the document. Left out, the root is dropped as it stands. */
-	unmount?: Unmounter;
-	/** Called by `release` for an island whose page activity holds and by `resume` when the page comes back. Left out, `release` ends the island. */
-	pause?: Pauser;
+    loader: () => Promise<unknown>;
+    mount: Mounter;
+    /** When hydration happens: immediately, when scrolled into view or when the main thread is idle. Defaults to "load". Per island, not per page. */
+    when?: MountTiming;
+    patch?: Patcher;
+    /** Called by `discard` for an island whose marker is leaving the document. Left out, the root is dropped as it stands. */
+    unmount?: Unmounter;
+    /** Called by `release` for an island whose page activity holds and by `resume` when the page comes back. Left out, `release` ends the island. */
+    pause?: Pauser;
 }
 export declare function registerIsland(moduleId: string, entry: IslandEntry): void;
 /** What an island mounts with: an adapter's mounter and the hooks beside it. */
 export interface Adapter {
-	mount: Mounter;
-	patch?: Patcher;
-	unmount?: Unmounter;
-	pause?: Pauser;
+    mount: Mounter;
+    patch?: Patcher;
+    unmount?: Unmounter;
+    pause?: Pauser;
 }
 /** An island registered before its adapter is loaded. `adapter` is imported when a scan first finds an island naming it, once for every island that names the same loader, so a page holding none of its islands loads no framework. */
 export interface DeferredIsland {
-	loader: () => Promise<unknown>;
-	adapter: () => Promise<Adapter>;
-	when?: MountTiming;
+    loader: () => Promise<unknown>;
+    adapter: () => Promise<Adapter>;
+    when?: MountTiming;
 }
 /** Registers an island whose adapter loads when the island is first found, replacing what was registered under `moduleId` as `registerIsland` does. An adapter already loaded is used at once. */
 export declare function registerDeferredIsland(moduleId: string, island: DeferredIsland): void;
@@ -84,9 +84,9 @@ export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
 export declare function deferredIslands(): ReadonlyMap<string, DeferredIsland>;
 /** An island marker's props script beside it and the props it holds, decoded and as written. */
 export declare function markerProps(marker: Element): {
-	script: Element | null;
-	props: Props;
-	encoded: unknown;
+    script: Element | null;
+    props: Props;
+    encoded: unknown;
 };
 /** Says that `mount`'s adapter renders the children of an island it mounts in one tree with that island: every island of its own kind under it, else those `takes` answers true for. A scan then leaves those islands to it and mounts the rest as roots of their own. */
 export declare function rendersNested(mount: Mounter, takes?: (el: Element) => boolean): void;
@@ -127,16 +127,16 @@ export declare function release(root: ParentNode): void;
 export declare function resume(root: ParentNode): Promise<void>;
 /** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
 export declare function islandState(el: Element): {
-	props: Props;
-	regions: unknown;
-	children: string | null;
-	markup: {
-		[n: string]: string;
-	} | null;
+    props: Props;
+    regions: unknown;
+    children: string | null;
+    markup: {
+        [n: string]: string;
+    } | null;
 } | null;
 /** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. `regions` is what the payload behind this patch says about the islands inside it and `children` the markup it gives the island's children region, both read back by the adapter through `islandState`. `encoded` is `props` as the server encoded them, which a server island hands back in place of encoding `props` again. False when nothing is mounted there or the island's entry has no patcher. */
 export declare function patchIsland(el: Element, props: Props, regions?: unknown, children?: string | null, encoded?: unknown, markup?: {
-	[n: string]: string;
+    [n: string]: string;
 } | null): Promise<boolean>;
 /** How a marker a navigation keeps takes the new markup. `patched` hands a running island its props. `morphed` applies the server's change, since nothing mounted over a definition's markup and that markup stays the server's. `replaced` puts the new marker in, since an island with no patcher cannot take props and one whose timing has not fired holds the old ones and no state worth keeping. */
 export declare function keptBy(el: Element): "patched" | "morphed" | "replaced";
