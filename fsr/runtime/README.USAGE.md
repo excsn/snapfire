@@ -221,7 +221,7 @@ let source = runtime.sources.get(&DataSourceId("meta_loader".into()));
 
 ## Matching a Path
 
-`PathMatcher` wraps `matchit`, so patterns are `matchit` patterns and named captures become params.
+`PathMatcher` takes patterns with `{name}` for one segment and `{*name}` for the rest of the path. Named captures become params.
 
 ```rust
 use snapfire_fsr_runtime::{EntryId, Matcher, PathMatcher};

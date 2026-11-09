@@ -555,7 +555,7 @@ One `[[auth.methods]]` entry.
 * `pub struct config::TraceSection { pub expose: Vec<String>, pub inline: Vec<String> }`. Each is empty when not written.
 * `expose`: the paths whose responses carry an `x-sf-request` token that `GET /__fsr/trace/{token}` reads back.
 * `inline`: the paths whose HTML pages end with their own trace.
-* Entries are `matchit` route patterns: `/` is the home page alone and `/docs/{*rest}` is every path under `/docs`.
+* Entries are route patterns: `/` is the home page alone and `/docs/{*rest}` is every path under `/docs`.
 
 ### CrawlSection
 

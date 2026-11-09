@@ -148,15 +148,15 @@ What a matcher returns. `Debug`, `Clone`, `PartialEq`, `#[non_exhaustive]`.
 
 ### PathMatcher
 
-A `matchit::Router<EntryId>` behind `Matcher`. `Default`.
+Route patterns to entries, behind `Matcher`. `Default`.
 
 * `new() -> Self`
-* `insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), RouteConflict>`: `pattern` is a `matchit` pattern, such as `/dash/{section}`. A conflicting or malformed pattern fails here.
-* `match_path` answers named captures as params, in the order `matchit` yields them.
+* `insert(&mut self, pattern: &str, entry: EntryId) -> Result<(), RouteConflict>`: `pattern` is a path with `{name}` for one segment and `{*name}` for the rest of the path, such as `/dash/{section}`. A conflicting or malformed pattern fails here.
+* `match_path` answers named captures as params, in pattern order.
 
 ### HandlerMatcher
 
-One `matchit` router per HTTP method, resolving to a handler id. `Default`.
+Route patterns per HTTP method, resolving to a handler id. `Default`. Patterns are written as for `PathMatcher`.
 
 * `new() -> Self`
 * `insert(&mut self, method: &str, pattern: &str, id: impl Into<String>) -> Result<(), RouteConflict>`: the method is upper-cased.
