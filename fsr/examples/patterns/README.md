@@ -9,7 +9,7 @@ PATTERNS_BLESS=1 cargo test -p patterns      # takes this run's outcomes into ou
 PATTERNS_LABEL=a cargo bench -p patterns     # results/a.tsv plus a criterion group per case
 ```
 
-The bench needs `snapfirec` on `PATH` or in `SNAPFIREC` and the network once, for `react-dom/server`. For every case that builds it renders the page with the IR and with React's `renderToString` in QuickJS, over the case's own source compiled apart from the build's rewrite. A row says `same` when the two agree once React's `<!-- -->` between adjacent text, a void element's `/` and attribute order are taken out, `equivalent` when they agree once FSR's own markers are taken out of the IR's as well (an `sf-s` or `sf-i` region around what it holds, a `<template data-sf-…>` held for later, a props `<script data-sf-…>`) and `differs` otherwise. Each case that renders gets `<label>/ir/<case>` and `<label>/react/<case>` timings.
+The bench needs `snapfirec` on `PATH` or in `SNAPFIREC` and the network once, for `react-dom/server`. For every case that builds it renders the page with the IR and with React's `renderToString` in QuickJS, over the case's routes compiled with the build's rewrite and the import map the host serves, with the hoisted table the IR's render took. A row says `same` when the two agree once React's `<!-- -->` between adjacent text, a void element's `/` and attribute order are taken out, `equivalent` when they agree once FSR's own markers are taken out of the IR's as well (an `sf-s` or `sf-i` region around what it holds, a `<template data-sf-…>` held for later, a props `<script data-sf-…>`) and `differs` otherwise. Each case that renders gets `<label>/ir/<case>` and `<label>/react/<case>` timings.
 
 | File | What it is |
 | --- | --- |
