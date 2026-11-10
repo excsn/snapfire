@@ -4,6 +4,7 @@ members = [
   "compiler",
   "i18n",
   "i18n/datagen",
+  "time",
   "media",
   "sitemap",
   "tailwind",

@@ -1,0 +1,29 @@
+[package]
+name = "snapfire_time"
+version = "0.1.0"
+include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
+description = "Time zones and calendar time for SnapFire, from a compiled time zone database or the host's own, as JavaScript reads them"
+keywords = ["snapfire", "time", "timezone", "temporal", "tzdb"]
+categories = ["date-and-time"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = "https://github.com/excsn/snapfire"
+homepage = "https://github.com/excsn/snapfire/tree/main/time"
+readme = "README.md"
+
+[features]
+default = ["tz_compiled"]
+# The IANA time zone database compiled into the binary, about 240 KiB. Every
+# host answers the same, slim containers included; `cargo update -p jiff-tzdb`
+# takes new rules.
+tz_compiled = []
+# The host's own zoneinfo under `/usr/share/zoneinfo`, read when a zone is
+# first used. Zones follow the host's tzdata; a host without it has none.
+tz_system = []
+
+[dependencies]
+temporal_rs = { version = "0.2.6", default-features = false, features = ["std"] }
+timezone_provider = { version = "0.2.6", features = ["tzif"] }
+iana-time-zone = "0.1"
