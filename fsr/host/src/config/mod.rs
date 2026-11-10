@@ -68,6 +68,8 @@ pub struct Config {
   /// `[crawl]`: the `robots.txt` and `sitemap.xml` the host answers; absent
   /// means neither.
   pub crawl: Option<CrawlSection>,
+  /// `[time] zones`: where `Date`'s local time reads its zone rules when the build holds both sources; absent means the compiled database.
+  pub time_zones: Option<TimeZones>,
   /// `[desktop]`: the native window `fsr dev --desktop` and `fsr serve
   /// --desktop` open; the host reads none of it.
   pub desktop: Option<DesktopSection>,
@@ -1428,6 +1430,16 @@ pub struct VendorSection {
 /// `/docs`. `expose` lists the paths whose requests carry an `x-sf-request`
 /// token and whose trace that token reads back from `/__fsr/trace/{token}`.
 /// Empty exposes nothing; `fsr dev` exposes every path.
+/// `[time] zones`: the time zone source the host reads, one the build holds through the `tz_compiled` or the `tz_system` feature.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TimeZones {
+  /// The IANA database compiled into the binary.
+  Compiled,
+  /// The host's zoneinfo under `/usr/share/zoneinfo`.
+  System,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]

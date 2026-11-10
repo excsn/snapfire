@@ -303,6 +303,7 @@ A number the server reads as a double whatever its value.
 * Another typed array is `ta` with its kind, covering only its own `byteOffset` and `byteLength` window.
 * `Uint8ClampedArray` is not part of the model and encodes as an object.
 * A `Date`, `Map`, `Set` and `URL` are `var` with tag `$date`, `$map`, `$set` and `$url`.
+* A `Temporal` `Instant`, `PlainDate`, `PlainTime`, `PlainDateTime`, `ZonedDateTime` or `Duration` is `var` with tag `$temporal` and payload `[type, text]`. A browser without `Temporal` reads the text.
 * A plain object owning a `$` key is the `m` tag's pair list.
 
 ### Tag Encoding
@@ -318,7 +319,7 @@ Tags are objects with a `$` discriminant.
 | `b` | `v`, base64 | `Uint8Array` |
 | `ta` | `k`, kind; `v`, base64 little-endian | matching typed array |
 | `m` | `v`, array of `[key, value]` pairs | plain object |
-| `var` | `t`, tag; `p`, optional payload | a `Date`, `Map`, `Set`, `bigint` or `URL` when `t` is `$date`, `$map`, `$set`, `$bigint` or `$url` |
+| `var` | `t`, tag; `p`, optional payload | a `Date`, `Map`, `Set`, `bigint`, `URL` or Temporal value when `t` is `$date`, `$map`, `$set`, `$bigint`, `$url` or `$temporal` |
 | `ref` | `k`, `"action"` or `"module"`; `id` | `RefValue` |
 | `undef` | none | `undefined` |
 

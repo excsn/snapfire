@@ -508,6 +508,19 @@ impl Config {
       None
     };
 
+    let time_zones = match store.get("time.zones").map(|v| to_json(&v)) {
+      None => None,
+      Some(value) => {
+        let zones: TimeZones = serde_json::from_value(value.clone()).map_err(|_| HostError::Config(at.clone(), format!("time.zones is `compiled` or `system`, not {value}")))?;
+        let source = match zones {
+          TimeZones::Compiled => snapfire_time::Source::Compiled,
+          TimeZones::System => snapfire_time::Source::System,
+        };
+        snapfire_time::choose(source).map_err(|e| HostError::Config(at.clone(), format!("time.zones: {e}")))?;
+        Some(zones)
+      }
+    };
+
     let trace: Option<TraceSection> = if store.path_exists("trace") || !store.key_paths_with_prefix(Some("trace")).is_empty() {
       let mut json = serde_json::Map::new();
       for key in ["expose", "inline", "report"] {
@@ -1100,6 +1113,7 @@ impl Config {
       build,
       trace,
       crawl,
+      time_zones,
       desktop,
       pwa,
       files,

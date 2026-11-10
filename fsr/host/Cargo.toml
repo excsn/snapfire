@@ -14,7 +14,14 @@ repository = { workspace = true }
 readme = "README.md"
 
 [features]
-default = ["client_readable"]
+default = ["client_readable", "tz_compiled"]
+# The IANA time zone database compiled into the binary, about 240 KiB, which
+# `Date`'s local time reads. Every host answers the same, slim containers
+# included. Either source may be on, or both, with `[time] zones` choosing.
+tz_compiled = ["snapfire_fsr_ir/tz_compiled", "snapfire_time/tz_compiled"]
+# The host's own zoneinfo under `/usr/share/zoneinfo`, read when a zone is
+# first used.
+tz_system = ["snapfire_fsr_ir/tz_system", "snapfire_time/tz_system"]
 # The readable client build, beside the minified one the binary always carries.
 # Off, the binary is about 215 KiB smaller and serves minified whatever
 # `document.client` says.
@@ -55,6 +62,7 @@ tracing-subscriber = { version = "0.3", features = ["registry", "std", "fmt"] }
 parking_lot = "0.13"
 snapfire_fsr.workspace = true
 snapfire_fsr_ir.workspace = true
+snapfire_time = { path = "../../time", version = "0.1.0", default-features = false }
 snapfire_fsr_auth = { workspace = true, optional = true }
 snapfire_fsr_oidc = { workspace = true, optional = true }
 snapfire_fsr_passkey = { workspace = true, optional = true }

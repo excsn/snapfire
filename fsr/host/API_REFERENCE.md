@@ -39,6 +39,7 @@ The stock FSR host: `config/` and the build's artifacts served as a `tower::Serv
   * [TypecheckSection](#typechecksection)
   * [VendorSection](#vendorsection)
   * [BuildSection](#buildsection)
+  * [TimeZones](#timezones)
   * [TraceSection](#tracesection)
   * [CrawlSection](#crawlsection)
   * [DesktopSection](#desktopsection)
@@ -170,7 +171,7 @@ The configuration the host reads.
   * `root: PathBuf`, `app: PathBuf`, `runs: Runs`, `sources: Vec<PathBuf>`
   * `server: ServerConfig`, `document: DocumentConfig`, `session: SessionSection`, `cache: Option<CacheSection>`, `store: StoreSection`
   * `clients: BTreeMap<String, ClientConfig>`, `statics: Vec<StaticRoot>`, `routes: Vec<RouteDecl>`, `secrets: BTreeMap<String, SecretEntry>`
-  * `locales: Option<LocalesSection>`, `auth: Option<AuthSection>`, `typecheck: Option<TypecheckSection>`, `vendor: Option<VendorSection>`, `build: Option<BuildSection>`, `trace: Option<TraceSection>`, `crawl: Option<CrawlSection>`, `desktop: Option<DesktopSection>`, `pwa: Option<PwaSection>`
+  * `locales: Option<LocalesSection>`, `auth: Option<AuthSection>`, `typecheck: Option<TypecheckSection>`, `vendor: Option<VendorSection>`, `build: Option<BuildSection>`, `trace: Option<TraceSection>`, `crawl: Option<CrawlSection>`, `time_zones: Option<TimeZones>`, `desktop: Option<DesktopSection>`, `pwa: Option<PwaSection>`
   * `files: FilesSection`, `mdx: MdxSection`, `site: Option<SiteSection>`, `sites: Option<SitesSection>`, `dirs: DirsSection`, `images: ImagesSection`, `media: MediaSection`, `fonts: FontsSection`
   * `shell_vendor: Option<PathBuf>`, `favicon: Option<String>`, `public: BTreeMap<String, PublicValue>`, `bundle: Option<Bundle>`
   * `inferred: Vec<String>`, `ignored: Vec<String>`, `deployment: Option<Deployment>`, `undecrypted: Vec<String>`
@@ -547,6 +548,13 @@ One `[[auth.methods]]` entry.
 * `strict`: refuses a build that leaves a component to render in the browser alone. Off when absent.
 * `target` and `lib`: what every tsconfig the build writes carries. `config::DEFAULT_TARGET` (`es2022`) and the target's own library when absent.
 * Refused: a target older than `es2017`, a target other than `esnext` or `es` followed by a four-digit edition and an empty `lib` entry.
+
+### TimeZones
+
+`[time] zones`: the time zone source `Date`'s local time reads. `#[derive(Debug, Clone, Copy, PartialEq, Eq)]`: `Compiled`, `System`.
+
+* Written as `"compiled"` or `"system"`. Absent means the compiled database when the build holds it.
+* Loading picks the source for the process, once. A source the build lacks, through the `tz_compiled` or `tz_system` feature, refuses the configuration with the feature named.
 
 ### TraceSection
 

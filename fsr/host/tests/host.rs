@@ -8666,3 +8666,19 @@ async fn a_page_names_the_route_pattern_it_was_served_by() {
   let html = body_of(response).await;
   assert!(html.contains("<meta name=\"sf-route\" content=\"/\">"), "{html}");
 }
+
+#[test]
+fn time_zones_names_a_source_the_build_holds() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[time]\nzones = \"weekly\"\n")).unwrap();
+  let err = Host::from(dir.join("app.toml")).err().expect("refused").to_string();
+  assert!(err.contains("time.zones is `compiled` or `system`"), "{err}");
+  if !cfg!(feature = "tz_system") {
+    std::fs::write(dir.join("app.toml"), format!("{toml}\n[time]\nzones = \"system\"\n")).unwrap();
+    let err = Host::from(dir.join("app.toml")).err().expect("refused").to_string();
+    assert!(err.contains("enable the `tz_system` feature"), "{err}");
+  }
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[time]\nzones = \"compiled\"\n")).unwrap();
+  assert!(Host::from(dir.join("app.toml")).is_ok());
+}

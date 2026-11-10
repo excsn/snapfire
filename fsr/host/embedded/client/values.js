@@ -42,6 +42,30 @@ const MAP_TAG = "$map";
 const SET_TAG = "$set";
 const BIGINT_TAG = "$bigint";
 const URL_TAG = "$url";
+const TEMPORAL_TAG = "$temporal";
+const TEMPORAL_TYPES = [
+    "Instant",
+    "PlainDate",
+    "PlainTime",
+    "PlainDateTime",
+    "ZonedDateTime",
+    "Duration"
+];
+function temporalGlobal() {
+    return globalThis.Temporal;
+}
+function temporalOf(v) {
+    const temporal = temporalGlobal();
+    if (!temporal || typeof v !== "object" || v === null) return undefined;
+    for (const name of TEMPORAL_TYPES){
+        const type = temporal[name];
+        if (type && v instanceof type) return [
+            name,
+            String(v)
+        ];
+    }
+    return undefined;
+}
 const TYPED_ARRAYS = {
     i8: Int8Array,
     u8: Uint8Array,
@@ -119,6 +143,12 @@ function decodeTagged(obj) {
                         return BigInt(decodeValue(payload));
                     case URL_TAG:
                         return new URL(decodeValue(payload));
+                    case TEMPORAL_TAG:
+                        {
+                            const [name, text] = decodeValue(payload);
+                            const temporal = temporalGlobal();
+                            return temporal && temporal[name] ? temporal[name].from(text) : text;
+                        }
                 }
                 return payload === undefined ? variant(t) : variant(t, decodeValue(payload));
             }
@@ -269,6 +299,12 @@ export function encodeValue(v) {
         $: "var",
         t: URL_TAG,
         p: v.href
+    };
+    const temporal = temporalOf(v);
+    if (temporal) return {
+        $: "var",
+        t: TEMPORAL_TAG,
+        p: temporal
     };
     if (isDouble(v)) {
         const n = v.value;

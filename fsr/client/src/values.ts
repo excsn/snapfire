@@ -73,6 +73,25 @@ const MAP_TAG = "$map";
 const SET_TAG = "$set";
 const BIGINT_TAG = "$bigint";
 const URL_TAG = "$url";
+/** A Temporal value travels as its type's name and its canonical string, `["PlainDate", "2024-02-29"]`. */
+const TEMPORAL_TAG = "$temporal";
+const TEMPORAL_TYPES = ["Instant", "PlainDate", "PlainTime", "PlainDateTime", "ZonedDateTime", "Duration"] as const;
+
+/** The global `Temporal`, absent in a browser that has not shipped it. */
+function temporalGlobal(): Record<string, { from(text: string): SfValue }> | undefined {
+  return (globalThis as { Temporal?: Record<string, { from(text: string): SfValue }> }).Temporal;
+}
+
+/** `[type, text]` of a value that is one of the Temporal types this client carries. */
+function temporalOf(v: unknown): [string, string] | undefined {
+  const temporal = temporalGlobal();
+  if (!temporal || typeof v !== "object" || v === null) return undefined;
+  for (const name of TEMPORAL_TYPES) {
+    const type = temporal[name] as unknown as (new (...args: never[]) => object) | undefined;
+    if (type && v instanceof type) return [name, String(v)];
+  }
+  return undefined;
+}
 
 const TYPED_ARRAYS: Record<string, new (buf: ArrayBuffer) => SfValue> = {
   i8: Int8Array,
@@ -147,6 +166,11 @@ function decodeTagged(obj: { [key: string]: unknown }): SfValue {
           return BigInt(decodeValue(payload) as number | bigint | string);
         case URL_TAG:
           return new URL(decodeValue(payload) as string);
+        case TEMPORAL_TAG: {
+          const [name, text] = decodeValue(payload) as [string, string];
+          const temporal = temporalGlobal();
+          return temporal && temporal[name] ? temporal[name].from(text) : text;
+        }
       }
       return payload === undefined ? variant(t) : variant(t, decodeValue(payload));
     }
@@ -233,6 +257,8 @@ export function encodeValue(v: SfValue): unknown {
   if (v instanceof Map) return { $: "var", t: MAP_TAG, p: Array.from(v, ([k, val]) => [encodeValue(k), encodeValue(val)]) };
   if (v instanceof Set) return { $: "var", t: SET_TAG, p: Array.from(v, encodeValue) };
   if (v instanceof URL) return { $: "var", t: URL_TAG, p: v.href };
+  const temporal = temporalOf(v);
+  if (temporal) return { $: "var", t: TEMPORAL_TAG, p: temporal };
   if (isDouble(v)) {
     const n = v.value;
     if (Number.isNaN(n)) return { $: "f", v: "nan" };

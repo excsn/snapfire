@@ -191,6 +191,9 @@ lib = ["es2023", "dom"]           # optional: the tsconfig lib; left to the targ
 before = ["contents"]             # optional: Cargo projects fsr build and fsr dev run in order ahead of the app build
 after = ["generate"]              # optional: Cargo projects fsr build and fsr dev run in order once the app is built
 
+[time]                            # optional
+zones = "compiled"                # the default; "system" reads the host's zoneinfo, which takes the tz_system feature
+
 [trace]                           # optional: without it no client reads a trace outside dev
 expose = ["/", "/{*rest}"]        # route patterns whose requests a page may read its own trace of; these two cover every path
 report = ["/{*rest}"]             # route patterns whose pages name their trace id in <meta name="sf-trace">, for a client report; it reads nothing back
