@@ -24,6 +24,7 @@ mod node;
 mod packages;
 mod pages;
 mod prisma;
+mod promises;
 mod relocate;
 mod scripts;
 mod stats;
@@ -210,9 +211,9 @@ pub trait Pass {
 /// The passes for `source`, in the order they run.
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
-    Source::NextApp => workspace_pass().into_iter().chain(next::app_passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
-    Source::NextPages => workspace_pass().into_iter().chain(pages::passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
-    Source::Ink => workspace_pass().into_iter().chain(ink::passes()).chain(packages::passes()).chain(node::passes()).chain(stats::passes()).chain(callbacks::passes()).collect(),
+    Source::NextApp => workspace_pass().into_iter().chain(next::app_passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(promises::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::NextPages => workspace_pass().into_iter().chain(pages::passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(promises::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::Ink => workspace_pass().into_iter().chain(ink::passes()).chain(packages::passes()).chain(node::passes()).chain(stats::passes()).chain(callbacks::passes()).chain(promises::passes()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }

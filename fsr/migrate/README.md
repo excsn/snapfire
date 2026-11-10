@@ -6,7 +6,7 @@
 
 Rewrites an application written for Next.js, SvelteKit, Nuxt or Ink into a SnapFire FSR application, and names each line it left for a person.
 
-It moves routes, layouts and API handlers into FSR's `app/routes/` layout. It turns data fetching into route loaders and head tags into a loader's `meta`. It carries public environment variables, scripts and ESLint settings across. Whatever it cannot rewrite stays as it was, with a note giving the file and line and saying why.
+It moves routes, layouts and API handlers into FSR's `app/routes/` layout. It turns data fetching into route loaders and head tags into a loader's `meta`. It writes a promise chain in an async function, `await p.then(f).catch(g)`, with `await` and `try`. It carries public environment variables, scripts and ESLint settings across. Whatever it cannot rewrite stays as it was, with a note giving the file and line and saying why.
 
 Most applications never depend on this crate. `fsr migrate` is built on it:
 
