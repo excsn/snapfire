@@ -55,6 +55,11 @@ impl Hooks for NoHooks {
 
 /// React's `renderToString` over the case's page in QuickJS, loaded once.
 pub fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, rt: &tokio::runtime::Runtime) -> Result<Engine, String> {
+  react_engine_from(app, built, cache, rt, true)
+}
+
+/// React's engine for `app`, its page compiled from the browser copy the build rewrote when `rewritten`, else from the sources as written. The sources as written are what a composition parent of an island amounts to in a browser, which only ever sees its server markup.
+pub fn react_engine_from(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, rt: &tokio::runtime::Runtime, rewritten: bool) -> Result<Engine, String> {
   let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
   snapfire_fsr_cli::write_overlay(app, built).map_err(|e| format!("overlay: {e}"))?;
   snapfire_fsr_cli::write_generated(app, built).map_err(|e| format!("generated: {e}"))?;
@@ -85,7 +90,7 @@ pub fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, r
   let mut command = std::process::Command::new(snapfirec);
   command.arg("--root").arg(&app).arg("--config").arg(reference.join("tsconfig.json")).arg("--import-map").arg(prepared.test_dir.join("importmap.json")).current_dir(&reference);
   let overlay = app.join(snapfire_fsr_cli::dev::BUNDLE_OVERLAY);
-  if overlay.is_dir() {
+  if rewritten && overlay.is_dir() {
     command.arg("--overlay").arg(snapfire_fsr_cli::dev::BUNDLE_OVERLAY);
   }
   let compiled = command.output().map_err(|e| format!("snapfirec: {e}"))?;
@@ -101,11 +106,36 @@ pub fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, r
   Ok(engine)
 }
 
-/// Sets `__props` in `engine` to the page's props: none of its own, plus the hoisted table the IR's render of the page took.
+/// The hoists of `rendered` and of each island inside it, keyed as one React root over the whole page reaches them. The server keys an island's hoists from the island's own root. The page's root reaches them under the island's placement: the path its key `parent|i<n>@path` names, then `c<n>`.
+fn hoists_under(rendered: &Rendered, path: &[String], into: &mut snapfire_fsr_core::ValueMap) {
+  for (key, value) in rendered.hoisted.iter() {
+    let (head, own) = match key.split_once('@') {
+      Some((head, own)) => (head, own.split('.').map(str::to_owned).collect::<Vec<_>>()),
+      None => (key.as_str(), Vec::new()),
+    };
+    let full: Vec<String> = path.iter().cloned().chain(own).collect();
+    into.insert(if full.is_empty() { head.to_owned() } else { format!("{head}@{}", full.join(".")) }, value.clone());
+  }
+  for island in &rendered.islands {
+    let Some((_, placed)) = island.key.rsplit_once('|') else { continue };
+    let (id, at) = match placed.split_once('@') {
+      Some((id, at)) => (id, at.split('.').map(str::to_owned).collect::<Vec<_>>()),
+      None => (placed, Vec::new()),
+    };
+    let Some(n) = id.strip_prefix('i') else { continue };
+    let mut inner = at;
+    inner.push(format!("c{n}"));
+    hoists_under(&island.body, &inner, into);
+  }
+}
+
+/// Sets `__props` in `engine` to the page's props: none of its own, plus the hoisted tables the IR's render of the page took, keyed for one root.
 pub fn set_props(engine: &Engine, rendered: &Rendered) -> Result<(), String> {
   let mut props = snapfire_fsr_core::ValueMap::default();
-  if !rendered.hoisted.is_empty() {
-    props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
+  let mut hoisted = snapfire_fsr_core::ValueMap::default();
+  hoists_under(rendered, &[], &mut hoisted);
+  if !hoisted.is_empty() {
+    props.insert(HOISTED_PROP.to_owned(), Value::Map(hoisted));
   }
   let json = value_to_json(&Value::Map(props)).to_string();
   engine.eval_string(&format!("globalThis.__props = __decode({}); ''", serde_json::to_string(&json).expect("a JSON string"))).map(|_| ()).map_err(|e| format!("props: {e}"))

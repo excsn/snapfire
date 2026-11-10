@@ -36,19 +36,19 @@ fn without_preloads(html: &str) -> String {
 }
 
 /// React's engine for `app`; the first one made fetches `react-dom/server` into `cache` while the others wait for it.
-fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, rt: &tokio::runtime::Runtime) -> Result<snapfire_fsr_engine::Engine, String> {
+fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, rt: &tokio::runtime::Runtime, rewritten: bool) -> Result<snapfire_fsr_engine::Engine, String> {
   let ready = cache.with_extension("ready");
   if !ready.exists() {
     std::fs::create_dir_all(cache.parent().unwrap()).map_err(|e| e.to_string())?;
     let lock = File::create(cache.with_extension("lock")).map_err(|e| e.to_string())?;
     lock.lock().map_err(|e| e.to_string())?;
     if !ready.exists() {
-      let engine = patterns::react::react_engine(app, built, cache, rt)?;
+      let engine = patterns::react::react_engine_from(app, built, cache, rt, rewritten)?;
       std::fs::write(&ready, "").map_err(|e| e.to_string())?;
       return Ok(engine);
     }
   }
-  patterns::react::react_engine(app, built, cache, rt)
+  patterns::react::react_engine_from(app, built, cache, rt, rewritten)
 }
 
 /// The processor time one example may take; the engine's clock stands still, so a render that waits for it spins and never returns. Processor time rather than wall time, so a machine running every example at once does not time one out.
@@ -110,10 +110,14 @@ fn verdict(app: &Path) -> String {
   }
   let cache = Path::new(env!("CARGO_TARGET_TMPDIR")).join("react-dom-server");
   let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-  let react = match react_engine(app, &built, &cache, &rt).and_then(|engine| {
-    patterns::react::set_props(&engine, &rendered)?;
-    engine.eval_string("__render(__props)").map_err(|e| format!("{e}"))
-  }) {
+  let render = |rewritten: bool| {
+    react_engine(app, &built, &cache, &rt, rewritten).and_then(|engine| {
+      patterns::react::set_props(&engine, &rendered)?;
+      engine.eval_string("__render(__props)").map_err(|e| format!("{e}"))
+    })
+  };
+  // A subtree only a composition parent's server render holds has no markup in any island's table; the browser never renders that parent, so the reference renders the sources as written.
+  let react = match render(true).or_else(|e| if e.contains("is a subtree the server renders") { render(false) } else { Err(e) }) {
     Ok(html) => without_preloads(&html),
     Err(e) => return format!("react fails: {}", e.lines().next().unwrap_or_default()),
   };
