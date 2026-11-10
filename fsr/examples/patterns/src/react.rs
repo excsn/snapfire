@@ -79,7 +79,7 @@ pub fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, r
   std::fs::create_dir_all(&reference).map_err(|e| format!("ref: {e}"))?;
   let app = std::fs::canonicalize(app).map_err(|e| format!("app: {e}"))?;
   let root = app.display().to_string();
-  let tsconfig = format!("{{ \"compilerOptions\": {{ \"target\": \"es2022\", \"outDir\": \"dist\", \"rootDir\": {root:?}, \"allowJs\": true, \"jsx\": \"react-jsx\", \"jsxImportSource\": \"react\", \"baseUrl\": {root:?}, \"paths\": {{ \"@app/*\": [\"./*\"], \"@routes/*\": [\"./routes/*\"], \"@src/*\": [\"./src/*\"] }} }}, \"include\": [{routes:?}], \"files\": {files:?} }}\n", routes = format!("{root}/routes/**/*"), files = built.added.iter().filter(|file| file.starts_with("routes/")).map(|file| format!("{root}/{file}")).collect::<Vec<_>>());
+  let tsconfig = format!("{{ \"compilerOptions\": {{ \"target\": \"es2022\", \"outDir\": \"dist\", \"rootDir\": {root:?}, \"allowJs\": true, \"jsx\": \"react-jsx\", \"jsxImportSource\": \"react\", \"baseUrl\": {root:?}, \"paths\": {{ \"@app/*\": [\"./*\"], \"@routes/*\": [\"./routes/*\"], \"@src/*\": [\"./src/*\"] }} }}, \"include\": [{routes:?}, {src:?}], \"files\": {files:?} }}\n", routes = format!("{root}/routes/**/*"), src = format!("{root}/src/**/*"), files = built.added.iter().filter(|file| file.starts_with("routes/")).map(|file| format!("{root}/{file}")).collect::<Vec<_>>());
   std::fs::write(reference.join("tsconfig.json"), tsconfig).map_err(|e| format!("ref: {e}"))?;
   let snapfirec = std::env::var_os("SNAPFIREC").unwrap_or_else(|| "snapfirec".into());
   let mut command = std::process::Command::new(snapfirec);

@@ -100,16 +100,20 @@ fn verdict(app: &Path) -> String {
   let Ok(built) = build(app, &Options::default()) else { return "refused".to_owned() };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(prepare(&c.body)))).collect());
   let Some(page) = components.get(patterns::PAGE).cloned() else { return "no page".to_owned() };
-  let ir = match snapfire_fsr_ir::Interpreter::default().with_consts(Some(Arc::new(built.manifest.consts.clone()))).render(&page, &snapfire_fsr_core::ValueMap::default(), &components) {
-    Ok(rendered) => patterns::flatten(&rendered),
+  let rendered = match snapfire_fsr_ir::Interpreter::default().with_consts(Some(Arc::new(built.manifest.consts.clone()))).render(&page, &snapfire_fsr_core::ValueMap::default(), &components) {
+    Ok(rendered) => rendered,
     Err(e) => return format!("ir fails: {}", e.message.lines().next().unwrap_or_default()),
   };
+  let ir = patterns::flatten(&rendered);
   for package in ["react", "react-dom"] {
     copy(&patterns::root().join("template/app/vendor").join(package), &app.join("vendor").join(package));
   }
   let cache = Path::new(env!("CARGO_TARGET_TMPDIR")).join("react-dom-server");
   let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
-  let react = match react_engine(app, &built, &cache, &rt).and_then(|engine| engine.eval_string("__render({})").map_err(|e| format!("{e}"))) {
+  let react = match react_engine(app, &built, &cache, &rt).and_then(|engine| {
+    patterns::react::set_props(&engine, &rendered)?;
+    engine.eval_string("__render(__props)").map_err(|e| format!("{e}"))
+  }) {
     Ok(html) => without_preloads(&html),
     Err(e) => return format!("react fails: {}", e.lines().next().unwrap_or_default()),
   };
