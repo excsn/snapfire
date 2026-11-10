@@ -11,11 +11,11 @@ The question this chapter answers: what runs an fsr application when nobody has 
 A stock host is two lines; the storefront's `main.rs` adds one Rust route between them and its two backends around them:
 
 ```rust
-let host = Host::from(std::env::current_dir()?)?.build()?;
+let host = Host::from_cwd()?.build()?;
 snapfire_fsr_host::actix::serve(Arc::new(host), ("127.0.0.1", 8080)).await
 ```
 
-`Host::from` takes a project root, a `config/` directory or a single file, finds the app directory from it, reads the plan file and the contracts under `generated/` and binds every row. Passing the working directory makes the binary serve the directory it starts in: the project under `cargo run` and the bundled tree on a server ([chapter 303](303-the-deploy-tree.md)). The examples in this repository pass `env!("CARGO_MANIFEST_DIR")` instead because they run from the workspace root. A binary built that way looks for the app on the machine that compiled it. Every builder method before `build` is an extension point that [chapter 201](201-graduating-to-rust.md) uses. An application that needs none of them needs only those two lines.
+`Host::from` takes a project root, a `config/` directory or a single file, finds the app directory from it, reads the plan file and the contracts under `generated/` and binds every row. `Host::from_cwd()` is `Host::from` on the working directory, so the binary serves the directory it starts in: the project under `cargo run` and the bundled tree on a server ([chapter 303](303-the-deploy-tree.md)). The examples in this repository pass `env!("CARGO_MANIFEST_DIR")` instead because they run from the workspace root. A binary built that way looks for the app on the machine that compiled it. Every builder method before `build` is an extension point that [chapter 201](201-graduating-to-rust.md) uses. An application that needs none of them needs only those two lines.
 
 ## The configuration ladder
 

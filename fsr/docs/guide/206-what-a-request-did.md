@@ -14,14 +14,12 @@ fsr keeps the spans: `fibre_tracing` is a layer that collects a request's spans 
 
 ## Turning it on
 
-Add these lines to `main`, before the host is built:
+Add two lines to `main`, before the host is built:
 
 ```rust
-let root = std::env::current_dir()?;
-let logging = root.join("fibre_logging.yaml");
-let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
+let (traces, _logging, why) = snapfire_fsr_host::trace::observe(Path::new("fibre_logging.yaml"));
 
-let host = Host::from(&root)
+let host = Host::from_cwd()
   .and_then(|builder| builder.traces(traces).build())?;
 ```
 
