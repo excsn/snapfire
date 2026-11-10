@@ -104,6 +104,34 @@ fn a_browser_value_at_the_root_or_under_a_placement_is_left_to_the_browser_too()
 }
 
 #[test]
+fn locale_case_without_a_locale_is_left_to_the_browser_and_with_one_is_written_by_the_server() {
+  let page = "export default function Page() {\n  return <p><b>{\"istanbul\".toLocaleUpperCase()}</b><i>{\"istanbul\".toLocaleUpperCase(\"tr\")}</i></p>;\n}\n";
+  let out = lower("case", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p><b></b><i>\u{130}STANBUL</i></p>");
+  assert_eq!(out.set.browser_texts.len(), 1, "{:?}", out.set.browser_texts);
+  assert!(out.set.browser_texts[0].1.contains("reads the viewer's locale"), "{:?}", out.set.browser_texts);
+  let computed = "export default function Page() {\n  const tag = [\"tr\"][0];\n  return <p>{\"istanbul\".toLocaleUpperCase(tag)}</p>;\n}\n";
+  let out = lower("computed", &[("routes/page.tsx", computed)]).unwrap();
+  assert_eq!(out.html, "<p>\u{130}STANBUL</p>");
+}
+
+#[test]
+fn the_viewers_year_and_a_local_setter_as_text_are_left_to_the_browser() {
+  let page = "export default function Page() {\n  return <p><b>{new Date(0).getYear()}</b><i>{new Date(0).setHours(1)}</i></p>;\n}\n";
+  let out = lower("local_time", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p><b></b><i></i></p>");
+  assert_eq!(out.set.browser_texts.len(), 2, "{:?}", out.set.browser_texts);
+}
+
+#[test]
+fn temporal_renders_on_the_server_and_its_now_is_left_to_the_browser() {
+  let page = "export default function Page() {\n  const due = Temporal.PlainDate.from(\"2024-01-31\").add({ months: 1 });\n  return <p><b>{due.toString()}</b><i>{due.dayOfWeek}</i><s>{`${Temporal.Duration.from({ minutes: 90 }).round({ largestUnit: \"hours\" })}`}</s><u>{Temporal.Now.plainDateISO().toString()}</u></p>;\n}\n";
+  let out = lower("temporal", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p><b>2024-02-29</b><i>4</i><s>PT1H30M</s><u></u></p>");
+  assert_eq!(out.set.browser_texts.len(), 1, "{:?}", out.set.browser_texts);
+}
+
+#[test]
 fn a_browser_value_in_an_attribute_or_choosing_markup_stays_a_residue() {
   for (tag, body, says) in [
     ("attribute", "<p title={new Date().toLocaleTimeString()}>x</p>", "the current time on a render path"),

@@ -1,5 +1,8 @@
 use crate::*;
 
+/// Methods whose lowering takes a spread argument itself, through [`Builtin::Spread`] or the function it calls.
+const SPREADS: &[&str] = &["fromCharCode", "fromCodePoint", "slice", "at", "indexOf", "lastIndexOf", "charAt", "charCodeAt", "codePointAt", "concat", "padStart", "padEnd", "substring", "call", "bind"];
+
 impl<'a> Lowerer<'a> {
   pub(crate) fn call(&mut self, call: &js::CallExpression) -> Lowered<Expr> {
     if let Some(ok) = self.settled_promise(call) {
@@ -9,6 +12,13 @@ impl<'a> Lowerer<'a> {
         _ => return Err(self.residue(call.span, "`Promise.resolve` or `Promise.reject` with more than one value")),
       };
       return Ok(self.settled(ok, value));
+    }
+    if self.rejects_here(call) {
+      let [reason] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Promise.reject` takes one reason")) };
+      let held = self.temp();
+      let reason = self.expr(crate::syntax::arg_expr(reason))?;
+      let message = Expr::Coalesce(Box::new(Expr::Var(held.clone()).field("message".to_owned())), Box::new(Expr::Var(held.clone())));
+      return Ok(Expr::Block(vec![Stmt::Let { name: held.clone(), expr: reason }, Stmt::Return(Expr::Builtin { name: Builtin::Throw, args: vec![message, Expr::Var(held)] })]));
     }
     if self.calls_next(call) {
       let request = match call.arguments.as_slice() {
@@ -142,9 +152,11 @@ impl<'a> Lowerer<'a> {
       return self.expr(&crate::syntax::arg_expr(&named));
     }
     let math = (callee).as_member_expression().is_some_and(|m| matches!(m.object(), js::Expression::Identifier(id) if id.name.as_str() == "Math"));
-    let applied = matches!(callee, js::Expression::Identifier(id) if self.scope.iter().any(|(n, _)| *n == id.name.as_str()) || self.local_fns.iter().any(|(n, _)| *n == id.name.as_str()) || self.globals.iter().any(|(n, _)| *n == id.name.as_str()));
+    let applied = matches!(callee, js::Expression::Identifier(id) if self.scope.iter().any(|(n, _)| *n == id.name.as_str()) || self.local_fns.iter().any(|(n, _)| *n == id.name.as_str()) || self.globals.iter().any(|(n, _)| *n == id.name.as_str()))
+      || matches!(crate::meaning::bare(callee), js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_));
+    let spreads_itself = callee.as_member_expression().is_some_and(|m| matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if SPREADS.contains(&p.name.as_str())));
     for arg in &call.arguments {
-      if crate::syntax::is_spread(arg) && !math && !applied {
+      if crate::syntax::is_spread(arg) && !math && !applied && !spreads_itself {
         if let js::Expression::Identifier(id) = callee {
           self.unbound = Some(id.name.to_string());
         }
@@ -213,6 +225,14 @@ impl<'a> Lowerer<'a> {
             Ok(Expr::Builtin { name: Builtin::ParseInt, args })
           }
           "parseFloat" => Ok(Expr::Builtin { name: Builtin::ParseFloat, args: vec![*one(self)?] }),
+          "isFinite" => {
+            let n = self.temp();
+            let value = Expr::Num(one(self)?);
+            let difference = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(n.clone())), Box::new(Expr::Var(n.clone())));
+            Ok(Expr::Block(vec![Stmt::Let { name: n, expr: value }, Stmt::Return(Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNaN, args: vec![difference] })))]))
+          }
+          "encodeURI" => Ok(Expr::Builtin { name: Builtin::EncodeUri, args: vec![*one(self)?] }),
+          "decodeURI" => Ok(Expr::Builtin { name: Builtin::DecodeUri, args: vec![*one(self)?] }),
           name if ERROR_CONSTRUCTORS.contains(&name) => {
             let message = match call.arguments.first() {
               Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
@@ -243,13 +263,6 @@ impl<'a> Lowerer<'a> {
     }
 
     let Some(member) = (callee).as_member_expression() else {
-      if matches!(crate::meaning::bare(callee), js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_)) {
-        return Err(self.residue_with(
-          callee.span(),
-          "a function called where it is written",
-          "the build does not run a function to produce a value; write the value as an expression or move the steps into a named function the body calls",
-        ));
-      }
       let f = Box::new(self.expr(callee)?);
       return self.applied(f, call);
     };
@@ -265,6 +278,20 @@ impl<'a> Lowerer<'a> {
       let global = obj.name.as_str();
       if !self.scope.iter().any(|(n, _)| n == global) && !self.globals.iter().any(|(n, _)| n == global) {
         match global {
+          "Object" if matches!(method.as_str(), "assign" | "freeze" | "hasOwn" | "is" | "groupBy") => return self.object_static(&method, call),
+          "Array" if method == "of" => {
+            let mut items = Vec::with_capacity(call.arguments.len());
+            for a in &call.arguments {
+              let value = self.expr(crate::syntax::arg_expr(a))?;
+              items.push(if crate::syntax::is_spread(a) { Entry::Spread(value) } else { Entry::Item(value) });
+            }
+            return Ok(Expr::Array(items));
+          }
+          "String" if matches!(method.as_str(), "fromCharCode" | "fromCodePoint") => {
+            let name = if method == "fromCharCode" { Builtin::FromCharCode } else { Builtin::FromCodePoint };
+            return self.builtin_call(name, Vec::new(), call);
+          }
+          "Promise" if method == "allSettled" => return self.all_settled(call),
           "Object" => {
             let a = call.arguments.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
             let target = Box::new(self.expr(crate::syntax::arg_expr(a))?);
@@ -277,14 +304,7 @@ impl<'a> Lowerer<'a> {
             };
           }
           "Math" if crate::JS_MATH.contains(&method.as_str()) => {
-            let mut args = vec![Expr::lit_str(method.as_str())];
-            for a in &call.arguments {
-              if crate::syntax::is_spread(a) {
-                return Err(self.residue(crate::syntax::arg_expr(a).span(), "a spread argument"));
-              }
-              args.push(self.expr(crate::syntax::arg_expr(a))?);
-            }
-            return Ok(Expr::Builtin { name: Builtin::Math, args });
+            return self.builtin_call(Builtin::Math, vec![Expr::lit_str(method.as_str())], call);
           }
           "Number" if method == "parseInt" => {
             let Some(first) = call.arguments.first() else { return Err(self.residue(call.span, "`Number.parseInt` takes a string and an optional radix")) };
@@ -341,14 +361,7 @@ impl<'a> Lowerer<'a> {
               let name = if name == Builtin::Min { Builtin::MinOf } else { Builtin::MaxOf };
               return Ok(Expr::Builtin { name, args: vec![Expr::Array(entries)] });
             }
-            let mut args = Vec::with_capacity(call.arguments.len());
-            for a in &call.arguments {
-              if crate::syntax::is_spread(a) {
-                return Err(self.residue(crate::syntax::arg_expr(a).span(), "a spread argument"));
-              }
-              args.push(self.expr(crate::syntax::arg_expr(a))?);
-            }
-            return Ok(Expr::Builtin { name, args });
+            return self.builtin_call(name, Vec::new(), call);
           }
           "Response" if matches!(method.as_str(), "json" | "redirect") => {
             let mut args = Vec::with_capacity(call.arguments.len());
@@ -363,12 +376,17 @@ impl<'a> Lowerer<'a> {
             return Ok(Expr::Builtin { name: Builtin::JsonParse, args: vec![self.expr(crate::syntax::arg_expr(arg))?] });
           }
           "JSON" if method == "stringify" => {
-            if call.arguments.len() > 3 || call.arguments.get(1).is_some_and(|a| !matches!(crate::syntax::arg_expr(a), js::Expression::NullLiteral(_))) {
-              return Err(self.residue(call.span, "`JSON.stringify` with a replacer; it takes a value, `null` and an indent"));
+            let mut args = self.plain_args(call)?;
+            if args.len() > 3 {
+              return Err(self.residue(call.span, "`JSON.stringify` takes a value, a replacer and an indent"));
             }
-            let mut args = Vec::with_capacity(call.arguments.len());
-            for a in &call.arguments {
-              args.push(self.expr(crate::syntax::arg_expr(a))?);
+            let plain = call.arguments.get(1).is_none_or(|a| matches!(strip_parens(crate::syntax::arg_expr(a)), js::Expression::NullLiteral(_)) || matches!(strip_parens(crate::syntax::arg_expr(a)), js::Expression::Identifier(id) if id.name.as_str() == "undefined"));
+            if !plain {
+              let replacer = args.remove(1);
+              let value = args.remove(0);
+              let replaced = self.replaced(value, replacer);
+              args.insert(0, replaced);
+              args.insert(1, Expr::Lit(Lit::Null));
             }
             return Ok(Expr::Builtin { name: Builtin::Json, args });
           }
@@ -408,6 +426,7 @@ impl<'a> Lowerer<'a> {
           "Date" => {
             return match method.as_str() {
               "now" => self.date_now(call.span),
+              "UTC" => Ok(Expr::Builtin { name: Builtin::DateUtc, args: self.plain_args(call)? }),
               "parse" => {
                 let arg = call.arguments.first().ok_or_else(|| self.residue(call.span, "`Date.parse` without a string"))?;
                 Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![self.expr(crate::syntax::arg_expr(arg))?] })
@@ -452,15 +471,34 @@ impl<'a> Lowerer<'a> {
       return Ok(Expr::NativeCall { module, method, args, sync: false });
     }
 
+    if let Some(type_name) = crate::temporal_type(member.object()) {
+      let args = [vec![Expr::lit_str(type_name), Expr::lit_str(&method)], self.plain_args(call)?].concat();
+      return Ok(Expr::Ext { module: "temporal".to_owned(), name: "static".to_owned(), args });
+    }
+    if crate::is_temporal_now(member.object()) {
+      if self.on_render_path() && !self.reaches(Reach::Terminal) {
+        return Err(self.browser_only(call.span, format!("`Temporal.Now.{method}()`, the current time on a render path, which the server and the browser read at different moments")));
+      }
+      let args = [vec![Expr::lit_str(&method)], self.plain_args(call)?].concat();
+      return Ok(Expr::Ext { module: "temporal".to_owned(), name: "now".to_owned(), args });
+    }
+    if self.kind_of(member.object()) == Some(Kind::Temporal) {
+      let target = self.expr(member.object())?;
+      let args = [vec![target, Expr::lit_str(&method)], self.plain_args(call)?].concat();
+      return Ok(Expr::Ext { module: "temporal".to_owned(), name: "call".to_owned(), args });
+    }
     if method == "fill" {
       if let Some(length) = self.array_of_length(member.object()) {
         let length = self.expr(length)?;
+        let range = Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] });
+        if call.arguments.len() > 1 {
+          let holes = Expr::Map(range, Box::new(Expr::Lambda { params: vec!["$filled".to_owned()], body: Box::new(Expr::Lit(Lit::Null)) }));
+          return Ok(Expr::Builtin { name: Builtin::Fill, args: [vec![holes], self.plain_args(call)?].concat() });
+        }
         let value = match call.arguments.first() {
-          Some(arg) if call.arguments.len() == 1 => self.expr(crate::syntax::arg_expr(arg))?,
-          Some(_) => return Err(self.residue(call.span, "`fill` with a start or an end")),
+          Some(arg) => self.expr(crate::syntax::arg_expr(arg))?,
           None => Expr::Lit(Lit::Null),
         };
-        let range = Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] });
         return Ok(Expr::Map(range, Box::new(Expr::Lambda { params: vec!["$filled".to_owned()], body: Box::new(value) })));
       }
     }
@@ -549,6 +587,16 @@ impl<'a> Lowerer<'a> {
             Ok(Expr::Builtin { name: Builtin::Includes, args: vec![target, self.expr(crate::syntax::arg_expr(arg))?] })
           }
           "values" | "keys" => Ok(target),
+          "union" | "intersection" | "difference" | "symmetricDifference" | "isSubsetOf" | "isSupersetOf" | "isDisjointFrom" => {
+            let [arg] = call.arguments.as_slice() else { return Err(self.residue(call.span, format!("`{method}` takes one set"))) };
+            let given = crate::syntax::arg_expr(arg);
+            let other = match self.kind_of(given) {
+              Some(Kind::Set) => self.expr(given)?,
+              Some(Kind::Map) => Expr::Keys(Box::new(self.expr(given)?)),
+              _ => return Err(self.residue(given.span(), format!("`{method}` of something the build cannot tell is a `Set` or a `Map`"))),
+            };
+            Ok(self.set_method(&method, target, other))
+          }
           other => Err(self.residue(member.span(), format!("`.{other}()` of a `Set`"))),
         };
       }
@@ -571,6 +619,11 @@ impl<'a> Lowerer<'a> {
       _ => {}
     }
 
+    if matches!(method.as_str(), "call" | "apply" | "bind") {
+      if let Some(f) = self.function_value(member.object())? {
+        return self.function_method(&method, f, call);
+      }
+    }
     let target = Box::new(self.expr(member.object())?);
     let lambda = |this: &mut Self, i: usize| -> Lowered<Box<Expr>> {
       let a = call.arguments.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes a function")))?;
@@ -642,9 +695,9 @@ impl<'a> Lowerer<'a> {
         };
         Ok(Expr::Builtin { name: Builtin::DatePart, args: vec![*target, Expr::lit_str(part)] })
       }
-      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" if self.reaches(Reach::Terminal) && call.arguments.is_empty() => {
+      "getFullYear" | "getYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.is_empty() => {
         let part = match method.as_str() {
-          "getFullYear" => "year",
+          "getFullYear" | "getYear" => "year",
           "getMonth" => "month",
           "getDate" => "date",
           "getDay" => "day",
@@ -655,29 +708,99 @@ impl<'a> Lowerer<'a> {
         let at = self.temp();
         let offset = Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![Expr::Var(at.clone())] };
         let local = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Int(60_000))))));
-        let body = Expr::Builtin { name: Builtin::DatePart, args: vec![local, Expr::lit_str(part)] };
+        let mut body = Expr::Builtin { name: Builtin::DatePart, args: vec![local, Expr::lit_str(part)] };
+        if method == "getYear" {
+          body = Expr::Arith(ArithOp::Sub, Box::new(body), Box::new(Expr::Lit(Lit::Float(1900.0))));
+        }
         Ok(Expr::Apply { f: Box::new(Expr::Lambda { params: vec![at], body: Box::new(body) }), args: vec![*target] })
       }
-      "getTimezoneOffset" if self.reaches(Reach::Terminal) => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
+      "getTimezoneOffset" if self.reaches(Reach::Terminal) || !self.on_render_path() => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
+      "toDateString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.is_empty() => Ok(self.local_date_string(*target)),
       "toLocaleTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.len() <= 1 => {
         let locale = match call.arguments.first().map(|a| strip_parens(crate::syntax::arg_expr(a))) {
           None => Expr::Lit(Lit::Null),
           Some(js::Expression::Identifier(id)) if id.name.as_str() == "undefined" => Expr::Lit(Lit::Null),
           Some(js::Expression::StringLiteral(tag)) => Expr::lit_str(crate::lossy(tag.value)),
-          Some(other) => return Err(self.residue_with(other.span(), "a locale that is not written in place", "write the locale, `\"en-US\"`; `undefined` takes the system's")),
+          Some(other) => self.expr(other)?,
         };
         Ok(Expr::Ext { module: "intl".to_owned(), name: "localTime".to_owned(), args: vec![*target, locale] })
       }
-      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" | "getTimezoneOffset" | "toLocaleTimeString" | "toTimeString" | "toDateString" => {
+      "setFullYear" | "setYear" | "setMonth" | "setDate" | "setHours" | "setMinutes" | "setSeconds" | "setMilliseconds" if self.kind_of(member.object()) == Some(Kind::Date) && self.on_render_path() && !self.reaches(Reach::Terminal) => {
+        Err(self.browser_only(member.span(), format!("`.{method}()`, which reads the viewer's time zone")))
+      }
+      "getFullYear" | "getYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" | "getTimezoneOffset" | "toLocaleTimeString" | "toTimeString" | "toDateString" => {
         let utc = method.replacen("get", "getUTC", 1);
         let mut residue = self.browser_only(member.span(), format!("`.{method}()`, which reads the viewer's time zone"));
         residue.hint = Some(format!("as text under an element the browser fills it in when the component hydrates; the server has no viewer, so `.{utc}()` and `toLocaleDateString(undefined, {{ dateStyle }})` read UTC, which both agree on"));
         Err(residue)
       }
+      "anchor" | "big" | "blink" | "bold" | "fixed" | "fontcolor" | "fontsize" | "italics" | "link" | "small" | "strike" | "sub" | "sup" => {
+        let (tag, attribute) = match method.as_str() {
+          "anchor" => ("a", Some("name")),
+          "bold" => ("b", None),
+          "fixed" => ("tt", None),
+          "fontcolor" => ("font", Some("color")),
+          "fontsize" => ("font", Some("size")),
+          "italics" => ("i", None),
+          "link" => ("a", Some("href")),
+          other => (other, None),
+        };
+        let mut parts = Vec::new();
+        match attribute {
+          Some(attribute) => {
+            let value = match call.arguments.first() {
+              Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
+              None => Expr::lit_str("undefined"),
+            };
+            parts.push(Expr::lit_str(format!("<{tag} {attribute}=\"")));
+            parts.push(Expr::Builtin { name: Builtin::ReplaceAll, args: vec![value, Expr::lit_str("\""), Expr::lit_str("&quot;")] });
+            parts.push(Expr::lit_str("\">"));
+          }
+          None => parts.push(Expr::lit_str(format!("<{tag}>"))),
+        }
+        parts.push(Expr::Str(target));
+        parts.push(Expr::lit_str(format!("</{tag}>")));
+        Ok(Expr::Template(parts))
+      }
+      "hasOwnProperty" | "propertyIsEnumerable" => {
+        let key = match call.arguments.first() {
+          Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
+          None => Expr::lit_str("undefined"),
+        };
+        let (object, name) = (self.temp(), self.temp());
+        let var = |n: &String| Expr::Var(n.clone());
+        let own = Expr::Builtin { name: Builtin::HasKey, args: vec![var(&object), var(&name)] };
+        let answer = if method == "hasOwnProperty" {
+          own
+        } else {
+          let length = Expr::Compare(CompareOp::Eq, Box::new(var(&name)), Box::new(Expr::lit_str("length")));
+          let string = Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![var(&object)] }), Box::new(Expr::lit_str("string")));
+          let indexed = Expr::Logic(LogicOp::Or, Box::new(Expr::Builtin { name: Builtin::IsArray, args: vec![var(&object)] }), Box::new(string));
+          Expr::Logic(LogicOp::And, Box::new(own), Box::new(Expr::Not(Box::new(Expr::Logic(LogicOp::And, Box::new(length), Box::new(indexed))))))
+        };
+        Ok(Expr::Block(vec![Stmt::Let { name: object, expr: *target }, Stmt::Let { name, expr: key }, Stmt::Return(answer)]))
+      }
+      "toLocaleUpperCase" | "toLocaleLowerCase" => {
+        let name = if method == "toLocaleUpperCase" { "upper" } else { "lower" };
+        let server_default = self.reaches(Reach::Terminal) || !self.on_render_path();
+        let intl = |name: &str, args: Vec<Expr>| Expr::Ext { module: "intl".to_owned(), name: name.to_owned(), args };
+        let given = call.arguments.first().map(|a| strip_parens(crate::syntax::arg_expr(a)));
+        let args = match given.map(|given| (written_locale(given), given)) {
+          Some((Some(Some(tag)), _)) => vec![*target, Expr::lit_str(tag)],
+          None | Some((Some(None), _)) if server_default => vec![*target, intl("systemLocale", Vec::new())],
+          None | Some((Some(None), _)) => return Err(self.browser_only(member.span(), format!("`.{method}()`, which reads the viewer's locale"))),
+          Some((None, computed)) => {
+            let locales = self.expr(computed)?;
+            let fallback = if server_default { intl("systemLocale", Vec::new()) } else { intl("localeTag", Vec::new()) };
+            vec![*target, locales, fallback]
+          }
+        };
+        Ok(intl(name, args))
+      }
       "localeCompare" => {
         let other = match call.arguments.first() {
           Some(arg) => self.expr(crate::syntax::arg_expr(arg))?,
-          None => return Err(self.residue(call.span, "`localeCompare` without a string to compare with")),
+          None => Expr::lit_str("undefined"),
         };
         self.intl_call("Collator", call.arguments.get(1..).unwrap_or_default(), vec![*target, other], call.span)
       }
@@ -713,15 +836,60 @@ impl<'a> Lowerer<'a> {
           "padEnd" => Builtin::PadEnd,
           _ => Builtin::Substring,
         };
+        self.builtin_call(name, vec![*target], call)
+      }
+      "findLast" | "findLastIndex" | "reduceRight" => {
+        let f = lambda(self, 0)?;
+        let init = match call.arguments.get(1) {
+          Some(a) if method == "reduceRight" => Some(self.expr(crate::syntax::arg_expr(a))?),
+          _ => None,
+        };
+        Ok(self.from_the_end(&method, *target, f, init))
+      }
+      "substr" | "toPrecision" | "toExponential" | "normalize" => {
+        let name = match method.as_str() {
+          "substr" => Builtin::Substr,
+          "toPrecision" => Builtin::ToPrecision,
+          "toExponential" => Builtin::ToExponential,
+          _ => Builtin::Normalize,
+        };
         let mut args = vec![*target];
-        for a in &call.arguments {
-          if crate::syntax::is_spread(a) {
-            return Err(self.residue(crate::syntax::arg_expr(a).span(), "a spread argument"));
-          }
-          args.push(self.expr(crate::syntax::arg_expr(a))?);
-        }
+        args.extend(self.plain_args(call)?);
         Ok(Expr::Builtin { name, args })
       }
+      "isWellFormed" | "toWellFormed" | "toUTCString" | "toGMTString" if call.arguments.is_empty() => {
+        let name = match method.as_str() {
+          "isWellFormed" => Builtin::IsWellFormed,
+          "toWellFormed" => Builtin::ToWellFormed,
+          _ => Builtin::UtcString,
+        };
+        Ok(Expr::Builtin { name, args: vec![*target] })
+      }
+      "exec" => {
+        let [arg] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`exec` takes the string to search")) };
+        let subject = self.expr(crate::syntax::arg_expr(arg))?;
+        if matches!(strip_parens(member.object()), js::Expression::RegExpLiteral(_)) {
+          let ran = Expr::Builtin { name: Builtin::ExecFrom, args: vec![*target, subject] };
+          return Ok(Expr::Index(Box::new(ran), Box::new(Expr::Lit(Lit::Float(0.0)))));
+        }
+        Ok(Expr::Builtin { name: Builtin::Exec, args: vec![*target, subject] })
+      }
+      "toSpliced" => Ok(Expr::Builtin { name: Builtin::ToSpliced, args: [vec![*target], self.spliced_args(call)?].concat() }),
+      "with" if call.arguments.len() == 2 => {
+        let mut args = vec![*target];
+        args.extend(self.plain_args(call)?);
+        Ok(Expr::Builtin { name: Builtin::ArrayWith, args })
+      }
+      "fill" | "copyWithin" => {
+        if !fresh_array(member.object()) {
+          return Err(self.residue_with(member.span(), format!("`.{method}()` of an array something else holds, which it rewrites in place"), format!("`[...items].{method}()` or `items.slice().{method}()` gives the same items without the write")));
+        }
+        let name = if method == "fill" { Builtin::Fill } else { Builtin::CopyWithin };
+        let mut args = vec![*target];
+        args.extend(self.plain_args(call)?);
+        Ok(Expr::Builtin { name, args })
+      }
+      "entries" | "keys" | "values" if call.arguments.is_empty() => Ok(Expr::Builtin { name: Builtin::Iterate, args: vec![Expr::lit_str(method.as_str()), *target] }),
       "reduce" => {
         let rewritten = match (call.arguments.first().map(|a| strip_parens(crate::syntax::arg_expr(a))), call.arguments.get(1).map(|a| strip_parens(crate::syntax::arg_expr(a)))) {
           (Some(js::Expression::ArrowFunctionExpression(arrow)), Some(js::Expression::ObjectExpression(_))) => fresh_accumulator(self.build(), arrow),
@@ -843,13 +1011,313 @@ impl<'a> Lowerer<'a> {
       other => Err(self.residue_with(
         member.span(),
         format!("`.{other}()`, which is not a builtin"),
-        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test`, `localeCompare`, `toLocaleString`, `trimStart`, `trimEnd`, `valueOf`, `getTime`, `toISOString` and `toJSON`, with `sort` and `reverse` on a fresh array; anything else goes in a module-level helper the build can read",
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `findLast`, `findLastIndex`, `some`, `every`, `reduce`, `reduceRight`, `flatMap`, `flat`, `toSorted`, `toReversed`, `toSpliced`, `with`, `entries`, `keys`, `values`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toPrecision`, `toExponential`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `substr`, `normalize`, `isWellFormed`, `toWellFormed`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test`, `exec`, `localeCompare`, `toLocaleString`, `toLocaleUpperCase`, `toLocaleLowerCase`, `trimStart`, `trimEnd`, `valueOf`, `getTime`, `toISOString`, `toUTCString` and `toJSON`, with `sort`, `reverse`, `fill` and `copyWithin` on a fresh array; anything else goes in a module-level helper the build can read",
       )),
     }
   }
 }
 
 impl Lowerer<'_> {
+  /// `when.toDateString()` in this machine's time zone, `Thu Sep 12 2024`; `Invalid Date` for an invalid instant.
+  fn local_date_string(&mut self, when: Expr) -> Expr {
+    let (at, local) = (self.temp(), self.temp());
+    let offset = Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![Expr::Var(at.clone())] };
+    let shifted = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Float(60_000.0))))));
+    let part = |name: &str| Expr::Builtin { name: Builtin::DatePart, args: vec![Expr::Var(local.clone()), Expr::lit_str(name)] };
+    let names = |list: &[&str]| Expr::Array(list.iter().map(|n| Entry::Item(Expr::lit_str(*n))).collect());
+    let padded = |e: Expr, width: f64| Expr::Builtin { name: Builtin::PadStart, args: vec![Expr::Str(Box::new(e)), Expr::Lit(Lit::Float(width)), Expr::lit_str("0")] };
+    let text = Expr::Template(vec![
+      Expr::Index(Box::new(names(&["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"])), Box::new(part("day"))),
+      Expr::lit_str(" "),
+      Expr::Index(Box::new(names(&["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])), Box::new(part("month"))),
+      Expr::lit_str(" "),
+      padded(part("date"), 2.0),
+      Expr::lit_str(" "),
+      padded(part("year"), 4.0),
+    ]);
+    let invalid = Expr::Builtin { name: Builtin::IsNaN, args: vec![Expr::Var(at.clone())] };
+    Expr::Block(vec![
+      Stmt::Let { name: at.clone(), expr: when },
+      Stmt::Return(Expr::Ternary(Box::new(invalid), Box::new(Expr::lit_str("Invalid Date")), Box::new(Expr::Block(vec![Stmt::Let { name: local, expr: shifted }, Stmt::Return(text)])))),
+    ])
+  }
+
+  /// The arguments of `toSpliced` or `splice` after the array: the start, the count to remove and the items to put in as one array. No argument at all removes nothing.
+  pub(crate) fn spliced_args(&mut self, call: &js::CallExpression) -> Lowered<Vec<Expr>> {
+    let mut args = self.plain_args(call)?.into_iter();
+    let start = args.next();
+    let delete = match (&start, args.next()) {
+      (_, Some(delete)) => delete,
+      (Some(_), None) => Expr::Lit(Lit::Undefined),
+      (None, None) => Expr::Lit(Lit::Int(0)),
+    };
+    let rest = Expr::Array(args.map(Entry::Item).collect());
+    Ok(vec![start.unwrap_or(Expr::Lit(Lit::Int(0))), delete, rest])
+  }
+
+  /// `name` applied to `leading` and then the call's arguments. With a spread among them, [`Builtin::Spread`] applies it to the list they make.
+  fn builtin_call(&mut self, name: Builtin, leading: Vec<Expr>, call: &js::CallExpression) -> Lowered<Expr> {
+    let mut entries: Vec<Entry> = leading.into_iter().map(Entry::Item).collect();
+    for a in &call.arguments {
+      let value = self.expr(crate::syntax::arg_expr(a))?;
+      entries.push(if crate::syntax::is_spread(a) { Entry::Spread(value) } else { Entry::Item(value) });
+    }
+    if entries.iter().any(|e| matches!(e, Entry::Spread(_))) {
+      return Ok(Expr::Builtin { name: Builtin::Spread, args: vec![Expr::lit_str(name.atom()), Expr::Array(entries)] });
+    }
+    let args = entries.into_iter().filter_map(|e| match e {
+      Entry::Item(value) => Some(value),
+      _ => None,
+    });
+    Ok(Expr::Builtin { name, args: args.collect() })
+  }
+
+  /// `e` as a function value when it is one: a function written in place or a name bound to one.
+  fn function_value(&mut self, e: &js::Expression) -> Lowered<Option<Expr>> {
+    match strip_parens(e) {
+      js::Expression::ArrowFunctionExpression(_) | js::Expression::FunctionExpression(_) => self.expr(e).map(Some),
+      js::Expression::Identifier(id) => {
+        let name = id.name.as_str();
+        if let Some(bound) = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, b)| b.clone()) {
+          return Ok(matches!(bound, Expr::Lambda { .. } | Expr::Fix { .. }).then_some(bound));
+        }
+        if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| *f) {
+          return self.function_expr(&function).map(Some);
+        }
+        Ok(self.globals.iter().rev().find(|(n, _)| n == name).map(|(_, b)| b.clone()).filter(|b| matches!(b, Expr::Lambda { .. } | Expr::Fix { .. })))
+      }
+      _ => Ok(None),
+    }
+  }
+
+  /// `f.call(this, ...args)`, `f.apply(this, args)` and `f.bind(this, ...args)` of a function value. `this` is not read: a function the build lowers has none.
+  fn function_method(&mut self, method: &str, f: Expr, call: &js::CallExpression) -> Lowered<Expr> {
+    let mut rest = Vec::new();
+    for a in call.arguments.iter().skip(1) {
+      let value = self.expr(crate::syntax::arg_expr(a))?;
+      rest.push(if crate::syntax::is_spread(a) { Entry::Spread(value) } else { Entry::Item(value) });
+    }
+    let f = Box::new(f);
+    match method {
+      "apply" => {
+        let list = rest.into_iter().next().map(|e| match e {
+          Entry::Item(e) | Entry::Spread(e) => e,
+          other => Expr::Array(vec![other]),
+        });
+        let list = list.map_or(Expr::Array(Vec::new()), |list| Expr::Coalesce(Box::new(list), Box::new(Expr::Array(Vec::new()))));
+        Ok(Expr::ApplyOf(f, Box::new(list)))
+      }
+      "bind" if rest.is_empty() => Ok(*f),
+      "bind" => {
+        let more = format!("...{}", self.temp());
+        rest.push(Entry::Spread(Expr::Var(more.clone())));
+        Ok(Expr::Lambda { params: vec![more], body: Box::new(Expr::ApplyOf(f, Box::new(Expr::Array(rest)))) })
+      }
+      _ => Ok(Expr::ApplyOf(f, Box::new(Expr::Array(rest)))),
+    }
+  }
+
+  /// `a.union(b)` and the other `Set` methods, `a` and `b` being sets as arrays. The result keeps the order JavaScript gives it: `intersection` walks the smaller set.
+  fn set_method(&mut self, method: &str, a: Expr, b: Expr) -> Expr {
+    let (sa, sb) = (self.temp(), self.temp());
+    let var = |n: &String| Expr::Var(n.clone());
+    let keep = |this: &mut Self, from: &String, other: &String, inside: bool| {
+      let x = this.temp();
+      let found = Expr::Builtin { name: Builtin::Includes, args: vec![var(other), var(&x)] };
+      let test = if inside { found } else { Expr::Not(Box::new(found)) };
+      Expr::Filter(Box::new(var(from)), Box::new(Expr::Lambda { params: vec![x], body: Box::new(test) }))
+    };
+    let set = |e: Expr| Expr::Builtin { name: Builtin::AsSet, args: vec![e] };
+    let answer = match method {
+      "union" => set(Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Builtin { name: Builtin::Concat, args: vec![var(&sa), var(&sb)] }] }),
+      "intersection" => {
+        let smaller = Expr::Compare(CompareOp::Le, Box::new(Expr::Length(Box::new(var(&sa)))), Box::new(Expr::Length(Box::new(var(&sb)))));
+        let (from_a, from_b) = (keep(self, &sa, &sb, true), keep(self, &sb, &sa, true));
+        set(Expr::Ternary(Box::new(smaller), Box::new(from_a), Box::new(from_b)))
+      }
+      "difference" => set(keep(self, &sa, &sb, false)),
+      "symmetricDifference" => {
+        let (only_a, only_b) = (keep(self, &sa, &sb, false), keep(self, &sb, &sa, false));
+        set(Expr::Builtin { name: Builtin::Concat, args: vec![only_a, only_b] })
+      }
+      "isSubsetOf" | "isSupersetOf" | "isDisjointFrom" => {
+        let (from, other) = if method == "isSupersetOf" { (&sb, &sa) } else { (&sa, &sb) };
+        let x = self.temp();
+        let found = Expr::Lambda { params: vec![x.clone()], body: Box::new(Expr::Builtin { name: Builtin::Includes, args: vec![var(other), var(&x)] }) };
+        match method {
+          "isDisjointFrom" => Expr::Not(Box::new(Expr::Some(Box::new(var(from)), Box::new(found)))),
+          _ => Expr::Every(Box::new(var(from)), Box::new(found)),
+        }
+      }
+      other => unreachable!("`{other}` is not a set method"),
+    };
+    Expr::Block(vec![Stmt::Let { name: sa, expr: a }, Stmt::Let { name: sb, expr: b }, Stmt::Return(answer)])
+  }
+
+  /// `value` walked as `JSON.stringify` walks it under a replacer: a function is called with each key and value, the top value under `""`; an array keeps the fields of each object it names, in its order.
+  fn replaced(&mut self, value: Expr, replacer: Expr) -> Expr {
+    let (f, walk, key, given, v, pair, i, x, k) = (self.temp(), self.temp(), self.temp(), self.temp(), self.temp(), self.temp(), self.temp(), self.temp(), self.temp());
+    let var = |n: &String| Expr::Var(n.clone());
+    let lit = |s: &str| Expr::lit_str(s);
+    let builtin = |name: Builtin, args: Vec<Expr>| Expr::Builtin { name, args };
+    let recur = |key: Expr, value: Expr| Expr::Apply { f: Box::new(var(&walk)), args: vec![key, value] };
+    let is_function = Expr::Compare(CompareOp::Eq, Box::new(builtin(Builtin::TypeOf, vec![var(&f)])), Box::new(lit("function")));
+    let called = Expr::Ternary(Box::new(is_function), Box::new(Expr::Apply { f: Box::new(var(&f)), args: vec![var(&key), var(&given)] }), Box::new(var(&given)));
+    let items = Expr::Map(Box::new(var(&v)), Box::new(Expr::Lambda { params: vec![x.clone(), i.clone()], body: Box::new(recur(Expr::Str(Box::new(var(&i))), var(&x))) }));
+    let every_field = Expr::Map(
+      Box::new(Expr::Entries(Box::new(var(&v)))),
+      Box::new(Expr::Lambda {
+        params: vec![pair.clone()],
+        body: Box::new(Expr::Array(vec![
+          Entry::Item(Expr::Index(Box::new(var(&pair)), Box::new(Expr::Lit(Lit::Float(0.0))))),
+          Entry::Item(recur(Expr::Index(Box::new(var(&pair)), Box::new(Expr::Lit(Lit::Float(0.0)))), Expr::Index(Box::new(var(&pair)), Box::new(Expr::Lit(Lit::Float(1.0)))))),
+        ])),
+      }),
+    );
+    let named = builtin(Builtin::Unique, vec![Expr::Map(Box::new(var(&f)), Box::new(Expr::Lambda { params: vec![x.clone()], body: Box::new(Expr::Str(Box::new(var(&x)))) }))]);
+    let present = Expr::Filter(Box::new(named), Box::new(Expr::Lambda { params: vec![k.clone()], body: Box::new(builtin(Builtin::HasKey, vec![var(&v), var(&k)])) }));
+    let listed = Expr::Map(Box::new(present), Box::new(Expr::Lambda { params: vec![k.clone()], body: Box::new(Expr::Array(vec![Entry::Item(var(&k)), Entry::Item(recur(var(&k), Expr::Index(Box::new(var(&v)), Box::new(var(&k)))))])) }));
+    let fields = Expr::Ternary(Box::new(builtin(Builtin::IsArray, vec![var(&f)])), Box::new(listed), Box::new(every_field));
+    let object = Expr::Logic(
+      LogicOp::And,
+      Box::new(Expr::Compare(CompareOp::Eq, Box::new(builtin(Builtin::TypeOf, vec![var(&v)])), Box::new(lit("object")))),
+      Box::new(Expr::Compare(CompareOp::Ne, Box::new(var(&v)), Box::new(Expr::Lit(Lit::Null)))),
+    );
+    let shaped = Expr::Ternary(
+      Box::new(builtin(Builtin::IsArray, vec![var(&v)])),
+      Box::new(items),
+      Box::new(Expr::Ternary(Box::new(object), Box::new(builtin(Builtin::FromEntries, vec![fields])), Box::new(var(&v)))),
+    );
+    let body = Expr::Block(vec![Stmt::Let { name: v.clone(), expr: called }, Stmt::Return(shaped)]);
+    let walker = Expr::Fix { name: walk.clone(), f: Box::new(Expr::Lambda { params: vec![key, given], body: Box::new(body) }) };
+    Expr::Block(vec![Stmt::Let { name: f, expr: replacer }, Stmt::Let { name: walk.clone(), expr: walker }, Stmt::Return(recur(lit(""), value))])
+  }
+
+  /// The arguments of a call, each lowered; a spread argument is refused.
+  pub(crate) fn plain_args(&mut self, call: &js::CallExpression) -> Lowered<Vec<Expr>> {
+    let mut args = Vec::with_capacity(call.arguments.len());
+    for a in &call.arguments {
+      if crate::syntax::is_spread(a) {
+        return Err(self.residue(crate::syntax::arg_expr(a).span(), "a spread argument"));
+      }
+      args.push(self.expr(crate::syntax::arg_expr(a))?);
+    }
+    Ok(args)
+  }
+
+  /// `findLast`, `findLastIndex` or `reduceRight` of `items` with `f`: the forward method over the reversed items, `f` handed each item's index in the original order and the original array.
+  fn from_the_end(&mut self, method: &str, items: Expr, f: Box<Expr>, init: Option<Expr>) -> Expr {
+    let (all, last, reversed) = (self.temp(), self.temp(), self.temp());
+    let var = |name: &String| Expr::Var(name.clone());
+    let original = |i: Expr| Expr::Arith(ArithOp::Sub, Box::new(var(&last)), Box::new(i));
+    let mut steps = vec![
+      Stmt::Let { name: all.clone(), expr: items },
+      Stmt::Let { name: last.clone(), expr: Expr::Arith(ArithOp::Sub, Box::new(Expr::Length(Box::new(var(&all)))), Box::new(Expr::Lit(Lit::Float(1.0)))) },
+      Stmt::Let { name: reversed.clone(), expr: Expr::Builtin { name: Builtin::Reverse, args: vec![var(&all)] } },
+    ];
+    let (x, i, acc) = (self.temp(), self.temp(), self.temp());
+    let calls = |shift: i128| {
+      let index = if shift == 0 { var(&i) } else { Expr::Arith(ArithOp::Add, Box::new(var(&i)), Box::new(Expr::Lit(Lit::Float(shift as f64)))) };
+      Expr::Apply { f: f.clone(), args: vec![var(&x), original(index), var(&all)] }
+    };
+    let result = match method {
+      "findLast" => Expr::Find(Box::new(var(&reversed)), Box::new(Expr::Lambda { params: vec![x.clone(), i.clone()], body: Box::new(calls(0)) })),
+      "findLastIndex" => {
+        let found = self.temp();
+        steps.push(Stmt::Let { name: found.clone(), expr: Expr::FindIndex(Box::new(var(&reversed)), Box::new(Expr::Lambda { params: vec![x.clone(), i.clone()], body: Box::new(calls(0)) })) });
+        let missing = Expr::Compare(CompareOp::Lt, Box::new(var(&found)), Box::new(Expr::Lit(Lit::Float(0.0))));
+        Expr::Ternary(Box::new(missing), Box::new(Expr::Lit(Lit::Float(-1.0))), Box::new(original(var(&found))))
+      }
+      _ => {
+        let reducing = |shift: i128| {
+          let index = if shift == 0 { var(&i) } else { Expr::Arith(ArithOp::Add, Box::new(var(&i)), Box::new(Expr::Lit(Lit::Float(shift as f64)))) };
+          Expr::Lambda { params: vec![acc.clone(), x.clone(), i.clone()], body: Box::new(Expr::Apply { f: f.clone(), args: vec![var(&acc), var(&x), original(index), var(&all)] }) }
+        };
+        match init {
+          Some(init) => Expr::Reduce(Box::new(var(&reversed)), Box::new(init), Box::new(reducing(0))),
+          None => {
+            let rest = Expr::Builtin { name: Builtin::Slice, args: vec![var(&reversed), Expr::Lit(Lit::Float(1.0))] };
+            let first = Expr::Index(Box::new(var(&reversed)), Box::new(Expr::Lit(Lit::Float(0.0))));
+            let reduced = Expr::Reduce(Box::new(rest), Box::new(first), Box::new(reducing(1)));
+            let empty = Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str("Reduce of empty array with no initial value")] };
+            Expr::Ternary(Box::new(Expr::Length(Box::new(var(&reversed)))), Box::new(reduced), Box::new(empty))
+          }
+        }
+      }
+    };
+    steps.push(Stmt::Return(result));
+    Expr::Block(steps)
+  }
+
+  /// `Object.assign` onto an object written in place, `Object.freeze`, `Object.hasOwn`, `Object.is` and `Object.groupBy`.
+  fn object_static(&mut self, method: &str, call: &js::CallExpression) -> Lowered<Expr> {
+    match method {
+      "assign" => {
+        let Some(first) = call.arguments.first() else { return Err(self.residue(call.span, "`Object.assign` without a target")) };
+        if !matches!(strip_parens(crate::syntax::arg_expr(first)), js::Expression::ObjectExpression(_)) || crate::syntax::is_spread(first) {
+          return Err(self.residue_with(call.span, "`Object.assign` onto an object something else holds, which it writes in place", "`{ ...target, ...source }` gives the same object without the write"));
+        }
+        Ok(Expr::Object(self.plain_args(call)?.into_iter().map(Entry::Spread).collect()))
+      }
+      "freeze" => {
+        let [value] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Object.freeze` takes one value")) };
+        self.expr(crate::syntax::arg_expr(value))
+      }
+      "hasOwn" | "is" => {
+        let args = self.plain_args(call)?;
+        if args.len() != 2 {
+          return Err(self.residue(call.span, format!("`Object.{method}` takes two arguments")));
+        }
+        let name = if method == "hasOwn" { Builtin::HasKey } else { Builtin::SameValue };
+        Ok(Expr::Builtin { name, args })
+      }
+      _ => {
+        let mut args = self.plain_args(call)?.into_iter();
+        let (Some(items), Some(f), None) = (args.next(), args.next(), args.next()) else { return Err(self.residue(call.span, "`Object.groupBy` takes the items and a function")) };
+        let (acc, item, index, key) = (self.temp(), self.temp(), self.temp(), self.temp());
+        let var = |name: &String| Expr::Var(name.clone());
+        let earlier = Expr::Coalesce(Box::new(Expr::Index(Box::new(var(&acc)), Box::new(var(&key)))), Box::new(Expr::Array(Vec::new())));
+        let group = Expr::Array(vec![Entry::Spread(earlier), Entry::Item(var(&item))]);
+        let body = Expr::Block(vec![
+          Stmt::Let { name: key.clone(), expr: Expr::Str(Box::new(Expr::Apply { f: Box::new(f), args: vec![var(&item), var(&index)] })) },
+          Stmt::Return(Expr::Object(vec![Entry::Spread(var(&acc)), Entry::Computed(var(&key), group)])),
+        ]);
+        Ok(Expr::Reduce(Box::new(items), Box::new(Expr::Object(Vec::new())), Box::new(Expr::Lambda { params: vec![acc, item, index], body: Box::new(body) })))
+      }
+    }
+  }
+
+  /// `Promise.allSettled(list)`: each item as `{ status: "fulfilled", value }`. An item whose making throws is `{ status: "rejected", reason }`. A list written in place settles each element; a `map` settles each call of its function.
+  fn all_settled(&mut self, call: &js::CallExpression) -> Lowered<Expr> {
+    let [arg] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Promise.allSettled` takes one list")) };
+    let fulfilled = |value: Expr| Expr::Object(vec![Entry::Field("status".to_owned(), Expr::lit_str("fulfilled")), Entry::Field("value".to_owned(), value)]);
+    let settle = |this: &mut Self, value: Expr| {
+      let reason = this.temp();
+      let rejected = Expr::Object(vec![Entry::Field("status".to_owned(), Expr::lit_str("rejected")), Entry::Field("reason".to_owned(), Expr::Var(reason.clone()))]);
+      Expr::Block(vec![Stmt::Try { body: vec![Stmt::Return(fulfilled(value))], name: Some(reason), handler: Some(vec![Stmt::Return(rejected)]), finally: Vec::new() }])
+    };
+    if let js::Expression::ArrayExpression(array) = strip_parens(crate::syntax::arg_expr(arg)) {
+      let mut items = Vec::with_capacity(array.elements.len());
+      for element in &array.elements {
+        let Some(e) = element.as_expression() else { return Err(self.residue(array.span, "`Promise.allSettled` of a list with a hole or a spread")) };
+        let value = self.expr(e)?;
+        items.push(Entry::Item(settle(self, value)));
+      }
+      return Ok(Expr::Array(items));
+    }
+    Ok(match self.expr(crate::syntax::arg_expr(arg))? {
+      Expr::Map(over, f) => {
+        let (item, index) = (self.temp(), self.temp());
+        let each = settle(self, Expr::Apply { f, args: vec![Expr::Var(item.clone()), Expr::Var(index.clone())] });
+        Expr::Map(over, Box::new(Expr::Lambda { params: vec![item, index], body: Box::new(each) }))
+      }
+      list => {
+        let item = self.temp();
+        Expr::Map(Box::new(list), Box::new(Expr::Lambda { params: vec![item.clone()], body: Box::new(fulfilled(Expr::Var(item))) }))
+      }
+    })
+  }
+
   /// A `svelte/store` call, a store being the value it holds when the server
   /// subscribes: `writable(v)`, `readable(v)`, `readonly(s)`, `get(s)` and
   /// `svelte/motion`'s `spring(v)` and `tweened(v)` the value, `derived(source,
@@ -921,5 +1389,21 @@ impl Lowerer<'_> {
         Ok(Expr::Apply { f: Box::new(f), args: vec![source] })
       }
     }
+  }
+}
+
+/// The locale a case call writes in place, `Some(None)` for none: `undefined` or an empty array. A string or an array of strings gives its first. `None` for a locale the code computes.
+fn written_locale(given: &js::Expression) -> Option<Option<String>> {
+  match given {
+    js::Expression::Identifier(id) if id.name.as_str() == "undefined" => Some(None),
+    js::Expression::StringLiteral(tag) => Some(Some(crate::lossy(tag.value))),
+    js::Expression::ArrayExpression(list) => {
+      let tags: Option<Vec<String>> = list.elements.iter().map(|e| match e {
+        js::ArrayExpressionElement::StringLiteral(tag) => Some(crate::lossy(tag.value)),
+        _ => None,
+      }).collect();
+      Some(tags?.into_iter().next())
+    }
+    _ => None,
   }
 }

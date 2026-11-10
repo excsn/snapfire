@@ -12,6 +12,7 @@ impl Kind {
       Kind::Response => "Response",
       Kind::Browser => "value only the browser knows",
       Kind::Scope => "Scope",
+      Kind::Temporal => "Temporal",
     }
   }
 
@@ -34,6 +35,7 @@ impl Kind {
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),
+      Kind::Temporal => Some(typed::TEMPORAL),
     }
   }
 
@@ -49,6 +51,7 @@ impl Kind {
       js::TSType::TSIntersectionType(i) => i.types.iter().find_map(|t| Kind::of_type_in(t, aliases)),
       js::TSType::TSBigIntKeyword(_) => Some(Kind::BigInt),
       js::TSType::TSTypeReference(r) => match &r.type_name {
+        js::TSTypeName::QualifiedName(q) if matches!(&q.left, js::TSTypeName::IdentifierReference(id) if id.name.as_str() == "Temporal") => Some(Kind::Temporal),
         js::TSTypeName::IdentifierReference(id) => match id.name.as_str() {
           "Map" | "ReadonlyMap" => Some(Kind::Map),
           "Set" | "ReadonlySet" => Some(Kind::Set),

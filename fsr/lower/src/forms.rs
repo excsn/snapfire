@@ -19,6 +19,7 @@ pub(crate) fn regex_value(lowerer: &Lowerer<'_>, pattern: &str, flags: &str, spa
   Ok(Expr::Object(vec![
     Entry::Field(snapfire_fsr_ir::jsregex::PATTERN.to_owned(), Expr::lit_str(pattern)),
     Entry::Field(snapfire_fsr_ir::jsregex::FLAGS.to_owned(), Expr::lit_str(flags)),
+    Entry::Field(snapfire_fsr_ir::jsregex::LAST_INDEX.to_owned(), Expr::Lit(Lit::Float(0.0))),
   ]))
 }
 
@@ -98,12 +99,15 @@ pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "Date" | "SvelteDate") => Some(Kind::Date),
       js::Expression::Identifier(id) if id.name.as_str() == "Response" => Some(Kind::Response),
       js::Expression::Identifier(id) if id.name.as_str() == "Scope" => Some(Kind::Scope),
+      callee if crate::temporal_type(callee).is_some() => Some(Kind::Temporal),
       _ => None,
     },
     js::Expression::BigIntLiteral(_) => Some(Kind::BigInt),
     js::Expression::CallExpression(call) => match &call.callee {
       js::Expression::Identifier(id) if id.name.as_str() == "BigInt" => Some(Kind::BigInt),
       js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if obj.name.as_str() == "Response") && matches!(m.property.name.as_str(), "json" | "redirect") => Some(Kind::Response),
+      js::Expression::StaticMemberExpression(m) if crate::temporal_type(&m.object).is_some() && crate::TEMPORAL_FROM.contains(&m.property.name.as_str()) => Some(Kind::Temporal),
+      js::Expression::StaticMemberExpression(m) if crate::is_temporal_now(&m.object) && crate::TEMPORAL_NOW.contains(&m.property.name.as_str()) => Some(Kind::Temporal),
       _ => None,
     },
     _ => None,

@@ -435,6 +435,8 @@ let m = m_expr.as_member_expression().expect("matched as a member");
       }
       js::Expression::CallExpression(call) => match &call.callee {
         callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Browser)) => Some(Kind::Browser),
+        callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Set) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if matches!(p.name.as_str(), "union" | "intersection" | "difference" | "symmetricDifference"))) => Some(Kind::Set),
+        callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Temporal) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if crate::TEMPORAL_MAKERS.contains(&p.name.as_str()))) => Some(Kind::Temporal),
         js::Expression::Identifier(f) if !self.scope.iter().any(|(n, _)| n == f.name.as_str()) => {
           let returned = returned_by(f.name.as_str());
           self.global_kinds.iter().find(|(n, _)| *n == returned).map(|(_, kind)| *kind).or_else(|| made_kind(e))
@@ -579,30 +581,36 @@ let m = m_expr.as_member_expression().expect("matched as a member");
     self.kinds.push((name.to_owned(), bound, kind));
   }
 
-  /// One declarator as a `let`: a name binds the value; a pattern binds it under a temporary and each name it declares reads a part of that.
+  /// One declarator as a `let`: a name binds the value, `undefined` when it has none; a pattern binds it under a temporary and each name it declares reads a part of that.
   pub(crate) fn declare(&mut self, decl: &js::VariableDeclarator) -> Lowered<Stmt> {
-    let Some(init) = &decl.init else {
-      return Err(self.residue(decl.span, "a declaration without a value"));
-    };
-    if let js::BindingPattern::BindingIdentifier(name) = &decl.id {
+    let init = decl.init.as_ref();
+    if let (js::BindingPattern::BindingIdentifier(name), Some(init)) = (&decl.id, init) {
       if self.bind_formatter(name.name.as_str(), init) {
         return Ok(Stmt::Let { name: name.name.to_string(), expr: Expr::Lit(Lit::Null) });
       }
     }
-    let expr = self.expr(init)?;
+    let expr = match (init, &decl.id) {
+      (Some(init), _) => self.expr(init)?,
+      (None, js::BindingPattern::BindingIdentifier(_)) => Expr::Lit(Lit::Undefined),
+      (None, _) => return Err(self.residue(decl.span, "a pattern declared without a value")),
+    };
     let name = match &decl.id {
       js::BindingPattern::BindingIdentifier(name) if self.shared.iter().any(|(n, c)| *n == name.name.as_str() && *c == self.parsed.binding_ctxt(name)) => {
         let handle = self.temp();
         let local = name.name.to_string();
         self.cells.push((local.clone(), Expr::Var(handle.clone())));
         self.scope.push((local.clone(), Expr::ReadCell(Box::new(Expr::Var(handle.clone())))));
-        self.note_kind(&local, init);
+        if let Some(init) = init {
+          self.note_kind(&local, init);
+        }
         return Ok(Stmt::Let { name: handle, expr: Expr::Cell(Box::new(expr)) });
       }
       js::BindingPattern::BindingIdentifier(name) => {
         let name = name.name.to_string();
         self.scope.push((name.clone(), Expr::Var(name.clone())));
-        self.note_kind(&name, init);
+        if let Some(init) = init {
+          self.note_kind(&name, init);
+        }
         name
       }
       pattern => {

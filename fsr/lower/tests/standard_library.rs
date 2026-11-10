@@ -1,0 +1,399 @@
+//! JavaScript's standard library as a loader calls it, against what node v26.8.1 answers for the same expression.
+
+use snapfire_fsr_core::{Params, Value};
+use snapfire_fsr_ir::{Body, Interpreter};
+use snapfire_fsr_lower::lower_loader;
+use snapfire_fsr_runtime::RequestCtx;
+
+/// Each expression with `JSON.stringify` of its value as node prints it.
+const AGREES_WITH_NODE: &[(&str, &str)] = &[
+  ("\"hello\".substr(1, 3)", "\"ell\""),
+  ("\"hello\".substr(-3)", "\"llo\""),
+  ("\"hello\".substr(2)", "\"llo\""),
+  ("\"hello\".substr(1, -1)", "\"\""),
+  ("\"ab\".isWellFormed()", "true"),
+  ("\"ab\".toWellFormed()", "\"ab\""),
+  ("/b(c)/.exec(\"abc\")", "[\"bc\",\"c\"]"),
+  ("/z/.exec(\"abc\")", "null"),
+  ("new Date(0).toUTCString()", "\"Thu, 01 Jan 1970 00:00:00 GMT\""),
+  ("new Date(1577934245000).toUTCString()", "\"Thu, 02 Jan 2020 03:04:05 GMT\""),
+  ("new Date(0).toGMTString()", "\"Thu, 01 Jan 1970 00:00:00 GMT\""),
+  ("\"abc\".search(\"b\")", "1"),
+  ("\"a.c\".search(\".\")", "0"),
+  ("\"abc\".search(\"z\")", "-1"),
+  ("isFinite(\"12\")", "true"),
+  ("isFinite(\"x\")", "false"),
+  ("isFinite(1 / 0)", "false"),
+  ("encodeURI(\"https://a.b/c d?e=f&g=ü#h\")", "\"https://a.b/c%20d?e=f&g=%C3%BC#h\""),
+  ("decodeURI(\"%41%20%3F%C3%BC\")", "\"A %3Fü\""),
+  ("String(Number.MAX_SAFE_INTEGER)", "\"9007199254740991\""),
+  ("String(Number.MIN_SAFE_INTEGER)", "\"-9007199254740991\""),
+  ("String(Number.EPSILON)", "\"2.220446049250313e-16\""),
+  ("String(Number.MAX_VALUE)", "\"1.7976931348623157e+308\""),
+  ("String(Number.MIN_VALUE)", "\"5e-324\""),
+  ("String(Number.POSITIVE_INFINITY)", "\"Infinity\""),
+  ("String(Number.NEGATIVE_INFINITY)", "\"-Infinity\""),
+  ("String(Number.NaN)", "\"NaN\""),
+  ("Object.assign({}, { a: 1 }, { b: 2, a: 3 })", "{\"a\":3,\"b\":2}"),
+  ("Object.hasOwn({ a: 1 }, \"a\")", "true"),
+  ("Object.hasOwn({ a: 1 }, \"b\")", "false"),
+  ("Object.is(NaN, NaN)", "true"),
+  ("Object.is(0, -0)", "false"),
+  ("Object.is(\"a\", \"a\")", "true"),
+  ("Object.freeze({ a: 1 })", "{\"a\":1}"),
+  ("Object.groupBy([1, 2, 3, 4], (x) => (x % 2 ? \"odd\" : \"even\"))", "{\"odd\":[1,3],\"even\":[2,4]}"),
+  ("Object.groupBy([\"ab\", \"c\", \"de\"], (s, i) => s.length + \":\" + (i > 0))", "{\"2:false\":[\"ab\"],\"1:true\":[\"c\"],\"2:true\":[\"de\"]}"),
+  ("Array.of(1, 2, 3)", "[1,2,3]"),
+  ("Array.of(7)", "[7]"),
+  ("String.fromCharCode(72, 105)", "\"Hi\""),
+  ("String.fromCodePoint(128512, 65)", "\"😀A\""),
+  ("Date.UTC(2020, 0, 2, 3, 4, 5)", "1577934245000"),
+  ("Date.UTC(2020)", "1577836800000"),
+  ("Math.hypot(3, 4)", "5"),
+  ("Math.hypot()", "0"),
+  ("Math.imul(3, 4)", "12"),
+  ("Math.imul(4294967295, 5)", "-5"),
+  ("Math.clz32(1)", "31"),
+  ("Math.clz32(0)", "32"),
+  ("Math.fround(5.5)", "5.5"),
+  ("Math.fround(5.05)", "5.050000190734863"),
+  ("(1234.5678).toPrecision(6)", "\"1234.57\""),
+  ("(0.000123).toPrecision(2)", "\"0.00012\""),
+  ("(123456).toPrecision(2)", "\"1.2e+5\""),
+  ("(1.5).toExponential(2)", "\"1.50e+0\""),
+  ("(12345).toExponential()", "\"1.2345e+4\""),
+  ("(0).toExponential(1)", "\"0.0e+0\""),
+  ("\"Å\".normalize()", "\"Å\""),
+  ("\"Å\".normalize(\"NFD\").length", "2"),
+  ("[1, 2, 3, 4].findLast((x) => x % 2)", "3"),
+  ("[1, 2, 3, 4].findLast((x) => x > 9) ?? \"none\"", "\"none\""),
+  ("[1, 2, 3, 4].findLastIndex((x) => x % 2)", "2"),
+  ("[1, 2, 3, 4].findLastIndex((x, i) => i < 2)", "1"),
+  ("[1, 2, 3, 4].findLastIndex((x) => x > 9)", "-1"),
+  ("[1, 2, 3].reduceRight((a, b) => a + \"-\" + b)", "\"3-2-1\""),
+  ("[1, 2, 3].reduceRight((a, b, i) => a + b + i, \"\")", "\"322110\""),
+  ("[1, 2, 3, 4].toSpliced(1, 2)", "[1,4]"),
+  ("[1, 2, 3, 4].toSpliced(1, 0, \"x\", \"y\")", "[1,\"x\",\"y\",2,3,4]"),
+  ("[1, 2, 3, 4].toSpliced(-1, 1)", "[1,2,3]"),
+  ("[1, 2, 3, 4].toSpliced(2)", "[1,2]"),
+  ("[1, 2, 3].with(1, 9)", "[1,9,3]"),
+  ("[1, 2, 3].with(-1, 9)", "[1,2,9]"),
+  ("[1, 2, 3].slice().fill(0)", "[0,0,0]"),
+  ("[1, 2, 3, 4].slice().fill(9, 1, 3)", "[1,9,9,4]"),
+  ("[1, 2, 3, 4].slice().fill(9, -2)", "[1,2,9,9]"),
+  ("[1, 2, 3, 4, 5].slice().copyWithin(0, 3)", "[4,5,3,4,5]"),
+  ("[1, 2, 3, 4, 5].slice().copyWithin(1, 0, 2)", "[1,1,2,4,5]"),
+  ("[...[\"a\", \"b\"].entries()]", "[[0,\"a\"],[1,\"b\"]]"),
+  ("[...[\"a\", \"b\"].keys()]", "[0,1]"),
+  ("Array.from([\"a\", \"b\"].entries())", "[[0,\"a\"],[1,\"b\"]]"),
+  ("await Promise.allSettled([1, Promise.resolve(2)])", "[{\"status\":\"fulfilled\",\"value\":1},{\"status\":\"fulfilled\",\"value\":2}]"),
+  ("await Promise.allSettled([1, 2].map(async (n) => n * 2))", "[{\"status\":\"fulfilled\",\"value\":2},{\"status\":\"fulfilled\",\"value\":4}]"),
+  ("(await Promise.allSettled([1].map(async () => JSON.parse(\"{\")))).map((r) => r.status)", "[\"rejected\"]"),
+  ("(await Promise.allSettled([Promise.reject(new Error(\"x\")), 1])).map((r) => r.status + \":\" + (r.value ?? r.reason.message))", "[\"rejected:x\",\"fulfilled:1\"]"),
+  ("(1.5).toString(2)", "\"1.1\""),
+  ("(0.1).toString(16)", "\"0.1999999999999a\""),
+  ("(0.1).toString(3)", "\"0.0022002200220022002200220022002201\""),
+  ("(255.5).toString(36)", "\"73.i\""),
+  ("(-12.375).toString(8)", "\"-14.3\""),
+  ("(2 ** 60).toString(3)", "\"21200101122222021102111220121112210000\""),
+  ("(1e21).toString(7)", "\"5135235413265003022600000\""),
+  ("(123.456).toString(36)", "\"3f.gez4w97ry\""),
+  ("(0.000001).toString(5)", "\"0.0000000014340322421131001434033\""),
+  ("(1 / 3).toString(3)", "\"0.1\""),
+  ("(0.5).toString(3)", "\"0.1111111111111111111111111111111112\""),
+  ("(0.1 + 0.2).toString(2)", "\"0.0100110011001100110011001100110011001100110011001101\""),
+  ("(5e-324).toString(2).length", "1076"),
+  ("(Number.MAX_VALUE).toString(36).length", "199"),
+  ("(Number.MAX_VALUE).toString(36).slice(0, 20)", "\"1a1e4vngaiqo00000000\""),
+  ("(-0).toString(2)", "\"0\""),
+  ("(0.9999999999999999).toString(2)", "\"0.11111111111111111111111111111111111111111111111111111\""),
+  ("(99.99).toString(7)", "\"201.6633663366336634\""),
+  ("\"istanbul\".toLocaleUpperCase(\"tr\")", "\"\u{130}STANBUL\""),
+  ("\"\u{130}STANBUL\".toLocaleLowerCase(\"tr\")", "\"istanbul\""),
+  ("\"I\u{307}\".toLocaleLowerCase(\"az\")", "\"i\""),
+  ("\"\u{3ac}\u{3bb}\u{3c6}\u{3b1}\".toLocaleUpperCase(\"el\")", "\"\u{391}\u{39b}\u{3a6}\u{391}\""),
+  ("\"\u{3ac}\u{3bb}\u{3c6}\u{3b1}\".toLocaleUpperCase(\"en\")", "\"\u{386}\u{39b}\u{3a6}\u{391}\""),
+  ("\"I\u{300}\".toLocaleLowerCase(\"lt\")", "\"i\u{307}\u{300}\""),
+  ("\"i\u{307}\".toLocaleUpperCase(\"lt\")", "\"I\""),
+  ("\"istanbul\".toLocaleUpperCase([\"tr\", \"en\"])", "\"\u{130}STANBUL\""),
+  ("\"istanbul\".toLocaleUpperCase([])", "\"ISTANBUL\""),
+  ("\"Stra\u{df}e\".toLocaleUpperCase(\"de\")", "\"STRASSE\""),
+  ("\"abc\".toLocaleUpperCase()", "\"ABC\""),
+  ("\"ABC\".toLocaleLowerCase(undefined)", "\"abc\""),
+  ("\"istanbul\".toLocaleUpperCase([\"tr\"][0])", "\"\u{130}STANBUL\""),
+  ("\"istanbul\".toLocaleUpperCase([\"en\", \"tr\"].slice(1))", "\"\u{130}STANBUL\""),
+  ("\"abc\".toLocaleUpperCase([\"x\"].find((t) => t === \"y\"))", "\"ABC\""),
+  ("\"abc\".toLocaleUpperCase([].slice(0))", "\"ABC\""),
+  ("\"a\".anchor(\"x\\\"y\")", "\"<a name=\\\"x&quot;y\\\">a</a>\""),
+  ("\"a\".anchor()", "\"<a name=\\\"undefined\\\">a</a>\""),
+  ("\"a\".big()", "\"<big>a</big>\""),
+  ("\"a\".blink()", "\"<blink>a</blink>\""),
+  ("\"a\".bold()", "\"<b>a</b>\""),
+  ("\"a\".fixed()", "\"<tt>a</tt>\""),
+  ("\"a\".fontcolor(\"red\")", "\"<font color=\\\"red\\\">a</font>\""),
+  ("\"a\".fontsize(7)", "\"<font size=\\\"7\\\">a</font>\""),
+  ("\"a\".italics()", "\"<i>a</i>\""),
+  ("\"a\".link(\"u\")", "\"<a href=\\\"u\\\">a</a>\""),
+  ("\"a\".small()", "\"<small>a</small>\""),
+  ("\"a\".strike()", "\"<strike>a</strike>\""),
+  ("\"a\".sub()", "\"<sub>a</sub>\""),
+  ("\"a\".sup()", "\"<sup>a</sup>\""),
+  ("[...new Set([1, 2]).union(new Set([2, 3]))]", "[1,2,3]"),
+  ("[...new Set([1, 2, 3]).intersection(new Set([3, 2]))]", "[3,2]"),
+  ("[...new Set([3, 2]).intersection(new Set([1, 2, 3]))]", "[3,2]"),
+  ("[...new Set([1, 2, 3]).difference(new Set([2]))]", "[1,3]"),
+  ("[...new Set([1, 2]).symmetricDifference(new Set([2, 3]))]", "[1,3]"),
+  ("new Set([1]).isSubsetOf(new Set([1, 2]))", "true"),
+  ("new Set([1, 3]).isSubsetOf(new Set([1, 2]))", "false"),
+  ("new Set([1, 2]).isSupersetOf(new Set([2]))", "true"),
+  ("new Set([1]).isSupersetOf(new Set([2]))", "false"),
+  ("new Set([1]).isDisjointFrom(new Set([2]))", "true"),
+  ("new Set([1, 2]).isDisjointFrom(new Set([2]))", "false"),
+  ("({ a: 1 }).hasOwnProperty(\"a\")", "true"),
+  ("({ a: 1 }).hasOwnProperty(\"b\")", "false"),
+  ("[1].hasOwnProperty(\"0\")", "true"),
+  ("[1].hasOwnProperty(\"length\")", "true"),
+  ("({ a: 1 }).propertyIsEnumerable(\"a\")", "true"),
+  ("[1].propertyIsEnumerable(\"length\")", "false"),
+  ("[1].propertyIsEnumerable(0)", "true"),
+  ("\"ab\".propertyIsEnumerable(\"length\")", "false"),
+  ("((a, b) => a + b).call(null, 1, 2)", "3"),
+  ("((a, b) => a + b).apply(null, [1, 2])", "3"),
+  ("((a, b) => a + b).apply(null)", "null"),
+  ("((a, b) => a + b).bind(null, 1)(2)", "3"),
+  ("((a) => a * 3).bind(null)(4)", "12"),
+  ("new Array(5).fill(0, 1, 3)", "[null,0,0,null,null]"),
+  ("new Array(4).fill(7, -2)", "[null,null,7,7]"),
+  ("new Array(3).fill(1, 5)", "[null,null,null]"),
+  ("Array.from(\"abc\")", "[\"a\",\"b\",\"c\"]"),
+  ("Array.from(new Set([1, 1, 2]))", "[1,2]"),
+  ("Array.from(new Map([[\"a\", 1]]))", "[[\"a\",1]]"),
+  ("Array.from(new Map([[\"a\", 1]]).keys())", "[\"a\"]"),
+  ("Array.from(new Set([1, 2]), (x) => x * 2)", "[2,4]"),
+  ("\"a-b-c\".replaceAll([\"-\"][0], \"+\")", "\"a+b+c\""),
+  ("\"a\".localeCompare()", "-1"),
+  ("\"z\".localeCompare()", "1"),
+  ("\"a\".localeCompare(\"b\")", "-1"),
+  ("new Set([1]).union(new Set([2])).has(2)", "true"),
+  ("Object.hasOwn(\"ab\", 1)", "true"),
+  ("Object.hasOwn([1], \"length\")", "true"),
+  ("Object.hasOwn([1], \"01\")", "false"),
+  ("\"ab\".hasOwnProperty(\"2\")", "false"),
+  ("typeof \"a\".localeCompare(\"a\")", "\"number\""),
+  ("Math.max(...[1, 5, 3])", "5"),
+  ("String.fromCharCode(...[72, 105])", "\"Hi\""),
+  ("[1].concat(...[[2], [3]])", "[1,2,3]"),
+  ("\"a\".concat(...[\"b\", \"c\"])", "\"abc\""),
+  ("((a, b, c) => a + b + c).call(null, 1, ...[2, 3])", "6"),
+  ("((a, b, c) => a + b + c).bind(null, ...[1])(2, 3)", "6"),
+  ("JSON.stringify({ a: 1, b: \"x\" }, (k, v) => typeof v === \"number\" ? v * 2 : v)", "\"{\\\"a\\\":2,\\\"b\\\":\\\"x\\\"}\""),
+  ("JSON.stringify({ a: 1, b: 2, c: 3 }, [\"a\", \"c\"])", "\"{\\\"a\\\":1,\\\"c\\\":3}\""),
+  ("JSON.stringify([{ a: 1, b: 2 }], [\"b\"], 2)", "\"[\\n  {\\n    \\\"b\\\": 2\\n  }\\n]\""),
+  ("/a/y.test(\"ba\")", "false"),
+  ("\"aab\".match(/a/gy)", "[\"a\",\"a\"]"),
+  ("\"aaba\".replace(/a/gy, \"x\")", "\"xxba\""),
+  ("\"a,b\".split(/,/y)", "[\"a\",\"b\"]"),
+  ("\"ba\".search(/a/y)", "-1"),
+  ("/b/y.exec(\"ab\")", "null"),
+  ("/a/g.exec(\"ba\")", "[\"a\"]"),
+  ("((x) => x + 1)(1)", "2"),
+  ("((a, b, c) => a + b + c)(1, ...[2, 3])", "6"),
+  ("(function (n) { return n * 2; })(4)", "8"),
+  ("(() => { const t = [1, 2]; return t.length; })()", "2"),
+];
+
+/// Standard methods FSR does not lower, each of which must be refused at build rather than read as a call of a field the value does not have.
+const REFUSED: &[&str] = &[
+  "new Date(0).setUTCHours(1)",
+  "new Map().getOrInsert(\"a\", 1)",
+  "/a/.compile()",
+  "await Promise.race([1])",
+];
+
+fn loader(expr: &str) -> String {
+  format!("export async function load() {{\n  const v = {expr};\n  return {{ v: JSON.stringify(v) }};\n}}\n")
+}
+
+fn returned(body: &Body) -> Result<Value, String> {
+  let ctx = RequestCtx::anonymous(Params::new());
+  futures::executor::block_on(Interpreter::default().run(body, &ctx, None)).map(|outcome| outcome.value).map_err(|fail| fail.message)
+}
+
+#[test]
+fn standard_library_calls_answer_what_node_answers() {
+  let failed: Vec<String> = AGREES_WITH_NODE
+    .iter()
+    .filter_map(|(expr, want)| match lower_loader("l.ts", &loader(expr)).map_err(|e| e.to_string()).and_then(|body| returned(&body)) {
+      Ok(Value::Map(fields)) if fields.get("v") == Some(&Value::str(*want)) => None,
+      other => Some(format!("{expr}\n    got {other:?}\n    want {want}")),
+    })
+    .collect();
+  assert!(failed.is_empty(), "{} of {} expressions:\n{}", failed.len(), AGREES_WITH_NODE.len(), failed.join("\n"));
+}
+
+/// Statements that change a value the body made, each ending in `return value;`, with `JSON.stringify` of that value as node v26.8.1 prints it.
+const WRITES_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("const a = [1, 2, 3, 4]; a.splice(1, 2); return a;", "[1,4]"),
+  ("const a = [1, 2, 3, 4]; const gone = a.splice(1, 2, \"x\", \"y\", \"z\"); return [a, gone];", "[[1,\"x\",\"y\",\"z\",4],[2,3]]"),
+  ("const a = [1, 2, 3]; a.splice(-1); return a;", "[1,2]"),
+  ("let sum = 0; [1, 2, 3].forEach((x) => { sum += x; }); return sum;", "6"),
+  ("const out = []; [1, 2].forEach((x, i) => { out.push(x * 10 + i); }); return out;", "[10,21]"),
+  ("const a = [1, 2, 3]; const last = a.pop(); return [a, last];", "[[1,2],3]"),
+  ("const a = [1, 2, 3]; const first = a.shift(); return [a, first];", "[[2,3],1]"),
+  ("const a = [1, 2]; const n = a.push(3, 4); return [a, n];", "[[1,2,3,4],4]"),
+  ("const a = [3, 1, 2]; a.sort(); a.reverse(); return a;", "[3,2,1]"),
+  ("const a = [1, 2, 3, 4, 5]; a.copyWithin(0, 3); return a;", "[4,5,3,4,5]"),
+  ("const a = [1, 2, 3]; a.fill(0, 1); return a;", "[1,0,0]"),
+  ("const m = new Map([[\"a\", 1]]); const v = m.getOrInsert(\"b\", 2); return [v, m.getOrInsert(\"a\", 9), [...m]];", "[2,1,[[\"a\",1],[\"b\",2]]]"),
+  ("const m = new Map(); const v = m.getOrInsertComputed(\"k\", (k) => k + \"!\"); return [v, [...m]];", "[\"k!\",[[\"k\",\"k!\"]]]"),
+  ("const d = new Date(0); d.setUTCHours(5); d.setUTCMinutes(30); return d.toISOString();", "\"1970-01-01T05:30:00.000Z\""),
+  ("const d = new Date(0); const t = d.setTime(86400000); return [t, d.toISOString()];", "[86400000,\"1970-01-02T00:00:00.000Z\"]"),
+  ("const d = new Date(0); d.setUTCFullYear(2020, 1, 29); return d.toISOString();", "\"2020-02-29T00:00:00.000Z\""),
+  ("const d = new Date(0); d.setUTCDate(40); d.setUTCMonth(13); d.setUTCSeconds(61); d.setUTCMilliseconds(5); return d.toISOString();", "\"1971-02-09T00:01:01.005Z\""),
+  ("const o = { a: 1 }; Object.assign(o, { b: 2 }, { c: 3 }); return o;", "{\"a\":1,\"b\":2,\"c\":3}"),
+  ("const o = { a: 1 }; const same = Object.assign(o, { b: 2 }); return [o, same];", "[{\"a\":1,\"b\":2},{\"a\":1,\"b\":2}]"),
+  ("const re = /a(\\d)/g; const s = \"a1 a2\"; const one = re.exec(s); const two = re.exec(s); const three = re.exec(s); return [one, two, three, re.lastIndex];", "[[\"a1\",\"1\"],[\"a2\",\"2\"],null,0]"),
+  ("const re = /a/y; return [re.exec(\"aab\")?.[0], re.exec(\"aab\")?.[0], re.exec(\"aab\")];", "[\"a\",\"a\",null]"),
+  ("const s = new Set([1, 2]); s.delete(1); s.add(3); return [...s];", "[2,3]"),
+  ("const m = new Map([[\"a\", 1]]); m.clear(); return m.size;", "0"),
+  ("const o = { items: [1] }; o.items.push(2); return o;", "{\"items\":[1,2]}"),
+  ("const re = /a/g; re.test(\"aa\"); re.test(\"aa\"); return [re.test(\"aa\"), re.lastIndex];", "[false,0]"),
+  ("const re = /o/g; return re.lastIndex;", "0"),
+  ("const re = /a/y; re.lastIndex = 1; return [re.exec(\"ba\"), re.lastIndex];", "[[\"a\"],2]"),
+  ("const a = [1, 2, 3]; return [a.pop(), a];", "[3,[1,2]]"),
+  ("const d = new Date(1726011440123); const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return [d.getFullYear() === local.getUTCFullYear(), d.getMonth() === local.getUTCMonth(), d.getDate() === local.getUTCDate(), d.getDay() === local.getUTCDay(), d.getHours() === local.getUTCHours(), d.getMinutes() === local.getUTCMinutes(), d.getSeconds() === local.getUTCSeconds(), d.getYear() === local.getUTCFullYear() - 1900];", "[true,true,true,true,true,true,true,true]"),
+  ("const d = new Date(1726011440123); const s = d.toDateString(); return [/^[A-Z][a-z]{2} [A-Z][a-z]{2} \\d{2} \\d{4}$/.test(s), s.endsWith(String(d.getFullYear())), s.slice(8, 10) === String(d.getDate()).padStart(2, \"0\")];", "[true,true,true]"),
+  ("const d = new Date(0); d.setHours(5, 6, 7, 8); return [d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds()];", "[5,6,7,8]"),
+  ("const d = new Date(0); d.setFullYear(2021, 5, 15); return [d.getFullYear(), d.getMonth(), d.getDate()];", "[2021,5,15]"),
+  ("const d = new Date(0); d.setFullYear(2021, 0, 31); d.setMonth(1); return [d.getMonth(), d.getDate()];", "[2,3]"),
+  ("const d = new Date(0); d.setFullYear(2021, 0, 1); d.setDate(32); d.setMinutes(61); d.setSeconds(5); d.setMilliseconds(9); return [d.getMonth(), d.getDate(), d.getMinutes(), d.getSeconds(), d.getMilliseconds()];", "[1,1,1,5,9]"),
+  ("const d = new Date(0); d.setYear(99); const y = d.getFullYear(); d.setYear(2005); return [y, d.getFullYear()];", "[1999,2005]"),
+  ("const d = new Date(NaN); return [d.toDateString(), d.setHours(1)];", "[\"Invalid Date\",null]"),
+  ("let $s; try { $s = await Promise.resolve(2); } catch ($c) { $s = 0; } const $t = (n) => n * 3; const v = await $t($s); return v;", "6"),
+  ("let $s; const $t = (e) => e.message; try { $s = await Promise.reject(new Error(\"x\")); } catch ($c) { $s = await $t($c); } return $s;", "\"x\""),
+  ("let $s; let ran = 0; const $f = () => { ran = 1; }; try { $s = await Promise.resolve(5); } finally { await $f(); } return [$s, ran];", "[5,1]"),
+  ("const d = new Date(2021, 5, 15, 13, 4, 5, 6); return [d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds(), d.getMilliseconds()];", "[2021,5,15,13,4,5,6]"),
+  ("const d = new Date(99, 0); return d.getFullYear();", "1999"),
+  ("const d = new Date(2021, 0, 32); return [d.getMonth(), d.getDate()];", "[1,1]"),
+  ("const d = new Date(2024, 2, 10, 2, 30); return [d.getDate(), d.getHours() >= 2];", "[10,true]"),
+  ("const d = new Date(2024, 10, 3, 1, 30); return d.getTimezoneOffset() === new Date(2024, 10, 2).getTimezoneOffset();", "true"),
+  ("const d = new Date(2024, 2, 10, 5, 0); return d.getHours();", "5"),
+  ("let name = \"no\"; try { Temporal.PlainDate.from(\"2024-13-01\"); } catch (e) { name = e.name; } return name;", "\"RangeError\""),
+  ("const d = Temporal.PlainDate.from(\"2024-01-31\"); const e = d.add({ days: 1 }); return [d.toString(), e.toString(), d.until(e).days];", "[\"2024-01-31\",\"2024-02-01\",1]"),
+  ("const d = Temporal.Now.plainDateISO(\"UTC\"); return typeof d.year;", "\"number\""),
+  ("const z = Temporal.Now.zonedDateTimeISO(\"Asia/Tokyo\"); return z.timeZoneId;", "\"Asia/Tokyo\""),
+];
+
+#[test]
+fn a_body_that_changes_its_own_values_answers_what_node_answers() {
+  let failed: Vec<String> = WRITES_AGREE_WITH_NODE
+    .iter()
+    .filter_map(|(steps, want)| {
+      let (before, value) = steps.rsplit_once("return ").expect("the steps end in a return");
+      let source = format!("export async function load() {{\n  {before}return {{ v: JSON.stringify({}) }};\n}}\n", value.trim_end_matches(';'));
+      let got = lower_loader("l.ts", &source).map_err(|e| e.to_string()).and_then(|body| returned(&body));
+      match got {
+        Ok(Value::Map(fields)) if fields.get("v") == Some(&Value::str(*want)) => None,
+        other => Some(format!("{steps}\n    got {other:?}\n    want {want}")),
+      }
+    })
+    .collect();
+  assert!(failed.is_empty(), "{} of {} bodies:\n{}", failed.len(), WRITES_AGREE_WITH_NODE.len(), failed.join("\n"));
+}
+
+/// `Temporal` expressions with `JSON.stringify` of their value as node v26.8.1, which ships `Temporal`, prints it.
+const TEMPORAL_AGREES_WITH_NODE: &[(&str, &str)] = &[
+  ("new Temporal.PlainDate(2024, 1, 31).add({ months: 1 }).toString()", "\"2024-02-29\""),
+  ("Temporal.PlainDate.from(\"2024-01-31\").add({ months: 1 })", "\"2024-02-29\""),
+  ("Temporal.PlainDate.from(\"2024-03-15\").dayOfWeek", "5"),
+  ("Temporal.PlainDate.from(\"2024-03-15\").daysInMonth", "31"),
+  ("Temporal.PlainDate.from(\"2024-03-15\").inLeapYear", "true"),
+  ("Temporal.PlainDate.from(\"2024-03-15\").monthCode", "\"M03\""),
+  ("Temporal.PlainDate.from(\"2024-03-15\").weekOfYear", "11"),
+  ("Temporal.PlainDate.from(\"2024-03-15\").dayOfYear", "75"),
+  ("Temporal.PlainDate.from(\"2024-03-15\").calendarId", "\"iso8601\""),
+  ("Temporal.PlainDate.from(\"2024-01-01\").until(\"2024-03-15\").toString()", "\"P74D\""),
+  ("Temporal.PlainDate.from(\"2024-01-01\").until(\"2024-03-15\", { largestUnit: \"months\" }).toString()", "\"P2M14D\""),
+  ("Temporal.PlainDate.from(\"2024-03-15\").since(\"2024-01-01\", { largestUnit: \"weeks\" }).toString()", "\"P10W4D\""),
+  ("Temporal.PlainDate.compare(\"2024-01-01\", \"2023-12-31\")", "1"),
+  ("Temporal.PlainDate.from({ year: 2024, month: 2, day: 30 }).toString()", "\"2024-02-29\""),
+  ("Temporal.PlainDate.from(\"2024-05-05\").with({ day: 31 }).toString()", "\"2024-05-31\""),
+  ("Temporal.PlainDate.from(\"2024-05-05\").equals(\"2024-05-05\")", "true"),
+  ("Temporal.PlainDate.from(\"2024-02-29\").toPlainDateTime(\"10:30\").toString()", "\"2024-02-29T10:30:00\""),
+  ("Temporal.PlainDate.from(\"2024-02-29\").subtract({ years: 1 }).toString()", "\"2023-02-28\""),
+  ("Temporal.PlainTime.from(\"13:45:30.5\").add({ minutes: 20 }).toString()", "\"14:05:30.5\""),
+  ("Temporal.PlainTime.from(\"13:45:30.123456789\").round(\"second\").toString()", "\"13:45:30\""),
+  ("Temporal.PlainTime.from(\"13:45\").hour", "13"),
+  ("Temporal.PlainTime.from(\"23:30\").until(\"01:15\").toString()", "\"-PT22H15M\""),
+  ("new Temporal.PlainTime(9, 5).toString()", "\"09:05:00\""),
+  ("Temporal.PlainDateTime.from(\"2024-03-10T02:30\").toZonedDateTime(\"America/New_York\").toString()", "\"2024-03-10T03:30:00-04:00[America/New_York]\""),
+  ("Temporal.PlainDateTime.from(\"2024-12-31T23:59:59\").add({ seconds: 1 }).toString()", "\"2025-01-01T00:00:00\""),
+  ("Temporal.PlainDateTime.from(\"2024-06-15T08:20:31\").round({ smallestUnit: \"hour\" }).toString()", "\"2024-06-15T08:00:00\""),
+  ("Temporal.PlainDateTime.from(\"2024-06-15T08:20\").toPlainDate().toString()", "\"2024-06-15\""),
+  ("Temporal.PlainDateTime.from(\"2024-06-15T08:20\").minute", "20"),
+  ("Temporal.ZonedDateTime.from(\"2024-11-03T01:30-04:00[America/New_York]\").add({ hours: 1 }).toString()", "\"2024-11-03T01:30:00-05:00[America/New_York]\""),
+  ("Temporal.ZonedDateTime.from(\"2024-03-10T12:00[America/New_York]\").hoursInDay", "23"),
+  ("Temporal.ZonedDateTime.from(\"2024-06-01T12:00[Europe/Berlin]\").withTimeZone(\"Asia/Tokyo\").toString()", "\"2024-06-01T19:00:00+09:00[Asia/Tokyo]\""),
+  ("Temporal.ZonedDateTime.from(\"2024-06-01T12:00[Europe/Berlin]\").offset", "\"+02:00\""),
+  ("Temporal.ZonedDateTime.from(\"2024-06-01T12:00[Europe/Berlin]\").epochMilliseconds", "1717236000000"),
+  ("Temporal.ZonedDateTime.from(\"2024-06-01T12:00[Europe/Berlin]\").timeZoneId", "\"Europe/Berlin\""),
+  ("Temporal.ZonedDateTime.from(\"2024-06-01T12:34[Europe/Berlin]\").startOfDay().toString()", "\"2024-06-01T00:00:00+02:00[Europe/Berlin]\""),
+  ("Temporal.ZonedDateTime.from(\"2024-03-09T12:00[America/New_York]\").until(\"2024-03-10T12:00[America/New_York]\", { largestUnit: \"hours\" }).toString()", "\"PT23H\""),
+  ("Temporal.ZonedDateTime.compare(\"2024-06-01T12:00[Europe/Berlin]\", \"2024-06-01T11:00[Europe/London]\")", "0"),
+  ("Temporal.Instant.fromEpochMilliseconds(1726011440123).toString()", "\"2024-09-10T23:37:20.123Z\""),
+  ("Temporal.Instant.from(\"2024-09-10T23:37:20.123Z\").toZonedDateTimeISO(\"Asia/Kolkata\").toString()", "\"2024-09-11T05:07:20.123+05:30[Asia/Kolkata]\""),
+  ("Temporal.Instant.from(\"2024-09-10T23:37:20.123Z\").round({ smallestUnit: \"minute\" }).toString()", "\"2024-09-10T23:37:00Z\""),
+  ("Temporal.Instant.from(\"2024-09-10T23:37:20Z\").until(\"2024-09-11T01:00:00Z\").toString()", "\"PT4960S\""),
+  ("Temporal.Instant.from(\"2024-09-10T23:37:20Z\").toString({ timeZone: \"America/St_Johns\" })", "\"2024-09-10T21:07:20-02:30\""),
+  ("Temporal.Instant.fromEpochMilliseconds(0).epochMilliseconds", "0"),
+  ("Temporal.Duration.from({ hours: 1, minutes: 90 }).round({ largestUnit: \"hours\" }).toString()", "\"PT2H30M\""),
+  ("Temporal.Duration.from(\"PT2H30M\").total(\"minutes\")", "150"),
+  ("Temporal.Duration.from(\"P1M\").total({ unit: \"days\", relativeTo: \"2024-02-01\" })", "29"),
+  ("Temporal.Duration.from(\"PT1H\").negated().toString()", "\"-PT1H\""),
+  ("Temporal.Duration.from(\"-PT1H\").abs().toString()", "\"PT1H\""),
+  ("Temporal.Duration.from(\"-PT1H\").sign", "-1"),
+  ("Temporal.Duration.from(\"PT0S\").blank", "true"),
+  ("Temporal.Duration.compare(\"PT1H\", \"PT60M\")", "0"),
+  ("new Temporal.Duration(1, 2).toString()", "\"P1Y2M\""),
+  ("Temporal.Duration.from(\"PT1.5S\").toString({ fractionalSecondDigits: 3 })", "\"PT1.500S\""),
+  ("Temporal.Duration.from({ days: 3 }).with({ hours: 4 }).toString()", "\"P3DT4H\""),
+  ("Temporal.Duration.from(\"PT90M\").add(\"PT30M\").toString()", "\"PT120M\""),
+  ("typeof Temporal.PlainDate.from(\"2024-01-01\")", "\"object\""),
+  ("String(Temporal.PlainDate.from(\"2024-01-01\"))", "\"2024-01-01\""),
+  ("`on ${Temporal.PlainTime.from(\"09:05\")}`", "\"on 09:05:00\""),
+  ("{ d: Temporal.PlainDate.from(\"2024-01-01\"), t: Temporal.Duration.from(\"PT5M\") }", "{\"d\":\"2024-01-01\",\"t\":\"PT5M\"}"),
+];
+
+#[test]
+fn temporal_answers_what_node_answers() {
+  let failed: Vec<String> = TEMPORAL_AGREES_WITH_NODE
+    .iter()
+    .filter_map(|(expr, want)| match lower_loader("l.ts", &loader(expr)).map_err(|e| e.to_string()).and_then(|body| returned(&body)) {
+      Ok(Value::Map(fields)) if fields.get("v") == Some(&Value::str(*want)) => None,
+      other => Some(format!("{expr}\n    got {other:?}\n    want {want}")),
+    })
+    .collect();
+  assert!(failed.is_empty(), "{} of {} expressions:\n{}", failed.len(), TEMPORAL_AGREES_WITH_NODE.len(), failed.join("\n"));
+}
+
+#[test]
+fn temporal_now_reads_the_clock_date_now_reads() {
+  let body = lower_loader("l.ts", &loader("Math.abs(Temporal.Now.instant().epochMilliseconds - Date.now()) < 1000")).unwrap();
+  let Ok(Value::Map(fields)) = returned(&body) else { panic!("a map") };
+  assert_eq!(fields.get("v"), Some(&Value::str("true")));
+}
+
+#[test]
+fn a_time_of_day_under_a_computed_locale_reads_as_one_written_in_place() {
+  let written = returned(&lower_loader("l.ts", &loader("new Date(0).toLocaleTimeString(\"de-DE\")")).unwrap());
+  for computed in ["new Date(0).toLocaleTimeString([\"de-DE\"][0])", "new Date(0).toLocaleTimeString([\"de-DE\", \"en\"].slice(0))"] {
+    let got = lower_loader("l.ts", &loader(computed)).map_err(|e| e.to_string()).and_then(|body| returned(&body));
+    assert_eq!(got, written, "{computed}");
+  }
+}
+
+#[test]
+fn a_standard_method_fsr_does_not_lower_is_refused_at_build() {
+  let lowered: Vec<&str> = REFUSED.iter().copied().filter(|expr| lower_loader("l.ts", &loader(expr)).is_ok()).collect();
+  assert!(lowered.is_empty(), "{} of {} lowered instead of being refused:\n{}", lowered.len(), REFUSED.len(), lowered.join("\n"));
+}

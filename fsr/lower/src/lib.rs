@@ -260,7 +260,7 @@ pub struct LoweredHandler {
 pub const HANDLER_METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 /// Names of JavaScript's own methods. A call of one that no arm lowers is refused by name rather than read as a call of a function value held in a field.
-const STANDARD_METHODS: &[&str] = &["flat", "entries", "keys", "values", "forEach", "push", "pop", "shift", "unshift", "splice", "fill", "copyWithin", "findLast", "findLastIndex", "reduceRight", "toSpliced", "with", "normalize", "trimStart", "trimEnd", "toLocaleUpperCase", "toLocaleLowerCase", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toPrecision", "toExponential", "then", "catch", "finally", "get", "set", "has", "delete", "add", "clear", "anchor", "bind", "call", "apply"];
+const STANDARD_METHODS: &[&str] = &["flat", "entries", "keys", "values", "forEach", "push", "pop", "shift", "unshift", "splice", "fill", "copyWithin", "findLast", "findLastIndex", "reduceRight", "toSpliced", "with", "normalize", "trimStart", "trimEnd", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toPrecision", "toExponential", "then", "catch", "finally", "get", "set", "has", "delete", "add", "clear", "anchor", "bind", "call", "apply", "big", "blink", "bold", "fixed", "fontcolor", "fontsize", "italics", "link", "small", "strike", "sub", "sup", "getYear", "setYear", "setDate", "setFullYear", "setHours", "setMilliseconds", "setMinutes", "setMonth", "setSeconds", "setTime", "setUTCDate", "setUTCFullYear", "setUTCHours", "setUTCMilliseconds", "setUTCMinutes", "setUTCMonth", "setUTCSeconds", "toTemporalInstant", "compile", "union", "intersection", "difference", "symmetricDifference", "isSubsetOf", "isSupersetOf", "isDisjointFrom", "getOrInsert", "getOrInsertComputed"];
 
 /// Session keys with the value a body reads when the key is absent, from
 /// `export const defaults` in the session schema. A read of such a key lowers
@@ -646,6 +646,31 @@ pub(crate) enum Kind {
   Browser,
   /// A `Scope` from the standard module: a module cell `run` sets around a call and `get` reads.
   Scope,
+  /// A value of one of `Temporal`'s types, which carries its type at run time.
+  Temporal,
+}
+
+/// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.
+pub(crate) const TEMPORAL_MAKERS: &[&str] = &["add", "subtract", "until", "since", "with", "withPlainTime", "withTimeZone", "round", "negated", "abs", "startOfDay", "toInstant", "toPlainDate", "toPlainTime", "toPlainDateTime", "toZonedDateTime", "toZonedDateTimeISO"];
+
+/// The `Temporal` statics that answer a Temporal value.
+pub(crate) const TEMPORAL_FROM: &[&str] = &["from", "fromEpochMilliseconds", "fromEpochNanoseconds"];
+
+/// The `Temporal.Now` functions that answer a Temporal value.
+pub(crate) const TEMPORAL_NOW: &[&str] = &["instant", "zonedDateTimeISO", "plainDateISO", "plainTimeISO", "plainDateTimeISO"];
+
+/// `Temporal.<type>`'s type name when `e` is one.
+pub(crate) fn temporal_type<'a>(e: &'a js::Expression) -> Option<&'a str> {
+  let js::Expression::StaticMemberExpression(m) = e.without_parentheses() else { return None };
+  match &m.object {
+    js::Expression::Identifier(id) if id.name.as_str() == "Temporal" && m.property.name.as_str() != "Now" => Some(m.property.name.as_str()),
+    _ => None,
+  }
+}
+
+/// Whether `e` is `Temporal.Now`.
+pub(crate) fn is_temporal_now(e: &js::Expression) -> bool {
+  matches!(e.without_parentheses(), js::Expression::StaticMemberExpression(m) if m.property.name.as_str() == "Now" && matches!(&m.object, js::Expression::Identifier(id) if id.name.as_str() == "Temporal"))
 }
 
 /// What a type alias stands for as a kind: one kind whatever it is given, or the kind of its type argument at a position.
@@ -702,7 +727,7 @@ enum Exit {
 }
 
 /// The `Math` functions `Builtin::Math` computes as V8 does.
-pub(crate) const JS_MATH: [&str; 19] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt"];
+pub(crate) const JS_MATH: [&str; 23] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt", "hypot", "imul", "clz32", "fround"];
 
 /// What a `break` leaves: a loop or a `switch` arm the statement path reads as an `if`.
 #[derive(Clone, Copy, PartialEq, Debug)]

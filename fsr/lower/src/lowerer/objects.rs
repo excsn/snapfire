@@ -82,6 +82,13 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
     }
   }
 
+  /// Whether `call` is the global `Promise.reject(…)` where no handler resumes later: a body holds no promise values, so a rejection is a throw where it is made, as a call that fails throws where it is made.
+  pub(crate) fn rejects_here(&self, call: &js::CallExpression) -> bool {
+    let Some(m) = (crate::meaning::bare(&call.callee)).as_member_expression() else { return false };
+    let (js::Expression::Identifier(promise), crate::syntax::MemberProp::Ident(method)) = (m.object(), crate::syntax::prop(m)) else { return false };
+    !self.reaches(Reach::Later) && self.parsed.ctxt(promise) == crate::Ctxt::Unresolved && promise.name.as_str() == "Promise" && method.name.as_str() == "reject"
+  }
+
   /// A fresh deferred settled at once with `value`, fulfilled when `ok` and rejected otherwise, as `new Promise` settles one its executor settles.
   pub(crate) fn settled(&mut self, ok: bool, value: Expr) -> Expr {
     let deferred = self.temp();
@@ -151,6 +158,13 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         return Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(id.name.as_str())), Entry::Field("message".to_owned(), message)]));
       }
     }
+    if let Some(name) = crate::temporal_type(&n.callee) {
+      let mut lowered = vec![Expr::lit_str(name)];
+      for a in args {
+        lowered.push(self.expr(crate::syntax::arg_expr(a))?);
+      }
+      return Ok(Expr::Ext { module: "temporal".to_owned(), name: "new".to_owned(), args: lowered });
+    }
     let global = match &n.callee {
       _ if svelte.is_some() => svelte.expect("checked").to_owned(),
       _ if matches!(platform_object(n), Some("TextEncoder" | "TextDecoder")) => return Err(self.residue_with(n.span, "a `TextEncoder` or `TextDecoder` kept as a value", "call its method where it is made or on a name bound to it: `new TextEncoder().encode(s)`")),
@@ -168,7 +182,14 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
     match (global.as_str(), first) {
       ("Date", None) => self.date_now(n.span),
       ("Date", Some(x)) if args.len() == 1 => Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![x] }),
-      ("Date", Some(_)) => Err(self.residue_with(n.span, "`new Date(year, month, ...)`, which reads the viewer's time zone", "an ISO 8601 string ending in `Z` names the same instant everywhere, `new Date(\"2026-10-05T00:00:00Z\")`")),
+      ("Date", Some(year)) if self.reaches(Reach::Terminal) || !self.on_render_path() => {
+        let mut parts = vec![year];
+        for a in args.iter().skip(1).take(6) {
+          parts.push(self.expr(crate::syntax::arg_expr(a))?);
+        }
+        Ok(self.local_to_utc(Expr::Builtin { name: Builtin::DateUtc, args: parts }))
+      }
+      ("Date", Some(_)) => Err(self.browser_only(n.span, "`new Date(year, month, ...)`, which reads the viewer's time zone")),
       ("Map", None) => Ok(Kind::Map.made(Expr::Object(Vec::new()))),
       ("Map", Some(pairs)) => Ok(Kind::Map.made(Expr::Builtin { name: Builtin::MapOf, args: vec![pairs] })),
       ("Set", None) => Ok(Kind::Set.made(Expr::Array(Vec::new()))),
@@ -211,6 +232,7 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         Ok(Expr::Object(vec![
           Entry::Field(snapfire_fsr_ir::jsregex::PATTERN.to_owned(), Expr::Str(Box::new(pattern))),
           Entry::Field(snapfire_fsr_ir::jsregex::FLAGS.to_owned(), flags),
+          Entry::Field(snapfire_fsr_ir::jsregex::LAST_INDEX.to_owned(), Expr::Lit(Lit::Float(0.0))),
         ]))
       }
       (other, _) => Err(self.residue(n.span, format!("`new {other}`"))),
@@ -223,5 +245,26 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
       return Err(self.browser_only(span, "the current time on a render path, which the server and the browser read at different moments"));
     }
     Ok(Expr::Num(Box::new(Expr::Ext { module: "time".to_owned(), name: "now".to_owned(), args: Vec::new() })))
+  }
+}
+
+impl Lowerer<'_> {
+  /// The instant a wall-clock time in this machine's time zone names, `wall` written as milliseconds as though it were UTC. It tries the offsets in force a day before and a day after and keeps the one that names `wall`. A time a change to daylight saving skips or repeats takes the offset from before the change, as JavaScript's `UTC(t)` does.
+  pub(crate) fn local_to_utc(&mut self, wall: Expr) -> Expr {
+    let (at, before, after, early, late) = (self.temp(), self.temp(), self.temp(), self.temp(), self.temp());
+    let var = |n: &String| Expr::Var(n.clone());
+    let offset = |of: Expr| Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![of] };
+    let day = |sign: ArithOp| Expr::Arith(sign, Box::new(var(&at)), Box::new(Expr::Lit(Lit::Float(86_400_000.0))));
+    let moved = |by: &String| Expr::Arith(ArithOp::Add, Box::new(var(&at)), Box::new(Expr::Arith(ArithOp::Mul, Box::new(var(by)), Box::new(Expr::Lit(Lit::Float(60_000.0))))));
+    let holds = |t: &String, o: &String, op: CompareOp| Expr::Compare(op, Box::new(offset(var(t))), Box::new(var(o)));
+    let only_late = Expr::Logic(LogicOp::And, Box::new(holds(&early, &before, CompareOp::Ne)), Box::new(holds(&late, &after, CompareOp::Eq)));
+    Expr::Block(vec![
+      Stmt::Let { name: at.clone(), expr: wall },
+      Stmt::Let { name: before.clone(), expr: offset(day(ArithOp::Sub)) },
+      Stmt::Let { name: after.clone(), expr: offset(day(ArithOp::Add)) },
+      Stmt::Let { name: early.clone(), expr: moved(&before) },
+      Stmt::Let { name: late.clone(), expr: moved(&after) },
+      Stmt::Return(Expr::Ternary(Box::new(only_late), Box::new(var(&late)), Box::new(var(&early)))),
+    ])
   }
 }

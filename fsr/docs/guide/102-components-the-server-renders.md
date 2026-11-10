@@ -49,6 +49,14 @@ One bare specifier is not residue: `@snapfire/fsr/client`, the standard library'
 | `new TextEncoder().encode(text)` | none | a server render, the browser and every host body |
 | `new TextDecoder().decode(bytes)` | none | a server render, the browser and every host body |
 | `new Date(ms).toLocaleTimeString(locale)` | none | every host body; in a component the browser fills it in |
+| `text.toLocaleUpperCase(locale)` | none | a server render, the browser and every host body |
+| `text.toLocaleLowerCase(locale)` | none | a server render, the browser and every host body |
+| `text.toLocaleUpperCase() and text.toLocaleLowerCase() with no locale` | none | every host body; in a component the browser fills it in |
+| `new Temporal.<type>(...args)` | none | a server render, the browser and every host body |
+| `Temporal.<type>.from(...) and Temporal.<type>.compare(a, b)` | none | a server render, the browser and every host body |
+| `value.<field> of a Temporal value` | none | a server render, the browser and every host body |
+| `value.<method>(...) of a Temporal value` | none | a server render, the browser and every host body |
+| `Temporal.Now.<method>(...)` | none | every host body; in a component the browser fills it in |
 | `n.toLocaleString(locale, options)` | none | a server render, the browser and every host body |
 | `when.toLocaleDateString(locale, options)` | none | a server render, the browser and every host body |
 | `a.localeCompare(b, locale, options)` | none | a server render, the browser and every host body |

@@ -285,8 +285,11 @@ let via = via_expr.as_member_expression().expect("matched as a member");
         let callee = &call.callee;
         let Some(m) = (crate::meaning::bare(callee)).as_member_expression() else { return false };
         match self.member_name(m).as_deref() {
-          Some("push" | "unshift" | "pop" | "shift" | "reverse" | "sort") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("push" | "unshift" | "pop" | "shift" | "reverse" | "sort" | "splice" | "copyWithin" | "fill") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
           Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && self.kind_of(m.object()) == Some(Kind::Map),
+          Some("exec" | "test") => self.kind_of(m.object()).is_none() && matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str())),
+          Some(setter) if DATE_SETTERS.contains(&setter) || (LOCAL_DATE_SETTERS.contains(&setter) && (self.reaches(Reach::Terminal) || !self.on_render_path())) => self.kind_of(m.object()) == Some(Kind::Date) && matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str())),
           Some("assign") => matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if id.name.as_str() == "Object") && call.arguments.first().is_some_and(|first| !crate::syntax::is_spread(first) && reached(crate::syntax::arg_expr(first))),
           _ => false,
         }
@@ -360,11 +363,53 @@ let via = via_expr.as_member_expression().expect("matched as a member");
           }
           lets.push(overwrite(&target, Expr::Object(entries)));
           Expr::Var(target)
+        } else if self.kind_of(m.object()) == Some(Kind::Date) {
+          let js::Expression::Identifier(id) = crate::meaning::bare(m.object()) else { unreachable!("object_write took a local Date") };
+          let name = id.name.to_string();
+          let next = self.date_set(&method, Expr::Var(name.clone()), call)?;
+          lets.push(Stmt::Set { name: name.clone(), expr: next });
+          Expr::Var(name)
         } else {
           let kind = self.kind_of(m.object());
           let target = held(self, m.object(), &mut lets)?;
           let read = Expr::Var(target.clone());
           match (kind, method.as_str()) {
+            (Some(Kind::Map), "getOrInsert" | "getOrInsertComputed") => {
+              let (given, key) = (self.temp(), self.temp());
+              let first = call.arguments.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without a key")))?;
+              let first = self.expr(crate::syntax::arg_expr(first))?;
+              lets.push(Stmt::Let { name: given.clone(), expr: first });
+              lets.push(Stmt::Let { name: key.clone(), expr: Expr::Builtin { name: Builtin::MapKey, args: vec![Expr::Var(given.clone())] } });
+              let second = call.arguments.get(1).ok_or_else(|| self.residue(call.span, format!("`{method}` without a value")))?;
+              let second = self.expr(crate::syntax::arg_expr(second))?;
+              let value = if method == "getOrInsert" { second } else { Expr::Apply { f: Box::new(second), args: vec![Expr::Var(given)] } };
+              let added = Kind::Map.made(Expr::Object(vec![Entry::Spread(read.clone()), Entry::Computed(Expr::Var(key.clone()), value)]));
+              let missing = Expr::Not(Box::new(Expr::Builtin { name: Builtin::HasKey, args: vec![read.clone(), Expr::Var(key.clone())] }));
+              lets.push(Stmt::If { cond: missing, then: vec![overwrite(&target, added)], r#else: Vec::new() });
+              Expr::Index(Box::new(read), Box::new(Expr::Var(key)))
+            }
+            (_, "exec" | "test") => {
+              let [subject] = call.arguments.as_slice() else { return Err(self.residue(call.span, format!("`{method}` takes the string to search"))) };
+              let subject = self.expr(crate::syntax::arg_expr(subject))?;
+              let ran = self.temp();
+              let name = if method == "exec" { Builtin::ExecFrom } else { Builtin::TestFrom };
+              lets.push(Stmt::Let { name: ran.clone(), expr: Expr::Builtin { name, args: vec![read.clone(), subject] } });
+              lets.push(overwrite(&target, Expr::Index(Box::new(Expr::Var(ran.clone())), Box::new(Expr::Lit(Lit::Float(1.0))))));
+              Expr::Index(Box::new(Expr::Var(ran)), Box::new(Expr::Lit(Lit::Float(0.0))))
+            }
+            (_, "splice") => {
+              let after = self.temp();
+              let spliced = Expr::Builtin { name: Builtin::Splice, args: [vec![read.clone()], self.spliced_args(call)?].concat() };
+              lets.push(Stmt::Let { name: after.clone(), expr: spliced });
+              lets.push(overwrite(&target, Expr::Index(Box::new(Expr::Var(after.clone())), Box::new(Expr::Lit(Lit::Float(0.0))))));
+              Expr::Index(Box::new(Expr::Var(after)), Box::new(Expr::Lit(Lit::Float(1.0))))
+            }
+            (_, "copyWithin" | "fill") => {
+              let name = if method == "fill" { Builtin::Fill } else { Builtin::CopyWithin };
+              let changed = Expr::Builtin { name, args: [vec![read.clone()], self.plain_args(call)?].concat() };
+              lets.push(overwrite(&target, changed));
+              read
+            }
             (Some(kind @ (Kind::Map | Kind::Set)), _) => {
               let next = self.collection_written(call, kind, &method, read.clone())?;
               lets.push(overwrite(&target, next));
@@ -418,5 +463,67 @@ let via = via_expr.as_member_expression().expect("matched as a member");
     let name = self.temp();
     lets.push(Stmt::Let { name: name.clone(), expr: key });
     Ok(Expr::Builtin { name: Builtin::SetAt, args: vec![Expr::Var(target.to_owned()), Expr::Var(name), value] })
+  }
+}
+
+/// The setters of a `Date` a body may call on a local it made, rebinding the local.
+const DATE_SETTERS: &[&str] = &["setTime", "setUTCFullYear", "setUTCMonth", "setUTCDate", "setUTCHours", "setUTCMinutes", "setUTCSeconds", "setUTCMilliseconds"];
+
+/// The setters that read this machine's time zone, which a body off a web render path may call the same way.
+const LOCAL_DATE_SETTERS: &[&str] = &["setFullYear", "setYear", "setMonth", "setDate", "setHours", "setMinutes", "setSeconds", "setMilliseconds"];
+
+impl Lowerer<'_> {
+  /// The instant `held.<method>(...)` sets, one of [`DATE_SETTERS`] or [`LOCAL_DATE_SETTERS`]: `Date.UTC` of its parts with the ones the call names replaced, so a part past its range carries into the next as JavaScript's does. A local setter reads and writes the parts in this machine's time zone. `setTime` takes the instant whole.
+  fn date_set(&mut self, method: &str, held: Expr, call: &js::CallExpression) -> Lowered<Expr> {
+    let mut args = self.plain_args(call)?;
+    if method == "setTime" {
+      let given = args.into_iter().next().unwrap_or(Expr::Lit(Lit::Undefined));
+      return Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![Expr::Num(Box::new(given))] });
+    }
+    let local = LOCAL_DATE_SETTERS.contains(&method);
+    if method == "setYear" {
+      let year = self.temp();
+      let given = args.drain(..).next().unwrap_or(Expr::Lit(Lit::Undefined));
+      let short = Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Ge, Box::new(Expr::Var(year.clone())), Box::new(Expr::Lit(Lit::Float(0.0))))), Box::new(Expr::Compare(CompareOp::Le, Box::new(Expr::Var(year.clone())), Box::new(Expr::Lit(Lit::Float(99.0))))));
+      let full = Expr::Ternary(Box::new(short), Box::new(Expr::Arith(ArithOp::Add, Box::new(Expr::Var(year.clone())), Box::new(Expr::Lit(Lit::Float(1900.0))))), Box::new(Expr::Var(year.clone())));
+      args = vec![Expr::Block(vec![Stmt::Let { name: year, expr: Expr::Num(Box::new(given)) }, Stmt::Return(full)])];
+    }
+    let (from, most) = match method.trim_start_matches("setUTC").trim_start_matches("set") {
+      "FullYear" | "Year" => (0, 3),
+      "Month" => (1, 2),
+      "Date" => (2, 1),
+      "Hours" => (3, 4),
+      "Minutes" => (4, 3),
+      "Seconds" => (5, 2),
+      _ => (6, 1),
+    };
+    let offset = |at: &String| Expr::Arith(ArithOp::Mul, Box::new(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![Expr::Var(at.clone())] }), Box::new(Expr::Lit(Lit::Float(60_000.0))));
+    let at = self.temp();
+    let held = if local {
+      let instant = self.temp();
+      Expr::Block(vec![Stmt::Let { name: instant.clone(), expr: held }, Stmt::Return(Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(instant.clone())), Box::new(offset(&instant))))])
+    } else {
+      held
+    };
+    let base = if matches!(method, "setUTCFullYear" | "setFullYear" | "setYear") {
+      Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsNaN, args: vec![held.clone()] }), Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(held))
+    } else {
+      held
+    };
+    let mut parts: Vec<Expr> = ["year", "month", "date", "hours", "minutes", "seconds", "milliseconds"]
+      .iter()
+      .map(|part| Expr::Builtin { name: Builtin::DatePart, args: vec![Expr::Var(at.clone()), Expr::lit_str(*part)] })
+      .collect();
+    let given = args.len().clamp(1, most);
+    let mut args = args.into_iter();
+    for slot in parts.iter_mut().skip(from).take(given) {
+      *slot = Expr::Num(Box::new(args.next().unwrap_or(Expr::Lit(Lit::Undefined))));
+    }
+    let made = Expr::Builtin { name: Builtin::DateUtc, args: parts };
+    if !local {
+      return Ok(Expr::Block(vec![Stmt::Let { name: at, expr: base }, Stmt::Return(made)]));
+    }
+    let instant = self.local_to_utc(made);
+    Ok(Expr::Block(vec![Stmt::Let { name: at, expr: base }, Stmt::Return(instant)]))
   }
 }

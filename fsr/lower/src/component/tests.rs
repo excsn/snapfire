@@ -874,12 +874,10 @@ fn an_app_s_own_use_id_is_its_hook_not_react_s() {
 }
 
 #[test]
-fn a_module_level_iife_is_named_with_a_hint() {
+fn a_module_level_iife_lowers_as_a_call() {
   let page = "const env = (() => {\n  return \"prod\";\n})();\nexport default function Page() {\n  return <p>{env}</p>;\n}\n";
-  let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
-  let LowerError::Residue(residue) = err else { panic!("{err}") };
-  assert_eq!(residue.message, "a function called where it is written");
-  assert!(residue.hint.as_deref().is_some_and(|h| h.contains("named function")), "{residue:?}");
+  let lowered = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_or_else(|e| panic!("{e}"));
+  assert!(lowered.iter().any(|(m, _)| m == "routes/index/page.tsx#default"));
 }
 
 #[test]

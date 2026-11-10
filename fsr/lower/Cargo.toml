@@ -31,6 +31,7 @@ oxc_str = "0.155"
 oxc_syntax = "0.155"
 
 [dev-dependencies]
+snapfire_time = { path = "../../time", version = "0.1.0", features = ["tz_compiled"] }
 snapfire_fsr_test_internal = { path = "../test_internal" }
 parking_lot = "0.13"
 tracing = "0.1"

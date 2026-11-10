@@ -124,7 +124,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOperator::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
@@ -342,6 +342,25 @@ impl<'a> Lowerer<'a> {
           }
         }
       }
+      if id.name.as_str() == "Number" && !self.scope.iter().any(|(n, _)| n == "Number") && !self.globals.iter().any(|(n, _)| n == "Number") {
+        if let crate::syntax::MemberProp::Ident(name) = crate::syntax::prop(member) {
+          let divide = |a: f64, b: f64| Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(a))), Box::new(Expr::Lit(Lit::Float(b))));
+          let value = match name.name.as_str() {
+            "MAX_SAFE_INTEGER" => Some(Expr::Lit(Lit::Float(9_007_199_254_740_991.0))),
+            "MIN_SAFE_INTEGER" => Some(Expr::Lit(Lit::Float(-9_007_199_254_740_991.0))),
+            "EPSILON" => Some(Expr::Lit(Lit::Float(f64::EPSILON))),
+            "MAX_VALUE" => Some(Expr::Lit(Lit::Float(f64::MAX))),
+            "MIN_VALUE" => Some(Expr::Lit(Lit::Float(5e-324))),
+            "POSITIVE_INFINITY" => Some(divide(1.0, 0.0)),
+            "NEGATIVE_INFINITY" => Some(divide(-1.0, 0.0)),
+            "NaN" => Some(divide(0.0, 0.0)),
+            _ => None,
+          };
+          if let Some(value) = value {
+            return Ok(value);
+          }
+        }
+      }
       if !self.scope.iter().any(|(n, _)| n == id.name.as_str()) {
         match self.root_of(id) {
           Some(Root::Params) => {
@@ -426,6 +445,12 @@ impl<'a> Lowerer<'a> {
         Ok(name) if matches!(name.as_str(), "status" | "ok") => Ok(Expr::Builtin { name: Builtin::ResponseMember, args: vec![target, Expr::lit_str(&name)] }),
         Ok(name) => Err(self.residue(member.span(), format!("`.{name}` of a `Response`; `status`, `ok` and `headers.get` are read"))),
         Err(_) => Err(self.residue(member.span(), "a computed member of a `Response`")),
+      };
+    }
+    if collection == Some(Kind::Temporal) {
+      return match prop(self)? {
+        Ok(name) => Ok(Expr::Ext { module: "temporal".to_owned(), name: "get".to_owned(), args: vec![target, Expr::lit_str(&name)] }),
+        Err(_) => Err(self.residue(member.span(), "a computed field of a Temporal value")),
       };
     }
     if collection == Some(Kind::Url) {

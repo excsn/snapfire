@@ -207,9 +207,9 @@ fn a_regular_expression_lowers_and_one_past_the_caps_is_residue() {
   assert_eq!(builtin_of(&lowered("replace_regex", "params.slug.replace(/ /g, \"-\")").unwrap()), snapfire_fsr_ir::ast::Builtin::Replace);
   assert_eq!(builtin_of(&lowered("backref", "/(a)\\1/.test(params.slug)").unwrap()), snapfire_fsr_ir::ast::Builtin::RegexTest);
   assert_eq!(builtin_of(&lowered("lookahead", "params.slug.replace(/a(?=b)/, \"\")").unwrap()), snapfire_fsr_ir::ast::Builtin::Replace);
+  assert_eq!(builtin_of(&lowered("sticky", "/a/y.test(params.slug)").unwrap()), snapfire_fsr_ir::ast::Builtin::RegexTest);
   for (tag, expr, says) in [
     ("nested", "/(a+)+$/.test(params.slug)", "a nested quantifier"),
-    ("sticky", "/a/y.test(params.slug)", "the sticky flag"),
     ("all_without_g", "params.slug.replaceAll(/a/, \"b\")", "without `g`"),
   ] {
     let err = lowered(tag, expr).unwrap_err();
@@ -219,8 +219,8 @@ fn a_regular_expression_lowers_and_one_past_the_caps_is_residue() {
 
 #[test]
 fn the_residue_hint_names_the_four() {
-  let err = lowered("hint_four", "params.slug.normalize()").unwrap_err();
-  assert!(err.contains("`.normalize()`, which is not a builtin"), "{err}");
+  let err = lowered("hint_four", "params.slug.bind()").unwrap_err();
+  assert!(err.contains("`.bind()`, which is not a builtin"), "{err}");
   for name in ["`split`", "`startsWith`", "`endsWith`", "`replace`", "`toSorted`", "`slice`", "`padStart`"] {
     assert!(err.contains(name), "the hint names {name}: {err}");
   }
@@ -269,7 +269,9 @@ fn a_lambda_with_a_block_body_lowers_through_its_consts_and_returns() {
 fn math_min_and_max_take_a_spread_and_other_calls_do_not() {
   let body = lowered("max_spread", "Math.max(...params.sizes, 1)").unwrap();
   assert!(matches!(&body[0], Stmt::Let { expr: Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::MaxOf, .. }, .. }), "{body:?}");
-  let err = lowered("concat_spread", "params.tags.concat(...params.more)").unwrap_err();
+  let body = lowered("concat_spread", "params.tags.concat(...params.more)").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::Spread, .. }, .. }), "{body:?}");
+  let err = lowered("join_spread", "params.tags.join(...params.sep)").unwrap_err();
   assert!(err.contains("a spread argument"), "{err}");
 }
 
@@ -327,10 +329,9 @@ fn new_lowers_dates_collections_and_query_strings_and_refuses_the_rest() {
   assert_eq!(builtin_of(&lowered("date_of", "new Date(params.at)").unwrap()), Builtin::DateMs);
   assert_eq!(builtin_of(&lowered("query", "new URLSearchParams({ q: params.q })").unwrap_or_else(|e| panic!("{e}"))), Builtin::FormEncode);
   assert!(matches!(&lowered("now", "new Date().getTime()").unwrap()[0], Stmt::Let { expr: Expr::Num(_), .. }), "a body reads the request's clock");
-  let err = lowered("local_getter", "new Date(params.at).getFullYear()").unwrap_err();
-  assert!(err.contains("reads the viewer's time zone") && err.contains("`.getUTCFullYear()`"), "{err}");
-  let err = lowered("fields", "new Date(2026, 9, 5)").unwrap_err();
-  assert!(err.contains("`new Date(year, month, ...)`"), "{err}");
+  let reads_offset = |body: &[Stmt]| format!("{body:?}").contains("localOffset");
+  assert!(reads_offset(&lowered("local_getter", "new Date(params.at).getFullYear()").unwrap()), "a body reads this machine's time zone");
+  assert!(reads_offset(&lowered("fields", "new Date(2026, 9, 5)").unwrap()), "a body reads this machine's time zone");
   let err = lowered("other_new", "new WeakMap()").unwrap_err();
   assert!(err.contains("`new WeakMap`"), "{err}");
   assert!(matches!(&lowered("kept", "new Intl.NumberFormat()").unwrap()[0], Stmt::Let { expr: Expr::Lit(snapfire_fsr_ir::ast::Lit::Null), .. }), "a formatter kept as a value is null as a value; `.format` on its name lowers");

@@ -878,20 +878,42 @@ What lowers. Anything not listed is a `Residue`.
 
 * Each is an `Expr::Builtin` with the receiver as its first argument.
 * `Math.round`, `floor`, `ceil`, `abs`, `min`, `max`, `pow`, `sqrt`, `trunc` and `sign`.
-* `Math.min(...items)` and `Math.max(...items)` are `Builtin::MinOf` and `Builtin::MaxOf` over one array. A spread into another builtin is residue.
+* `Math.hypot`, `imul`, `clz32` and `fround` are `Builtin::Math` with their name, beside the transcendental functions.
+* `Number.MAX_SAFE_INTEGER`, `MIN_SAFE_INTEGER`, `EPSILON`, `MAX_VALUE`, `MIN_VALUE`, `POSITIVE_INFINITY`, `NEGATIVE_INFINITY` and `NaN` lower to their values.
+* `isFinite(x)` is `Number.isFinite(Number(x))`. `parseFloat` and `Number.parseFloat` are `Builtin::ParseFloat`.
+* `Object.assign({...}, ...sources)` onto an object written in place is a spread of every argument. Onto anything else it is residue naming `{ ...target, ...source }`.
+* `Object.freeze(x)` is `x`. `Object.hasOwn(o, key)` and `o.hasOwnProperty(key)` are `Builtin::HasKey`, true for an array's or a string's `length` and indices. `o.propertyIsEnumerable(key)` is `HasKey` without an array's or a string's `length`. `Object.is(a, b)` is `Builtin::SameValue`.
+* `Object.groupBy(items, f)` is a `reduce` into an object keyed by `String(f(item, index))`.
+* `Array.of(...items)` is the array. `String.fromCharCode` and `String.fromCodePoint` are `Builtin::FromCharCode` and `FromCodePoint`. `Date.UTC(...)` is `Builtin::DateUtc`.
+* `Promise.reject(e)` where no handler resumes later throws `e`, since a body holds no promise values.
+* `Promise.allSettled(list)` settles each element of a list written in place as `{ status, value }` or `{ status, reason }`. Over a `map`, it settles each call of the map's function. `Promise.race` is residue.
+* `Math.min(...items)` and `Math.max(...items)` are `Builtin::MinOf` and `Builtin::MaxOf` over one array. A spread into `Math`, `String.fromCharCode`, `fromCodePoint`, `concat`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `padStart`, `padEnd` or `substring` is `Builtin::Spread` of that builtin over the list the arguments make. A spread into another builtin is residue.
+* A function written where it is called, `((x) => x + 1)(1)`, is an `Expr::Apply` of its lambda.
+* `f.call(this, ...args)` and `f.apply(this, args)` of a function value are an apply of `f`, and `f.bind(this, ...args)` a lambda that applies `f` to the bound arguments and its own. `this` is not read.
 * `Array.from({ length })`. `Array.from(x)` copies an array and reads a `Map`'s entries.
-* `encodeURIComponent(e)`, `JSON.stringify(e, null, indent)` and `JSON.parse(s)`. `JSON.stringify` with a replacer is residue.
+* `encodeURIComponent(e)`, `encodeURI(e)`, `decodeURI(e)`, `JSON.stringify(e, replacer, indent)` and `JSON.parse(s)`. A function replacer is called with each key and value, the top value under `""`. An array replacer keeps the fields of each object it names, in its order.
 * String and array methods: `toFixed`, `repeat`, `join`, `trim`, `toUpperCase`, `toLowerCase`, `includes`, `startsWith`, `endsWith`, `split`, `replace`, `slice`, `at`, `indexOf`, `concat`, `padStart`, `padEnd` and `substring`.
+* `substr`, `isWellFormed`, `toWellFormed`, `normalize`, `toPrecision` and `toExponential` are the builtins of those names.
+* `toSpliced` and `with` are `Builtin::ToSpliced` and `ArrayWith`. `fill` and `copyWithin` lower over an array the expression builds and over a local the body holds. `new Array(n).fill(v, start, end)` fills that span.
+* `s.anchor(name)`, `big`, `blink`, `bold`, `fixed`, `fontcolor(color)`, `fontsize(size)`, `italics`, `link(url)`, `small`, `strike`, `sub` and `sup` are `Expr::Template` of the element around `String(s)`, a `"` in the attribute written `&quot;`.
+* A `Set`'s `union`, `intersection`, `difference` and `symmetricDifference` are a `Set` in JavaScript's order, `intersection` walking the smaller set. `isSubsetOf`, `isSupersetOf` and `isDisjointFrom` are booleans. The argument is a `Set` or a `Map`'s keys.
+* `a.localeCompare()` compares with `"undefined"`.
+* `e.entries()`, `e.keys()` and `e.values()` of an array or a `Set` are `Builtin::Iterate`.
+* A standard method no arm lowers, such as `compile` or `toTemporalInstant`, is residue at build rather than a call of a field the value does not have.
 * A string's indices count UTF-16 code units.
 * `startsWith` and `endsWith` take exactly one argument. `replace` takes exactly two.
 * `split` takes a separator and an optional limit. `split("")` fails at run time on a character outside the Basic Multilingual Plane.
 * `e.map(f)`, `filter`, `find`, `findIndex`, `some`, `every`, `flatMap` and `reduce(f, init)`. Each callback receives the item, the index and the array.
+* `findLast`, `findLastIndex` and `reduceRight` run the forward method over the reversed items, with each callback handed the item's index in the original order.
 * `e.filter(Boolean)` is `e.filter((x) => !!x)`.
 * `clsx` (named or default import) and the default import of `classnames` are `Builtin::ClassNames` over their arguments as one array.
 * `e.toSorted(f)` and `e.sort(f)` are `Expr::Sort` with `f` or `null`. `e.toReversed()` and `e.reverse()` are `Builtin::Reverse`.
 * As an expression, `sort` and `reverse` lower only over an array the expression builds. Otherwise they are residue naming `[...items].sort()`.
 * As a statement on a local, `sort`, `reverse`, `pop` and `shift` rewrite the local.
-* `re.test(s)`, `s.match(re)`, `s.matchAll(re)` and `s.search(re)` are `Builtin::RegexTest`, `Match`, `MatchAll` and `Search`.
+* On a local the body holds, `splice` is `Builtin::Splice` and answers the items it removed. `getOrInsert(k, v)` and `getOrInsertComputed(k, f)` of a `Map` write the key when it is missing and answer its value.
+* `let x;` binds `undefined`.
+* `re.test(s)`, `re.exec(s)`, `s.match(re)`, `s.matchAll(re)` and `s.search(re)` are `Builtin::RegexTest`, `Exec`, `Match`, `MatchAll` and `Search`. A string given to `match` or `search` is read as a regular expression, as JavaScript reads it.
+* A regular expression carries `lastIndex`. `re.exec(s)` and `re.test(s)` on a local are `Builtin::ExecFrom` and `TestFrom`, which read and move it for `g` and `y` as JavaScript does. A literal's starts at 0. With `y` a match must start at `lastIndex`; `split` ignores `y`.
 * `s.replace(re, to)` and `s.split(re)` take a regular expression. `s.replace(pattern, f)` with an arrow is `Expr::ReplaceWith`.
 * `s.replaceAll(from, to)` is `Builtin::ReplaceAll` for a string and `Replace` for a regular expression, which must carry `g`.
 * `structuredClone(x)` is `x`.
@@ -900,11 +922,15 @@ What lowers. Anything not listed is a `Residue`.
 
 * `new Date(x)` and `Date.parse(s)` are `Builtin::DateMs`, from a number or an ISO 8601 string.
 * `new Date()` and `Date.now()` read the request's clock in a body. On a render path they are residue.
-* `new Date(year, month, ...)` is residue.
-* A date's `getTime()`, `valueOf()`, `toISOString()`, `toJSON()` and `getUTC*()` lower. A local-time getter is residue naming its `getUTC` form.
+* `new Date(year, month, ...)` is `Builtin::DateUtc` moved by `time.localOffset` in a body and in a terminal page. A time a change to daylight saving skips or repeats takes the offset from before the change. On a web render path it is a value the browser fills in.
+* A date's `getTime()`, `valueOf()`, `toISOString()`, `toJSON()`, `toUTCString()` and `getUTC*()` lower. `setTime` and the `setUTC*` setters rebind a local `Date`, a part past its range carrying into the next.
+* The local-time getters, `getYear`, `getTimezoneOffset`, `toDateString` and the local setters read `time.localOffset` in a body and in a terminal page. On a web render path they are a value the browser fills in. `toTimeString` is that value on a render path and residue in a body.
 * `performance.now()` is `Num` over `time.monotonic`, under the same render-path rule as `Date.now()`.
+* `new Temporal.<type>(...)` is `temporal.new`, and `Temporal.<type>.from(...)`, `compare(...)` and the `Instant` epoch constructors are `temporal.static`. A field read of a Temporal value is `temporal.get` and a method call `temporal.call`. A value is Temporal when one of these made it, a method that answers a Temporal value did, or its type annotation names `Temporal.<type>`.
+* `Temporal.Now.<name>()` is `temporal.now` in a body and in a terminal page. On a web render path it is a value the browser fills in.
 * `crypto.randomUUID()` is `crypto.uuid`, under the same rule.
-* `d.toLocaleTimeString(locale?)` is `intl.localTime` in a body and in a terminal page. On a web render path it is residue.
+* `d.toLocaleTimeString(locales?)` is `intl.localTime` in a body and in a terminal page, the locale written in place or computed. On a web render path it is a value the browser fills in.
+* `s.toLocaleUpperCase(locales)` and `s.toLocaleLowerCase(locales)` are `intl.upper` and `intl.lower` everywhere. A locale the code computes falls back to `intl.systemLocale` in a body and in a terminal page and to `intl.localeTag` on a web render path when it is `undefined` at run time. With no locale they read `intl.systemLocale` in a body and in a terminal page. On a web render path that is a value the browser fills in.
 * `btoa(s)` and `atob(s)` are `encoding.btoa` and `encoding.atob`.
 * `new TextEncoder().encode(s)` and `new TextDecoder().decode(bytes)` are `encoding.encode` and `encoding.decode`, with bytes as an array of numbers.
 * A `TextDecoder` with a label other than UTF-8 is residue. So is one with options.
