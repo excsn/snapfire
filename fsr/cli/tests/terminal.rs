@@ -935,13 +935,15 @@ fn a_callback_that_changes_the_object_it_is_passed_changes_the_callers_object() 
 }
 
 #[test]
-fn a_function_that_replaces_a_parameter_it_also_changes_is_refused() {
+fn a_function_that_replaces_a_parameter_it_also_changes_runs_as_javascript_does() {
   let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { update } from \"./config\";\n\nexport default function Settings() {\n  const [last, setLast] = useState(\"none\");\n  useInput((input) => {\n    setLast(input);\n    update((cfg) => {\n      cfg = { n: 9 };\n      cfg.n = 1;\n    });\n  });\n  return <Text>{last}</Text>;\n}\n";
   let config = "let config = { n: 0 };\n\nexport const update = (fn: (c: { n: number }) => void) => {\n  fn(config);\n};\n";
   let app = app(page);
   std::fs::write(app.join("routes/config.ts"), config).unwrap();
-  let refused = Session::open(&app).err().expect("refused");
-  assert!(refused.contains("`cfg`"), "{refused}");
+  let mut session = Session::open(&app).expect("the replaced parameter is a local the callback writes, as in JavaScript");
+  let Some(Press::Input(press)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let shown = snapfire_fsr_terminal::render(&session.press(&press).unwrap(), 20).lines()[0].trim_end().to_owned();
+  assert_eq!(shown, "x", "the page shows the key it was given");
 }
 
 fn app_with_loader(page: &str, loader: &str) -> std::path::PathBuf {
