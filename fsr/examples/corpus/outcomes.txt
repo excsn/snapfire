@@ -52,7 +52,7 @@ learn-conditional-rendering-9	lowered
 learn-describing-the-ui-1	lowered
 learn-describing-the-ui-10	lowered
 learn-describing-the-ui-2	lowered
-learn-describing-the-ui-3	refused: src/App.js: 6:7: Expected ',', got 'ident'
+learn-describing-the-ui-3	refused: src/App.js: 5:5: Adjacent JSX elements must be wrapped in an enclosing tag.
 learn-describing-the-ui-4	lowered
 learn-describing-the-ui-5	lowered
 learn-describing-the-ui-6	lowered
@@ -389,9 +389,9 @@ learn-updating-objects-in-state-4	lowered
 learn-updating-objects-in-state-5	lowered
 learn-updating-objects-in-state-6	lowered
 learn-updating-objects-in-state-9	lowered
-learn-writing-markup-with-jsx-1	refused: src/App.js: 6:7: Expected ',', got 'ident'
+learn-writing-markup-with-jsx-1	refused: src/App.js: 5:5: Adjacent JSX elements must be wrapped in an enclosing tag.
 learn-writing-markup-with-jsx-2	lowered
-learn-writing-markup-with-jsx-3	refused: src/App.js: 6:8: Expected ',', got 'class'
+learn-writing-markup-with-jsx-3	refused: src/App.js: 6:5: Adjacent JSX elements must be wrapped in an enclosing tag.
 learn-writing-markup-with-jsx-4	lowered
 learn-you-might-not-need-an-effect-2	lowered
 learn-you-might-not-need-an-effect-4	lowered
