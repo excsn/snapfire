@@ -132,6 +132,14 @@ fn temporal_renders_on_the_server_and_its_now_is_left_to_the_browser() {
 }
 
 #[test]
+fn a_helper_that_reads_the_local_time_is_left_to_the_browser() {
+  let page = "function stamp(d) {\n  return d.getFullYear() + \"-\" + (d.getMonth() + 1);\n}\nexport default function Page() {\n  const label = stamp(new Date(0));\n  return <p>{label}</p>;\n}\n";
+  let out = lower("local_helper", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p></p>");
+  assert!(out.set.browser_texts.iter().any(|(_, site)| site.contains("`stamp` reads the current time or the viewer's time zone")), "{:?}", out.set.browser_texts);
+}
+
+#[test]
 fn a_browser_value_in_an_attribute_or_choosing_markup_stays_a_residue() {
   for (tag, body, says) in [
     ("attribute", "<p title={new Date().toLocaleTimeString()}>x</p>", "the current time on a render path"),

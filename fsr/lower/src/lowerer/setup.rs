@@ -95,20 +95,22 @@ impl<'a> Lowerer<'a> {
     found
   }
 
-  /// Whether the only server-only call in `expr` is the clock `Date.now()` and `new Date()` lower to, a `time.now` read as a number, rather than `time.now` or another body extension the application calls itself.
+  /// Whether `expr`'s only server-only reads are of what the viewer's browser knows: the clock as a number, this machine's zone offset, its locale and `Temporal.Now`. A call of a helper making only those on a render path is a value the browser fills in.
   pub(crate) fn reads_only_the_date_clock(&self, expr: &Expr) -> bool {
     let is_clock = |e: &Expr| matches!(e, Expr::Ext { module, name, args } if module == "time" && name == "now" && args.is_empty());
-    let (mut clocks, mut wrapped, mut other) = (0usize, 0usize, false);
+    let viewers = |module: &str, name: &str| matches!((module, name), ("time", "localOffset") | ("intl", "localTime" | "systemLocale") | ("temporal", "now"));
+    let (mut clocks, mut wrapped, mut viewer, mut other) = (0usize, 0usize, 0usize, false);
     expr.visit(&mut |e| match e {
       Expr::Num(inner) if is_clock(inner) => wrapped += 1,
       e if is_clock(e) => clocks += 1,
+      Expr::Ext { module, name, .. } if viewers(module, name) => viewer += 1,
       Expr::Ext { module, name, .. } => {
         let key = format!("{module}.{name}");
         other |= standard_reach(module, name).or_else(|| self.natives.iter().find(|(n, _)| *n == key).map(|(_, r)| *r)) == Some(Reach::Body);
       }
       _ => {}
     });
-    !other && clocks > 0 && clocks == wrapped
+    !other && clocks == wrapped && clocks + viewer > 0
   }
 
   /// `expr` as a hoist candidate when a component is being lowered, else itself.

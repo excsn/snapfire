@@ -192,7 +192,7 @@ impl<'a> Lowerer<'a> {
           if self.on_render_path() && !self.reaches(Reach::Terminal) {
             if let Some(key) = self.body_extension_in(&f) {
               if self.reads_only_the_date_clock(&f) {
-                return Err(self.browser_only(call.span, format!("`{name}` reads the current time on a render path, which the server and the browser read at different moments")));
+                return Err(self.browser_only(call.span, format!("`{name}` reads the current time or the viewer's time zone on a render path, which only the browser knows")));
               }
               self.reach_violation = true;
               return Err(self.residue(call.span, format!("`{name}` calls `{key}` on a render path")));
