@@ -17,9 +17,9 @@ learn-adding-interactivity-8	same
 learn-choosing-the-state-structure-1	same
 learn-choosing-the-state-structure-10	same
 learn-choosing-the-state-structure-11	same
-learn-choosing-the-state-structure-13	differs
-learn-choosing-the-state-structure-14	differs
-learn-choosing-the-state-structure-15	differs
+learn-choosing-the-state-structure-13	same
+learn-choosing-the-state-structure-14	same
+learn-choosing-the-state-structure-15	same
 learn-choosing-the-state-structure-16	same
 learn-choosing-the-state-structure-17	same
 learn-choosing-the-state-structure-18	same
@@ -158,7 +158,7 @@ learn-passing-data-deeply-with-context-5	equivalent
 learn-passing-data-deeply-with-context-6	equivalent
 learn-passing-data-deeply-with-context-7	equivalent
 learn-passing-data-deeply-with-context-8	differs
-learn-passing-data-deeply-with-context-9	differs
+learn-passing-data-deeply-with-context-9	same
 learn-passing-props-to-a-component-1	same
 learn-passing-props-to-a-component-10	differs
 learn-passing-props-to-a-component-11	same
@@ -166,7 +166,7 @@ learn-passing-props-to-a-component-12	same
 learn-passing-props-to-a-component-13	same
 learn-passing-props-to-a-component-2	same
 learn-passing-props-to-a-component-3	same
-learn-passing-props-to-a-component-4	differs
+learn-passing-props-to-a-component-4	same
 learn-passing-props-to-a-component-5	same
 learn-passing-props-to-a-component-6	same
 learn-passing-props-to-a-component-7	same
@@ -233,7 +233,7 @@ learn-removing-effect-dependencies-6	same
 learn-removing-effect-dependencies-7	same
 learn-removing-effect-dependencies-8	same
 learn-removing-effect-dependencies-9	same
-learn-render-and-commit-3	differs
+learn-render-and-commit-3	same
 learn-rendering-lists-1	same
 learn-rendering-lists-10	same
 learn-rendering-lists-11	same
@@ -245,7 +245,7 @@ learn-rendering-lists-3	same
 learn-rendering-lists-4	same
 learn-rendering-lists-5	same
 learn-rendering-lists-6	same
-learn-rendering-lists-7	differs
+learn-rendering-lists-7	same
 learn-rendering-lists-8	same
 learn-rendering-lists-9	same
 learn-responding-to-events-1	same
@@ -457,7 +457,7 @@ reference-react-dom-client-createroot-1	same
 reference-react-dom-client-createroot-3	same
 reference-react-dom-client-createroot-4	same
 reference-react-dom-client-hydrateroot-1	same
-reference-react-dom-client-hydrateroot-2	react fails: Error: Intl.DateTimeFormat without a dateStyle, a timeStyle or a part is not read under fsr test, as the server does not read it
+reference-react-dom-client-hydrateroot-2	same
 reference-react-dom-client-hydrateroot-4	same
 reference-react-dom-client-hydrateroot-5	same
 reference-react-dom-components-common-1	same
@@ -476,7 +476,7 @@ reference-react-dom-components-img-1	same
 reference-react-dom-components-index-1	ir fails: `value` on `<my-element>` holds a value of kind `array` and nothing hydrates this markup to set it as a property; pass a string or give the element a template under `elements/`
 reference-react-dom-components-index-2	same
 reference-react-dom-components-input-1	same
-reference-react-dom-components-input-2	differs
+reference-react-dom-components-input-2	same
 reference-react-dom-components-input-3	same
 reference-react-dom-components-input-4	same
 reference-react-dom-components-input-5	same
@@ -490,14 +490,14 @@ reference-react-dom-components-progress-1	same
 reference-react-dom-components-script-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-script-1/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-script-2	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-script-2/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-select-1	same
-reference-react-dom-components-select-2	differs
+reference-react-dom-components-select-2	same
 reference-react-dom-components-select-3	same
 reference-react-dom-components-select-4	same
 reference-react-dom-components-select-5	same
 reference-react-dom-components-select-6	same
 reference-react-dom-components-style-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-style-1/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-textarea-1	same
-reference-react-dom-components-textarea-2	differs
+reference-react-dom-components-textarea-2	same
 reference-react-dom-components-textarea-3	same
 reference-react-dom-components-textarea-4	same
 reference-react-dom-components-title-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-title-1/app/.fsr/test: snapfirec failed:
@@ -587,9 +587,9 @@ reference-react-useeffect-8	same
 reference-react-useeffectevent-1	same
 reference-react-useeffectevent-2	same
 reference-react-useeffectevent-4	same
-reference-react-useid-1	differs
-reference-react-useid-2	differs
-reference-react-useid-3	differs
+reference-react-useid-1	same
+reference-react-useid-2	same
+reference-react-useid-3	same
 reference-react-useimperativehandle-1	same
 reference-react-useimperativehandle-2	same
 reference-react-uselayouteffect-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-uselayouteffect-1/app/.fsr/test: snapfirec failed:
