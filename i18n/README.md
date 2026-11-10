@@ -6,6 +6,8 @@
 
 **snapfire_i18n** writes currency amounts, percentages and relative times the way `Intl.NumberFormat` and `Intl.RelativeTimeFormat` write them, from CLDR 48.2.1 data embedded in the crate. You write the digits in the locale's numbering system with whatever number formatter you use. It places the currency, the percent sign, the sign and the words around them.
 
+It also maps case under a locale as `toLocaleUpperCase` and `toLocaleLowerCase` do, from Unicode 17 data: the Turkish dotted and dotless i, Lithuanian's dot above and Greek uppercase without accents.
+
 It has no dependencies.
 
 * The task guide is [README.USAGE.md](README.USAGE.md).
@@ -30,7 +32,10 @@ No feature flags.
 | "in 3 days", "2 hr. ago" | `Relative::format` |
 | "yesterday", "next week" | `Relative::literal` |
 | Which CLDR release the data is | `cldr_version` |
+| `"istanbul"` as `"İSTANBUL"` in Turkish, `"άλφα"` as `"ΑΛΦΑ"` in Greek | `upper_case` |
+| `"İSTANBUL"` as `"istanbul"` in Turkish | `lower_case` |
+| Which Unicode release the case data is | `unicode_version` |
 
 ## License
 
-The crate's code is MPL-2.0, in [LICENSE](LICENSE). The CLDR data in `data/cldr.txt` is © Unicode, Inc. under the Unicode License v3, in [data/LICENSE-UNICODE](data/LICENSE-UNICODE).
+The crate's code is MPL-2.0, in [LICENSE](LICENSE). The CLDR data in `data/cldr.txt` and the Unicode Character Database data in `data/ucd.txt` are © Unicode, Inc. under the Unicode License v3, in [data/LICENSE-UNICODE](data/LICENSE-UNICODE).

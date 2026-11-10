@@ -1,6 +1,6 @@
 # Usage Guide: snapfire_i18n
 
-How to write currency amounts, percentages and relative times with snapfire_i18n and how to regenerate its CLDR data.
+How to write currency amounts, percentages and relative times with snapfire_i18n, how to map case under a locale and how to regenerate its data.
 
 ## Table of Contents
 
@@ -14,6 +14,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
   * [Words for nearby offsets](#words-for-nearby-offsets)
   * [Choosing the plural](#choosing-the-plural)
 * [Writing the Digits](#writing-the-digits)
+* [Mapping Case Under a Locale](#mapping-case-under-a-locale)
 * [Regenerating the Data](#regenerating-the-data)
 * [Error Handling](#error-handling)
 
@@ -32,6 +33,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
 * **Width**: `Long`, `Short` or `Narrow` wording.
 * **Plural**: the CLDR plural category the locale's rules give the number.
 * **Literal**: a word for a nearby offset, such as "yesterday", which `numeric: "auto"` writes instead of a number.
+* **Case mapping**: upper or lower case as Unicode defines it, changed for a few languages. Turkish, Azerbaijani, Lithuanian and Greek have their own rules. Every other tag maps as Unicode's default does.
 
 ## Quick Start
 
@@ -151,6 +153,23 @@ let euro = Currency::new("de-DE", "EUR", Display::Symbol)?;
 assert_eq!(euro.format(&digits, Sign::None), "1.234,50\u{a0}€");
 ```
 
+## Mapping Case Under a Locale
+
+`upper_case` and `lower_case` take the text and a tag and answer what `toLocaleUpperCase` and `toLocaleLowerCase` answer in a browser:
+
+```rust
+use snapfire_i18n::{lower_case, upper_case};
+
+assert_eq!(upper_case("istanbul", "tr"), "İSTANBUL");
+assert_eq!(lower_case("ISPARTA", "tr-TR"), "ısparta");
+assert_eq!(upper_case("άλφα", "el"), "ΑΛΦΑ");
+assert_eq!(upper_case("άλφα", "en"), "ΆΛΦΑ");
+assert_eq!(lower_case("I\u{300}", "lt"), "i\u{307}\u{300}");
+assert_eq!(upper_case("straße", "de"), "STRASSE");
+```
+
+Only the language subtag matters. A tag that is not well formed maps as Unicode's default does, so check it first if it comes from outside.
+
 ## Regenerating the Data
 
 `data/cldr.txt` is written by the `datagen` crate beside this one from a cldr-json release. It reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages:
@@ -162,6 +181,16 @@ cargo run --release -p snapfire_i18n_datagen -- cldr i18n/data/cldr.txt
 ```
 
 Use the CLDR release the number formatter's data was built from, so the digits and the patterns agree.
+
+`data/ucd.txt` is written by the same crate from a Unicode Character Database release, with `--ucd`:
+
+```sh
+mkdir ucd
+for f in UnicodeData.txt DerivedCoreProperties.txt PropList.txt Scripts.txt; do curl -so ucd/$f https://www.unicode.org/Public/17.0.0/ucd/$f; done
+cargo run --release -p snapfire_i18n_datagen -- --ucd ucd i18n/data/ucd.txt
+```
+
+Use the Unicode release of the Rust toolchain that builds the crate, since the default mapping is the standard library's.
 
 ## Error Handling
 

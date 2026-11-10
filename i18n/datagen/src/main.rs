@@ -1,4 +1,6 @@
-//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`.
+//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`. `snapfire_i18n_datagen --ucd <ucd-dir> <out>` writes its case data instead, from a Unicode Character Database release.
+
+mod ucd;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -12,11 +14,17 @@ const PLURALS: [(&str, &str); 8] = [("zero", "zero"), ("one", "one"), ("two", "t
 
 fn main() {
   let mut args = std::env::args().skip(1);
-  let (Some(root), Some(out)) = (args.next(), args.next()) else {
-    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>");
+  let mut first = args.next();
+  let unicode = first.as_deref() == Some("--ucd");
+  if unicode {
+    first = args.next();
+  }
+  let (Some(root), Some(out)) = (first, args.next()) else {
+    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>\n       snapfire_i18n_datagen --ucd <ucd-dir> <out>");
     std::process::exit(2);
   };
-  let text = generate(Path::new(&root)).unwrap_or_else(|e| {
+  let made = if unicode { ucd::generate(Path::new(&root)) } else { generate(Path::new(&root)) };
+  let text = made.unwrap_or_else(|e| {
     eprintln!("snapfire_i18n_datagen: {e}");
     std::process::exit(1);
   });

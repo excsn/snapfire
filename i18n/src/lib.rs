@@ -1,5 +1,8 @@
 //! Currency, percent and relative-time formatting from CLDR data, as `Intl.NumberFormat` and `Intl.RelativeTimeFormat` write them. The caller writes the digits in the locale's numbering system and this crate places the currency, the percent sign, the sign and the words around them.
+//!
+//! [`upper_case`] and [`lower_case`] map case under a locale as `toLocaleUpperCase` and `toLocaleLowerCase` do, from Unicode Character Database data.
 
+mod case;
 mod currency;
 mod data;
 mod locale;
@@ -7,6 +10,7 @@ mod pattern;
 mod percent;
 mod relative;
 
+pub use case::{lower_case, unicode_version, upper_case};
 pub use currency::{Currency, Display};
 pub use pattern::Sign;
 pub use percent::Percent;

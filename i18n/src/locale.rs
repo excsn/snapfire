@@ -3,7 +3,7 @@
 use crate::data::{Data, Locale, data};
 
 /// The language, script and region subtags of `tag`, cased as CLDR names its locales. Anything after the region, a variant or an extension, is ignored. `_` separates as `-` does.
-fn subtags(tag: &str) -> (String, Option<String>, Option<String>) {
+pub(crate) fn subtags(tag: &str) -> (String, Option<String>, Option<String>) {
   let mut parts = tag.split(['-', '_']).filter(|part| !part.is_empty());
   let language = parts.next().map(str::to_ascii_lowercase).unwrap_or_default();
   let (mut script, mut region) = (None, None);

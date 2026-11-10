@@ -1,6 +1,6 @@
 # API Reference: snapfire_i18n
 
-Currency, percent and relative-time formatting from embedded CLDR data.
+Currency, percent and relative-time formatting from embedded CLDR data. Case mapping under a locale from embedded Unicode data.
 
 ## Contents
 
@@ -18,7 +18,11 @@ Currency, percent and relative-time formatting from embedded CLDR data.
   * [Width](#width)
   * [Plural](#plural)
   * [Relative](#relative)
-* [6. Error handling](#6-error-handling)
+* [6. Case](#6-case)
+  * [upper_case](#upper_case)
+  * [lower_case](#lower_case)
+  * [unicode_version](#unicode_version)
+* [7. Error handling](#7-error-handling)
   * [Error](#error)
 
 ## 1. Locales
@@ -94,7 +98,23 @@ The wording of one unit at one width in one locale. `#[derive(Debug, Clone, Copy
 * `pub fn literal(&self, offset: i8) -> Option<&'static str>`: the word for `offset` units from now, as `numeric: "auto"` writes it. CLDR has words for at most -2 to 2.
 * `pub fn format(&self, digits: &str, past: bool, plural: Plural, exact: Option<u8>) -> String`: `digits` is the absolute value written in the locale's digits and separators. `exact` is `Some(0)` or `Some(1)` when the value is exactly that, which selects a locale's `=0` or `=1` pattern where it has one. A category the locale has no pattern for uses `Other`.
 
-## 6. Error handling
+## 6. Case
+
+Only the tag's language subtag is read. `tr` and `az` take the Turkish rules, `lt` the Lithuanian and `el` the Greek. Every other tag maps as Unicode's default does. So does a tag that is not well formed.
+
+### upper_case
+
+* `pub fn upper_case(text: &str, tag: &str) -> String`: `text.toLocaleUpperCase(tag)`. Turkish and Azerbaijani write `i` as `İ`. Lithuanian drops a combining dot above after a soft-dotted letter. Greek drops accents and breathings, adds a dialytika to an iota or upsilon after an accented vowel and keeps the tonos of a lone `ή`, as ICU does.
+
+### lower_case
+
+* `pub fn lower_case(text: &str, tag: &str) -> String`: `text.toLocaleLowerCase(tag)`. Turkish and Azerbaijani write `I` as `ı` and `İ` as `i`. Lithuanian keeps a dot above `i` and `j` under a following accent.
+
+### unicode_version
+
+* `pub fn unicode_version() -> &'static str`: the Unicode release the case data was generated from, `"17.0.0"`.
+
+## 7. Error handling
 
 ### Error
 

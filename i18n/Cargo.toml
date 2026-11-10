@@ -2,7 +2,7 @@
 name = "snapfire_i18n"
 version = "0.1.0"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE", "/data/**"]
-description = "Currency, percent and relative-time formatting from CLDR data, with no dependencies"
+description = "Currency, percent and relative-time formatting from CLDR data and case mapping under a locale, with no dependencies"
 keywords = ["snapfire", "i18n", "cldr", "currency", "intl"]
 categories = ["internationalization", "localization"]
 
