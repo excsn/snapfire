@@ -245,7 +245,7 @@ impl<'a> Visit<'a> for Walker<'_, 'a> {
       let promise = matches!(method, "then" | "catch" | "finally") && call.arguments.len() <= 2;
       if promise && !self.written.iter().any(|s| s.start <= call.span.start && call.span.end <= s.end) {
         let why = if self.asyncs.last() == Some(&true) { "a promise chain that is not awaited or returned whole" } else { "a promise chain outside an async function" };
-        self.notes.push((self.parsed.line(call.span), format!("{why}: `fsr migrate` leaves `.{method}()` as written, and the build refuses it; write it with `await`")));
+        self.notes.push((self.parsed.line(call.span), format!("{why}: `fsr migrate` leaves `.{method}()` as written; code the server runs takes `await` instead, while the browser runs it as it is")));
         self.written.push(call.span);
       }
     }
