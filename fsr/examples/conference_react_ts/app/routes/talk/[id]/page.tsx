@@ -6,11 +6,12 @@ import type { TalkIdProps } from "@generated/client";
 import { Feedback } from "@src/ui/Feedback";
 import Opening from "@src/ui/Opening";
 import SaveTalk from "@src/ui/SaveTalk";
+import Countdown from "@src/ui/Countdown";
 
 /** Below the abstract and not wanted at first paint, so it hydrates when it is scrolled to. */
 const WhenSeen = island(Feedback, { when: "visible" });
 
-export default function TalkPage({ talk, alongside, saved }: TalkIdProps) {
+export default function TalkPage({ talk, alongside, saved, minutes, startsAt, elsewhere }: TalkIdProps) {
   const [clashes, setClashes] = useState(true);
   return (
     <article className="page talk">
@@ -19,6 +20,16 @@ export default function TalkPage({ talk, alongside, saved }: TalkIdProps) {
       </p>
       <h2>{talk.title}</h2>
       <p className="by">{talk.speaker}</p>
+      <p className="length">
+        {minutes} minutes, from {talk.starts} London time, <Countdown startsAt={startsAt} />
+      </p>
+      <ul className="elsewhere">
+        {elsewhere.map((place) => (
+          <li key={place.city}>
+            {place.at} in {place.city}
+          </li>
+        ))}
+      </ul>
       <Island when="load">
         <SaveTalk id={talk.id} saved={saved} />
       </Island>

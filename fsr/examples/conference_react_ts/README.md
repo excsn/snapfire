@@ -25,7 +25,8 @@ The programme is on <http://127.0.0.1:8150/>.
 | `routes/layout.tsx` | the masthead, the nav and the two panels, over `layout.loader.ts`; composition, with the saved count an island inside it |
 | `routes/page.tsx` | the day, filtered by `?track=` |
 | `routes/talk/layout.tsx` | a second layout between the masthead and the talk, so a click to another talk renders it under the same crumbs |
-| `routes/talk/[id]/` | the talk, its actions and the boundary that catches an id off the programme; the page's `clashes` toggle is split into an island beside it at build time |
+| `routes/talk/[id]/` | the talk, its actions and the boundary that catches an id off the programme; the page's `clashes` toggle is split into an island beside it at build time. The loader reads the talk's clock times as a `Temporal.ZonedDateTime` in London and writes its length and its start in New York and Tokyo on the server |
+| `src/ui/Countdown.tsx` | how many days ago the talk started, from `Temporal.Now` on the viewer's clock, which the browser writes into the text the server leaves empty |
 | `routes/venue/` | the venue, a composition page holding a React island the server cannot render, a Vue island, a custom element and a server island under the layout's React island |
 | `routes/venue/page.tsx` | three video embeds between the talks, a Rick Roll, the Gummibär song and Vimeo's own player film, a still and a play button each until a click loads that one player |
 | `src/media/` | the walk from the station on the venue page, a plain `<video>` with WebM and MP4 sources, a caption track and a poster, every file imported and served under its hash |

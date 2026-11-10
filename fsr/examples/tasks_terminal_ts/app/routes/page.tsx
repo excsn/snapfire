@@ -2,13 +2,13 @@ import { useReducer } from "react";
 import { Box, Static, Text, useCursor, useFocus, useFocusManager, useInput } from "@snapfire/fsr/terminal/ink";
 import { stringWidth } from "@snapfire/fsr/terminal";
 
-type Task = { id: number; title: string; done: boolean };
+type Task = { id: number; title: string; done: boolean; due: string };
 type Done = { id: number; title: string; at: string };
 type State = { tasks: Task[]; log: Done[]; draft: string; next: number };
 type Action =
   | { type: "type"; text: string }
   | { type: "erase" }
-  | { type: "add" }
+  | { type: "add"; due: string }
   | { type: "toggle"; id: number; at: string };
 
 const prompt = "new task> ";
@@ -24,7 +24,7 @@ function reducer(state: State, action: Action): State {
       if (title === "") {
         return state;
       }
-      return { ...state, tasks: [...state.tasks, { id: state.next, title, done: false }], draft: "", next: state.next + 1 };
+      return { ...state, tasks: [...state.tasks, { id: state.next, title, done: false, due: action.due }], draft: "", next: state.next + 1 };
     }
     case "toggle": {
       const task = state.tasks.find((t) => t.id === action.id);
@@ -46,7 +46,7 @@ function Row({ task }: { task: Task }) {
       </Box>
       <Box width="70%">
         <Text strikethrough={task.done} dimColor={task.done}>
-          {task.title}
+          {task.title} (due {task.due})
         </Text>
       </Box>
       <Box width="20%">
@@ -63,11 +63,11 @@ export default function Tasks() {
 
   useInput((input, key) => {
     if (key.return) {
-      dispatch({ type: "add" });
+      dispatch({ type: "add", due: Temporal.Now.plainDateISO().add({ weeks: 1 }).toString() });
     } else if (key.backspace || key.delete) {
       dispatch({ type: "erase" });
     } else if (input === " " && activeId) {
-      dispatch({ type: "toggle", id: Number(activeId.slice("task-".length)), at: new Date().toLocaleTimeString() });
+      dispatch({ type: "toggle", id: Number(activeId.slice("task-".length)), at: Temporal.Now.plainTimeISO().toString({ smallestUnit: "second" }) });
     } else if (input !== "" && !key.ctrl && !key.meta && !key.tab) {
       dispatch({ type: "type", text: input });
     }

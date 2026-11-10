@@ -1,6 +1,12 @@
 import type { RootProps } from "@generated/client";
 import type { Flight } from "@generated/services";
 
+/** How far behind its schedule a flight is expected, `+35 min`, or nothing when it is on time. */
+function lateness(flight: Flight): string {
+  const late = Temporal.PlainTime.from(flight.scheduled).until(flight.expected);
+  return late.sign > 0 ? `+${late.total("minutes")} min` : "";
+}
+
 function Table({ heading, column, flights }: { heading: string; column: string; flights: Flight[] }) {
   return (
     <section className="table">
@@ -12,6 +18,7 @@ function Table({ heading, column, flights }: { heading: string; column: string; 
             <th>{column}</th>
             <th>Scheduled</th>
             <th>Expected</th>
+            <th>Late</th>
             <th>Gate</th>
             <th>Status</th>
           </tr>
@@ -23,6 +30,7 @@ function Table({ heading, column, flights }: { heading: string; column: string; 
               <td>{flight.city}</td>
               <td className="time">{flight.scheduled}</td>
               <td className="time">{flight.expected}</td>
+              <td className="late">{lateness(flight)}</td>
               <td className="gate">{flight.gate}</td>
               <td className="status">{flight.status}</td>
             </tr>
@@ -33,11 +41,17 @@ function Table({ heading, column, flights }: { heading: string; column: string; 
   );
 }
 
-export default function BoardPage({ at, arrivals, departures }: RootProps) {
+export default function BoardPage({ at, arrivals, departures, next }: RootProps) {
   return (
     <div className="boards">
       <p className="clock">
         Field time <strong>{at}</strong>
+        {next === null ? null : (
+          <span className="next">
+            {" "}
+            Next in: {next.flight}, {next.minutes} min
+          </span>
+        )}
       </p>
       <Table heading="Arrivals" column="From" flights={arrivals} />
       <Table heading="Departures" column="To" flights={departures} />
