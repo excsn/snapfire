@@ -125,3 +125,32 @@ fn a_stylesheet_imported_for_its_effect_leaves_the_module_and_is_listed_in_the_f
   let facts: serde_json::Value = serde_json::from_str(&fs::read_to_string(dist.join(".snapfire-build.json")).unwrap()).unwrap();
   assert_eq!(facts["sheets"], serde_json::json!({ "card.js": ["card.css"] }), "{facts}");
 }
+
+#[test]
+fn test_readable_css_defines_the_light_dark_switches_it_lowers_to() {
+  let fixture = Fixture::new("light-dark");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.env("BROWSERSLIST", "chrome 100").arg("--root").arg(fixture.root()));
+
+  let readable = fs::read_to_string(fixture.root().join("dist/scheme.css")).unwrap();
+
+  assert!(readable.contains("var(--lightningcss-light"), "{readable}");
+  assert!(readable.contains("--lightningcss-light: initial"), "{readable}");
+  assert!(readable.contains("prefers-color-scheme: dark"), "{readable}");
+  assert!(readable.contains("\n  --surface: "), "{readable}");
+}
+
+#[test]
+fn test_minified_css_defines_the_light_dark_switches_it_lowers_to() {
+  let fixture = Fixture::new("light-dark");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.env("BROWSERSLIST", "chrome 100").arg("--root").arg(fixture.root()).arg("--minify"));
+
+  let minified = fs::read_to_string(fixture.root().join("dist/scheme.min.css")).unwrap();
+
+  assert!(minified.contains("var(--lightningcss-light"), "{minified}");
+  assert!(minified.contains("--lightningcss-light:initial"), "{minified}");
+  assert!(minified.contains("prefers-color-scheme:dark"), "{minified}");
+}

@@ -516,14 +516,16 @@ impl Compiler {
 
     let targets: Targets = self.targets.into();
 
-    if minify {
-      stylesheet
-        .minify(MinifyOptions {
-          targets,
-          ..Default::default()
-        })
-        .map_err(|e| anyhow!("Failed to minify CSS: {}", e))?;
+    // Lowering for the targets happens in this pass: the printer rewrites `light-dark()` on its
+    // own, but only this pass writes the `--lightningcss-light`/`-dark` switches it reads.
+    stylesheet
+      .minify(MinifyOptions {
+        targets,
+        ..Default::default()
+      })
+      .map_err(|e| anyhow!("Failed to lower CSS: {}", e))?;
 
+    if minify {
       point_imports_at_minified(&mut stylesheet.rules.0);
     }
 

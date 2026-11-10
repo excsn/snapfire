@@ -1,0 +1,8 @@
+:root {
+  color-scheme: light dark;
+  --surface: light-dark(#F0F4F7, #0F2E3D);
+}
+
+body {
+  background-color: var(--surface);
+}
