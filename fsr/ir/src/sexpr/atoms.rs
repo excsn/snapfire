@@ -89,7 +89,7 @@ pub(super) fn compare_of(s: &str) -> Option<CompareOp> {
   })
 }
 
-pub(super) fn builtin_sym(b: Builtin) -> &'static str {
+pub(crate) fn builtin_sym(b: Builtin) -> &'static str {
   match b {
     Builtin::Round => "round",
     Builtin::Floor => "floor",
@@ -181,6 +181,29 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::IsNullish => "nullish?",
     Builtin::ParseInt => "parse-int",
     Builtin::ParseFloat => "parse-float",
+    Builtin::Substr => "substr",
+    Builtin::IsWellFormed => "is-well-formed",
+    Builtin::ToWellFormed => "to-well-formed",
+    Builtin::Exec => "exec",
+    Builtin::UtcString => "utc-string",
+    Builtin::EncodeUri => "encode-full-uri",
+    Builtin::DecodeUri => "decode-full-uri",
+    Builtin::SameValue => "same-value",
+    Builtin::FromCharCode => "from-char-code",
+    Builtin::FromCodePoint => "from-code-point",
+    Builtin::DateUtc => "date-utc",
+    Builtin::ToPrecision => "to-precision",
+    Builtin::ToExponential => "to-exponential",
+    Builtin::Normalize => "normalize",
+    Builtin::ToSpliced => "to-spliced",
+    Builtin::ArrayWith => "array-with",
+    Builtin::Fill => "fill",
+    Builtin::CopyWithin => "copy-within",
+    Builtin::Iterate => "iterate",
+    Builtin::Spread => "spread",
+    Builtin::Splice => "splice",
+    Builtin::ExecFrom => "exec-from",
+    Builtin::TestFrom => "test-from",
     Builtin::LastIndexOf => "last-index-of",
     Builtin::CharAt => "char-at",
     Builtin::CharCodeAt => "char-code-at",
@@ -200,7 +223,7 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
   }
 }
 
-pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
+pub(crate) fn builtin_of(s: &str) -> Option<Builtin> {
   Some(match s {
     "round" => Builtin::Round,
     "floor" => Builtin::Floor,
@@ -292,6 +315,29 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "nullish?" => Builtin::IsNullish,
     "parse-int" => Builtin::ParseInt,
     "parse-float" => Builtin::ParseFloat,
+    "substr" => Builtin::Substr,
+    "is-well-formed" => Builtin::IsWellFormed,
+    "to-well-formed" => Builtin::ToWellFormed,
+    "exec" => Builtin::Exec,
+    "utc-string" => Builtin::UtcString,
+    "encode-full-uri" => Builtin::EncodeUri,
+    "decode-full-uri" => Builtin::DecodeUri,
+    "same-value" => Builtin::SameValue,
+    "from-char-code" => Builtin::FromCharCode,
+    "from-code-point" => Builtin::FromCodePoint,
+    "date-utc" => Builtin::DateUtc,
+    "to-precision" => Builtin::ToPrecision,
+    "to-exponential" => Builtin::ToExponential,
+    "normalize" => Builtin::Normalize,
+    "to-spliced" => Builtin::ToSpliced,
+    "array-with" => Builtin::ArrayWith,
+    "fill" => Builtin::Fill,
+    "copy-within" => Builtin::CopyWithin,
+    "iterate" => Builtin::Iterate,
+    "spread" => Builtin::Spread,
+    "splice" => Builtin::Splice,
+    "exec-from" => Builtin::ExecFrom,
+    "test-from" => Builtin::TestFrom,
     "last-index-of" => Builtin::LastIndexOf,
     "char-at" => Builtin::CharAt,
     "char-code-at" => Builtin::CharCodeAt,

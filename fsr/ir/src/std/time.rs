@@ -17,7 +17,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("time.parse", Reach::Render, |_, args| Ok(parse_iso(text("time.parse", args, 0)?).map(Value::F64).unwrap_or(Value::Null)));
   extensions.register("time.now", Reach::Body, |ambient, _| Ok(Value::Int(ambient.now)));
   extensions.register("time.monotonic", Reach::Body, |_, _| Ok(Value::F64(STARTED.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0)));
-  extensions.register("time.localOffset", Reach::Body, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?))));
+  extensions.register("time.localOffset", Reach::Body, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?)?)));
 }
 
 use snapfire_fsr_core::time::MS_PER_DAY;
@@ -51,16 +51,9 @@ fn diff(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
 
 pub use snapfire_fsr_core::time::{civil_from_days, civil_from_ms, clock_from_ms, days_from_civil};
 
-/// `getTimezoneOffset()` of an instant in this machine's local time zone: minutes behind UTC, NaN for an invalid instant.
-pub fn local_offset(ms: f64) -> f64 {
-  use chrono::{Offset, TimeZone};
-  if !ms.is_finite() {
-    return f64::NAN;
-  }
-  match chrono::Local.timestamp_millis_opt(ms as i64) {
-    chrono::LocalResult::Single(at) | chrono::LocalResult::Ambiguous(at, _) => -f64::from(at.offset().fix().local_minus_utc()) / 60.0,
-    chrono::LocalResult::None => f64::NAN,
-  }
+/// `new Date(ms).getTimezoneOffset()` in this machine's zone, from the time zone source the build holds; `NaN` for an invalid instant.
+pub fn local_offset(ms: f64) -> Result<f64, Fail> {
+  snapfire_time::local_offset(ms).map_err(|e| Fail::internal(e.to_string()))
 }
 
 /// `time.format(when, pattern)`: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and

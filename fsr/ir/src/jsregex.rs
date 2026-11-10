@@ -23,8 +23,12 @@ pub fn value(pattern: &str, flags: &str) -> Value {
   let mut map = ValueMap::default();
   map.insert(PATTERN.to_owned(), Value::str(pattern));
   map.insert(FLAGS.to_owned(), Value::str(flags));
+  map.insert(LAST_INDEX.to_owned(), Value::F64(0.0));
   Value::Map(map)
 }
+
+/// The field it keeps `lastIndex` under, where `exec` and `test` of a global or sticky expression start; absent is 0.
+pub const LAST_INDEX: &str = "lastIndex";
 
 /// The source and flags of a value that is a regular expression.
 pub fn of(value: &Value) -> Option<(&str, &str)> {
@@ -40,6 +44,7 @@ pub fn of(value: &Value) -> Option<(&str, &str)> {
 pub struct JsRegex {
   re: regress::Regex,
   unicode: bool,
+  sticky: bool,
 }
 
 /// One match as byte ranges into the subject: the whole match, then each group, `None` for a group that did not take part.
@@ -84,21 +89,21 @@ impl Found {
 
 impl JsRegex {
   pub fn is_match(&self, subject: &str) -> Result<bool, String> {
-    within_cap(subject)?;
-    if !self.needs_units(subject) {
-      return Ok(self.re.find(subject).is_some());
-    }
-    let units: Vec<u16> = subject.encode_utf16().collect();
-    Ok(self.re.find_from_ucs2(&units, 0).next().is_some())
+    Ok(self.first(subject)?.is_some())
   }
 
   pub fn first(&self, subject: &str) -> Result<Option<Found>, String> {
-    Ok(self.matches(subject, 1)?.pop())
+    Ok(self.matches(subject, 0, 1)?.pop())
   }
 
   /// Every match left to right, as a global expression walks the subject.
   pub fn all(&self, subject: &str) -> Result<Vec<Found>, String> {
-    self.matches(subject, usize::MAX)
+    self.matches(subject, 0, usize::MAX)
+  }
+
+  /// The first match at or after the UTF-16 index `from`, as `exec` reads one from `lastIndex`. With `y` only a match that starts at `from` counts.
+  pub fn at(&self, subject: &str, from: usize) -> Result<Option<Found>, String> {
+    Ok(self.matches(subject, from, 1)?.pop())
   }
 
   /// Without `u` or `v` JavaScript matches UTF-16 code units, which differs from matching characters only when the subject holds one past U+FFFF.
@@ -106,15 +111,39 @@ impl JsRegex {
     !self.unicode && subject.chars().any(|c| c > '\u{FFFF}')
   }
 
-  fn matches(&self, subject: &str, limit: usize) -> Result<Vec<Found>, String> {
+  /// Up to `limit` matches from the UTF-16 index `from`. With `y` each must start where the one before it ended, one unit on past an empty one, and the first at `from`.
+  fn matches(&self, subject: &str, from: usize, limit: usize) -> Result<Vec<Found>, String> {
     within_cap(subject)?;
-    if !self.needs_units(subject) {
-      return self.re.find_iter(subject).take(limit).map(|m| found(&m, |r| Ok(r))).collect();
-    }
-    let units: Vec<u16> = subject.encode_utf16().collect();
     let offsets = byte_offsets(subject);
-    let byte = |at: usize| offsets[at].ok_or_else(|| "a match that splits a surrogate pair, which no Rust string can hold".to_owned());
-    self.re.find_from_ucs2(&units, 0).take(limit).map(|m| found(&m, |r| Ok(byte(r.start)?..byte(r.end)?))).collect()
+    let Some(&Some(start)) = offsets.get(from) else { return Ok(Vec::new()) };
+    let mut expected = from;
+    let mut out = Vec::new();
+    let mut take = |range16: Range<usize>, made: Result<Found, String>| -> Result<bool, String> {
+      if self.sticky && range16.start != expected {
+        return Ok(false);
+      }
+      expected = if range16.is_empty() { range16.end + 1 } else { range16.end };
+      out.push(made?);
+      Ok(out.len() < limit)
+    };
+    if !self.needs_units(subject) {
+      for m in self.re.find_from(subject, start) {
+        let range = m.range();
+        let range16 = utf16_index(subject, range.start)..utf16_index(subject, range.end);
+        if !take(range16, found(&m, |r| Ok(r)))? {
+          break;
+        }
+      }
+    } else {
+      let units: Vec<u16> = subject.encode_utf16().collect();
+      let byte = |at: usize| offsets[at].ok_or_else(|| "a match that splits a surrogate pair, which no Rust string can hold".to_owned());
+      for m in self.re.find_from_ucs2(&units, from) {
+        if !take(m.range(), found(&m, |r| Ok(byte(r.start)?..byte(r.end)?)))? {
+          break;
+        }
+      }
+    }
+    Ok(out)
   }
 }
 
@@ -160,18 +189,20 @@ pub fn compiled(pattern: &str, flags: &str) -> Result<Arc<JsRegex>, String> {
   }
   let mut unicode = false;
   let mut sets = false;
+  let mut sticky = false;
   for flag in flags.chars() {
     match flag {
       'd' | 'g' | 'i' | 'm' | 's' => {}
       'u' => unicode = true,
       'v' => (unicode, sets) = (true, true),
-      'y' => return Err("the sticky flag `y`".to_owned()),
+      'y' => sticky = true,
       other => return Err(format!("the flag `{other}`")),
     }
   }
   bounded_repetition(pattern, sets)?;
-  let re = regress::Regex::with_flags(pattern, flags).map_err(|e| format!("a pattern JavaScript would not compile: {e}"))?;
-  let compiled = Arc::new(JsRegex { re, unicode });
+  let engine_flags: String = flags.chars().filter(|f| *f != 'y').collect();
+  let re = regress::Regex::with_flags(pattern, engine_flags.as_str()).map_err(|e| format!("a pattern JavaScript would not compile: {e}"))?;
+  let compiled = Arc::new(JsRegex { re, unicode, sticky });
   let mut held = cache().lock();
   if held.len() >= CACHED {
     held.clear();

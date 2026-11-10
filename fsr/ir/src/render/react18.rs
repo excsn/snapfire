@@ -33,6 +33,7 @@ fn coerce(value: &Value, out: &mut String) -> Result<(), Fail> {
     }
     Value::Bytes(bytes) => coerce(&Value::seq(bytes.iter().map(|b| Value::UInt((*b).into())).collect::<Vec<Value>>()), out)?,
     Value::TypedArray(array) => coerce(&Value::seq(elements(array)), out)?,
+    temporal @ Value::Variant { .. } if snapfire_fsr_core::value::typed::temporal(temporal).is_some() => out.push_str(snapfire_fsr_core::value::typed::temporal(temporal).map_or("", |(_, text)| text)),
     Value::Map(_) | Value::Variant { .. } | Value::Ref { .. } => out.push_str("[object Object]"),
     scalar => out.push_str(&scalar_str(scalar)?),
   }

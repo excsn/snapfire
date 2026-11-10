@@ -211,53 +211,162 @@ pub(super) fn parse_float(s: &str) -> f64 {
   sign * s[..end].parse::<f64>().unwrap_or(f64::NAN)
 }
 
-/// The digits of an integer `n` in `radix`, as `Number.prototype.toString` writes them; `None` for a finite number with a fraction and for one past `Number.MAX_SAFE_INTEGER` in a radix that is not a power of 2, whose digits engines round differently.
-pub(super) fn radix_digits(n: f64, radix: u32) -> Option<String> {
-  if n.is_nan() {
-    return Some("NaN".to_owned());
-  }
-  if n.is_infinite() {
-    return Some(if n < 0.0 { "-Infinity" } else { "Infinity" }.to_owned());
-  }
-  if n.fract() != 0.0 || (n.abs() > SAFE_INTEGER && !radix.is_power_of_two()) {
-    return None;
-  }
-  let bits = n.abs().to_bits();
-  let exponent = ((bits >> 52) & 0x7ff) as i64;
-  let mantissa = if exponent == 0 { (bits & ((1 << 52) - 1)) << 1 } else { (bits & ((1 << 52) - 1)) | (1 << 52) };
-  let shift = exponent - 1075;
-  let mut limbs: Vec<u32> = vec![mantissa as u32, (mantissa >> 32) as u32];
-  if shift > 0 {
-    let (words, bits) = ((shift / 32) as usize, (shift % 32) as u32);
-    let mut shifted = vec![0u32; words];
-    let mut carry = 0u32;
-    for limb in limbs {
-      shifted.push(if bits == 0 { limb } else { (limb << bits) | carry });
-      carry = if bits == 0 { 0 } else { limb >> (32 - bits) };
+/// The first `count` significant decimal digits of `x` with the decimal exponent of the first. `x` is positive and finite. The digits are rounded to the nearest from its exact decimal value with a tie going to the larger, as `toExponential` and `toPrecision` round.
+fn significant(x: f64, count: usize) -> (Vec<u8>, i32) {
+  let exact = format!("{x:.800e}");
+  let (mantissa, exponent) = exact.split_once('e').expect("an exponent");
+  let mut e: i32 = exponent.parse().expect("an integer exponent");
+  let all: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).map(|b| b - b'0').collect();
+  let mut digits = all[..count].to_vec();
+  if all.get(count).is_some_and(|&next| next >= 5) {
+    let mut i = count;
+    loop {
+      if i == 0 {
+        digits.insert(0, 1);
+        digits.pop();
+        e += 1;
+        break;
+      }
+      i -= 1;
+      if digits[i] == 9 {
+        digits[i] = 0;
+      } else {
+        digits[i] += 1;
+        break;
+      }
     }
-    shifted.push(carry);
-    limbs = shifted;
-  } else if shift < 0 {
-    let value = mantissa >> (-shift).min(63);
-    limbs = vec![value as u32, (value >> 32) as u32];
   }
-  let mut out = Vec::new();
-  while limbs.iter().any(|&limb| limb != 0) {
-    let mut remainder = 0u64;
-    for limb in limbs.iter_mut().rev() {
-      let current = (remainder << 32) | u64::from(*limb);
-      *limb = (current / u64::from(radix)) as u32;
-      remainder = current % u64::from(radix);
+  (digits, e)
+}
+
+/// The shortest digits that read back as `x` with the decimal exponent of the first, as `String(x)` prints them. `x` is positive and finite.
+fn shortest(x: f64) -> (Vec<u8>, i32) {
+  let printed = format!("{x:e}");
+  let (mantissa, exponent) = printed.split_once('e').expect("an exponent");
+  (mantissa.bytes().filter(u8::is_ascii_digit).map(|b| b - b'0').collect(), exponent.parse().expect("an integer exponent"))
+}
+
+fn not_finite(x: f64) -> Option<String> {
+  match x {
+    _ if x.is_nan() => Some("NaN".to_owned()),
+    f64::INFINITY => Some("Infinity".to_owned()),
+    f64::NEG_INFINITY => Some("-Infinity".to_owned()),
+    _ => None,
+  }
+}
+
+fn decimal_digits(digits: &[u8]) -> String {
+  digits.iter().map(|d| char::from(b'0' + d)).collect()
+}
+
+fn exponent_form(digits: &[u8], e: i32) -> String {
+  let mut out = decimal_digits(&digits[..1]);
+  if digits.len() > 1 {
+    out.push('.');
+    out.push_str(&decimal_digits(&digits[1..]));
+  }
+  format!("{out}e{}{}", if e < 0 { '-' } else { '+' }, e.abs())
+}
+
+/// `x.toExponential(fraction)`: `fraction` digits after the point, as many as `String(x)` holds when it is `None`.
+pub(super) fn to_exponential(x: f64, fraction: Option<usize>) -> String {
+  if let Some(word) = not_finite(x) {
+    return word;
+  }
+  let sign = if x < 0.0 { "-" } else { "" };
+  let x = x.abs();
+  let (digits, e) = match fraction {
+    _ if x == 0.0 => (vec![0; fraction.unwrap_or(0) + 1], 0),
+    Some(f) => significant(x, f + 1),
+    None => shortest(x),
+  };
+  format!("{sign}{}", exponent_form(&digits, e))
+}
+
+/// `x.toPrecision(precision)` for a precision from 1 to 100.
+pub(super) fn to_precision(x: f64, precision: usize) -> String {
+  if let Some(word) = not_finite(x) {
+    return word;
+  }
+  let sign = if x < 0.0 { "-" } else { "" };
+  let x = x.abs();
+  let (digits, e) = if x == 0.0 { (vec![0; precision], 0) } else { significant(x, precision) };
+  let body = if e < -6 || e >= precision as i32 {
+    exponent_form(&digits, e)
+  } else if e >= 0 {
+    let whole = e as usize + 1;
+    if whole == precision { decimal_digits(&digits) } else { format!("{}.{}", decimal_digits(&digits[..whole]), decimal_digits(&digits[whole..])) }
+  } else {
+    format!("0.{}{}", "0".repeat((-e - 1) as usize), decimal_digits(&digits))
+  };
+  format!("{sign}{body}")
+}
+
+/// `n.toString(radix)` as V8 prints it, `DoubleToRadixCString` in V8's `src/numbers/conversions.cc`: the integer digits exact below 2^53 and zero past the precision a double holds, then fraction digits until they identify the double, the last rounded half to even.
+pub(super) fn radix_digits(n: f64, radix: u32) -> String {
+  if let Some(word) = not_finite(n) {
+    return word;
+  }
+  let r = f64::from(radix);
+  let next_up = |x: f64| f64::from_bits(x.to_bits() + 1);
+  let value = n.abs();
+  let mut integer = value.floor();
+  let mut fraction = value - integer;
+  let mut delta = (0.5 * (next_up(value) - value)).max(next_up(0.0));
+  let mut fraction_digits: Vec<u32> = Vec::new();
+  if fraction >= delta {
+    loop {
+      fraction *= r;
+      delta *= r;
+      let digit = fraction as u32;
+      fraction_digits.push(digit);
+      fraction -= f64::from(digit);
+      if (fraction > 0.5 || (fraction == 0.5 && digit & 1 == 1)) && fraction + delta > 1.0 {
+        loop {
+          match fraction_digits.pop() {
+            None => {
+              integer += 1.0;
+              break;
+            }
+            Some(d) if d + 1 < radix => {
+              fraction_digits.push(d + 1);
+              break;
+            }
+            Some(_) => {}
+          }
+        }
+        break;
+      }
+      if fraction < delta {
+        break;
+      }
     }
-    out.push(char::from_digit(remainder as u32, radix).expect("a digit"));
   }
-  if out.is_empty() {
-    out.push('0');
+  let binary_exponent = |x: f64| ((x.to_bits() >> 52) & 0x7ff) as i64 - 1075;
+  let mut integer_digits: Vec<u32> = Vec::new();
+  while binary_exponent(integer / r) > 0 {
+    integer /= r;
+    integer_digits.push(0);
   }
+  loop {
+    let remainder = integer % r;
+    integer_digits.push(remainder as u32);
+    integer = (integer - remainder) / r;
+    if integer <= 0.0 {
+      break;
+    }
+  }
+  let digit = |d: &u32| char::from_digit(*d, radix).expect("a digit below the radix");
+  let mut out = String::with_capacity(integer_digits.len() + fraction_digits.len() + 2);
   if n < 0.0 {
     out.push('-');
   }
-  Some(out.into_iter().rev().collect())
+  out.extend(integer_digits.iter().rev().map(digit));
+  if !fraction_digits.is_empty() {
+    out.push('.');
+    out.extend(fraction_digits.iter().map(digit));
+  }
+  out
 }
 
 /// JavaScript's `StringToNumber`: surrounding whitespace is dropped, empty is 0, `0x`, `0o` and `0b` read unsigned in their base, `Infinity` may carry a sign and anything else that is not a decimal literal is NaN.

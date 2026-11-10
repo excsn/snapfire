@@ -32,7 +32,35 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.compare", Reach::Render, compare);
   extensions.register("intl.relative", Reach::Render, relative);
   extensions.register("intl.localeTag", Reach::Render, |ambient, _| Ok(Value::str(ambient.bcp47())));
-  extensions.register("intl.localTime", Reach::Body, |_, args| Ok(Value::str(local_time(number("intl.localTime", args, 0)?, text_opt("intl.localTime", args, 1)?)?)));
+  extensions.register("intl.localTime", Reach::Body, |_, args| Ok(Value::str(local_time(number("intl.localTime", args, 0)?, named_locale("intl.localTime", args, 1)?)?)));
+  extensions.register("intl.upper", Reach::Render, |_, args| case("intl.upper", args, snapfire_i18n::upper_case));
+  extensions.register("intl.lower", Reach::Render, |_, args| case("intl.lower", args, snapfire_i18n::lower_case));
+  extensions.register("intl.systemLocale", Reach::Body, |_, _| Ok(Value::str(system_locale("LC_MESSAGES"))));
+}
+
+/// `intl.upper(text, locales, fallback?)` and `intl.lower(text, locales, fallback?)`: `toLocaleUpperCase` and `toLocaleLowerCase`. `locales` is a tag or an array whose first tag applies. `fallback` applies when it names none: `undefined`, `null` or an empty array. A tag that is not well formed is refused, as JavaScript throws a `RangeError`.
+fn case(what: &str, args: &[Value], map: fn(&str, &str) -> String) -> Result<Value, Fail> {
+  let subject = text(what, args, 0)?;
+  let tag = match named_locale(what, args, 1)? {
+    Some(tag) => tag,
+    None => text(what, args, 2)?,
+  };
+  tag.parse::<Locale>().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
+  Ok(Value::str(map(subject, tag)))
+}
+
+/// The tag a `locales` argument at `i` names, as JavaScript reads one: a string, or the first of an array. `None` for `undefined`, `null`, an empty array or no argument.
+fn named_locale<'a>(what: &str, args: &'a [Value], i: usize) -> Result<Option<&'a str>, Fail> {
+  Ok(match args.get(i) {
+    Some(Value::Str(tag)) => Some(tag.as_str()),
+    Some(Value::Seq(tags)) => match tags.iter().next() {
+      Some(Value::Str(tag)) => Some(tag.as_str()),
+      Some(other) => return Err(Fail::internal(format!("{what}: a locale is a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+      None => None,
+    },
+    Some(Value::Null | Value::Undefined) | None => None,
+    Some(other) => return Err(Fail::internal(format!("{what}: the locales are a string or an array, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+  })
 }
 
 fn locale_of(ambient: &Ambient) -> Locale {
@@ -300,14 +328,14 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
 /// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time, `Invalid Date` for an invalid instant. Without a locale, the system's, read from `LC_ALL`, `LC_TIME` or `LANG`, else `en-US`.
 pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   let what = "toLocaleTimeString";
-  let offset = super::time::local_offset(ms);
+  let offset = super::time::local_offset(ms)?;
   if offset.is_nan() {
     return Ok("Invalid Date".to_owned());
   }
   let (h, m, s, _) = super::time::clock_from_ms(ms - offset * 60_000.0);
   let tag = match locale {
     Some(tag) => tag.to_owned(),
-    None => system_locale(),
+    None => system_locale("LC_TIME"),
   };
   let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
   let time = icu_datetime::input::Time::try_new(h as u8, m as u8, s as u8, 0).map_err(|e| data(what, e))?;
@@ -315,9 +343,9 @@ pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   Ok(formatter.format(&time).to_string())
 }
 
-/// `en_US.UTF-8` from the environment as `en-US`; `C` and `POSIX` are `en-US`.
-fn system_locale() -> String {
-  let named = ["LC_ALL", "LC_TIME", "LANG"].iter().find_map(|var| std::env::var(var).ok().filter(|v| !v.is_empty()));
+/// The locale `LC_ALL`, then `category`, then `LANG` names, with `en_US.UTF-8` read as `en-US`. `C`, `POSIX` and none at all are `en-US`.
+fn system_locale(category: &str) -> String {
+  let named = ["LC_ALL", category, "LANG"].iter().find_map(|var| std::env::var(var).ok().filter(|v| !v.is_empty()));
   let Some(named) = named else { return "en-US".to_owned() };
   let tag = named.split(['.', '@']).next().unwrap_or_default().replace('_', "-");
   match tag.as_str() {
@@ -430,10 +458,10 @@ fn compare(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(other) => return Err(Fail::internal(format!("{what}: `sensitivity` is base, accent, case or variant, got `{other}`"))),
   }
   let collator = Collator::try_new(prefs, options).map_err(|e| data(what, e))?;
-  Ok(Value::int(match collator.compare(&a, &b) {
-    std::cmp::Ordering::Less => -1i64,
-    std::cmp::Ordering::Equal => 0,
-    std::cmp::Ordering::Greater => 1,
+  Ok(Value::F64(match collator.compare(&a, &b) {
+    std::cmp::Ordering::Less => -1.0,
+    std::cmp::Ordering::Equal => 0.0,
+    std::cmp::Ordering::Greater => 1.0,
   }))
 }
 

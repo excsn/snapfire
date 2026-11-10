@@ -75,6 +75,7 @@ pub(super) fn plain_text_into(value: &Value, out: &mut String) -> Result<bool, F
     Value::Seq(items) => return on_enough_stack(|| array_text_into(items, out)),
     Value::Map(_) if converts_itself(value) => return Ok(false),
     Value::Map(_) => out.push_str("[object Object]"),
+    temporal @ Value::Variant { .. } if snapfire_fsr_core::value::typed::temporal(temporal).is_some() => out.push_str(snapfire_fsr_core::value::typed::temporal(temporal).map_or("", |(_, text)| text)),
     other => return Err(type_error("String", "a scalar, an array or a plain object", other)),
   }
   Ok(true)

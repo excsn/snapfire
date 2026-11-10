@@ -407,19 +407,14 @@ impl Env {
         return Ok(Value::Null);
       }
       Builtin::Overwrite => return self.overwrite(&args[0], &args[1]),
-      Builtin::Json if self.heap_live => {
-        if let Some(arg) = args.first() {
-          let value = self.eval_sync(arg)?;
-          if value.nested_past(MAX_NESTING) {
-            return Err(Fail::new(FailureKind::Invalid, "Converting circular structure to JSON"));
-          }
-        }
-      }
       _ => {}
     }
     let mut values = Vec::with_capacity(args.len());
     for arg in args {
       values.push(self.eval_sync(arg)?);
+    }
+    if *name == Builtin::Json && self.heap_live && values.first().is_some_and(|value| value.nested_past(MAX_NESTING)) {
+      return Err(Fail::new(FailureKind::Invalid, "Converting circular structure to JSON"));
     }
     self.builtin_values(name, values)
   }

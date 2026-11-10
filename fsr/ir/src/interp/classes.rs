@@ -51,13 +51,20 @@ pub(super) fn caught(fail: &Fail) -> Option<Value> {
     Some(Value::Map(map)) if map.contains_key(crate::render::DEFERRED) => None,
     Some(thrown) => Some(thrown.clone()),
     None => {
+      let (name, message) = error_name(&fail.message);
       let mut fields = ValueMap::default();
-      fields.insert("name".to_owned(), Value::str("Error"));
+      fields.insert("name".to_owned(), Value::str(name));
       fields.insert("kind".to_owned(), Value::str(fail.kind.as_str()));
-      fields.insert("message".to_owned(), Value::str(fail.message.clone()));
+      fields.insert("message".to_owned(), Value::str(message));
       Some(Value::Map(fields))
     }
   }
+}
+
+/// The JavaScript error a failure's message names as its prefix, `RangeError: ...`, and the message after it; `Error` and the whole message for one with no such prefix.
+fn error_name(message: &str) -> (&str, &str) {
+  const NAMES: [&str; 6] = ["TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
+  NAMES.iter().find_map(|name| message.strip_prefix(name).and_then(|rest| rest.strip_prefix(": ")).map(|rest| (*name, rest))).unwrap_or(("Error", message))
 }
 
 /// The failure a `throw` is: `args` are the message and, when there is one, the value thrown. A thrown value whose `kind` names a failure kind fails with that kind, so a `catch` that throws what it caught fails as the original did.

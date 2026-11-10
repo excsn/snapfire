@@ -13,6 +13,12 @@ homepage = { workspace = true }
 repository = { workspace = true }
 readme = "README.md"
 
+[features]
+# Where `Date`'s local time reads its zone rules, passed to snapfire_time. The
+# host turns one on; a build with neither fails each local-time read by name.
+tz_compiled = ["snapfire_time/tz_compiled"]
+tz_system = ["snapfire_time/tz_system"]
+
 [dependencies]
 memchr = "2"
 itoa = "1"
@@ -22,7 +28,7 @@ regress = { version = "0.12", default-features = false, features = ["std", "utf1
 snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_i18n = { path = "../../i18n", version = "0.1.0" }
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+snapfire_time = { path = "../../time", version = "0.1.0", default-features = false }
 form_urlencoded = "1"
 url = "2"
 fixed_decimal = { version = "0.7", features = ["ryu"] }
@@ -50,6 +56,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 yaml-rust2 = "0.13"
 
 [dev-dependencies]
+snapfire_time = { path = "../../time", version = "0.1.0", features = ["tz_compiled"] }
 snapfire_fsr_test_internal = { path = "../test_internal" }
 arbitrary = { version = "1", features = ["derive"] }
 bolero = "0.13"

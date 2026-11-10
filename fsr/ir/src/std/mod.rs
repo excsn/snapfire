@@ -17,6 +17,7 @@ pub mod intl;
 pub mod log;
 pub mod path;
 pub mod system;
+pub mod temporal;
 pub mod terminal;
 pub mod text;
 pub mod time;
@@ -28,6 +29,7 @@ pub fn register(extensions: &mut Extensions) {
   text::register(extensions);
   frontmatter::register(extensions);
   time::register(extensions);
+  temporal::register(extensions);
   crypto::register(extensions);
   encoding::register(extensions);
   id::register(extensions);

@@ -232,6 +232,22 @@ fn local_time_is_the_instant_shifted_by_this_machines_offset_as_to_locale_time_s
 }
 
 #[test]
+fn upper_and_lower_map_case_under_the_locale_they_are_given() {
+  assert_eq!(call("", "intl.upper", vec![s("istanbul"), s("tr")]), Ok(s("\u{130}STANBUL")));
+  assert_eq!(call("", "intl.lower", vec![s("\u{130}STANBUL"), s("tr-TR")]), Ok(s("istanbul")));
+  assert_eq!(call("", "intl.upper", vec![s("\u{3ac}\u{3bb}\u{3c6}\u{3b1}"), s("el")]), Ok(s("\u{391}\u{39b}\u{3a6}\u{391}")));
+  assert_eq!(call("", "intl.lower", vec![s("Stra\u{df}e"), s("en")]), Ok(s("stra\u{df}e")));
+  let tags = Value::seq(vec![s("tr"), s("en")]);
+  assert_eq!(call("", "intl.upper", vec![s("i"), tags, s("en")]), Ok(s("\u{130}")));
+  assert_eq!(call("", "intl.upper", vec![s("i"), Value::Undefined, s("tr")]), Ok(s("\u{130}")));
+  assert_eq!(call("", "intl.upper", vec![s("i"), Value::seq(Vec::<Value>::new()), s("en")]), Ok(s("I")));
+  let refused = call("", "intl.upper", vec![s("a"), s("not a locale!")]).unwrap_err();
+  assert!(refused.contains("`not a locale!` is not a locale"), "{refused}");
+  let Ok(Value::Str(tag)) = call("", "intl.systemLocale", vec![]) else { panic!("a tag") };
+  assert!(tag.as_str().parse::<icu_locale_core::Locale>().is_ok(), "{tag}");
+}
+
+#[test]
 fn strip_ansi_removes_escape_codes_as_ansi_regex_matches_them() {
   assert_eq!(call("", "terminal.stripAnsi", vec![s("\u{1b}[4m\u{1b}[42mcake\u{1b}[49m\u{1b}[24m")]), Ok(s("cake")));
   assert_eq!(call("", "terminal.stripAnsi", vec![s("\u{1b}]8;;https://x.dev\u{7}link\u{1b}]8;;\u{7} plain")]), Ok(s("link plain")), "an OSC hyperlink");

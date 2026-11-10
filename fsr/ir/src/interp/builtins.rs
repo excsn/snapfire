@@ -126,6 +126,205 @@ pub(super) fn message_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fa
   })
 }
 
+/// The builtins JavaScript's standard library added beside the first set, apart from [`builtin`] so its frame stays the size a render nested deep on a small stack can afford.
+#[inline(never)]
+fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
+  let arg = |i: usize| args.get(i).ok_or_else(|| Fail::internal(format!("{name:?} takes more arguments")));
+  Ok(match name {
+    Builtin::ExecFrom | Builtin::TestFrom => {
+      let Value::Map(held) = arg(0)? else { return Err(type_error(&format!("{name:?}"), "a regular expression", arg(0)?)) };
+      let (pattern, flags) = crate::jsregex::of(arg(0)?).ok_or_else(|| type_error(&format!("{name:?}"), "a regular expression", arg(0).unwrap_or(&Value::Null)))?;
+      let s = text(name, arg(1)?)?;
+      let moves = flags.contains('g') || flags.contains('y');
+      let from = if moves { to_number(held.get(crate::jsregex::LAST_INDEX).unwrap_or(&Value::F64(0.0))).filter(|n| !n.is_nan()).unwrap_or(0.0).max(0.0) } else { 0.0 };
+      let re = crate::jsregex::compiled(pattern, flags).map_err(Fail::internal)?;
+      let found = if from > s.encode_utf16().count() as f64 { None } else { re.at(s, from as usize).map_err(Fail::internal)? };
+      let mut after = held.clone();
+      if moves {
+        let last = found.as_ref().map_or(0.0, |m| crate::jsregex::utf16_index(s, m.whole().end) as f64);
+        after.insert(crate::jsregex::LAST_INDEX.to_owned(), Value::F64(last));
+      }
+      let answer = match (name, found) {
+        (Builtin::TestFrom, found) => Value::Bool(found.is_some()),
+        (_, None) => Value::Null,
+        (_, Some(m)) => Value::seq(m.texts(s).map(|g| g.map_or(Value::Null, Value::str)).collect::<Vec<_>>()),
+      };
+      Value::seq(vec![answer, Value::Map(after)])
+    }
+    Builtin::Substr => {
+      let units: Vec<u16> = stringify(arg(0)?)?.encode_utf16().collect();
+      let from = relative(integer(name, args.get(1))?, units.len());
+      let count = match args.get(2) {
+        None | Some(Value::Undefined) => units.len() as f64,
+        Some(v) => integer(name, Some(v))?.max(0.0),
+      };
+      let to = (from as f64 + count).min(units.len() as f64) as usize;
+      Value::str(from_units(name, &units[from..to.max(from)])?)
+    }
+    Builtin::IsWellFormed => {
+      stringify(arg(0)?)?;
+      Value::Bool(true)
+    }
+    Builtin::ToWellFormed => Value::str(stringify(arg(0)?)?),
+    Builtin::UtcString => {
+      let ms = number(name, arg(0)?)?;
+      if !(ms.abs() <= MAX_DATE_MS) {
+        return Ok(Value::str("Invalid Date"));
+      }
+      let ms = ms.trunc();
+      let (y, m, d) = crate::std::time::civil_from_ms(ms);
+      let (hh, mm, ss, _) = crate::std::time::clock_from_ms(ms);
+      const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      let weekday = DAYS[((ms / 86_400_000.0).floor() + 4.0).rem_euclid(7.0) as usize];
+      let year = if y < 0 { format!("-{:04}", -y) } else { format!("{y:04}") };
+      Value::str(format!("{weekday}, {d:02} {} {year} {hh:02}:{mm:02}:{ss:02} GMT", MONTHS[m as usize - 1]))
+    }
+    Builtin::SameValue => {
+      let numeric = |v: &Value| matches!(v, Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_));
+      let (a, b) = (arg(0)?, arg(1)?);
+      if numeric(a) && numeric(b) {
+        let (x, y) = (number(name, a)?, number(name, b)?);
+        Value::Bool((x.is_nan() && y.is_nan()) || (x == y && x.is_sign_negative() == y.is_sign_negative()))
+      } else {
+        Value::Bool(strictly_equal(a, b))
+      }
+    }
+    Builtin::FromCharCode => {
+      let units: Vec<u16> = args.iter().map(|v| to_number(v).filter(|n| n.is_finite()).map_or(0, |n| n.trunc().rem_euclid(65_536.0) as u16)).collect();
+      Value::str(from_units(name, &units)?)
+    }
+    Builtin::FromCodePoint => {
+      let mut out = String::with_capacity(args.len());
+      for v in &args {
+        let point = to_number(v).filter(|n| n.fract() == 0.0 && (0.0..=1_114_111.0).contains(n)).ok_or_else(|| Fail::internal(format!("{name:?}: `{}` is not a code point", stringify(v).unwrap_or_default())))?;
+        out.push(char::from_u32(point as u32).ok_or_else(|| Fail::internal(format!("{name:?}: {point} is a lone surrogate, which the value model holds no half of")))?);
+      }
+      Value::str(out)
+    }
+    Builtin::DateUtc => {
+      if args.is_empty() {
+        return Ok(whole(f64::NAN));
+      }
+      let mut fields = [f64::NAN, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+      for (field, v) in fields.iter_mut().zip(&args) {
+        *field = to_number(v).unwrap_or(f64::NAN);
+      }
+      if fields.iter().any(|f| !f.is_finite()) {
+        return Ok(whole(f64::NAN));
+      }
+      let [year, month, date, hours, minutes, seconds, millis] = fields.map(f64::trunc);
+      let year = if (0.0..=99.0).contains(&year) { 1900.0 + year } else { year };
+      let year = year + (month / 12.0).floor();
+      if year.abs() > 400_000.0 {
+        return Ok(whole(f64::NAN));
+      }
+      let days = crate::std::time::days_from_civil(year as i64, month.rem_euclid(12.0) as u32 + 1, 1) as f64 + date - 1.0;
+      let ms = days * 86_400_000.0 + hours * 3_600_000.0 + minutes * 60_000.0 + seconds * 1000.0 + millis;
+      whole(if ms.abs() <= MAX_DATE_MS { ms + 0.0 } else { f64::NAN })
+    }
+    Builtin::ToPrecision => {
+      let n = number(name, arg(0)?)?;
+      match args.get(1) {
+        None | Some(Value::Undefined) => Value::str(stringify(&whole(n))?),
+        Some(p) => {
+          let p = integer(name, Some(p))?;
+          if n.is_finite() && !(1.0..=100.0).contains(&p) {
+            return Err(Fail::internal(format!("{name:?} takes 1 to 100 digits, got {p}")));
+          }
+          Value::str(to_precision(n, p as usize))
+        }
+      }
+    }
+    Builtin::ToExponential => {
+      let n = number(name, arg(0)?)?;
+      let fraction = match args.get(1) {
+        None | Some(Value::Undefined) => None,
+        Some(d) => Some(integer(name, Some(d))?),
+      };
+      if let Some(d) = fraction.filter(|d| n.is_finite() && !(0.0..=100.0).contains(d)) {
+        return Err(Fail::internal(format!("{name:?} takes 0 to 100 digits, got {d}")));
+      }
+      Value::str(to_exponential(n, fraction.map(|d| d as usize)))
+    }
+    Builtin::Normalize => {
+      use unicode_normalization::UnicodeNormalization;
+      let s = stringify(arg(0)?)?;
+      let form = match args.get(1) {
+        None | Some(Value::Undefined) => "NFC".to_owned(),
+        Some(v) => stringify(v)?,
+      };
+      Value::str(match form.as_str() {
+        "NFC" => s.nfc().collect::<String>(),
+        "NFD" => s.nfd().collect(),
+        "NFKC" => s.nfkc().collect(),
+        "NFKD" => s.nfkd().collect(),
+        other => return Err(Fail::internal(format!("{name:?}: the form must be NFC, NFD, NFKC or NFKD, got `{other}`"))),
+      })
+    }
+    Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin => {
+      let Value::Seq(items) = arg(0)? else { return Err(type_error(&format!("{name:?}"), "an array", arg(0)?)) };
+      let len = items.len();
+      let mut out = items.to_vec();
+      match name {
+        Builtin::ToSpliced | Builtin::Splice => {
+          let start = relative(integer(name, args.get(1))?, len);
+          let delete = match args.get(2) {
+            None | Some(Value::Undefined) => len - start,
+            Some(v) => integer(name, Some(v))?.clamp(0.0, (len - start) as f64) as usize,
+          };
+          let rest = match args.get(3) {
+            Some(Value::Seq(rest)) => rest.to_vec(),
+            _ => Vec::new(),
+          };
+          let removed: Vec<Value> = out.splice(start..start + delete, rest).collect();
+          if name == Builtin::Splice {
+            return Ok(Value::seq(vec![Value::seq(out), Value::seq(removed)]));
+          }
+        }
+        Builtin::ArrayWith => {
+          let i = integer(name, args.get(1))?;
+          let at = if i < 0.0 { i + len as f64 } else { i };
+          if !(0.0..len as f64).contains(&at) {
+            return Err(Fail::internal(format!("{name:?}: index {i} is outside an array of {len}")));
+          }
+          out[at as usize] = arg(2)?.clone();
+        }
+        Builtin::Fill => {
+          let (from, to) = span_of(name, &args[1..], len)?;
+          for slot in out.iter_mut().take(to).skip(from) {
+            *slot = arg(1)?.clone();
+          }
+        }
+        _ => {
+          let target = relative(integer(name, args.get(1))?, len);
+          let (from, to) = span_of(name, &args[1..], len)?;
+          let count = to.saturating_sub(from).min(len - target);
+          out[target..target + count].clone_from_slice(&items[from..from + count]);
+        }
+      }
+      Value::seq(out)
+    }
+    Builtin::Iterate => {
+      let kind = text(name, arg(0)?)?;
+      match arg(1)? {
+        Value::Seq(items) => {
+          let set = items.kind() == Collection::Set;
+          Value::seq(match kind {
+            "values" => items.to_vec(),
+            "keys" if set => items.to_vec(),
+            "keys" => (0..items.len()).map(|i| whole(i as f64)).collect(),
+            _ if set => items.iter().map(|v| Value::seq(vec![v.clone(), v.clone()])).collect(),
+            _ => items.iter().enumerate().map(|(i, v)| Value::seq(vec![whole(i as f64), v.clone()])).collect(),
+          })
+        }
+        other => return Err(type_error(&format!("{name:?}"), "an array or a Set", other)),
+      }
+    }
+    other => unreachable!("{other:?} is not one of builtin_js's"),
+  })
+}
+
 /// The URL a `UrlParse` href holds.
 pub(super) fn href(value: &Value) -> Result<url::Url, Fail> {
   let text = stringify(value)?;
@@ -174,6 +373,9 @@ pub(super) fn relative(i: f64, len: usize) -> usize {
     i.min(len as f64) as usize
   }
 }
+
+/// What `encodeURI` leaves and `decodeURI` keeps escaped: the characters that separate a URI's parts.
+const URI_RESERVED: &[u8] = b";/?:@&=+$,#";
 
 /// `slice`'s start and end over `len` items, from arguments 1 and 2.
 pub(super) fn span_of(what: Builtin, args: &[Value], len: usize) -> Result<(usize, usize), Fail> {
@@ -266,6 +468,11 @@ pub(crate) fn bind(scope: &mut Vec<(Name, Value)>, params: &[String], args: Vec<
   bind_params(scope, params, args)
 }
 
+/// Whether `key` names an own property of an array or a string of `len` items: an index below `len`, written as JavaScript writes it, or `length`.
+fn own_index(key: &str, len: usize) -> bool {
+  key == "length" || key.parse::<usize>().is_ok_and(|i| i < len && i.to_string() == key)
+}
+
 pub(super) fn bind_params(scope: &mut Vec<(Name, Value)>, params: &[String], args: Vec<Value>) {
   let mut args = args.into_iter();
   for param in params {
@@ -344,6 +551,14 @@ pub(super) fn whole(f: f64) -> Value {
 /// half up, `toFixed` rounds half away from zero, `localeNumber` groups by
 /// thousands with a comma.
 pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
+  if name == Builtin::Spread {
+    let mut args = args.into_iter();
+    let (Some(Value::Str(inner)), Some(Value::Seq(items))) = (args.next(), args.next()) else {
+      return Err(Fail::internal("Spread takes a builtin's name and an array of its arguments"));
+    };
+    let inner = crate::sexpr::builtin_of(inner.as_str()).filter(|b| *b != Builtin::Spread).ok_or_else(|| Fail::internal(format!("Spread: `{inner}` is not a builtin")))?;
+    return builtin(inner, items.to_vec());
+  }
   if matches!(name, Builtin::AsMap | Builtin::AsSet) {
     return Ok(match (name, args.into_iter().next()) {
       (Builtin::AsMap, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Map)),
@@ -526,7 +741,8 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::Split => {
       let s = text(name, arg(0)?)?;
       let (pattern, flags) = crate::jsregex::of(arg(1)?).expect("checked");
-      let re = crate::jsregex::compiled(pattern, flags).map_err(Fail::internal)?;
+      let unsticky: String = flags.chars().filter(|f| *f != 'y').collect();
+      let re = crate::jsregex::compiled(pattern, &unsticky).map_err(Fail::internal)?;
       let mut out = Vec::new();
       if s.is_empty() {
         if !re.is_match(s).map_err(Fail::internal)? {
@@ -553,14 +769,22 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       out.truncate(split_limit(&args));
       Value::seq(out)
     }
-    Builtin::RegexTest | Builtin::Match | Builtin::MatchAll | Builtin::Search => {
-      let (re_at, s_at) = if name == Builtin::RegexTest { (0, 1) } else { (1, 0) };
+    Builtin::RegexTest | Builtin::Exec | Builtin::Match | Builtin::MatchAll | Builtin::Search => {
+      let (re_at, s_at) = if matches!(name, Builtin::RegexTest | Builtin::Exec) { (0, 1) } else { (1, 0) };
       let s = text(name, arg(s_at)?)?;
-      let Some((pattern, flags)) = crate::jsregex::of(arg(re_at)?) else { return Err(type_error(&format!("{name:?}"), "a regular expression", arg(re_at)?)) };
+      let (pattern, flags) = match (crate::jsregex::of(arg(re_at)?), arg(re_at)?) {
+        (Some(found), _) => found,
+        (None, Value::Str(pattern)) if matches!(name, Builtin::Match | Builtin::Search) => (&**pattern, ""),
+        (None, other) => return Err(type_error(&format!("{name:?}"), "a regular expression", other)),
+      };
       let re = crate::jsregex::compiled(pattern, flags).map_err(Fail::internal)?;
       let groups = |m: &crate::jsregex::Found| Value::seq(m.texts(s).map(|g| g.map_or(Value::Null, Value::str)).collect::<Vec<_>>());
       match name {
         Builtin::RegexTest => Value::Bool(re.is_match(s).map_err(Fail::internal)?),
+        Builtin::Exec if flags.contains('g') || flags.contains('y') => {
+          return Err(Fail::internal("exec of a regular expression with `g` or `y`, which advances a `lastIndex` no value holds"));
+        }
+        Builtin::Exec => re.first(s).map_err(Fail::internal)?.map_or(Value::Null, |m| groups(&m)),
         Builtin::Search => whole(re.first(s).map_err(Fail::internal)?.map_or(-1.0, |m| crate::jsregex::utf16_index(s, m.whole().start) as f64)),
         Builtin::Match if flags.contains('g') => {
           let all: Vec<Value> = re.all(s).map_err(Fail::internal)?.iter().map(|m| Value::str(&s[m.whole()])).collect();
@@ -592,18 +816,19 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         }
       }
     }
-    Builtin::EncodeUriComponent => {
+    Builtin::EncodeUriComponent | Builtin::EncodeUri => {
       let s = stringify(arg(0)?)?;
       let mut out = String::with_capacity(s.len());
       for byte in s.bytes() {
         match byte {
           b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' => out.push(byte as char),
+          _ if name == Builtin::EncodeUri && URI_RESERVED.contains(&byte) => out.push(byte as char),
           _ => out.push_str(&format!("%{byte:02X}")),
         }
       }
       Value::str(out)
     }
-    Builtin::DecodeUriComponent => {
+    Builtin::DecodeUriComponent | Builtin::DecodeUri => {
       let s = stringify(arg(0)?)?;
       let malformed = || {
         let mut thrown = ValueMap::default();
@@ -618,7 +843,12 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       while i < bytes.len() {
         if bytes[i] == b'%' {
           let (Some(high), Some(low)) = (digit(bytes.get(i + 1)), digit(bytes.get(i + 2))) else { return Err(malformed()) };
-          out.push((high * 16 + low) as u8);
+          let byte = (high * 16 + low) as u8;
+          if name == Builtin::DecodeUri && URI_RESERVED.contains(&byte) {
+            out.extend_from_slice(&bytes[i..i + 3]);
+          } else {
+            out.push(byte);
+          }
           i += 3;
         } else {
           out.push(bytes[i]);
@@ -916,7 +1146,8 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }
     Builtin::HasKey => match arg(0)? {
       Value::Map(map) => Value::Bool(map.contains_key(stringify(arg(1)?)?.as_str())),
-      Value::Seq(items) => Value::Bool(stringify(arg(1)?)?.parse::<usize>().is_ok_and(|i| i < items.len())),
+      Value::Seq(items) => Value::Bool(own_index(&stringify(arg(1)?)?, items.len())),
+      Value::Str(s) => Value::Bool(own_index(&stringify(arg(1)?)?, s.encode_utf16().count())),
       other => return Err(type_error(&format!("{name:?}"), "an object or an array", other)),
     },
     Builtin::FormEncode => {
@@ -1089,7 +1320,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::LooseEq => Value::Bool(loose_equal(arg(0)?, arg(1)?)?),
     Builtin::MapKey => Value::str(map_key(arg(0)?)?),
     Builtin::HeapOn | Builtin::Overwrite => Value::Null,
-    Builtin::AsMap | Builtin::AsSet => unreachable!("taken before the match"),
+    Builtin::AsMap | Builtin::AsSet | Builtin::Spread => unreachable!("taken before the match"),
     Builtin::CopyDeep => own_copy(arg(0)?),
     Builtin::MapOf => match arg(0)? {
       Value::Seq(pairs) => {
@@ -1240,14 +1471,27 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       match arg(0)? {
         v if radix == 10.0 || !is_number(v) => Value::str(stringify(v)?),
-        v => Value::str(radix_digits(number(name, v)?, radix as u32).ok_or_else(|| Fail::internal(format!("{name:?}: a number with a fraction or past 2^53 in a radix that is not a power of 2, whose digits engines print differently in radix {radix}")))?),
+        v => Value::str(radix_digits(number(name, v)?, radix as u32)),
       }
     }
     Builtin::Pow => whole(js_pow(number(name, arg(0)?)?, number(name, arg(1)?)?)),
     Builtin::Sqrt => whole(number(name, arg(0)?)?.sqrt()),
+    Builtin::Math if matches!(text(name, arg(0)?)?, "hypot") => {
+      let mut sum = 0.0f64;
+      let mut infinite = false;
+      let mut nan = false;
+      for v in &args[1..] {
+        let x = number(name, v)?;
+        infinite |= x.is_infinite();
+        nan |= x.is_nan();
+        sum = sum.hypot(x);
+      }
+      whole(if infinite { f64::INFINITY } else if nan { f64::NAN } else { sum })
+    }
     Builtin::Math => {
       use crate::jsmath as m;
       let x = number(name, arg(1)?)?;
+      let uint32 = |n: f64| if n.is_finite() { n.trunc().rem_euclid(4_294_967_296.0) as u32 } else { 0 };
       whole(match text(name, arg(0)?)? {
         "sin" => m::sin(x),
         "cos" => m::cos(x),
@@ -1268,6 +1512,9 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         "log10" => m::log10(x),
         "log1p" => m::log1p(x),
         "cbrt" => m::cbrt(x),
+        "imul" => f64::from((uint32(x) as i32).wrapping_mul(uint32(number(name, arg(2)?)?) as i32)),
+        "clz32" => f64::from(uint32(x).leading_zeros()),
+        "fround" => f64::from(x as f32),
         other => return Err(Fail::internal(format!("`Math.{other}`, which the interpreter does not compute"))),
       })
     }
@@ -1287,5 +1534,6 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       Value::Map(map)
     }
+    Builtin::ExecFrom | Builtin::TestFrom | Builtin::Substr | Builtin::IsWellFormed | Builtin::ToWellFormed | Builtin::UtcString | Builtin::SameValue | Builtin::FromCharCode | Builtin::FromCodePoint | Builtin::DateUtc | Builtin::ToPrecision | Builtin::ToExponential | Builtin::Normalize | Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin | Builtin::Iterate => return builtin_js(name, args),
   })
 }

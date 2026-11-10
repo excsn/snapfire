@@ -6,6 +6,7 @@
 //! wrapping a string.
 
 mod atoms;
+pub(crate) use atoms::{builtin_of, builtin_sym};
 mod body;
 mod expr;
 mod parse;

@@ -75,7 +75,7 @@ async fn a_pattern_or_a_subject_past_its_cap_is_refused() {
 }
 
 #[test]
-fn the_sticky_flag_and_an_unknown_flag_are_refused_by_name() {
-  assert_eq!(jsregex::compiled("a", "y").unwrap_err(), "the sticky flag `y`");
+fn the_sticky_flag_compiles_and_an_unknown_flag_is_refused_by_name() {
+  assert!(jsregex::compiled("a", "y").is_ok());
   assert_eq!(jsregex::compiled("a", "q").unwrap_err(), "the flag `q`");
 }

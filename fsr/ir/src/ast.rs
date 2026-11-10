@@ -363,6 +363,52 @@ pub enum Builtin {
   ParseInt,
   /// `parseFloat(s)` over `String(s)`: the longest decimal literal or `Infinity` after leading whitespace, NaN when there is none.
   ParseFloat,
+  /// `s.substr(start, length)` over `String(s)`: a negative start counts from the end, a missing length runs to the end, in UTF-16 code units.
+  Substr,
+  /// `s.isWellFormed()`: true, since a string the value model holds has no lone surrogate.
+  IsWellFormed,
+  /// `s.toWellFormed()`: `String(s)`, since a string the value model holds has no lone surrogate.
+  ToWellFormed,
+  /// `re.exec(s)`: the first match and its groups, null for none. A regular expression with `g` or `y` is an error, since `exec` advances its `lastIndex` and a value holds none.
+  Exec,
+  /// `date.toUTCString()` of a time in milliseconds: `Thu, 01 Jan 1970 00:00:00 GMT`, `Invalid Date` past the range a date holds.
+  UtcString,
+  /// The global `encodeURI(s)`: `encodeURIComponent` leaving the URI's reserved characters `;/?:@&=+$,#` as they stand.
+  EncodeUri,
+  /// The global `decodeURI(s)`: `decodeURIComponent` leaving an escape of a reserved character `;/?:@&=+$,#` as it stands.
+  DecodeUri,
+  /// `Object.is(a, b)`: strict equality, with NaN equal to itself and 0 unequal to -0.
+  SameValue,
+  /// `String.fromCharCode(...codes)`: each argument's `ToUint16` as a UTF-16 code unit.
+  FromCharCode,
+  /// `String.fromCodePoint(...points)`: each argument a code point from 0 to 0x10FFFF, an error otherwise.
+  FromCodePoint,
+  /// `Date.UTC(year, month, ...)`: milliseconds since the epoch for the UTC calendar fields, a year from 0 to 99 read as 1900 to 1999, NaN when any field is NaN or the time is out of range.
+  DateUtc,
+  /// `n.toPrecision(p)`: `p` significant digits, in exponent form when the exponent is below -6 or at least `p`; `String(n)` when `p` is absent.
+  ToPrecision,
+  /// `n.toExponential(d)`: one digit, `d` after the point and the exponent; as many digits as `String(n)` holds when `d` is absent.
+  ToExponential,
+  /// `s.normalize(form)`: the string in Unicode normalization form `NFC`, `NFD`, `NFKC` or `NFKD`, NFC when absent.
+  Normalize,
+  /// `items.toSpliced(start, deleteCount, ...rest)` as `(to-spliced items start deleteCount rest)`: a copy with `deleteCount` items from `start` replaced by the array `rest`; an undefined `deleteCount` runs to the end.
+  ToSpliced,
+  /// `items.with(index, value)`: a copy with `index` set, negative counting from the end, an error outside the array.
+  ArrayWith,
+  /// `items.fill(value, start, end)` on a fresh array: a copy with the positions from `start` to `end` set to `value`.
+  Fill,
+  /// `items.copyWithin(target, start, end)` on a fresh array: a copy with the items from `start` to `end` copied to `target`.
+  CopyWithin,
+  /// `(iterate "entries" x)`, `"keys"` or `"values"`: `x.entries()`, `x.keys()` or `x.values()` of an array or a `Map` as an array, an array's keys being its indices.
+  Iterate,
+  /// `(spread "name" args)`: the builtin named by its plan atom applied to the items of `args`, for a call that spreads an array into a builtin, `Math.max(...xs)` or `s.concat(...parts)`.
+  Spread,
+  /// `items.splice(start, deleteCount, ...items)` on an array a body holds: `[after, removed]`, the array with the change made and the items it took out. The arguments are [`Builtin::ToSpliced`]'s.
+  Splice,
+  /// `re.exec(s)` as JavaScript runs it against `re`'s `lastIndex`: `[match, re]`, the match or null and the expression with the `lastIndex` it leaves. Only a global or sticky expression reads and moves it.
+  ExecFrom,
+  /// `re.test(s)` the same way: `[matched, re]`.
+  TestFrom,
   /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.
   LastIndexOf,
   /// `s.charAt(i)`: the UTF-16 code unit at `i` as a string, empty past either end.
@@ -381,6 +427,13 @@ pub enum Builtin {
   SetAt,
   /// `emit(kind, value)`: hands `value` to the step's host as an emitted value of `kind`, with the path of the component whose render or handler evaluated it; null. Only a step in server mode, a terminal's, emits; anywhere else it does nothing.
   Emit,
+}
+
+impl Builtin {
+  /// The builtin's name in the plan, `from-char-code` for [`Builtin::FromCharCode`]: what [`Builtin::Spread`] takes.
+  pub fn atom(self) -> &'static str {
+    crate::sexpr::builtin_sym(self)
+  }
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is
