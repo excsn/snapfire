@@ -80,7 +80,7 @@ A native call is synchronous. The build types a `fn` as returning a value and an
 
 The type derives `Clone`: each call's future owns a copy of it, so state shared between calls goes behind an `Arc`. The attribute needs nothing else in your `Cargo.toml` beyond the FSR crates it names. A `#[service]` block below is the same.
 
-Only what the block declares `pub` crosses into TypeScript, so a module holding another calls it as an ordinary method and that one never appears in TypeScript. A native call has no contract, transport or interceptor chain, because it does not leave the process. The declaration comes from the signature: `fsr` reads the Rust with `syn` the way it reads your TypeScript with swc, before anything compiles, so the two cannot drift.
+Only what the block declares `pub` crosses into TypeScript, so a module holding another calls it as an ordinary method and that one never appears in TypeScript. A native call has no contract, transport or interceptor chain, because it does not leave the process. The declaration comes from the signature: `fsr` reads the Rust with `syn` the way it reads your TypeScript with oxc, before anything compiles, so the two cannot drift.
 
 Use a service instead for something over a wire that a document already describes. Use one too when you want the cache and the interceptors that come with a call crossing a boundary.
 
