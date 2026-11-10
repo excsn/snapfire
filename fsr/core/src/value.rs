@@ -756,8 +756,25 @@ pub mod typed {
   pub const SET: &str = "$set";
   pub const BIGINT: &str = "$bigint";
   pub const URL: &str = "$url";
+  /// A Temporal value: its type's name and its canonical string, `["PlainDate", "2024-02-29"]`.
+  pub const TEMPORAL: &str = "$temporal";
 
-  pub const ALL: [&str; 5] = [DATE, MAP, SET, BIGINT, URL];
+  pub const ALL: [&str; 6] = [DATE, MAP, SET, BIGINT, URL, TEMPORAL];
+
+  /// A Temporal value's type name and canonical string, the text `toString` and `toJSON` give.
+  pub fn temporal(value: &super::Value) -> Option<(&str, &str)> {
+    let super::Value::Variant { tag, payload: Some(payload) } = value else { return None };
+    let super::Value::Seq(parts) = &**payload else { return None };
+    match (tag.as_str(), parts.get(0), parts.get(1)) {
+      (TEMPORAL, Some(super::Value::Str(kind)), Some(super::Value::Str(text))) => Some((kind.as_str(), text.as_str())),
+      _ => None,
+    }
+  }
+
+  /// A Temporal value of type `kind` whose canonical string is `text`.
+  pub fn temporal_value(kind: &str, text: &str) -> super::Value {
+    super::Value::Variant { tag: TEMPORAL.to_owned(), payload: Some(Box::new(super::Value::seq(vec![super::Value::str(kind), super::Value::str(text)]))) }
+  }
 }
 
 /// Equal values fingerprint equal and unequal values fingerprint apart. A

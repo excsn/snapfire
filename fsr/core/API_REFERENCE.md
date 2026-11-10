@@ -260,7 +260,10 @@ The tags of a `Value::Variant` that stands for a JavaScript value with no arm of
 * `pub const SET: &str = "$set"`: payload is an array.
 * `pub const BIGINT: &str = "$bigint"`: payload is an integer.
 * `pub const URL: &str = "$url"`: payload is the href.
-* `pub const ALL: [&str; 5]`
+* `pub const TEMPORAL: &str = "$temporal"`: payload is `[type, text]`, a `Temporal` type's name and its canonical string.
+* `pub const ALL: [&str; 6]`
+* `pub fn temporal(value: &Value) -> Option<(&str, &str)>`: a Temporal value's type name and string.
+* `pub fn temporal_value(kind: &str, text: &str) -> Value`: the Temporal value of type `kind` whose string is `text`.
 
 ### `Dynamic`
 
@@ -504,7 +507,7 @@ Module `snapfire_fsr_core::json`: the JSON that code outside FSR reads and write
 * `pub fn stringify(value: &Value, indent: &str, integers: Integers) -> Result<String, Unwritable>`: what `JSON.stringify(value, null, indent)` writes.
   * `Undefined` and `Ref` are left out of an object and written `null` in an array or at the top.
   * A non-finite float is `null`.
-  * A `$date` variant is its ISO string. An invalid one is `null`. `$map` and `$set` are `{}`. `$url` is its href.
+  * A `$date` variant is its ISO string. An invalid one is `null`. `$map` and `$set` are `{}`. `$url` is its href. `$temporal` is its string, as `toJSON` writes it.
   * Bytes and typed arrays are objects keyed by index.
   * Any other variant is `{ "tag": .., "payload": .. }`.
 * `pub enum Integers { Refuse, Digits }`: `Refuse` refuses an integer as `JSON.stringify` refuses a `BigInt`. `Digits` writes its digits. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.

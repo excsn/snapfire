@@ -155,3 +155,9 @@ fn undefined_is_left_out_of_an_object_and_tagged_anywhere_else() {
   assert_value_round_trips(Value::seq(vec![Value::Undefined, Value::Null]));
   assert_eq!(value_to_json(&Value::seq(vec![Value::Undefined, Value::Null])).to_string(), r#"[{"$":"undef"},null]"#);
 }
+
+#[test]
+fn a_temporal_value_round_trips_as_its_type_and_string() {
+  assert_value_round_trips(snapfire_fsr_core::value::typed::temporal_value("PlainDate", "2024-02-29"));
+  assert_value_round_trips(snapfire_fsr_core::value::typed::temporal_value("ZonedDateTime", "2024-06-01T12:00:00+02:00[Europe/Berlin]"));
+}

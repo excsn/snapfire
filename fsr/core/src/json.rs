@@ -181,6 +181,7 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
       },
       (typed::MAP | typed::SET, _) => out.push_str("{}"),
       (typed::URL, Some(href)) => write(out, href, indent, depth, integers)?,
+      (typed::TEMPORAL, _) if typed::temporal(value).is_some() => string(out, typed::temporal(value).map_or("", |(_, text)| text)),
       (typed::BIGINT, Some(n)) => match n {
         Value::Str(digits) => integer(out, digits.as_str(), integers)?,
         other => write(out, other, indent, depth, integers)?,
