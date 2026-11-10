@@ -282,6 +282,7 @@ const WRITES_AGREE_WITH_NODE: &[(&str, &str)] = &[
   ("const d = Temporal.PlainDate.from(\"2024-01-31\"); const e = d.add({ days: 1 }); return [d.toString(), e.toString(), d.until(e).days];", "[\"2024-01-31\",\"2024-02-01\",1]"),
   ("const d = Temporal.Now.plainDateISO(\"UTC\"); return typeof d.year;", "\"number\""),
   ("const z = Temporal.Now.zonedDateTimeISO(\"Asia/Tokyo\"); return z.timeZoneId;", "\"Asia/Tokyo\""),
+  ("const config = { n: 0 }; const update = (fn) => { fn(config); }; update((cfg) => { cfg = { n: 9 }; cfg.n = 1; }); update((cfg) => { cfg.n = cfg.n + 5; }); return config;", "{\"n\":5}"),
 ];
 
 #[test]
