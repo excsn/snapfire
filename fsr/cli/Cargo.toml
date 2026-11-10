@@ -18,7 +18,7 @@ name = "fsr"
 path = "src/main.rs"
 
 [features]
-default = ["test", "web", "tera", "mdx-highlight", "mdx-frontmatter", "grpc", "graphql", "http", "share_cards"]
+default = ["test", "web", "tera", "mdx-highlight", "mdx-frontmatter", "grpc", "graphql", "http", "share_cards", "tz_system"]
 # `fsr test` and the QuickJS engine it runs specs in. Off, the binary links no
 # JavaScript engine, which is the build to serve a deployment with.
 test = ["web", "dep:snapfire_fsr_engine"]
@@ -27,6 +27,9 @@ test = ["web", "dep:snapfire_fsr_engine"]
 # which a terminal app does not need.
 web = []
 tls = ["snapfire_fsr_host/tls"]
+# The host's own zoneinfo beside the compiled time zone database the host
+# carries by default, so an app's `[time] zones` may pick either.
+tz_system = ["snapfire_fsr_host/tz_system"]
 # Card images drawn by the stock host.
 share_cards = ["snapfire_fsr_host/share_cards"]
 # `clients/<name>.proto` contracts, imported at build and called over gRPC.

@@ -941,7 +941,11 @@ impl Hooks for SpecHooks {
     };
     let ambient = snapfire_fsr_ir::Ambient::default().locale(locale.to_owned()).now(0).catalogs(self.interpreter.catalogs().cloned());
     let value = self.interpreter.extensions().call(name, &ambient, &args).map_err(|f| f.message)?;
-    Ok(value_to_json(&value).to_string())
+    // `Intl` reads the answer with `JSON.parse`, so it gets JavaScript's JSON, which carries no tag for a whole-number float. `Temporal` decodes the wire form, which keeps a Temporal value's type.
+    if name.starts_with("temporal.") {
+      return Ok(value_to_json(&value).to_string());
+    }
+    snapfire_fsr_core::json::stringify(&value, "", snapfire_fsr_core::json::Integers::Digits).map_err(|e| format!("{name}: {}", e.0))
   }
 
   fn render(&self, module: &str, props: &str) -> Result<Option<String>, String> {

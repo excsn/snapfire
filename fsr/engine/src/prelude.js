@@ -197,6 +197,93 @@ globalThis.__sf = {
   },
 };
 
+// QuickJS has no Temporal. Each type answers through snapfire_time, the Rust the server runs Temporal with, over the `temporal` extension. `Temporal.Now` reads this harness's clock.
+if (typeof globalThis.Temporal === "undefined") {
+  const KIND = Symbol("Temporal type");
+  const TEXT = Symbol("Temporal text");
+  const METHODS = new Set(["add", "subtract", "until", "since", "with", "withPlainTime", "withTimeZone", "round", "equals", "total", "negated", "abs", "startOfDay", "toInstant", "toPlainDate", "toPlainTime", "toPlainDateTime", "toZonedDateTime", "toZonedDateTimeISO"]);
+  const types = {};
+  const encode = (v) => {
+    if (v === undefined) return { $: "undef" };
+    if (typeof v === "bigint") return { $: "i", v: String(v) };
+    if (v !== null && typeof v === "object" && v[KIND]) return { $: "var", t: "$temporal", p: [v[KIND], v[TEXT]] };
+    if (Array.isArray(v)) return v.map(encode);
+    if (v !== null && typeof v === "object") {
+      const out = {};
+      for (const [k, x] of Object.entries(v)) if (x !== undefined) out[k] = encode(x);
+      return out;
+    }
+    return v;
+  };
+  const decode = (w) => {
+    if (w === null || typeof w !== "object") return w;
+    if (Array.isArray(w)) return w.map(decode);
+    if (w.$ === "var" && w.t === "$temporal") return make(w.p[0], w.p[1]);
+    if (w.$ === "f") return w.v === "nan" ? NaN : w.v === "inf" ? Infinity : w.v === "-inf" ? -Infinity : w.v;
+    if (w.$ === "i") return BigInt(w.v);
+    if (w.$ === "undef") return undefined;
+    return w;
+  };
+  const call = (name, args) => {
+    while (args.length > 0 && args[args.length - 1] === undefined) args.pop();
+    let answered;
+    try {
+      answered = __sf_ext(name, JSON.stringify(args.map(encode)), "en-US");
+    } catch (e) {
+      const message = String((e && e.message) || e);
+      if (message.startsWith("RangeError: ")) throw new RangeError(message.slice(12));
+      if (message.startsWith("TypeError: ")) throw new TypeError(message.slice(11));
+      throw e;
+    }
+    return decode(JSON.parse(answered));
+  };
+  const handler = {
+    get(target, prop) {
+      if (typeof prop === "symbol") return target[prop];
+      if (prop === "constructor") return types[target[KIND]];
+      if (prop === "then") return undefined;
+      if (prop === "toString") return (options) => (options === undefined ? target[TEXT] : call("temporal.call", [target, "toString", options]));
+      if (prop === "toJSON") return () => target[TEXT];
+      if (prop === "toLocaleString") return () => target[TEXT];
+      if (prop === "valueOf") return () => {
+        throw new TypeError(`Temporal.${target[KIND]} can't be converted to a primitive; use compare`);
+      };
+      if (METHODS.has(prop)) return (...args) => call("temporal.call", [target, prop, ...args]);
+      return call("temporal.get", [target, prop]);
+    },
+  };
+  const make = (kind, text) => {
+    const target = Object.create(types[kind].prototype);
+    target[KIND] = kind;
+    target[TEXT] = text;
+    return new Proxy(target, handler);
+  };
+  for (const kind of ["Instant", "PlainDate", "PlainTime", "PlainDateTime", "ZonedDateTime", "Duration"]) {
+    const Type = function (...args) {
+      if (!new.target) throw new TypeError(`Temporal.${kind} must be called with new`);
+      return call("temporal.new", [kind, ...args]);
+    };
+    Object.defineProperty(Type.prototype, Symbol.toStringTag, { value: `Temporal.${kind}` });
+    for (const name of ["from", "compare", "fromEpochMilliseconds", "fromEpochNanoseconds"]) {
+      Type[name] = (...args) => call("temporal.static", [kind, name, ...args]);
+    }
+    types[kind] = Type;
+  }
+  const instant = () => types.Instant.fromEpochMilliseconds(Date.now());
+  const zone = (timeZone) => timeZone ?? call("temporal.now", ["timeZoneId"]);
+  globalThis.Temporal = {
+    ...types,
+    Now: {
+      instant,
+      timeZoneId: () => zone(undefined),
+      zonedDateTimeISO: (timeZone) => instant().toZonedDateTimeISO(zone(timeZone)),
+      plainDateISO: (timeZone) => instant().toZonedDateTimeISO(zone(timeZone)).toPlainDate(),
+      plainTimeISO: (timeZone) => instant().toZonedDateTimeISO(zone(timeZone)).toPlainTime(),
+      plainDateTimeISO: (timeZone) => instant().toZonedDateTimeISO(zone(timeZone)).toPlainDateTime(),
+    },
+  };
+}
+
 // QuickJS has no Intl. Each form the build lowers answers through the same Rust the server formats with. An option the server does not read throws.
 if (typeof globalThis.Intl === "undefined") {
   const documentLocale = () => (typeof document !== "undefined" && (document.documentElement.getAttribute("data-sf-locale") || document.documentElement.getAttribute("lang"))) || "en-US";

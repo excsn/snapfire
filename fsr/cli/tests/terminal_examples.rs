@@ -37,11 +37,21 @@ fn tasks_adds_what_is_typed_moves_the_focus_with_tab_and_logs_a_task_marked_done
   let shown = lines(session.press(&key(KeyCode::Enter)).unwrap(), 80);
   assert_eq!(shown[0], "Tasks, 2 open of 2");
   assert!(shown.iter().any(|l| l.contains("buy milk") && l.contains("open")), "{shown:?}");
+  let week = (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() / 86_400 + 7) as i64;
+  let due: Vec<String> = (week - 1..=week + 1)
+    .map(|day| {
+      let (y, m, d) = snapfire_fsr_core::time::civil_from_days(day);
+      format!("(due {y:04}-{m:02}-{d:02})")
+    })
+    .collect();
+  assert!(shown.iter().any(|l| l.contains("buy milk") && due.iter().any(|d| l.contains(d.as_str()))), "a week from today in this machine's zone: one of {due:?} in {shown:?}");
   session.press(&key(KeyCode::Tab)).unwrap();
   let focused = lines(session.view().unwrap(), 80);
   assert!(focused.iter().any(|l| l.starts_with(">") && l.contains("buy milk")), "Tab focuses the first task: {focused:?}");
   let done = lines(session.press(&key(KeyCode::Char(' '))).unwrap(), 80);
   assert!(done[0].starts_with("✔ buy milk at "), "the log above the page: {done:?}");
+  let at = done[0].trim_start_matches("✔ buy milk at ");
+  assert!(at.len() == 8 && at.as_bytes()[2] == b':' && at.as_bytes()[5] == b':', "Temporal.Now.plainTimeISO() to the second: {at}");
   assert!(done.iter().any(|l| l == "Tasks, 1 open of 2"), "{done:?}");
   assert!(done.iter().any(|l| l.contains("buy milk") && l.contains("done")), "{done:?}");
 }
