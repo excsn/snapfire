@@ -212,6 +212,7 @@ impl<'a> Lowerer<'a> {
             }
             Ok(Expr::Builtin { name: Builtin::ParseInt, args })
           }
+          "parseFloat" => Ok(Expr::Builtin { name: Builtin::ParseFloat, args: vec![*one(self)?] }),
           name if ERROR_CONSTRUCTORS.contains(&name) => {
             let message = match call.arguments.first() {
               Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
@@ -292,6 +293,10 @@ impl<'a> Lowerer<'a> {
               args.push(self.expr(crate::syntax::arg_expr(radix))?);
             }
             return Ok(Expr::Builtin { name: Builtin::ParseInt, args });
+          }
+          "Number" if method == "parseFloat" => {
+            let Some(first) = call.arguments.first() else { return Err(self.residue(call.span, "`Number.parseFloat` takes a string")) };
+            return Ok(Expr::Builtin { name: Builtin::ParseFloat, args: vec![self.expr(crate::syntax::arg_expr(first))?] });
           }
           "Number" if matches!(method.as_str(), "isInteger" | "isSafeInteger" | "isFinite" | "isNaN") => {
             let Some(arg) = call.arguments.first() else { return Err(self.residue(call.span, format!("`Number.{method}` takes one argument"))) };

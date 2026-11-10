@@ -254,7 +254,7 @@ Queries:
 
 The pure functions a body may call by name. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`, `#[non_exhaustive]`.
 
-* `pub enum Builtin { Round, Floor, Ceil, Abs, Min, Max, ToFixed, Repeat, Join, Trim, Upper, Lower, Includes, StartsWith, EndsWith, Split, Replace, EncodeUriComponent, DecodeUriComponent, LocaleNumber, Range, Omit, Slice, At, IndexOf, Concat, Reverse, PadStart, PadEnd, Substring, Json, JsonParse, Pow, Sqrt, Trunc, Sign, MinOf, MaxOf, DateMs, DatePart, IsoString, FromEntries, Unique, HasKey, ClassNames, TypeOf, IsArray, IsError, WriteBack, Log, LogOf, Throw, ComponentRef, IsElement, CloneElement, FormEncode, FormGet, FormHas, FormGetAll, FormEntries, ClassOf, CallMethod, GetMember, FormSet, FormAppend, FormDelete, UrlParse, Response, ResponseJson, ResponseRedirect, RedirectTo, RequestNew, ResponseMember, ResponseHeaderGet, ResponseHeaderSet, Uint8Array, UrlPart, UrlSet, RegexTest, Match, MatchAll, Search, ReplaceAll, Checked, LooseMatch, LooseEq, HeapOn, Overwrite, CopyDeep, MapKey, MapOf, AsMap, AsSet, IsNaN, IsNullish, ParseInt, LastIndexOf, CharAt, CharCodeAt, Math, CodePointAt, Radix, Graphemes, SetAt, Emit }`
+* `pub enum Builtin { Round, Floor, Ceil, Abs, Min, Max, ToFixed, Repeat, Join, Trim, Upper, Lower, Includes, StartsWith, EndsWith, Split, Replace, EncodeUriComponent, DecodeUriComponent, LocaleNumber, Range, Omit, Slice, At, IndexOf, Concat, Reverse, PadStart, PadEnd, Substring, Json, JsonParse, Pow, Sqrt, Trunc, Sign, MinOf, MaxOf, DateMs, DatePart, IsoString, FromEntries, Unique, HasKey, ClassNames, TypeOf, IsArray, IsError, WriteBack, Log, LogOf, Throw, ComponentRef, IsElement, CloneElement, FormEncode, FormGet, FormHas, FormGetAll, FormEntries, ClassOf, CallMethod, GetMember, FormSet, FormAppend, FormDelete, UrlParse, Response, ResponseJson, ResponseRedirect, RedirectTo, RequestNew, ResponseMember, ResponseHeaderGet, ResponseHeaderSet, Uint8Array, UrlPart, UrlSet, RegexTest, Match, MatchAll, Search, ReplaceAll, Checked, LooseMatch, LooseEq, HeapOn, Overwrite, CopyDeep, MapKey, MapOf, AsMap, AsSet, IsNaN, IsNullish, ParseInt, ParseFloat, LastIndexOf, CharAt, CharCodeAt, Math, CodePointAt, Radix, Graphemes, SetAt, Emit }`
 
 ### Entry
 
@@ -1190,6 +1190,7 @@ Errors, types and logging:
 * `TypeOf` is `typeof`, with null answered `"undefined"` and a handler or an action `"function"`.
 * `IsNaN` is the global `isNaN`.
 * `ParseInt` reads `String(s)` as `parseInt` does. Leading white space and a sign are skipped. A radix of 0 or none reads 10. It reads 16 after `0x`. A radix outside 2 to 36 is NaN. NaN when there are no digits.
+* `ParseFloat` reads `String(s)` as `parseFloat` does. Leading white space is skipped. It reads the longest signed decimal literal at the start, with an optional fraction and exponent, or `Infinity`. NaN when there is none.
 * `Log` is a `console` call. Its first argument names the method: `log`, `info`, `debug`, `warn` or `error`.
 * `Log` writes the rest joined by spaces: a string as it is, a scalar as `String` makes it and an object or an array as JSON. It is a `tracing` event under `interp::CONSOLE_TARGET` at that method's level. It evaluates to null.
 * `LogOf` is `Log` with the values as one array in its second argument, `console.log(...items)`.

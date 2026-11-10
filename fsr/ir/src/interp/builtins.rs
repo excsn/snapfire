@@ -1116,6 +1116,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       };
       whole(parse_int(&stringify(arg(0)?)?, int32(radix)))
     }
+    Builtin::ParseFloat => whole(parse_float(&stringify(arg(0)?)?)),
     Builtin::LastIndexOf => match arg(0)? {
       Value::Seq(items) => {
         let len = items.len() as f64;

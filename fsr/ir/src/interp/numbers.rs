@@ -178,6 +178,39 @@ pub(super) fn parse_int(s: &str, radix: i32) -> f64 {
   if negative { -magnitude } else { magnitude }
 }
 
+/// `parseFloat(s)` once `s` is a string.
+pub(super) fn parse_float(s: &str) -> f64 {
+  let s = s.trim_start_matches(js_whitespace);
+  let (sign, s) = match s.as_bytes().first() {
+    Some(b'-') => (-1.0, &s[1..]),
+    Some(b'+') => (1.0, &s[1..]),
+    _ => (1.0, s),
+  };
+  if s.starts_with("Infinity") {
+    return sign * f64::INFINITY;
+  }
+  let bytes = s.as_bytes();
+  let digits = |from: usize| bytes.get(from..).map_or(0, |rest| rest.iter().take_while(|c| c.is_ascii_digit()).count());
+  let whole_digits = digits(0);
+  let mut end = whole_digits;
+  let mut fraction_digits = 0;
+  if bytes.get(end) == Some(&b'.') {
+    fraction_digits = digits(end + 1);
+    end += 1 + fraction_digits;
+  }
+  if whole_digits == 0 && fraction_digits == 0 {
+    return f64::NAN;
+  }
+  if matches!(bytes.get(end), Some(b'e' | b'E')) {
+    let signed = usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
+    let exponent_digits = digits(end + 1 + signed);
+    if exponent_digits > 0 {
+      end += 1 + signed + exponent_digits;
+    }
+  }
+  sign * s[..end].parse::<f64>().unwrap_or(f64::NAN)
+}
+
 /// The digits of an integer `n` in `radix`, as `Number.prototype.toString` writes them; `None` for a finite number with a fraction and for one past `Number.MAX_SAFE_INTEGER` in a radix that is not a power of 2, whose digits engines round differently.
 pub(super) fn radix_digits(n: f64, radix: u32) -> Option<String> {
   if n.is_nan() {

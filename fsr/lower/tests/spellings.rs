@@ -122,3 +122,46 @@ fn number_parse_int_returns_what_parse_int_returns() {
     assert_eq!(got, Ok(reference.clone()), "{call}");
   }
 }
+
+/// Each argument as TypeScript source, with `String(parseFloat(argument))` as node v26.8.1 prints it.
+const PARSE_FLOAT: &[(&str, &str)] = &[
+  (r#""21 ms""#, "21"),
+  (r#""116,484""#, "116"),
+  (r#""  -3.5e2x""#, "-350"),
+  (r#""+.5""#, "0.5"),
+  (r#""Infinity!""#, "Infinity"),
+  (r#""-Infinity""#, "-Infinity"),
+  (r#""infinity""#, "NaN"),
+  (r#""abc""#, "NaN"),
+  (r#""""#, "NaN"),
+  (r#""1e""#, "1"),
+  (r#""1e+""#, "1"),
+  (r#""1.2.3""#, "1.2"),
+  (r#""0x10""#, "0"),
+  (r#"".e1""#, "NaN"),
+  (r#""1_000""#, "1"),
+  (r#""\n\t 7""#, "7"),
+  (r#""1e1000""#, "Infinity"),
+  (r#""-.0001e-2y""#, "-0.000001"),
+  (r#""5.""#, "5"),
+  (r#"".5.""#, "0.5"),
+  (r#""+-1""#, "NaN"),
+  (r#""  8""#, "8"),
+  ("3.25", "3.25"),
+  ("null", "NaN"),
+  ("true", "NaN"),
+];
+
+#[test]
+fn parse_float_reads_the_longest_decimal_prefix_under_either_spelling() {
+  let loader = |call: &str| format!("export async function load() {{\n  return {{ n: String({call}) }};\n}}\n");
+  let failed: Vec<String> = PARSE_FLOAT
+    .iter()
+    .flat_map(|(argument, want)| ["parseFloat", "Number.parseFloat"].map(|f| (format!("{f}({argument})"), *want)))
+    .filter_map(|(call, want)| match lower_loader("l.ts", &loader(&call)).map_err(|e| e.to_string()).and_then(|body| returned(&body)) {
+      Ok(Value::Map(fields)) if fields.get("n") == Some(&Value::str(want)) => None,
+      other => Some(format!("{call}: {other:?}, want {want}")),
+    })
+    .collect();
+  assert!(failed.is_empty(), "{} of {} calls:\n{}", failed.len(), PARSE_FLOAT.len() * 2, failed.join("\n"));
+}

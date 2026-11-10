@@ -361,6 +361,8 @@ pub enum Builtin {
   IsNullish,
   /// `parseInt(s, radix)` over `String(s)`: a radix of 0 or none reads 10 (16 after `0x`); one outside 2 to 36 is NaN.
   ParseInt,
+  /// `parseFloat(s)` over `String(s)`: the longest decimal literal or `Infinity` after leading whitespace, NaN when there is none.
+  ParseFloat,
   /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.
   LastIndexOf,
   /// `s.charAt(i)`: the UTF-16 code unit at `i` as a string, empty past either end.
