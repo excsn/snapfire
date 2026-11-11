@@ -127,7 +127,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOperator::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
@@ -313,6 +313,11 @@ impl<'a> Lowerer<'a> {
   pub(crate) fn member(&mut self, member: &js::MemberExpression) -> Lowered<Expr> {
     if let Some(compare) = self.collator_compare(member)? {
       return Ok(compare);
+    }
+    if let (js::Expression::Identifier(id), Some(key)) = (member.object(), self.member_name(member)) {
+      if id.name.as_str() == "Symbol" && !self.scope.iter().any(|(n, _)| n == "Symbol") && matches!(key.as_str(), "dispose" | "asyncDispose") {
+        return Ok(Expr::lit_str(super::writes::DISPOSE));
+      }
     }
     if let Some(class) = self.builtin_prototype(member) {
       return Ok(crate::lowerer::statics::prototype(class));

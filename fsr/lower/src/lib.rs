@@ -674,6 +674,8 @@ pub(crate) enum Kind {
   Buffer,
   /// A `DataView`: the bytes of the buffer it was made over.
   View,
+  /// A `DisposableStack` or an `AsyncDisposableStack`: its callbacks, newest last, and whether it was disposed.
+  Stack,
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.

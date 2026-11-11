@@ -337,6 +337,7 @@ let via = via_expr.as_member_expression().expect("matched as a member");
           Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()).map(Kind::collection), Some(Kind::Map | Kind::Set)),
           Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && self.kind_of(m.object()) == Some(Kind::Map),
           Some(setter) if setter.starts_with("set") && self.kind_of(m.object()) == Some(Kind::View) => reached(m.object()),
+          Some("defer" | "adopt" | "use" | "dispose" | "disposeAsync" | "move") if self.kind_of(m.object()) == Some(Kind::Stack) => reached(m.object()),
           Some("compile") => (matches!(crate::meaning::bare(m.object()), js::Expression::RegExpLiteral(_)) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
           Some("exec" | "test") => self.kind_of(m.object()).is_none() && matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str())),
           Some(setter) if DATE_SETTERS.contains(&setter) || (LOCAL_DATE_SETTERS.contains(&setter) && (self.reaches(Reach::Terminal) || !self.on_render_path())) => self.kind_of(m.object()) == Some(Kind::Date) && (made_here(m.object()) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
@@ -459,6 +460,7 @@ let via = via_expr.as_member_expression().expect("matched as a member");
               lets.push(Stmt::If { cond: missing, then: vec![overwrite(&target, added)], r#else: Vec::new() });
               Expr::Index(Box::new(read), Box::new(Expr::Var(key)))
             }
+            (Some(Kind::Stack), stacked) => self.stack_write(stacked, &target, read.clone(), call, &mut lets)?,
             (Some(Kind::View), setter) => {
               let mut args = vec![read.clone(), Expr::lit_str(&setter[3..])];
               args.extend(self.plain_args(call)?);
@@ -631,3 +633,72 @@ impl Lowerer<'_> {
     Ok(Expr::Block(vec![Stmt::Let { name: at, expr: base }, Stmt::Return(instant)]))
   }
 }
+
+/// The field a `DisposableStack` keeps its callbacks under.
+pub(crate) const STACK: &str = "$stack";
+
+impl Lowerer<'_> {
+  /// A `DisposableStack` method on the stack held in `target`, its writes pushed onto `lets`: what the call answers.
+  fn stack_write(&mut self, method: &str, target: &str, read: Expr, call: &js::CallExpression, lets: &mut Body) -> Lowered<Expr> {
+    let overwrite = |next: Expr| Stmt::Expr(Expr::Builtin { name: Builtin::Overwrite, args: vec![Expr::Var(target.to_owned()), next] });
+    let callbacks = Expr::Field(Box::new(read.clone()), STACK.to_owned());
+    let pushed = |callback: Expr| Expr::Object(vec![Entry::Spread(read.clone()), Entry::Field(STACK.to_owned(), Expr::Array(vec![Entry::Spread(callbacks.clone()), Entry::Item(callback)]))]);
+    let mut args = self.plain_args(call)?.into_iter();
+    Ok(match method {
+      "defer" => {
+        lets.push(overwrite(pushed(args.next().unwrap_or(Expr::Lit(Lit::Undefined)))));
+        Expr::Lit(Lit::Undefined)
+      }
+      "adopt" | "use" => {
+        let value = self.temp();
+        lets.push(Stmt::Let { name: value.clone(), expr: args.next().unwrap_or(Expr::Lit(Lit::Undefined)) });
+        let callback = if method == "adopt" {
+          let on_dispose = args.next().unwrap_or(Expr::Lit(Lit::Undefined));
+          Expr::Lambda { params: Vec::new(), body: Box::new(Expr::Apply { f: Box::new(on_dispose), args: vec![Expr::Var(value.clone())] }) }
+        } else {
+          Expr::Lambda { params: Vec::new(), body: Box::new(Expr::Apply { f: Box::new(Expr::Field(Box::new(Expr::Var(value.clone())), DISPOSE.to_owned())), args: Vec::new() }) }
+        };
+        let kept = pushed(callback);
+        let push = if method == "use" { Stmt::If { cond: Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Var(value.clone())] })), then: vec![overwrite(kept)], r#else: Vec::new() } } else { overwrite(kept) };
+        lets.push(push);
+        Expr::Var(value)
+      }
+      "move" => {
+        let moved = self.temp();
+        lets.push(Stmt::Let { name: moved.clone(), expr: Expr::Object(vec![Entry::Field(STACK.to_owned(), callbacks), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(false)))]) });
+        lets.push(overwrite(Expr::Object(vec![Entry::Field(STACK.to_owned(), Expr::Array(Vec::new())), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(true)))])));
+        Expr::Var(moved)
+      }
+      _ => {
+        let (pending, failure, failed, callback, caught) = (self.temp(), self.temp(), self.temp(), self.temp(), self.temp());
+        let var = |n: &String| Expr::Var(n.clone());
+        let suppressed = Expr::Object(vec![
+          Entry::Field("name".to_owned(), Expr::lit_str("SuppressedError")),
+          Entry::Field("message".to_owned(), Expr::lit_str("An error was suppressed during disposal.")),
+          Entry::Field("error".to_owned(), var(&caught)),
+          Entry::Field("suppressed".to_owned(), var(&failure)),
+        ]);
+        let record = vec![
+          Stmt::Set { name: failure.clone(), expr: Expr::Ternary(Box::new(var(&failed)), Box::new(suppressed), Box::new(var(&caught))) },
+          Stmt::Set { name: failed.clone(), expr: Expr::Lit(Lit::Bool(true)) },
+        ];
+        let run = Stmt::Try { body: vec![Stmt::Expr(Expr::Builtin { name: Builtin::Settle, args: vec![Expr::Apply { f: Box::new(var(&callback)), args: Vec::new() }] })], name: Some(caught.clone()), handler: Some(record), finally: Vec::new() };
+        let message = Expr::Coalesce(Box::new(Expr::Field(Box::new(var(&failure)), "message".to_owned())), Box::new(var(&failure)));
+        let body = vec![
+          Stmt::Let { name: pending.clone(), expr: Expr::Builtin { name: Builtin::Reverse, args: vec![callbacks] } },
+          overwrite(Expr::Object(vec![Entry::Field(STACK.to_owned(), Expr::Array(Vec::new())), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(true)))])),
+          Stmt::Let { name: failure.clone(), expr: Expr::Lit(Lit::Undefined) },
+          Stmt::Let { name: failed.clone(), expr: Expr::Lit(Lit::Bool(false)) },
+          Stmt::ForOf { name: callback.clone(), over: var(&pending), body: vec![run] },
+          Stmt::If { cond: var(&failed), then: vec![Stmt::Expr(Expr::Builtin { name: Builtin::Throw, args: vec![message, var(&failure)] })], r#else: Vec::new() },
+        ];
+        let disposed = Expr::Field(Box::new(read), "disposed".to_owned());
+        lets.push(Stmt::If { cond: Expr::Not(Box::new(disposed)), then: body, r#else: Vec::new() });
+        Expr::Lit(Lit::Undefined)
+      }
+    })
+  }
+}
+
+/// The key `Symbol.dispose` reads as, so `{ [Symbol.dispose]() {} }` and `x[Symbol.dispose]()` meet.
+pub(crate) const DISPOSE: &str = "@@dispose";

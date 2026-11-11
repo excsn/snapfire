@@ -207,6 +207,11 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("(() => { const log = []; const s = new DisposableStack(); s.defer(() => log.push(\"a\")); s.defer(() => log.push(\"b\")); s.dispose(); return [log, s.disposed]; })()", "[[\"b\",\"a\"],true]"),
+  ("(() => { const log = []; const s = new DisposableStack(); const v = s.adopt(5, (x) => log.push(x)); s.dispose(); return [v, log]; })()", "[5,[5]]"),
+  ("(() => { const log = []; const s = new DisposableStack(); s.use({ [Symbol.dispose]() { log.push(\"d\"); } }); s.dispose(); s.dispose(); return log; })()", "[\"d\"]"),
+  ("(() => { const s = new DisposableStack(); s.defer(() => { throw new Error(\"x\"); }); try { s.dispose(); return \"no\"; } catch (e) { return e.message; } })()", "\"x\""),
+  ("(() => { const log = []; const s = new DisposableStack(); s.defer(() => log.push(1)); const t = s.move(); s.dispose(); const before = log.length; t.dispose(); return [before, log, s.disposed]; })()", "[0,[1],true]"),
   ("new ArrayBuffer(8).byteLength", "8"),
   ("[...new Int8Array([1, 2, 300])]", "[1,2,44]"),
   ("[...new Uint16Array(2)]", "[0,0]"),

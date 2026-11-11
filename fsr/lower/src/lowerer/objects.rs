@@ -281,6 +281,7 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         Ok(Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(Expr::Lit(Lit::Float(0.0))) })))
       }
       ("DataView", Some(buffer)) => Ok(buffer),
+      ("DisposableStack" | "AsyncDisposableStack", _) => Ok(Expr::Object(vec![Entry::Field(super::writes::STACK.to_owned(), Expr::Array(Vec::new())), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(false)))])),
       (name, source) if TYPED_ARRAYS.contains(&name) => {
         let element = name.trim_end_matches("Array");
         let big = element.starts_with("Big");
