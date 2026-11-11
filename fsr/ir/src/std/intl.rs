@@ -27,6 +27,8 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.number", Reach::Render, number_fn);
   extensions.register("intl.currency", Reach::Render, currency);
   extensions.register("intl.date", Reach::Render, date);
+  extensions.register("intl.dateParts", Reach::Render, date_parts);
+  extensions.register("intl.numberParts", Reach::Render, number_parts);
   extensions.register("intl.plural", Reach::Render, plural);
   extensions.register("intl.list", Reach::Render, list);
   extensions.register("intl.compare", Reach::Render, compare);
@@ -252,11 +254,11 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     let at = DateTime { date, time };
     let date_style = part("style")?;
     let out = match date_style.as_deref() {
-      None => DateTimeFormatter::try_new(prefs, T::medium().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).to_string(),
-      Some("short") => DateTimeFormatter::try_new(prefs, YMDT::short().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).to_string(),
-      Some("medium") => DateTimeFormatter::try_new(prefs, YMDT::medium().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).to_string(),
-      Some("long") => DateTimeFormatter::try_new(prefs, YMDT::long().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).to_string(),
-      Some("full") => DateTimeFormatter::try_new(prefs, YMDET::long().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).to_string(),
+      None => DateTimeFormatter::try_new(prefs, T::medium().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
+      Some("short") => DateTimeFormatter::try_new(prefs, YMDT::short().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
+      Some("medium") => DateTimeFormatter::try_new(prefs, YMDT::medium().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
+      Some("long") => DateTimeFormatter::try_new(prefs, YMDT::long().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
+      Some("full") => DateTimeFormatter::try_new(prefs, YMDET::long().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
       Some(other) => return Err(Fail::internal(format!("{what}: `{other}` is not a style; short, medium, long or full"))),
     };
     // Chrome writes an ordinary space where CLDR 42 and later put U+202F before the day period.
@@ -273,9 +275,9 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   macro_rules! format_with {
     ($set:ident, $length:expr) => {
       match $length {
-        Length::Long => DateTimeFormatter::try_new(prefs, $set::long()).map_err(|e| data(what, e))?.format(&date).to_string(),
-        Length::Medium => DateTimeFormatter::try_new(prefs, $set::medium()).map_err(|e| data(what, e))?.format(&date).to_string(),
-        Length::Short => DateTimeFormatter::try_new(prefs, $set::short()).map_err(|e| data(what, e))?.format(&date).to_string(),
+        Length::Long => DateTimeFormatter::try_new(prefs, $set::long()).map_err(|e| data(what, e))?.format(&date).parts_out(),
+        Length::Medium => DateTimeFormatter::try_new(prefs, $set::medium()).map_err(|e| data(what, e))?.format(&date).parts_out(),
+        Length::Short => DateTimeFormatter::try_new(prefs, $set::short()).map_err(|e| data(what, e))?.format(&date).parts_out(),
       }
     };
   }
@@ -610,4 +612,157 @@ fn relative(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   };
   let formatter = DecimalFormatter::try_new((&locale).into(), Default::default()).map_err(|e| data(what, e))?;
   Ok(Value::str(relative.format(&formatter.format(&value).to_string(), past, plural, exact)))
+}
+
+std::thread_local! {
+  /// The parts the formatting under way collects for `formatToParts`, when it asked for them.
+  static PARTS: std::cell::RefCell<Option<Vec<(String, String)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A formatted value's text, collecting its parts into [`PARTS`] when `formatToParts` asked for them.
+trait PartsOut {
+  fn parts_out(&self) -> String;
+}
+
+impl<T: writeable::Writeable> PartsOut for T {
+  fn parts_out(&self) -> String {
+    PARTS.with(|parts| {
+      if let Some(collected) = parts.borrow_mut().as_mut() {
+        let mut sink = Collector { parts: Vec::new(), current: None };
+        let _ = self.write_to_parts(&mut sink);
+        collected.extend(sink.parts);
+      }
+    });
+    self.write_to_string().into_owned()
+  }
+}
+
+/// Collects written text by the part each piece sits in, the outermost part naming it: a year's digits are `year`, not `integer`.
+struct Collector {
+  parts: Vec<(String, String)>,
+  current: Option<&'static str>,
+}
+
+impl std::fmt::Write for Collector {
+  fn write_str(&mut self, text: &str) -> std::fmt::Result {
+    let kind = self.current.unwrap_or("literal");
+    match self.parts.last_mut() {
+      Some((last, value)) if last == kind => value.push_str(text),
+      _ => self.parts.push((kind.to_owned(), text.to_owned())),
+    }
+    Ok(())
+  }
+}
+
+impl writeable::PartsWrite for Collector {
+  type SubPartsWrite = Self;
+
+  fn with_part(&mut self, part: writeable::Part, mut f: impl FnMut(&mut Self) -> std::fmt::Result) -> std::fmt::Result {
+    let outer = self.current;
+    if outer.is_none() {
+      self.current = Some(part_name(part));
+    }
+    let written = f(self);
+    self.current = outer;
+    written
+  }
+}
+
+/// The `type` JavaScript's `formatToParts` gives the ICU4X part.
+fn part_name(part: writeable::Part) -> &'static str {
+  use icu_datetime::parts as d;
+  use icu_decimal::parts as n;
+  match part {
+    p if p == d::ERA => "era",
+    p if p == d::YEAR || p == d::EXTENDED_YEAR => "year",
+    p if p == d::RELATED_YEAR => "relatedYear",
+    p if p == d::YEAR_NAME => "yearName",
+    p if p == d::MONTH => "month",
+    p if p == d::DAY => "day",
+    p if p == d::WEEKDAY => "weekday",
+    p if p == d::DAY_PERIOD => "dayPeriod",
+    p if p == d::HOUR => "hour",
+    p if p == d::MINUTE => "minute",
+    p if p == d::SECOND => "second",
+    p if p == d::TIME_ZONE_NAME => "timeZoneName",
+    p if p == n::INTEGER => "integer",
+    p if p == n::FRACTION => "fraction",
+    p if p == n::GROUP => "group",
+    p if p == n::DECIMAL => "decimal",
+    p if p == n::MINUS_SIGN => "minusSign",
+    p if p == n::PLUS_SIGN => "plusSign",
+    _ => "literal",
+  }
+}
+
+/// `intl.dateParts(when, options)`: `formatToParts` of an `Intl.DateTimeFormat`, the parts `intl.date` writes as `{ type, value }`.
+fn date_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  PARTS.with(|parts| *parts.borrow_mut() = Some(Vec::new()));
+  let written = date(ambient, args);
+  let collected = PARTS.with(|parts| parts.borrow_mut().take()).unwrap_or_default();
+  written?;
+  Ok(Value::seq(collected.into_iter().map(|(kind, value)| {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("type".to_owned(), Value::str(kind));
+    map.insert("value".to_owned(), Value::str(value.replace('\u{202f}', " ")));
+    Value::Map(map)
+  }).collect::<Vec<_>>()))
+}
+
+/// `intl.numberParts(text, style, options)`: `formatToParts` of an `Intl.NumberFormat`, the `text` it wrote read back into parts. The locale's group and decimal separators are the ones ICU4X writes for 1234.5. Digits before the decimal separator are `integer` and after it `fraction`, a separator between them is `group`, the signs are `minusSign` and `plusSign`, a percent style's sign is `percentSign`, a currency style's other text is `currency` and a space is `literal`.
+fn number_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "intl.numberParts";
+  let written = text(what, args, 0)?;
+  let style = text(what, args, 1)?;
+  let locale = locale_for(what, ambient, args.get(2))?;
+  let probe = DecimalFormatter::try_new((&locale).into(), DecimalFormatterOptions::default()).map_err(|e| data(what, e))?;
+  let mut sample = Decimal::from(12345);
+  sample.multiply_pow10(-1);
+  PARTS.with(|parts| *parts.borrow_mut() = Some(Vec::new()));
+  let _ = probe.format(&sample).parts_out();
+  let symbols = PARTS.with(|parts| parts.borrow_mut().take()).unwrap_or_default();
+  let symbol = |kind: &str| symbols.iter().find(|(k, _)| k == kind).map(|(_, v)| v.clone()).unwrap_or_default();
+  let group: String = symbol("integer").chars().filter(|c| !c.is_numeric()).collect();
+  let decimal = symbol("decimal");
+  let mut parts: Vec<(&'static str, String)> = Vec::new();
+  let mut seen_decimal = false;
+  let mut push = |kind: &'static str, text: &str| match parts.last_mut() {
+    Some((last, value)) if *last == kind && !matches!(kind, "group" | "decimal") => value.push_str(text),
+    _ => parts.push((kind, text.to_owned())),
+  };
+  let mut rest = written;
+  while let Some(c) = rest.chars().next() {
+    let width = c.len_utf8();
+    let after = &rest[width..];
+    let next_digit = after.chars().next().is_some_and(|n| n.is_numeric());
+    if c.is_numeric() {
+      push(if seen_decimal { "fraction" } else { "integer" }, &rest[..width]);
+      rest = after;
+    } else if !decimal.is_empty() && rest.starts_with(decimal.as_str()) && next_digit {
+      seen_decimal = true;
+      push("decimal", &decimal);
+      rest = &rest[decimal.len()..];
+    } else if !group.is_empty() && rest.starts_with(group.as_str()) && rest[group.len()..].chars().next().is_some_and(|n| n.is_numeric()) && !seen_decimal {
+      push("group", &group);
+      rest = &rest[group.len()..];
+    } else if matches!(c, '-' | '\u{2212}') {
+      push("minusSign", &rest[..width]);
+      rest = after;
+    } else if c == '+' {
+      push("plusSign", &rest[..width]);
+      rest = after;
+    } else if c.is_whitespace() || matches!(c, '\u{a0}' | '\u{202f}' | '\u{200e}' | '\u{200f}' | '\u{61c}') {
+      push("literal", &rest[..width]);
+      rest = after;
+    } else {
+      push(match style { "percent" => "percentSign", "currency" => "currency", _ => "literal" }, &rest[..width]);
+      rest = after;
+    }
+  }
+  Ok(Value::seq(parts.into_iter().map(|(kind, value)| {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("type".to_owned(), Value::str(kind));
+    map.insert("value".to_owned(), Value::str(value));
+    Value::Map(map)
+  }).collect::<Vec<_>>()))
 }

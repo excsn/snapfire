@@ -18,6 +18,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("time.now", Reach::Body, |ambient, _| Ok(Value::Int(ambient.now)));
   extensions.register("time.monotonic", Reach::Body, |_, _| Ok(Value::F64(STARTED.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0)));
   extensions.register("time.localOffset", Reach::Body, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?)?)));
+  extensions.register("time.zone", Reach::Body, |_, _| Ok(Value::str(snapfire_time::system_zone())));
   extensions.register("time.offsetIn", Reach::Render, |_, args| Ok(Value::F64(offset_in(number("time.offsetIn", args, 0)?, text("time.offsetIn", args, 1)?)?)));
 }
 

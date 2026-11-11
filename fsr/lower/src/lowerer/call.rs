@@ -602,6 +602,13 @@ impl<'a> Lowerer<'a> {
         }
       }
     }
+    if matches!(method.as_str(), "formatToParts" | "resolvedOptions") {
+      if let Some(made) = self.formatter_of(member.object()) {
+        if let Some(formatter @ ("NumberFormat" | "DateTimeFormat")) = platform_object(&made) {
+          return if method == "resolvedOptions" { self.resolved_options(formatter, &made) } else { self.format_to_parts(formatter, &made, call) };
+        }
+      }
+    }
     if matches!(method.as_str(), "format" | "select" | "compare") {
       if let Some(made) = self.formatter_of(member.object()) {
         let called = match (platform_object(&made), method.as_str()) {

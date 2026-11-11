@@ -207,6 +207,18 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("new Intl.NumberFormat(\"en\").formatToParts(1234.5).map((p) => p.type)", "[\"integer\",\"group\",\"integer\",\"decimal\",\"fraction\"]"),
+  ("new Intl.NumberFormat(\"de-DE\").formatToParts(-1234.5)", "[{\"type\":\"minusSign\",\"value\":\"-\"},{\"type\":\"integer\",\"value\":\"1\"},{\"type\":\"group\",\"value\":\".\"},{\"type\":\"integer\",\"value\":\"234\"},{\"type\":\"decimal\",\"value\":\",\"},{\"type\":\"fraction\",\"value\":\"5\"}]"),
+  ("new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\" }).formatToParts(1234.5)", "[{\"type\":\"currency\",\"value\":\"$\"},{\"type\":\"integer\",\"value\":\"1\"},{\"type\":\"group\",\"value\":\",\"},{\"type\":\"integer\",\"value\":\"234\"},{\"type\":\"decimal\",\"value\":\".\"},{\"type\":\"fraction\",\"value\":\"50\"}]"),
+  ("new Intl.NumberFormat(\"fr-FR\", { style: \"percent\" }).formatToParts(0.25)", "[{\"type\":\"integer\",\"value\":\"25\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"percentSign\",\"value\":\"%\"}]"),
+  ("new Intl.DateTimeFormat(\"en\", { dateStyle: \"medium\", timeZone: \"UTC\" }).formatToParts(0)", "[{\"type\":\"month\",\"value\":\"Jan\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"day\",\"value\":\"1\"},{\"type\":\"literal\",\"value\":\", \"},{\"type\":\"year\",\"value\":\"1970\"}]"),
+  ("new Intl.DateTimeFormat(\"de-DE\", { dateStyle: \"long\", timeZone: \"UTC\" }).formatToParts(0).map((p) => [p.type, p.value])", "[[\"day\",\"1\"],[\"literal\",\". \"],[\"month\",\"Januar\"],[\"literal\",\" \"],[\"year\",\"1970\"]]"),
+  ("new Intl.DateTimeFormat(\"en\", { weekday: \"long\", timeZone: \"UTC\" }).formatToParts(0)", "[{\"type\":\"weekday\",\"value\":\"Thursday\"}]"),
+  ("new Intl.DateTimeFormat(\"en\").resolvedOptions().locale", "\"en\""),
+  ("new Intl.DateTimeFormat(\"en\", { timeZone: \"Asia/Tokyo\" }).resolvedOptions().timeZone", "\"Asia/Tokyo\""),
+  ("new Intl.NumberFormat(\"de-DE\").resolvedOptions().locale", "\"de-DE\""),
+  ("new Intl.NumberFormat(\"en\", { style: \"percent\" }).resolvedOptions().style", "\"percent\""),
+  ("typeof new Intl.DateTimeFormat().resolvedOptions().timeZone", "\"string\""),
   ("[...new Intl.Segmenter(\"en\", { granularity: \"word\" }).segment(\"hi you\")].map((s) => s.segment)", "[\"hi\",\" \",\"you\"]"),
   ("[...new Intl.Segmenter(\"en\", { granularity: \"word\" }).segment(\"Hello, world!\")].filter((s) => s.isWordLike).map((s) => [s.segment, s.index])", "[[\"Hello\",0],[\"world\",7]]"),
   ("[...new Intl.Segmenter(\"en\").segment(\"ab\")].map((s) => s.segment)", "[\"a\",\"b\"]"),

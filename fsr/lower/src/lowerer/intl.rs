@@ -246,4 +246,58 @@ impl<'a> Lowerer<'a> {
       }
     }
   }
+
+  /// `formatter.formatToParts(value)` of an `Intl.NumberFormat` or an `Intl.DateTimeFormat`: the call that formats it, with its text read back into parts.
+  pub(crate) fn format_to_parts(&mut self, formatter: &str, made: &js::NewExpression, call: &js::CallExpression) -> Lowered<Expr> {
+    let value = match call.arguments.first() {
+      Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+      None => Expr::Lit(Lit::Undefined),
+    };
+    let formatted = self.intl_call(formatter, &made.arguments, vec![value], made.span)?;
+    match formatted {
+      Expr::Ext { module, name, args } if module == "intl" && name == "date" => Ok(Expr::Ext { module, name: "dateParts".to_owned(), args }),
+      Expr::Ext { module, name, args } if module == "intl" && matches!(name.as_str(), "number" | "currency") => {
+        let options = args.last().cloned().unwrap_or(Expr::Object(Vec::new()));
+        let style = match name.as_str() {
+          "currency" => "currency",
+          _ => match self.intl_made(formatter, &made.arguments)?.1.iter().find(|(k, _)| k == "style").map(|(_, v)| *v) {
+            Some(js::Expression::StringLiteral(s)) if crate::lossy(s.value) == "percent" => "percent",
+            _ => "decimal",
+          },
+        };
+        let text = Expr::Ext { module, name, args };
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "numberParts".to_owned(), args: vec![text, Expr::lit_str(style), options] })
+      }
+      _ => Err(self.residue_with(call.span, format!("`formatToParts` of an `Intl.{formatter}` with no options in a body"), "give it a `dateStyle` or the parts it writes")),
+    }
+  }
+
+  /// `formatter.resolvedOptions()` of an `Intl.NumberFormat` or an `Intl.DateTimeFormat`: the locale it resolved to, the Gregorian calendar and the Latin digits the build formats in, the options written where it is made and, for a date, its time zone.
+  pub(crate) fn resolved_options(&mut self, formatter: &str, made: &js::NewExpression) -> Lowered<Expr> {
+    let (locale, options) = self.intl_made(formatter, &made.arguments)?;
+    let body = self.reaches(Reach::Terminal) || !self.on_render_path();
+    let locale = match locale {
+      Some(Entry::Field(_, tag)) => tag,
+      _ if body => Expr::Ext { module: "intl".to_owned(), name: "systemLocale".to_owned(), args: Vec::new() },
+      _ => Expr::Ext { module: "intl".to_owned(), name: "localeTag".to_owned(), args: Vec::new() },
+    };
+    let mut entries = vec![Entry::Field("locale".to_owned(), locale)];
+    if formatter == "DateTimeFormat" {
+      entries.push(Entry::Field("calendar".to_owned(), Expr::lit_str("gregory")));
+    }
+    entries.push(Entry::Field("numberingSystem".to_owned(), Expr::lit_str("latn")));
+    if formatter == "NumberFormat" && !options.iter().any(|(k, _)| k == "style") {
+      entries.push(Entry::Field("style".to_owned(), Expr::lit_str("decimal")));
+    }
+    if formatter == "DateTimeFormat" && !options.iter().any(|(k, _)| k == "timeZone") {
+      if !body {
+        return Err(self.browser_only(made.span, "`resolvedOptions()` of a date formatter with no `timeZone`, which names the viewer's time zone"));
+      }
+      entries.push(Entry::Field("timeZone".to_owned(), Expr::Ext { module: "time".to_owned(), name: "zone".to_owned(), args: Vec::new() }));
+    }
+    for (key, value) in options {
+      entries.push(Entry::Field(key, self.expr(value)?));
+    }
+    Ok(Expr::Object(entries))
+  }
 }
