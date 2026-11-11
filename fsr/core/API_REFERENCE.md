@@ -265,6 +265,7 @@ The tags of a `Value::Variant` that stands for a JavaScript value with no arm of
 * `pub const RAW_JSON: &str = "$rawJSON"`: `JSON.rawJSON(text)`, payload the text JSON writes as it is.
 * `pub const PROTOTYPE: &str = "$prototype"`: a built-in constructor's `prototype`, payload the constructor's name.
 * `pub const DEFERRED: &str = "$deferred"`: the field marking the object that stands for a promise `Promise.withResolvers()` made.
+* `pub const WRAPPER: &str = "$wrapper"`: `new Number`, `new Boolean` or `new String`, payload the primitive it wraps, which JSON writes.
 * `pub const REGEX: &str = "$regex"`: the field holding a regular expression's pattern in the object that stands for it. JSON writes that object as `{}`.
 * `pub const ALL: [&str; 6]`
 * `pub fn temporal(value: &Value) -> Option<(&str, &str)>`: a Temporal value's type name and string.

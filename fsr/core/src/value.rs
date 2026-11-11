@@ -766,6 +766,8 @@ pub mod typed {
   pub const PROTOTYPE: &str = "$prototype";
   /// The field marking the object that stands for a promise `Promise.withResolvers()` made, which holds its `$state` and its `value` or `reason`.
   pub const DEFERRED: &str = "$deferred";
+  /// `new Number(n)`, `new Boolean(b)` or `new String(s)`: a wrapper object, its payload the primitive it wraps, which JSON writes.
+  pub const WRAPPER: &str = "$wrapper";
   /// The field holding a regular expression's pattern in the object that stands for it, beside its flags and its `lastIndex`.
   pub const REGEX: &str = "$regex";
 

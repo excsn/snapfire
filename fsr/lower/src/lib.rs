@@ -143,7 +143,7 @@ pub(crate) fn node_module(source: &str) -> bool {
 }
 
 /// JavaScript's error constructors, which a `throw` and a `new` read as `{ name, message }`.
-pub(crate) const ERROR_CONSTRUCTORS: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
+pub(crate) const ERROR_CONSTRUCTORS: [&str; 9] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AggregateError", "SuppressedError"];
 
 /// The import aliases every fsr application has, each a prefix and the app
 /// directory it stands for. The build writes them into both tsconfigs, snapfirec
@@ -665,6 +665,8 @@ pub(crate) enum Kind {
   WeakRef,
   /// A `FinalizationRegistry`, whose callback never runs, since nothing is collected while a body runs.
   Registry,
+  /// A `Number`, `Boolean` or `String` object made with `new`: an object that reads as the primitive it wraps.
+  Wrapper,
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.

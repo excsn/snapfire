@@ -17,6 +17,7 @@ impl Kind {
       Kind::WeakSet => "WeakSet",
       Kind::WeakRef => "WeakRef",
       Kind::Registry => "FinalizationRegistry",
+      Kind::Wrapper => "Object",
     }
   }
 
@@ -49,7 +50,7 @@ impl Kind {
     match self {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
-      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry => None,
+      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper => None,
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),

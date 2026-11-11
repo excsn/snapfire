@@ -59,7 +59,7 @@ pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStatement
 pub(crate) fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStatement) -> Lowered<Expr> {
   fn error_message<'e>(lowerer: &Lowerer<'_>, callee: &js::Expression, args: &'e [js::Argument<'e>]) -> Option<(String, Option<&'e js::Expression<'e>>)> {
     match crate::meaning::bare(callee) {
-    js::Expression::Identifier(id) if crate::ERROR_CONSTRUCTORS.contains(&id.name.as_str()) && lowerer.meanings.as_ref().is_none_or(|m| m.ctxt(id) == crate::Ctxt::Unresolved) => Some((id.name.to_string(), args.first().map(crate::syntax::arg_expr))),
+    js::Expression::Identifier(id) if crate::ERROR_CONSTRUCTORS.contains(&id.name.as_str()) && !matches!(id.name.as_str(), "AggregateError" | "SuppressedError") && lowerer.meanings.as_ref().is_none_or(|m| m.ctxt(id) == crate::Ctxt::Unresolved) => Some((id.name.to_string(), args.first().map(crate::syntax::arg_expr))),
       _ => None,
     }
   }

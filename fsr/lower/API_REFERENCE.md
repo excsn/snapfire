@@ -917,6 +917,10 @@ What lowers. Anything not listed is a `Residue`.
 * A `Set`'s `entries()` pairs each item with itself.
 * `new WeakMap(pairs)` and `new WeakSet(items)` are a `Map` and a `Set` keyed by object identity, with `get`, `has`, `set`, `add` and `delete`. A key that is not an object throws a `TypeError`, as JavaScript does. A body runs to its end without a collection, so nothing they hold goes. `new WeakRef(x).deref()` is `x`. A `FinalizationRegistry`'s `register` and `unregister` change nothing, since its callback never runs within a body.
 * An expression statement in a function, `new WeakSet(items);` or a call for its effect, is evaluated where it stands for what it does and what it throws.
+* `new Promise(executor)` runs the executor at once with `resolve` and `reject`, the promise the object `Promise.withResolvers()` makes. A throw from the executor rejects it.
+* `new Error(message, { cause })` and its kin carry `cause`. `new AggregateError(errors, message)` carries `errors` and `new SuppressedError(error, suppressed, message)` carries both. `instanceof Error` holds for each.
+* `new Object()` is `{}` and `new Object(x)` is `x` when it is an object. `new Array(n)` is `n` empty slots, a `RangeError` for a length that is not a whole number below 2 to the 32. `new Array(a, b, ...)` is the items.
+* `new Number(n)`, `new Boolean(b)` and `new String(s)` are wrapper objects: `typeof` reads `"object"`, they are always truthy and every other read is of the primitive they wrap.
 * A string's indices count UTF-16 code units.
 * `startsWith` and `endsWith` take exactly one argument. `replace` takes exactly two.
 * `split` takes a separator and an optional limit. `split("")` fails at run time on a character outside the Basic Multilingual Plane.

@@ -233,7 +233,7 @@ impl<'a> Lowerer<'a> {
           }
           "encodeURI" => Ok(Expr::Builtin { name: Builtin::EncodeUri, args: vec![*one(self)?] }),
           "decodeURI" => Ok(Expr::Builtin { name: Builtin::DecodeUri, args: vec![*one(self)?] }),
-          name if ERROR_CONSTRUCTORS.contains(&name) => {
+          name if ERROR_CONSTRUCTORS.contains(&name) && !matches!(name, "AggregateError" | "SuppressedError") => {
             let message = match call.arguments.first() {
               Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
               None => Expr::lit_str(""),
@@ -669,7 +669,7 @@ impl<'a> Lowerer<'a> {
         return self.function_method(&method, f, call);
       }
     }
-    let target = Box::new(self.expr(member.object())?);
+    let target = Box::new(self.unwrapped(member.object())?);
     let lambda = |this: &mut Self, i: usize| -> Lowered<Box<Expr>> {
       let a = call.arguments.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes a function")))?;
       if let js::Expression::Identifier(id) = crate::syntax::arg_expr(a) {

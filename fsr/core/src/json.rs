@@ -182,6 +182,7 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
       },
       (typed::MAP | typed::SET, _) => out.push_str("{}"),
       (typed::SYMBOL, _) => out.push_str("null"),
+      (typed::WRAPPER, Some(primitive)) => write(out, primitive, indent, depth, integers)?,
       (typed::RAW_JSON, Some(Value::Str(text))) => out.push_str(text),
       (typed::URL, Some(href)) => write(out, href, indent, depth, integers)?,
       (typed::TEMPORAL, _) if typed::temporal(value).is_some() => string(out, typed::temporal(value).map_or("", |(_, text)| text)),

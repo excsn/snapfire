@@ -127,7 +127,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOperator::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
@@ -453,8 +453,8 @@ impl<'a> Lowerer<'a> {
       };
       return Err(self.browser_only(member.span(), format!("{shown}, a value only the browser knows")));
     }
-    let collection = self.kind_of(member.object());
-    let target = self.expr(member.object())?;
+    let collection = self.kind_of(member.object()).filter(|k| *k != Kind::Wrapper);
+    let target = self.unwrapped(member.object())?;
     if collection == Some(Kind::Response) {
       return match prop(self)? {
         Ok(name) if matches!(name.as_str(), "status" | "ok") => Ok(Expr::Builtin { name: Builtin::ResponseMember, args: vec![target, Expr::lit_str(&name)] }),

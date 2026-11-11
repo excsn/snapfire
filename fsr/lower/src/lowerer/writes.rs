@@ -262,7 +262,16 @@ let via = via_expr.as_member_expression().expect("matched as a member");
     Ok(Expr::Ext { module: "intl".to_owned(), name: "dateTimeString".to_owned(), args: vec![when] })
   }
 
+  /// `expr`, or the primitive it wraps when it is a `new Number`, `new Boolean` or `new String`, which every read but `typeof` and truthiness converts it to.
+  pub(crate) fn unwrapped(&mut self, expr: &js::Expression) -> Lowered<Expr> {
+    let value = self.expr(expr)?;
+    Ok(if self.kind_of(expr) == Some(Kind::Wrapper) { Expr::Builtin { name: Builtin::TaggedPayload, args: vec![value, Expr::lit_str(snapfire_fsr_ir::render::typed::WRAPPER)] } } else { value })
+  }
+
   pub(crate) fn as_primitive(&mut self, expr: &js::Expression) -> Lowered<Expr> {
+    if self.kind_of(expr) == Some(Kind::Wrapper) {
+      return self.unwrapped(expr);
+    }
     let text = match self.kind_of(expr) {
       Some(Kind::Map) => "[object Map]",
       Some(Kind::Set) => "[object Set]",

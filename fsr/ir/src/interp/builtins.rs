@@ -1103,7 +1103,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Map(tagged)
     }
     Builtin::IsError => {
-      const ERROR_NAMES: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
+      const ERROR_NAMES: [&str; 9] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AggregateError", "SuppressedError"];
       let class = text(name, arg(1)?)?;
       Value::Bool(match arg(0)? {
         Value::Map(map) => match (map.get("name"), map.get("message")) {

@@ -149,13 +149,66 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
     if self.reaches(Reach::Later) && matches!(&n.callee, js::Expression::Identifier(id) if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && id.name.as_str() == "Promise") {
       return self.terminal_promise(n, &args);
     }
+    if matches!(&n.callee, js::Expression::Identifier(id) if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && id.name.as_str() == "Promise") {
+      let Some(executor) = args.first() else { return Err(self.residue(n.span, "`new Promise` without an executor")) };
+      let executor = self.expr(crate::syntax::arg_expr(executor))?;
+      let (made, reason) = (self.temp(), self.temp());
+      let field = |name: &str| Expr::Field(Box::new(Expr::Var(made.clone())), name.to_owned());
+      let run = Expr::Apply { f: Box::new(executor), args: vec![field("resolve"), field("reject")] };
+      let rejected = Expr::Apply { f: Box::new(field("reject")), args: vec![Expr::Var(reason.clone())] };
+      return Ok(Expr::Block(vec![
+        Stmt::Let { name: made.clone(), expr: self.with_resolvers() },
+        Stmt::Try { body: vec![Stmt::Expr(run)], name: Some(reason), handler: Some(vec![Stmt::Expr(rejected)]), finally: Vec::new() },
+        Stmt::Return(field("promise")),
+      ]));
+    }
     if let js::Expression::Identifier(id) = &n.callee {
-      if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && ERROR_CONSTRUCTORS.contains(&id.name.as_str()) {
-        let message = match args.first() {
-          Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
-          None => Expr::lit_str(""),
+      let class = id.name.as_str();
+      if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && ERROR_CONSTRUCTORS.contains(&class) {
+        // `AggregateError` takes its errors first and `SuppressedError` the error and what it suppressed, both before the message.
+        let leading = match class {
+          "AggregateError" => 1,
+          "SuppressedError" => 2,
+          _ => 0,
         };
-        return Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(id.name.as_str())), Entry::Field("message".to_owned(), message)]));
+        let mut fields = vec![Entry::Field("name".to_owned(), Expr::lit_str(class))];
+        match class {
+          "AggregateError" => {
+            let errors = match args.first() {
+              Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+              None => Expr::Array(Vec::new()),
+            };
+            fields.push(Entry::Field("errors".to_owned(), Expr::Array(vec![Entry::Spread(errors)])));
+          }
+          "SuppressedError" => {
+            for (at, key) in ["error", "suppressed"].into_iter().enumerate() {
+              let value = match args.get(at) {
+                Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+                None => Expr::Lit(Lit::Undefined),
+              };
+              fields.push(Entry::Field(key.to_owned(), value));
+            }
+          }
+          _ => {}
+        }
+        let message = match args.get(leading) {
+          Some(a) if !matches!(strip_parens(crate::syntax::arg_expr(a)), js::Expression::Identifier(u) if u.name.as_str() == "undefined") => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
+          _ => Expr::lit_str(""),
+        };
+        fields.insert(1, Entry::Field("message".to_owned(), message));
+        if class != "SuppressedError" {
+          if let Some(options) = args.get(leading + 1) {
+            let options = self.expr(crate::syntax::arg_expr(options))?;
+            let held = self.temp();
+            let has_cause = Expr::Builtin { name: Builtin::HasKey, args: vec![Expr::Var(held.clone()), Expr::lit_str("cause")] };
+            let with_cause = Expr::Object(fields.iter().cloned().chain([Entry::Field("cause".to_owned(), Expr::Field(Box::new(Expr::Var(held.clone())), "cause".to_owned()))]).collect());
+            let without = Expr::Object(fields.clone());
+            let object = Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::lit_str("object")))), Box::new(Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Var(held.clone())] }))));
+            let pick = Expr::Ternary(Box::new(Expr::Logic(LogicOp::And, Box::new(object), Box::new(has_cause))), Box::new(with_cause), Box::new(without));
+            return Ok(Expr::Block(vec![Stmt::Let { name: held, expr: options }, Stmt::Return(pick)]));
+          }
+        }
+        return Ok(Expr::Object(fields));
       }
     }
     if let Some(name) = crate::temporal_type(&n.callee) {
@@ -211,6 +264,46 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
       }
       ("WeakRef", Some(target)) => Ok(Expr::Object(vec![Entry::Field("$weakRef".to_owned(), target)])),
       ("FinalizationRegistry", _) => Ok(Expr::Object(Vec::new())),
+      (name @ ("Number" | "Boolean" | "String"), given) => {
+        let primitive = match (name, given) {
+          ("Number", Some(x)) => Expr::Num(Box::new(x)),
+          ("Number", None) => Expr::Lit(Lit::Float(0.0)),
+          ("Boolean", Some(x)) => Expr::Not(Box::new(Expr::Not(Box::new(x)))),
+          ("Boolean", None) => Expr::Lit(Lit::Bool(false)),
+          (_, Some(x)) => Expr::Str(Box::new(x)),
+          (_, None) => Expr::lit_str(""),
+        };
+        Ok(Expr::Builtin { name: Builtin::Tagged, args: vec![Expr::lit_str(snapfire_fsr_ir::render::typed::WRAPPER), primitive] })
+      }
+      ("Array", None) => Ok(Expr::Array(Vec::new())),
+      ("Array", Some(first)) if args.len() == 1 => {
+        let held = self.temp();
+        let number = Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::lit_str("number")));
+        let valid = Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::Trunc, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::Var(held.clone())))), Box::new(Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Ge, Box::new(Expr::Var(held.clone())), Box::new(Expr::Lit(Lit::Float(0.0))))), Box::new(Expr::Compare(CompareOp::Le, Box::new(Expr::Var(held.clone())), Box::new(Expr::Lit(Lit::Float(4_294_967_295.0))))))));
+        let error = Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("RangeError")), Entry::Field("message".to_owned(), Expr::lit_str("Invalid array length"))]);
+        let thrown = Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str("Invalid array length"), error] };
+        let slot = self.temp();
+        let holes = Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(Expr::Lit(Lit::Undefined)) }));
+        let sized = Expr::Block(vec![Stmt::If { cond: Expr::Not(Box::new(valid)), then: vec![Stmt::Expr(thrown)], r#else: Vec::new() }, Stmt::Return(holes)]);
+        Ok(Expr::Block(vec![Stmt::Let { name: held.clone(), expr: first }, Stmt::Return(Expr::Ternary(Box::new(number), Box::new(sized), Box::new(Expr::Array(vec![Entry::Item(Expr::Var(held))]))))]))
+      }
+      ("Array", Some(first)) => {
+        let mut items = vec![Entry::Item(first)];
+        for a in &args[1..] {
+          items.push(Entry::Item(self.expr(crate::syntax::arg_expr(a))?));
+        }
+        Ok(Expr::Array(items))
+      }
+      ("Object", None) => Ok(Expr::Object(Vec::new())),
+      ("Object", Some(x)) => {
+        let held = self.temp();
+        let kind = Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] };
+        let is = |of: &str| Expr::Compare(CompareOp::Eq, Box::new(kind.clone()), Box::new(Expr::lit_str(of)));
+        let object = Expr::Logic(LogicOp::Or, Box::new(is("object")), Box::new(is("function")));
+        let wrapped = Expr::Builtin { name: Builtin::Tagged, args: vec![Expr::lit_str(snapfire_fsr_ir::render::typed::WRAPPER), Expr::Var(held.clone())] };
+        let answer = Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::Object(Vec::new())), Box::new(Expr::Ternary(Box::new(object), Box::new(Expr::Var(held.clone())), Box::new(wrapped))));
+        Ok(Expr::Block(vec![Stmt::Let { name: held, expr: x }, Stmt::Return(answer)]))
+      }
       ("Response", body) => {
         let mut args = vec![body.unwrap_or(Expr::Lit(Lit::Undefined))];
         if let Some(init) = n.arguments.get(1) {
