@@ -1,6 +1,6 @@
 //! Currency, percent and relative-time formatting from CLDR data, as `Intl.NumberFormat` and `Intl.RelativeTimeFormat` write them. The caller writes the digits in the locale's numbering system and this crate places the currency, the percent sign, the sign and the words around them.
 //!
-//! [`zone_name`] names a time zone as `Date.prototype.toString` does, from CLDR's metazone names.
+//! [`zone_name`] names a time zone as `Date.prototype.toString` does, from CLDR's metazone names. [`numeric_date`] and [`date_with_time`] write a date with no options as `toLocaleDateString` and `toLocaleString` do.
 //!
 //! [`upper_case`] and [`lower_case`] map case under a locale as `toLocaleUpperCase` and `toLocaleLowerCase` do, from Unicode Character Database data.
 
@@ -18,7 +18,7 @@ pub use currency::{Currency, Display};
 pub use pattern::Sign;
 pub use percent::Percent;
 pub use relative::{Plural, Relative, Unit, Width};
-pub use zone::{in_daylight, zone_name, ZoneRules};
+pub use zone::{date_with_time, in_daylight, numeric_date, zone_name, ZoneRules};
 
 /// The CLDR release the embedded data was generated from.
 pub fn cldr_version() -> &'static str {

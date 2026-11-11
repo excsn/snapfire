@@ -1,4 +1,4 @@
-//! `snapfire_i18n_datagen --zones <cldr-json> <out>`: the time zone names of the `cldr-dates-full`, `cldr-numbers-full`, `cldr-core` and `cldr-bcp47` packages, in the line format `snapfire_i18n`'s `src/zone.rs` describes.
+//! `snapfire_i18n_datagen --zones <cldr-json> <out>`: the numeric date patterns and the time zone names of the `cldr-dates-full`, `cldr-numbers-full`, `cldr-core` and `cldr-bcp47` packages, in the line format `snapfire_i18n`'s `src/zone.rs` describes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -72,6 +72,7 @@ struct Own {
   names: BTreeMap<String, (String, String)>,
   formats: [String; 3],
   digits: Option<String>,
+  dates: [String; 2],
 }
 
 pub(crate) fn generate(root: &Path) -> Result<String, String> {
@@ -128,9 +129,17 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     }
     found.extend(zoned);
     let format = |key: &str| str_at(tz, &[key]).unwrap_or("").to_owned();
+    let calendar = read(&dates.join(&locale).join("ca-gregorian.json"))?;
+    let formats = calendar.pointer(&format!("/main/{locale}/dates/calendars/gregorian/dateTimeFormats")).ok_or_else(|| format!("{locale}: no dateTimeFormats"))?;
+    let glue = match formats.get("short") {
+      Some(Value::String(glue)) => glue.clone(),
+      Some(other) => str_at(other, &["_value"]).unwrap_or("").to_owned(),
+      None => String::new(),
+    };
+    let numeric = str_at(formats, &["availableFormats", "yMd"]).unwrap_or("").to_owned();
     let system = read(&numbers.join(&locale).join("numbers.json")).ok().and_then(|n| str_at(&n, &["main", &locale, "numbers", "defaultNumberingSystem"]).map(str::to_owned));
     let digits = system.filter(|s| s != "latn").and_then(|s| systems.get(&s).and_then(|info| str_at(info, &["_digits"])).map(str::to_owned));
-    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits });
+    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue] });
   }
   let parent_of = |locale: &str| -> Option<String> {
     if locale == "und" {
@@ -176,6 +185,19 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     }
     formats
   };
+  let resolved_dates = |locale: &str| -> [String; 2] {
+    let mut dates: [String; 2] = Default::default();
+    for l in chain(locale) {
+      if let Some(o) = own.get(&l) {
+        for (slot, value) in dates.iter_mut().zip(&o.dates) {
+          if slot.is_empty() {
+            *slot = value.clone();
+          }
+        }
+      }
+    }
+    dates
+  };
   let mut sorted: Vec<&String> = own.keys().collect();
   sorted.sort();
   for locale in sorted {
@@ -190,6 +212,10 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let formats = resolved_formats(locale);
     if parent.as_deref().is_none_or(|p| resolved_formats(p) != formats) {
       writeln!(out, "F\t{locale}\t{}\t{}\t{}", field(&formats[0])?, field(&formats[1])?, field(&formats[2])?).unwrap();
+    }
+    let dates = resolved_dates(locale);
+    if parent.as_deref().is_none_or(|p| resolved_dates(p) != dates) {
+      writeln!(out, "Y\t{locale}\t{}\t{}", field(&dates[0])?, field(&dates[1])?).unwrap();
     }
     for key in mine.names.keys() {
       let here = resolved_name(locale, key);

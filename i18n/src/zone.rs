@@ -10,6 +10,7 @@
 //! - `D locale digits`: the ten digits of a locale's numbering system when they are not ASCII.
 //! - `F locale gmt zero hours`: the localized GMT format, the format for a zero offset and the positive and negative hour patterns.
 //! - `N locale key standard daylight`: the long names of a metazone or of a zone, given by its path. An empty name falls back to the parent's.
+//! - `Y locale date glue`: the `yMd` pattern a date with no options is written in and the short pattern joining a date to a time.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -36,6 +37,7 @@ struct Names {
   parent: Option<&'static str>,
   digits: Option<&'static str>,
   formats: Option<[&'static str; 3]>,
+  dates: Option<[&'static str; 2]>,
   names: HashMap<&'static str, (&'static str, &'static str)>,
 }
 
@@ -72,6 +74,7 @@ fn zones() -> &'static Zones {
         "P" => zones.locales.entry(f[1]).or_default().parent = Some(f[2]),
         "D" => zones.locales.entry(f[1]).or_default().digits = Some(f[2]),
         "F" => zones.locales.entry(f[1]).or_default().formats = Some([f[2], f[3], f[4]]),
+        "Y" => zones.locales.entry(f[1]).or_default().dates = Some([f[2], f[3]]),
         "N" => {
           zones.locales.entry(f[1]).or_default().names.insert(f[2], (f[3], f[4]));
         }
@@ -131,6 +134,64 @@ pub fn zone_name(locale: &str, zone: &str, daylight: bool, now: f64, rules: &imp
   gmt(&chain, offset - saving + extra, false)
 }
 
+/// `date.toLocaleDateString(tag)` with no options: `year`, `month` and `day` in the locale's `yMd` pattern and digits, `9/10/2024` in English and `10.9.2024` in German.
+pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> String {
+  let chain = chain(tag);
+  let pattern = chain.iter().find_map(|names| names.dates).map_or("y-MM-dd", |[date, _]| date);
+  let mut out = String::new();
+  let mut chars = pattern.chars().peekable();
+  while let Some(c) = chars.next() {
+    match c {
+      '\'' => {
+        if chars.peek() == Some(&'\'') {
+          chars.next();
+          out.push('\'');
+          continue;
+        }
+        for quoted in chars.by_ref() {
+          if quoted == '\'' {
+            break;
+          }
+          out.push(quoted);
+        }
+      }
+      'y' | 'M' | 'd' => {
+        let mut width = 1;
+        while chars.peek() == Some(&c) {
+          chars.next();
+          width += 1;
+        }
+        let value = match c {
+          'y' => year,
+          'M' => i64::from(month),
+          _ => i64::from(day),
+        };
+        out.push_str(&if c == 'y' && width == 2 { format!("{:02}", value.rem_euclid(100)) } else { format!("{value:0width$}") });
+      }
+      other => out.push(other),
+    }
+  }
+  localized_digits(&chain, out)
+}
+
+/// `date.toLocaleString(tag)` with no options: `date` and `time`, each already written, joined as the locale's short date-time pattern joins them, `9/10/2024, 7:37:20 PM`.
+pub fn date_with_time(tag: &str, date: &str, time: &str) -> String {
+  let chain = chain(tag);
+  let glue = chain.iter().find_map(|names| names.dates).map_or("{1} {0}", |[_, glue]| glue);
+  glue.replace("{1}", date).replace("{0}", time)
+}
+
+/// `text` with its ASCII digits in the numbering system of the first locale in `chain`.
+fn localized_digits(chain: &[&'static Names], text: String) -> String {
+  match chain.first().and_then(|names| names.digits) {
+    Some(digits) => {
+      let digits: Vec<char> = digits.chars().collect();
+      text.chars().map(|c| c.to_digit(10).and_then(|d| digits.get(d as usize).copied()).unwrap_or(c)).collect()
+    }
+    None => text,
+  }
+}
+
 /// `offset` in seconds as the localized GMT format writes it, `GMT-05:00`. A zero offset takes the zero format unless `signed`.
 fn gmt(chain: &[&'static Names], offset: i32, signed: bool) -> String {
   let formats = chain.iter().find_map(|names| names.formats).unwrap_or(["GMT{0}", "GMT", "+HH:mm;-HH:mm"]);
@@ -162,10 +223,7 @@ fn gmt(chain: &[&'static Names], offset: i32, signed: bool) -> String {
       rest = &rest[c.len_utf8()..];
     }
   }
-  if let Some(digits) = chain.first().and_then(|names| names.digits) {
-    let digits: Vec<char> = digits.chars().collect();
-    text = text.chars().map(|c| c.to_digit(10).and_then(|d| digits.get(d as usize).copied()).unwrap_or(c)).collect();
-  }
+  let text = localized_digits(chain, text);
   formats[0].replace("{0}", &text)
 }
 

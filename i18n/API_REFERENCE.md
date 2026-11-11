@@ -26,6 +26,8 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [ZoneRules](#zonerules)
   * [in_daylight](#in_daylight)
   * [zone_name](#zone_name)
+  * [numeric_date](#numeric_date)
+  * [date_with_time](#date_with_time)
 * [8. Error handling](#8-error-handling)
   * [Error](#error)
 
@@ -134,6 +136,14 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 ### zone_name
 
 * `pub fn zone_name(tag: &str, zone: &str, daylight: bool, now: f64, rules: &impl ZoneRules) -> String`: the long specific name of `zone` in `tag`, as ICU's `TimeZone::getDisplayName(daylight, LONG, locale)` writes it. The metazone is the one `zone` is in at the instant `now`. A zone-specific name such as `British Summer Time` comes before the metazone's. A zone with no name is written in the localized GMT format: the standard offset at `now`, plus the year's saving when `daylight` holds, `GMT-05:00`. A zone CLDR does not know is `GMT+00:00`.
+
+### numeric_date
+
+* `pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> String`: a Gregorian date as `toLocaleDateString(tag)` writes it with no options, in CLDR's `yMd` pattern and the locale's digits: `9/10/2024` in `en`, `10.9.2024` in `de`, `2024/9/10` in `ja`.
+
+### date_with_time
+
+* `pub fn date_with_time(tag: &str, date: &str, time: &str) -> String`: a date and a time, each already written, joined by the locale's short date-time pattern, as `toLocaleString(tag)` joins them with no options: `9/10/2024, 7:37:20 PM`.
 
 ## 8. Error handling
 

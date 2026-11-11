@@ -38,7 +38,9 @@ struct Rules {
   footer: Option<Footer>,
 }
 
+#[cfg_attr(not(any(feature = "tz_compiled", feature = "tz_system")), allow(unused_variables))]
 fn bytes(source: Source, zone: &str) -> Result<Vec<u8>, Error> {
+  #[cfg(any(feature = "tz_compiled", feature = "tz_system"))]
   let unknown = || Error::UnknownZone(zone.to_owned());
   match source {
     #[cfg(feature = "tz_compiled")]

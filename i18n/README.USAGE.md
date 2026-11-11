@@ -16,6 +16,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
 * [Writing the Digits](#writing-the-digits)
 * [Mapping Case Under a Locale](#mapping-case-under-a-locale)
 * [Naming a Time Zone](#naming-a-time-zone)
+* [Writing a Date With No Options](#writing-a-date-with-no-options)
 * [Regenerating the Data](#regenerating-the-data)
 * [Error Handling](#error-handling)
 
@@ -202,6 +203,21 @@ assert_eq!(zone_name("en", "Etc/GMT+5", false, now, &Rules), "GMT-05:00");
 
 ICU picks the metazone at the moment of the call, not at the instant being named, so pass the current time as `now`. Kathmandu in 1970 is `Nepal Time` even though Nepal then kept India's offset.
 
+## Writing a Date With No Options
+
+`numeric_date` writes a date as `toLocaleDateString()` does with no options. `date_with_time` joins it to a time you have written, as `toLocaleString()` does:
+
+```rust
+use snapfire_i18n::{date_with_time, numeric_date};
+
+assert_eq!(numeric_date("en-US", 2024, 9, 10), "9/10/2024");
+assert_eq!(numeric_date("de-DE", 2024, 9, 10), "10.9.2024");
+assert_eq!(date_with_time("en-US", "9/10/2024", "7:37:20 PM"), "9/10/2024, 7:37:20 PM");
+assert_eq!(date_with_time("ja-JP", "2024/9/10", "19:37:20"), "2024/9/10 19:37:20");
+```
+
+The calendar is the Gregorian one. Persian and Thai write a date in their own calendars by default, which this crate does not convert to.
+
 ## Regenerating the Data
 
 `data/cldr.txt` is written by the `datagen` crate beside this one from a cldr-json release. It reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages:
@@ -214,7 +230,7 @@ cargo run --release -p snapfire_i18n_datagen -- cldr i18n/data/cldr.txt
 
 Use the CLDR release the number formatter's data was built from, so the digits and the patterns agree.
 
-`data/zones.txt` is written from the same cldr-json release with `--zones`. It also reads the `cldr-bcp47` package:
+`data/zones.txt`, the zone names and the numeric date patterns, is written from the same cldr-json release with `--zones`. It also reads the `cldr-bcp47` package:
 
 ```sh
 cargo run --release -p snapfire_i18n_datagen -- --zones cldr i18n/data/zones.txt

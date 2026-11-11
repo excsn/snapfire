@@ -1478,7 +1478,9 @@ N	af	Yekaterinburg	Jekaterinburg-standaardtyd	Jekaterinburg-somertyd
 N	af	Yukon	Yukontyd	
 P	af-NA	af
 P	agq	und
+Y	agq	d/M/y	{1} {0}
 P	ak	und
+Y	ak	y/M/d	{1}, {0}
 N	ak	Afghanistan	Afganistan Berɛ	
 N	ak	Africa_Central	Afrika Finimfin Berɛ	
 N	ak	Africa_Eastern	Afrika Apueeɛ Berɛ	
@@ -1629,6 +1631,7 @@ N	ak	Yekaterinburg	Yɛkatɛrinbɛg Susudua Berɛ	Yɛkatɛrinbɛg Awia Berɛ
 N	ak	Yukon	Yukɔn Berɛ	
 P	am	und
 F	am	ጂ ኤም ቲ{0}	ጂ ኤም ቲ	+HHmm;-HHmm
+Y	am	d/M/y	{1} {0}
 N	am	Afghanistan	የአፍጋኒስታን ሰዓት	
 N	am	Africa_Central	የመካከለኛው አፍሪካ ሰዓት	
 N	am	Africa_Eastern	የምስራቅ አፍሪካ ሰዓት	
@@ -1785,6 +1788,7 @@ P	ann	und
 P	apc	und
 P	ar	und
 F	ar	غرينتش{0}	غرينتش	+HH:mm;-HH:mm
+Y	ar	d‏/M‏/y	{1}، {0}
 N	ar	Afghanistan	توقيت أفغانستان	
 N	ar	Africa_Central	توقيت وسط أفريقيا	
 N	ar	Africa_Eastern	توقيت شرق أفريقيا	
@@ -1989,6 +1993,7 @@ D	ar-YE	٠١٢٣٤٥٦٧٨٩
 P	arn	und
 P	as	und
 D	as	০১২৩৪৫৬৭৮৯
+Y	as	dd-MM-y	{1} {0}
 N	as	Afghanistan	আফগানিস্তানৰ সময়	
 N	as	Africa_Central	মধ্য আফ্ৰিকাৰ সময়	
 N	as	Africa_Eastern	পূব আফ্ৰিকাৰ সময়	
@@ -2138,7 +2143,9 @@ N	as	Yakutsk	য়াকুত্স্কৰ মান সময়	য়া�
 N	as	Yekaterinburg	য়েকাটেৰিণবাৰ্গৰ মান সময়	য়েকাটেৰিণবাৰ্গৰ গ্ৰীষ্মকালীন সময়
 N	as	Yukon	য়ুকোন সময়	
 P	asa	und
+Y	asa	d/M/y	{1} {0}
 P	ast	und
+Y	ast	d/M/y	{1} {0}
 N	ast	Acre	hora estándar d’Acre	hora braniega d’Acre
 N	ast	Afghanistan	Hora d’Afganistán	
 N	ast	Africa_Central	Hora d’África central	
@@ -2299,6 +2306,7 @@ N	ast	Wallis	Hora de Wallis y Futuna
 N	ast	Yakutsk	Hora estándar de Yakutsk	Hora braniega de Yakutsk
 N	ast	Yekaterinburg	Hora estándar de Yekaterimburgu	Hora braniega de Yekaterimburgu
 P	az	und
+Y	az	dd.MM.y	{1} {0}
 N	az	Afghanistan	Əfqanıstan Vaxtı	
 N	az	Africa_Central	Mərkəzi Afrika Vaxtı	
 N	az	Africa_Eastern	Şərqi Afrika Vaxtı	
@@ -2456,8 +2464,10 @@ D	az-Arab-IQ	۰۱۲۳۴۵۶۷۸۹
 P	az-Arab-TR	az-Arab
 D	az-Arab-TR	۰۱۲۳۴۵۶۷۸۹
 P	az-Cyrl	und
+Y	az-Cyrl	dd.MM.y	{1} {0}
 P	az-Latn	az
 P	ba	und
+Y	ba	dd.MM.y	{1}, {0}
 N	ba	Acre	Акри стандарт ваҡыты	Акри йәйге ваҡыты
 N	ba	Afghanistan	Афғанстан ваҡыты	
 N	ba	Africa_Central	Үҙәк Африка ваҡыты	
@@ -2620,9 +2630,11 @@ N	ba	Yakutsk	Якутск стандарт ваҡыты	Якутск йәйге 
 N	ba	Yekaterinburg	Екатеринбург стандарт ваҡыты	Екатеринбург йәйге ваҡыты
 N	ba	Yukon	Юкон ваҡыты	
 P	bal	und
+Y	bal	dd-MM-y	{1} {0}
 N	bal	GMT	گرین‌وِچ مین ٹائم	
 P	bal-Arab	bal
 P	bal-Latn	und
+Y	bal-Latn	d/M/y	{1} {0}
 N	bal-Latn	Afghanistan	Awgánestánay wahd	
 N	bal-Latn	Africa_Central	Delgáhi Aprikáay wahd	
 N	bal-Latn	Africa_Eastern	Ródarátki Aprikáay wahd	
@@ -2772,7 +2784,9 @@ N	bal-Latn	Yakutsk	Yákuskay anjári wahd	Yákuskay garmági wahd
 N	bal-Latn	Yekaterinburg	Yakátrinborgay anjári wahd	Yakátrinborgay garmági wahd
 N	bal-Latn	Yukon	Yukón wahd	
 P	bas	und
+Y	bas	d/M/y	{1} {0}
 P	be	und
+Y	be	d.M.y	{1}, {0}
 N	be	Afghanistan	Афганістанскі час	
 N	be	Africa_Central	Цэнтральнаафрыканскі час	
 N	be	Africa_Eastern	Усходнеафрыканскі час	
@@ -2923,10 +2937,13 @@ N	be	Yekaterinburg	Екацярынбургскі стандартны час	Е
 N	be	Yukon	Час Юкана	
 P	be-tarask	be
 P	bem	und
+Y	bem	d/M/y	{1} {0}
 P	bew	und
 P	bez	und
+Y	bez	d/M/y	{1} {0}
 P	bg	und
 F	bg	Гринуич{0}	Гринуич	+HH:mm;-HH:mm
+Y	bg	d.MM.y 'г'.	{1}, {0}
 N	bg	Afghanistan	Афганистанско време	
 N	bg	Africa_Central	Централноафриканско време	
 N	bg	Africa_Eastern	Източноафриканско време	
@@ -3101,6 +3118,7 @@ D	bho	०१२३४५६७८९
 N	bho	GMT	ग्रीनविच मीन टाइम	
 P	blo	und
 F	blo	{0} Gk	Gk	+HH:mm;-HH:mm
+Y	blo	M/d/y	{1}, {0}
 N	blo	Afghanistan	Afganistan kaakɔŋkɔŋɔ̀	
 N	blo	Africa_Central	Garɩɖontǝna gɩcɩɩca kaakɔŋkɔŋɔ̀	
 N	blo	Africa_Eastern	Garɩɖontǝna gajakalaŋ kaakɔŋkɔŋɔ̀	
@@ -3255,10 +3273,12 @@ N	blo	Yekaterinburg	Yekaterinbuu kaakɔŋkɔŋɔ̀ ɖeiɖei	Yekaterinbuu kaakɔ�
 N	blo	Yukon	Yukɔn kaakɔŋkɔŋɔ̀	
 P	blt	und
 P	bm	und
+Y	bm	d/M/y	{1} {0}
 P	bm-Nkoo	und
 P	bn	und
 D	bn	০১২৩৪৫৬৭৮৯
 F	bn	GMT {0}	GMT	+HH:mm;-HH:mm
+Y	bn	d/M/y	{1} {0}
 N	bn	Acre	একর মানক সময়	একর গ্রীষ্মকাল সময়
 N	bn	Afghanistan	আফগানিস্তান সময়	
 N	bn	Africa_Central	মধ্য আফ্রিকা সময়	
@@ -3418,6 +3438,7 @@ P	bo-IN	bo
 P	bqi	und
 P	br	und
 F	br	UTC{0}	UTC	+HH:mm;-HH:mm
+Y	br	dd/MM/y	{1} {0}
 N	br	Afghanistan	eur Afghanistan	
 N	br	Africa_Central	eur Kreizafrika	
 N	br	Africa_Eastern	eur Afrika ar Reter	
@@ -3574,6 +3595,7 @@ N	br	Yekaterinburg	eur cʼhoañv Yekaterinbourg	eur hañv Yekaterinbourg
 N	br	Yukon	eur Yukon	
 P	brx	und
 F	brx	जि.एम.ति {0}	जि.एम.ति	+HH:mm;-HH:mm
+Y	brx	dd-MM-y	{1}, {0}
 N	brx	Acre	आकर स्टैंडर्ड टाईम	आकर समर टाईम
 N	brx	Afghanistan	आफगानीस्तान सम	
 N	brx	Africa_Central	मिरु आफ्रिका सम	
@@ -3736,6 +3758,7 @@ N	brx	Yekaterinburg	येकातेरीनाबुर्ग थाखो�
 N	brx	Yukon	यूकन सम	
 P	bs	und
 F	bs	GMT {0}	GMT	+HH:mm; -HH:mm
+Y	bs	d. M. y.	{1} {0}
 N	bs	Acre	Acre standardno vreme	Acre letnje računanje vremena
 N	bs	Afghanistan	Afganistansko vrijeme	
 N	bs	Africa_Central	Centralnoafričko vrijeme	
@@ -3898,6 +3921,7 @@ N	bs	Yakutsk	Jakutsko standardno vrijeme	Jakutsko ljetno vrijeme
 N	bs	Yekaterinburg	Jekaterinburško standardno vrijeme	Jekaterinburško ljetno vrijeme
 N	bs	Yukon	Jukonsko vrijeme	
 P	bs-Cyrl	und
+Y	bs-Cyrl	dd.MM.y.	{1} {0}
 N	bs-Cyrl	Acre	Акре стандардно време	Акре летње рачунање времена
 N	bs-Cyrl	Afghanistan	Авганистан вријеме	
 N	bs-Cyrl	Africa_Central	Централно-афричко вријеме	
@@ -4062,9 +4086,11 @@ N	bs-Cyrl	Yukon	Yukon Time
 P	bs-Latn	bs
 P	bss	und
 P	bua	und
+Y	bua	dd.MM.y	{1} {0}
 N	bua	GMT	Гринвичын саг	
 P	byn	und
 P	ca	und
+Y	ca	d/M/y	{1} {0}
 N	ca	Afghanistan	Hora de l’Afganistan	
 N	ca	Africa_Central	Hora de l’Àfrica central	
 N	ca	Africa_Eastern	Hora de l’Àfrica oriental	
@@ -4227,6 +4253,7 @@ P	cch	und
 P	ccp	und
 D	ccp	𑄶𑄷𑄸𑄹𑄺𑄻𑄼𑄽𑄾𑄿
 F	ccp	GMT {0}	GMT	+HH:mm;-HH:mm
+Y	ccp	d/M/y	{1} {0}
 N	ccp	Afghanistan	𑄃𑄛𑄴𑄉𑄚𑄨𑄌𑄴𑄖𑄚𑄴 𑄃𑄧𑄇𑄴𑄖𑄧	
 N	ccp	Africa_Central	𑄟𑄧𑄖𑄴𑄙𑄳𑄠 𑄃𑄜𑄳𑄢𑄨𑄇 𑄃𑄧𑄇𑄴𑄖𑄧	
 N	ccp	Africa_Eastern	𑄛𑄪𑄉𑄬𑄘𑄨 𑄃𑄜𑄳𑄢𑄨𑄇 𑄃𑄧𑄇𑄴𑄖𑄧	
@@ -4525,6 +4552,7 @@ N	ce	Yakutsk	Якутск, стандартан хан	Якутск, аьхке�
 N	ce	Yekaterinburg	Екатеринбург, стандартан хан	Екатеринбург, аьхкенан хан
 P	ceb	und
 F	ceb	GMT {0}	GMT	+HH:mm;-HH:mm
+Y	ceb	M/d/y	{1}, {0}
 N	ceb	Afghanistan	Oras sa Afghanistan	
 N	ceb	Africa_Central	Oras sa Central Africa	
 N	ceb	Africa_Eastern	Oras sa East Africa	
@@ -4674,8 +4702,10 @@ N	ceb	Yakutsk	Yakutsk Standard Time	Yakutsk Summer Time
 N	ceb	Yekaterinburg	Yekaterinburg Standard Time	Yekaterinburg Summer Time
 N	ceb	Yukon	Oras sa Yukon	
 P	cgg	und
+Y	cgg	d/M/y	{1} {0}
 P	cho	und
 P	chr	und
+Y	chr	M/d/y	{1}, {0}
 N	chr	Afghanistan	ᎠᏫᎨᏂᏍᏖᏂ ᎠᏟᎢᎵᏒ	
 N	chr	Africa_Central	ᎠᏰᏟ ᎬᎿᎨᏍᏛ ᎠᏟᎢᎵᏒ	
 N	chr	Africa_Eastern	ᏗᎧᎸᎬ ᎬᎿᎨᏍᏛ ᎠᏟᎢᎵᏒ	
@@ -4828,12 +4858,14 @@ P	cic	und
 P	ckb	und
 D	ckb	٠١٢٣٤٥٦٧٨٩
 F	ckb	گرینیچ {0}	گرینیچ	+HH:mm;-HH:mm
+Y	ckb	d/M/y	{1} {0}
 P	ckb-IR	ckb
 D	ckb-IR	٠١٢٣٤٥٦٧٨٩
 P	co	und
 P	cop	und
 P	cs	und
 F	cs	GMT{0}	GMT	+H:mm;-H:mm
+Y	cs	d. M. y	{1} {0}
 N	cs	Acre	acrejský standardní čas	acrejský letní čas
 N	cs	Afghanistan	afghánský čas	
 N	cs	Africa_Central	středoafrický čas	
@@ -5000,6 +5032,7 @@ P	csw	und
 N	csw	GMT	ᐠᕑᐁᓂᐨ ᐯᔭᑯᐦᑖᐏᐣ ᐁᐃᐢᐸᓂᐠ	
 P	cu	und
 P	cv	und
+Y	cv	y.MM.dd	{1}, {0}
 N	cv	Acre	Акри стандартлӑ вӑхӑчӗ	Акри ҫуллахи вӑхӑчӗ
 N	cv	Afghanistan	Афганистан вӑхӑчӗ	
 N	cv	Africa_Central	Вӑта Африка вӑхӑчӗ	
@@ -5163,6 +5196,7 @@ N	cv	Yakutsk	Якутск стандартлӑ вӑхӑчӗ	Якутск ҫул�
 N	cv	Yekaterinburg	Екатеринбург стандартлӑ вӑхӑчӗ	Екатеринбург ҫуллахи вӑхӑчӗ
 N	cv	Yukon	Юкон вӑхӑчӗ	
 P	cy	und
+Y	cy	d/M/y	{1} {0}
 N	cy	Afghanistan	Amser Afghanistan	
 N	cy	Africa_Central	Amser Canolbarth Affrica	
 N	cy	Africa_Eastern	Amser Dwyrain Affrica	
@@ -5314,6 +5348,7 @@ N	cy	Yekaterinburg	Amser Safonol Yekaterinburg	Amser Haf Yekaterinburg
 N	cy	Yukon	Amser Yukon	
 P	da	und
 F	da	GMT{0}	GMT	+HH.mm;-HH.mm
+Y	da	d.M.y	{1} {0}
 N	da	Acre	Acre-normaltid	Acre-sommertid
 N	da	Afghanistan	Afghansk tid	
 N	da	Africa_Central	Centralafrikansk tid	
@@ -5477,7 +5512,9 @@ N	da	Yekaterinburg	Jekaterinburg-normaltid	Jekaterinburg-sommertid
 N	da	Yukon	Yukon-tid	
 P	da-GL	da
 P	dav	und
+Y	dav	d/M/y	{1} {0}
 P	de	und
+Y	de	d.M.y	{1}, {0}
 N	de	Acre	Acre-Normalzeit	Acre-Sommerzeit
 N	de	Afghanistan	Afghanistan-Zeit	
 N	de	Africa_Central	Zentralafrikanische Zeit	
@@ -5649,7 +5686,9 @@ P	de-IT	de
 P	de-LI	de
 P	de-LU	de
 P	dje	und
+Y	dje	d/M/y	{1} {0}
 P	doi	und
+Y	doi	d/M/y	{1}, {0}
 N	doi	America_Central	उत्तरी अमरीकी मानक केंदरी समां	उत्तरी अमरीकी डेलाइट केंदरी समां
 N	doi	America_Eastern	उत्तरी अमरीकी मानक पूर्वी समां	उत्तरी अमरीकी डेलाइट पूर्वी समां
 N	doi	America_Mountain	उत्तरी अमरीकी मानक माउंटेन समां	उत्तरी अमरीकी डेलाइट माउंटेन समां
@@ -5663,6 +5702,7 @@ N	doi	Europe_Eastern	उत्तरी यूरोपी मानक सम�
 N	doi	Europe_Western	पच्छमी यूरोपी मानक समां	पच्छमी यूरोपी गर्मियें दा समां
 N	doi	GMT	ग्रीनविच मीन टाइम	
 P	dsb	und
+Y	dsb	d.M.y	{1} {0}
 N	dsb	Afghanistan	Afghaniski cas	
 N	dsb	Africa_Central	Srjejźoafriski cas	
 N	dsb	Africa_Eastern	Pódzajtšnoafriski cas	
@@ -5812,11 +5852,14 @@ N	dsb	Yakutsk	Jakutski standardny cas	Jakutski lěśojski cas
 N	dsb	Yekaterinburg	Jekaterinburgski standardny cas	Jekaterinburgski lěśojski cas
 N	dsb	Yukon	Yukonowy cas	
 P	dua	und
+Y	dua	d/M/y	{1} {0}
 P	dv	und
 P	dyo	und
+Y	dyo	d/M/y	{1} {0}
 P	dz	und
 D	dz	༠༡༢༣༤༥༦༧༨༩
 F	dz	ཇི་ཨེམ་ཏི་{0}	ཇི་ཨེམ་ཊི་	+HH:mm;-HH:mm
+Y	dz	y-M-d	{1} {0}
 N	dz	Afghanistan	ཨཕ་ག་ནི་ས྄ཏཱནཆུ་ཚོད	
 N	dz	Africa_Central	དབུས་ཕྱོགས་ཨཕ་རི་ཀཱ་ཆུ་ཚོད	
 N	dz	Africa_Eastern	ཤར་ཕྱོགས་ཨཕ་རི་ཀཱ་ཆུ་ཚོད	
@@ -5904,8 +5947,10 @@ N	dz	Volgograd	བཱོལ་གོ་གིརེཌ་ཚད་ལྡན་�
 N	dz	Yakutsk	ཡ་ཀུཙིཀི་ཚད་ལྡན་ཆུ་ཚོད	ཡ་ཀུཙིཀི་བྱཱར་དུས་ཆུ་ཚོད
 N	dz	Yekaterinburg	ཡེ་ཀ་ཏེ་རིན་བརག་ཚད་ལྡན་ཆུ་ཚོད	ཡེ་ཀ་ཏེ་རིན་བརག་བྱཱར་དུས་ཆུ་ཚོད
 P	ebu	und
+Y	ebu	d/M/y	{1} {0}
 P	ee	und
 F	ee	{0} GMT	GMT	+HH:mm;-HH:mm
+Y	ee	M/d/y	{0} {1}
 N	ee	Afghanistan	Afghanistan gaƒoƒo me	
 N	ee	Africa_Central	Central Africa gaƒoƒo me	
 N	ee	Africa_Eastern	East Africa gaƒoƒo me	
@@ -6053,6 +6098,7 @@ N	ee	Yakutsk	Yakutsk nutome gaƒoƒo me	Yakutsk dzomeŋɔli gaƒoƒo me
 N	ee	Yekaterinburg	Yekaterinburg nutome gaƒoƒo me	Yekaterinburg dzomeŋɔli gaƒoƒo me
 P	ee-TG	ee
 P	el	und
+Y	el	d/M/y	{1}, {0}
 N	el	Acre	Χειμερινή ώρα Άκρε	Θερινή ώρα Άκρε
 N	el	Afghanistan	Ώρα Αφγανιστάν	
 N	el	Africa_Central	Ώρα Κεντρικής Αφρικής	
@@ -6212,6 +6258,7 @@ N	el	Yukon	Ώρα Γιούκον
 P	el-CY	el
 P	el-polyton	el
 P	en	und
+Y	en	M/d/y	{1}, {0}
 N	en	Acre	Acre Standard Time	Acre Summer Time
 N	en	Afghanistan	Afghanistan Time	
 N	en	Africa_Central	Central Africa Time	
@@ -6376,9 +6423,11 @@ N	en	Yakutsk	Yakutsk Standard Time	Yakutsk Summer Time
 N	en	Yekaterinburg	Yekaterinburg Standard Time	Yekaterinburg Summer Time
 N	en	Yukon	Yukon Time	
 P	en-001	en
+Y	en-001	dd/MM/y	{1}, {0}
 N	en-001	Pierre_Miquelon	St Pierre & Miquelon Standard Time	St Pierre & Miquelon Daylight Time
 P	en-150	en-001
 P	en-AE	en
+Y	en-AE	dd/MM/y	{1}, {0}
 P	en-AG	en-001
 P	en-AI	en-001
 P	en-AS	en
@@ -6392,17 +6441,20 @@ N	en-AU	Samoa	American Samoa Standard Time	Samoa Summer Time
 N	en-AU	Taipei	Taiwan Standard Time	Taipei Summer Time
 P	en-BB	en-001
 P	en-BE	en-150
+Y	en-BE	d/M/y	{1}, {0}
 P	en-BI	en
 P	en-BM	en-001
 P	en-BS	en-001
 P	en-BW	en-001
 P	en-BZ	en-001
 P	en-CA	en
+Y	en-CA	y-MM-dd	{1}, {0}
 N	en-CA	French_Southern	French Southern and Antarctic Time	
 N	en-CA	Pierre_Miquelon	Saint-Pierre-et-Miquelon Standard Time	Saint-Pierre-et-Miquelon Daylight Time
 N	en-CA	Wallis	Wallis and Futuna Time	
 P	en-CC	en-001
 P	en-CH	en-150
+Y	en-CH	dd.MM.y	{1}, {0}
 P	en-CK	en-001
 P	en-CM	en-001
 P	en-CX	en-001
@@ -6441,17 +6493,21 @@ P	en-GS	en-001
 P	en-GU	en
 P	en-GY	en-001
 P	en-HK	en-001
+Y	en-HK	d/M/y	{1}, {0}
 P	en-HU	en-150
 P	en-ID	en-001
 P	en-IE	en-001
+Y	en-IE	d/M/y	{1}, {0}
 P	en-IL	en-001
 P	en-IM	en-001
 P	en-IN	en-001
+Y	en-IN	d/M/y	{1}, {0}
 P	en-IO	en-001
 P	en-IT	en-150
 P	en-JE	en-001
 P	en-JM	en-001
 P	en-JP	en
+Y	en-JP	y/MM/dd	{1}, {0}
 P	en-KE	en-001
 P	en-KI	en-001
 P	en-KN	en-001
@@ -6469,6 +6525,7 @@ P	en-MS	en-001
 P	en-MT	en-001
 P	en-MU	en-001
 P	en-MV	en-001
+Y	en-MV	dd/MM/y	{1} {0}
 P	en-MW	en-001
 P	en-MY	en-001
 P	en-NA	en-001
@@ -6479,6 +6536,7 @@ P	en-NO	en-150
 P	en-NR	en-001
 P	en-NU	en-001
 P	en-NZ	en-001
+Y	en-NZ	d/MM/y	{1}, {0}
 P	en-PG	en-001
 P	en-PH	en
 P	en-PK	en-001
@@ -6493,6 +6551,7 @@ P	en-SB	en-001
 P	en-SC	en-001
 P	en-SD	en-001
 P	en-SE	en-150
+Y	en-SE	y-MM-dd	{1}, {0}
 P	en-SG	en-001
 P	en-SH	en-001
 P	en-SI	en-150
@@ -6518,8 +6577,10 @@ P	en-VI	en
 P	en-VU	en-001
 P	en-WS	en-001
 P	en-ZA	en-001
+Y	en-ZA	y/MM/dd	{1}, {0}
 P	en-ZM	en-001
 P	en-ZW	en-001
+Y	en-ZW	d/M/y	{1}, {0}
 P	eo	und
 F	eo	UTC{0}	UTC	+HH:mm;-HH:mm
 N	eo	Afghanistan	afgana tempo	
@@ -6671,6 +6732,7 @@ N	eo	Yakutsk	jakutska norma tempo	jakutska somera tempo
 N	eo	Yekaterinburg	jekaterinburga norma tempo	jekaterinburga somera tempo
 N	eo	Yukon	jukonia tempo	
 P	es	und
+Y	es	d/M/y	{1}, {0}
 N	es	Acre	Hora estándar de Acre	Hora de verano de Acre
 N	es	Afghanistan	hora de Afganistán	
 N	es	Africa_Central	hora de África central	
@@ -6856,6 +6918,7 @@ P	es-BO	es-419
 P	es-BR	es-419
 P	es-BZ	es-419
 P	es-CL	es-419
+Y	es-CL	dd-MM-y	{1}, {0}
 P	es-CO	es-419
 P	es-CR	es-419
 P	es-CU	es-419
@@ -6883,9 +6946,11 @@ N	es-MX	Solomon	hora de las Islas Salomón
 N	es-MX	Wake	hora de la Isla Wake	
 P	es-NI	es-419
 P	es-PA	es-419
+Y	es-PA	MM/dd/y	{1}, {0}
 P	es-PE	es-419
 P	es-PH	es
 P	es-PR	es-419
+Y	es-PR	MM/dd/y	{1}, {0}
 P	es-PY	es-419
 P	es-SV	es-419
 P	es-US	es-419
@@ -6912,6 +6977,7 @@ P	es-UY	es-419
 P	es-VE	es-419
 P	et	und
 F	et	GMT {0}	GMT	+HH:mm;−HH:mm
+Y	et	d.M.y	{1} {0}
 N	et	Acre	Acre standardaeg	Acre suveaeg
 N	et	Afghanistan	Afganistani aeg	
 N	et	Africa_Central	Kesk-Aafrika aeg	
@@ -7077,6 +7143,7 @@ N	et	Yekaterinburg	Jekaterinburgi standardaeg	Jekaterinburgi suveaeg
 N	et	Yukon	Yukoni aeg	
 P	eu	und
 F	eu	GMT{0}	GMT	+HH:mm;–HH:mm
+Y	eu	y/M/d	{1} ({0})
 N	eu	Acre	Acreko ordu estandarra	Acreko udako ordua
 N	eu	Afghanistan	Afganistango ordua	
 N	eu	Africa_Central	Afrikako erdialdeko ordua	
@@ -7239,9 +7306,11 @@ N	eu	Yakutsk	Jakutskeko ordu estandarra	Jakutskeko udako ordua
 N	eu	Yekaterinburg	Jekaterinburgeko ordu estandarra	Jekaterinburgeko udako ordua
 N	eu	Yukon	Yukongo ordua	
 P	ewo	und
+Y	ewo	d/M/y	{1} {0}
 P	fa	und
 D	fa	۰۱۲۳۴۵۶۷۸۹
 F	fa	{0} گرینویچ	گرینویچ	‎+HH:mm;‎−HH:mm
+Y	fa	y/M/d	{1}،‏ {0}
 N	fa	Afghanistan	وقت افغانستان	
 N	fa	Africa_Central	وقت مرکز آفریقا	
 N	fa	Africa_Eastern	وقت شرق افریقا	
@@ -7402,10 +7471,12 @@ N	fa	Yekaterinburg	وقت عادی یکاترینبورگ	وقت تابستان�
 N	fa	Yukon	وقت یوکان	
 P	fa-AF	fa
 D	fa-AF	۰۱۲۳۴۵۶۷۸۹
+Y	fa-AF	M/d/y	{1}،‏ {0}
 P	ff	und
 P	ff-Adlm	und
 D	ff-Adlm	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
 F	ff-Adlm	𞤑𞤖𞤘{0}	𞤑𞤖𞤘	+HH:mm;-HH:mm
+Y	ff-Adlm	d-M-y	{1} {0}
 N	ff-Adlm	Acre	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤖𞤢𞤱𞤪𞤵𞤲𞥋𞤣𞤫 𞤀𞥄𞤳𞤭𞤪	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤕𞤫𞥅𞤯𞤵 𞤀𞥄𞤳𞤭𞤪
 N	ff-Adlm	Afghanistan	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤀𞤬𞤺𞤢𞤲𞤭𞤧𞤼𞤢𞥄𞤲	
 N	ff-Adlm	Africa_Central	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤚𞤵𞤥𞤦𞤮𞥅𞤪𞤭 𞤀𞤬𞤪𞤭𞤳𞤢𞥄	
@@ -7597,6 +7668,7 @@ P	ff-Latn-NG	ff-Latn
 P	ff-Latn-SL	ff-Latn
 P	fi	und
 F	fi	UTC{0}	UTC	+H.mm;-H.mm
+Y	fi	d.M.y	{1} {0}
 N	fi	Acre	Acren normaaliaika	Acren kesäaika
 N	fi	Afghanistan	Afganistanin aika	
 N	fi	Africa_Central	Keski-Afrikan aika	
@@ -7760,6 +7832,7 @@ N	fi	Yakutsk	Jakutskin normaaliaika	Jakutskin kesäaika
 N	fi	Yekaterinburg	Jekaterinburgin normaaliaika	Jekaterinburgin kesäaika
 N	fi	Yukon	Yukonin aika	
 P	fil	und
+Y	fil	M/d/y	{1}, {0}
 N	fil	Afghanistan	Oras sa Afghanistan	
 N	fil	Africa_Central	Oras sa Gitnang Africa	
 N	fil	Africa_Eastern	Oras sa Silangang Africa	
@@ -7912,6 +7985,7 @@ N	fil	Yakutsk	Standard na Oras sa Yakutsk	Oras sa Tag-init ng Yakutsk
 N	fil	Yekaterinburg	Standard na Oras sa Yekaterinburg	Oras sa Tag-init ng Yekaterinburg
 N	fil	Yukon	Oras sa Yukon	
 P	fo	und
+Y	fo	dd.MM.y	{1}, {0}
 N	fo	Afghanistan	Afganistan tíð	
 N	fo	Africa_Central	Miðafrika tíð	
 N	fo	Africa_Eastern	Eysturafrika tíð	
@@ -8063,6 +8137,7 @@ N	fo	Yukon	Yukon tíð
 P	fo-DK	fo
 P	fr	und
 F	fr	UTC{0}	UTC	+HH:mm;−HH:mm
+Y	fr	dd/MM/y	{1} {0}
 N	fr	Acre	heure normale de l’Acre	heure d’été de l’Acre
 N	fr	Afghanistan	heure de l’Afghanistan	
 N	fr	Africa_Central	heure normale d’Afrique centrale	
@@ -8227,6 +8302,7 @@ P	fr-BI	fr
 P	fr-BJ	fr
 P	fr-BL	fr
 P	fr-CA	fr
+Y	fr-CA	y-MM-dd	{1} {0}
 N	fr-CA	Acre	heure normale de l’Acre	heure avancée de l’Acre
 N	fr-CA	Africa_Central	heure d’Afrique centrale	
 N	fr-CA	Africa_Eastern	heure d’Afrique orientale	
@@ -8322,6 +8398,7 @@ P	fr-CD	fr
 P	fr-CF	fr
 P	fr-CG	fr
 P	fr-CH	fr
+Y	fr-CH	dd.MM.y	{1} {0}
 P	fr-CI	fr
 P	fr-CM	fr
 P	fr-DJ	fr
@@ -8339,6 +8416,7 @@ P	fr-MC	fr
 P	fr-MF	fr
 P	fr-MG	fr
 P	fr-ML	fr
+Y	fr-ML	dd/MM/y	{1}, {0}
 P	fr-MQ	fr
 P	fr-MR	fr
 P	fr-MU	fr
@@ -8364,6 +8442,7 @@ N	fur	Europe_Eastern	Ore standard de Europe orientâl	Ore estive de Europe orien
 N	fur	Europe_Western	Ore standard de Europe ocidentâl	Ore estive de Europe ocidentâl
 N	fur	Moscow	Ore standard di Mosche	Ore estive di Mosche
 P	fy	und
+Y	fy	d-M-y	{1} {0}
 N	fy	Acre	Acre-standerttiid	Acre-simmertiid
 N	fy	Afghanistan	Afghaanske tiid	
 N	fy	Africa_Central	Sintraal-Afrikaanske tiid	
@@ -8519,6 +8598,7 @@ N	fy	Yakutsk	Jakoetsk-standerttiid	Jakoetsk-simmertiid
 N	fy	Yekaterinburg	Jekaterinenburg-standerttiid	Jekaterinenburg-simmertiid
 P	ga	und
 F	ga	MAG{0}	MAG	+HH:mm;-HH:mm
+Y	ga	dd/MM/y	{1} {0}
 N	ga	Acre	Am Caighdeánach Acre	Am Samhraidh Acre
 N	ga	Afghanistan	Am na hAfganastáine	
 N	ga	Africa_Central	Am na hAfraice Láir	
@@ -8682,8 +8762,10 @@ N	ga	Yekaterinburg	Am Caighdeánach Yekaterinburg	Am Samhraidh Yekaterinburg
 N	ga	Yukon	Am Yukon	
 P	ga-GB	ga
 P	gaa	und
+Y	gaa	M/d/y	{1} {0}
 N	gaa	GMT	Betsɔɔmɔ ni ka ŋɛlɛ kome nɔ	
 P	gd	und
+Y	gd	d/M/y	{1} {0}
 N	gd	Acre	Bun-àm Acre	Tìde samhraidh Acre
 N	gd	Afghanistan	Àm Afghanastàin	
 N	gd	Africa_Central	Àm Meadhan Afraga	
@@ -8849,6 +8931,7 @@ N	gd	Yukon	Àm Yukon
 P	gez	und
 P	gez-ER	gez
 P	gl	und
+Y	gl	d/M/y	{1}, {0}
 N	gl	Acre	hora estándar de Acre	hora de verán de Acre
 N	gl	Afghanistan	hora de Afganistán	
 N	gl	Africa_Central	hora de África Central	
@@ -9020,6 +9103,7 @@ N	gsw	Moscow	Moskauer Schtandardziit	Moskauer Summerziit
 P	gsw-FR	gsw
 P	gsw-LI	gsw
 P	gu	und
+Y	gu	d/M/y	{1} {0}
 N	gu	Acre	એકર પ્રમાણભૂત સમય	એકર ગ્રીષ્મ સમય
 N	gu	Afghanistan	અફઘાનિસ્તાન સમય	
 N	gu	Africa_Central	મધ્ય આફ્રિકા સમય	
@@ -9183,6 +9267,7 @@ N	gu	Yukon	યુકોન સમય
 P	guz	und
 P	gv	und
 P	ha	und
+Y	ha	y-MM-dd	{1}, {0}
 N	ha	Afghanistan	Lokacin Afghanistan	
 N	ha	Africa_Central	Lokacin Afirka ta Tsakiya	
 N	ha	Africa_Eastern	Lokacin Gabashin Afirka	
@@ -9336,8 +9421,10 @@ P	ha-Arab-SD	ha-Arab
 P	ha-GH	ha
 P	ha-NE	ha
 P	haw	und
+Y	haw	d/M/y	{1} {0}
 P	he	und
 F	he	GMT{0}‎	GMT	‎+HH:mm;-HH:mm‎
+Y	he	d.M.y	{1}, {0}
 N	he	Afghanistan	שעון אפגניסטן	
 N	he	Africa_Central	שעון מרכז אפריקה	
 N	he	Africa_Eastern	שעון מזרח אפריקה	
@@ -9497,6 +9584,7 @@ N	he	Yakutsk	שעון יקוטסק (חורף)	שעון יקוטסק (קיץ)
 N	he	Yekaterinburg	שעון יקטרינבורג (חורף)	שעון יקטרינבורג (קיץ)
 N	he	Yukon	שעון יוקון	
 P	hi	und
+Y	hi	d/M/y	{1}, {0}
 N	hi	Afghanistan	अफ़गानिस्तान समय	
 N	hi	Africa_Central	मध्य अफ़्रीका समय	
 N	hi	Africa_Eastern	पूर्वी अफ़्रीका समय	
@@ -9649,6 +9737,7 @@ N	hi	Yakutsk	याकुत्स्क मानक समय	याकुत�
 N	hi	Yekaterinburg	येकातेरिनबर्ग मानक समय	येकातेरिनबर्ग ग्रीष्मकालीन समय
 N	hi	Yukon	युकॉन समय	
 P	hi-Latn	en-IN
+Y	hi-Latn	d/M/y	{1} {0}
 N	hi-Latn	America_Central	North America Central Standard Time	North America Central Daylight Time
 N	hi-Latn	America_Eastern	North America Eastern Standard Time	North America Eastern Daylight Time
 N	hi-Latn	America_Mountain	North America Mountain Standard Time	North America Mountain Daylight Time
@@ -9661,6 +9750,7 @@ P	hnj-Hmnp	hnj
 D	hnj-Hmnp	𞅀𞅁𞅂𞅃𞅄𞅅𞅆𞅇𞅈𞅉
 P	hr	und
 F	hr	GMT{0}	GMT	+HH:mm; -HH:mm
+Y	hr	dd. MM. y.	{1} {0}
 N	hr	Acre	Acre standardno vrijeme	Acre ljetno vrijeme
 N	hr	Afghanistan	afganistansko vrijeme	
 N	hr	Africa_Central	srednjoafričko vrijeme	
@@ -9825,6 +9915,7 @@ N	hr	Yekaterinburg	jekaterinburško standardno vrijeme	jekaterinburško ljetno v
 N	hr	Yukon	jukonško vrijeme	
 P	hr-BA	hr
 P	hsb	und
+Y	hsb	d.M.y	{1} {0}
 N	hsb	Afghanistan	afghanski čas	
 N	hsb	Africa_Central	centralnoafriski čas	
 N	hsb	Africa_Eastern	wuchodoafriski čas	
@@ -9975,6 +10066,7 @@ N	hsb	Yekaterinburg	Jekaterinburgski standardny čas	Jekaterinburgski lětni ča
 N	hsb	Yukon	Yukonowy čas	
 P	ht	fr-HT
 P	hu	und
+Y	hu	y. MM. dd.	{1} {0}
 N	hu	Acre	Acre zónaidő	Acre nyári idő
 N	hu	Afghanistan	afganisztáni idő	
 N	hu	Africa_Central	közép-afrikai téli idő	
@@ -10138,6 +10230,7 @@ N	hu	Yakutsk	jakutszki téli idő	jakutszki nyári idő
 N	hu	Yekaterinburg	jekatyerinburgi téli idő	jekatyerinburgi nyári idő
 N	hu	Yukon	yukoni idő	
 P	hy	und
+Y	hy	dd.MM.y	{1}, {0}
 N	hy	Afghanistan	Աֆղանստանի ժամանակ	
 N	hy	Africa_Central	Կենտրոնական Աֆրիկայի ժամանակ	
 N	hy	Africa_Eastern	Արևելյան Աֆրիկայի ժամանակ	
@@ -10287,6 +10380,7 @@ N	hy	Yakutsk	Յակուտսկի ստանդարտ ժամանակ	Յակուտսկ
 N	hy	Yekaterinburg	Եկատերինբուրգի ստանդարտ ժամանակ	Եկատերինբուրգի ամառային ժամանակ
 N	hy	Yukon	Յուկոնի ժամանակ	
 P	ia	und
+Y	ia	dd-MM-y	{1}, {0}
 N	ia	Acre	hora normal de Acre	hora estive de Acre
 N	ia	Afghanistan	hora de Afghanistan	
 N	ia	Africa_Central	hora de Africa Central	
@@ -10440,6 +10534,7 @@ N	ia	Yekaterinburg	hora normal de Ekaterinburg	hora estive de Ekaterinburg
 N	ia	Yukon	hora de Yukon	
 P	id	und
 F	id	GMT{0}	GMT	+HH.mm;-HH.mm
+Y	id	d/M/y	{1} {0}
 N	id	Acre	Waktu Standar Acre	Waktu Musim Panas Acre
 N	id	Afghanistan	Waktu Afganistan	
 N	id	Africa_Central	Waktu Afrika Tengah	
@@ -10604,9 +10699,11 @@ N	id	Yekaterinburg	Waktu Standar Yekaterinburg	Waktu Musim Panas Yekaterinburg
 N	id	Yukon	Waktu Yukon	
 P	ie	und
 F	ie	TMG{0}	TMG	+HH:mm;-HH:mm
+Y	ie	d.M.y	{1} {0}
 N	ie	Cook	témpor standard del Insules Cook	témpor demíestival del Insules Cook
 N	ie	GMT	témpore medial de Greenwich	
 P	ig	und
+Y	ig	d/M/y	{1}, {0}
 N	ig	Afghanistan	Oge Afghanistan	
 N	ig	Africa_Central	Oge Etiti Afrịka	
 N	ig	Africa_Eastern	Oge Mpaghara Ọwụwa Anyanwụ Afrịka	
@@ -10760,6 +10857,7 @@ F	ii	ꋧꃅꎕꏦꄮꈉ{0}	ꋧꃅꎕꏦꄮꈉ	+HH:mm;-HH:mm
 N	ii	GMT	ꋧꃅꎕꏦꄮꈉ	
 P	io	und
 P	is	und
+Y	is	d.M.y	{1}, {0}
 N	is	Afghanistan	Afganistantími	
 N	is	Africa_Central	Mið-Afríkutími	
 N	is	Africa_Eastern	Austur-Afríkutími	
@@ -10912,6 +11010,7 @@ N	is	Yakutsk	Staðaltími í Yakutsk	Sumartími í Yakutsk
 N	is	Yekaterinburg	Staðaltími í Yekaterinborg	Sumartími í Yekaterinburg
 N	is	Yukon	Tími í Júkon	
 P	it	und
+Y	it	dd/MM/y	{1}, {0}
 N	it	Afghanistan	Ora dell’Afghanistan	
 N	it	Africa_Central	Ora dell’Africa centrale	
 N	it	Africa_Eastern	Ora dell’Africa orientale	
@@ -11068,8 +11167,10 @@ P	it-CH	it
 P	it-SM	it
 P	it-VA	it
 P	iu	und
+Y	iu	MM/dd/y	{1} {0}
 P	iu-Latn	und
 P	ja	und
+Y	ja	y/M/d	{1} {0}
 N	ja	Acre	アクレ標準時	アクレ夏時間
 N	ja	Afghanistan	アフガニスタン時間	
 N	ja	Africa_Central	中央アフリカ時間	
@@ -11234,8 +11335,10 @@ N	ja	Yekaterinburg	エカテリンブルグ標準時	エカテリンブルグ夏
 N	ja	Yukon	ユーコン時間	
 P	jbo	und
 P	jgo	und
+Y	jgo	M.d.y	{1} {0}
 P	jmc	und
 P	jv	und
+Y	jv	dd-MM-y	{1}, {0}
 N	jv	Afghanistan	Wektu Afghanistan	
 N	jv	Africa_Central	Wektu Afrika Tengah	
 N	jv	Africa_Eastern	Wektu Afrika Wetan	
@@ -11385,6 +11488,7 @@ N	jv	Yakutsk	Wektu Standar Yakutsk	Wektu Ketigo Yakutsk
 N	jv	Yekaterinburg	Wektu Standar Yekaterinburg	Wektu Ketigo Yekaterinburg
 N	jv	Yukon	Wektu Yukon	
 P	ka	und
+Y	ka	d.M.y	{1}, {0}
 N	ka	Afghanistan	ავღანეთის დრო	
 N	ka	Africa_Central	ცენტრალური აფრიკის დრო	
 N	ka	Africa_Eastern	აღმოსავლეთ აფრიკის დრო	
@@ -11542,6 +11646,7 @@ P	kam	und
 P	kcg	und
 P	kde	und
 P	kea	und
+Y	kea	dd/MM/y	{1}, {0}
 N	kea	Africa_Central	Ora di Áfrika Sentral	
 N	kea	Africa_Eastern	Ora di Áfrika Oriental	
 N	kea	Africa_Southern	Ora di Sul di Áfrika	
@@ -11574,8 +11679,10 @@ N	kea	Newfoundland	Ora Padron di Tera Nova	Ora di Veron di Tera Nova
 N	kea	Pierre_Miquelon	Ora Padron di San Pedru i Mikelon	Ora di Veron di San Pedru i Mikelon
 N	kea	Yukon	Ora di Yukon	
 P	kek	und
+Y	kek	dd-MM-y	{1} {0}
 P	ken	und
 P	kgp	und
+Y	kgp	dd/MM/y	{1} {0}
 N	kgp	Acre	Óra Pã Akre tá	Rỹ Kã óra Akre tá
 N	kgp	Afghanistan	Afeganĩtã tá óra	
 N	kgp	Africa_Central	Afrika-Kuju tá óra	
@@ -11737,6 +11844,7 @@ N	kgp	Yekaterinburg	Óra Pã Ekaterĩnmurgu tá	Rỹ Kã óra Ekaterĩnmurgu tá
 P	khq	und
 P	ki	und
 P	kk	und
+Y	kk	dd.MM.y	{1}, {0}
 N	kk	Afghanistan	Ауғанстан уақыты	
 N	kk	Africa_Central	Орталық Африка уақыты	
 N	kk	Africa_Eastern	Шығыс Африка уақыты	
@@ -11886,6 +11994,7 @@ N	kk	Yakutsk	Якутск стандартты уақыты	Якутск жаз�
 N	kk	Yekaterinburg	Екатеринбург стандартты уақыты	Екатеринбург жазғы уақыты
 N	kk	Yukon	Юкон уақыты	
 P	kk-Arab	und
+Y	kk-Arab	y-d-M	{1}, {0}
 N	kk-Arab	Afghanistan	اۋعانستان ۋاقىتى	
 N	kk-Arab	Africa_Central	ورتالىق افريكا ۋاقىتى	
 N	kk-Arab	Africa_Eastern	شىعىس افريكا ۋاقىتى	
@@ -12041,10 +12150,12 @@ N	kk-Arab	Yukon	يۋكون ۋاقىتى
 P	kk-Cyrl	kk
 P	kk-KZ	kk
 P	kkj	und
+Y	kkj	dd/MM y	{1} {0}
 P	kl	und
 P	kln	und
 P	km	und
 F	km	ម៉ោង​សកល {0}	ម៉ោង​សកល	+HH:mm;-HH:mm
+Y	km	d/M/y	{1}, {0}
 N	km	Afghanistan	ម៉ោង​នៅ​អាហ្វហ្គានីស្ថាន	
 N	km	Africa_Central	ម៉ោង​នៅ​អាហ្វ្រិក​កណ្ដាល	
 N	km	Africa_Eastern	ម៉ោង​នៅ​អាហ្វ្រិក​ខាង​កើត	
@@ -12194,6 +12305,7 @@ N	km	Yakutsk	ម៉ោង​ស្តង់ដារ​នៅ​យ៉ាគុ�
 N	km	Yekaterinburg	ម៉ោង​ស្តង់ដារ​នៅ​អ៊ិខាធឺរីនប៊័ក	ម៉ោង​នៅ​អ៊ិខាធឺរីនប៊័កនា​រដូវ​​ក្ដៅ
 N	km	Yukon	ម៉ោងនៅយូខន់	
 P	kn	und
+Y	kn	d/M/y	{1} {0}
 N	kn	Acre	ಏಕರ್ ಪ್ರಮಾಣಿತ ಸಮಯ	ಏಕರ್ ಬೇಸಿಗೆ ಸಮಯ
 N	kn	Afghanistan	ಅಫಘಾನಿಸ್ತಾನ ಸಮಯ	
 N	kn	Africa_Central	ಮಧ್ಯ ಆಫ್ರಿಕಾ ಸಮಯ	
@@ -12355,6 +12467,7 @@ N	kn	Yakutsk	ಯಾಕುಟ್ಸಕ್ ಪ್ರಮಾಣಿತ ಸಮಯ	ಯ�
 N	kn	Yekaterinburg	ಯೇಕಟರಿನ್‌ಬರ್ಗ್ ಪ್ರಮಾಣಿತ ಸಮಯ	ಯೇಕೇಟರಿನ್‍ಬರ್ಗ್ ಬೇಸಿಗೆ ಸಮಯ
 N	kn	Yukon	ಯುಕಾನ್ ಸಮಯ	
 P	ko	und
+Y	ko	y. M. d.	{1} {0}
 N	ko	Acre	아크레 표준시	아크레 하계 표준시
 N	ko	Afghanistan	아프가니스탄 시간	
 N	ko	Africa_Central	중앙아프리카 시간	
@@ -12517,6 +12630,7 @@ P	ko-CN	ko
 P	ko-KP	ko
 N	ko-KP	Korea	조선 표준시	조선 하계 표준시
 P	kok	und
+Y	kok	d-M-y	{1} {0}
 N	kok	Afghanistan	अफगानिस्तान वेळ	
 N	kok	Africa_Central	मध्य आफ्रिका वेळ	
 N	kok	Africa_Eastern	उदेंत आफ्रिका वेळ	
@@ -12667,6 +12781,7 @@ N	kok	Yekaterinburg	येकातेरिनबर्ग प्रमाण�
 N	kok	Yukon	युकॉन वेळ	
 P	kok-Deva	kok
 P	kok-Latn	und
+Y	kok-Latn	d-M-y	{1}, {0}
 N	kok-Latn	Etc/UTC	Vixvacho Somonvoyit Vell	
 N	kok-Latn	GMT	Greenwich Promann Vell	
 P	kpe	und
@@ -12674,6 +12789,7 @@ P	kpe-GN	kpe
 P	ks	und
 D	ks	۰۱۲۳۴۵۶۷۸۹
 F	ks	GMT{0}	جی ایم ٹی	+HH:mm;-HH:mm
+Y	ks	M/d/y	{1}, {0}
 N	ks	Acre	اؠکرے سٹینڑاڑ ٹایِم	اؠکرے سَمَر ٹایِم
 N	ks	Afghanistan	افغانِستان ٹایِم	
 N	ks	Africa_Central	مرکزی افریٖقا ٹایِم	
@@ -12837,6 +12953,7 @@ P	ks-Arab	ks
 D	ks-Arab	۰۱۲۳۴۵۶۷۸۹
 P	ks-Deva	und
 F	ks-Deva	जी एम टी {0}	जी एम टी	+HH:mm;-HH:mm
+Y	ks-Deva	M/d/y	{1}, {0}
 N	ks-Deva	America_Central	सेंट्रल स्टैन्डर्ड वख	सेंट्रल डे लाइट वख
 N	ks-Deva	America_Eastern	मशरिकी स्टैन्डर्ड वख	मशरिकी डे लाइट वख
 N	ks-Deva	America_Mountain	माउंटेन स्टैन्डर्ड वख	माउंटेन डे लाइट वख
@@ -12849,6 +12966,7 @@ N	ks-Deva	Europe_Western	मगरीबी यूरपी स्टैन्�
 N	ks-Deva	GMT	ग्रीनविच ओसत वख	
 P	ksb	und
 P	ksf	und
+Y	ksf	d/M/y	{1} {0}
 P	ksh	und
 N	ksh	Africa_Central	Zentraal-Affrekaanesche Zigg	
 N	ksh	Africa_Eastern	Oß-Affrekaanesche Zigg	
@@ -12867,6 +12985,7 @@ N	ksh	Mauritius	Jewöhnlijje Zigg vun Mauritius	Summerzigg vun Mauritius
 N	ksh	Reunion	Zigg vun Reunion	
 N	ksh	Seychelles	Zigg vun de Seischälle	
 P	ku	und
+Y	ku	dd.MM.y	{1} {0}
 N	ku	Acre	Saeta Acreyê ya Standard	Saeta Havînê ya Acreyê
 N	ku	Afghanistan	Saeta Efxanistanê	
 N	ku	Africa_Central	Saeta Afrîkaya Navîn	
@@ -13037,6 +13156,7 @@ P	ku-Latn-SY	ku-Latn
 P	ku-TR	ku
 P	kw	und
 P	kxv	und
+Y	kxv	d/M/y	{1}, {0}
 N	kxv	Afghanistan	aapganistan belā	
 N	kxv	Africa_Central	madini aaprika belā	
 N	kxv	Africa_Eastern	veḍa hpu aaprika belā	
@@ -13185,6 +13305,7 @@ N	kxv	Wallis	walis aḍē puṭunā
 N	kxv	Yakutsk	yakustuk mānānka belā	yakustuk kār~ā belā
 N	kxv	Yekaterinburg	yakaterinbarg mānānka belā	yakaterinbarg kār~ā belā
 P	kxv-Deva	und
+Y	kxv-Deva	d/M/y	{1}, {0}
 N	kxv-Deva	Afghanistan	आपगानिस्तान बेला	
 N	kxv-Deva	Africa_Central	मादिनी आप्रिका बेला	
 N	kxv-Deva	Africa_Eastern	वेड़ा हॉपु आप्रिका बेला	
@@ -13331,6 +13452,7 @@ N	kxv-Deva	Yakutsk	याकुत्स्क मानांकॉ बेल�
 N	kxv-Deva	Yekaterinburg	येकातेरिनबर्ग मानांकॉ बेला	येकातेरिनबर्ग काराँ मासा बेला
 P	kxv-Latn	kxv
 P	kxv-Orya	und
+Y	kxv-Orya	d/M/y	{1}, {0}
 N	kxv-Orya	Afghanistan	ଆପଗାନିସ୍ତାନ ବେଲା	
 N	kxv-Orya	Africa_Central	ମାଦିନି ଆପ୍ରିକା ବେଲା	
 N	kxv-Orya	Africa_Eastern	ୱେଡ଼ା ହପୁ ଆପ୍ରିକା ବେଲା	
@@ -13479,6 +13601,7 @@ N	kxv-Orya	Wallis	ୱାଲିସ ଅଡ଼େ ପୁଟୁନା ବେଲା
 N	kxv-Orya	Yakutsk	ୟାକୁତ୍ସକ ମାନାଙ୍କ ବେଲା	ୟାକୁତ୍ସକ କାରାଁ ବେଲା
 N	kxv-Orya	Yekaterinburg	ୟେକାତେରିନବର୍ଗ ମାନାଙ୍କ ବେଲା	ୟେକାତେରିନବର୍ଗ କାରାଁ ବେଲା
 P	kxv-Telu	und
+Y	kxv-Telu	d/M/y	{1}, {0}
 N	kxv-Telu	Afghanistan	ఆఫ్ఘనిస్తాన్ సమయం	
 N	kxv-Telu	Africa_Central	సెంట్రల్ ఆఫ్రికా సమయం	
 N	kxv-Telu	Africa_Eastern	తూర్పు ఆఫ్రికా సమయం	
@@ -13627,6 +13750,7 @@ N	kxv-Telu	Wallis	వాలీస్ మరియు ఫుటునా సమ�
 N	kxv-Telu	Yakutsk	యాకుట్స్క్ ప్రామాణిక సమయం	యాకుట్స్క్ వేసవి సమయం
 N	kxv-Telu	Yekaterinburg	యెకటెరిన్‌బర్గ్ ప్రామాణిక సమయం	యెకటెరిన్‌బర్గ్ వేసవి సమయం
 P	ky	und
+Y	ky	y-dd-MM	{1} {0}
 N	ky	Afghanistan	Афганистан убактысы	
 N	ky	Africa_Central	Борбордук Африка убактысы	
 N	ky	Africa_Eastern	Чыгыш Африка убактысы	
@@ -13778,6 +13902,7 @@ N	ky	Yukon	Юкон убактысы
 P	la	und
 P	lag	und
 P	lb	und
+Y	lb	d.M.y	{1} {0}
 N	lb	Acre	Acre-Normalzäit	Acre-Summerzäit
 N	lb	Afghanistan	Afghanistan-Zäit	
 N	lb	Africa_Central	Zentralafrikanesch Zäit	
@@ -13929,9 +14054,11 @@ N	lb	Yekaterinburg	Jekaterinbuerg-Normalzäit	Jekaterinbuerg-Summerzäit
 P	lg	und
 P	lij	und
 F	lij	UTC{0}	UTC	+HH:mm;−HH:mm
+Y	lij	d/M/y	{1} {0}
 N	lij	GMT	oa do meridian de Greenwich	
 P	lkt	und
 P	lld	und
+Y	lld	d.M.y	{1}, {0}
 N	lld	Afghanistan	Ora dl Afghanistan	
 N	lld	Africa_Central	Ora dl’Africa zentrala	
 N	lld	Africa_Eastern	Ora dl’Africa orientala	
@@ -14083,10 +14210,12 @@ N	lld	Yukon	Ora dl Yukon
 P	lmo	und
 N	lmo	GMT	Temp Medi de Greenwich	
 P	ln	und
+Y	ln	d/M/y	{1} {0}
 P	ln-AO	ln
 P	ln-CF	ln
 P	ln-CG	ln
 P	lo	und
+Y	lo	d/M/y	{1}, {0}
 N	lo	Acre	ເວລາມາດຕະຖານຂອງອາເກຣ	ເວລາລະດູຮ້ອນຂອງອາເກຣ
 N	lo	Afghanistan	ເວລາ ອັຟການິສຖານ	
 N	lo	Africa_Central	ເວ​ລາ​ອາ​ຟຣິ​ກາ​ກາງ	
@@ -14416,9 +14545,11 @@ N	lt	Yekaterinburg	Jekaterinburgo žiemos laikas	Jekaterinburgo vasaros laikas
 N	lt	Yukon	Jukono laikas	
 P	ltg	und
 P	lu	und
+Y	lu	d/M/y	{1} {0}
 P	luo	und
 P	luy	und
 P	lv	und
+Y	lv	d.MM.y.	{1} {0}
 N	lv	Afghanistan	Afganistānas laiks	
 N	lv	Africa_Central	Centrālāfrikas laiks	
 N	lv	Africa_Eastern	Austrumāfrikas laiks	
@@ -14574,6 +14705,7 @@ N	lv	Yukon	Jukonas laiks
 P	lzz	und
 P	mai	und
 F	mai	जीएमटी{0}	जीएमटी	+HH:mm;-HH:mm
+Y	mai	d/M/y	{1}, {0}
 N	mai	Afghanistan	अफगानिस्तान टाइम	
 N	mai	Africa_Central	मध्य अफ्रीका टाइम	
 N	mai	Africa_Eastern	पूरब अफ्रीका टाइम	
@@ -14694,9 +14826,11 @@ P	mer	und
 P	mfe	und
 P	mg	und
 P	mgh	und
+Y	mgh	d/M/y	{1} {0}
 P	mgo	und
 P	mhn	und
 P	mi	und
+Y	mi	dd-MM-y	{1} {0}
 N	mi	Afghanistan	Wā Awhekenetāna	
 N	mi	Africa_Central	Wā o Te Puku o Āwherika	
 N	mi	Africa_Eastern	Wā o Āwherika ki te rāwhiti	
@@ -14847,6 +14981,7 @@ N	mi	Yekaterinburg	Wā Yekaterinburg Arowhānui	Wā Yekaterinburg Raumati
 N	mi	Yukon	Wā Yukon	
 P	mic	und
 P	mk	und
+Y	mk	d.M.y 'г'.	{1}, {0}
 N	mk	Acre	Акре стандардно време	Акре летно сметање на времето
 N	mk	Afghanistan	Време во Авганистан	
 N	mk	Africa_Central	Средноафриканско време	
@@ -15001,6 +15136,7 @@ N	mk	Yekaterinburg	Стандардно време во Екатеринбург
 N	mk	Yukon	Време во Јукон	
 P	ml	und
 F	ml	ജിഎംടി{0}	ജിഎംടി	+HH:mm;-HH:mm
+Y	ml	d/M/y	{1}, {0}
 N	ml	Acre	എയ്ക്കർ സ്റ്റാൻഡേർഡ് സമയം	എയ്ക്കർ വേനൽക്കാല സമയം
 N	ml	Afghanistan	അഫ്‌ഗാനിസ്ഥാൻ സമയം	
 N	ml	Africa_Central	മധ്യ ആഫ്രിക്ക സമയം	
@@ -15163,6 +15299,7 @@ N	ml	Yakutsk	യാകസ്‌ക്ക് സ്റ്റാൻഡേർഡ്
 N	ml	Yekaterinburg	യെക്കാറ്റരിൻബർഗ് സ്റ്റാൻഡേർഡ് സമയം	യെക്കാറ്റരിൻബർഗ് ഗ്രീഷ്‌മകാല സമയം
 N	ml	Yukon	യൂക്കോൺ സമയം	
 P	mn	und
+Y	mn	y.MM.dd	{1} {0}
 N	mn	Afghanistan	Афганистаны цаг	
 N	mn	Africa_Central	Төв Африкийн цаг	
 N	mn	Africa_Eastern	Зүүн Африкийн цаг	
@@ -15327,6 +15464,7 @@ N	mn-Mong-MN	GMT	ᠭᠷᠢᠨ᠋ᠸᠢᠴᠢ ᠢᠢᠨ ᠴᠠᠭ
 P	mni	und
 D	mni	০১২৩৪৫৬৭৮৯
 F	mni	জি এম টি {0}	জি এম টি	+HH:mm;-HH:mm
+Y	mni	d/M/y	{1}, {0}
 N	mni	America_Central	নোর্থ অমেরিকান সেন্ত্রেল ষ্টেন্দর্দ টাইম	নোর্থ অমেরিকান সেন্ত্রেল দেলাইট টাইম
 N	mni	America_Eastern	নোর্থ অমেরিকান ইষ্টর্ন ষ্টেন্দর্দ টাইম	নোর্থ অমেরিকান ইষ্টর্ন দেলাইট টাইম
 N	mni	America_Mountain	নোর্থ অমেরিকান মাউন্টেন ষ্টেন্দর্দ টাইম	নোর্থ অমেরিকান মাউন্টেন দেলাইট টাইম
@@ -15345,6 +15483,7 @@ P	moh	und
 P	mr	und
 D	mr	०१२३४५६७८९
 F	mr	[GMT]{0}	[GMT]	+HH:mm;-HH:mm
+Y	mr	d/M/y	{1}, {0}
 N	mr	Acre	एकर प्रमाणवेळ	ऐकर ग्रीष्म वेळ
 N	mr	Afghanistan	अफगाणिस्तान वेळ	
 N	mr	Africa_Central	मध्‍य आफ्रिका वेळ	
@@ -15507,6 +15646,7 @@ N	mr	Yakutsk	याकुत्सक प्रमाण वेळ	याकु�
 N	mr	Yekaterinburg	येकतरिनबर्ग प्रमाण वेळ	येकतरिनबर्ग उन्हाळी वेळ
 N	mr	Yukon	युकोन वेळ	
 P	ms	und
+Y	ms	d/M/y	{1}, {0}
 N	ms	Acre	Waktu Piawai Acre	Waktu Musim Panas Acre
 N	ms	Afghanistan	Waktu Afghanistan	
 N	ms	Africa_Central	Waktu Afrika Tengah	
@@ -15666,15 +15806,18 @@ N	ms	Yakutsk	Waktu Piawai Yakutsk	Waktu Musim Panas Yakutsk
 N	ms	Yekaterinburg	Waktu Piawai Yekaterinburg	Waktu Musim Panas Yekaterinburg
 N	ms	Yukon	Masa Yukon	
 P	ms-Arab	und
+Y	ms-Arab	d/M/y	{1} {0}
 P	ms-Arab-BN	ms-Arab
 P	ms-BN	ms
 P	ms-ID	ms
 F	ms-ID	GMT{0}	GMT	+HH.mm;-HH.mm
 P	ms-SG	ms
 P	mt	und
+Y	mt	M/d/y	{1} {0}
 N	mt	Europe_Central	Ħin Ċentrali Ewropew Standard	Ħin Ċentrali Ewropew tas-Sajf
 N	mt	GMT	Greenwich Mean Time	
 P	mua	und
+Y	mua	d/M/y	{1} {0}
 P	mus	und
 P	mww	und
 D	mww	𞅀𞅁𞅂𞅃𞅄𞅅𞅆𞅇𞅈𞅉
@@ -15682,6 +15825,7 @@ P	mww-Hmnp	mww
 D	mww-Hmnp	𞅀𞅁𞅂𞅃𞅄𞅅𞅆𞅇𞅈𞅉
 P	my	und
 D	my	၀၁၂၃၄၅၆၇၈၉
+Y	my	d/M/y	{1} {0}
 N	my	Afghanistan	အာဖဂန်နစ္စတန် အချိန်	
 N	my	Africa_Central	အလယ်အာဖရိက အချိန်	
 N	my	Africa_Eastern	အရှေ့အာဖရိက အချိန်	
@@ -15842,10 +15986,12 @@ P	nb-SJ	nb
 P	nd	und
 P	nds	und
 F	nds	UTC{0}	UTC	+HH.mm;-HH.mm
+Y	nds	d.M.y	{1} {0}
 N	nds	GMT	Gröönwisch-Welttiet	
 P	nds-NL	nds
 P	ne	und
 D	ne	०१२३४५६७८९
+Y	ne	y-MM-dd	{1}, {0}
 N	ne	Afghanistan	अफगानिस्तान समय	
 N	ne	Africa_Central	केन्द्रीय अफ्रिकी समय	
 N	ne	Africa_Eastern	पूर्वी अफ्रिकी समय	
@@ -15997,6 +16143,7 @@ N	ne	Yukon	युकोनको समय
 P	ne-IN	ne
 D	ne-IN	०१२३४५६७८९
 P	nl	und
+Y	nl	d-M-y	{1}, {0}
 N	nl	Acre	Acre-standaardtijd	Acre-zomertijd
 N	nl	Afghanistan	Afghaanse tijd	
 N	nl	Africa_Central	Centraal-Afrikaanse tijd	
@@ -16162,11 +16309,13 @@ N	nl	Yekaterinburg	Jekaterinenburg-standaardtijd	Jekaterinenburg-zomertijd
 N	nl	Yukon	Yukon-tijd	
 P	nl-AW	nl
 P	nl-BE	nl
+Y	nl-BE	d/M/y	{1}, {0}
 P	nl-BQ	nl
 P	nl-CW	nl
 P	nl-SR	nl
 P	nl-SX	nl
 P	nmg	und
+Y	nmg	d/M/y	{1} {0}
 P	nn	no
 N	nn	Africa_Eastern	austafrikansk tid	
 N	nn	Alaska	alaskisk normaltid	alaskisk sommartid
@@ -16261,7 +16410,9 @@ N	nn	Wallis	tidssone for Wallis- og Futunaøyane
 N	nn	Yakutsk	normaltid for Jakutsk	sommartid for Jakutsk
 N	nn	Yekaterinburg	normaltid for Jekaterinburg	sommartid for Jekaterinburg
 P	nnh	und
+Y	nnh	d/M/y	{1} {0}
 P	no	und
+Y	no	d.M.y	{1}, {0}
 N	no	Acre	Acre normaltid	Acre sommertid
 N	no	Afghanistan	afghansk tid	
 N	no	Africa_Central	sentralafrikansk tid	
@@ -16426,6 +16577,7 @@ N	no	Yukon	tidssone for Yukon
 P	nqo	und
 D	nqo	߀߁߂߃߄߅߆߇߈߉
 F	nqo	ߜ߭ߕߖ{0}	ߜ߭ߕߖ	+HH:mm;-HH:mm
+Y	nqo	y / dd / MM	{1} {0}
 N	nqo	Afghanistan	ߊߝߑߜ߭ߊߣߌߛߑߕߊ߲߫ ߕߎ߬ߡߊ߬ߘߊ	
 N	nqo	Africa_Central	ߝߘߊ߬ߝߌ߲߬ߠߊ߫ ߕߊ߲ߓߊ߲ ߕߎ߬ߡߊ߬ߙߋ߲ ߢߊߓߘߍ	
 N	nqo	Africa_Eastern	ߝߘߊ߬ߌ߲߬ߠߊ߫ ߓߟߋ߬ߓߐ ߕߎ߬ߡߊ߬ߙߋ߲ ߢߊߓߘߍ	
@@ -16576,18 +16728,22 @@ N	nqo	Yekaterinburg	ߦߋߞߊߕߋߙߌ߲ߓߎߙߜ߭ ߕߎ߬ߡߘߊ߬ ߛߎߡߊ߲ߘߊ߲
 N	nqo	Yukon	ߦߎߞߐ߲߫ ߕߎ߬ߡߘߊ߬ ߛߎߡߊ߲ߘߊ߲ߕߊ	
 P	nr	und
 P	nso	und
+Y	nso	dd-MM-y	{1}, {0}
 N	nso	GMT	Nako Palogare ya Greenwich	
 P	nus	und
+Y	nus	d/M/y	{1} {0}
 P	nv	und
 P	ny	und
 P	nyn	und
 P	oc	und
 F	oc	UTC{0}	UTC	+HH:mm;-HH:mm
+Y	oc	dd/MM/y	{1} {0}
 N	oc	GMT	ora al meridian de Greenwich	
 P	oc-ES	oc
 P	oka	und
 P	oka-US	oka
 P	om	und
+Y	om	M/d/y	{1}, {0}
 N	om	Afghanistan	Sa’aatii Afgaanistaan	
 N	om	Africa_Central	Sa’aatii Afrikaa Gidduugaleessaa	
 N	om	Africa_Eastern	Sa’aatii Baha Afrikaa	
@@ -16741,6 +16897,7 @@ N	om	Yekaterinburg	Sa’aatii Istaandaardii Yekaterinburg	Sa’aatii Bonaa Yekat
 N	om	Yukon	Sa’aatii Yuukoon	
 P	om-KE	om
 P	or	und
+Y	or	M/d/y	{1}, {0}
 N	or	Acre	ଆକା ମାନକ ସମୟ	ଆକା ଗ୍ରୀଷ୍ମ ସମୟ
 N	or	Afghanistan	ଆଫଗାନିସ୍ତାନ ସମୟ	
 N	or	Africa_Central	ମଧ୍ୟ ଆଫ୍ରିକା ସମୟ	
@@ -16901,6 +17058,7 @@ N	or	Yakutsk	ୟାକୁଟସ୍କ ମାନାଙ୍କ ସମୟ	ୟାକ�
 N	or	Yekaterinburg	ୟେକାଟେରିନବର୍ଗ୍ ମାନାଙ୍କ ସମୟ	ୟେକାଟେରିନବର୍ଗ୍ ଗ୍ରୀଷ୍ମକାଳ ସମୟ
 N	or	Yukon	ୟୁକୋନ୍ ସମୟ	
 P	os	und
+Y	os	y-MM-dd	{1}, {0}
 N	os	Europe_Central	Астӕуккаг Европӕйаг стандартон рӕстӕг	Астӕуккаг Европӕйаг сӕрдыгон рӕстӕг
 N	os	Europe_Eastern	Скӕсӕн Европӕйаг стандартон рӕстӕг	Скӕсӕн Европӕйаг сӕрдыгон рӕстӕг
 N	os	Europe_Western	Ныгъуылӕн Европӕйаг стандартон рӕстӕг	Ныгъуылӕн Европӕйаг сӕрдыгон рӕстӕг
@@ -16910,6 +17068,7 @@ N	os	Moscow	Мӕскуыйы стандартон рӕстӕг	Мӕскуыйы 
 P	os-RU	os
 P	osa	und
 P	pa	und
+Y	pa	d/M/y	{1}, {0}
 N	pa	Afghanistan	ਅਫ਼ਗਾਨਿਸਤਾਨ ਵੇਲਾ	
 N	pa	Africa_Central	ਕੇਂਦਰੀ ਅਫ਼ਰੀਕਾ ਵੇਲਾ	
 N	pa	Africa_Eastern	ਪੂਰਬੀ ਅਫ਼ਰੀਕਾ ਵੇਲਾ	
@@ -17073,6 +17232,7 @@ P	pa-Guru	pa
 P	pap	und
 P	pap-AW	pap
 P	pcm	und
+Y	pcm	d/M/y	{1}, {0}
 N	pcm	Afghanistan	Afgánístan Taim	
 N	pcm	Africa_Central	Mídúl Áfríká Taim	
 N	pcm	Africa_Eastern	Íst Áfríká Taim	
@@ -17227,6 +17387,7 @@ P	pis	und
 F	pis	GMT {0}	GMT	+HH:mm;-HH:mm
 N	pis	GMT	Grinis Min Taem	
 P	pl	und
+Y	pl	d.MM.y	{1}, {0}
 N	pl	Afghanistan	czas Afganistan	
 N	pl	Africa_Central	czas środkowoafrykański	
 N	pl	Africa_Eastern	czas wschodnioafrykański	
@@ -17379,8 +17540,10 @@ N	pl	Yakutsk	Jakuck (czas standardowy)	Jakuck (czas letni)
 N	pl	Yekaterinburg	Jekaterynburg (czas standardowy)	Jekaterynburg (czas letni)
 N	pl	Yukon	czas Jukon	
 P	pms	und
+Y	pms	dd/MM/y	{1} {0}
 N	pms	GMT	Ora dë Greenwich	
 P	prg	und
+Y	prg	d.M.y	{1} {0}
 N	prg	GMT	Greenwich kerdā	
 P	ps	und
 D	ps	۰۱۲۳۴۵۶۷۸۹
@@ -17561,6 +17724,7 @@ N	ps-PK	Newfoundland	د نوي فیلډلینډ معیاری وخت	د نوي ف
 N	ps-PK	Pierre_Miquelon	سینټ پییرا و ميکلين معیاری وخت	سینټ پییرا و ميکلين رڼا ورځے وخت
 N	ps-PK	Samoa	سموا معياري وخت	د سموا د ورځے روښانه کول
 P	pt	und
+Y	pt	dd/MM/y	{1} {0}
 N	pt	Acre	Horário Padrão do Acre	Horário de Verão do Acre
 N	pt	Afghanistan	Horário do Afeganistão	
 N	pt	Africa_Central	Horário da África Central	
@@ -17731,6 +17895,7 @@ P	pt-LU	pt-PT
 P	pt-MO	pt-PT
 P	pt-MZ	pt-PT
 P	pt-PT	pt
+Y	pt-PT	dd/MM/y	{1}, {0}
 N	pt-PT	Acre	Hora padrão do Acre	Hora de verão do Acre
 N	pt-PT	Afghanistan	Hora do Afeganistão	
 N	pt-PT	Africa_Central	Hora da África Central	
@@ -17895,6 +18060,7 @@ N	pt-PT	Yukon	Hora do Yukon
 P	pt-ST	pt-PT
 P	pt-TL	pt-PT
 P	qu	und
+Y	qu	dd-MM-y	{1} {0}
 N	qu	Afghanistan	Hora de Afganistán	
 N	qu	Africa_Central	Hora de Africa Central	
 N	qu	Africa_Eastern	Hora de Africa Oriental	
@@ -18054,6 +18220,7 @@ P	rhg-Rohg	rhg
 P	rhg-Rohg-BD	rhg-Rohg
 P	rif	und
 P	rm	und
+Y	rm	d-M-y	{1}, {0}
 N	rm	Afghanistan	temp da l’Afganistan	
 N	rm	Africa_Central	temp da l’Africa Centrala	
 N	rm	Africa_Eastern	temp da l’Africa Orientala	
@@ -18203,7 +18370,9 @@ N	rm	Yakutsk	temp normal da Jakutsk	temp da stad da Jakutsk
 N	rm	Yekaterinburg	temp normal da Jekaterinburg	temp da stad da Jekaterinburg
 N	rm	Yukon	temp dal Yukon	
 P	rn	und
+Y	rn	d/M/y	{1} {0}
 P	ro	und
+Y	ro	dd.MM.y	{1}, {0}
 N	ro	Acre	Ora standard Acre	Ora de vară Acre
 N	ro	Afghanistan	Ora Afganistanului	
 N	ro	Africa_Central	Ora Africii Centrale	
@@ -18362,6 +18531,7 @@ N	ro	Yukon	Ora din Yukon
 P	ro-MD	ro
 P	rof	und
 P	ru	und
+Y	ru	dd.MM.y	{1}, {0}
 N	ru	Acre	Акри стандартное время	Акри летнее время
 N	ru	Afghanistan	Афганистан	
 N	ru	Africa_Central	Центральная Африка	
@@ -18530,11 +18700,13 @@ P	ru-KZ	ru
 P	ru-MD	ru
 P	ru-UA	ru
 P	rw	und
+Y	rw	dd-MM-y	{1} {0}
 N	rw	GMT	Greenwich Mean Time	
 P	rwk	und
 P	sa	und
 D	sa	०१२३४५६७८९
 F	sa	जी.एम.टी. {0}	जी.एम.टी.	+HH:mm;-HH:mm
+Y	sa	d/M/y	{1}, {0}
 N	sa	America_Central	उत्तर अमेरिका: मध्य आदर्श समयः	उत्तर अमेरिका: मध्य अयाम समयः
 N	sa	America_Eastern	उत्तर अमेरिका: पौर्व आदर्श समयः	उत्तर अमेरिका: पौर्व अयाम समय:
 N	sa	America_Mountain	उत्तर अमेरिका: शैल आदर्श समयः	उत्तर अमेरिका: शैल अयाम समयः
@@ -18597,7 +18769,9 @@ D	sat-Deva	०१२३४५६७८९
 P	sat-Olck	sat
 D	sat-Olck	᱐᱑᱒᱓᱔᱕᱖᱗᱘᱙
 P	sbp	und
+Y	sbp	M/d/y	{1} {0}
 P	sc	und
+Y	sc	dd/MM/y	{1}, {0}
 N	sc	Acre	Ora istandard de Acre	Ora legale de Acre
 N	sc	Afghanistan	Ora de s’Afghànistan	
 N	sc	Africa_Central	Ora de s’Àfrica tzentrale	
@@ -18761,6 +18935,7 @@ N	sc	Yakutsk	Ora istandard de Yakutsk	Ora legale de Yakutsk
 N	sc	Yekaterinburg	Ora istandard de Yekaterinburg	Ora legale de Yekaterinburg
 N	sc	Yukon	Ora de su Yukon	
 P	scn	und
+Y	scn	d/M/y	{1} {0}
 N	scn	Afghanistan	Ura di l’Afghànistan	
 N	scn	Africa_Central	Ura di l’Àfrica Cintrali	
 N	scn	Africa_Eastern	Ura di l’Àfrica di Livanti	
@@ -19064,6 +19239,7 @@ P	sd-Arab	sd
 D	sd-Arab	٠١٢٣٤٥٦٧٨٩
 P	sd-Deva	und
 F	sd-Deva	जीएमटी{0}	जीएमटी	+HH:mm;-HH:mm
+Y	sd-Deva	M/d/y	{1}, {0}
 N	sd-Deva	America_Central	मरकज़ी मअयारी वक्त	मरकज़ी दीं॒ह जो वक्त
 N	sd-Deva	America_Eastern	ओभरी मअयारी वक्त	ओभरी दीं॒ह जो वक्त
 N	sd-Deva	America_Mountain	पहाड़ी मअयारी वक्त	पहाड़ी दीं॒ह जो वक्त
@@ -19088,6 +19264,7 @@ N	se	GMT	Greenwich gaskka áigi
 N	se	Moscow	Moskva-dábálašáigi	Moskva-geassiáigi
 P	se-FI	se
 F	se-FI	{0} GMT	GMT	+HH:mm;-HH:mm
+Y	se-FI	dd.MM.y	{1} {0}
 N	se-FI	Afghanistan	Afganisthana áigi	
 N	se-FI	Africa_Central	Gaska-Afrihká áigi	
 N	se-FI	Africa_Eastern	Nuorta-Afrihká áigi	
@@ -19408,6 +19585,7 @@ N	shn	Yukon	ၶၢဝ်းယၢမ်း ယူးၵွၼ်ႇ
 P	shn-TH	shn
 P	si	und
 F	si	ග්‍රිමවේ{0}	ග්‍රිමවේ	+HH.mm;-HH.mm
+Y	si	y-M-d	{1} {0}
 N	si	Afghanistan	ඇෆ්ගනිස්ථාන වේලාව	
 N	si	Africa_Central	මධ්‍යම අප්‍රිකානු වේලාව	
 N	si	Africa_Eastern	නැගෙනහිර අප්‍රිකානු වේලාව	
@@ -19559,6 +19737,7 @@ N	si	Yekaterinburg	යෙකටෙරින්බර්ග් සම්මත �
 N	si	Yukon	යුකොන් වේලාව	
 P	sid	und
 P	sk	und
+Y	sk	d. M. y	{1} {0}
 N	sk	Acre	acrejský štandardný čas	acrejský letný čas
 N	sk	Afghanistan	afganský čas	
 N	sk	Africa_Central	stredoafrický čas	
@@ -19723,6 +19902,7 @@ N	sk	Yukon	yukonský čas
 P	skr	und
 P	sl	und
 F	sl	GMT {0}	GMT	+HH.mm;-HH.mm
+Y	sl	d. M. y	{1}, {0}
 N	sl	Afghanistan	Afganistanski čas	
 N	sl	Africa_Central	Centralnoafriški čas	
 N	sl	Africa_Eastern	Vzhodnoafriški čas	
@@ -19880,9 +20060,11 @@ P	sma-NO	sma
 P	smj	und
 P	smj-NO	smj
 P	smn	und
+Y	smn	d.M.y	{1} {0}
 P	sms	und
 P	sn	und
 P	so	und
+Y	so	M/d/y	{1} {0}
 N	so	Acre	Wakhtiga Caadiga ah ee Acre	Wakhtiga Kulka ee Acre
 N	so	Afghanistan	Waqtiga Afggaanistaan	
 N	so	Africa_Central	Waqtiga Bartamaha Afrika	
@@ -20043,6 +20225,7 @@ P	so-DJ	so
 P	so-ET	so
 P	so-KE	so
 P	sq	und
+Y	sq	d.M.y	{1}, {0}
 N	sq	Acre	Ora standarde e Ejkrit [Ako]	Ora verore e Ejkrit [Ako]
 N	sq	Afghanistan	Ora e Afganistanit	
 N	sq	Africa_Central	Ora e Afrikës Qendrore	
@@ -20207,6 +20390,7 @@ N	sq	Yukon	Ora e Jukonit
 P	sq-MK	sq
 P	sq-XK	sq
 P	sr	und
+Y	sr	d. M. y.	{1} {0}
 N	sr	Acre	Акре стандардно време	Акре летње рачунање времена
 N	sr	Afghanistan	Авганистан време	
 N	sr	Africa_Central	Централно-афричко време	
@@ -20519,6 +20703,7 @@ N	sr-Cyrl-BA	Yekaterinburg	Јекатеринбург, стандардно вр
 P	sr-Cyrl-ME	sr-Cyrl
 P	sr-Cyrl-XK	sr-Cyrl
 P	sr-Latn	und
+Y	sr-Latn	d. M. y.	{1} {0}
 N	sr-Latn	Acre	Akre standardno vreme	Akre letnje računanje vremena
 N	sr-Latn	Afghanistan	Avganistan vreme	
 N	sr-Latn	Africa_Central	Centralno-afričko vreme	
@@ -20836,6 +21021,7 @@ P	st	und
 N	st	GMT	Greenwich Mean Time	
 P	st-LS	st
 P	su	und
+Y	su	d/M/y	{1}, {0}
 N	su	America_Central	Waktu Standar Tengah	Waktu Usum Panas Tengah
 N	su	America_Eastern	Waktu Standar Wétan	Waktu Usum Panas Wétan
 N	su	America_Mountain	Waktu Standar Pagunungan	Waktu Usum Panas Pagunungan
@@ -21018,8 +21204,10 @@ N	sv	Yekaterinburg	Jekaterinburg, normaltid	Jekaterinburg, sommartid
 N	sv	Yukon	Yukontid	
 P	sv-AX	sv
 P	sv-FI	sv
+Y	sv-FI	d.M.y	{1} {0}
 P	sw	und
 F	sw	GMT {0}	GMT	+HH:mm;-HH:mm
+Y	sw	d/M/y	{1} {0}
 N	sw	Afghanistan	Saa za Afghanistan	
 N	sw	Africa_Central	Saa za Afrika ya Kati	
 N	sw	Africa_Eastern	Saa za Afrika Mashariki	
@@ -21240,6 +21428,7 @@ N	sw-KE	Yakutsk	Saa za Wastani za Yakutsk	Saa za Majira ya Joto za Yakutsk
 N	sw-KE	Yekaterinburg	Saa za Wastani za Yekaterinburg	Saa za Majira ya Joto za Yekaterinburg
 P	sw-UG	sw
 P	syr	und
+Y	syr	d/M/y	{1}، {0}
 N	syr	Acre	ܥܕܢܘܬܐ ܫܪܫܝܬܐ ܥܕܢܘܬܐ ܫܪܫܝܬܐ ܕܐܝܟܝܪ	ܥܕܢܘܬܐ ܩܝܬܝܬܐ ܕܐܝܟܝܪ
 N	syr	Afghanistan	ܥܕܢܐ ܕܐܦܓܐܢܣܬܐܢ	
 N	syr	Africa_Central	ܥܕܢܐ ܕܡܨܥܝܬܐ ܐܦܪܝܩܐ	
@@ -21403,8 +21592,10 @@ N	syr	Yekaterinburg	ܥܕܢܐ ܡܫܘܚܬܢܝܬܐ ܕܝܟܐܬܝܪܢܒܝܪܓ	ܥܕܢ�
 N	syr	Yukon	ܥܕܢܐ ܕܝܘܩܘܢ	
 P	syr-SY	syr
 P	szl	und
+Y	szl	dd.MM.y	{1} {0}
 N	szl	GMT	uniwersalnego czasu	
 P	ta	und
+Y	ta	d/M/y	{1}, {0}
 N	ta	Acre	அக்ரே தர நேரம்	அக்ரே கோடை நேரம்
 N	ta	Afghanistan	ஆஃப்கானிஸ்தான் நேரம்	
 N	ta	Africa_Central	மத்திய ஆப்பிரிக்க நேரம்	
@@ -21570,6 +21761,7 @@ P	ta-LK	ta
 P	ta-MY	ta
 P	ta-SG	ta
 P	te	und
+Y	te	d/M/y	{1} {0}
 N	te	Acre	ఏకర్ ప్రామాణిక సమయం	ఏకర్ వేసవి సమయం
 N	te	Afghanistan	ఆఫ్ఘనిస్తాన్ సమయం	
 N	te	Africa_Central	సెంట్రల్ ఆఫ్రికా సమయం	
@@ -21734,6 +21926,7 @@ N	te	Yukon	యుకోన్ సమయం
 P	teo	und
 P	teo-KE	teo
 P	tg	und
+Y	tg	d.M.y	{1} {0}
 N	tg	Afghanistan	Вақти Афғонистон	
 N	tg	Africa_Central	Вақти Африқои Марказӣ	
 N	tg	Africa_Eastern	Вақти Африқои Шарқӣ	
@@ -21883,6 +22076,7 @@ N	tg	Yakutsk	Якутск вақти стандартӣ	Якутск вақти 
 N	tg	Yekaterinburg	Вақти стандартии Екатеринбург	Вақти тобистонаи Екатеринбург
 N	tg	Yukon	Вақти Юкон	
 P	th	und
+Y	th	d/M/y	{1} {0}
 N	th	Acre	เวลามาตรฐานอาเกร	เวลาฤดูร้อนอาเกร
 N	th	Afghanistan	เวลาอัฟกานิสถาน	
 N	th	Africa_Central	เวลาแอฟริกากลาง	
@@ -22046,6 +22240,7 @@ N	th	Yakutsk	เวลามาตรฐานยาคุตสค์	เวล
 N	th	Yekaterinburg	เวลามาตรฐานเยคาเตรินบูร์ก	เวลาฤดูร้อนเยคาเตรินบูร์ก
 N	th	Yukon	เวลายูคอน	
 P	ti	und
+Y	ti	M/d/y	{1} {0}
 N	ti	Acre	ናይ መደበኛ ግዘ ኣክሪ	ግዜ ክረምቲ ኣክሪ
 N	ti	Afghanistan	ናይ አፍጋኒስታን ግዘ	
 N	ti	Africa_Central	ግዜ ማእከላይ ኣፍሪቃ	
@@ -22198,6 +22393,7 @@ N	ti	Yukon	ናይ ዩኮን ግዘ
 P	ti-ER	ti
 P	tig	und
 P	tk	und
+Y	tk	dd.MM.y	{1} {0}
 N	tk	Acre	Akri standart wagty	Akri tomusky wagty
 N	tk	Afghanistan	Owganystan wagty	
 N	tk	Africa_Central	Merkezi Afrika wagty	
@@ -22351,9 +22547,11 @@ N	tk	Yakutsk	Ýakutsk standart wagty	Ýakutsk tomusky wagty
 N	tk	Yekaterinburg	Ýekaterinburg standart wagty	Ýekaterinburg tomusky wagty
 N	tk	Yukon	Ýukon wagty	
 P	tn	und
+Y	tn	y-MM-dd	{1}, {0}
 N	tn	GMT	Palogare ya nako ya ngwaga le ngwaga ya Greenwich	
 P	tn-BW	tn
 P	to	und
+Y	to	d/M/y	{1} {0}
 N	to	Acre	houa fakaʻakelī taimi totonu	houa fakaʻakelī taimi liliu
 N	to	Afghanistan	houa fakaʻafikānisitani	
 N	to	Africa_Central	houa fakaʻafelika-loto	
@@ -22517,9 +22715,12 @@ N	to	Yekaterinburg	houa fakalūsia-ʻiekatelinepūki taimi totonu	houa fakalūsi
 N	to	Yukon	houa fakaiukoni	
 P	tok	und
 F	tok	tenpo GMT{0}	tenpo UTC	+HH:mm;-HH:mm
+Y	tok	#y)#M)#d	{1} {0}
 N	tok	GMT	tenpo pi ma Keni	
 P	tpi	und
+Y	tpi	d/M/y	{1} {0}
 P	tr	und
+Y	tr	dd.MM.y	{1} {0}
 N	tr	Acre	Acre Standart Saati	Acre Yaz Saati
 N	tr	Afghanistan	Afganistan Saati	
 N	tr	Africa_Central	Orta Afrika Saati	
@@ -22687,6 +22888,7 @@ P	trv	und
 P	trw	und
 P	ts	und
 P	tt	und
+Y	tt	dd.MM.y	{1}, {0}
 N	tt	Acre	Акр стандарт вакыты	Акр җәйге вакыты
 N	tt	Afghanistan	Әфганстан вакыты	
 N	tt	Africa_Central	Үзәк Африка вакыты	
@@ -22840,10 +23042,13 @@ N	tt	Yakutsk	Якутск стандарт вакыты	Якутск җәйге 
 N	tt	Yekaterinburg	Екатеринбург стандарт вакыты	Екатеринбург җәйге вакыты
 N	tt	Yukon	Юкон вакыты	
 P	twq	und
+Y	twq	d/M/y	{1} {0}
 P	tyv	und
+Y	tyv	y-MM-dd	{1}, {0}
 N	tyv	GMT	Гринвичтиң ортаа үези	
 P	tzm	und
 P	ug	und
+Y	ug	y-d-M	{1}، {0}
 N	ug	Acre	ئاكرې ئۆلچەملىك ۋاقتى	ئاكرى يازلىق ۋاقتى
 N	ug	Afghanistan	ئافغانىستان ۋاقتى	
 N	ug	Africa_Central	ئوتتۇرا ئافرىقا ۋاقتى	
@@ -23000,6 +23205,7 @@ N	ug	Wallis	ۋاللىس ۋە فۇتۇنا ۋاقتى
 N	ug	Yakutsk	ياكۇتسك ئۆلچەملىك ۋاقتى	ياكۇتسك يازلىق ۋاقتى
 N	ug	Yekaterinburg	يېكاتېرىنبۇرگ ئۆلچەملىك ۋاقتى	يېكاتېرىنبۇرگ يازلىق ۋاقتى
 P	uk	und
+Y	uk	dd.MM.y	{1}, {0}
 N	uk	Acre	час: Акрі, стандартний	час: Акрі, літній
 N	uk	Afghanistan	за часом в Афганістані	
 N	uk	Africa_Central	за центральноафриканським часом	
@@ -23156,8 +23362,10 @@ N	uk	Yakutsk	за якутським стандартним часом	за як
 N	uk	Yekaterinburg	за єкатеринбурзьким стандартним часом	за єкатеринбурзьким літнім часом
 N	uk	Yukon	за стандартним часом на Юконі	
 F	und	GMT{0}	GMT	+HH:mm;-HH:mm
+Y	und	y-MM-dd	{1} {0}
 P	ur	und
 F	ur	GMT {0}	GMT	+HH:mm;-HH:mm
+Y	ur	d/M/y	{1} {0}
 N	ur	Afghanistan	افغانستان کا وقت	
 N	ur	Africa_Central	وسطی افریقہ ٹائم	
 N	ur	Africa_Eastern	مشرقی افریقہ ٹائم	
@@ -23355,6 +23563,7 @@ N	ur-IN	Uzbekistan	ازبکستان سٹینڈرڈ ٹائم	ازبکستان س�
 N	ur-IN	Venezuela	وینزوئیلا ٹائم	
 N	ur-IN	Vostok	ووسٹاک ٹائم	
 P	uz	und
+Y	uz	dd/MM/y	{1}, {0}
 N	uz	Afghanistan	Afgʻoniston vaqti	
 N	uz	Africa_Central	Markaziy Afrika vaqti	
 N	uz	Africa_Eastern	Sharqiy Afrika vaqti	
@@ -23506,6 +23715,7 @@ N	uz	Yukon	Yukon vaqti
 P	uz-Arab	und
 D	uz-Arab	۰۱۲۳۴۵۶۷۸۹
 P	uz-Cyrl	und
+Y	uz-Cyrl	dd/MM/y	{1} {0}
 N	uz-Cyrl	Afghanistan	Афғонистон вақти	
 N	uz-Cyrl	Africa_Central	Марказий Африка вақти	
 N	uz-Cyrl	Africa_Eastern	Шарқий Африка вақти	
@@ -23650,10 +23860,12 @@ N	uz-Cyrl	Yekaterinburg	Екатеринбург стандарт вақти	Е�
 P	uz-Latn	uz
 P	vai	und
 P	vai-Latn	und
+Y	vai-Latn	M/d/y	{1} {0}
 P	vai-Vaii	vai
 P	ve	und
 P	vec	und
 F	vec	UTC{0}	UTC	+HH:mm;-HH:mm
+Y	vec	dd/MM/y	{1}, {0}
 N	vec	Afghanistan	Ora de l’Afghanistan	
 N	vec	Africa_Central	Ora de l’Àfrega sentrale	
 N	vec	Africa_Eastern	Ora de l’Àfrega orientale	
@@ -23803,6 +24015,7 @@ N	vec	Yakutsk	Ora normale de Yakutsk	Ora d’istà de Yakutsk
 N	vec	Yekaterinburg	Ora normale de Ekaterinburgo	Ora d’istà de Ekaterinburgo
 N	vec	Yukon	Ora de’l Yukon	
 P	vi	und
+Y	vi	d/M/y	{0} {1}
 N	vi	Acre	Giờ Chuẩn Acre	Giờ Mùa Hè Acre
 N	vi	Afghanistan	Giờ Afghanistan	
 N	vi	Africa_Central	Giờ Trung Phi	
@@ -23967,6 +24180,7 @@ N	vi	Yekaterinburg	Giờ Chuẩn Yekaterinburg	Giờ mùa hè Yekaterinburg
 N	vi	Yukon	Giờ Yukon	
 P	vmw	und
 F	vmw	GMT{0}	GMT	+H:mm;-H:mm
+Y	vmw	d/M/y	{1} {0}
 N	vmw	GMT	okathi oolikana wa Greenwich	
 P	vo	und
 P	vun	und
@@ -23979,6 +24193,7 @@ N	wae	Europe_Western	Wešteuropäiši Standardzit	Wešteuropäiši Summerzit
 P	wal	und
 P	wbp	und
 P	wo	und
+Y	wo	dd-MM-y	{1} - {0}
 N	wo	Afghanistan	waxtu Afganistan	
 N	wo	Africa_Central	Waxtu Afrique Centrale	
 N	wo	Africa_Eastern	Waxtu Afrique sowwu jant	
@@ -24128,6 +24343,7 @@ N	wo	Yakutsk	Waxtu Yakutsk	Waxtu ete bu Yakutsk
 N	wo	Yekaterinburg	Yekatérinbourg	Jamonoy ete
 N	wo	Yukon	Waxtu Yukon	
 P	xh	und
+Y	xh	M/d/y	{1} {0}
 N	xh	Afghanistan	Afghanistan Time	
 N	xh	Africa_Central	Central Africa Time	
 N	xh	Africa_Eastern	East Africa Time	
@@ -24278,6 +24494,7 @@ N	xh	Yekaterinburg	Yekaterinburg Standard Time	Yekaterinburg Summer Time
 N	xh	Yukon	Yukon Time	
 P	xnr	und
 F	xnr	ग्री॰ मै॰ टै॰{0}	GMT	+HH:mm;-HH:mm
+Y	xnr	d/M/y	{1}, {0}
 N	xnr	Afghanistan	अफ़गानिस्ताने दा टैम	
 N	xnr	Africa_Central	मध्य अफ़्रीका दा टैम	
 N	xnr	Africa_Eastern	पैलेी अफ़्रीका दा टैम	
@@ -24427,9 +24644,12 @@ N	xnr	Yekaterinburg	येकातेरिनबर्ग दा मानक 
 N	xnr	Yukon	युकॉन टैम	
 P	xog	und
 P	yav	und
+Y	yav	d/M/y	{1} {0}
 P	yi	und
+Y	yi	d-M-y	{1} {0}
 P	yo	und
 F	yo	WAT{0}	WAT	+HH:mm;-HH:mm
+Y	yo	d/M/y	{1} {0}
 N	yo	Afghanistan	Àkókò Afghanistan	
 N	yo	Africa_Central	Àkókò Àárín Afírikà	
 N	yo	Africa_Eastern	Àkókò Ìlà-Oòrùn Afírikà	
@@ -24671,6 +24891,7 @@ N	yo-BJ	Yakutsk	Àkókò Àfɛnukò Yatutsk	Àkókò Sɔmà Yatutsk
 N	yo-BJ	Yekaterinburg	Àkókò Àfɛnukò Yekaterinburg	Àkókò Sɔmà Yekaterinburg
 N	yo-BJ	Yukon	Àkókò Yúkɔ́nì	
 P	yrl	und
+Y	yrl	dd/MM/y	{1} {0}
 N	yrl	Acre	Hurariyu Retewa Acre yara	Hurariyu Kurasí Ara Acre yara
 N	yrl	Afghanistan	Afegãniretãma Hurariyu	
 N	yrl	Africa_Central	Afirika Piterawara Hurariyu	
@@ -24836,6 +25057,7 @@ P	yrl-VE	yrl
 N	yrl-VE	Bhutan	Butan Hurariyu	
 N	yrl-VE	Pierre_Miquelon	Sã Peduru asuí Mikiran Hurariyu Retewa	Sã Peduru asuí Mikiran Kurasí Ara Hurariyu
 P	yue	und
+Y	yue	y/M/d	{1} {0}
 N	yue	Acre	艾克標準時間	艾克夏令時間
 N	yue	Afghanistan	阿富汗時間	
 N	yue	Africa_Central	中非時間	
@@ -24998,6 +25220,7 @@ N	yue	Yakutsk	雅庫次克標準時間	雅庫次克夏令時間
 N	yue	Yekaterinburg	葉卡捷琳堡標準時間	葉卡捷琳堡夏令時間
 N	yue	Yukon	育空時間	
 P	yue-Hans	und
+Y	yue-Hans	y/M/d	{1} {0}
 N	yue-Hans	Acre	艾克标准时间	艾克夏令时间
 N	yue-Hans	Afghanistan	阿富汗时间	
 N	yue-Hans	Africa_Central	中非时间	
@@ -25163,9 +25386,11 @@ P	yue-Hant	yue
 P	yue-Hant-CN	yue-Hant
 P	yue-Hant-MO	yue-Hant
 P	za	und
+Y	za	y/M/d	{1} {0}
 N	za	GMT	Gwzlinzveihci Byauhcunj Sizgenh	
 P	zgh	und
 P	zh	und
+Y	zh	y/M/d	{1} {0}
 N	zh	Acre	阿克里标准时间	阿克里夏令时间
 N	zh	Afghanistan	阿富汗时间	
 N	zh	Africa_Central	中部非洲时间	
@@ -25330,10 +25555,14 @@ N	zh	Yekaterinburg	叶卡捷琳堡标准时间	叶卡捷琳堡夏令时间
 N	zh	Yukon	育空时间	
 P	zh-Hans	zh
 P	zh-Hans-HK	zh-Hans
+Y	zh-Hans-HK	d/M/y	{1} {0}
 P	zh-Hans-MO	zh-Hans
+Y	zh-Hans-MO	y年M月d日	{1} {0}
 P	zh-Hans-MY	zh-Hans
 P	zh-Hans-SG	zh-Hans
+Y	zh-Hans-SG	y年M月d日	{1} {0}
 P	zh-Hant	und
+Y	zh-Hant	y/M/d	{1} {0}
 N	zh-Hant	Acre	艾克標準時間	艾克夏令時間
 N	zh-Hant	Afghanistan	阿富汗時間	
 N	zh-Hant	Africa_Central	中非時間	
@@ -25497,6 +25726,7 @@ N	zh-Hant	Yakutsk	雅庫次克標準時間	雅庫次克夏令時間
 N	zh-Hant	Yekaterinburg	葉卡捷琳堡標準時間	葉卡捷琳堡夏令時間
 N	zh-Hant	Yukon	育空地區時間	
 P	zh-Hant-HK	zh-Hant
+Y	zh-Hant-HK	d/M/y	{1} {0}
 N	zh-Hant-HK	Africa_Southern	南非時間	
 N	zh-Hant-HK	America_Central	北美中部標準時間	北美中部夏令時間
 N	zh-Hant-HK	America_Eastern	北美東部標準時間	北美東部夏令時間
@@ -25533,6 +25763,7 @@ N	zh-Hant-HK	Yakutsk	雅庫茨克標準時間	雅庫茨克夏令時間
 P	zh-Hant-MO	zh-Hant-HK
 P	zh-Hant-MY	zh-Hant
 P	zh-Latn	zh
+Y	zh-Latn	y-MM-dd	{1} {0}
 P	zu	und
 N	zu	Afghanistan	Isikhathi sase-Afghanistan	
 N	zu	Africa_Central	Isikhathi sase-Central Africa	
