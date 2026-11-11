@@ -98,13 +98,17 @@ impl Rules {
     self.footer.is_some() && self.transitions.last().is_none_or(|&last| seconds >= last)
   }
 
-  /// The saving of `period`. A daylight period counts its offset above the nearest standard period before it, else after it. A standard period above a daylight neighbour, a negative saving in the main form, counts its offset above that neighbour.
+  /// The saving of `period`. A daylight period counts its offset above the nearest standard period before it, else after it. Below that period it is a negative saving in the main form, which the rearguard form counts as standard time. At the same offset its standard time never took effect, as in Argentina from October 1999. It then counts the hour zic assumes. A standard period above a daylight neighbour counts its offset above that neighbour.
   fn saving(&self, period: usize) -> i32 {
     let here = self.kind(period);
     let last = self.transitions.len();
     if here.daylight {
       let standard = (0..period).rev().chain(period + 1..=last).map(|p| self.kind(p)).find(|k| !k.daylight);
-      return standard.map_or(0, |s| (here.offset - s.offset).max(0));
+      return match standard.map(|s| here.offset - s.offset) {
+        Some(above) if above < 0 => 0,
+        Some(0) | None => 3600,
+        Some(above) => above,
+      };
     }
     let neighbours = [period.checked_sub(1), (period < last).then_some(period + 1)];
     neighbours.into_iter().flatten().map(|p| self.kind(p)).filter(|k| k.daylight && k.offset < here.offset).map(|k| here.offset - k.offset).max().unwrap_or(0)
@@ -138,16 +142,15 @@ pub fn observed_in(source: Source, zone: &str, ms: f64) -> Result<Observed, Erro
   Ok(Observed { offset: rules.kind(period).offset, saving: rules.saving(period) })
 }
 
-/// The daylight saving `zone` observes during the UTC calendar year holding `ms`, the largest when it observes more than one; `None` when it observes none that year. ICU's `useDaylightTime` and `getDSTSavings` read the year this way.
+/// The daylight saving `zone` observes during the UTC calendar year holding `ms`, the largest when it observes more than one; `None` when it observes none that year. ICU's `useDaylightTime` and `getDSTSavings` read the year this way, from the zone's final rule only after the year of its last transition.
 pub fn saving_in_year(source: Source, zone: &str, ms: f64) -> Result<Option<i32>, Error> {
   let at = seconds(ms)?;
   let rules = rules(source, zone)?;
-  if rules.in_footer(at) {
-    let footer = rules.footer.as_ref().expect("in_footer holds a footer");
+  let (year, _, _) = civil(at.div_euclid(86_400));
+  let last_year = rules.transitions.last().map(|&t| civil(t.div_euclid(86_400)).0);
+  if let Some(footer) = rules.footer.as_ref().filter(|_| last_year.is_none_or(|last| year > last)) {
     return Ok(footer.daylight.map(|daylight| (daylight - footer.standard).abs()));
   }
-  let days = at.div_euclid(86_400);
-  let (year, _, _) = civil(days);
   let (start, end) = (days_from_civil(year, 1, 1) * 86_400, days_from_civil(year + 1, 1, 1) * 86_400);
   let (first, last) = (rules.period(start), rules.period(end - 1));
   let most = (first..=last).map(|p| rules.saving(p)).max().unwrap_or(0);

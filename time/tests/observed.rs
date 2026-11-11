@@ -4,7 +4,7 @@ use snapfire_time::{observed_in, saving_in_year, Observed, Source};
 
 const JAN_2024: f64 = 1704067200000.0;
 const JUL_2024: f64 = 1720000000000.0;
-const NOV_2026: f64 = 1762776000000.0;
+const NOV_2026: f64 = 1794312000000.0;
 
 const OBSERVED: &[(&str, f64, i32, i32)] = &[
   ("America/New_York", JAN_2024, -18000, 0),
@@ -27,6 +27,7 @@ const OBSERVED: &[(&str, f64, i32, i32)] = &[
 const SAVING: &[(&str, f64, Option<i32>)] = &[
   ("America/New_York", NOV_2026, Some(3600)),
   ("America/Coyhaique", NOV_2026, None),
+  ("America/Coyhaique", 1748736000000.0, Some(3600)),
   ("Antarctica/Troll", NOV_2026, Some(7200)),
   ("Asia/Tokyo", NOV_2026, None),
   ("Africa/Casablanca", NOV_2026, Some(3600)),
