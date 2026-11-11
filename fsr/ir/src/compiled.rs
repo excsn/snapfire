@@ -708,10 +708,7 @@ fn object(parts: &[Part], env: &mut Env, base: usize) -> Result<Value, Fail> {
         map.insert(name.clone(), value);
       }
       Part::Computed(k, e) => {
-        let key = match eval(k, env, base)? {
-          Value::Str(s) => s.to_string(),
-          other => crate::interp::stringify(&other)?,
-        };
+        let key = crate::interp::key_text(&eval(k, env, base)?)?;
         let value = eval(e, env, base)?;
         map.insert(key, value);
       }

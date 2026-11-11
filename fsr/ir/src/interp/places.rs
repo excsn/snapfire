@@ -201,7 +201,7 @@ impl Env {
           match entry {
             Entry::Field(key, value) => out.push((key.clone(), self.eval_sync(value)?)),
             Entry::Computed(key, value) => {
-              let key = stringify(&self.eval_sync(key)?)?;
+              let key = key_text(&self.eval_sync(key)?)?;
               out.push((key, self.eval_sync(value)?));
             }
             _ => unreachable!("checked"),

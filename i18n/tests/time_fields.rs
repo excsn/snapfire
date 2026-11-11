@@ -24,8 +24,9 @@ const NODE: &[(&str, &str, &str, [bool; 3], [bool; 3])] = &[
 fn a_locales_numbering_system_hour_cycle_and_time_widths_are_what_node_resolves() {
   let mut wrong = Vec::new();
   for (tag, numbering, cycle, [hour, hm_hour, hm_minute], hms) in NODE {
-    let (alone, with_minute) = (snapfire_i18n::time_widths(tag, false, false), snapfire_i18n::time_widths(tag, true, false));
-    let got = (snapfire_i18n::numbering_system(tag), snapfire_i18n::hour_cycle(tag), [alone[0], with_minute[0], with_minute[1]], snapfire_i18n::time_widths(tag, true, true));
+    let on = snapfire_i18n::hour_cycle(tag);
+    let (alone, with_minute) = (snapfire_i18n::time_widths(tag, on, false, false), snapfire_i18n::time_widths(tag, on, true, false));
+    let got = (snapfire_i18n::numbering_system(tag), on, [alone[0], with_minute[0], with_minute[1]], snapfire_i18n::time_widths(tag, on, true, true));
     let want = (*numbering, *cycle, [*hour, *hm_hour, *hm_minute], *hms);
     if got != want {
       wrong.push(format!("{tag}: got {got:?} want {want:?}"));

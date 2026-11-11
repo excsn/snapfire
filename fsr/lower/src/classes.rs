@@ -362,7 +362,7 @@ fn constructor(lowerer: &mut Lowerer<'_>, id: &str, parent: Option<&str>, class:
           _ => Expr::lit_str(""),
         };
         let name = id.rsplit_once('#').map_or(id, |(_, name)| name);
-        Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), message)])
+        crate::error_object(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), message)]))
       }
       (None, _) => Expr::Object(Vec::new()),
     };

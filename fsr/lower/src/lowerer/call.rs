@@ -239,7 +239,7 @@ impl<'a> Lowerer<'a> {
               Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
               None => Expr::lit_str(""),
             };
-            Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), message)]))
+            Ok(crate::error_object(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), message)])))
           }
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           "redirect" if self.parsed.names_server(&call.callee, "redirect") => self.redirect_to(call),
@@ -271,6 +271,14 @@ impl<'a> Lowerer<'a> {
       return Ok(applied);
     }
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span(), "a computed method name"))?;
+    if method == "toString" && call.arguments.is_empty() {
+      if let Some(text) = self.function_property(member.object(), "toString") {
+        return Ok(text);
+      }
+    }
+    if self.kind_of(member.object()) == Some(Kind::Typed) {
+      return Err(self.residue(member.span(), format!("`.{method}()` of a typed array, which the build does not lower")));
+    }
     if self.kind_of(member.object()) == Some(Kind::Scope) {
       return self.scope_call(&method, member, call);
     }
@@ -642,7 +650,7 @@ impl<'a> Lowerer<'a> {
         }
       }
     }
-    if matches!(method.as_str(), "toArray" | "take" | "drop") && iterator_made(member.object()) {
+    if matches!(method.as_str(), "toArray" | "take" | "drop") && (iterator_made(member.object()) || self.kind_of(member.object()) == Some(Kind::Iterator)) {
       let target = self.expr(member.object())?;
       let mut args = self.plain_args(call)?.into_iter();
       return Ok(match method.as_str() {
@@ -829,6 +837,7 @@ impl<'a> Lowerer<'a> {
       "toString" if call.arguments.is_empty() => Ok(Expr::Str(target)),
       "toString" => Ok(Expr::Builtin { name: Builtin::Radix, args: vec![*target, self.expr(&crate::syntax::arg_expr(&call.arguments[0]))?] }),
       "getTime" | "valueOf" => Ok(*target),
+      "toJSON" if self.kind_of(member.object()) == Some(Kind::Url) => Ok(*target),
       "toISOString" | "toJSON" => Ok(Expr::Builtin { name: Builtin::IsoString, args: vec![*target] }),
       "getUTCFullYear" | "getUTCMonth" | "getUTCDate" | "getUTCDay" | "getUTCHours" | "getUTCMinutes" | "getUTCSeconds" | "getUTCMilliseconds" | "getMilliseconds" => {
         let part = match method.as_str() {
@@ -1115,7 +1124,19 @@ impl<'a> Lowerer<'a> {
         Ok(Expr::Ext { module: "intl".to_owned(), name: "localDate".to_owned(), args: vec![*target, locale, Expr::Lit(Lit::Bool(true))] })
       }
       "toLocaleString" => {
-        let formatted = self.intl_format("NumberFormat", &call.arguments, *target, call.span)?;
+        // An array formats each item with its own `toLocaleString` and joins them with commas; a number or a bigint is a number format; anything else is its text.
+        let (held, item) = (self.temp(), self.temp());
+        let numeric = |value: Expr| {
+          let kind = Expr::Builtin { name: Builtin::TypeOf, args: vec![value] };
+          Expr::Logic(LogicOp::Or, Box::new(Expr::Compare(CompareOp::Eq, Box::new(kind.clone()), Box::new(Expr::lit_str("number")))), Box::new(Expr::Compare(CompareOp::Eq, Box::new(kind), Box::new(Expr::lit_str("bigint")))))
+        };
+        let number = self.intl_format("NumberFormat", &call.arguments, Expr::Var(held.clone()), call.span)?;
+        let item_number = self.intl_format("NumberFormat", &call.arguments, Expr::Var(item.clone()), call.span)?;
+        let item_text = Expr::Ternary(Box::new(numeric(Expr::Var(item.clone()))), Box::new(item_number), Box::new(Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Var(item.clone())] }), Box::new(Expr::lit_str("")), Box::new(Expr::Str(Box::new(Expr::Var(item.clone())))))));
+        let items = Expr::Map(Box::new(Expr::Var(held.clone())), Box::new(Expr::Lambda { params: vec![item], body: Box::new(item_text) }));
+        let joined = Expr::Builtin { name: Builtin::Join, args: vec![items, Expr::lit_str(",")] };
+        let scalar = Expr::Ternary(Box::new(numeric(Expr::Var(held.clone()))), Box::new(number), Box::new(Expr::Str(Box::new(Expr::Var(held.clone())))));
+        let formatted = Expr::Block(vec![Stmt::Let { name: held.clone(), expr: *target }, Stmt::Return(Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsArray, args: vec![Expr::Var(held)] }), Box::new(joined), Box::new(scalar)))]);
         Ok(self.candidate(call.span, formatted))
       }
       "toFixed" | "repeat" | "join" | "trim" | "toUpperCase" | "toLowerCase" | "includes" => {
@@ -1188,6 +1209,14 @@ impl<'a> Lowerer<'a> {
           args.push(self.expr(crate::syntax::arg_expr(a))?);
         }
         Ok(Expr::Builtin { name, args })
+      }
+      other if self.kind_of(member.object()).is_some_and(crate::standard::uncalled) => {
+        let kind = self.kind_of(member.object()).expect("checked");
+        Err(self.residue(member.span(), format!("`.{other}()` of {}, which the build does not lower", kind.described())))
+      }
+      other if self.formatter_of(member.object()).is_some() => {
+        let formatter = self.formatter_of(member.object()).and_then(|made| platform_object(&made)).unwrap_or("formatter");
+        Err(self.residue(member.span(), format!("`.{other}()` of an `Intl.{formatter}`, which the build does not lower")))
       }
       other if !STANDARD_METHODS.contains(&other) => {
         let mut args = Vec::with_capacity(call.arguments.len());

@@ -86,6 +86,38 @@ pub(crate) fn chained<'a>(b: syntax::Build<'a>, e: &js::Expression<'_>) -> js::E
 }
 
 /// The kind `e` makes in place: a `new Map(...)`, `new Set(...)`, `new URLSearchParams(...)`, `new URL(...)` or `new Date(...)`, a bigint literal or `BigInt(...)`.
+/// `object`, an object of a `name` and a `message`, marked as an `Error`, so it converts to text and serializes as one.
+pub(crate) fn error_object(object: Expr) -> Expr {
+  Expr::Builtin { name: Builtin::AsError, args: vec![object] }
+}
+
+/// `object` marked as one of the platform's whose fields JavaScript does not enumerate, which JSON writes as `{}`.
+pub(crate) fn opaque_object(object: Expr) -> Expr {
+  Expr::Builtin { name: Builtin::AsOpaque, args: vec![object] }
+}
+
+/// The well-known symbols, `Symbol.iterator` and the others.
+pub(crate) const WELL_KNOWN_SYMBOLS: &[&str] = &["asyncDispose", "asyncIterator", "dispose", "hasInstance", "isConcatSpreadable", "iterator", "match", "matchAll", "replace", "search", "species", "split", "toPrimitive", "toStringTag", "unscopables"];
+
+/// `Symbol.<name>`: a symbol whose key is `@@<name>`, the property key an object written with `[Symbol.<name>]` holds it under.
+pub(crate) fn well_known_symbol(name: &str) -> Expr {
+  Expr::Builtin { name: Builtin::Tagged, args: vec![Expr::lit_str(snapfire_fsr_ir::render::typed::SYMBOL), Expr::lit_str(&format!("@@{name}"))] }
+}
+
+/// `symbol.description`: the key `Symbol.for` registered, or `Symbol.<name>` for a well-known symbol.
+pub(crate) fn symbol_description(symbol: Expr) -> Expr {
+  let key = Expr::Builtin { name: Builtin::TaggedPayload, args: vec![symbol, Expr::lit_str(snapfire_fsr_ir::render::typed::SYMBOL)] };
+  let well_known = Expr::Builtin { name: Builtin::StartsWith, args: vec![key.clone(), Expr::lit_str("@@")] };
+  let named = Expr::Arith(ArithOp::Add, Box::new(Expr::lit_str("Symbol.")), Box::new(Expr::Builtin { name: Builtin::Slice, args: vec![key.clone(), Expr::Lit(Lit::Int(2))] }));
+  Expr::Ternary(Box::new(well_known), Box::new(named), Box::new(key))
+}
+
+/// The typed array constructors.
+pub(crate) const TYPED_ARRAYS: &[&str] = &["Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float16Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array"];
+
+/// `Error` and its subclasses.
+pub(crate) const ERRORS: &[&str] = &["Error", "AggregateError", "SuppressedError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError"];
+
 pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
   match e {
     js::Expression::ParenthesizedExpression(p) => made_kind(&p.expression),
@@ -109,12 +141,20 @@ pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "Date" | "SvelteDate") => Some(Kind::Date),
       js::Expression::Identifier(id) if id.name.as_str() == "Response" => Some(Kind::Response),
       js::Expression::Identifier(id) if id.name.as_str() == "Scope" => Some(Kind::Scope),
+      js::Expression::Identifier(id) if TYPED_ARRAYS.contains(&id.name.as_str()) => Some(Kind::Typed),
+      js::Expression::Identifier(id) if ERRORS.contains(&id.name.as_str()) => Some(Kind::Error),
+      js::Expression::Identifier(id) if id.name.as_str() == "RegExp" => Some(Kind::RegExp),
+      js::Expression::Identifier(id) if id.name.as_str() == "Request" => Some(Kind::Request),
       callee if crate::temporal_type(callee).is_some() => Some(Kind::Temporal),
       _ => None,
     },
     js::Expression::BigIntLiteral(_) => Some(Kind::BigInt),
+    js::Expression::RegExpLiteral(_) => Some(Kind::RegExp),
+    js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if obj.name.as_str() == "Symbol") && WELL_KNOWN_SYMBOLS.contains(&m.property.name.as_str()) => Some(Kind::Symbol),
     js::Expression::CallExpression(call) => match &call.callee {
       js::Expression::Identifier(id) if id.name.as_str() == "BigInt" => Some(Kind::BigInt),
+      js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if obj.name.as_str() == "Symbol") && m.property.name.as_str() == "for" => Some(Kind::Symbol),
+      js::Expression::Identifier(id) if ERRORS.contains(&id.name.as_str()) => Some(Kind::Error),
       js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if obj.name.as_str() == "Response") && matches!(m.property.name.as_str(), "json" | "redirect") => Some(Kind::Response),
       js::Expression::StaticMemberExpression(m) if crate::temporal_type(&m.object).is_some() && crate::TEMPORAL_FROM.contains(&m.property.name.as_str()) => Some(Kind::Temporal),
       js::Expression::StaticMemberExpression(m) if crate::is_temporal_now(&m.object) && crate::TEMPORAL_NOW.contains(&m.property.name.as_str()) => Some(Kind::Temporal),

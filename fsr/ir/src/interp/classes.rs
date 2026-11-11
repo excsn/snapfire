@@ -56,7 +56,7 @@ pub(super) fn caught(fail: &Fail) -> Option<Value> {
       fields.insert("name".to_owned(), Value::str(name));
       fields.insert("kind".to_owned(), Value::str(fail.kind.as_str()));
       fields.insert("message".to_owned(), Value::str(message));
-      Some(Value::Map(fields))
+      Some(Value::Map(fields.with_kind(snapfire_fsr_core::value::Collection::Error)))
     }
   }
 }

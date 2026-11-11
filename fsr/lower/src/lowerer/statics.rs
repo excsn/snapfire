@@ -117,11 +117,11 @@ impl<'a> Lowerer<'a> {
   /// The first of `items` that does not throw, each tried in turn, else an `AggregateError` holding every reason. `list` stands for items already made, whose first is the answer.
   fn first_settled(&mut self, items: Vec<Expr>, list: Option<Expr>) -> Expr {
     let reasons = self.temp();
-    let failed = |reasons: &String| Stmt::Expr(thrown(Expr::Object(vec![
+    let failed = |reasons: &String| Stmt::Expr(thrown(crate::error_object(Expr::Object(vec![
       Entry::Field("name".to_owned(), Expr::lit_str("AggregateError")),
       Entry::Field("message".to_owned(), Expr::lit_str("All promises were rejected")),
       Entry::Field("errors".to_owned(), Expr::Var(reasons.clone())),
-    ])));
+    ]))));
     if let Some(list) = list {
       let empty = Expr::Compare(CompareOp::Eq, Box::new(Expr::Length(Box::new(Expr::Var(reasons.clone())))), Box::new(Expr::Lit(Lit::Int(0))));
       let first = Expr::Builtin { name: Builtin::At, args: vec![Expr::Var(reasons.clone()), Expr::Lit(Lit::Int(0))] };
@@ -218,7 +218,13 @@ impl<'a> Lowerer<'a> {
           other => other,
         };
         let callee = js::Expression::new_static_member_expression(span, b.ident("Object", span), js::IdentifierName::new(span, b.str(name), &ast), false, &ast);
-        js::Expression::new_call_expression(span, callee, None, b.vec(call.arguments.iter().map(|a| b.copy(a))), false, &ast)
+        let called = js::Expression::new_call_expression(span, callee, None, b.vec(call.arguments.iter().map(|a| b.copy(a))), false, &ast);
+        if matches!(method, "preventExtensions" | "defineProperty") {
+          // `Object`'s answer the object and `Reflect`'s whether they succeeded, which on a body's plain data they do.
+          let done = self.expr(b.alloc(called))?;
+          return Ok(Expr::Block(vec![Stmt::Expr(done), Stmt::Return(Expr::Lit(Lit::Bool(true)))]));
+        }
+        called
       }
       other => return Err(self.residue(span, format!("`Reflect.{other}`"))),
     };

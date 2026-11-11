@@ -311,13 +311,6 @@ impl<'a> Lowerer<'a> {
       _ => Expr::Ext { module: "intl".to_owned(), name: "localeTag".to_owned(), args: Vec::new() },
     };
     let mut entries = vec![Entry::Field("locale".to_owned(), locale)];
-    if formatter == "DateTimeFormat" {
-      entries.push(Entry::Field("calendar".to_owned(), Expr::lit_str("gregory")));
-    }
-    entries.push(Entry::Field("numberingSystem".to_owned(), Expr::lit_str("latn")));
-    if formatter == "NumberFormat" && !options.iter().any(|(k, _)| k == "style") {
-      entries.push(Entry::Field("style".to_owned(), Expr::lit_str("decimal")));
-    }
     if formatter == "DateTimeFormat" && !options.iter().any(|(k, _)| k == "timeZone") {
       if !body {
         return Err(self.browser_only(made.span, "`resolvedOptions()` of a date formatter with no `timeZone`, which names the viewer's time zone"));
@@ -327,6 +320,6 @@ impl<'a> Lowerer<'a> {
     for (key, value) in options {
       entries.push(Entry::Field(key, self.expr(value)?));
     }
-    Ok(Expr::Object(entries))
+    Ok(Expr::Ext { module: "intl".to_owned(), name: "resolvedOptions".to_owned(), args: vec![Expr::lit_str(formatter), Expr::Object(entries)] })
   }
 }

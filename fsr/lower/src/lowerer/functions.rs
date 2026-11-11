@@ -207,4 +207,62 @@ impl<'a> Lowerer<'a> {
     self.scope.truncate(depth);
     Ok(Expr::Lambda { params, body: Box::new(crate::component::sequenced(defaults, body?)) })
   }
+
+  /// The function `e` is when the build can see where it is written: in place, a function the body declares or the one declarator the module gives that name. Its name as JavaScript gives it, its parameters and its span in the source.
+  pub(crate) fn function_source(&self, e: &js::Expression) -> Option<(String, &'a js::FormalParameters<'a>, Span)> {
+    let named = |name: String, f: &'a js::Function<'a>| (f.id.as_ref().map_or(name, |id| id.name.to_string()), &*f.params, f.span);
+    match strip_parens(e) {
+      js::Expression::FunctionExpression(f) => {
+        let f: &'a js::Function<'a> = self.keep(&**f);
+        Some(named(String::new(), f))
+      }
+      js::Expression::ArrowFunctionExpression(arrow) => {
+        let arrow: &'a js::ArrowFunctionExpression<'a> = self.keep(&**arrow);
+        Some((String::new(), &*arrow.params, arrow.span))
+      }
+      js::Expression::Identifier(id) => {
+        let name = id.name.as_str();
+        if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| *f) {
+          return Some(named(name.to_owned(), function));
+        }
+        struct Declarators<'n, 'b, 'a> {
+          name: &'n str,
+          b: crate::syntax::Build<'a>,
+          found: Vec<&'b js::VariableDeclarator<'a>>,
+        }
+        impl<'a> oxc_ast_visit::Visit<'a> for Declarators<'_, '_, 'a> {
+          fn visit_variable_declarator(&mut self, decl: &js::VariableDeclarator<'a>) {
+            if matches!(&decl.id, js::BindingPattern::BindingIdentifier(bound) if bound.name.as_str() == self.name) {
+              self.found.push(self.b.alloc(self.b.copy(decl)));
+            }
+            oxc_ast_visit::walk::walk_variable_declarator(self, decl);
+          }
+        }
+        let holds_function = |bound: Option<&Expr>| matches!(bound, Some(Expr::Lambda { .. } | Expr::Fix { .. }));
+        if !holds_function(self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, b)| b)) && !holds_function(self.globals.iter().rev().find(|(n, _)| n == name).map(|(_, b)| b)) {
+          return None;
+        }
+        let mut declarators = Declarators { name, b: self.build(), found: Vec::new() };
+        oxc_ast_visit::Visit::visit_program(&mut declarators, self.parsed.module());
+        let [decl] = declarators.found[..] else { return None };
+        match decl.init.as_ref().map(strip_parens) {
+          Some(js::Expression::FunctionExpression(f)) => Some(named(name.to_owned(), f)),
+          Some(js::Expression::ArrowFunctionExpression(arrow)) => Some((name.to_owned(), &*arrow.params, arrow.span)),
+          _ => None,
+        }
+      }
+      _ => None,
+    }
+  }
+
+  /// `f.name`, `f.length` or `f.toString()` of a function the build can see where it is written.
+  pub(crate) fn function_property(&self, e: &js::Expression, member: &str) -> Option<Expr> {
+    let (name, params, span) = self.function_source(e)?;
+    Some(match member {
+      "name" => Expr::lit_str(&name),
+      "length" => Expr::Lit(Lit::Float(params_of(params).iter().take_while(|p| !p.rest && p.default.is_none()).count() as f64)),
+      "toString" => Expr::lit_str(&self.parsed.text()[self.parsed.range(span)]),
+      _ => return None,
+    })
+  }
 }

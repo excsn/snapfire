@@ -244,9 +244,10 @@ use snapfire_i18n::{hour_cycle, numbering_system, time_widths};
 assert_eq!(hour_cycle("en"), "h12");
 assert_eq!(hour_cycle("de"), "h23");
 assert_eq!(hour_cycle("en-u-hc-h23"), "h23");
-assert_eq!(time_widths("ru", false, false), [false, false, false]);
-assert_eq!(time_widths("ru", true, false), [true, true, false]);
-assert_eq!(time_widths("en", true, true), [false, true, true]);
+assert_eq!(time_widths("ru", "h23", false, false), [false, false, false]);
+assert_eq!(time_widths("ru", "h23", true, false), [true, true, false]);
+assert_eq!(time_widths("en", "h12", true, true), [false, true, true]);
+assert_eq!(time_widths("en", "h23", false, false), [true, false, false]);
 assert_eq!(numbering_system("ar-EG"), "arab");
 assert_eq!(numbering_system("en"), "latn");
 ```

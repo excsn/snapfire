@@ -9,6 +9,7 @@ mod create_element;
 pub mod extract;
 mod intl_calls;
 mod methods;
+mod standard;
 pub mod hoist;
 pub mod meaning;
 pub use meaning::{COMPONENTS_MODULE, TEMPLATE_MODULE};
@@ -681,6 +682,18 @@ pub(crate) enum Kind {
   Proxy,
   /// An `Intl.Locale`: its fields, with its tag under `$tag`.
   Locale,
+  /// A typed array: `Uint8Array`, `Float64Array` and the others.
+  Typed,
+  /// An iterator: what an array's, a `Map`'s or a `Set`'s `values()`, `keys()` and `entries()` answer and `Iterator.from` makes, held as an array.
+  Iterator,
+  /// An `Error` or one of its subclasses, held as an object of its `name` and `message`.
+  Error,
+  /// A regular expression.
+  RegExp,
+  /// A `Request`.
+  Request,
+  /// A symbol: a well-known one or one `Symbol.for` registered, held as its key.
+  Symbol,
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.

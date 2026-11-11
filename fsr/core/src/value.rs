@@ -159,6 +159,10 @@ pub enum Collection {
   Plain,
   Map,
   Set,
+  /// An `Error` or one of its subclasses: an object whose `name`, `message`, `cause` and `errors` JavaScript does not enumerate.
+  Error,
+  /// An object of the platform's whose fields JavaScript does not enumerate, such as an `Intl.Locale` or a `DisposableStack`: JSON writes it as `{}`.
+  Opaque,
 }
 
 impl<T> Place<T> {

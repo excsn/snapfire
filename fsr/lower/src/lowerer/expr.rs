@@ -24,11 +24,20 @@ impl<'a> Lowerer<'a> {
         {
       let callee = &call.callee;
           if let Some(m) = (crate::meaning::bare(callee)).as_member_expression() {
-            if self.member_name(m).as_deref() == Some("forEach") && call.arguments.len() == 1 {
+            if self.member_name(m).as_deref() == Some("forEach") && call.arguments.len() == 1 && self.kind_of(m.object()) != Some(Kind::Typed) {
+              let kind = self.kind_of(m.object()).map(Kind::collection);
               let over = self.expr(m.object())?;
               let f = self.expr(&crate::syntax::arg_expr(&call.arguments[0]))?;
-              let ran = self.temp();
-              return Ok(Expr::Block(vec![Stmt::Let { name: ran, expr: Expr::Map(Box::new(over), Box::new(f)) }, Stmt::Return(Expr::Lit(Lit::Undefined))]));
+              let (ran, pair) = (self.temp(), self.temp());
+              let at = |i: f64| Expr::Index(Box::new(Expr::Var(pair.clone())), Box::new(Expr::Lit(Lit::Float(i))));
+              // A `Map` and a `URLSearchParams` call back with the value then the key, a `Set` with the value twice.
+              let (items, callback) = match kind {
+                Some(Kind::Map) => (Expr::Entries(Box::new(over)), Expr::Lambda { params: vec![pair.clone()], body: Box::new(Expr::Apply { f: Box::new(f), args: vec![at(1.0), at(0.0)] }) }),
+                Some(Kind::Query) => (Expr::Builtin { name: Builtin::FormEntries, args: vec![over] }, Expr::Lambda { params: vec![pair.clone()], body: Box::new(Expr::Apply { f: Box::new(f), args: vec![at(1.0), at(0.0)] }) }),
+                Some(Kind::Set) => (over, Expr::Lambda { params: vec![pair.clone()], body: Box::new(Expr::Apply { f: Box::new(f), args: vec![Expr::Var(pair.clone()), Expr::Var(pair.clone())] }) }),
+                _ => (over, f),
+              };
+              return Ok(Expr::Block(vec![Stmt::Let { name: ran, expr: Expr::Map(Box::new(items), Box::new(callback)) }, Stmt::Return(Expr::Lit(Lit::Undefined))]));
             }
           }
         }
@@ -146,7 +155,8 @@ impl<'a> Lowerer<'a> {
         }
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy | Kind::Locale) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy | Kind::Locale | Kind::Typed | Kind::Iterator | Kind::Error | Kind::RegExp | Kind::Request) => Expr::lit_str("object"),
+          Some(Kind::Symbol) => Expr::lit_str("symbol"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
@@ -335,8 +345,8 @@ impl<'a> Lowerer<'a> {
       return Ok(compare);
     }
     if let (js::Expression::Identifier(id), Some(key)) = (member.object(), self.member_name(member)) {
-      if id.name.as_str() == "Symbol" && !self.scope.iter().any(|(n, _)| n == "Symbol") && matches!(key.as_str(), "dispose" | "asyncDispose") {
-        return Ok(Expr::lit_str(super::writes::DISPOSE));
+      if id.name.as_str() == "Symbol" && !self.scope.iter().any(|(n, _)| n == "Symbol") && crate::WELL_KNOWN_SYMBOLS.contains(&key.as_str()) {
+        return Ok(crate::well_known_symbol(&key));
       }
     }
     if let Some(class) = self.builtin_prototype(member) {
@@ -478,6 +488,26 @@ impl<'a> Lowerer<'a> {
       };
       return Err(self.browser_only(member.span(), format!("{shown}, a value only the browser knows")));
     }
+    if let Some(made) = self.formatter_of(member.object()) {
+      let coder = platform_object(made);
+      if matches!(coder, Some("TextEncoder" | "TextDecoder")) {
+        // A decoder with a label other than UTF-8 or with options is refused where it is made, so these are what every one the build takes reads.
+        return match (coder, self.member_name(member).as_deref()) {
+          (_, Some("encoding")) => Ok(Expr::lit_str("utf-8")),
+          (Some("TextDecoder"), Some("fatal" | "ignoreBOM")) => Ok(Expr::Lit(Lit::Bool(false))),
+          (_, name) => Err(self.residue(member.span(), format!("`.{}` of a `{}`", name.unwrap_or("[computed]"), coder.unwrap_or_default()))),
+        };
+      }
+    }
+    if self.kind_of(member.object()) == Some(Kind::Symbol) && self.member_name(member).as_deref() == Some("description") {
+      let symbol = self.expr(member.object())?;
+      return Ok(crate::symbol_description(symbol));
+    }
+    if let Some(name @ ("name" | "length")) = self.member_name(member).as_deref() {
+      if let Some(read) = self.function_property(member.object(), name) {
+        return Ok(read);
+      }
+    }
     let collection = self.kind_of(member.object()).filter(|k| *k != Kind::Wrapper);
     let target = self.unwrapped(member.object())?;
     if collection == Some(Kind::Response) {
@@ -521,7 +551,8 @@ impl<'a> Lowerer<'a> {
     }
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
-      Ok(name) if name == "size" && collection.is_some_and(|kind| kind != Kind::Query) => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if name == "size" && matches!(collection.map(Kind::collection), Some(Kind::Map | Kind::Set)) => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if collection.is_some_and(|kind| crate::standard::unread(kind, &name)) => Err(self.residue(member.span(), format!("`.{name}` of {}, which the build does not read", collection.expect("checked").described()))),
       Ok(name) if collection.is_none() && self.may_be_getter(&name) && !crate::classes::plain_root(&target) => {
         let t = self.temp();
         Ok(crate::classes::getter_dispatch(t, target, &name))

@@ -74,7 +74,7 @@ pub(crate) fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStatement)
         Some(arg) => lowerer.expr(&arg)?,
         None => Expr::lit_str(""),
       };
-      let error = Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), Expr::Str(Box::new(message.clone())))]);
+      let error = crate::error_object(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), Expr::Str(Box::new(message.clone())))]));
       (message, Some(error))
     }
     None => {

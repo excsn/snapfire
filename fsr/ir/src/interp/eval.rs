@@ -93,10 +93,7 @@ impl Env {
                 map.insert(name.as_str(), v);
               }
               Entry::Computed(k, e) => {
-                let key = match self.eval(k).await? {
-                  Value::Str(s) => s.to_string(),
-                  other => stringify(&other)?,
-                };
+                let key = key_text(&self.eval(k).await?)?;
                 let v = self.eval(e).await?;
                 map.insert(key, v);
               }

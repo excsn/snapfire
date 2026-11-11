@@ -226,6 +226,8 @@ pub(crate) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::MapKey => "map-key",
     Builtin::MapOf => "map-of",
     Builtin::AsMap => "as-map",
+    Builtin::AsError => "as-error",
+    Builtin::AsOpaque => "as-opaque",
     Builtin::AsSet => "as-set",
     Builtin::Emit => "emit",
   }
@@ -368,6 +370,8 @@ pub(crate) fn builtin_of(s: &str) -> Option<Builtin> {
     "map-key" => Builtin::MapKey,
     "map-of" => Builtin::MapOf,
     "as-map" => Builtin::AsMap,
+    "as-error" => Builtin::AsError,
+    "as-opaque" => Builtin::AsOpaque,
     "as-set" => Builtin::AsSet,
     "emit" => Builtin::Emit,
     _ => return None,

@@ -58,7 +58,7 @@ pub(crate) fn length_of(value: Value) -> Result<Value, Fail> {
 pub(crate) fn key_name(key: Value) -> Result<Name, Fail> {
   match key {
     Value::Str(text) => Ok(text.into_text()),
-    other => Ok(Name::new(stringify(&other)?)),
+    other => Ok(Name::new(key_text(&other)?)),
   }
 }
 
@@ -171,7 +171,7 @@ pub(super) fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
       }
     }
     (Value::Map(map), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => Ok(map.get(stringify(key)?.as_str()).cloned().unwrap_or(Value::Undefined)),
-    (Value::Map(map), other) => Ok(stringify(other).ok().and_then(|k| map.get(k.as_str()).cloned()).unwrap_or(Value::Undefined)),
+    (Value::Map(map), other) => Ok(key_text(other).ok().and_then(|k| map.get(k.as_str()).cloned()).unwrap_or(Value::Undefined)),
     (Value::Seq(items), Value::Str(k)) if k.as_str() == "length" => Ok(Value::F64(items.len() as f64)),
     (Value::Str(s), Value::Str(k)) if k.as_str() == "length" => Ok(Value::F64(s.encode_utf16().count() as f64)),
     (Value::Seq(_) | Value::Str(_), Value::Str(k)) => match k.parse::<u128>() {

@@ -32,6 +32,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.locale", Reach::Render, locale_op);
   extensions.register("intl.duration", Reach::Render, duration);
   extensions.register("intl.displayNames", Reach::Render, display_names);
+  extensions.register("intl.resolvedOptions", Reach::Render, resolved_options);
   extensions.register("intl.supported", Reach::Render, |_, args| {
     let key = text("intl.supported", args, 0)?;
     let values = super::supported::supported(key).ok_or_else(|| Fail::internal(format!("RangeError: Invalid key : {key}")))?;
@@ -809,7 +810,7 @@ fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
       }
       let numeric = "kn".parse().ok().and_then(|k| locale.extensions.unicode.keywords.get(&k)).is_some_and(|v| v.to_string().is_empty() || v.to_string() == "true");
       map.insert("numeric".to_owned(), Value::Bool(numeric));
-      Ok(Value::Map(map))
+      Ok(Value::Map(map.with_kind(snapfire_fsr_core::Collection::Opaque)))
     }
   }
 }
@@ -884,6 +885,135 @@ fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   };
   let list = ListFormatter::try_new_unit((&locale).into(), ListFormatterOptions::default().with_length(length)).map_err(|e| data(what, e))?;
   Ok(Value::str(list.format(items.iter().map(String::as_str)).to_string()))
+}
+
+/// `intl.resolvedOptions(formatter, options)`: what `resolvedOptions()` reports for an `Intl.DateTimeFormat` or an `Intl.NumberFormat` made with `options`, its locale under `locale` and a date formatter's zone under `timeZone`, with every default the options leave out and in the order node reports them.
+fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "intl.resolvedOptions";
+  let formatter = text(what, args, 0)?;
+  let options = args.get(1);
+  let tag = locale_for(what, ambient, options)?.to_string();
+  let given = |key: &str| match options {
+    Some(Value::Map(map)) => map.get(key).filter(|v| !matches!(v, Value::Undefined)).cloned(),
+    _ => None,
+  };
+  let word = |key: &str| match given(key) {
+    Some(Value::Str(s)) => Some(s.to_string()),
+    _ => None,
+  };
+  let mut out = snapfire_fsr_core::ValueMap::default();
+  out.insert("locale".to_owned(), Value::str(tag.as_str()));
+  if formatter == "DateTimeFormat" {
+    let calendar = word("calendar").unwrap_or_else(|| match snapfire_i18n::calendar(&tag) {
+      Some(snapfire_i18n::Calendar::Persian) => "persian".to_owned(),
+      Some(snapfire_i18n::Calendar::Buddhist) => "buddhist".to_owned(),
+      Some(snapfire_i18n::Calendar::Gregorian) => "gregory".to_owned(),
+      None => tag.split("-u-").nth(1).and_then(|keys| keys.split('-').skip_while(|k| *k != "ca").nth(1)).unwrap_or("gregory").to_owned(),
+    });
+    out.insert("calendar".to_owned(), Value::str(calendar));
+    out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+    if let Some(zone) = given("timeZone") {
+      out.insert("timeZone".to_owned(), zone);
+    }
+    const FIELDS: [&str; 10] = ["weekday", "era", "year", "month", "day", "dayPeriod", "hour", "minute", "second", "fractionalSecondDigits"];
+    let styled = given("dateStyle").is_some() || given("timeStyle").is_some();
+    let hour = given("hour").is_some();
+    let cycle = match (word("hourCycle"), given("hour12")) {
+      (_, Some(Value::Bool(true))) => if snapfire_i18n::hour_cycle(&tag) == "h11" { "h11" } else { "h12" }.to_owned(),
+      (_, Some(Value::Bool(false))) => if snapfire_i18n::hour_cycle(&tag) == "h24" { "h24" } else { "h23" }.to_owned(),
+      (Some(cycle), _) => cycle,
+      _ => snapfire_i18n::hour_cycle(&tag).to_owned(),
+    };
+    if hour || given("timeStyle").is_some() {
+      out.insert("hourCycle".to_owned(), Value::str(cycle.as_str()));
+      out.insert("hour12".to_owned(), Value::Bool(matches!(cycle.as_str(), "h11" | "h12")));
+    }
+    if !styled && !FIELDS.iter().any(|f| given(f).is_some()) {
+      for field in ["year", "month", "day"] {
+        out.insert(field.to_owned(), Value::str("numeric"));
+      }
+    }
+    let widths = snapfire_i18n::time_widths(&tag, &cycle, given("minute").is_some(), given("second").is_some());
+    for (field, at) in FIELDS.iter().zip(0..) {
+      let Some(value) = given(field) else { continue };
+      let value = match (hour, at) {
+        (true, 6..=8) if widths[at - 6] => Value::str("2-digit"),
+        (true, 6..=8) if matches!(&value, Value::Str(s) if s.as_str() == "2-digit") => value,
+        (true, 6..=8) => Value::str("numeric"),
+        _ => value,
+      };
+      out.insert((*field).to_owned(), value);
+    }
+    for field in ["timeZoneName", "dateStyle", "timeStyle"] {
+      if let Some(value) = given(field) {
+        out.insert(field.to_owned(), value);
+      }
+    }
+    return Ok(Value::Map(out));
+  }
+  let int = |key: &str| match given(key) {
+    Some(Value::Int(n)) => Some(n as f64),
+    Some(Value::F64(n)) => Some(n),
+    Some(Value::F32(n)) => Some(f64::from(n)),
+    _ => None,
+  };
+  out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+  let style = word("style").unwrap_or_else(|| "decimal".to_owned());
+  out.insert("style".to_owned(), Value::str(style.as_str()));
+  let compact = word("notation").as_deref() == Some("compact");
+  let (mut low, mut high) = (0.0, if style == "percent" { 0.0 } else { 3.0 });
+  match style.as_str() {
+    "currency" => {
+      let code = word("currency").ok_or_else(|| Fail::internal("TypeError: Currency code is required with currency style."))?;
+      let digits = snapfire_i18n::Currency::new(&tag, &code, snapfire_i18n::Display::Symbol).map_or(2, |c| c.digits());
+      (low, high) = (f64::from(digits), f64::from(digits));
+      out.insert("currency".to_owned(), Value::str(code.to_uppercase()));
+      out.insert("currencyDisplay".to_owned(), Value::str(word("currencyDisplay").unwrap_or_else(|| "symbol".to_owned())));
+      out.insert("currencySign".to_owned(), Value::str(word("currencySign").unwrap_or_else(|| "standard".to_owned())));
+    }
+    "unit" => {
+      out.insert("unit".to_owned(), given("unit").unwrap_or(Value::Undefined));
+      out.insert("unitDisplay".to_owned(), Value::str(word("unitDisplay").unwrap_or_else(|| "short".to_owned())));
+    }
+    _ => {}
+  }
+  out.insert("minimumIntegerDigits".to_owned(), Value::F64(int("minimumIntegerDigits").unwrap_or(1.0)));
+  let significant = int("minimumSignificantDigits").is_some() || int("maximumSignificantDigits").is_some();
+  if compact && !significant && int("minimumFractionDigits").is_none() && int("maximumFractionDigits").is_none() {
+    out.insert("minimumFractionDigits".to_owned(), Value::F64(0.0));
+    out.insert("maximumFractionDigits".to_owned(), Value::F64(0.0));
+    out.insert("minimumSignificantDigits".to_owned(), Value::F64(1.0));
+    out.insert("maximumSignificantDigits".to_owned(), Value::F64(2.0));
+  } else if significant {
+    out.insert("minimumSignificantDigits".to_owned(), Value::F64(int("minimumSignificantDigits").unwrap_or(1.0)));
+    out.insert("maximumSignificantDigits".to_owned(), Value::F64(int("maximumSignificantDigits").unwrap_or(21.0)));
+  } else {
+    match (int("minimumFractionDigits"), int("maximumFractionDigits")) {
+      (Some(min), Some(max)) => (low, high) = (min, max),
+      (Some(min), None) => (low, high) = (min, high.max(min)),
+      (None, Some(max)) => (low, high) = (low.min(max), max),
+      (None, None) => {}
+    }
+    out.insert("minimumFractionDigits".to_owned(), Value::F64(low));
+    out.insert("maximumFractionDigits".to_owned(), Value::F64(high));
+  }
+  let grouping = match given("useGrouping") {
+    Some(Value::Bool(false)) => Value::Bool(false),
+    Some(Value::Bool(true)) => Value::str("always"),
+    Some(Value::Str(s)) => Value::str(s.as_str()),
+    _ => Value::str(if compact { "min2" } else { "auto" }),
+  };
+  out.insert("useGrouping".to_owned(), grouping);
+  out.insert("notation".to_owned(), Value::str(word("notation").unwrap_or_else(|| "standard".to_owned())));
+  if compact {
+    out.insert("compactDisplay".to_owned(), Value::str(word("compactDisplay").unwrap_or_else(|| "short".to_owned())));
+  }
+  out.insert("signDisplay".to_owned(), Value::str(word("signDisplay").unwrap_or_else(|| "auto".to_owned())));
+  out.insert("roundingIncrement".to_owned(), Value::F64(int("roundingIncrement").unwrap_or(1.0)));
+  out.insert("roundingMode".to_owned(), Value::str(word("roundingMode").unwrap_or_else(|| "halfExpand".to_owned())));
+  out.insert("roundingPriority".to_owned(), Value::str(word("roundingPriority").unwrap_or_else(|| if compact && !significant { "morePrecision" } else { "auto" }.to_owned())));
+  out.insert("trailingZeroDisplay".to_owned(), Value::str(word("trailingZeroDisplay").unwrap_or_else(|| "auto".to_owned())));
+  Ok(Value::Map(out))
 }
 
 /// `intl.displayNames(code, { locale?, type, style?, languageDisplay?, fallback? })`: `new Intl.DisplayNames(locale, options).of(code)`. A code CLDR does not name is itself under `fallback: "code"` (the default) and `undefined` under `"none"`.

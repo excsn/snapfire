@@ -334,10 +334,7 @@ impl Env {
           map.insert(name.as_str(), v);
         }
         Entry::Computed(k, e) => {
-          let key = match self.eval_sync(k)? {
-            Value::Str(s) => s.to_string(),
-            other => stringify(&other)?,
-          };
+          let key = key_text(&self.eval_sync(k)?)?;
           let v = self.eval_sync(e)?;
           map.insert(key, v);
         }

@@ -655,9 +655,11 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     let inner = crate::sexpr::builtin_of(inner.as_str()).filter(|b| *b != Builtin::Spread).ok_or_else(|| Fail::internal(format!("Spread: `{inner}` is not a builtin")))?;
     return builtin(inner, items.to_vec());
   }
-  if matches!(name, Builtin::AsMap | Builtin::AsSet) {
+  if matches!(name, Builtin::AsMap | Builtin::AsSet | Builtin::AsError | Builtin::AsOpaque) {
     return Ok(match (name, args.into_iter().next()) {
       (Builtin::AsMap, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Map)),
+      (Builtin::AsError, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Error)),
+      (Builtin::AsOpaque, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Opaque)),
       (Builtin::AsSet, Some(Value::Seq(items))) => Value::Seq(items.with_kind(Collection::Set)),
       (_, other) => other.unwrap_or(Value::Undefined),
     });
@@ -930,7 +932,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         let mut thrown = ValueMap::default();
         thrown.insert("name".to_owned(), Value::str("URIError"));
         thrown.insert("message".to_owned(), Value::str("URI malformed"));
-        Fail::internal("decodeURIComponent: URI malformed").with_thrown(Value::Map(thrown))
+        Fail::internal("decodeURIComponent: URI malformed").with_thrown(Value::Map(thrown.with_kind(Collection::Error)))
       };
       let digit = |byte: Option<&u8>| byte.and_then(|b| (*b as char).to_digit(16));
       let bytes = s.as_bytes();
@@ -1097,7 +1099,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
           let mut thrown = ValueMap::default();
           thrown.insert("name".to_owned(), Value::str("SyntaxError"));
           thrown.insert("message".to_owned(), Value::str(message.clone()));
-          return Err(Fail::internal(format!("JSON.parse: {message}")).with_thrown(Value::Map(thrown)));
+          return Err(Fail::internal(format!("JSON.parse: {message}")).with_thrown(Value::Map(thrown.with_kind(Collection::Error))));
         }
       }
     }
@@ -1420,7 +1422,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::LooseEq => Value::Bool(loose_equal(arg(0)?, arg(1)?)?),
     Builtin::MapKey => Value::str(map_key(arg(0)?)?),
     Builtin::HeapOn | Builtin::Overwrite => Value::Null,
-    Builtin::AsMap | Builtin::AsSet | Builtin::Spread => unreachable!("taken before the match"),
+    Builtin::AsMap | Builtin::AsSet | Builtin::AsError | Builtin::AsOpaque | Builtin::Spread => unreachable!("taken before the match"),
     Builtin::CopyDeep => own_copy(arg(0)?),
     Builtin::MapOf => match arg(0)? {
       Value::Seq(pairs) => {

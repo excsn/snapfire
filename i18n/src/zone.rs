@@ -371,10 +371,10 @@ pub fn hour_cycle(tag: &str) -> &'static str {
   }
 }
 
-/// Whether the hour, the minutes and the seconds are written with two digits in the pattern `tag` writes a time of the hour alone, with `minute`, or with `minute` and `second` in: the `j`, `jm` and `jms` skeletons on the locale's [`hour_cycle`]. `[false, true, true]` for `en` with all three.
-pub fn time_widths(tag: &str, minute: bool, second: bool) -> [bool; 3] {
+/// Whether the hour, the minutes and the seconds are written with two digits in the pattern `tag` writes a time of the hour alone, with `minute`, or with `minute` and `second` in on the hour cycle `cycle`: the `j`, `jm` and `jms` skeletons. `[false, true, true]` for `en` on `h12` with all three.
+pub fn time_widths(tag: &str, cycle: &str, minute: bool, second: bool) -> [bool; 3] {
   let chain = chain(tag);
-  let twelve = matches!(hour_cycle(tag), "h11" | "h12");
+  let twelve = matches!(cycle, "h11" | "h12");
   let mut hours = chain.iter().find_map(|names| names.hours).unwrap_or(["h a", "HH", "h:mm a", "HH:mm"]);
   let mut clock = chain.iter().find_map(|names| names.clock).unwrap_or(["h:mm:ss a", "HH:mm:ss", "AM", "PM"]);
   // A locale writing dates in another calendar writes times in that calendar's patterns too.

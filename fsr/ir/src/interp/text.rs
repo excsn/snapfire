@@ -43,6 +43,15 @@ pub(super) fn array_text_into(items: &[Value], out: &mut String) -> Result<bool,
   Ok(true)
 }
 
+/// The property key `value` names: a symbol its key text, anything else its text.
+pub(crate) fn key_text(value: &Value) -> Result<String, Fail> {
+  match value {
+    Value::Str(s) => Ok(s.to_string()),
+    Value::Variant { tag, payload: Some(key) } if tag == snapfire_fsr_core::value::typed::SYMBOL => stringify(key),
+    other => stringify(other),
+  }
+}
+
 pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
   let mut out = String::new();
   stringify_into(value, &mut out)?;
@@ -73,12 +82,45 @@ pub(super) fn plain_text_into(value: &Value, out: &mut String) -> Result<bool, F
     Value::Seq(items) if items.kind() == Collection::Set => out.push_str("[object Set]"),
     Value::Map(map) if map.kind() == Collection::Map => out.push_str("[object Map]"),
     Value::Seq(items) => return on_enough_stack(|| array_text_into(items, out)),
+    Value::Map(map) if map.kind() == Collection::Error => error_text_into(map, out),
+    Value::Map(map) if map.contains_key(crate::jsregex::PATTERN) => {
+      out.push('/');
+      plain_text_into(map.get(crate::jsregex::PATTERN).unwrap_or(&Value::Undefined), out)?;
+      out.push('/');
+      plain_text_into(map.get(crate::jsregex::FLAGS).unwrap_or(&Value::Undefined), out)?;
+    }
     Value::Map(_) if converts_itself(value) => return Ok(false),
     Value::Map(_) => out.push_str("[object Object]"),
+    Value::Variant { tag, payload: Some(key) } if tag == snapfire_fsr_core::value::typed::SYMBOL => {
+      let key = stringify(key)?;
+      out.push_str("Symbol(");
+      match key.strip_prefix("@@") {
+        Some(name) => {
+          out.push_str("Symbol.");
+          out.push_str(name);
+        }
+        None => out.push_str(&key),
+      }
+      out.push(')');
+    }
     temporal @ Value::Variant { .. } if snapfire_fsr_core::value::typed::temporal(temporal).is_some() => out.push_str(snapfire_fsr_core::value::typed::temporal(temporal).map_or("", |(_, text)| text)),
     other => return Err(type_error("String", "a scalar, an array or a plain object", other)),
   }
   Ok(true)
+}
+
+/// `Error.prototype.toString`: the name and the message joined by `": "`, the one that is empty left out, the name `Error` when it is missing.
+fn error_text_into(error: &ValueMap, out: &mut String) {
+  let read = |field: &str, missing: &str| match error.get(field) {
+    None | Some(Value::Undefined) => missing.to_owned(),
+    Some(other) => stringify(other).unwrap_or_default(),
+  };
+  let (name, message) = (read("name", "Error"), read("message", ""));
+  out.push_str(&name);
+  if !name.is_empty() && !message.is_empty() {
+    out.push_str(": ");
+  }
+  out.push_str(&message);
 }
 
 std::thread_local! {

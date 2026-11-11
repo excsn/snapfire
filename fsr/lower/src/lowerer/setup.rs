@@ -445,6 +445,7 @@ let m = m_expr.as_member_expression().expect("matched as a member");
         callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Stack) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "move")) => Some(Kind::Stack),
         callee if callee.as_member_expression().is_some_and(|m| matches!(m.object(), js::Expression::Identifier(id) if id.name.as_str() == "Map" && !self.scope.iter().any(|(n, _)| n == "Map")) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "groupBy")) => Some(Kind::Map),
         callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Temporal) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if crate::TEMPORAL_MAKERS.contains(&p.name.as_str()))) => Some(Kind::Temporal),
+        callee if callee.as_member_expression().is_some_and(|m| self.makes_iterator(m)) => Some(Kind::Iterator),
         js::Expression::Identifier(f) if !self.scope.iter().any(|(n, _)| n == f.name.as_str()) => {
           let returned = returned_by(f.name.as_str());
           self.global_kinds.iter().find(|(n, _)| *n == returned).map(|(_, kind)| *kind).or_else(|| made_kind(e))
@@ -456,8 +457,25 @@ let m = m_expr.as_member_expression().expect("matched as a member");
     }
   }
 
+  /// Whether calling `m` answers an iterator: `values()`, `keys()` or `entries()` of an array written in place or of a value whose kind holds items, `Iterator.from(...)` and an iterator helper of an iterator.
+  fn makes_iterator(&self, m: &js::MemberExpression) -> bool {
+    let crate::syntax::MemberProp::Ident(p) = crate::syntax::prop(m) else { return false };
+    let object = m.object();
+    match p.name.as_str() {
+      "values" | "keys" | "entries" => matches!(strip_parens(object), js::Expression::ArrayExpression(_)) || matches!(self.kind_of(object), Some(Kind::Map | Kind::Set | Kind::Typed | Kind::Iterator)),
+      "from" | "concat" | "zip" => matches!(object, js::Expression::Identifier(id) if id.name.as_str() == "Iterator" && !self.scope.iter().any(|(n, _)| n == "Iterator")),
+      "map" | "filter" | "flatMap" | "take" | "drop" => self.kind_of(object) == Some(Kind::Iterator),
+      _ => false,
+    }
+  }
+
   /// The kind a member read holds: a browser object's member, a URL's `searchParams`, a class field or a prop whose kind is known.
   pub(crate) fn member_kind(&self, m: &js::MemberExpression) -> Option<Kind> {
+    if let (js::Expression::Identifier(obj), crate::syntax::MemberProp::Ident(p)) = (m.object(), crate::syntax::prop(m)) {
+      if obj.name.as_str() == "Symbol" && !self.scope.iter().any(|(n, _)| n == "Symbol") && crate::WELL_KNOWN_SYMBOLS.contains(&p.name.as_str()) {
+        return Some(Kind::Symbol);
+      }
+    }
     if self.kind_of(m.object()) == Some(Kind::Browser) {
       return Some(Kind::Browser);
     }

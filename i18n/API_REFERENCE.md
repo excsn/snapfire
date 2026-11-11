@@ -183,7 +183,7 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 
 ### time_widths
 
-* `pub fn time_widths(tag: &str, minute: bool, second: bool) -> [bool; 3]`: whether the hour, the minutes and the seconds are two digits in the pattern the locale writes the hour alone, with `minute` or with `minute` and `second` in, as `resolvedOptions()` reports them: `[false, true, true]` in `en` with all three.
+* `pub fn time_widths(tag: &str, cycle: &str, minute: bool, second: bool) -> [bool; 3]`: whether the hour, the minutes and the seconds are two digits in the pattern the locale writes the hour alone, with `minute` or with `minute` and `second` in on the hour cycle `cycle`, as `resolvedOptions()` reports them: `[false, true, true]` in `en` on `h12` with all three.
 
 ### numbering_system
 

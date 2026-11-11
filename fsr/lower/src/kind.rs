@@ -23,6 +23,22 @@ impl Kind {
       Kind::Stack => "DisposableStack",
       Kind::Proxy => "Object",
       Kind::Locale => "Intl.Locale",
+      Kind::Typed => "typed array",
+      Kind::Iterator => "Iterator",
+      Kind::Error => "Error",
+      Kind::RegExp => "RegExp",
+      Kind::Request => "Request",
+      Kind::Symbol => "Symbol",
+    }
+  }
+
+  /// The kind as a message names a value of it: "an `Error`", "a typed array".
+  pub(crate) fn described(self) -> String {
+    let name = self.name();
+    match self {
+      Kind::Typed | Kind::Browser => format!("a {name}"),
+      _ if name.starts_with(['A', 'E', 'I', 'O', 'U']) => format!("an `{name}`"),
+      _ => format!("a `{name}`"),
     }
   }
 
@@ -55,7 +71,7 @@ impl Kind {
     match self {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
-      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy | Kind::Locale => None,
+      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy | Kind::Locale | Kind::Typed | Kind::Iterator | Kind::Error | Kind::RegExp | Kind::Request | Kind::Symbol => None,
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),

@@ -155,6 +155,9 @@ impl std::fmt::Write for Digits {
 }
 
 /// Whether a value is left out of an object, as `undefined` and a function are.
+/// The fields of an error JavaScript does not enumerate, which JSON leaves out.
+const ERROR_FIELDS: [&str; 6] = ["name", "message", "cause", "errors", "error", "suppressed"];
+
 /// Whether `JSON.stringify` writes nothing for `value`: `undefined`, a function or a symbol, which it leaves out of an object, writes as `null` in an array and answers `undefined` for alone.
 pub fn unwritten(value: &Value) -> bool {
   matches!(value, Value::Undefined | Value::Ref { .. }) || matches!(value, Value::Variant { tag, .. } if tag == typed::SYMBOL || tag == typed::FUNCTION)
@@ -173,6 +176,8 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
     Value::Map(map) if map.kind() == crate::value::Collection::Map => out.push_str("{}"),
     Value::Map(map) if map.get(typed::REGEX).is_some() => out.push_str("{}"),
     Value::Seq(items) => crate::on_enough_stack(|| array(out, items.iter(), indent, depth, integers))?,
+    Value::Map(map) if map.kind() == crate::value::Collection::Opaque => out.push_str("{}"),
+    Value::Map(map) if map.kind() == crate::value::Collection::Error => crate::on_enough_stack(|| object(out, map.iter().filter(|(k, _)| !ERROR_FIELDS.contains(&k.as_str())).map(|(k, v)| (k.as_str(), v)), indent, depth, integers))?,
     Value::Map(map) => crate::on_enough_stack(|| object(out, map.iter().map(|(k, v)| (k.as_str(), v)), indent, depth, integers))?,
     Value::Bytes(bytes) => indexed(out, bytes.iter().map(|b| Value::Int((*b).into())).collect(), indent, depth, integers)?,
     Value::TypedArray(array) => indexed(out, elements(array), indent, depth, integers)?,
@@ -183,6 +188,7 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
       },
       (typed::MAP | typed::SET, _) => out.push_str("{}"),
       (typed::SYMBOL | typed::FUNCTION, _) => out.push_str("null"),
+      (typed::PROTOTYPE, _) => out.push_str("{}"),
       (typed::WRAPPER, Some(primitive)) => write(out, primitive, indent, depth, integers)?,
       (typed::RAW_JSON, Some(Value::Str(text))) => out.push_str(text),
       (typed::URL, Some(href)) => write(out, href, indent, depth, integers)?,

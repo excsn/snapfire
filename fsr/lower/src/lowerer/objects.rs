@@ -208,10 +208,10 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
             let without = Expr::Object(fields.clone());
             let object = Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::lit_str("object")))), Box::new(Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Var(held.clone())] }))));
             let pick = Expr::Ternary(Box::new(Expr::Logic(LogicOp::And, Box::new(object), Box::new(has_cause))), Box::new(with_cause), Box::new(without));
-            return Ok(Expr::Block(vec![Stmt::Let { name: held, expr: options }, Stmt::Return(pick)]));
+            return Ok(crate::error_object(Expr::Block(vec![Stmt::Let { name: held, expr: options }, Stmt::Return(pick)])));
           }
         }
-        return Ok(Expr::Object(fields));
+        return Ok(crate::error_object(Expr::Object(fields)));
       }
     }
     if crate::intl_member(&n.callee) == Some("Locale") {
@@ -298,7 +298,7 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         };
         Ok(Expr::Object(vec![Entry::Field(PROXY_TARGET.to_owned(), target), Entry::Field(PROXY_HANDLER.to_owned(), handler)]))
       }
-      ("DisposableStack" | "AsyncDisposableStack", _) => Ok(Expr::Object(vec![Entry::Field(super::writes::STACK.to_owned(), Expr::Array(Vec::new())), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(false)))])),
+      ("DisposableStack" | "AsyncDisposableStack", _) => Ok(crate::opaque_object(Expr::Object(vec![Entry::Field(super::writes::STACK.to_owned(), Expr::Array(Vec::new())), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(false)))]))),
       (name, source) if TYPED_ARRAYS.contains(&name) => {
         let element = name.trim_end_matches("Array");
         let big = element.starts_with("Big");
@@ -317,7 +317,7 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         let held = self.temp();
         let number = Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::lit_str("number")));
         let valid = Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::Trunc, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::Var(held.clone())))), Box::new(Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Ge, Box::new(Expr::Var(held.clone())), Box::new(Expr::Lit(Lit::Float(0.0))))), Box::new(Expr::Compare(CompareOp::Le, Box::new(Expr::Var(held.clone())), Box::new(Expr::Lit(Lit::Float(4_294_967_295.0))))))));
-        let error = Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("RangeError")), Entry::Field("message".to_owned(), Expr::lit_str("Invalid array length"))]);
+        let error = crate::error_object(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("RangeError")), Entry::Field("message".to_owned(), Expr::lit_str("Invalid array length"))]));
         let thrown = Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str("Invalid array length"), error] };
         let slot = self.temp();
         let holes = Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(Expr::Lit(Lit::Undefined)) }));

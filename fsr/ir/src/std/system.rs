@@ -54,7 +54,7 @@ fn io_fail(what: &str, path: &str, e: std::io::Error) -> Fail {
   thrown.insert("message".to_owned(), Value::str(message.clone()));
   thrown.insert("code".to_owned(), Value::str(code));
   thrown.insert("path".to_owned(), Value::str(path));
-  Fail::internal(message).with_thrown(Value::Map(thrown))
+  Fail::internal(message).with_thrown(Value::Map(thrown.with_kind(snapfire_fsr_core::value::Collection::Error)))
 }
 
 /// `file.read(path)`: the file as text, bytes that are not UTF-8 as U+FFFD.
