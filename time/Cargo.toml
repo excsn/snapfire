@@ -18,7 +18,7 @@ default = ["tz_compiled"]
 # The IANA time zone database compiled into the binary, about 240 KiB. Every
 # host answers the same, slim containers included; `cargo update -p jiff-tzdb`
 # takes new rules.
-tz_compiled = []
+tz_compiled = ["dep:jiff-tzdb"]
 # The host's own zoneinfo under `/usr/share/zoneinfo`, read when a zone is
 # first used. Zones follow the host's tzdata; a host without it has none.
 tz_system = []
@@ -27,3 +27,7 @@ tz_system = []
 temporal_rs = { version = "0.2.6", default-features = false, features = ["std"] }
 timezone_provider = { version = "0.2.6", features = ["tzif"] }
 iana-time-zone = "0.1"
+tzif = "0.4"
+combine = "4"
+jiff-tzdb = { version = "0.1", optional = true }
+parking_lot = "0.12"

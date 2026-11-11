@@ -14,6 +14,9 @@ Time zone offsets and `Temporal` as JavaScript reads them, from a compiled IANA 
   * [local_offset](#local_offset)
   * [system_zone](#system_zone)
   * [zone_from_tz](#zone_from_tz)
+  * [Observed](#observed)
+  * [observed_in](#observed_in)
+  * [saving_in_year](#saving_in_year)
 * [4. Temporal](#4-temporal)
   * [Kind](#kind)
   * [Arg](#arg)
@@ -31,7 +34,7 @@ Time zone offsets and `Temporal` as JavaScript reads them, from a compiled IANA 
 
 ### Source
 
-Where zone rules are read from. `#[derive(Debug, Clone, Copy, PartialEq, Eq)]`: `Compiled`, `System`.
+Where zone rules are read from. `#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]`: `Compiled`, `System`.
 
 * `pub fn built(self) -> bool`: whether this build holds the source.
 * `pub fn name(self) -> &'static str`: `"compiled"` or `"system"`.
@@ -62,6 +65,21 @@ Where zone rules are read from. `#[derive(Debug, Clone, Copy, PartialEq, Eq)]`: 
 ### zone_from_tz
 
 * `pub fn zone_from_tz(tz: Option<&str>) -> Option<String>`: the zone a `TZ` value names, a leading `:` dropped and a path under a `zoneinfo/` directory read as the zone below it. `None` for none or an empty value.
+
+### Observed
+
+What a zone observes at an instant, in seconds. `#[derive(Debug, Clone, Copy, PartialEq, Eq)]`.
+
+* `pub offset: i32`: the offset from UTC, east positive.
+* `pub saving: i32`: the part of `offset` that is daylight saving, as the rearguard form of the IANA database counts it, which ICU reads. It is never negative: Dublin's winter is standard time and its summer an hour of saving.
+
+### observed_in
+
+* `pub fn observed_in(source: Source, zone: &str, ms: f64) -> Result<Observed, Error>`: what `zone` observes at the instant `ms`. `Error::OutOfRange` and `Error::UnknownZone` as for `offset_in`.
+
+### saving_in_year
+
+* `pub fn saving_in_year(source: Source, zone: &str, ms: f64) -> Result<Option<i32>, Error>`: the daylight saving `zone` observes during the UTC calendar year holding `ms`, the largest when there is more than one, in seconds. `None` when it observes none that year. This is how ICU's `useDaylightTime` and `getDSTSavings` read a year.
 
 ## 4. Temporal
 

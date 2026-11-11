@@ -4,13 +4,16 @@
 
 use std::sync::OnceLock;
 
+mod observed;
 pub mod temporal;
+
+pub use observed::{observed_in, saving_in_year, Observed};
 
 use temporal_rs::provider::TimeZoneProvider;
 use temporal_rs::{TimeZone, ZonedDateTime};
 
 /// Where zone rules are read from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Source {
   /// The IANA database compiled into the binary, feature `tz_compiled`.
   Compiled,
@@ -129,17 +132,22 @@ pub fn system_zone() -> &'static str {
 }
 
 /// The largest instant a `Date` holds either side of the epoch, in milliseconds.
-const MAX_DATE_MS: f64 = 8.64e15;
+pub(crate) const MAX_DATE_MS: f64 = 8.64e15;
 
 /// `getTimezoneOffset` of the instant `ms` in `zone` read from `source`: minutes to add to local time for UTC, so 240 for New York in summer. A zone offset with seconds, a city's mean time before standard time, is truncated to whole minutes as V8 does.
 pub fn offset_in(source: Source, zone: &str, ms: f64) -> Result<f64, Error> {
   if !ms.is_finite() || ms.abs() > MAX_DATE_MS {
     return Err(Error::OutOfRange);
   }
+  Ok((-f64::from(offset_seconds(source, zone, ms)?) / 60.0).trunc() + 0.0)
+}
+
+/// The offset from UTC of the instant `ms` in `zone`, in seconds east.
+pub(crate) fn offset_seconds(source: Source, zone: &str, ms: f64) -> Result<i32, Error> {
   provide(source, |provider| {
     let tz = TimeZone::try_from_identifier_str_with_provider(zone, provider).map_err(|_| Error::UnknownZone(zone.to_owned()))?;
     let at = ZonedDateTime::try_new_iso_with_provider(ms as i128 * 1_000_000, tz, provider).map_err(|_| Error::OutOfRange)?;
-    Ok((-(at.offset_nanoseconds() as f64) / 60e9).trunc() + 0.0)
+    Ok((at.offset_nanoseconds() / 1_000_000_000) as i32)
   })?
 }
 

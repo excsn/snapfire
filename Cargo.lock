@@ -4550,9 +4550,13 @@ dependencies = [
 name = "snapfire_time"
 version = "0.1.0"
 dependencies = [
+ "combine",
  "iana-time-zone",
+ "jiff-tzdb",
+ "parking_lot 0.12.5",
  "temporal_rs",
  "timezone_provider",
+ "tzif",
 ]
 
 [[package]]

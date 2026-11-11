@@ -8,6 +8,7 @@ How to read time zone offsets and run `Temporal` with snapfire_time and how to p
 * [Quick Start](#quick-start)
 * [Reading an Offset](#reading-an-offset)
 * [Reading This Machine's Offset](#reading-this-machines-offset)
+* [Reading Daylight Saving](#reading-daylight-saving)
 * [Running Temporal](#running-temporal)
 * [Choosing the Zone Source](#choosing-the-zone-source)
 * [Error Handling](#error-handling)
@@ -18,6 +19,7 @@ How to read time zone offsets and run `Temporal` with snapfire_time and how to p
 * **Instant**: milliseconds since 1970-01-01 UTC, as a `Date` holds them, at most 8.64e15 either side.
 * **Zone**: an IANA identifier such as `America/New_York` or `UTC`.
 * **System zone**: the zone `TZ` names, else the host's own, else `UTC`.
+* **Saving**: the part of an offset that is daylight saving time, counted as ICU counts it, so never negative.
 * **Source**: where zone rules are read from, the compiled database or the host's zoneinfo.
 * **Temporal value**: one of `Temporal`'s types held as its kind and its canonical string, `(PlainDate, "2024-02-29")`.
 * **Arg** and **Answer**: what a Temporal call takes and gives, JavaScript's values without a JavaScript engine.
@@ -58,6 +60,21 @@ assert!(local_offset(f64::NAN).unwrap().is_nan());
 ```
 
 `TZ` is read as node reads it: `:America/New_York` and `/usr/share/zoneinfo/America/New_York` both name `America/New_York`.
+
+## Reading Daylight Saving
+
+`observed_in` gives a zone's offset at an instant and how much of it is daylight saving, both in seconds. `saving_in_year` gives the saving a zone observes at any point in the instant's year:
+
+```rust
+use snapfire_time::{observed_in, saving_in_year, Observed, Source};
+
+let july = 1_720_000_000_000.0;
+assert_eq!(observed_in(Source::Compiled, "America/New_York", july), Ok(Observed { offset: -14400, saving: 3600 }));
+assert_eq!(observed_in(Source::Compiled, "Europe/Dublin", 1_704_067_200_000.0), Ok(Observed { offset: 0, saving: 0 }));
+assert_eq!(saving_in_year(Source::Compiled, "Asia/Tokyo", july), Ok(None));
+```
+
+The saving follows the rearguard form of the IANA database, which ICU reads. The main form calls Dublin's winter a negative saving. Here the summer is the hour of saving.
 
 ## Running Temporal
 
