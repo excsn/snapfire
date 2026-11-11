@@ -595,10 +595,10 @@ reference-react-useimperativehandle-2	lowered
 reference-react-uselayouteffect-1	client: src/Tooltip.js:26:10 a call to `createPortal`, which the build cannot follow
 reference-react-uselayouteffect-2	client: src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
 reference-react-uselayouteffect-3	client: src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
-reference-react-usememo-1	client: src/utils.js:7:18 `Math.random`
-reference-react-usememo-2	client: src/utils.js:7:18 `Math.random`
-reference-react-usememo-3	client: src/utils.js:7:18 `Math.random`
-reference-react-usememo-6	client: src/utils.js:7:18 `Math.random`
+reference-react-usememo-1	client: src/utils.js:7:18 `Math.random()` on a render path or at module level, which the server and the browser answer differently
+reference-react-usememo-2	client: src/utils.js:7:18 `Math.random()` on a render path or at module level, which the server and the browser answer differently
+reference-react-usememo-3	client: src/utils.js:7:18 `Math.random()` on a render path or at module level, which the server and the browser answer differently
+reference-react-usememo-6	client: src/utils.js:7:18 `Math.random()` on a render path or at module level, which the server and the browser answer differently
 reference-react-useoptimistic-1	lowered
 reference-react-useoptimistic-2	lowered
 reference-react-useoptimistic-3	lowered

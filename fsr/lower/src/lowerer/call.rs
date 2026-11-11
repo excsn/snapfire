@@ -344,8 +344,8 @@ impl<'a> Lowerer<'a> {
               _ => both(number, both(finite, both(whole, compare(CompareOp::Le, Expr::Builtin { name: Builtin::Abs, args: vec![x] }, Expr::Lit(Lit::Int(9_007_199_254_740_991)))))),
             });
           }
-          "Math" if method == "random" && self.on_render_path() && !self.reaches(Reach::Terminal) => {
-            return Err(self.browser_only(call.span, "`Math.random()` on a render path, which the server and the browser answer differently"));
+          "Math" if method == "random" && (self.on_render_path() || self.module_level) && !self.reaches(Reach::Terminal) => {
+            return Err(self.browser_only(call.span, "`Math.random()` on a render path or at module level, which the server and the browser answer differently"));
           }
           "Math" if method == "random" => {
             let bytes = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Float(6.0))] };

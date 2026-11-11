@@ -106,7 +106,7 @@ tutorial-advanced-svelte-advanced-transitions-deferred-transitions	lowered
 tutorial-advanced-svelte-context-context-api	lowered
 tutorial-advanced-svelte-motion-springs	lowered
 tutorial-advanced-svelte-motion-tweens	lowered
-tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:8 `Math.random`
+tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:8 `Math.random()` on a render path or at module level, which the server and the browser answer differently
 tutorial-advanced-svelte-script-module-module-exports	lowered
 tutorial-advanced-svelte-script-module-sharing-code	lowered
 tutorial-advanced-svelte-snippets-implicit-snippet-props	lowered

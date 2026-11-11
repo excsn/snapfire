@@ -302,6 +302,7 @@ impl ComponentSet {
       lowerer.global_kinds = global_kinds.clone();
       lowerer.formatters_from(&global_formatters);
       lowerer.natives = self.natives.clone();
+      lowerer.module_level = true;
       if self.reaches(Reach::Later) {
         lowerer.cells = module_lets_of(&parsed).into_iter().filter(|(_, _, written)| *written).map(|(name, _, _)| (name.clone(), Expr::Var(name))).collect();
       }

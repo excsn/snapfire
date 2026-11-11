@@ -558,6 +558,8 @@ pub(crate) struct Lowerer<'a> {
   /// Lowering a render path with no hoist candidates kept, a Vue template
   /// for one: the browser runs it too, so a `body` extension is refused.
   pub(crate) render_path: bool,
+  /// Whether this lowers a module-level constant or function, which a loader and a component may both read.
+  pub(crate) module_level: bool,
   /// The last residue was a `body` extension on a render path, which the
   /// set reports as `LowerError::Reach` rather than a client downgrade.
   pub(crate) reach_violation: bool,

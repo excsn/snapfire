@@ -879,7 +879,7 @@ What lowers. Anything not listed is a `Residue`.
 * Each is an `Expr::Builtin` with the receiver as its first argument.
 * `Math.round`, `floor`, `ceil`, `abs`, `min`, `max`, `pow`, `sqrt`, `trunc` and `sign`.
 * `Math.hypot`, `imul`, `clz32`, `fround` and `f16round` are `Builtin::Math` with their name, beside the transcendental functions and `tanh`.
-* `Math.random()` is `crypto.random` scaled to `[0, 1)` in a body and in a terminal page. On a web render path it is a value the browser fills in.
+* `Math.random()` is `crypto.random` scaled to `[0, 1)` in a body and in a terminal page. On a web render path or in a module-level constant it is a value the browser fills in, since a component may read the constant.
 * `Number.MAX_SAFE_INTEGER`, `MIN_SAFE_INTEGER`, `EPSILON`, `MAX_VALUE`, `MIN_VALUE`, `POSITIVE_INFINITY`, `NEGATIVE_INFINITY` and `NaN` lower to their values.
 * `isFinite(x)` is `Number.isFinite(Number(x))`. `parseFloat` and `Number.parseFloat` are `Builtin::ParseFloat`.
 * `Object.assign({...}, ...sources)` onto an object written in place is a spread of every argument. Onto anything else it is residue naming `{ ...target, ...source }`.

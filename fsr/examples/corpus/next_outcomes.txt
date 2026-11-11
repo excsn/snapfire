@@ -206,7 +206,7 @@ with-styled-components	client: routes/_components/cards.tsx:13:14 a component ma
 with-styled-jsx	client: routes/registry.tsx:14:45 a call to `createStyleRegistry`, which the build cannot follow	pages 1	notes 0
 with-supabase	refused: routes/auth/confirm/route.ts:7:36: `url` is not a field of the context	pages 8	notes 23
 with-temporal	lowered	pages 2	notes 2
-with-three-js	client: routes/_components/Box.js:11:3 `useFrame`, a hook the build cannot follow | routes/birds/page.island0.tsx:11:17 `Math.random` | routes/boxes/page.island0.tsx:7:5 `OrbitControls` comes from `@react-three/drei`, which the build cannot follow	pages 3	notes 0
+with-three-js	client: routes/_components/Box.js:11:3 `useFrame`, a hook the build cannot follow | routes/birds/page.island0.tsx:11:17 `Math.random()` on a render path or at module level, which the server and the browser answer differently | routes/boxes/page.island0.tsx:7:5 `OrbitControls` comes from `@react-three/drei`, which the build cannot follow	pages 3	notes 0
 with-turbopack	client: routes/page.island0.tsx:4:3 a call for its effect, which a straight-line body cannot hold	pages 1	notes 0
 with-turbopack-loaders	client: routes/page.island0.tsx:6:5 `Vercel` is not a component this file declares or imports	pages 1	notes 2
 with-turso	refused: routes/todo-list.tsx:19:8: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 6
