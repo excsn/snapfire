@@ -1324,7 +1324,12 @@ P	aa	und
 P	aa-DJ	aa
 P	aa-ER	aa
 P	ab	und
+H	ab	H	gregorian
 P	af	und
+O	af	h:mm:ss a	HH:mm:ss	vm.	nm.
+H	af	H	gregorian
+C	af	persian	d/M/y GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	vm.	nm.
+C	af	buddhist	d/M/y GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	vm.	nm.
 U	af	long	day	one	{0} dag
 U	af	long	day	other	{0} dae
 U	af	long	hour	one	{0} uur
@@ -1536,10 +1541,18 @@ N	af	Yakutsk	Jakoetsk-standaardtyd	Jakoetsk-somertyd
 N	af	Yekaterinburg	Jekaterinburg-standaardtyd	Jekaterinburg-somertyd
 N	af	Yukon	Yukontyd	
 P	af-NA	af
+H	af-NA	h	gregorian
 P	agq	und
 Y	agq	d/M/y	{1} {0}
+O	agq	h:mm:ss a	HH:mm:ss	a.g	a.k
+H	agq	H	gregorian
+C	agq	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	a.g	a.k
+C	agq	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	a.g	a.k
 P	ak	und
 Y	ak	y/M/d	{1}, {0}
+O	ak	h:mm:ss a	HH:mm:ss	AN	ANW
+C	ak	persian	y/M/d	AP	AP	h:mm:ss a	HH:mm:ss	AN	ANW
+C	ak	buddhist	y/M/d	BE	BE	h:mm:ss a	HH:mm:ss	AN	ANW
 U	ak	long	day	one	da {0}
 U	ak	long	day	other	nna {0}
 U	ak	long	hour	one	dɔnhwere {0}
@@ -1714,6 +1727,9 @@ N	ak	Yukon	Yukɔn Berɛ
 P	am	und
 F	am	ጂ ኤም ቲ{0}	ጂ ኤም ቲ	+HHmm;-HHmm
 Y	am	d/M/y	{1} {0}
+O	am	a h:mm:ss	HH:mm:ss	ጥዋት	ከሰዓት
+C	am	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	ጥዋት	ከሰዓት
+C	am	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	ጥዋት	ከሰዓት
 U	am	long	day	one	{0} ቀናት
 U	am	long	day	other	{0} ቀናት
 U	am	long	hour	one	{0} ሰዓት
@@ -1926,11 +1942,16 @@ N	am	Yakutsk	ያኩትስክ መደበኛ ሰዓት አቆጣጠር	የያኩት
 N	am	Yekaterinburg	የየካተሪንበርግ መደበኛ ሰዓት አቆጣጠር	የየካተሪንበርግ የበጋ ሰዓት አቆጣጠር
 N	am	Yukon	የዩኮን ጊዜ	
 P	an	und
+H	an	H	gregorian
 P	ann	und
+H	ann	H	gregorian
 P	apc	und
 P	ar	und
 F	ar	غرينتش{0}	غرينتش	+HH:mm;-HH:mm
 Y	ar	d‏/M‏/y	{1}، {0}
+O	ar	h:mm:ss a	HH:mm:ss	ص	م
+C	ar	persian	d‏/M‏/y G	ه‍.ش	ه‍.ش	h:mm:ss a	HH:mm:ss	ص	م
+C	ar	buddhist	d‏/M‏/y G	BE	BE	h:mm:ss a	HH:mm:ss	ص	م
 U	ar	long	day	few	{0} أيام
 U	ar	long	day	many	{0} يومًا
 U	ar	long	day	one	يوم
@@ -2277,18 +2298,21 @@ P	ar-ER	ar
 D	ar-ER	٠١٢٣٤٥٦٧٨٩
 P	ar-IL	ar
 D	ar-IL	٠١٢٣٤٥٦٧٨٩
+H	ar-IL	H	gregorian
 P	ar-IQ	ar
 D	ar-IQ	٠١٢٣٤٥٦٧٨٩
 P	ar-JO	ar
 D	ar-JO	٠١٢٣٤٥٦٧٨٩
 P	ar-KM	ar
 D	ar-KM	٠١٢٣٤٥٦٧٨٩
+H	ar-KM	H	gregorian
 P	ar-KW	ar
 D	ar-KW	٠١٢٣٤٥٦٧٨٩
 P	ar-LB	ar
 D	ar-LB	٠١٢٣٤٥٦٧٨٩
 P	ar-LY	ar
 P	ar-MA	ar
+H	ar-MA	H	gregorian
 P	ar-MR	ar
 D	ar-MR	٠١٢٣٤٥٦٧٨٩
 P	ar-OM	ar
@@ -2320,7 +2344,10 @@ D	ar-YE	٠١٢٣٤٥٦٧٨٩
 P	arn	und
 P	as	und
 D	as	০১২৩৪৫৬৭৮৯
-Y	as	dd-MM-y	{1} {0}
+Y	as	dd-MM-y	{1}, {0}
+O	as	a h:mm:ss	HH:mm:ss	পূৰ্বাহ্ন	অপৰাহ্ন
+C	as	persian	dd-MM-y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	পূৰ্বাহ্ন	অপৰাহ্ন
+C	as	buddhist	dd-MM-y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	পূৰ্বাহ্ন	অপৰাহ্ন
 U	as	long	day	one	{0} দিন
 U	as	long	day	other	{0} দিন
 U	as	long	hour	one	{0} ঘণ্টা
@@ -2531,8 +2558,16 @@ N	as	Yekaterinburg	য়েকাটেৰিণবাৰ্গৰ মান �
 N	as	Yukon	য়ুকোন সময়	
 P	asa	und
 Y	asa	d/M/y	{1} {0}
+O	asa	h:mm:ss a	HH:mm:ss	icheheavo	ichamthi
+H	asa	H	gregorian
+C	asa	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	icheheavo	ichamthi
+C	asa	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	icheheavo	ichamthi
 P	ast	und
 Y	ast	d/M/y	{1} {0}
+O	ast	h:mm:ss a	HH:mm:ss	AM	PM
+H	ast	H	gregorian
+C	ast	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ast	buddhist	d/M/y	EB	EB	h:mm:ss a	HH:mm:ss	AM	PM
 U	ast	long	day	one	{0} día
 U	ast	long	day	other	{0} díes
 U	ast	long	hour	one	{0} hora
@@ -2747,7 +2782,11 @@ N	ast	Wallis	Hora de Wallis y Futuna
 N	ast	Yakutsk	Hora estándar de Yakutsk	Hora braniega de Yakutsk
 N	ast	Yekaterinburg	Hora estándar de Yekaterimburgu	Hora braniega de Yekaterimburgu
 P	az	und
-Y	az	dd.MM.y	{1} {0}
+Y	az	dd.MM.y	{1}, {0}
+O	az	h:mm:ss a	HH:mm:ss	AM	PM
+H	az	H	gregorian
+C	az	persian	GGGGG dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	az	buddhist	GGGGG dd.MM.y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	az	long	day	one	{0} gün
 U	az	long	day	other	{0} gün
 U	az	long	hour	one	{0} saat
@@ -2960,15 +2999,26 @@ N	az	Yekaterinburg	Yekaterinburq Standart Vaxtı	Yekaterinburq Yay Vaxtı
 N	az	Yukon	Yukon Vaxtı	
 P	az-Arab	und
 D	az-Arab	۰۱۲۳۴۵۶۷۸۹
+H	az-Arab	H	persian
 P	az-Arab-IQ	az-Arab
 D	az-Arab-IQ	۰۱۲۳۴۵۶۷۸۹
+H	az-Arab-IQ	h	gregorian
 P	az-Arab-TR	az-Arab
 D	az-Arab-TR	۰۱۲۳۴۵۶۷۸۹
+H	az-Arab-TR	H	gregorian
 P	az-Cyrl	und
 Y	az-Cyrl	dd.MM.y	{1} {0}
+O	az-Cyrl	h:mm:ss a	HH:mm:ss	АМ	ПМ
+H	az-Cyrl	H	gregorian
+C	az-Cyrl	persian	GGGGG dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	АМ	ПМ
+C	az-Cyrl	buddhist	GGGGG dd.MM.y	BE	BE	h:mm:ss a	HH:mm:ss	АМ	ПМ
 P	az-Latn	az
 P	ba	und
 Y	ba	dd.MM.y	{1}, {0}
+O	ba	h:mm:ss a	HH:mm:ss	AM	PM
+H	ba	H	gregorian
+C	ba	persian	dd.MM.y GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	ba	buddhist	dd.MM.y GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	AM	PM
 U	ba	long	day	other	{0} көн
 U	ba	long	hour	other	{0} сәғәт
 U	ba	long	microsecond	other	{0} микросекунд
@@ -3166,6 +3216,9 @@ N	bal	GMT	گرین‌وِچ مین ٹائم
 P	bal-Arab	bal
 P	bal-Latn	und
 Y	bal-Latn	d/M/y	{1} {0}
+O	bal-Latn	h:mm:ss a	HH:mm:ss	am	pm
+C	bal-Latn	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	bal-Latn	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 U	bal-Latn	long	day	one	{0} róch
 U	bal-Latn	long	day	other	{0} róch
 U	bal-Latn	long	hour	one	{0} sáhat
@@ -3376,8 +3429,16 @@ N	bal-Latn	Yekaterinburg	Yakátrinborgay anjári wahd	Yakátrinborgay garmági w
 N	bal-Latn	Yukon	Yukón wahd	
 P	bas	und
 Y	bas	d/M/y	{1} {0}
+O	bas	h:mm:ss a	HH:mm:ss	I bikɛ̂glà	I ɓugajɔp
+H	bas	H	gregorian
+C	bas	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	I bikɛ̂glà	I ɓugajɔp
+C	bas	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	I bikɛ̂glà	I ɓugajɔp
 P	be	und
 Y	be	d.M.y	{1}, {0}
+O	be	h:mm:ss a	HH:mm:ss	AM	PM
+H	be	H	gregorian
+C	be	persian	d.M.y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	be	buddhist	d.M.y	б.э.	б.э.	h.mm.ss a	HH.mm.ss	AM	PM
 U	be	long	day	few	{0} сутак
 U	be	long	day	many	{0} сутак
 U	be	long	day	one	{0} суткі
@@ -3649,12 +3710,24 @@ N	be	Yukon	Час Юкана
 P	be-tarask	be
 P	bem	und
 Y	bem	d/M/y	{1} {0}
+O	bem	h:mm:ss a	HH:mm:ss	uluchelo	akasuba
+C	bem	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	uluchelo	akasuba
+C	bem	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	uluchelo	akasuba
 P	bew	und
+H	bew	H	gregorian
 P	bez	und
 Y	bez	d/M/y	{1} {0}
+O	bez	h:mm:ss a	HH:mm:ss	pamilau	pamunyi
+H	bez	H	gregorian
+C	bez	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	pamilau	pamunyi
+C	bez	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	pamilau	pamunyi
 P	bg	und
 F	bg	Гринуич{0}	Гринуич	+HH:mm;-HH:mm
 Y	bg	d.MM.y 'г'.	{1}, {0}
+O	bg	h:mm:ss 'ч'. a	HH:mm:ss 'ч'.	am	pm
+H	bg	H	gregorian
+C	bg	persian	d.MM.y 'г'. G	AP	AP	h:mm:ss 'ч'. a	HH:mm:ss 'ч'.	am	pm
+C	bg	buddhist	d.MM.y 'г'. G	BE	BE	h:mm:ss 'ч'. a	HH:mm:ss 'ч'.	am	pm
 U	bg	long	day	one	{0} ден
 U	bg	long	day	other	{0} дни
 U	bg	long	hour	one	{0} час
@@ -3902,8 +3975,10 @@ P	bgn-AE	bgn
 D	bgn-AE	۰۱۲۳۴۵۶۷۸۹
 P	bgn-AF	bgn
 D	bgn-AF	۰۱۲۳۴۵۶۷۸۹
+H	bgn-AF	H	persian
 P	bgn-IR	bgn
 D	bgn-IR	۰۱۲۳۴۵۶۷۸۹
+H	bgn-IR	H	persian
 P	bgn-OM	bgn
 D	bgn-OM	۰۱۲۳۴۵۶۷۸۹
 P	bho	und
@@ -3912,6 +3987,10 @@ N	bho	GMT	ग्रीनविच मीन टाइम
 P	blo	und
 F	blo	{0} Gk	Gk	+HH:mm;-HH:mm
 Y	blo	M/d/y	{1}, {0}
+O	blo	h:mm:ss a	HH:mm:ss	1ka	2ja
+H	blo	H	gregorian
+C	blo	persian	M/d/y G	AP	AP	h a mm:ss	HH:mm:ss	1ka	2ja
+C	blo	buddhist	M/d/y G	BE	BE	h a mm:ss	HH:mm:ss	1ka	2ja
 N	blo	Afghanistan	Afganistan kaakɔŋkɔŋɔ̀	
 N	blo	Africa_Central	Garɩɖontǝna gɩcɩɩca kaakɔŋkɔŋɔ̀	
 N	blo	Africa_Eastern	Garɩɖontǝna gajakalaŋ kaakɔŋkɔŋɔ̀	
@@ -4065,13 +4144,20 @@ N	blo	Yakutsk	Yakut kaakɔŋkɔŋɔ̀ ɖeiɖei	Yakut kaakɔŋkɔŋɔ̀ gafʊbaka
 N	blo	Yekaterinburg	Yekaterinbuu kaakɔŋkɔŋɔ̀ ɖeiɖei	Yekaterinbuu kaakɔŋkɔŋɔ̀ gafʊbaka
 N	blo	Yukon	Yukɔn kaakɔŋkɔŋɔ̀	
 P	blt	und
+H	blt	H	gregorian
 P	bm	und
 Y	bm	d/M/y	{1} {0}
+H	bm	H	gregorian
+C	bm	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	bm	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 P	bm-Nkoo	und
+H	bm-Nkoo	H	gregorian
 P	bn	und
 D	bn	০১২৩৪৫৬৭৮৯
 F	bn	GMT {0}	GMT	+HH:mm;-HH:mm
-Y	bn	d/M/y	{1} {0}
+Y	bn	d/M/y	{1}, {0}
+C	bn	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	bn	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	bn	long	day	one	{0} দিন
 U	bn	long	day	other	{0} দিন
 U	bn	long	hour	one	{0} ঘণ্টা
@@ -4279,11 +4365,21 @@ N	bn	Yukon	ইউকোন সময়
 P	bn-IN	bn
 D	bn-IN	০১২৩৪৫৬৭৮৯
 P	bo	und
+O	bo	h:mm:ss a	HH:mm:ss	སྔ་དྲོ་	ཕྱི་དྲོ་
+H	bo	H	gregorian
+C	bo	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	སྔ་དྲོ་	ཕྱི་དྲོ་
+C	bo	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	སྔ་དྲོ་	ཕྱི་དྲོ་
 P	bo-IN	bo
+H	bo-IN	h	gregorian
 P	bqi	und
+H	bqi	H	persian
 P	br	und
 F	br	UTC{0}	UTC	+HH:mm;-HH:mm
-Y	br	dd/MM/y	{1} {0}
+Y	br	dd/MM/y	{1}, {0}
+O	br	h:mm:ss a	HH:mm:ss	A.M.	G.M.
+H	br	H	gregorian
+C	br	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	A.M.	G.M.
+C	br	buddhist	dd/MM/y GGGGG	A.B.	AB	h:mm:ss a	HH:mm:ss	A.M.	G.M.
 U	br	long	day	few	{0} deiz
 U	br	long	day	many	{0} a zeizioù
 U	br	long	day	one	{0} deiz
@@ -4556,6 +4652,9 @@ N	br	Yukon	eur Yukon
 P	brx	und
 F	brx	जि.एम.ति {0}	जि.एम.ति	+HH:mm;-HH:mm
 Y	brx	dd-MM-y	{1}, {0}
+O	brx	h:mm:ss a	HH:mm:ss	फुं	बेलासे
+C	brx	persian	GGGGG d/M/y	AP	AP	a h:mm:ss	HH:mm:ss	फुं	बेलासे
+C	brx	buddhist	GGGGG d/M/y	BE	BE	a h:mm:ss	HH:mm:ss	फुं	बेलासे
 U	brx	long	day	one	{0} सान
 U	brx	long	day	other	{0} सान
 U	brx	long	hour	one	{0} रिंगा
@@ -4732,7 +4831,11 @@ N	brx	Yekaterinburg	येकातेरीनाबुर्ग थाखो�
 N	brx	Yukon	यूकन सम	
 P	bs	und
 F	bs	GMT {0}	GMT	+HH:mm; -HH:mm
-Y	bs	d. M. y.	{1} {0}
+Y	bs	d. M. y.	{1} 'u' {0}
+O	bs	hh:mm:ss a	HH:mm:ss	a. m.	p. m.
+H	bs	H	gregorian
+C	bs	persian	d.M.y. G	AP	AP	hh:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	bs	buddhist	d.M.y. G	BE	BE	hh:mm:ss a	HH:mm:ss	a. m.	p. m.
 U	bs	long	day	few	{0} dana
 U	bs	long	day	one	{0} dan
 U	bs	long	day	other	{0} dana
@@ -4961,6 +5064,10 @@ N	bs	Yekaterinburg	Jekaterinburško standardno vrijeme	Jekaterinburško ljetno v
 N	bs	Yukon	Jukonsko vrijeme	
 P	bs-Cyrl	und
 Y	bs-Cyrl	dd.MM.y.	{1} {0}
+O	bs-Cyrl	h:mm:ss a	HH:mm:ss	пре подне	поподне
+H	bs-Cyrl	H	gregorian
+C	bs-Cyrl	persian	dd.MM.y. G	AP	AP	hh:mm:ss a	HH:mm:ss	пре подне	поподне
+C	bs-Cyrl	buddhist	dd.MM.y. G	БЕ	БЕ	hh:mm:ss a	HH:mm:ss	пре подне	поподне
 U	bs-Cyrl	long	day	few	{0} дана
 U	bs-Cyrl	long	day	one	{0} дан
 U	bs-Cyrl	long	day	other	{0} дана
@@ -5202,12 +5309,18 @@ N	bs-Cyrl	Yekaterinburg	Јекатеринбург стандардно вриј
 N	bs-Cyrl	Yukon	Yukon Time	
 P	bs-Latn	bs
 P	bss	und
+H	bss	H	gregorian
 P	bua	und
 Y	bua	dd.MM.y	{1} {0}
+H	bua	H	gregorian
 N	bua	GMT	Гринвичын саг	
 P	byn	und
 P	ca	und
 Y	ca	d/M/y	{1} {0}
+O	ca	h:mm:ss a	H:mm:ss	a. m.	p. m.
+H	ca	H	gregorian
+C	ca	persian	d/M/y G	AP	AP	h:mm:ss a	H:mm:ss	a. m.	p. m.
+C	ca	buddhist	d/M/y G	eB	eB	h:mm:ss a	H:mm:ss	a. m.	p. m.
 U	ca	long	day	one	{0} dia
 U	ca	long	day	other	{0} dies
 U	ca	long	hour	one	{0} hora
@@ -5403,10 +5516,13 @@ U	cad	long	day	other	{0} Kaˀisch’áyˀah
 U	cad	long	month	other	Nish {0}
 U	cad	long	week	other	Wísts’iˀ inikuˀ {0}
 P	cch	und
+H	cch	H	gregorian
 P	ccp	und
 D	ccp	𑄶𑄷𑄸𑄹𑄺𑄻𑄼𑄽𑄾𑄿
 F	ccp	GMT {0}	GMT	+HH:mm;-HH:mm
 Y	ccp	d/M/y	{1} {0}
+C	ccp	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ccp	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ccp	long	day	other	{0} 𑄘𑄨𑄚𑄴
 U	ccp	long	hour	one	{0} 𑄊𑄧𑄚𑄴𑄘
 U	ccp	long	hour	other	{0} 𑄊𑄧𑄚𑄴𑄘
@@ -5589,6 +5705,7 @@ N	ccp	Yekaterinburg	𑄃𑄨𑄠𑄬𑄇𑄖𑄬𑄢𑄨𑄚𑄴𑄝𑄪𑄢𑄴
 P	ccp-IN	ccp
 D	ccp-IN	𑄶𑄷𑄸𑄹𑄺𑄻𑄼𑄽𑄾𑄿
 P	ce	und
+H	ce	H	gregorian
 U	ce	long	day	one	{0} де
 U	ce	long	day	other	{0} де
 U	ce	long	hour	one	{0} сахьт
@@ -5797,6 +5914,9 @@ N	ce	Yekaterinburg	Екатеринбург, стандартан хан	Ека�
 P	ceb	und
 F	ceb	GMT {0}	GMT	+HH:mm;-HH:mm
 Y	ceb	M/d/y	{1}, {0}
+O	ceb	h:mm:ss a	HH:mm:ss	AM	PM
+C	ceb	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ceb	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ceb	long	day	one	{0} ka adlaw
 U	ceb	long	day	other	{0} ka mga adlaw
 U	ceb	long	hour	one	{0} ka oras
@@ -5997,9 +6117,15 @@ N	ceb	Yekaterinburg	Yekaterinburg Standard Time	Yekaterinburg Summer Time
 N	ceb	Yukon	Oras sa Yukon	
 P	cgg	und
 Y	cgg	d/M/y	{1} {0}
+H	cgg	H	gregorian
+C	cgg	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	cgg	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 P	cho	und
 P	chr	und
 Y	chr	M/d/y	{1}, {0}
+O	chr	h:mm:ss a	HH:mm:ss	ᏌᎾᎴ	ᏒᎯᏱᎢ
+C	chr	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	H:mm:ss	ᏌᎾᎴ	ᏒᎯᏱᎢ
+C	chr	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	H:mm:ss	ᏌᎾᎴ	ᏒᎯᏱᎢ
 U	chr	long	day	one	{0} ᎢᎦ
 U	chr	long	day	other	{0} ᎯᎸᏍᎩ ᏧᏒᎯᏓ
 U	chr	long	hour	one	{0} ᏑᏟᎶᏓ
@@ -6217,13 +6343,22 @@ P	ckb	und
 D	ckb	٠١٢٣٤٥٦٧٨٩
 F	ckb	گرینیچ {0}	گرینیچ	+HH:mm;-HH:mm
 Y	ckb	d/M/y	{1} {0}
+O	ckb	h:mm:ss a	HH:mm:ss	ب.ن	د.ن
+C	ckb	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	ب.ن	د.ن
+C	ckb	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	ب.ن	د.ن
 P	ckb-IR	ckb
 D	ckb-IR	٠١٢٣٤٥٦٧٨٩
+H	ckb-IR	H	persian
 P	co	und
+H	co	H	gregorian
 P	cop	und
 P	cs	und
 F	cs	GMT{0}	GMT	+H:mm;-H:mm
 Y	cs	d. M. y	{1} {0}
+O	cs	h:mm:ss a	H:mm:ss	dop.	odp.
+H	cs	H	gregorian
+C	cs	persian	d. M. y GGGGG	AP	AP	h:mm:ss a	H:mm:ss	dop.	odp.
+C	cs	buddhist	d. M. y GGGGG	BE	BE	h:mm:ss a	H:mm:ss	dop.	odp.
 U	cs	long	day	few	{0} dny
 U	cs	long	day	many	{0} dne
 U	cs	long	day	one	{0} den
@@ -6463,10 +6598,18 @@ N	cs	Yakutsk	jakutský standardní čas	jakutský letní čas
 N	cs	Yekaterinburg	jekatěrinburský standardní čas	jekatěrinburský letní čas
 N	cs	Yukon	yukonský čas	
 P	csw	und
+O	csw	h:mm:ss a	HH:mm:ss	ᐊᒼ	ᐲᒼ
+C	csw	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ᐊᒼ	ᐲᒼ
+C	csw	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ᐊᒼ	ᐲᒼ
 N	csw	GMT	ᐠᕑᐁᓂᐨ ᐯᔭᑯᐦᑖᐏᐣ ᐁᐃᐢᐸᓂᐠ	
 P	cu	und
+H	cu	H	gregorian
 P	cv	und
 Y	cv	y.MM.dd	{1}, {0}
+O	cv	a h:mm:ss	HH:mm:ss	к. у.	к. х.
+H	cv	H	gregorian
+C	cv	persian	G y.MM.dd	х. х.	х. х.	a h:mm:ss	HH:mm:ss	к. у.	к. х.
+C	cv	buddhist	G y.MM.dd	б. с.	б. с.	a h:mm:ss	HH:mm:ss	к. у.	к. х.
 U	cv	long	day	one	{0} кун
 U	cv	long	day	other	{0} кун
 U	cv	long	day	zero	{0} кун
@@ -6720,7 +6863,11 @@ N	cv	Yakutsk	Якутск стандартлӑ вӑхӑчӗ	Якутск ҫул�
 N	cv	Yekaterinburg	Екатеринбург стандартлӑ вӑхӑчӗ	Екатеринбург ҫуллахи вӑхӑчӗ
 N	cv	Yukon	Юкон вӑхӑчӗ	
 P	cy	und
-Y	cy	d/M/y	{1} {0}
+Y	cy	d/M/y	{1}, {0}
+O	cy	h:mm:ss a	HH:mm:ss	AM	PM
+H	cy	H	gregorian
+C	cy	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	cy	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	cy	long	day	few	{0} diwrnod
 U	cy	long	day	many	{0} diwrnod
 U	cy	long	day	one	{0} diwrnod
@@ -7027,7 +7174,11 @@ N	cy	Yekaterinburg	Amser Safonol Yekaterinburg	Amser Haf Yekaterinburg
 N	cy	Yukon	Amser Yukon	
 P	da	und
 F	da	GMT{0}	GMT	+HH.mm;-HH.mm
-Y	da	d.M.y	{1} {0}
+Y	da	d.M.y	{1}, {0}
+O	da	h.mm.ss a	HH.mm.ss	AM	PM
+H	da	H	gregorian
+C	da	persian	d.M.y G	AP	AP	h.mm.ss a	HH.mm.ss	AM	PM
+C	da	buddhist	d.M.y G	BE	BE	h.mm.ss a	HH.mm.ss	AM	PM
 U	da	long	day	one	{0} dag
 U	da	long	day	other	{0} dage
 U	da	long	hour	one	{0} time
@@ -7242,8 +7393,16 @@ N	da	Yukon	Yukon-tid
 P	da-GL	da
 P	dav	und
 Y	dav	d/M/y	{1} {0}
+O	dav	h:mm:ss a	HH:mm:ss	Luma lwa K	luma lwa p
+H	dav	H	gregorian
+C	dav	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	Luma lwa K	luma lwa p
+C	dav	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	Luma lwa K	luma lwa p
 P	de	und
 Y	de	d.M.y	{1}, {0}
+O	de	h:mm:ss a	HH:mm:ss	AM	PM
+H	de	H	gregorian
+C	de	persian	d.M.y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	de	buddhist	d.M.y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	de	long	day	one	{0} Tag
 U	de	long	day	other	{0} Tage
 U	de	long	hour	one	{0} Stunde
@@ -7466,8 +7625,15 @@ P	de-LI	de
 P	de-LU	de
 P	dje	und
 Y	dje	d/M/y	{1} {0}
+O	dje	h:mm:ss a	HH:mm:ss	Subbaahi	Zaarikay b
+H	dje	H	gregorian
+C	dje	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	Subbaahi	Zaarikay b
+C	dje	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	Subbaahi	Zaarikay b
 P	doi	und
 Y	doi	d/M/y	{1}, {0}
+O	doi	h:mm:ss a	HH:mm:ss	सवेर	स’ञ
+C	doi	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	सवेर	स’ञ
+C	doi	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	सवेर	स’ञ
 N	doi	America_Central	उत्तरी अमरीकी मानक केंदरी समां	उत्तरी अमरीकी डेलाइट केंदरी समां
 N	doi	America_Eastern	उत्तरी अमरीकी मानक पूर्वी समां	उत्तरी अमरीकी डेलाइट पूर्वी समां
 N	doi	America_Mountain	उत्तरी अमरीकी मानक माउंटेन समां	उत्तरी अमरीकी डेलाइट माउंटेन समां
@@ -7482,6 +7648,10 @@ N	doi	Europe_Western	पच्छमी यूरोपी मानक सम�
 N	doi	GMT	ग्रीनविच मीन टाइम	
 P	dsb	und
 Y	dsb	d.M.y	{1} {0}
+O	dsb	h:mm:ss a	H:mm:ss	dop.	wótp.
+H	dsb	H	gregorian
+C	dsb	persian	d.M.y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	dop.	wótp.
+C	dsb	buddhist	d.M.y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	dop.	wótp.
 U	dsb	long	day	few	{0} dny
 U	dsb	long	day	one	{0} źeń
 U	dsb	long	day	other	{0} dnjow
@@ -7725,13 +7895,25 @@ N	dsb	Yekaterinburg	Jekaterinburgski standardny cas	Jekaterinburgski lěśojski 
 N	dsb	Yukon	Yukonowy cas	
 P	dua	und
 Y	dua	d/M/y	{1} {0}
+O	dua	h:mm:ss a	HH:mm:ss	idiɓa	ebyámu
+H	dua	H	gregorian
+C	dua	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	idiɓa	ebyámu
+C	dua	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	idiɓa	ebyámu
 P	dv	und
+H	dv	H	gregorian
 P	dyo	und
 Y	dyo	d/M/y	{1} {0}
+O	dyo	h:mm:ss a	HH:mm:ss	AM	PM
+H	dyo	H	gregorian
+C	dyo	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	dyo	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 P	dz	und
 D	dz	༠༡༢༣༤༥༦༧༨༩
 F	dz	ཇི་ཨེམ་ཏི་{0}	ཇི་ཨེམ་ཊི་	+HH:mm;-HH:mm
 Y	dz	y-M-d	{1} {0}
+O	dz	h:mm:ss a	HH:mm:ss	སྔ་ཆ་	ཕྱི་ཆ་
+C	dz	persian	G y-M-d	AP	AP	h:mm:ss a	HH:mm:ss	སྔ་ཆ་	ཕྱི་ཆ་
+C	dz	buddhist	G y-M-d	BE	BE	h:mm:ss a	HH:mm:ss	སྔ་ཆ་	ཕྱི་ཆ་
 U	dz	long	day	other	ཉིན་ཞག་ {0}
 U	dz	long	hour	other	ཆུ་ཚོད་ {0}
 U	dz	long	minute	other	སྐར་མ་ {0}
@@ -7827,9 +8009,16 @@ N	dz	Yakutsk	ཡ་ཀུཙིཀི་ཚད་ལྡན་ཆུ་ཚོད	
 N	dz	Yekaterinburg	ཡེ་ཀ་ཏེ་རིན་བརག་ཚད་ལྡན་ཆུ་ཚོད	ཡེ་ཀ་ཏེ་རིན་བརག་བྱཱར་དུས་ཆུ་ཚོད
 P	ebu	und
 Y	ebu	d/M/y	{1} {0}
+O	ebu	h:mm:ss a	HH:mm:ss	KI	UT
+H	ebu	H	gregorian
+C	ebu	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	KI	UT
+C	ebu	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	KI	UT
 P	ee	und
 F	ee	{0} GMT	GMT	+HH:mm;-HH:mm
 Y	ee	M/d/y	{0} {1}
+O	ee	a 'ga' h:mm:ss	HH:mm:ss	ŋdi	ɣetrɔ
+C	ee	persian	M/d/y G	AP	AP	a 'ga' h:mm:ss	HH:mm:ss	ŋdi	ɣetrɔ
+C	ee	buddhist	M/d/y G	BE	BE	a 'ga' h:mm:ss	HH:mm:ss	ŋdi	ɣetrɔ
 U	ee	long	day	one	ŋkeke {0}
 U	ee	long	day	other	ŋkeke {0}
 U	ee	long	hour	one	gaƒoƒo {0}
@@ -8018,8 +8207,12 @@ N	ee	Wallis	Wallis & Futuna gaƒoƒo me
 N	ee	Yakutsk	Yakutsk nutome gaƒoƒo me	Yakutsk dzomeŋɔli gaƒoƒo me
 N	ee	Yekaterinburg	Yekaterinburg nutome gaƒoƒo me	Yekaterinburg dzomeŋɔli gaƒoƒo me
 P	ee-TG	ee
+H	ee-TG	H	gregorian
 P	el	und
 Y	el	d/M/y	{1}, {0}
+O	el	h:mm:ss a	HH:mm:ss	π.μ.	μ.μ.
+C	el	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	π.μ.	μ.μ.
+C	el	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	π.μ.	μ.μ.
 U	el	long	day	one	{0} ημέρα
 U	el	long	day	other	{0} ημέρες
 U	el	long	hour	one	{0} ώρα
@@ -8228,6 +8421,9 @@ P	el-CY	el
 P	el-polyton	el
 P	en	und
 Y	en	M/d/y	{1}, {0}
+O	en	h:mm:ss a	HH:mm:ss	AM	PM
+C	en	persian	M/d/y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	en	buddhist	M/d/y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	en	long	day	one	{0} day
 U	en	long	day	other	{0} days
 U	en	long	hour	one	{0} hour
@@ -8449,18 +8645,27 @@ N	en	Yekaterinburg	Yekaterinburg Standard Time	Yekaterinburg Summer Time
 N	en	Yukon	Yukon Time	
 P	en-001	en
 Y	en-001	dd/MM/y	{1}, {0}
+O	en-001	h:mm:ss a	HH:mm:ss	am	pm
+C	en-001	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-001	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 U	en-001	short	hour	other	{0} hrs
 U	en-001	short	minute	other	{0} mins
 U	en-001	short	second	other	{0} secs
 N	en-001	Pierre_Miquelon	St Pierre & Miquelon Standard Time	St Pierre & Miquelon Daylight Time
 P	en-150	en-001
+H	en-150	H	gregorian
 P	en-AE	en
 Y	en-AE	dd/MM/y	{1}, {0}
+C	en-AE	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	en-AE	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 P	en-AG	en-001
 P	en-AI	en-001
+H	en-AI	H	gregorian
 P	en-AS	en
 P	en-AT	en-150
 P	en-AU	en-001
+C	en-AU	persian	dd/MM/y	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-AU	buddhist	dd/MM/y	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 N	en-AU	China	China Standard Time	China Summer Time
 N	en-AU	French_Southern	French Southern and Antarctic Time	
 N	en-AU	Japan	Japan Standard Time	Japan Summer Time
@@ -8470,13 +8675,25 @@ N	en-AU	Taipei	Taiwan Standard Time	Taipei Summer Time
 P	en-BB	en-001
 P	en-BE	en-150
 Y	en-BE	d/M/y	{1}, {0}
+C	en-BE	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-BE	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-BI	en
+H	en-BI	H	gregorian
 P	en-BM	en-001
 P	en-BS	en-001
 P	en-BW	en-001
+H	en-BW	H	gregorian
+C	en-BW	persian	dd/MM/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-BW	buddhist	dd/MM/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-BZ	en-001
+H	en-BZ	H	gregorian
+C	en-BZ	persian	dd/MM/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-BZ	buddhist	dd/MM/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-CA	en
 Y	en-CA	y-MM-dd	{1}, {0}
+O	en-CA	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	en-CA	persian	M/d/y G	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	en-CA	buddhist	M/d/y G	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	en-CA	narrow	minute	one	{0}min
 U	en-CA	narrow	minute	other	{0}min
 U	en-CA	short	hour	other	{0} hrs
@@ -8494,20 +8711,33 @@ N	en-CA	French_Southern	French Southern and Antarctic Time
 N	en-CA	Pierre_Miquelon	Saint-Pierre-et-Miquelon Standard Time	Saint-Pierre-et-Miquelon Daylight Time
 N	en-CA	Wallis	Wallis and Futuna Time	
 P	en-CC	en-001
+H	en-CC	H	gregorian
 P	en-CH	en-150
 Y	en-CH	dd.MM.y	{1}, {0}
+C	en-CH	persian	dd.MM.y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-CH	buddhist	dd.MM.y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-CK	en-001
+H	en-CK	H	gregorian
 P	en-CM	en-001
+H	en-CM	H	gregorian
 P	en-CX	en-001
+H	en-CX	H	gregorian
 P	en-CY	en-001
 P	en-CZ	en-150
 P	en-DE	en-150
 P	en-DG	en-001
+H	en-DG	H	gregorian
 P	en-DK	en-150
+O	en-DK	h.mm.ss a	HH.mm.ss	am	pm
+C	en-DK	persian	dd/MM/y GGGGG	AP	AP	h.mm.ss a	HH.mm.ss	am	pm
+C	en-DK	buddhist	dd/MM/y GGGGG	BE	BE	h.mm.ss a	HH.mm.ss	am	pm
 T	en-DK	.
 P	en-DM	en-001
 P	en-Dsrt	und
 F	en-Dsrt	𐐘𐐣𐐓 {0}	𐐘𐐣𐐓	+HH:mm;-HH:mm
+O	en-Dsrt	h:mm:ss a	HH:mm:ss	𐐈𐐣	𐐑𐐣
+C	en-Dsrt	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	𐐈𐐣	𐐑𐐣
+C	en-Dsrt	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	𐐈𐐣	𐐑𐐣
 U	en-Dsrt	long	day	one	{0} 𐐼𐐩
 U	en-Dsrt	long	day	other	{0} 𐐼𐐩𐑆
 U	en-Dsrt	long	hour	one	{0} 𐐵𐑉
@@ -8534,38 +8764,69 @@ P	en-EE	en-150
 P	en-ER	en-001
 P	en-ES	en-150
 P	en-FI	en-150
+O	en-FI	h.mm.ss a	H.mm.ss	am	pm
+C	en-FI	persian	dd/MM/y GGGGG	AP	AP	h.mm.ss a	H.mm.ss	am	pm
+C	en-FI	buddhist	dd/MM/y GGGGG	BE	BE	h.mm.ss a	H.mm.ss	am	pm
 T	en-FI	.
 P	en-FJ	en-001
 P	en-FK	en-001
+H	en-FK	H	gregorian
 P	en-FM	en-001
 P	en-FR	en-150
 P	en-GB	en-001
+H	en-GB	H	gregorian
 P	en-GD	en-001
 P	en-GE	en-150
 P	en-GG	en-001
+H	en-GG	H	gregorian
 P	en-GH	en-001
 P	en-GI	en-001
+H	en-GI	H	gregorian
 P	en-GM	en-001
 P	en-GS	en-001
+H	en-GS	H	gregorian
 P	en-GU	en
 P	en-GY	en-001
 P	en-HK	en-001
 Y	en-HK	d/M/y	{1}, {0}
+C	en-HK	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-HK	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-HU	en-150
 P	en-ID	en-001
+O	en-ID	h.mm.ss a	HH.mm.ss	am	pm
+H	en-ID	H	gregorian
+C	en-ID	persian	dd/MM/y GGGGG	AP	AP	h.mm.ss a	HH.mm.ss	am	pm
+C	en-ID	buddhist	dd/MM/y GGGGG	BE	BE	h.mm.ss a	HH.mm.ss	am	pm
 P	en-IE	en-001
 Y	en-IE	d/M/y	{1}, {0}
+H	en-IE	H	gregorian
+C	en-IE	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-IE	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-IL	en-001
+O	en-IL	h:mm:ss a	H:mm:ss	am	pm
+H	en-IL	H	gregorian
+C	en-IL	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	H:mm:ss	am	pm
+C	en-IL	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	H:mm:ss	am	pm
 P	en-IM	en-001
+H	en-IM	H	gregorian
 P	en-IN	en-001
 Y	en-IN	d/M/y	{1}, {0}
+C	en-IN	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-IN	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-IO	en-001
+H	en-IO	H	gregorian
 P	en-IT	en-150
 P	en-JE	en-001
+H	en-JE	H	gregorian
 P	en-JM	en-001
 P	en-JP	en
 Y	en-JP	y/MM/dd	{1}, {0}
+O	en-JP	h:mm:ss a	H:mm:ss	AM	PM
+H	en-JP	H	gregorian
+C	en-JP	persian	GGGGG y/MM/dd	AP	AP	h:mm:ss a	H:mm:ss	AM	PM
+C	en-JP	buddhist	GGGGG y/MM/dd	BE	BE	h:mm:ss a	H:mm:ss	AM	PM
 P	en-KE	en-001
+H	en-KE	H	gregorian
 P	en-KI	en-001
 P	en-KN	en-001
 P	en-KY	en-001
@@ -8575,58 +8836,83 @@ P	en-LS	en-001
 P	en-LT	en-150
 P	en-LV	en-150
 P	en-MG	en-001
+H	en-MG	H	gregorian
 P	en-MH	en
 P	en-MO	en-001
 P	en-MP	en
 P	en-MS	en-001
+H	en-MS	H	gregorian
 P	en-MT	en-001
+H	en-MT	H	gregorian
 P	en-MU	en-001
+H	en-MU	H	gregorian
 P	en-MV	en-001
-Y	en-MV	dd/MM/y	{1} {0}
+H	en-MV	H	gregorian
 P	en-MW	en-001
 P	en-MY	en-001
 P	en-NA	en-001
 P	en-NF	en-001
+H	en-NF	H	gregorian
 P	en-NG	en-001
+H	en-NG	H	gregorian
 P	en-NL	en-150
 P	en-NO	en-150
 P	en-NR	en-001
+H	en-NR	H	gregorian
 P	en-NU	en-001
+H	en-NU	H	gregorian
 P	en-NZ	en-001
 Y	en-NZ	d/MM/y	{1}, {0}
+C	en-NZ	persian	d/MM/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-NZ	buddhist	d/MM/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-PG	en-001
 P	en-PH	en
 P	en-PK	en-001
 P	en-PL	en-150
 P	en-PN	en-001
+H	en-PN	H	gregorian
 P	en-PR	en
 P	en-PT	en-150
 P	en-PW	en-001
 P	en-RO	en-150
 P	en-RW	en-001
+H	en-RW	H	gregorian
 P	en-SB	en-001
 P	en-SC	en-001
+H	en-SC	H	gregorian
 P	en-SD	en-001
 P	en-SE	en-150
 Y	en-SE	y-MM-dd	{1}, {0}
+C	en-SE	persian	y-MM-dd G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-SE	buddhist	y-MM-dd G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-SG	en-001
 P	en-SH	en-001
+H	en-SH	H	gregorian
 P	en-SI	en-150
 P	en-SK	en-150
 P	en-SL	en-001
 P	en-SS	en-001
 P	en-SX	en-001
+H	en-SX	H	gregorian
 P	en-SZ	en-001
 P	en-Shaw	und
 F	en-Shaw	·𐑜𐑥𐑑{0}	·𐑜𐑥𐑑	+HH:mm;-HH:mm
+O	en-Shaw	h:mm:ss a	HH:mm:ss	𐑨𐑥	𐑐𐑥
+H	en-Shaw	H	gregorian
+C	en-Shaw	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	𐑨𐑥	𐑐𐑥
+C	en-Shaw	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	𐑨𐑥	𐑐𐑥
 P	en-TC	en-001
 P	en-TK	en-001
+H	en-TK	H	gregorian
 P	en-TO	en-001
 P	en-TT	en-001
 P	en-TV	en-001
+H	en-TV	H	gregorian
 P	en-TZ	en-001
+H	en-TZ	H	gregorian
 P	en-UA	en-150
 P	en-UG	en-001
+H	en-UG	H	gregorian
 P	en-UM	en
 P	en-VC	en-001
 P	en-VG	en-001
@@ -8635,11 +8921,21 @@ P	en-VU	en-001
 P	en-WS	en-001
 P	en-ZA	en-001
 Y	en-ZA	y/MM/dd	{1}, {0}
+H	en-ZA	H	gregorian
+C	en-ZA	persian	G y/MM/dd	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-ZA	buddhist	G y/MM/dd	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-ZM	en-001
 P	en-ZW	en-001
 Y	en-ZW	d/M/y	{1}, {0}
+H	en-ZW	H	gregorian
+C	en-ZW	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	en-ZW	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	eo	und
 F	eo	UTC{0}	UTC	+HH:mm;-HH:mm
+O	eo	h:mm:ss a	HH:mm:ss	atm	ptm
+H	eo	H	gregorian
+C	eo	persian	y-MM-dd GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	atm	ptm
+C	eo	buddhist	y-MM-dd GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	atm	ptm
 U	eo	long	day	one	{0} tago
 U	eo	long	day	other	{0} tagoj
 U	eo	long	hour	one	{0} horo
@@ -8850,6 +9146,10 @@ N	eo	Yekaterinburg	jekaterinburga norma tempo	jekaterinburga somera tempo
 N	eo	Yukon	jukonia tempo	
 P	es	und
 Y	es	d/M/y	{1}, {0}
+O	es	h:mm:ss a	H:mm:ss	a. m.	p. m.
+H	es	H	gregorian
+C	es	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 U	es	long	day	one	{0} día
 U	es	long	day	other	{0} días
 U	es	long	hour	one	{0} hora
@@ -9057,6 +9357,10 @@ N	es	Yakutsk	hora estándar de Yakutsk	hora de verano de Yakutsk
 N	es	Yekaterinburg	hora estándar de Ekaterimburgo	hora de verano de Ekaterimburgo
 N	es	Yukon	hora de Yukón	
 P	es-419	es
+O	es-419	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	es-419	h	gregorian
+C	es-419	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	es-419	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	es-419	narrow	day	one	{0}d.
 U	es-419	narrow	day	other	{0}dd.
 U	es-419	narrow	month	one	{0}m.
@@ -9091,6 +9395,9 @@ N	es-419	Pyongyang	hora de Pionyang
 N	es-419	Solomon	hora de Islas Salomón	
 N	es-419	Wake	hora de Isla Wake	
 P	es-AR	es-419
+O	es-AR	hh:mm:ss	HH:mm:ss	a. m.	p. m.
+C	es-AR	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-AR	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 U	es-AR	narrow	second	one	{0}seg.
 U	es-AR	narrow	second	other	{0}seg.
 U	es-AR	narrow	year	other	{0}a.
@@ -9099,11 +9406,22 @@ U	es-AR	short	second	other	{0} seg.
 U	es-AR	short	year	one	{0} año
 U	es-AR	short	year	other	{0} años
 P	es-BO	es-419
+O	es-BO	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-BO	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-BO	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-BR	es-419
+H	es-BR	H	gregorian
 P	es-BZ	es-419
+H	es-BZ	H	gregorian
 P	es-CL	es-419
 Y	es-CL	dd-MM-y	{1}, {0}
+O	es-CL	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-CL	persian	dd-MM-y G	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-CL	buddhist	dd-MM-y G	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-CO	es-419
+O	es-CO	h:mm:ss a	H:mm:ss	a. m.	p. m.
+C	es-CO	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-CO	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 U	es-CO	narrow	day	one	{0} día
 U	es-CO	narrow	day	other	{0} días
 U	es-CO	narrow	hour	one	{0} h
@@ -9126,19 +9444,36 @@ U	es-CO	short	month	one	{0} mes
 U	es-CO	short	month	other	{0} meses
 U	es-CO	short	year	other	{0} a.
 P	es-CR	es-419
+O	es-CR	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-CR	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-CR	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-CU	es-419
 P	es-DO	es-419
+O	es-DO	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-DO	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-DO	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 U	es-DO	narrow	day	other	{0}d.
 U	es-DO	narrow	month	other	{0}m.
 U	es-DO	short	second	one	{0} seg.
 U	es-DO	short	second	other	{0} seg.
 P	es-EA	es
 P	es-EC	es-419
+O	es-EC	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-EC	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-EC	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-GQ	es
 P	es-GT	es-419
+O	es-GT	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-GT	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-GT	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-HN	es-419
+O	es-HN	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-HN	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-HN	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-IC	es
 P	es-MX	es-419
+C	es-MX	persian	d/M/y GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	es-MX	buddhist	d/M/y GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	es-MX	narrow	day	one	{0}d
 U	es-MX	narrow	day	other	{0}d
 U	es-MX	narrow	month	one	{0}m
@@ -9168,13 +9503,29 @@ N	es-MX	Pyongyang	hora de Pyongyang
 N	es-MX	Solomon	hora de las Islas Salomón	
 N	es-MX	Wake	hora de la Isla Wake	
 P	es-NI	es-419
+O	es-NI	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-NI	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-NI	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-PA	es-419
 Y	es-PA	MM/dd/y	{1}, {0}
+O	es-PA	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PA	persian	MM/dd/y	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PA	buddhist	MM/dd/y	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-PE	es-419
+O	es-PE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PE	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PE	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-PH	es
+H	es-PH	h	gregorian
 P	es-PR	es-419
 Y	es-PR	MM/dd/y	{1}, {0}
+O	es-PR	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PR	persian	MM/dd/y G	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PR	buddhist	MM/dd/y G	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-PY	es-419
+O	es-PY	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PY	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-PY	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 U	es-PY	short	day	one	{0} día
 U	es-PY	short	day	other	{0} días
 U	es-PY	short	month	one	{0} mes
@@ -9184,6 +9535,9 @@ U	es-PY	short	second	other	{0} seg.
 U	es-PY	short	year	one	{0} año
 U	es-PY	short	year	other	{0} años
 P	es-SV	es-419
+O	es-SV	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-SV	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-SV	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-US	es-419
 U	es-US	narrow	day	one	{0}d
 U	es-US	narrow	day	other	{0}d
@@ -9215,10 +9569,20 @@ N	es-US	Pyongyang	hora de Pyongyang
 N	es-US	Solomon	hora de las Islas Salomón	
 N	es-US	Wake	hora de la isla Wake	
 P	es-UY	es-419
+O	es-UY	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-UY	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-UY	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	es-VE	es-419
+O	es-VE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-VE	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	es-VE	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 P	et	und
 F	et	GMT {0}	GMT	+HH:mm;−HH:mm
-Y	et	d.M.y	{1} {0}
+Y	et	d.M.y	{1}, {0}
+O	et	h:mm:ss a	HH:mm:ss	AM	PM
+H	et	H	gregorian
+C	et	persian	d.M.y G	AP	AP	h:mm:ss a	H:mm:ss	AM	PM
+C	et	buddhist	d.M.y G	BK	BK	h:mm:ss a	H:mm:ss	AM	PM
 U	et	long	day	one	{0} ööpäev
 U	et	long	day	other	{0} ööpäeva
 U	et	long	hour	one	{0} tund
@@ -9428,6 +9792,10 @@ N	et	Yukon	Yukoni aeg
 P	eu	und
 F	eu	GMT{0}	GMT	+HH:mm;–HH:mm
 Y	eu	y/M/d	{1} ({0})
+O	eu	h:mm:ss a	HH:mm:ss	AM	PM
+H	eu	H	gregorian
+C	eu	persian	y/MM/dd	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	eu	buddhist	y/MM/dd	BG	BG	h:mm:ss a	HH:mm:ss	AM	PM
 U	eu	long	day	one	{0} egun
 U	eu	long	day	other	{0} egun
 U	eu	long	hour	one	{0} ordu
@@ -9627,10 +9995,18 @@ N	eu	Yekaterinburg	Jekaterinburgeko ordu estandarra	Jekaterinburgeko udako ordua
 N	eu	Yukon	Yukongo ordua	
 P	ewo	und
 Y	ewo	d/M/y	{1} {0}
+O	ewo	h:mm:ss a	HH:mm:ss	kíkíríg	ngəgógəle
+H	ewo	H	gregorian
+C	ewo	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	kíkíríg	ngəgógəle
+C	ewo	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	kíkíríg	ngəgógəle
 P	fa	und
 D	fa	۰۱۲۳۴۵۶۷۸۹
 F	fa	{0} گرینویچ	گرینویچ	‎+HH:mm;‎−HH:mm
-Y	fa	y/M/d	{1}،‏ {0}
+Y	fa	y/M/d	{1}, {0}
+O	fa	h:mm:ss a	H:mm:ss	ق.ظ.	ب.ظ.
+H	fa	H	persian
+C	fa	persian	y/M/d	ه‍.ش.	ه‍.ش.	h:mm:ss a	H:mm:ss	ق.ظ.	ب.ظ.
+C	fa	buddhist	y/M/d GGGGG	تقویم بودایی	تقویم بودایی	h:mm:ss a	H:mm:ss	ق.ظ.	ب.ظ.
 U	fa	long	day	one	{0} روز
 U	fa	long	day	other	{0} روز
 U	fa	long	hour	one	{0} ساعت
@@ -9851,12 +10227,21 @@ N	fa	Yekaterinburg	وقت عادی یکاترینبورگ	وقت تابستان�
 N	fa	Yukon	وقت یوکان	
 P	fa-AF	fa
 D	fa-AF	۰۱۲۳۴۵۶۷۸۹
-Y	fa-AF	M/d/y	{1}،‏ {0}
+Y	fa-AF	M/d/y	{1}, {0}
+O	fa-AF	h:mm:ss a	HH:mm:ss	ق.ظ.	ب.ظ.
 P	ff	und
+O	ff	h:mm:ss a	HH:mm:ss	subaka	kikiiɗe
+H	ff	H	gregorian
+C	ff	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	subaka	kikiiɗe
+C	ff	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	subaka	kikiiɗe
 P	ff-Adlm	und
 D	ff-Adlm	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
 F	ff-Adlm	𞤑𞤖𞤘{0}	𞤑𞤖𞤘	+HH:mm;-HH:mm
 Y	ff-Adlm	d-M-y	{1} {0}
+O	ff-Adlm	h:mm:ss a	HH:mm:ss	𞤀𞤎	𞤇𞤎
+H	ff-Adlm	H	gregorian
+C	ff-Adlm	persian	d-M-y GGGGG	𞤀𞤆	𞤀𞤆	h:mm:ss a	HH:mm:ss	𞤀𞤎	𞤇𞤎
+C	ff-Adlm	buddhist	d-M-y GGGGG	𞤘𞤄	𞤘𞤄	h:mm:ss a	HH:mm:ss	𞤀𞤎	𞤇𞤎
 U	ff-Adlm	long	day	one	{0} 𞤻𞤢𞤤𞥆𞤢𞤤
 U	ff-Adlm	long	day	other	{0} 𞤻𞤢𞤤𞥆𞤫
 U	ff-Adlm	long	hour	one	{0} 𞤲𞤶𞤢𞤥𞤲𞤣𞤭
@@ -10078,37 +10463,51 @@ P	ff-Adlm-CM	ff-Adlm
 D	ff-Adlm-CM	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
 P	ff-Adlm-GH	ff-Adlm
 D	ff-Adlm-GH	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
+H	ff-Adlm-GH	h	gregorian
 P	ff-Adlm-GM	ff-Adlm
 D	ff-Adlm-GM	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
+H	ff-Adlm-GM	h	gregorian
 P	ff-Adlm-GW	ff-Adlm
 D	ff-Adlm-GW	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
 P	ff-Adlm-LR	ff-Adlm
 D	ff-Adlm-LR	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
+H	ff-Adlm-LR	h	gregorian
 P	ff-Adlm-MR	ff-Adlm
 D	ff-Adlm-MR	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
+H	ff-Adlm-MR	h	gregorian
 P	ff-Adlm-NE	ff-Adlm
 D	ff-Adlm-NE	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
 P	ff-Adlm-NG	ff-Adlm
 D	ff-Adlm-NG	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
 P	ff-Adlm-SL	ff-Adlm
 D	ff-Adlm-SL	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
+H	ff-Adlm-SL	h	gregorian
 P	ff-Adlm-SN	ff-Adlm
 D	ff-Adlm-SN	𞥐𞥑𞥒𞥓𞥔𞥕𞥖𞥗𞥘𞥙
 P	ff-Latn	ff
 P	ff-Latn-BF	ff-Latn
 P	ff-Latn-CM	ff-Latn
 P	ff-Latn-GH	ff-Latn
+H	ff-Latn-GH	h	gregorian
 P	ff-Latn-GM	ff-Latn
+H	ff-Latn-GM	h	gregorian
 P	ff-Latn-GN	ff-Latn
 P	ff-Latn-GW	ff-Latn
 P	ff-Latn-LR	ff-Latn
+H	ff-Latn-LR	h	gregorian
 P	ff-Latn-MR	ff-Latn
+H	ff-Latn-MR	h	gregorian
 P	ff-Latn-NE	ff-Latn
 P	ff-Latn-NG	ff-Latn
 P	ff-Latn-SL	ff-Latn
+H	ff-Latn-SL	h	gregorian
 P	fi	und
 F	fi	UTC{0}	UTC	+H.mm;-H.mm
-Y	fi	d.M.y	{1} {0}
+Y	fi	d.M.y	{1} 'klo' {0}
+O	fi	h.mm.ss a	H.mm.ss	ap.	ip.
+H	fi	H	gregorian
+C	fi	persian	d.M.y G	AP	AP	h.mm.ss a	H.mm.ss	ap.	ip.
+C	fi	buddhist	d.M.y G	BE	BE	h.mm.ss a	H.mm.ss	ap.	ip.
 U	fi	long	day	one	{0} päivä
 U	fi	long	day	other	{0} päivää
 U	fi	long	hour	one	{0} tunti
@@ -10324,6 +10723,9 @@ N	fi	Yekaterinburg	Jekaterinburgin normaaliaika	Jekaterinburgin kesäaika
 N	fi	Yukon	Yukonin aika	
 P	fil	und
 Y	fil	M/d/y	{1}, {0}
+O	fil	h:mm:ss a	HH:mm:ss	AM	PM
+C	fil	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	fil	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	fil	long	day	one	{0} araw
 U	fil	long	day	other	{0} na araw
 U	fil	long	hour	one	{0} oras
@@ -10527,6 +10929,10 @@ N	fil	Yekaterinburg	Standard na Oras sa Yekaterinburg	Oras sa Tag-init ng Yekate
 N	fil	Yukon	Oras sa Yukon	
 P	fo	und
 Y	fo	dd.MM.y	{1}, {0}
+O	fo	h:mm:ss a	HH:mm:ss	AM	PM
+H	fo	H	gregorian
+C	fo	persian	dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	fo	buddhist	dd.MM.y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	fo	long	day	one	{0} dagur
 U	fo	long	day	other	{0} dagar
 U	fo	long	hour	one	{0} tími
@@ -10734,6 +11140,10 @@ P	fo-DK	fo
 P	fr	und
 F	fr	UTC{0}	UTC	+HH:mm;−HH:mm
 Y	fr	dd/MM/y	{1} {0}
+O	fr	h:mm:ss a	HH:mm:ss	AM	PM
+H	fr	H	gregorian
+C	fr	persian	dd/MM/y GGGGG	A. P.	A. P.	h:mm:ss a	HH:mm:ss	AM	PM
+C	fr	buddhist	dd/MM/y GGGGG	E. B.	EB	h:mm:ss a	HH:mm:ss	AM	PM
 U	fr	long	day	one	{0} jour
 U	fr	long	day	other	{0} jours
 U	fr	long	hour	one	{0} heure
@@ -10959,6 +11369,9 @@ P	fr-BJ	fr
 P	fr-BL	fr
 P	fr-CA	fr
 Y	fr-CA	y-MM-dd	{1} {0}
+O	fr-CA	h 'h' mm 'min' ss 's' a	HH 'h' mm 'min' ss 's'	a.m.	p.m.
+C	fr-CA	persian	y-MM-dd G	AP	AP	h 'h' mm 'min' ss 's' a	HH 'h' mm 'min' ss 's'	a.m.	p.m.
+C	fr-CA	buddhist	y-MM-dd G	E. B.	EB	h 'h' mm 'min' ss 's' a	HH 'h' mm 'min' ss 's'	a.m.	p.m.
 U	fr-CA	long	minute	one	{0} minute
 U	fr-CA	long	minute	other	{0} minutes
 U	fr-CA	long	second	one	{0} seconde
@@ -11082,10 +11495,17 @@ P	fr-CF	fr
 P	fr-CG	fr
 P	fr-CH	fr
 Y	fr-CH	dd.MM.y	{1} {0}
+C	fr-CH	persian	dd.MM.y GGGGG	A. P.	A. P.	h:mm:ss a	HH:mm:ss	AM	PM
+C	fr-CH	buddhist	dd.MM.y GGGGG	E. B.	EB	h:mm:ss a	HH:mm:ss	AM	PM
 P	fr-CI	fr
 P	fr-CM	fr
+O	fr-CM	h:mm:ss	HH:mm:ss	mat.	soir
+C	fr-CM	persian	dd/MM/y GGGGG	A. P.	A. P.	h:mm:ss a	HH:mm:ss	mat.	soir
+C	fr-CM	buddhist	dd/MM/y GGGGG	E. B.	EB	h:mm:ss a	HH:mm:ss	mat.	soir
 P	fr-DJ	fr
+H	fr-DJ	h	gregorian
 P	fr-DZ	fr
+H	fr-DZ	h	gregorian
 P	fr-GA	fr
 P	fr-GF	fr
 P	fr-GN	fr
@@ -11102,6 +11522,7 @@ P	fr-ML	fr
 Y	fr-ML	dd/MM/y	{1}, {0}
 P	fr-MQ	fr
 P	fr-MR	fr
+H	fr-MR	h	gregorian
 P	fr-MU	fr
 P	fr-NC	fr
 P	fr-NE	fr
@@ -11112,14 +11533,23 @@ P	fr-RW	fr
 P	fr-SC	fr
 P	fr-SN	fr
 P	fr-SY	fr
+H	fr-SY	h	gregorian
 P	fr-TD	fr
+H	fr-TD	h	gregorian
 P	fr-TG	fr
 P	fr-TN	fr
+H	fr-TN	h	gregorian
 P	fr-VU	fr
+H	fr-VU	h	gregorian
 P	fr-WF	fr
 P	fr-YT	fr
 P	frr	und
+H	frr	H	gregorian
 P	fur	und
+O	fur	h:mm:ss a	HH:mm:ss	a.	p.
+H	fur	H	gregorian
+C	fur	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	a.	p.
+C	fur	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	a.	p.
 U	fur	long	day	one	{0} zornade
 U	fur	long	day	other	{0} zornadis
 U	fur	long	hour	one	{0} ore
@@ -11140,6 +11570,10 @@ N	fur	Europe_Western	Ore standard de Europe ocidentâl	Ore estive de Europe ocid
 N	fur	Moscow	Ore standard di Mosche	Ore estive di Mosche
 P	fy	und
 Y	fy	d-M-y	{1} {0}
+O	fy	h:mm:ss a	HH:mm:ss	AM	PM
+H	fy	H	gregorian
+C	fy	persian	d-M-y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	fy	buddhist	d-M-y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	fy	long	day	one	{0} dei
 U	fy	long	day	other	{0} deien
 U	fy	long	hour	one	{0} oere
@@ -11333,7 +11767,11 @@ N	fy	Yakutsk	Jakoetsk-standerttiid	Jakoetsk-simmertiid
 N	fy	Yekaterinburg	Jekaterinenburg-standerttiid	Jekaterinenburg-simmertiid
 P	ga	und
 F	ga	MAG{0}	MAG	+HH:mm;-HH:mm
-Y	ga	dd/MM/y	{1} {0}
+Y	ga	dd/MM/y	{1}, {0}
+O	ga	h:mm:ss a	HH:mm:ss	r.n.	i.n.
+H	ga	H	gregorian
+C	ga	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	r.n.	i.n.
+C	ga	buddhist	dd/MM/y GGGGG	RB	RB	h:mm:ss a	HH:mm:ss	r.n.	i.n.
 U	ga	long	day	few	{0} lá
 U	ga	long	day	many	{0} lá
 U	ga	long	day	one	{0} lá
@@ -11618,7 +12056,11 @@ P	gaa	und
 Y	gaa	M/d/y	{1} {0}
 N	gaa	GMT	Betsɔɔmɔ ni ka ŋɛlɛ kome nɔ	
 P	gd	und
-Y	gd	d/M/y	{1} {0}
+Y	gd	d/M/y	{1}, {0}
+O	gd	h:mm:ss a	HH:mm:ss	m	f
+H	gd	H	gregorian
+C	gd	persian	d/M/y GGGGG	AP	AP	h:mm:ssa	HH:mm:ss	m	f
+C	gd	buddhist	d/M/y GGGGG	BE	BE	h:mm:ssa	HH:mm:ss	m	f
 U	gd	long	day	few	{0} làithean
 U	gd	long	day	one	{0} latha
 U	gd	long	day	other	{0} latha
@@ -11893,6 +12335,10 @@ P	gez	und
 P	gez-ER	gez
 P	gl	und
 Y	gl	d/M/y	{1}, {0}
+O	gl	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	gl	H	gregorian
+C	gl	persian	dd/MM/y	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	gl	buddhist	dd/MM/y	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	gl	long	day	one	{0} día
 U	gl	long	day	other	{0} días
 U	gl	long	hour	one	{0} hora
@@ -12083,6 +12529,10 @@ N	gl	Yekaterinburg	hora estándar de Ekaterimburgo	hora de verán de Ekaterimbur
 N	gl	Yukon	hora de Yukon	
 P	gn	und
 P	gsw	und
+O	gsw	h:mm:ss a	HH:mm:ss	vorm.	nam.
+H	gsw	H	gregorian
+C	gsw	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	vorm.	nam.
+C	gsw	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	vorm.	nam.
 U	gsw	long	day	one	{0} Taag
 U	gsw	long	day	other	{0} Tääg
 U	gsw	long	hour	one	{0} Schtund
@@ -12115,6 +12565,8 @@ P	gsw-FR	gsw
 P	gsw-LI	gsw
 P	gu	und
 Y	gu	d/M/y	{1} {0}
+C	gu	persian	d/M/G y	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	gu	buddhist	d/M/G y	BE	BE	hh:mm:ss a	HH:mm:ss	AM	PM
 U	gu	long	day	one	{0} દિવસ
 U	gu	long	day	other	{0} દિવસ
 U	gu	long	hour	one	{0} કલાક
@@ -12328,9 +12780,21 @@ N	gu	Yakutsk	યાકુત્સ્ક માનક સમય	યાકુત�
 N	gu	Yekaterinburg	યેકાટેરિનબર્ગ માનક સમય	યેકાટેરિનબર્ગ ગ્રીષ્મ સમય
 N	gu	Yukon	યુકોન સમય	
 P	guz	und
+O	guz	h:mm:ss a	HH:mm:ss	Ma	Mo
+H	guz	H	gregorian
+C	guz	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Ma	Mo
+C	guz	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Ma	Mo
 P	gv	und
+O	gv	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	gv	H	gregorian
+C	gv	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	gv	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 P	ha	und
 Y	ha	y-MM-dd	{1}, {0}
+O	ha	h:mm:ss a	HH:mm:ss	SF	YM
+H	ha	H	gregorian
+C	ha	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	SF	YM
+C	ha	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	SF	YM
 U	ha	long	day	one	rana {0}
 U	ha	long	day	other	ranaku {0}
 U	ha	long	hour	one	sa′a {0}
@@ -12540,11 +13004,15 @@ N	ha	Yakutsk	Tsayayyen Lokacin Yakutsk	Lokacin Bazara na Yakutsk
 N	ha	Yekaterinburg	Tsayayyen Lokacin Yekaterinburg	Lokacin Bazara na Yekaterinburg
 N	ha	Yukon	Lokacin Yukon	
 P	ha-Arab	und
+H	ha-Arab	H	gregorian
 P	ha-Arab-SD	ha-Arab
+H	ha-Arab-SD	h	gregorian
 P	ha-GH	ha
+H	ha-GH	h	gregorian
 P	ha-NE	ha
 P	haw	und
 Y	haw	d/M/y	{1} {0}
+O	haw	h:mm:ss a	HH:mm:ss	AM	PM
 U	haw	long	day	one	{0} lā
 U	haw	long	day	other	{0} lā
 U	haw	long	hour	one	{0} hola
@@ -12562,6 +13030,10 @@ U	haw	long	year	other	{0} makahiki
 P	he	und
 F	he	GMT{0}‎	GMT	‎+HH:mm;-HH:mm‎
 Y	he	d.M.y	{1}, {0}
+O	he	h:mm:ss a	H:mm:ss	AM	PM
+H	he	H	gregorian
+C	he	persian	d.M.y G	AP	AP	h:mm:ss a	H:mm:ss	AM	PM
+C	he	buddhist	d.M.y G	BE	BE	h:mm:ss a	H:mm:ss	AM	PM
 U	he	long	day	many	{0} יום
 U	he	long	day	one	{0} יום
 U	he	long	day	other	{0} ימים
@@ -12805,6 +13277,9 @@ N	he	Yekaterinburg	שעון יקטרינבורג (חורף)	שעון יקטרי�
 N	he	Yukon	שעון יוקון	
 P	hi	und
 Y	hi	d/M/y	{1}, {0}
+O	hi	h:mm:ss a	HH:mm:ss	am	pm
+C	hi	persian	G d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	hi	buddhist	d/M`/y GGGGG	बौद्ध संवत	बौद्ध संवत	h:mm:ss a	HH:mm:ss	am	pm
 U	hi	long	day	one	{0} दिन
 U	hi	long	day	other	{0} दिन
 U	hi	long	hour	one	{0} घंटा
@@ -13013,7 +13488,9 @@ N	hi	Yakutsk	याकुत्स्क मानक समय	याकुत�
 N	hi	Yekaterinburg	येकातेरिनबर्ग मानक समय	येकातेरिनबर्ग ग्रीष्मकालीन समय
 N	hi	Yukon	युकॉन समय	
 P	hi-Latn	en-IN
-Y	hi-Latn	d/M/y	{1} {0}
+O	hi-Latn	h:mm:ss a	HH:mm:ss	AM	PM
+C	hi-Latn	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	hi-Latn	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	hi-Latn	long	day	one	{0} din
 U	hi-Latn	long	day	other	{0} din
 U	hi-Latn	long	hour	one	{0} ghanta
@@ -13035,6 +13512,10 @@ D	hnj-Hmnp	𞅀𞅁𞅂𞅃𞅄𞅅𞅆𞅇𞅈𞅉
 P	hr	und
 F	hr	GMT{0}	GMT	+HH:mm; -HH:mm
 Y	hr	dd. MM. y.	{1} {0}
+O	hr	hh:mm:ss a	HH:mm:ss	AM	PM
+H	hr	H	gregorian
+C	hr	persian	dd. MM. y. GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	hr	buddhist	dd. MM. y. GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	AM	PM
 U	hr	long	day	few	{0} dana
 U	hr	long	day	one	{0} dan
 U	hr	long	day	other	{0} dana
@@ -13257,6 +13738,10 @@ N	hr	Yukon	jukonško vrijeme
 P	hr-BA	hr
 P	hsb	und
 Y	hsb	d.M.y	{1} {0}
+O	hsb	h:mm:ss a	H:mm:ss	dop.	pop.
+H	hsb	H	gregorian
+C	hsb	persian	d.M.y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	dop.	pop.
+C	hsb	buddhist	d.M.y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	dop.	pop.
 U	hsb	long	day	few	{0} dny
 U	hsb	long	day	one	{0} dźeń
 U	hsb	long	day	other	{0} dnjow
@@ -13500,6 +13985,10 @@ N	hsb	Yukon	Yukonowy čas
 P	ht	fr-HT
 P	hu	und
 Y	hu	y. MM. dd.	{1} {0}
+O	hu	a h:mm:ss	H:mm:ss	de.	du.
+H	hu	H	gregorian
+C	hu	persian	G y. MM. dd.	AP	AP	a h:mm:ss	H:mm:ss	de.	du.
+C	hu	buddhist	G y. MM. dd.	BK	BK	a h:mm:ss	H:mm:ss	de.	du.
 U	hu	long	day	one	{0} nap
 U	hu	long	day	other	{0} nap
 U	hu	long	hour	one	{0} óra
@@ -13712,6 +14201,10 @@ N	hu	Yekaterinburg	jekatyerinburgi téli idő	jekatyerinburgi nyári idő
 N	hu	Yukon	yukoni idő	
 P	hy	und
 Y	hy	dd.MM.y	{1}, {0}
+O	hy	h:mm:ss a	H:mm:ss	AM	PM
+H	hy	H	gregorian
+C	hy	persian	d.M.y թ., G	AP	AP	h:mm:ss a	H:mm:ss	AM	PM
+C	hy	buddhist	d.M.y թ., G	BE	BE	h:mm:ss a	H:mm:ss	AM	PM
 U	hy	long	day	one	{0} օր
 U	hy	long	day	other	{0} օր
 U	hy	long	hour	one	{0} ժամ
@@ -13922,6 +14415,10 @@ N	hy	Yekaterinburg	Եկատերինբուրգի ստանդարտ ժամանակ	
 N	hy	Yukon	Յուկոնի ժամանակ	
 P	ia	und
 Y	ia	dd-MM-y	{1}, {0}
+O	ia	h:mm:ss a	HH:mm:ss	AM	PM
+H	ia	H	gregorian
+C	ia	persian	dd-MM-y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ia	buddhist	dd-MM-y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ia	long	day	one	{0} die
 U	ia	long	day	other	{0} dies
 U	ia	long	hour	one	{0} hora
@@ -14125,7 +14622,11 @@ N	ia	Yekaterinburg	hora normal de Ekaterinburg	hora estive de Ekaterinburg
 N	ia	Yukon	hora de Yukon	
 P	id	und
 F	id	GMT{0}	GMT	+HH.mm;-HH.mm
-Y	id	d/M/y	{1} {0}
+Y	id	d/M/y	{1}, {0}
+O	id	h.mm.ss a	HH.mm.ss	AM	PM
+H	id	H	gregorian
+C	id	persian	d/M/y G	AP	AP	h.mm.ss a	HH.mm.ss	AM	PM
+C	id	buddhist	d/M/y G	EB	EB	h.mm.ss a	HH.mm.ss	AM	PM
 U	id	long	day	other	{0} hari
 U	id	long	hour	other	{0} jam
 U	id	long	microsecond	other	{0} mikrodetik
@@ -14322,10 +14823,18 @@ N	id	Yukon	Waktu Yukon
 P	ie	und
 F	ie	TMG{0}	TMG	+HH:mm;-HH:mm
 Y	ie	d.M.y	{1} {0}
+O	ie	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	ie	H	gregorian
+C	ie	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	ie	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 N	ie	Cook	témpor standard del Insules Cook	témpor demíestival del Insules Cook
 N	ie	GMT	témpore medial de Greenwich	
 P	ig	und
 Y	ig	d/M/y	{1}, {0}
+O	ig	h:mm:ss a	HH:mm:ss	N’ụtụtụ	N’abalị
+H	ig	H	gregorian
+C	ig	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	N’ụtụtụ	N’abalị
+C	ig	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	N’ụtụtụ	N’abalị
 U	ig	long	day	other	{0} Ọtụtụ Ubochi
 U	ig	long	hour	other	{0} Ọtụtụ awa
 U	ig	long	minute	other	{0} nkeji
@@ -14493,10 +15002,19 @@ N	ig	Yekaterinburg	Oge Izugbe Yekaterinburg	Oge Okpomọkụ Yekaterinburg
 N	ig	Yukon	Oge Yukon	
 P	ii	und
 F	ii	ꋧꃅꎕꏦꄮꈉ{0}	ꋧꃅꎕꏦꄮꈉ	+HH:mm;-HH:mm
+O	ii	ah:mm:ss	HH:mm:ss	ꎸꄑ	ꁯꋒ
+H	ii	H	gregorian
+C	ii	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ꎸꄑ	ꁯꋒ
+C	ii	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ꎸꄑ	ꁯꋒ
 N	ii	GMT	ꋧꃅꎕꏦꄮꈉ	
 P	io	und
+H	io	H	gregorian
 P	is	und
 Y	is	d.M.y	{1}, {0}
+O	is	h:mm:ss a	HH:mm:ss	f.h.	e.h.
+H	is	H	gregorian
+C	is	persian	d.M.y G	AP	AP	h:mm:ss a	HH:mm:ss	f.h.	e.h.
+C	is	buddhist	d.M.y G	BD	BD	h:mm:ss a	HH:mm:ss	f.h.	e.h.
 U	is	long	day	one	{0} dagur
 U	is	long	day	other	{0} dagar
 U	is	long	hour	one	{0} klukkustund
@@ -14700,6 +15218,10 @@ N	is	Yekaterinburg	Staðaltími í Yekaterinborg	Sumartími í Yekaterinburg
 N	is	Yukon	Tími í Júkon	
 P	it	und
 Y	it	dd/MM/y	{1}, {0}
+O	it	h:mm:ss a	HH:mm:ss	AM	PM
+H	it	H	gregorian
+C	it	persian	d/M/y GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	it	buddhist	d/M/y GGGGG	EB	EB	hh:mm:ss a	HH:mm:ss	AM	PM
 U	it	long	day	one	{0} giorno
 U	it	long	day	other	{0} giorni
 U	it	long	hour	one	{0} ora
@@ -14905,9 +15427,15 @@ P	it-SM	it
 P	it-VA	it
 P	iu	und
 Y	iu	MM/dd/y	{1} {0}
+C	iu	persian	MM/dd/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	iu	buddhist	MM/dd/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 P	iu-Latn	und
 P	ja	und
 Y	ja	y/M/d	{1} {0}
+O	ja	aK:mm:ss	H:mm:ss	午前	午後
+H	ja	H	gregorian
+C	ja	persian	GGGGGy/M/d	AP	AP	aK:mm:ss	H:mm:ss	午前	午後
+C	ja	buddhist	Gy/M/d	BE	BE	aK:mm:ss	H:mm:ss	午前	午後
 U	ja	long	day	other	{0} 日
 U	ja	long	hour	other	{0} 時間
 U	ja	long	microsecond	other	{0} マイクロ秒
@@ -15098,8 +15626,13 @@ N	ja	Yakutsk	ヤクーツク標準時	ヤクーツク夏時間
 N	ja	Yekaterinburg	エカテリンブルグ標準時	エカテリンブルグ夏時間
 N	ja	Yukon	ユーコン時間	
 P	jbo	und
+H	jbo	H	gregorian
 P	jgo	und
 Y	jgo	M.d.y	{1} {0}
+O	jgo	h:mm:ss a	HH:mm:ss	mbaꞌmbaꞌ	ŋka mbɔ́t nji
+H	jgo	H	gregorian
+C	jgo	persian	M.d.y G	AP	AP	h:mm:ss a	HH:mm:ss	mbaꞌmbaꞌ	ŋka mbɔ́t nji
+C	jgo	buddhist	M.d.y G	BE	BE	h:mm:ss a	HH:mm:ss	mbaꞌmbaꞌ	ŋka mbɔ́t nji
 U	jgo	long	day	one	{0} lɛ́Ꞌ
 U	jgo	long	day	other	{0} lɛ́Ꞌ
 U	jgo	long	hour	one	{0} háwa
@@ -15111,8 +15644,16 @@ U	jgo	long	month	other	pɛsaŋ {0}
 U	jgo	long	year	one	ŋguꞋ {0}
 U	jgo	long	year	other	ŋguꞋ {0}
 P	jmc	und
+O	jmc	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
+H	jmc	H	gregorian
+C	jmc	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
+C	jmc	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
 P	jv	und
 Y	jv	dd-MM-y	{1}, {0}
+O	jv	h:mm:ss a	HH:mm:ss	Isuk	Wengi
+H	jv	H	gregorian
+C	jv	persian	dd - MM - y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	Isuk	Wengi
+C	jv	buddhist	dd - MM - y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	Isuk	Wengi
 U	jv	long	day	other	{0} dina
 U	jv	long	hour	other	{0} jam
 U	jv	long	microsecond	other	{0} mikrodetik
@@ -15293,6 +15834,9 @@ N	jv	Yekaterinburg	Wektu Standar Yekaterinburg	Wektu Ketigo Yekaterinburg
 N	jv	Yukon	Wektu Yukon	
 P	ka	und
 Y	ka	d.M.y	{1}, {0}
+H	ka	H	gregorian
+C	ka	persian	d.M.y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ka	buddhist	d.M.y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ka	long	day	one	{0} დღე
 U	ka	long	day	other	{0} დღე
 U	ka	long	hour	one	{0} საათი
@@ -15502,15 +16046,34 @@ N	ka	Yakutsk	იაკუტსკის სტანდარტული დ�
 N	ka	Yekaterinburg	ეკატერინბურგის სტანდარტული დრო	ეკატერინბურგის ზაფხულის დრო
 N	ka	Yukon	იუკონის დრო	
 P	kaa	und
+H	kaa	H	gregorian
 P	kaa-Cyrl	kaa
 P	kaa-Latn	und
+H	kaa-Latn	H	gregorian
 P	kab	und
+O	kab	h:mm:ss a	HH:mm:ss	n tufat	n tmeddit
+C	kab	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	n tufat	n tmeddit
+C	kab	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	n tufat	n tmeddit
 P	kaj	und
+H	kaj	H	gregorian
 P	kam	und
+O	kam	h:mm:ss a	HH:mm:ss	Ĩyakwakya	Ĩyawĩoo
+H	kam	H	gregorian
+C	kam	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Ĩyakwakya	Ĩyawĩoo
+C	kam	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Ĩyakwakya	Ĩyawĩoo
 P	kcg	und
+H	kcg	H	gregorian
 P	kde	und
+O	kde	h:mm:ss a	HH:mm:ss	Muhi	Chilo
+H	kde	H	gregorian
+C	kde	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Muhi	Chilo
+C	kde	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Muhi	Chilo
 P	kea	und
 Y	kea	dd/MM/y	{1}, {0}
+O	kea	h:mm:ss a	HH:mm:ss	am	pm
+H	kea	H	gregorian
+C	kea	persian	dd/MM/y	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	kea	buddhist	dd/MM/y	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 U	kea	long	day	other	{0} dia
 U	kea	long	hour	other	{0} ora
 U	kea	long	microsecond	other	{0} mikrosigundu
@@ -15566,8 +16129,13 @@ N	kea	Yukon	Ora di Yukon
 P	kek	und
 Y	kek	dd-MM-y	{1} {0}
 P	ken	und
+H	ken	H	gregorian
 P	kgp	und
 Y	kgp	dd/MM/y	{1} {0}
+O	kgp	h:mm:ss a	HH:mm:ss	AM	PM
+H	kgp	H	gregorian
+C	kgp	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	kgp	buddhist	dd/MM/y GGGGG	BE	EB	h:mm:ss a	HH:mm:ss	AM	PM
 U	kgp	long	day	one	kurã {0}
 U	kgp	long	day	other	kurã {0}
 U	kgp	long	hour	one	óra {0}
@@ -15763,9 +16331,21 @@ N	kgp	Wallis	Óra Varinh kar Futunỹ tá
 N	kgp	Yakutsk	Óra Pã Yjakutinhkii tá	Rỹ Kã óra Yjakutinhki tá
 N	kgp	Yekaterinburg	Óra Pã Ekaterĩnmurgu tá	Rỹ Kã óra Ekaterĩnmurgu tá
 P	khq	und
+O	khq	h:mm:ss a	HH:mm:ss	Adduha	Aluula
+H	khq	H	gregorian
+C	khq	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Adduha	Aluula
+C	khq	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Adduha	Aluula
 P	ki	und
+O	ki	h:mm:ss a	HH:mm:ss	Kiroko	Hwaĩ-inĩ
+H	ki	H	gregorian
+C	ki	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Kiroko	Hwaĩ-inĩ
+C	ki	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Kiroko	Hwaĩ-inĩ
 P	kk	und
 Y	kk	dd.MM.y	{1}, {0}
+O	kk	h:mm:ss a	HH:mm:ss	AM	PM
+H	kk	H	gregorian
+C	kk	persian	GGGGG dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	kk	buddhist	GGGGG dd.MM.y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	kk	long	day	one	{0} күн
 U	kk	long	day	other	{0} күн
 U	kk	long	hour	one	{0} сағат
@@ -15976,6 +16556,10 @@ N	kk	Yekaterinburg	Екатеринбург стандартты уақыты	Е
 N	kk	Yukon	Юкон уақыты	
 P	kk-Arab	und
 Y	kk-Arab	y-d-M	{1}, {0}
+O	kk-Arab	h:mm:ss a	HH:mm:ss	ت د	ت ك
+H	kk-Arab	H	gregorian
+C	kk-Arab	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	ت د	ت ك
+C	kk-Arab	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	ت د	ت ك
 U	kk-Arab	long	day	one	{0} كۇن
 U	kk-Arab	long	day	other	{0} كۇن
 U	kk-Arab	long	hour	one	{0} ساعات
@@ -16192,11 +16776,21 @@ P	kk-Cyrl	kk
 P	kk-KZ	kk
 P	kkj	und
 Y	kkj	dd/MM y	{1} {0}
+H	kkj	H	gregorian
+C	kkj	persian	dd/MM y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	kkj	buddhist	dd/MM y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 P	kl	und
+H	kl	H	gregorian
 P	kln	und
+O	kln	h:mm:ss a	HH:mm:ss	krn	koosk
+H	kln	H	gregorian
+C	kln	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	krn	koosk
+C	kln	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	krn	koosk
 P	km	und
 F	km	ម៉ោង​សកល {0}	ម៉ោង​សកល	+HH:mm;-HH:mm
 Y	km	d/M/y	{1}, {0}
+C	km	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	km	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	km	long	day	other	{0} ថ្ងៃ
 U	km	long	hour	other	{0} ម៉ោង
 U	km	long	microsecond	other	{0} មីក្រូ​វិនាទី
@@ -16372,7 +16966,7 @@ N	km	Yakutsk	ម៉ោង​ស្តង់ដារ​នៅ​យ៉ាគុ�
 N	km	Yekaterinburg	ម៉ោង​ស្តង់ដារ​នៅ​អ៊ិខាធឺរីនប៊័ក	ម៉ោង​នៅ​អ៊ិខាធឺរីនប៊័កនា​រដូវ​​ក្ដៅ
 N	km	Yukon	ម៉ោងនៅយូខន់	
 P	kn	und
-Y	kn	d/M/y	{1} {0}
+Y	kn	d/M/y	{1}, {0}
 U	kn	long	day	one	{0} ದಿನವು
 U	kn	long	day	other	{0} ದಿನಗಳು
 U	kn	long	hour	one	{0} ಗಂಟೆ
@@ -16593,6 +17187,9 @@ N	kn	Yekaterinburg	ಯೇಕಟರಿನ್‌ಬರ್ಗ್ ಪ್ರಮಾಣ
 N	kn	Yukon	ಯುಕಾನ್ ಸಮಯ	
 P	ko	und
 Y	ko	y. M. d.	{1} {0}
+O	ko	a h:mm:ss	H시 m분 s초	오전	오후
+C	ko	persian	G y. M. d.	AP	AP	a h:mm:ss	HH:mm:ss	오전	오후
+C	ko	buddhist	G y. M. d.	불기	불기	a h:mm:ss	HH:mm:ss	오전	오후
 U	ko	long	day	other	{0}일
 U	ko	long	hour	other	{0}시간
 U	ko	long	microsecond	other	{0}마이크로초
@@ -16782,10 +17379,14 @@ N	ko	Yakutsk	야쿠츠크 표준시	야쿠츠크 하계 표준시
 N	ko	Yekaterinburg	예카테린부르크 표준시	예카테린부르크 하계 표준시
 N	ko	Yukon	유콘 시간	
 P	ko-CN	ko
+H	ko-CN	H	gregorian
 P	ko-KP	ko
 N	ko-KP	Korea	조선 표준시	조선 하계 표준시
 P	kok	und
-Y	kok	d-M-y	{1} {0}
+Y	kok	d-M-y	{1}, {0}
+O	kok	a h:mm:ss	HH:mm:ss	AM	PM
+C	kok	persian	d-M-y GGGGG	AP	AP	a h:mm:ss	HH:mm:ss	AM	PM
+C	kok	buddhist	d-M-y GGGGG	BE	BE	a h:mm:ss	HH:mm:ss	AM	PM
 U	kok	long	day	one	{0} दीस
 U	kok	long	day	other	{0} दीस
 U	kok	long	hour	one	{0} वर
@@ -16997,6 +17598,9 @@ N	kok	Yukon	युकॉन वेळ
 P	kok-Deva	kok
 P	kok-Latn	und
 Y	kok-Latn	d-M-y	{1}, {0}
+O	kok-Latn	a h:mm:ss	HH:mm:ss	AM	PM
+C	kok-Latn	persian	d-M-y GGGGG	AP	AP	a h:mm:ss	HH:mm:ss	AM	PM
+C	kok-Latn	buddhist	d-M-y GGGGG	BE	BE	a h:mm:ss	HH:mm:ss	AM	PM
 U	kok-Latn	long	day	one	{0} dis
 U	kok-Latn	long	day	other	{0} dis
 U	kok-Latn	long	hour	one	{0} vor
@@ -17059,10 +17663,13 @@ N	kok-Latn	Etc/UTC	Vixvacho Somonvoyit Vell
 N	kok-Latn	GMT	Greenwich Promann Vell	
 P	kpe	und
 P	kpe-GN	kpe
+H	kpe-GN	H	gregorian
 P	ks	und
 D	ks	۰۱۲۳۴۵۶۷۸۹
 F	ks	GMT{0}	جی ایم ٹی	+HH:mm;-HH:mm
 Y	ks	M/d/y	{1}, {0}
+C	ks	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ks	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ks	long	day	one	{0} دۄہ
 U	ks	long	day	other	{0} دۄہ
 U	ks	long	hour	one	{0} گَنٹہٕ
@@ -17241,6 +17848,7 @@ D	ks-Arab	۰۱۲۳۴۵۶۷۸۹
 P	ks-Deva	und
 F	ks-Deva	जी एम टी {0}	जी एम टी	+HH:mm;-HH:mm
 Y	ks-Deva	M/d/y	{1}, {0}
+O	ks-Deva	h:mm:ss a	HH:mm:ss	AM	PM
 N	ks-Deva	America_Central	सेंट्रल स्टैन्डर्ड वख	सेंट्रल डे लाइट वख
 N	ks-Deva	America_Eastern	मशरिकी स्टैन्डर्ड वख	मशरिकी डे लाइट वख
 N	ks-Deva	America_Mountain	माउंटेन स्टैन्डर्ड वख	माउंटेन डे लाइट वख
@@ -17252,9 +17860,21 @@ N	ks-Deva	Europe_Eastern	मशरिकी यूरपी स्टैन्�
 N	ks-Deva	Europe_Western	मगरीबी यूरपी स्टैन्डर्ड वख	मगरीबी यूरपी समर वख
 N	ks-Deva	GMT	ग्रीनविच ओसत वख	
 P	ksb	und
+O	ksb	h:mm:ss a	HH:mm:ss	makeo	nyiaghuo
+H	ksb	H	gregorian
+C	ksb	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	makeo	nyiaghuo
+C	ksb	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	makeo	nyiaghuo
 P	ksf	und
 Y	ksf	d/M/y	{1} {0}
+O	ksf	h:mm:ss a	HH:mm:ss	sárúwá	cɛɛ́nko
+H	ksf	H	gregorian
+C	ksf	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	sárúwá	cɛɛ́nko
+C	ksf	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	sárúwá	cɛɛ́nko
 P	ksh	und
+O	ksh	h:mm:ss a	H:mm:ss	v.M.	n.M.
+H	ksh	H	gregorian
+C	ksh	persian	y-MM-dd	AP	AP	h:mm:ss a	H:mm:ss	v.M.	n.M.
+C	ksh	buddhist	y-MM-dd	BE	BE	h:mm:ss a	H:mm:ss	v.M.	n.M.
 U	ksh	long	day	one	{0} Dääsch
 U	ksh	long	day	other	{0} Dääsch
 U	ksh	long	day	zero	{0} Dääsch
@@ -17312,6 +17932,10 @@ N	ksh	Reunion	Zigg vun Reunion
 N	ksh	Seychelles	Zigg vun de Seischälle	
 P	ku	und
 Y	ku	dd.MM.y	{1} {0}
+O	ku	h:mm:ss a	HH:mm:ss	BN	PN
+H	ku	H	gregorian
+C	ku	persian	G dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	BN	PN
+C	ku	buddhist	G d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	BN	PN
 U	ku	long	day	one	{0} roj
 U	ku	long	day	other	{0} roj
 U	ku	long	hour	one	{0} saet
@@ -17516,13 +18140,22 @@ N	ku	Yekaterinburg	Saeta Yekaterinburgê ya Standard	Saeta Havînê ya Yekaterin
 N	ku	Yukon	Saeta Yukonê	
 P	ku-Arab	und
 P	ku-Arab-IR	ku-Arab
+H	ku-Arab-IR	H	persian
 P	ku-Latn	ku
 P	ku-Latn-IQ	ku-Latn
+H	ku-Latn-IQ	h	gregorian
 P	ku-Latn-SY	ku-Latn
 P	ku-TR	ku
 P	kw	und
+O	kw	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	kw	H	gregorian
+C	kw	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	kw	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 P	kxv	und
 Y	kxv	d/M/y	{1}, {0}
+O	kxv	h:mm:ss a	HH:mm:ss	am	pm
+C	kxv	persian	G d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
+C	kxv	buddhist	G d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 N	kxv	Afghanistan	aapganistan belā	
 N	kxv	Africa_Central	madini aaprika belā	
 N	kxv	Africa_Eastern	veḍa hpu aaprika belā	
@@ -17672,6 +18305,9 @@ N	kxv	Yakutsk	yakustuk mānānka belā	yakustuk kār~ā belā
 N	kxv	Yekaterinburg	yakaterinbarg mānānka belā	yakaterinbarg kār~ā belā
 P	kxv-Deva	und
 Y	kxv-Deva	d/M/y	{1}, {0}
+O	kxv-Deva	h:mm:ss a	HH:mm:ss	ए एम	पी एम
+C	kxv-Deva	persian	G d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	ए एम	पी एम
+C	kxv-Deva	buddhist	G d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	ए एम	पी एम
 N	kxv-Deva	Afghanistan	आपगानिस्तान बेला	
 N	kxv-Deva	Africa_Central	मादिनी आप्रिका बेला	
 N	kxv-Deva	Africa_Eastern	वेड़ा हॉपु आप्रिका बेला	
@@ -17819,6 +18455,9 @@ N	kxv-Deva	Yekaterinburg	येकातेरिनबर्ग मानां
 P	kxv-Latn	kxv
 P	kxv-Orya	und
 Y	kxv-Orya	d/M/y	{1}, {0}
+O	kxv-Orya	h:mm:ss a	HH:mm:ss	ଏ ଏମ	ପି ଏମ
+C	kxv-Orya	persian	G d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	ଏ ଏମ	ପି ଏମ
+C	kxv-Orya	buddhist	G d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	ଏ ଏମ	ପି ଏମ
 N	kxv-Orya	Afghanistan	ଆପଗାନିସ୍ତାନ ବେଲା	
 N	kxv-Orya	Africa_Central	ମାଦିନି ଆପ୍ରିକା ବେଲା	
 N	kxv-Orya	Africa_Eastern	ୱେଡ଼ା ହପୁ ଆପ୍ରିକା ବେଲା	
@@ -17968,6 +18607,9 @@ N	kxv-Orya	Yakutsk	ୟାକୁତ୍ସକ ମାନାଙ୍କ ବେଲା	�
 N	kxv-Orya	Yekaterinburg	ୟେକାତେରିନବର୍ଗ ମାନାଙ୍କ ବେଲା	ୟେକାତେରିନବର୍ଗ କାରାଁ ବେଲା
 P	kxv-Telu	und
 Y	kxv-Telu	d/M/y	{1}, {0}
+O	kxv-Telu	h:mm:ss a	HH:mm:ss	ఎ ఎమ్	పి ఎమ్
+C	kxv-Telu	persian	G d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	ఎ ఎమ్	పి ఎమ్
+C	kxv-Telu	buddhist	G d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	ఎ ఎమ్	పి ఎమ్
 N	kxv-Telu	Afghanistan	ఆఫ్ఘనిస్తాన్ సమయం	
 N	kxv-Telu	Africa_Central	సెంట్రల్ ఆఫ్రికా సమయం	
 N	kxv-Telu	Africa_Eastern	తూర్పు ఆఫ్రికా సమయం	
@@ -18117,6 +18759,10 @@ N	kxv-Telu	Yakutsk	యాకుట్స్క్ ప్రామాణిక �
 N	kxv-Telu	Yekaterinburg	యెకటెరిన్‌బర్గ్ ప్రామాణిక సమయం	యెకటెరిన్‌బర్గ్ వేసవి సమయం
 P	ky	und
 Y	ky	y-dd-MM	{1} {0}
+O	ky	h:mm:ss a	HH:mm:ss	тң	тк
+H	ky	H	gregorian
+C	ky	persian	GGGGG y-dd-MM	AP	AP	h:mm:ss a	HH:mm:ss	тң	тк
+C	ky	buddhist	GGGGG y-dd-MM	BE	BE	h:mm:ss a	HH:mm:ss	тң	тк
 U	ky	long	day	one	{0} күн
 U	ky	long	day	other	{0} күн
 U	ky	long	hour	one	{0} саат
@@ -18326,9 +18972,18 @@ N	ky	Yakutsk	Якутск кышкы убакыты	Якутск жайкы уб
 N	ky	Yekaterinburg	Екатеринбург кышкы убакыты	Екатеринбург жайкы убактысы
 N	ky	Yukon	Юкон убактысы	
 P	la	und
+H	la	H	gregorian
 P	lag	und
+O	lag	h:mm:ss a	HH:mm:ss	TOO	MUU
+H	lag	H	gregorian
+C	lag	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	TOO	MUU
+C	lag	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	TOO	MUU
 P	lb	und
 Y	lb	d.M.y	{1} {0}
+O	lb	h:mm:ss a	HH:mm:ss	moies	nomëttes
+H	lb	H	gregorian
+C	lb	persian	d.M.y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	moies	nomëttes
+C	lb	buddhist	d.M.y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	moies	nomëttes
 U	lb	long	day	one	{0} Dag
 U	lb	long	day	other	{0} Deeg
 U	lb	long	hour	one	{0} Stonn
@@ -18524,9 +19179,11 @@ N	lb	Wallis	Wallis-a-Futuna-Zäit
 N	lb	Yakutsk	Jakutsk-Normalzäit	Jakutsk-Summerzäit
 N	lb	Yekaterinburg	Jekaterinbuerg-Normalzäit	Jekaterinbuerg-Summerzäit
 P	lg	und
+H	lg	H	gregorian
 P	lij	und
 F	lij	UTC{0}	UTC	+HH:mm;−HH:mm
 Y	lij	d/M/y	{1} {0}
+H	lij	H	gregorian
 N	lij	GMT	oa do meridian de Greenwich	
 P	lkt	und
 U	lkt	long	day	other	{0}-čháŋ
@@ -18549,6 +19206,9 @@ U	lkt	short	week	other	okó {0}
 U	lkt	short	year	other	ómakȟa {0}
 P	lld	und
 Y	lld	d.M.y	{1}, {0}
+H	lld	H	gregorian
+C	lld	persian	d.M.y GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	lld	buddhist	d.M.y GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	AM	PM
 N	lld	Afghanistan	Ora dl Afghanistan	
 N	lld	Africa_Central	Ora dl’Africa zentrala	
 N	lld	Africa_Eastern	Ora dl’Africa orientala	
@@ -18698,14 +19358,23 @@ N	lld	Yakutsk	Ora standard de Iakutsk	Ora da d’isté de Iakutsk
 N	lld	Yekaterinburg	Ora standard de Yekaterinburg	Ora da d’isté de Yekaterinburg
 N	lld	Yukon	Ora dl Yukon	
 P	lmo	und
+H	lmo	H	gregorian
 N	lmo	GMT	Temp Medi de Greenwich	
 P	ln	und
 Y	ln	d/M/y	{1} {0}
+O	ln	h:mm:ss a	HH:mm:ss	ntɔ́ngɔ́	mpókwa
+H	ln	H	gregorian
+C	ln	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	ntɔ́ngɔ́	mpókwa
+C	ln	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	ntɔ́ngɔ́	mpókwa
 P	ln-AO	ln
 P	ln-CF	ln
 P	ln-CG	ln
 P	lo	und
 Y	lo	d/M/y	{1}, {0}
+O	lo	h:mm:ss a	HH:mm:ss	ກ່ອນທ່ຽງ	ຫຼັງທ່ຽງ
+H	lo	H	gregorian
+C	lo	persian	G d/M/y	ປີເປີເຊຍ	ປີເປີເຊຍ	h:mm:ss a	HH:mm:ss	ກ່ອນທ່ຽງ	ຫຼັງທ່ຽງ
+C	lo	buddhist	G d/M/y	ພ.ສ.	ພ.ສ.	h:mm:ss a	HH:mm:ss	ກ່ອນທ່ຽງ	ຫຼັງທ່ຽງ
 U	lo	long	day	other	{0} ມື້
 U	lo	long	hour	other	{0} ຊົ່ວໂມງ
 U	lo	long	microsecond	other	{0} ໄມ​ໂຄຣ​ວິ​ນາ​ທີ
@@ -18896,11 +19565,17 @@ N	lo	Yekaterinburg	ເວລາມາດຕະຖານເຢກາເຕລິ�
 N	lo	Yukon	ເວລາຢູຄອນ	
 P	lrc	und
 D	lrc	۰۱۲۳۴۵۶۷۸۹
+H	lrc	H	persian
 N	lrc	America_Central	گاٛت مینجاٛیی ئستاٛنداٛرد	روٙشنایی نئهادار روٙز
 P	lrc-IQ	lrc
 D	lrc-IQ	۰۱۲۳۴۵۶۷۸۹
+H	lrc-IQ	h	gregorian
 P	lt	und
 F	lt	GMT{0}	GMT	+HH:mm;−HH:mm
+O	lt	hh:mm:ss a	HH:mm:ss	priešpiet	popiet
+H	lt	H	gregorian
+C	lt	persian	y-MM-dd G	AP	AP	h:mm:ss a	HH:mm:ss	priešpiet	popiet
+C	lt	buddhist	y-MM-dd G	BE	BE	h:mm:ss a	HH:mm:ss	priešpiet	popiet
 U	lt	long	day	few	{0} dienos
 U	lt	long	day	many	{0} dienos
 U	lt	long	day	one	{0} diena
@@ -19158,12 +19833,29 @@ N	lt	Yakutsk	Jakutsko žiemos laikas	Jakutsko vasaros laikas
 N	lt	Yekaterinburg	Jekaterinburgo žiemos laikas	Jekaterinburgo vasaros laikas
 N	lt	Yukon	Jukono laikas	
 P	ltg	und
+H	ltg	H	gregorian
 P	lu	und
 Y	lu	d/M/y	{1} {0}
+O	lu	h:mm:ss a	HH:mm:ss	Dinda	Dilolo
+H	lu	H	gregorian
+C	lu	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	Dinda	Dilolo
+C	lu	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	Dinda	Dilolo
 P	luo	und
+O	luo	h:mm:ss a	HH:mm:ss	OD	OT
+H	luo	H	gregorian
+C	luo	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	OD	OT
+C	luo	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	OD	OT
 P	luy	und
+O	luy	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	luy	H	gregorian
+C	luy	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	luy	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 P	lv	und
 Y	lv	d.MM.y.	{1} {0}
+O	lv	h:mm:ss a	HH:mm:ss	priekšp.	pēcp.
+H	lv	H	gregorian
+C	lv	persian	d.MM.y. G	pers. gads	pers. gads	h:mm:ss a	HH:mm:ss	priekšp.	pēcp.
+C	lv	buddhist	d.MM.y. G	B.E.	B.E.	h:mm:ss a	HH:mm:ss	priekšp.	pēcp.
 U	lv	long	day	one	{0} diena
 U	lv	long	day	other	{0} dienas
 U	lv	long	day	zero	{0} dienu
@@ -19381,9 +20073,13 @@ N	lv	Yakutsk	Jakutskas ziemas laiks	Jakutskas vasaras laiks
 N	lv	Yekaterinburg	Jekaterinburgas ziemas laiks	Jekaterinburgas vasaras laiks
 N	lv	Yukon	Jukonas laiks	
 P	lzz	und
+H	lzz	H	gregorian
 P	mai	und
 F	mai	जीएमटी{0}	जीएमटी	+HH:mm;-HH:mm
 Y	mai	d/M/y	{1}, {0}
+O	mai	h:mm:ss a	HH:mm:ss	भोर	सांझ
+C	mai	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	भोर	सांझ
+C	mai	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	भोर	सांझ
 N	mai	Afghanistan	अफगानिस्तान टाइम	
 N	mai	Africa_Central	मध्य अफ्रीका टाइम	
 N	mai	Africa_Eastern	पूरब अफ्रीका टाइम	
@@ -19498,17 +20194,36 @@ N	mai	Yakutsk	यकुत्स्क मानक टाइम	यकुत्
 N	mai	Yekaterinburg	येकाटैरिनबर्ग मानक टाइम	येकाटैरिनबर्ग समर टाइम
 N	mai	Yukon	यूकोन टाइम	
 P	mas	und
+O	mas	h:mm:ss a	HH:mm:ss	Ɛnkakɛnyá	Ɛndámâ
+H	mas	H	gregorian
+C	mas	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Ɛnkakɛnyá	Ɛndámâ
+C	mas	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Ɛnkakɛnyá	Ɛndámâ
 P	mas-TZ	mas
 P	mdf	und
+H	mdf	H	gregorian
 P	mer	und
+O	mer	h:mm:ss a	HH:mm:ss	RŨ	ŨG
+H	mer	H	gregorian
+C	mer	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	RŨ	ŨG
+C	mer	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	RŨ	ŨG
 P	mfe	und
+H	mfe	H	gregorian
 P	mg	und
+O	mg	h:mm:ss a	HH:mm:ss	AM	PM
+H	mg	H	gregorian
 P	mgh	und
 Y	mgh	d/M/y	{1} {0}
+O	mgh	h:mm:ss a	HH:mm:ss	wichishu	mchochil’l
+H	mgh	H	gregorian
+C	mgh	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	wichishu	mchochil’l
+C	mgh	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	wichishu	mchochil’l
 P	mgo	und
+H	mgo	H	gregorian
 P	mhn	und
+H	mhn	H	gregorian
 P	mi	und
 Y	mi	dd-MM-y	{1} {0}
+O	mi	h:mm:ss a	HH:mm:ss	AM	PM
 U	mi	long	day	other	{0} rā
 U	mi	long	hour	other	{0} haora
 U	mi	long	microsecond	other	{0} hēkonamiriona
@@ -19684,6 +20399,10 @@ N	mi	Yukon	Wā Yukon
 P	mic	und
 P	mk	und
 Y	mk	d.M.y 'г'.	{1}, {0}
+O	mk	h:mm:ss a	HH:mm:ss	претпл.	попл.
+H	mk	H	gregorian
+C	mk	persian	d.M.y 'г'. G	АП	АП	h:mm:ss a	H:mm:ss	претпл.	попл.
+C	mk	buddhist	dd.M.y G	BE	BE	h:mm:ss a	H:mm:ss	претпл.	попл.
 U	mk	long	day	one	{0} ден
 U	mk	long	day	other	{0} дена
 U	mk	long	hour	one	{0} час
@@ -19897,6 +20616,8 @@ N	mk	Yukon	Време во Јукон
 P	ml	und
 F	ml	ജിഎംടി{0}	ജിഎംടി	+HH:mm;-HH:mm
 Y	ml	d/M/y	{1}, {0}
+C	ml	persian	G d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ml	buddhist	G d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ml	long	day	one	{0} ദിവസം
 U	ml	long	day	other	{0} ദിവസം
 U	ml	long	hour	one	{0} മണിക്കൂർ
@@ -20120,6 +20841,10 @@ N	ml	Yekaterinburg	യെക്കാറ്റരിൻബർഗ് സ്റ്
 N	ml	Yukon	യൂക്കോൺ സമയം	
 P	mn	und
 Y	mn	y.MM.dd	{1} {0}
+O	mn	h:mm:ss a	HH:mm:ss	ү.ө.	ү.х.
+H	mn	H	gregorian
+C	mn	persian	GGGGG y.MM.dd	AP	AP	h:mm:ss a	HH:mm:ss	ү.ө.	ү.х.
+C	mn	buddhist	GGGGG y.MM.dd	BE	BE	h:mm:ss a	HH:mm:ss	ү.ө.	ү.х.
 U	mn	long	day	one	{0} хоног
 U	mn	long	day	other	{0} хоног
 U	mn	long	hour	one	{0} цаг
@@ -20329,6 +21054,7 @@ N	mn	Yakutsk	Якутын стандарт цаг	Якутын зуны цаг
 N	mn	Yekaterinburg	Екатеринбургийн стандарт цаг	Екатеринбургийн зуны цаг
 N	mn	Yukon	Юкон цагийн бүс	
 P	mn-Mong	und
+H	mn-Mong	H	gregorian
 P	mn-Mong-MN	mn-Mong
 F	mn-Mong-MN	GMT {0}	GMT	+HH:mm;-HH:mm
 N	mn-Mong-MN	America_Central	ᠳᠥᠪ ᠰᠲ᠋ᠠᠨ᠋ᠳᠠᠷᠳ᠋ ᠴᠠᠭ	ᠲᠥᠪ ᠵᠣᠨ ᠎᠎᠎ᠤ ᠴᠠᠭ
@@ -20345,6 +21071,9 @@ P	mni	und
 D	mni	০১২৩৪৫৬৭৮৯
 F	mni	জি এম টি {0}	জি এম টি	+HH:mm;-HH:mm
 Y	mni	d/M/y	{1}, {0}
+O	mni	h:mm:ss a	HH:mm:ss	নুমাং	PM
+C	mni	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	নুমাং	PM
+C	mni	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	নুমাং	PM
 N	mni	America_Central	নোর্থ অমেরিকান সেন্ত্রেল ষ্টেন্দর্দ টাইম	নোর্থ অমেরিকান সেন্ত্রেল দেলাইট টাইম
 N	mni	America_Eastern	নোর্থ অমেরিকান ইষ্টর্ন ষ্টেন্দর্দ টাইম	নোর্থ অমেরিকান ইষ্টর্ন দেলাইট টাইম
 N	mni	America_Mountain	নোর্থ অমেরিকান মাউন্টেন ষ্টেন্দর্দ টাইম	নোর্থ অমেরিকান মাউন্টেন দেলাইট টাইম
@@ -20364,6 +21093,9 @@ P	mr	und
 D	mr	०१२३४५६७८९
 F	mr	[GMT]{0}	[GMT]	+HH:mm;-HH:mm
 Y	mr	d/M/y	{1}, {0}
+O	mr	h:mm:ss a	H:mm:ss	AM	PM
+C	mr	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	H-mm-ss	AM	PM
+C	mr	buddhist	d/M/y GGGGG	इसपू.	इसपू.	h:mm:ss a	H-mm-ss	AM	PM
 U	mr	long	day	one	{0} दिवस
 U	mr	long	day	other	{0} दिवस
 U	mr	long	hour	one	{0} तास
@@ -20583,6 +21315,9 @@ N	mr	Yekaterinburg	येकतरिनबर्ग प्रमाण वे�
 N	mr	Yukon	युकोन वेळ	
 P	ms	und
 Y	ms	d/M/y	{1}, {0}
+O	ms	h:mm:ss a	HH:mm:ss	PG	PTG
+C	ms	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	PG	PTG
+C	ms	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	PG	PTG
 U	ms	long	day	other	{0} hari
 U	ms	long	hour	other	{0} jam
 U	ms	long	microsecond	other	{0} mikrosaat
@@ -20764,6 +21499,8 @@ N	ms	Yekaterinburg	Waktu Piawai Yekaterinburg	Waktu Musim Panas Yekaterinburg
 N	ms	Yukon	Masa Yukon	
 P	ms-Arab	und
 Y	ms-Arab	d/M/y	{1} {0}
+C	ms-Arab	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ms-Arab	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ms-Arab	long	day	other	{0} هاري
 U	ms-Arab	long	hour	other	{0} جم
 U	ms-Arab	long	minute	other	{0} مينيت
@@ -20787,10 +21524,16 @@ P	ms-Arab-BN	ms-Arab
 P	ms-BN	ms
 P	ms-ID	ms
 F	ms-ID	GMT{0}	GMT	+HH.mm;-HH.mm
+O	ms-ID	h.mm.ss a	HH.mm.ss	PG	PTG
+H	ms-ID	H	gregorian
 T	ms-ID	.
 P	ms-SG	ms
 P	mt	und
 Y	mt	M/d/y	{1} {0}
+O	mt	h:mm:ss a	HH:mm:ss	AM	PM
+H	mt	H	gregorian
+C	mt	persian	GGGGG dd-MM-y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	mt	buddhist	GGGGG dd-MM-y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	mt	long	millisecond	few	{0} millisekondi
 U	mt	long	millisecond	many	{0}-il millisekonda
 U	mt	long	millisecond	one	{0} millisekonda
@@ -20805,6 +21548,10 @@ N	mt	Europe_Central	Ħin Ċentrali Ewropew Standard	Ħin Ċentrali Ewropew tas-S
 N	mt	GMT	Greenwich Mean Time	
 P	mua	und
 Y	mua	d/M/y	{1} {0}
+O	mua	h:mm:ss a	HH:mm:ss	comme	lilli
+H	mua	H	gregorian
+C	mua	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	comme	lilli
+C	mua	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	comme	lilli
 P	mus	und
 U	mus	long	day	other	{0} Nettv
 U	mus	long	hour	other	Hvse-vkērkv {0}
@@ -20819,6 +21566,10 @@ D	mww-Hmnp	𞅀𞅁𞅂𞅃𞅄𞅅𞅆𞅇𞅈𞅉
 P	my	und
 D	my	၀၁၂၃၄၅၆၇၈၉
 Y	my	d/M/y	{1} {0}
+O	my	a h:mm:ss	HH:mm:ss	နံနက်	ညနေ
+H	my	H	gregorian
+C	my	persian	GGGGG dd/MM/Y	AP	AP	a h:mm:ss	HH:mm:ss	နံနက်	ညနေ
+C	my	buddhist	GGGGG dd/MM/Y	BE	BE	a h:mm:ss	HH:mm:ss	နံနက်	ညနေ
 U	my	long	day	other	{0} ရက်
 U	my	long	hour	other	{0} နာရီ
 U	my	long	microsecond	other	{0} မိုက်ခရိုစက္ကန့်
@@ -20995,8 +21746,10 @@ N	my	Yakutsk	ယူခူးတ်စ် စံတော်ချိန်	ယ�
 N	my	Yekaterinburg	ရယ်ခါးတီရင်ဘားခ် စံတော်ချိန်	ရယ်ခါးတီရင်ဘာခ် နွေရာသီ အချိန်
 N	my	Yukon	ယူကွန်း အချိန်	
 P	myv	und
+H	myv	H	gregorian
 P	mzn	und
 D	mzn	۰۱۲۳۴۵۶۷۸۹
+H	mzn	H	persian
 U	mzn	long	day	other	{0} روز
 U	mzn	long	hour	other	{0} ساعِت
 U	mzn	long	microsecond	other	{0} میکروثانیه
@@ -21027,12 +21780,18 @@ U	mzn	short	second	other	{0} ثانیه
 U	mzn	short	week	other	{0} هفته
 U	mzn	short	year	other	{0} سال
 P	naq	und
+O	naq	h:mm:ss a	HH:mm:ss	ǁgoagas	ǃuias
+C	naq	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ǁgoagas	ǃuias
+C	naq	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ǁgoagas	ǃuias
 P	nb	no
 P	nb-SJ	nb
 P	nd	und
+H	nd	H	gregorian
 P	nds	und
 F	nds	UTC{0}	UTC	+HH.mm;-HH.mm
 Y	nds	d.M.y	{1} {0}
+O	nds	'Klock' h.mm:ss a	'Klock' H.mm:ss	AM	PM
+H	nds	H	gregorian
 U	nds	long	day	other	{0} Daag
 U	nds	long	hour	other	{0} Stünnen
 U	nds	long	minute	other	{0} Minuten
@@ -21045,6 +21804,10 @@ P	nds-NL	nds
 P	ne	und
 D	ne	०१२३४५६७८९
 Y	ne	y-MM-dd	{1}, {0}
+O	ne	h:mm:ss a	HH:mm:ss	पूर्वाह्न	अपराह्न
+H	ne	H	gregorian
+C	ne	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	पूर्वाह्न	अपराह्न
+C	ne	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	पूर्वाह्न	अपराह्न
 U	ne	long	day	one	{0} दिन
 U	ne	long	day	other	{0} दिन
 U	ne	long	hour	one	{0} घण्टा
@@ -21255,8 +22018,13 @@ N	ne	Yekaterinburg	येकाटेरिनबर्ग मानक सम�
 N	ne	Yukon	युकोनको समय	
 P	ne-IN	ne
 D	ne-IN	०१२३४५६७८९
+H	ne-IN	h	gregorian
 P	nl	und
 Y	nl	d-M-y	{1}, {0}
+O	nl	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	nl	H	gregorian
+C	nl	persian	d-M-y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	nl	buddhist	d-M-y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	nl	long	day	one	{0} dag
 U	nl	long	day	other	{0} dagen
 U	nl	long	hour	one	{0} uur
@@ -21465,13 +22233,22 @@ N	nl	Yukon	Yukon-tijd
 P	nl-AW	nl
 P	nl-BE	nl
 Y	nl-BE	d/M/y	{1}, {0}
+C	nl-BE	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	nl-BE	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 P	nl-BQ	nl
 P	nl-CW	nl
 P	nl-SR	nl
 P	nl-SX	nl
 P	nmg	und
 Y	nmg	d/M/y	{1} {0}
+O	nmg	h:mm:ss a	HH:mm:ss	maná	kugú
+H	nmg	H	gregorian
+C	nmg	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	maná	kugú
+C	nmg	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	maná	kugú
 P	nn	no
+O	nn	h:mm:ss a	HH:mm:ss	f.m.	e.m.
+C	nn	persian	d.M.y G	AP	AP	h:mm:ss a	HH:mm:ss	f.m.	e.m.
+C	nn	buddhist	d.M.y G	BE	BE	h:mm:ss a	HH:mm:ss	f.m.	e.m.
 U	nn	long	hour	other	{0} timar
 U	nn	long	microsecond	other	{0} mikrosekund
 U	nn	long	millisecond	other	{0} millisekund
@@ -21584,8 +22361,16 @@ N	nn	Yakutsk	normaltid for Jakutsk	sommartid for Jakutsk
 N	nn	Yekaterinburg	normaltid for Jekaterinburg	sommartid for Jekaterinburg
 P	nnh	und
 Y	nnh	d/M/y	{1} {0}
+O	nnh	h:mm:ss a	HH:mm:ss	mbaʼámbaʼ	ncwònzém
+H	nnh	H	gregorian
+C	nnh	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	mbaʼámbaʼ	ncwònzém
+C	nnh	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	mbaʼámbaʼ	ncwònzém
 P	no	und
 Y	no	d.M.y	{1}, {0}
+O	no	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	no	H	gregorian
+C	no	persian	d.M.y G	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	no	buddhist	d.M.y G	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	no	long	day	one	{0} døgn
 U	no	long	day	other	{0} døgn
 U	no	long	hour	one	{0} time
@@ -21800,6 +22585,10 @@ P	nqo	und
 D	nqo	߀߁߂߃߄߅߆߇߈߉
 F	nqo	ߜ߭ߕߖ{0}	ߜ߭ߕߖ	+HH:mm;-HH:mm
 Y	nqo	y / dd / MM	{1} {0}
+O	nqo	h:mm:ss a	HH:mm:ss	ߛ	ߥ
+H	nqo	H	gregorian
+C	nqo	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ߛ	ߥ
+C	nqo	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ߛ	ߥ
 U	nqo	long	day	other	ߟߏ߲ ߜߍ {0}
 U	nqo	long	hour	other	ߕߎ߬ߡߊ߬ߙߋ߲ {0}
 U	nqo	long	microsecond	other	ߝߌ߬ߟߊ߲߬ߢߊ߲߯ߕߊ {0}
@@ -21979,17 +22768,26 @@ N	nqo	Yakutsk	ߦߊߞߎߕߑߛߞߌ߫ ߕߎ߬ߡߘߊ߬ ߛߎߡߊ߲ߘߊ߲ߕߊ	ߦߊߞߎ�
 N	nqo	Yekaterinburg	ߦߋߞߊߕߋߙߌ߲ߓߎߙߜ߭ ߕߎ߬ߡߘߊ߬ ߛߎߡߊ߲ߘߊ߲ߕߊ	ߦߋߞߊߕߋߙߌ߲ߓߎߙߜ߭ ߕߟߋ߬ߡߊ߬ ߕߎߡߘߊ
 N	nqo	Yukon	ߦߎߞߐ߲߫ ߕߎ߬ߡߘߊ߬ ߛߎߡߊ߲ߘߊ߲ߕߊ	
 P	nr	und
+H	nr	H	gregorian
 P	nso	und
 Y	nso	dd-MM-y	{1}, {0}
+O	nso	h:mm:ss a	HH:mm:ss	AM	PM
+H	nso	H	gregorian
 N	nso	GMT	Nako Palogare ya Greenwich	
 P	nus	und
 Y	nus	d/M/y	{1} {0}
+O	nus	h:mm:ss a	HH:mm:ss	RW	TŊ
+C	nus	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	RW	TŊ
+C	nus	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	RW	TŊ
 P	nv	und
 P	ny	und
 P	nyn	und
+H	nyn	H	gregorian
 P	oc	und
 F	oc	UTC{0}	UTC	+HH:mm;-HH:mm
 Y	oc	dd/MM/y	{1} {0}
+O	oc	h'h'mm:ss a	HH'h'mm ss 'seg'.	AM	PM
+H	oc	H	gregorian
 U	oc	long	day	other	{0} jorns
 U	oc	long	hour	other	{0} oras
 U	oc	long	minute	other	{0} minutas
@@ -22003,6 +22801,9 @@ P	oka	und
 P	oka-US	oka
 P	om	und
 Y	om	M/d/y	{1}, {0}
+O	om	h:mm:ss a	HH:mm:ss	WD	WB
+C	om	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	WD	WB
+C	om	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	WD	WB
 N	om	Afghanistan	Sa’aatii Afgaanistaan	
 N	om	Africa_Central	Sa’aatii Afrikaa Gidduugaleessaa	
 N	om	Africa_Eastern	Sa’aatii Baha Afrikaa	
@@ -22155,8 +22956,11 @@ N	om	Yakutsk	Sa’aatii Istaandardii Yakutsk	Sa’aatii Bonaa Yakutsk
 N	om	Yekaterinburg	Sa’aatii Istaandaardii Yekaterinburg	Sa’aatii Bonaa Yekaterinburg
 N	om	Yukon	Sa’aatii Yuukoon	
 P	om-KE	om
+H	om-KE	H	gregorian
 P	or	und
 Y	or	M/d/y	{1}, {0}
+C	or	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	or	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	or	long	day	one	{0} ଦିନ
 U	or	long	day	other	{0} ଦିନ
 U	or	long	hour	one	{0} ଘଣ୍ଟା
@@ -22367,6 +23171,10 @@ N	or	Yekaterinburg	ୟେକାଟେରିନବର୍ଗ୍ ମାନାଙ୍
 N	or	Yukon	ୟୁକୋନ୍ ସମୟ	
 P	os	und
 Y	os	y-MM-dd	{1}, {0}
+O	os	h:mm:ss a	HH:mm:ss	AM	PM
+H	os	H	gregorian
+C	os	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	os	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	os	long	day	one	{0} бон
 U	os	long	day	other	{0} боны
 U	os	long	hour	one	{0} сахат
@@ -22410,6 +23218,8 @@ U	osa	long	week	other	𐒹𐓘͘𐓬𐓘𐓷𐓘𐓤𐓘͘𐓰𐓛𐓤𐓣 {0}
 U	osa	long	year	other	𐓂𐓨𐓚𐓤𐓘 {0}
 P	pa	und
 Y	pa	d/M/y	{1}, {0}
+C	pa	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	pa	buddhist	d/M/y GGGGG	ਈਸਵੀ ਪੂਰਵ	ਈ. ਪੂ.	h:mm:ss a	HH:mm:ss	AM	PM
 U	pa	long	day	one	{0} ਦਿਨ
 U	pa	long	day	other	{0} ਦਿਨ
 U	pa	long	hour	one	{0} ਘੰਟਾ
@@ -22623,9 +23433,14 @@ P	pa-Arab	und
 D	pa-Arab	۰۱۲۳۴۵۶۷۸۹
 P	pa-Guru	pa
 P	pap	und
+H	pap	H	gregorian
 P	pap-AW	pap
 P	pcm	und
 Y	pcm	d/M/y	{1}, {0}
+O	pcm	h:mm:ss a	HH:mm:ss	FM	FI
+H	pcm	H	gregorian
+C	pcm	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	FM	FI
+C	pcm	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	FM	FI
 U	pcm	long	day	one	{0} Dè
 U	pcm	long	day	other	{0} Dè
 U	pcm	long	hour	one	{0} Áwa
@@ -22834,12 +23649,17 @@ N	pcm	Yakutsk	Yékútsk Fíksd Taim	Yékútsk Họ́t Sízin Taim
 N	pcm	Yekaterinburg	Yẹketẹrínbug Fíksd Taim	Yẹketẹrínbug Họ́t Sízin Taim
 N	pcm	Yukon	Yukón Taim	
 P	pi	und
+H	pi	H	gregorian
 P	pi-Latn	pi
 P	pis	und
 F	pis	GMT {0}	GMT	+HH:mm;-HH:mm
 N	pis	GMT	Grinis Min Taem	
 P	pl	und
 Y	pl	d.MM.y	{1}, {0}
+O	pl	h:mm:ss a	HH:mm:ss	AM	PM
+H	pl	H	gregorian
+C	pl	persian	d.MM.y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	pl	buddhist	d.MM.y G	e.b.	e.b.	h:mm:ss a	HH:mm:ss	AM	PM
 U	pl	long	day	few	{0} dni
 U	pl	long	day	many	{0} dni
 U	pl	long	day	one	{0} dzień
@@ -23079,12 +23899,20 @@ N	pl	Yekaterinburg	Jekaterynburg (czas standardowy)	Jekaterynburg (czas letni)
 N	pl	Yukon	czas Jukon	
 P	pms	und
 Y	pms	dd/MM/y	{1} {0}
+O	pms	h:mm:ss a	HH:mm:ss	AM	PM
+H	pms	H	gregorian
 N	pms	GMT	Ora dë Greenwich	
 P	prg	und
 Y	prg	d.M.y	{1} {0}
+O	prg	h:mm:ss a	HH:mm:ss	AM	PM
+H	prg	H	gregorian
 N	prg	GMT	Greenwich kerdā	
 P	ps	und
 D	ps	۰۱۲۳۴۵۶۷۸۹
+O	ps	h:mm:ss a	HH:mm:ss	غ.م.	غ.و.
+H	ps	H	persian
+C	ps	persian	G y-MM-dd	AP	AP	h:mm:ss a	H:mm:ss	غ.م.	غ.و.
+C	ps	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	H:mm:ss	غ.م.	غ.و.
 U	ps	long	day	one	{0} ورځ
 U	ps	long	day	other	{0} ورځې
 U	ps	long	hour	one	{0} ساعت
@@ -23270,6 +24098,7 @@ N	ps	Yekaterinburg	د ياکيټرنبرګ معياري وخت	د ياکټرنب
 N	ps	Yukon	د یوکون وخت	
 P	ps-PK	ps
 D	ps-PK	۰۱۲۳۴۵۶۷۸۹
+H	ps-PK	h	gregorian
 U	ps-PK	long	day	other	{0} ورځے
 U	ps-PK	long	month	other	{0} مياشتے
 U	ps-PK	short	day	other	{0} ورځے
@@ -23300,7 +24129,11 @@ N	ps-PK	Newfoundland	د نوي فیلډلینډ معیاری وخت	د نوي ف
 N	ps-PK	Pierre_Miquelon	سینټ پییرا و ميکلين معیاری وخت	سینټ پییرا و ميکلين رڼا ورځے وخت
 N	ps-PK	Samoa	سموا معياري وخت	د سموا د ورځے روښانه کول
 P	pt	und
-Y	pt	dd/MM/y	{1} {0}
+Y	pt	dd/MM/y	{1}, {0}
+O	pt	h:mm:ss a	HH:mm:ss	AM	PM
+H	pt	H	gregorian
+C	pt	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	pt	buddhist	dd/MM/y GGGGG	BE	EB	h:mm:ss a	HH:mm:ss	AM	PM
 U	pt	long	day	one	{0} dia
 U	pt	long	day	other	{0} dias
 U	pt	long	hour	one	{0} hora
@@ -23505,9 +24338,12 @@ P	pt-GQ	pt-PT
 P	pt-GW	pt-PT
 P	pt-LU	pt-PT
 P	pt-MO	pt-PT
+H	pt-MO	h	gregorian
 P	pt-MZ	pt-PT
 P	pt-PT	pt
-Y	pt-PT	dd/MM/y	{1}, {0}
+O	pt-PT	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	pt-PT	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	pt-PT	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 N	pt-PT	Acre	Hora padrão do Acre	Hora de verão do Acre
 N	pt-PT	Afghanistan	Hora do Afeganistão	
 N	pt-PT	Africa_Central	Hora da África Central	
@@ -23672,7 +24508,10 @@ N	pt-PT	Yukon	Hora do Yukon
 P	pt-ST	pt-PT
 P	pt-TL	pt-PT
 P	qu	und
-Y	qu	dd-MM-y	{1} {0}
+Y	qu	dd-MM-y	{1}, {0}
+O	qu	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	qu	persian	dd-MM-y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	qu	buddhist	dd-MM-y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	qu	long	day	other	{0} punchaw
 U	qu	long	hour	other	{0} hora
 U	qu	long	microsecond	other	{0} microsegundo
@@ -23842,11 +24681,18 @@ P	raj	und
 D	raj	०१२३४५६७८९
 N	raj	GMT	ग्रीन विच मीन टाइम	
 P	rhg	und
+H	rhg	H	gregorian
 P	rhg-Rohg	rhg
 P	rhg-Rohg-BD	rhg-Rohg
+H	rhg-Rohg-BD	h	gregorian
 P	rif	und
+H	rif	H	gregorian
 P	rm	und
 Y	rm	d-M-y	{1}, {0}
+O	rm	h:mm:ss a	HH:mm:ss	AM	PM
+H	rm	H	gregorian
+C	rm	persian	dd-MM-y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	rm	buddhist	dd-MM-y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	rm	long	day	one	{0} di
 U	rm	long	day	other	{0} dis
 U	rm	long	hour	one	{0} h
@@ -24048,8 +24894,16 @@ N	rm	Yekaterinburg	temp normal da Jekaterinburg	temp da stad da Jekaterinburg
 N	rm	Yukon	temp dal Yukon	
 P	rn	und
 Y	rn	d/M/y	{1} {0}
+O	rn	h:mm:ss a	HH:mm:ss	Z.MU.	Z.MW.
+H	rn	H	gregorian
+C	rn	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	Z.MU.	Z.MW.
+C	rn	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	Z.MU.	Z.MW.
 P	ro	und
 Y	ro	dd.MM.y	{1}, {0}
+O	ro	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+H	ro	H	gregorian
+C	ro	persian	dd.MM.y G	A.P.	A.P.	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+C	ro	buddhist	dd.MM.y G	e.b.	e.b.	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 U	ro	long	day	few	{0} zile
 U	ro	long	day	one	{0} zi
 U	ro	long	day	other	{0} de zile
@@ -24284,8 +25138,16 @@ U	ro-MD	narrow	year	few	{0} ani
 U	ro-MD	narrow	year	one	{0} an
 U	ro-MD	narrow	year	other	{0} ani
 P	rof	und
+O	rof	h:mm:ss a	HH:mm:ss	kang’ama	kingoto
+H	rof	H	gregorian
+C	rof	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	kang’ama	kingoto
+C	rof	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	kang’ama	kingoto
 P	ru	und
 Y	ru	dd.MM.y	{1}, {0}
+O	ru	h:mm:ss a	HH:mm:ss	AM	PM
+H	ru	H	gregorian
+C	ru	persian	dd.MM.y G	перс. год	перс. год	h:mm:ss a	HH:mm:ss	AM	PM
+C	ru	buddhist	dd.MM.y G	BE	бэ	h:mm:ss a	HH:mm:ss	AM	PM
 U	ru	long	day	few	{0} дня
 U	ru	long	day	many	{0} дней
 U	ru	long	day	one	{0} день
@@ -24575,8 +25437,14 @@ P	ru-MD	ru
 P	ru-UA	ru
 P	rw	und
 Y	rw	dd-MM-y	{1} {0}
+O	rw	h:mm:ss a	HH:mm:ss	AM	PM
+H	rw	H	gregorian
 N	rw	GMT	Greenwich Mean Time	
 P	rwk	und
+O	rwk	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
+H	rwk	H	gregorian
+C	rwk	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
+C	rwk	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
 P	sa	und
 D	sa	०१२३४५६७८९
 F	sa	जी.एम.टी. {0}	जी.एम.टी.	+HH:mm;-HH:mm
@@ -24592,6 +25460,10 @@ N	sa	Europe_Eastern	पौर्व यूरोपीय आदर्श सम
 N	sa	Europe_Western	पाश्चात्य यूरोपीय आदर्श समयः	पाश्चात्य यूरोपीय ग्रीष्म समयः
 N	sa	GMT	ग्रीनविच मीन समयः	
 P	sah	und
+O	sah	h:mm:ss a	HH:mm:ss	ЭИ	ЭК
+H	sah	H	gregorian
+C	sah	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ЭИ	ЭК
+C	sah	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ЭИ	ЭК
 U	sah	long	day	other	{0} күн
 U	sah	long	hour	other	{0} чаас
 U	sah	long	microsecond	other	{0} микросөкүүндэ
@@ -24651,6 +25523,10 @@ N	sah	Volgograd	Волгоград сүрүн кэмэ	Волгоград сай
 N	sah	Yakutsk	Дьокуускай сүрүн кэмэ	Дьокуускай сайыҥҥы кэмэ
 N	sah	Yekaterinburg	Екатеринбуур сүрүн кэмэ	Екатеринбуур сайыҥҥы кэмэ
 P	saq	und
+O	saq	h:mm:ss a	HH:mm:ss	Tesiran	Teipa
+H	saq	H	gregorian
+C	saq	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Tesiran	Teipa
+C	saq	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Tesiran	Teipa
 P	sat	und
 D	sat	᱐᱑᱒᱓᱔᱕᱖᱗᱘᱙
 F	sat	ᱡᱤᱮᱢᱴᱤ{0}	ᱡᱤᱮᱢᱴᱤ	+HH:mm;-HH:mm
@@ -24674,8 +25550,15 @@ P	sat-Olck	sat
 D	sat-Olck	᱐᱑᱒᱓᱔᱕᱖᱗᱘᱙
 P	sbp	und
 Y	sbp	M/d/y	{1} {0}
+O	sbp	h:mm:ss a	HH:mm:ss	Lwamilawu	Pashamihe
+H	sbp	H	gregorian
+C	sbp	persian	M/d/y	AP	AP	h:mm:ss a	HH:mm:ss	Lwamilawu	Pashamihe
+C	sbp	buddhist	M/d/y	BE	BE	h:mm:ss a	HH:mm:ss	Lwamilawu	Pashamihe
 P	sc	und
 Y	sc	dd/MM/y	{1}, {0}
+H	sc	H	gregorian
+C	sc	persian	d/M/y GGGGG	a.p.	a.p.	hh:mm:ss a	HH:mm:ss	AM	PM
+C	sc	buddhist	d/M/y GGGGG	E.B.	EB	hh:mm:ss a	HH:mm:ss	AM	PM
 U	sc	long	day	one	{0} die
 U	sc	long	day	other	{0} dies
 U	sc	long	hour	one	{0} ora
@@ -24895,7 +25778,11 @@ N	sc	Yakutsk	Ora istandard de Yakutsk	Ora legale de Yakutsk
 N	sc	Yekaterinburg	Ora istandard de Yekaterinburg	Ora legale de Yekaterinburg
 N	sc	Yukon	Ora de su Yukon	
 P	scn	und
-Y	scn	d/M/y	{1} {0}
+Y	scn	d/M/y	{1} 'ê' {0}
+O	scn	h:mm:ss a	HH:mm:ss	AM	PM
+H	scn	H	gregorian
+C	scn	persian	d/M/y GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	scn	buddhist	d/M/y GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	AM	PM
 N	scn	Afghanistan	Ura di l’Afghànistan	
 N	scn	Africa_Central	Ura di l’Àfrica Cintrali	
 N	scn	Africa_Eastern	Ura di l’Àfrica di Livanti	
@@ -25047,6 +25934,9 @@ N	scn	Yekaterinburg	Ura sulari di Yekatirimmurgu	Ura ligali di Yekatirimmurgu
 N	scn	Yukon	Ura dû Yukon	
 P	sd	und
 D	sd	٠١٢٣٤٥٦٧٨٩
+O	sd	h:mm:ss a	HH:mm:ss	صبح	شام
+C	sd	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	صبح	شام
+C	sd	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	صبح	شام
 U	sd	long	day	one	{0} ڏينهن
 U	sd	long	day	other	{0} ڏينهن
 U	sd	long	hour	one	{0} ڪلاڪ
@@ -25272,10 +26162,16 @@ N	sd-Deva	Europe_Western	उलहंदो यूरोपी मअयार�
 N	sd-Deva	GMT	ग्रीनविच मीन वक़्तु	
 P	sdh	und
 D	sdh	٠١٢٣٤٥٦٧٨٩
+H	sdh	H	persian
 P	sdh-IQ	sdh
 D	sdh-IQ	٠١٢٣٤٥٦٧٨٩
+H	sdh-IQ	h	gregorian
 P	se	und
 F	se	UTC{0}	UTC	+HH:mm;−HH:mm
+O	se	h:mm:ss a	HH:mm:ss	i.b.	e.b.
+H	se	H	gregorian
+C	se	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	i.b.	e.b.
+C	se	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	i.b.	e.b.
 U	se	long	day	one	{0} jándor
 U	se	long	day	other	{0} jándora
 U	se	long	day	two	{0} jándora
@@ -25341,6 +26237,9 @@ N	se	Moscow	Moskva-dábálašáigi	Moskva-geassiáigi
 P	se-FI	se
 F	se-FI	{0} GMT	GMT	+HH:mm;-HH:mm
 Y	se-FI	dd.MM.y	{1} {0}
+O	se-FI	h:mm:ss a	HH:mm:ss	ib	eb
+C	se-FI	persian	dd.MM.y GGGG	AP	AP	h:mm:ss a	HH:mm:ss	ib	eb
+C	se-FI	buddhist	dd.MM.y GGGG	BE	BE	h:mm:ss a	HH:mm:ss	ib	eb
 N	se-FI	Afghanistan	Afganisthana áigi	
 N	se-FI	Africa_Central	Gaska-Afrihká áigi	
 N	se-FI	Africa_Eastern	Nuorta-Afrihká áigi	
@@ -25489,13 +26388,35 @@ N	se-FI	Yakutsk	Jakucka dálveáigi	Jakucka geasseáigi
 N	se-FI	Yekaterinburg	Jekaterinburga dálveáigi	Jekaterinburga geasseáigi
 P	se-SE	se
 P	seh	und
+H	seh	H	gregorian
 P	ses	und
+O	ses	h:mm:ss a	HH:mm:ss	Adduha	Aluula
+H	ses	H	gregorian
+C	ses	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Adduha	Aluula
+C	ses	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Adduha	Aluula
 P	sg	und
+O	sg	h:mm:ss a	HH:mm:ss	ND	LK
+H	sg	H	gregorian
+C	sg	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ND	LK
+C	sg	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ND	LK
 P	sgs	und
+H	sgs	H	gregorian
 P	shi	und
+O	shi	h:mm:ss a	HH:mm:ss	ⵜⵉⴼⴰⵡⵜ	ⵜⴰⴷⴳⴳⵯⴰⵜ
+H	shi	H	gregorian
+C	shi	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ⵜⵉⴼⴰⵡⵜ	ⵜⴰⴷⴳⴳⵯⴰⵜ
+C	shi	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ⵜⵉⴼⴰⵡⵜ	ⵜⴰⴷⴳⴳⵯⴰⵜ
 P	shi-Latn	und
+O	shi-Latn	h:mm:ss a	HH:mm:ss	tifawt	tadggʷat
+H	shi-Latn	H	gregorian
+C	shi-Latn	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	tifawt	tadggʷat
+C	shi-Latn	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	tifawt	tadggʷat
 P	shi-Tfng	shi
 P	shn	und
+O	shn	h:mm:ss a	HH:mm:ss	တၸ.	တလ.
+H	shn	H	gregorian
+C	shn	persian	G y-MM-dd	ပီပႃႇသျႃး	ပီပႃႇသျႃး	h:mm:ss a	HH:mm:ss	တၸ.	တလ.
+C	shn	buddhist	GGGGG y-MM-dd	ပ.သ.	ပ.သ.	h:mm:ss a	HH:mm:ss	တၸ.	တလ.
 U	shn	long	day	other	{0} ဝၼ်း
 U	shn	long	hour	other	{0} မူင်း
 U	shn	long	microsecond	other	{0} မၢႆႇၶရူဝ်ႇၸႅၵ်ႉၵၢၼ်ႉ
@@ -25689,9 +26610,14 @@ N	shn	Yakutsk	လၵ်းၸဵင် ၶၢဝ်းယၢမ်း ယၵု�
 N	shn	Yekaterinburg	လၵ်းၸဵင် ၶၢဝ်းယၢမ်း ယေႇၵႃႇတႄႇရိၼ်ႇပၢၵ်ႉ	ၶၢဝ်းယၢမ်း ၶၢဝ်းမႆႈ ယေႇၵႃႇတႄႇရိၼ်ႇပၢၵ်ႉ
 N	shn	Yukon	ၶၢဝ်းယၢမ်း ယူးၵွၼ်ႇ	
 P	shn-TH	shn
+H	shn-TH	H	buddhist
 P	si	und
 F	si	ග්‍රිමවේ{0}	ග්‍රිමවේ	+HH.mm;-HH.mm
-Y	si	y-M-d	{1} {0}
+Y	si	y-M-d	{1}, {0}
+O	si	a h.mm.ss	HH.mm.ss	පෙ.ව.	ප.ව.
+H	si	H	gregorian
+C	si	persian	G y-M-d	AP	AP	a h.mm.ss	HH:mm:ss	පෙ.ව.	ප.ව.
+C	si	buddhist	G y-M-d	BE	BE	a h.mm.ss	HH:mm:ss	පෙ.ව.	ප.ව.
 U	si	long	day	one	දින {0}
 U	si	long	day	other	දින {0}
 U	si	long	hour	one	පැය {0}
@@ -25905,6 +26831,10 @@ N	si	Yukon	යුකොන් වේලාව
 P	sid	und
 P	sk	und
 Y	sk	d. M. y	{1} {0}
+O	sk	h:mm:ss a	H:mm:ss	AM	PM
+H	sk	H	gregorian
+C	sk	persian	d. M. y GGGGG	AP	AP	h:mm:ss a	H:mm:ss	AM	PM
+C	sk	buddhist	d. M. y GGGGG	BE	BE	h:mm:ss a	H:mm:ss	AM	PM
 U	sk	long	day	few	{0} dni
 U	sk	long	day	many	{0} dňa
 U	sk	long	day	one	{0} deň
@@ -26142,6 +27072,10 @@ P	skr	und
 P	sl	und
 F	sl	GMT {0}	GMT	+HH.mm;-HH.mm
 Y	sl	d. M. y	{1}, {0}
+O	sl	h:mm:ss a	HH:mm:ss	dop.	pop.
+H	sl	H	gregorian
+C	sl	persian	d. M. y G	AP	AP	h:mm:ss a	HH:mm:ss	dop.	pop.
+C	sl	buddhist	d. M. y G	bud. kol.	BK	h:mm:ss a	HH:mm:ss	dop.	pop.
 U	sl	long	day	few	{0} dni
 U	sl	long	day	one	{0} dan
 U	sl	long	day	other	{0} dni
@@ -26358,16 +27292,28 @@ N	sl	Yakutsk	Jakutski standardni čas	Jakutski poletni čas
 N	sl	Yekaterinburg	Jekaterinburški standardni čas	Jekaterinburški poletni čas
 N	sl	Yukon	Jukonski čas	
 P	sma	und
+H	sma	H	gregorian
 P	sma-NO	sma
 P	smj	und
+H	smj	H	gregorian
 P	smj-NO	smj
 P	smn	und
 Y	smn	d.M.y	{1} {0}
+O	smn	h.mm.ss a	H.mm.ss	ip.	ep.
+H	smn	H	gregorian
+C	smn	persian	d.M.y G	AP	AP	h:mm:ss a	HH:mm:ss	ip.	ep.
+C	smn	buddhist	d.M.y G	BE	BE	h:mm:ss a	HH:mm:ss	ip.	ep.
 T	smn	.
 P	sms	und
+H	sms	H	gregorian
 P	sn	und
+O	sn	h:mm:ss a	HH:mm:ss	AM	PM
+H	sn	H	gregorian
 P	so	und
-Y	so	M/d/y	{1} {0}
+Y	so	M/d/y	{1}, {0}
+O	so	h:mm:ss a	HH:mm:ss	GH	GD
+C	so	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	GH	GD
+C	so	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	GH	GD
 U	so	long	day	one	{0} maalin
 U	so	long	day	other	{0} maalmood
 U	so	long	hour	one	{0} saacad
@@ -26581,8 +27527,12 @@ N	so	Yukon	Waqtiga Yukon
 P	so-DJ	so
 P	so-ET	so
 P	so-KE	so
+H	so-KE	H	gregorian
 P	sq	und
 Y	sq	d.M.y	{1}, {0}
+O	sq	h:mm:ss a	HH:mm:ss	p.d.	m.d.
+C	sq	persian	d.M.y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	p.d.	m.d.
+C	sq	buddhist	d.M.y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	p.d.	m.d.
 U	sq	long	day	one	{0} ditë
 U	sq	long	day	other	{0} ditë
 U	sq	long	hour	one	{0} orë
@@ -26796,9 +27746,15 @@ N	sq	Yakutsk	Ora standarde e Jakutskut	Ora verore e Jakutskut
 N	sq	Yekaterinburg	Ora standarde e Ekaterinburgut	Ora verore e Ekaterinburgut
 N	sq	Yukon	Ora e Jukonit	
 P	sq-MK	sq
+H	sq-MK	H	gregorian
 P	sq-XK	sq
+H	sq-XK	H	gregorian
 P	sr	und
 Y	sr	d. M. y.	{1} {0}
+O	sr	h:mm:ss a	HH:mm:ss	AM	PM
+H	sr	H	gregorian
+C	sr	persian	d.M.y. GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	sr	buddhist	d.M.y. GGGGG	БЕ	БЕ	hh:mm:ss a	HH:mm:ss	AM	PM
 U	sr	long	day	few	{0} дана
 U	sr	long	day	one	{0} дан
 U	sr	long	day	other	{0} дана
@@ -27034,6 +27990,9 @@ N	sr	Yekaterinburg	Јекатеринбург, стандардно време	�
 N	sr	Yukon	Јукон	
 P	sr-Cyrl	sr
 P	sr-Cyrl-BA	sr-Cyrl
+O	sr-Cyrl-BA	h:mm:ss a	HH:mm:ss	прије подне	по подне
+C	sr-Cyrl-BA	persian	d.M.y. GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	прије подне	по подне
+C	sr-Cyrl-BA	buddhist	d.M.y. GGGGG	БЕ	БЕ	hh:mm:ss a	HH:mm:ss	прије подне	по подне
 U	sr-Cyrl-BA	long	month	few	{0} мјесеца
 U	sr-Cyrl-BA	long	month	one	{0} мјесец
 U	sr-Cyrl-BA	long	month	other	{0} мјесеци
@@ -27194,9 +28153,16 @@ N	sr-Cyrl-BA	Wallis	острва Валис и Футуна вријеме
 N	sr-Cyrl-BA	Yakutsk	Јакутск, стандардно вријеме	Јакутск, љетње вријеме
 N	sr-Cyrl-BA	Yekaterinburg	Јекатеринбург, стандардно вријеме	Јекатеринбург, љетње вријеме
 P	sr-Cyrl-ME	sr-Cyrl
+O	sr-Cyrl-ME	h:mm:ss a	HH:mm:ss	прије подне	по подне
+C	sr-Cyrl-ME	persian	d.M.y. GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	прије подне	по подне
+C	sr-Cyrl-ME	buddhist	d.M.y. GGGGG	БЕ	БЕ	hh:mm:ss a	HH:mm:ss	прије подне	по подне
 P	sr-Cyrl-XK	sr-Cyrl
 P	sr-Latn	und
 Y	sr-Latn	d. M. y.	{1} {0}
+O	sr-Latn	h:mm:ss a	HH:mm:ss	AM	PM
+H	sr-Latn	H	gregorian
+C	sr-Latn	persian	d.M.y. GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
+C	sr-Latn	buddhist	d.M.y. GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	AM	PM
 U	sr-Latn	long	day	few	{0} dana
 U	sr-Latn	long	day	one	{0} dan
 U	sr-Latn	long	day	other	{0} dana
@@ -27427,6 +28393,9 @@ N	sr-Latn	Yakutsk	Jakutsk, standardno vreme	Jakutsk, letnje vreme
 N	sr-Latn	Yekaterinburg	Jekaterinburg, standardno vreme	Jekaterinburg, letnje vreme
 N	sr-Latn	Yukon	Jukon	
 P	sr-Latn-BA	sr-Latn
+O	sr-Latn-BA	h:mm:ss a	HH:mm:ss	prije podne	po podne
+C	sr-Latn-BA	persian	d.M.y. GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	prije podne	po podne
+C	sr-Latn-BA	buddhist	d.M.y. GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	prije podne	po podne
 U	sr-Latn-BA	long	month	few	{0} mjeseca
 U	sr-Latn-BA	long	month	one	{0} mjesec
 U	sr-Latn-BA	long	month	other	{0} mjeseci
@@ -27587,15 +28556,25 @@ N	sr-Latn-BA	Wallis	ostrva Valis i Futuna vrijeme
 N	sr-Latn-BA	Yakutsk	Jakutsk, standardno vrijeme	Jakutsk, ljetnje vrijeme
 N	sr-Latn-BA	Yekaterinburg	Jekaterinburg, standardno vrijeme	Jekaterinburg, ljetnje vrijeme
 P	sr-Latn-ME	sr-Latn
+O	sr-Latn-ME	h:mm:ss a	HH:mm:ss	prije podne	po podne
+C	sr-Latn-ME	persian	d.M.y. GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	prije podne	po podne
+C	sr-Latn-ME	buddhist	d.M.y. GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	prije podne	po podne
 P	sr-Latn-XK	sr-Latn
 P	ss	und
+H	ss	H	gregorian
 P	ss-SZ	ss
+H	ss-SZ	h	gregorian
 P	ssy	und
 P	st	und
+O	st	h:mm:ss a	HH:mm:ss	AM	PM
+H	st	H	gregorian
 N	st	GMT	Greenwich Mean Time	
 P	st-LS	st
+H	st-LS	h	gregorian
 P	su	und
 Y	su	d/M/y	{1}, {0}
+O	su	h.mm.ss a	HH.mm.ss	AM	PM
+H	su	H	gregorian
 T	su	.
 N	su	America_Central	Waktu Standar Tengah	Waktu Usum Panas Tengah
 N	su	America_Eastern	Waktu Standar Wétan	Waktu Usum Panas Wétan
@@ -27611,10 +28590,16 @@ N	su	GMT	Waktu Greenwich
 N	su	Galapagos	Waktu Galapagos	
 P	su-Latn	su
 P	suz	und
+H	suz	H	gregorian
 P	suz-Deva	suz
 P	suz-Sunu	und
+H	suz-Sunu	H	gregorian
 P	sv	und
 F	sv	GMT{0}	GMT	+HH:mm;−HH:mm
+O	sv	h:mm:ss a	HH:mm:ss	fm	em
+H	sv	H	gregorian
+C	sv	persian	y-MM-dd G	AP	AP	h:mm:ss a	HH:mm:ss	fm	em
+C	sv	buddhist	y-MM-dd G	BE	BE	h:mm:ss a	HH:mm:ss	fm	em
 U	sv	long	day	one	{0} dygn
 U	sv	long	day	other	{0} dygn
 U	sv	long	hour	one	{0} timme
@@ -27828,10 +28813,15 @@ N	sv	Yukon	Yukontid
 P	sv-AX	sv
 P	sv-FI	sv
 Y	sv-FI	d.M.y	{1} {0}
+O	sv-FI	h.mm.ss a	HH.mm.ss	fm	em
 T	sv-FI	.
 P	sw	und
 F	sw	GMT {0}	GMT	+HH:mm;-HH:mm
-Y	sw	d/M/y	{1} {0}
+Y	sw	d/M/y	{1}, {0}
+O	sw	h:mm:ss a	HH:mm:ss	AM	PM
+H	sw	H	gregorian
+C	sw	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	sw	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	sw	long	day	one	siku {0}
 U	sw	long	day	other	siku {0}
 U	sw	long	hour	one	saa {0}
@@ -28115,6 +29105,9 @@ N	sw-KE	Yekaterinburg	Saa za Wastani za Yekaterinburg	Saa za Majira ya Joto za Y
 P	sw-UG	sw
 P	syr	und
 Y	syr	d/M/y	{1}، {0}
+O	syr	h:mm:ss a	HH:mm:ss	܏ܩܛ‌	܏ܒܛ‌
+C	syr	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	܏ܩܛ‌	܏ܒܛ‌
+C	syr	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	܏ܩܛ‌	܏ܒܛ‌
 U	syr	long	day	one	ܚܕ ܝܘܡܐ
 U	syr	long	day	other	{0} ܝܘܡܢ̈ܐ
 U	syr	long	hour	one	{0} ܫܥܬܐ
@@ -28339,9 +29332,15 @@ N	syr	Yukon	ܥܕܢܐ ܕܝܘܩܘܢ
 P	syr-SY	syr
 P	szl	und
 Y	szl	dd.MM.y	{1} {0}
+O	szl	h:mm:ss a	HH:mm:ss	do połedniŏ	po połedniu
+H	szl	H	gregorian
+C	szl	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	do połedniŏ	po połedniu
+C	szl	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	do połedniŏ	po połedniu
 N	szl	GMT	uniwersalnego czasu	
 P	ta	und
 Y	ta	d/M/y	{1}, {0}
+C	ta	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ta	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ta	long	day	one	{0} நாள்
 U	ta	long	day	other	{0} நாட்கள்
 U	ta	long	hour	one	{0} ம.
@@ -28562,10 +29561,13 @@ N	ta	Yakutsk	யகுட்ஸ்க் நிலையான நேரம்	�
 N	ta	Yekaterinburg	யேகாடெரின்பர்க் நிலையான நேரம்	யேகாடெரின்பர்க் கோடை நேரம்
 N	ta	Yukon	யூகோன் நேரம்	
 P	ta-LK	ta
+H	ta-LK	H	gregorian
 P	ta-MY	ta
 P	ta-SG	ta
 P	te	und
 Y	te	d/M/y	{1} {0}
+C	te	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	te	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	te	long	day	one	{0} రోజు
 U	te	long	day	other	{0} రోజులు
 U	te	long	hour	one	{0} గంట
@@ -28788,9 +29790,17 @@ N	te	Yakutsk	యాకుట్స్క్ ప్రామాణిక సమ�
 N	te	Yekaterinburg	యెకటెరిన్‌బర్గ్ ప్రామాణిక సమయం	యెకటెరిన్‌బర్గ్ వేసవి సమయం
 N	te	Yukon	యుకోన్ సమయం	
 P	teo	und
+O	teo	h:mm:ss a	HH:mm:ss	Taparachu	Ebongi
+H	teo	H	gregorian
+C	teo	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Taparachu	Ebongi
+C	teo	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Taparachu	Ebongi
 P	teo-KE	teo
 P	tg	und
-Y	tg	d.M.y	{1} {0}
+Y	tg	d.M.y	{1}, {0}
+O	tg	h:mm:ss a	HH:mm:ss	AM	PM
+H	tg	H	gregorian
+C	tg	persian	d.MM.y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	tg	buddhist	d.MM.y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 N	tg	Afghanistan	Вақти Афғонистон	
 N	tg	Africa_Central	Вақти Африқои Марказӣ	
 N	tg	Africa_Eastern	Вақти Африқои Шарқӣ	
@@ -28941,6 +29951,9 @@ N	tg	Yekaterinburg	Вақти стандартии Екатеринбург	Ва
 N	tg	Yukon	Вақти Юкон	
 P	th	und
 Y	th	d/M/y	{1} {0}
+H	th	H	buddhist
+C	th	persian	d/M/y GGGGG	ปีเปอร์เซีย	ปีเปอร์เซีย	h:mm:ss a	HH:mm:ss	AM	PM
+C	th	buddhist	d/M/y	พ.ศ.	พ.ศ.	h:mm:ss a	HH:mm:ss	AM	PM
 U	th	long	day	other	{0} วัน
 U	th	long	hour	other	{0} ชั่วโมง
 U	th	long	microsecond	other	{0} ไมโครวินาที
@@ -29135,6 +30148,9 @@ N	th	Yekaterinburg	เวลามาตรฐานเยคาเตริน�
 N	th	Yukon	เวลายูคอน	
 P	ti	und
 Y	ti	M/d/y	{1} {0}
+O	ti	h:mm:ss a	HH:mm:ss	ቅ.ቀ.	ድ.ቀ.
+C	ti	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	ቅ.ቀ.	ድ.ቀ.
+C	ti	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	ቅ.ቀ.	ድ.ቀ.
 U	ti	long	day	one	{0} መዓልቲ
 U	ti	long	day	other	{0} መዓልታት
 U	ti	long	hour	one	{0} ሰዓት
@@ -29337,7 +30353,11 @@ N	ti	Yukon	ናይ ዩኮን ግዘ
 P	ti-ER	ti
 P	tig	und
 P	tk	und
-Y	tk	dd.MM.y	{1} {0}
+Y	tk	dd.MM.y	{1}, {0}
+O	tk	h:mm:ss a	HH:mm:ss	go.öň	go.soň
+H	tk	H	gregorian
+C	tk	persian	dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	go.öň	go.soň
+C	tk	buddhist	dd.MM.y	BE	BE	h:mm:ss a	HH:mm:ss	go.öň	go.soň
 U	tk	long	day	one	{0} gün
 U	tk	long	day	other	{0} gün
 U	tk	long	hour	one	{0} sagat
@@ -29546,10 +30566,15 @@ N	tk	Yekaterinburg	Ýekaterinburg standart wagty	Ýekaterinburg tomusky wagty
 N	tk	Yukon	Ýukon wagty	
 P	tn	und
 Y	tn	y-MM-dd	{1}, {0}
+O	tn	h:mm:ss a	HH:mm:ss	AM	PM
+H	tn	H	gregorian
 N	tn	GMT	Palogare ya nako ya ngwaga le ngwaga ya Greenwich	
 P	tn-BW	tn
 P	to	und
 Y	to	d/M/y	{1} {0}
+O	to	h:mm:ss a	HH:mm:ss	HH	EA
+C	to	persian	d-M-y	AP	AP	h:mm:ss a	H:mm:ss	HH	EA
+C	to	buddhist	d-M-y	BE	BE	h:mm:ss a	H:mm:ss	HH	EA
 U	to	long	day	other	ʻaho ʻe {0}
 U	to	long	hour	other	houa ʻe {0}
 U	to	long	microsecond	other	mikolosekoni ʻe {0}
@@ -29738,11 +30763,17 @@ N	to	Yukon	houa fakaiukoni
 P	tok	und
 F	tok	tenpo GMT{0}	tenpo UTC	+HH:mm;-HH:mm
 Y	tok	#y)#M)#d	{1} {0}
+O	tok	#h:mm:ss a	#HH:mm:ss	AM	PM
+H	tok	H	gregorian
 N	tok	GMT	tenpo pi ma Keni	
 P	tpi	und
 Y	tpi	d/M/y	{1} {0}
 P	tr	und
 Y	tr	dd.MM.y	{1} {0}
+O	tr	a h:mm:ss	HH:mm:ss	ÖÖ	ÖS
+H	tr	H	gregorian
+C	tr	persian	GGGGG dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	ÖÖ	ÖS
+C	tr	buddhist	GGGGG dd.MM.y	BE	BE	h:mm:ss a	HH:mm:ss	ÖÖ	ÖS
 U	tr	long	day	one	{0} gün
 U	tr	long	day	other	{0} gün
 U	tr	long	hour	one	{0} saat
@@ -29966,6 +30997,7 @@ N	tr	Yakutsk	Yakutsk Standart Saati	Yakutsk Yaz Saati
 N	tr	Yekaterinburg	Yekaterinburg Standart Saati	Yekaterinburg Yaz Saati
 N	tr	Yukon	Yukon Saati	
 P	tr-CY	tr
+H	tr-CY	h	gregorian
 P	trv	und
 U	trv	long	day	other	{0} Jiyax
 U	trv	long	hour	other	{0} Tuki
@@ -29976,8 +31008,14 @@ U	trv	long	week	other	{0} Jiyax iyax sngayan
 U	trv	long	year	other	{0} Hnkawas
 P	trw	und
 P	ts	und
+O	ts	h:mm:ss a	HH:mm:ss	AM	PM
+H	ts	H	gregorian
 P	tt	und
 Y	tt	dd.MM.y	{1}, {0}
+O	tt	h:mm:ss a	HH:mm:ss	AM	PM
+H	tt	H	gregorian
+C	tt	persian	GGGGG dd.MM.y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	tt	buddhist	GGGGG dd.MM.y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 N	tt	Acre	Акр стандарт вакыты	Акр җәйге вакыты
 N	tt	Afghanistan	Әфганстан вакыты	
 N	tt	Africa_Central	Үзәк Африка вакыты	
@@ -30132,12 +31170,25 @@ N	tt	Yekaterinburg	Екатеринбург стандарт вакыты	Ека
 N	tt	Yukon	Юкон вакыты	
 P	twq	und
 Y	twq	d/M/y	{1} {0}
+O	twq	h:mm:ss a	HH:mm:ss	Subbaahi	Zaarikay b
+H	twq	H	gregorian
+C	twq	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	Subbaahi	Zaarikay b
+C	twq	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	Subbaahi	Zaarikay b
 P	tyv	und
 Y	tyv	y-MM-dd	{1}, {0}
+H	tyv	H	gregorian
 N	tyv	GMT	Гринвичтиң ортаа үези	
 P	tzm	und
+O	tzm	h:mm:ss a	HH:mm:ss	Zdat azal	Ḍeffir aza
+H	tzm	H	gregorian
+C	tzm	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Zdat azal	Ḍeffir aza
+C	tzm	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Zdat azal	Ḍeffir aza
 P	ug	und
 Y	ug	y-d-M	{1}، {0}
+O	ug	h:mm:ss a	HH:mm:ss	چ.ب	چ.ك
+H	ug	H	gregorian
+C	ug	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	چ.ب	چ.ك
+C	ug	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	چ.ب	چ.ك
 U	ug	long	day	one	{0} كۈن
 U	ug	long	day	other	{0} كۈن
 U	ug	long	hour	one	{0} سائەت
@@ -30343,6 +31394,10 @@ N	ug	Yakutsk	ياكۇتسك ئۆلچەملىك ۋاقتى	ياكۇتسك ياز�
 N	ug	Yekaterinburg	يېكاتېرىنبۇرگ ئۆلچەملىك ۋاقتى	يېكاتېرىنبۇرگ يازلىق ۋاقتى
 P	uk	und
 Y	uk	dd.MM.y	{1}, {0}
+O	uk	h:mm:ss a	HH:mm:ss	дп	пп
+H	uk	H	gregorian
+C	uk	persian	dd.MM.y G	AP	AP	h:mm:ss a	HH:mm:ss	дп	пп
+C	uk	buddhist	dd.MM.y G	б. е.	б.е.	h:mm:ss a	HH:mm:ss	дп	пп
 U	uk	long	day	few	{0} дні
 U	uk	long	day	many	{0} днів
 U	uk	long	day	one	{0} день
@@ -30620,6 +31675,10 @@ N	uk	Yekaterinburg	за єкатеринбурзьким стандартним 
 N	uk	Yukon	за стандартним часом на Юконі	
 F	und	GMT{0}	GMT	+HH:mm;-HH:mm
 Y	und	y-MM-dd	{1} {0}
+O	und	h:mm:ss a	HH:mm:ss	AM	PM
+H	und	h	gregorian
+C	und	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	und	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	und	long	day	other	{0} d
 U	und	long	hour	other	{0} h
 U	und	long	microsecond	other	{0} μs
@@ -30653,7 +31712,9 @@ U	und	short	year	other	{0} y
 T	und	:
 P	ur	und
 F	ur	GMT {0}	GMT	+HH:mm;-HH:mm
-Y	ur	d/M/y	{1} {0}
+Y	ur	d/M/y	{1}، {0}
+C	ur	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	ur	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	ur	long	day	one	{0} دن
 U	ur	long	day	other	{0} دن
 U	ur	long	hour	one	{0} گھنٹہ
@@ -30911,6 +31972,10 @@ N	ur-IN	Venezuela	وینزوئیلا ٹائم
 N	ur-IN	Vostok	ووسٹاک ٹائم	
 P	uz	und
 Y	uz	dd/MM/y	{1}, {0}
+O	uz	h:mm:ss a	HH:mm:ss	TO	TK
+H	uz	H	gregorian
+C	uz	persian	dd.MM.y (GGGGG)	forsiy	forsiy	h:mm:ss (a)	HH:mm:ss	TO	TK
+C	uz	buddhist	dd.MM.y (GGGGG)	BE	BE	h:mm:ss (a)	HH:mm:ss	TO	TK
 U	uz	long	day	one	{0} kun
 U	uz	long	day	other	{0} kun
 U	uz	long	hour	one	{0} soat
@@ -31112,8 +32177,13 @@ N	uz	Yekaterinburg	Yekaterinburg standart vaqti	Yekaterinburg yozgi vaqti
 N	uz	Yukon	Yukon vaqti	
 P	uz-Arab	und
 D	uz-Arab	۰۱۲۳۴۵۶۷۸۹
+H	uz-Arab	H	persian
 P	uz-Cyrl	und
 Y	uz-Cyrl	dd/MM/y	{1} {0}
+O	uz-Cyrl	h:mm:ss a	HH:mm:ss	ТО	ТК
+H	uz-Cyrl	H	gregorian
+C	uz-Cyrl	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ТО	ТК
+C	uz-Cyrl	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ТО	ТК
 U	uz-Cyrl	long	day	one	{0} кун
 U	uz-Cyrl	long	day	other	{0} кун
 U	uz-Cyrl	long	hour	one	{0} соат
@@ -31307,11 +32377,18 @@ P	uz-Latn	uz
 P	vai	und
 P	vai-Latn	und
 Y	vai-Latn	M/d/y	{1} {0}
+O	vai-Latn	h:mm:ss a	HH:mm:ss	AM	PM
+C	vai-Latn	persian	M/d/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	vai-Latn	buddhist	M/d/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 P	vai-Vaii	vai
 P	ve	und
+H	ve	H	gregorian
 P	vec	und
 F	vec	UTC{0}	UTC	+HH:mm;-HH:mm
 Y	vec	dd/MM/y	{1}, {0}
+H	vec	H	gregorian
+C	vec	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	vec	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	vec	long	day	one	{0} dì
 U	vec	long	day	other	{0} dì
 U	vec	long	hour	one	{0} ora
@@ -31516,6 +32593,10 @@ N	vec	Yekaterinburg	Ora normale de Ekaterinburgo	Ora d’istà de Ekaterinburgo
 N	vec	Yukon	Ora de’l Yukon	
 P	vi	und
 Y	vi	d/M/y	{0} {1}
+O	vi	h:mm:ss a	HH:mm:ss	SA	CH
+H	vi	H	gregorian
+C	vi	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	SA	CH
+C	vi	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	SA	CH
 U	vi	long	day	other	{0} ngày
 U	vi	long	hour	other	{0} giờ
 U	vi	long	microsecond	other	{0} micrô giây
@@ -31711,11 +32792,22 @@ N	vi	Yukon	Giờ Yukon
 P	vmw	und
 F	vmw	GMT{0}	GMT	+H:mm;-H:mm
 Y	vmw	d/M/y	{1} {0}
+H	vmw	H	gregorian
 N	vmw	GMT	okathi oolikana wa Greenwich	
 P	vo	und
+H	vo	H	gregorian
 P	vun	und
+O	vun	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
+H	vun	H	gregorian
+C	vun	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
+C	vun	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	utuko	kyiukonyi
 P	wa	und
+H	wa	H	gregorian
 P	wae	und
+O	wae	h:mm:ss a	HH:mm:ss	AM	PM
+H	wae	H	gregorian
+C	wae	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	wae	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	wae	long	day	one	{0} täg
 U	wae	long	day	other	{0} täg
 U	wae	long	hour	one	{0} stund
@@ -31738,6 +32830,10 @@ P	wal	und
 P	wbp	und
 P	wo	und
 Y	wo	dd-MM-y	{1} - {0}
+O	wo	h:mm:ss a	HH:mm:ss	Sub	Ngo
+H	wo	H	gregorian
+C	wo	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	Sub	Ngo
+C	wo	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	Sub	Ngo
 N	wo	Afghanistan	waxtu Afganistan	
 N	wo	Africa_Central	Waxtu Afrique Centrale	
 N	wo	Africa_Eastern	Waxtu Afrique sowwu jant	
@@ -31887,7 +32983,11 @@ N	wo	Yakutsk	Waxtu Yakutsk	Waxtu ete bu Yakutsk
 N	wo	Yekaterinburg	Yekatérinbourg	Jamonoy ete
 N	wo	Yukon	Waxtu Yukon	
 P	xh	und
-Y	xh	M/d/y	{1} {0}
+Y	xh	M/d/y	{1}, {0}
+O	xh	h:mm:ss a	HH:mm:ss	AM	PM
+H	xh	H	gregorian
+C	xh	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	xh	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 N	xh	Afghanistan	Afghanistan Time	
 N	xh	Africa_Central	Central Africa Time	
 N	xh	Africa_Eastern	East Africa Time	
@@ -32039,6 +33139,9 @@ N	xh	Yukon	Yukon Time
 P	xnr	und
 F	xnr	ग्री॰ मै॰ टै॰{0}	GMT	+HH:mm;-HH:mm
 Y	xnr	d/M/y	{1}, {0}
+O	xnr	h:mm:ss a	HH:mm:ss	भ्यागा	दपेहरा/संजा
+C	xnr	persian	G d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	भ्यागा	दपेहरा/संजा
+C	xnr	buddhist	G d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	भ्यागा	दपेहरा/संजा
 N	xnr	Afghanistan	अफ़गानिस्ताने दा टैम	
 N	xnr	Africa_Central	मध्य अफ़्रीका दा टैम	
 N	xnr	Africa_Eastern	पैलेी अफ़्रीका दा टैम	
@@ -32187,13 +33290,29 @@ N	xnr	Yakutsk	याकुत्स्क दा मानक टैम	या�
 N	xnr	Yekaterinburg	येकातेरिनबर्ग दा मानक टैम	येकातेरिनबर्ग दी तोंदिया दा टैम
 N	xnr	Yukon	युकॉन टैम	
 P	xog	und
+O	xog	h:mm:ss a	HH:mm:ss	Munkyo	Eigulo
+H	xog	H	gregorian
+C	xog	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Munkyo	Eigulo
+C	xog	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Munkyo	Eigulo
 P	yav	und
 Y	yav	d/M/y	{1} {0}
+O	yav	h:mm:ss a	HH:mm:ss	kiɛmɛ́ɛm	kisɛ́ndɛ
+H	yav	H	gregorian
+C	yav	persian	d/M/y	AP	AP	h:mm:ss a	HH:mm:ss	kiɛmɛ́ɛm	kisɛ́ndɛ
+C	yav	buddhist	d/M/y	BE	BE	h:mm:ss a	HH:mm:ss	kiɛmɛ́ɛm	kisɛ́ndɛ
 P	yi	und
 Y	yi	d-M-y	{1} {0}
+O	yi	h:mm:ss a	HH:mm:ss	פֿאַרמיטאָג	נאָכמיטאָג
+H	yi	H	gregorian
+C	yi	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	פֿאַרמיטאָג	נאָכמיטאָג
+C	yi	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	פֿאַרמיטאָג	נאָכמיטאָג
 P	yo	und
 F	yo	WAT{0}	WAT	+HH:mm;-HH:mm
-Y	yo	d/M/y	{1} {0}
+Y	yo	d/M/y	{1}, {0}
+O	yo	h:mm:ss a	HH:mm:ss	Àárọ̀	Ọ̀sán
+H	yo	H	gregorian
+C	yo	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Àárọ̀	Ọ̀sán
+C	yo	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Àárọ̀	Ọ̀sán
 U	yo	long	day	other	ọj {0}
 U	yo	long	hour	other	{0} wkt
 U	yo	long	minute	other	{0} ìṣ
@@ -32364,6 +33483,9 @@ N	yo	Yakutsk	Àkókò Àfẹnukò Yatutsk	Àkókò Sọmà Yatutsk
 N	yo	Yekaterinburg	Àkókò Àfẹnukò Yekaterinburg	Àkókò Sọmà Yekaterinburg
 N	yo	Yukon	Àkókò Yúkọ́nì	
 P	yo-BJ	yo
+O	yo-BJ	h:mm:ss a	HH:mm:ss	Àárɔ̀	Ɔ̀sán
+C	yo-BJ	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	Àárɔ̀	Ɔ̀sán
+C	yo-BJ	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	Àárɔ̀	Ɔ̀sán
 U	yo-BJ	long	day	other	ɔj {0}
 U	yo-BJ	long	minute	other	{0} ìsh
 U	yo-BJ	long	month	other	{0} oshù
@@ -32475,6 +33597,10 @@ N	yo-BJ	Yekaterinburg	Àkókò Àfɛnukò Yekaterinburg	Àkókò Sɔmà Yekateri
 N	yo-BJ	Yukon	Àkókò Yúkɔ́nì	
 P	yrl	und
 Y	yrl	dd/MM/y	{1} {0}
+O	yrl	h:mm:ss a	HH:mm:ss	AM	PM
+H	yrl	H	gregorian
+C	yrl	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	yrl	buddhist	dd/MM/y GGGGG	BE	EB	h:mm:ss a	HH:mm:ss	AM	PM
 U	yrl	long	day	other	{0} ara-ita
 U	yrl	long	hour	one	{0} hura
 U	yrl	long	hour	other	{0} hura-ita
@@ -32663,13 +33789,24 @@ N	yrl	Wallis	Wari asuí Futuna Hurariyu
 N	yrl	Yakutsk	Yakutisiki Hurariyu Retewa	Yakutisiki Kurasí Ara Hurariyu
 N	yrl	Yekaterinburg	Ekaterĩbugu Hurariyu Retewa	Ekaterĩbugu Kurasí Ara Hurariyu
 P	yrl-CO	yrl
+O	yrl-CO	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+H	yrl-CO	h	gregorian
+C	yrl-CO	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	yrl-CO	buddhist	dd/MM/y GGGGG	BE	EB	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 N	yrl-CO	Bhutan	Butan Hurariyu	
 N	yrl-CO	Pierre_Miquelon	Sã Peduru asuí Mikiran Hurariyu Retewa	Sã Peduru asuí Mikiran Kurasí Ara Hurariyu
 P	yrl-VE	yrl
+O	yrl-VE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+H	yrl-VE	h	gregorian
+C	yrl-VE	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+C	yrl-VE	buddhist	dd/MM/y GGGGG	BE	EB	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 N	yrl-VE	Bhutan	Butan Hurariyu	
 N	yrl-VE	Pierre_Miquelon	Sã Peduru asuí Mikiran Hurariyu Retewa	Sã Peduru asuí Mikiran Kurasí Ara Hurariyu
 P	yue	und
 Y	yue	y/M/d	{1} {0}
+O	yue	ah:mm:ss	HH:mm:ss	上晝	下晝
+C	yue	persian	G y/M/d	波斯曆	波斯曆	ah:mm:ss	H:mm:ss	上晝	下晝
+C	yue	buddhist	Gy/M/d	佛曆	佛曆	ah:mm:ss	H:mm:ss	上晝	下晝
 U	yue	long	day	other	{0} 天
 U	yue	long	hour	other	{0} 小時
 U	yue	long	microsecond	other	{0} 微秒
@@ -32863,6 +34000,10 @@ N	yue	Yekaterinburg	葉卡捷琳堡標準時間	葉卡捷琳堡夏令時間
 N	yue	Yukon	育空時間	
 P	yue-Hans	und
 Y	yue-Hans	y/M/d	{1} {0}
+O	yue-Hans	ah:mm:ss	HH:mm:ss	上昼	下昼
+H	yue-Hans	H	gregorian
+C	yue-Hans	persian	G y/M/d	波斯历	波斯历	ah:mm:ss	H:mm:ss	上昼	下昼
+C	yue-Hans	buddhist	Gy/M/d	佛历	佛历	ah:mm:ss	H:mm:ss	上昼	下昼
 U	yue-Hans	long	day	other	{0} 天
 U	yue-Hans	long	hour	other	{0} 小时
 U	yue-Hans	long	microsecond	other	{0} 微秒
@@ -33056,13 +34197,24 @@ N	yue-Hans	Yekaterinburg	叶卡捷琳堡标准时间	叶卡捷琳堡夏令时间
 N	yue-Hans	Yukon	育空时间	
 P	yue-Hant	yue
 P	yue-Hant-CN	yue-Hant
+H	yue-Hant-CN	H	gregorian
 P	yue-Hant-MO	yue-Hant
 P	za	und
 Y	za	y/M/d	{1} {0}
+O	za	a h:mm:ss	HH:mm:ss	AM	PM
+H	za	H	gregorian
 N	za	GMT	Gwzlinzveihci Byauhcunj Sizgenh	
 P	zgh	und
+O	zgh	h:mm:ss a	HH:mm:ss	ⵜⵉⴼⴰⵡⵜ	ⵜⴰⴷⴳⴳⵯⴰⵜ
+H	zgh	H	gregorian
+C	zgh	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	ⵜⵉⴼⴰⵡⵜ	ⵜⴰⴷⴳⴳⵯⴰⵜ
+C	zgh	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	ⵜⵉⴼⴰⵡⵜ	ⵜⴰⴷⴳⴳⵯⴰⵜ
 P	zh	und
 Y	zh	y/M/d	{1} {0}
+O	zh	ah:mm:ss	HH:mm:ss	上午	下午
+H	zh	H	gregorian
+C	zh	persian	G y/M/d	波斯历	波斯历	ah:mm:ss	HH:mm:ss	上午	下午
+C	zh	buddhist	Gy-M-d	佛历	佛历	ah:mm:ss	HH:mm:ss	上午	下午
 U	zh	long	day	other	{0}天
 U	zh	long	hour	other	{0}小时
 U	zh	long	microsecond	other	{0}微秒
@@ -33258,16 +34410,26 @@ N	zh	Yukon	育空时间
 P	zh-Hans	zh
 P	zh-Hans-HK	zh-Hans
 Y	zh-Hans-HK	d/M/y	{1} {0}
+H	zh-Hans-HK	h	gregorian
+C	zh-Hans-HK	persian	d/M/yGGGGG	波斯历	波斯历	ah:mm:ss	HH:mm:ss	上午	下午
 U	zh-Hans-HK	long	second	other	{0}秒
 P	zh-Hans-MO	zh-Hans
 Y	zh-Hans-MO	y年M月d日	{1} {0}
+H	zh-Hans-MO	h	gregorian
+C	zh-Hans-MO	persian	Gy年M月d日	波斯历	波斯历	ah:mm:ss	HH:mm:ss	上午	下午
 U	zh-Hans-MO	long	second	other	{0}秒
 P	zh-Hans-MY	zh-Hans
+H	zh-Hans-MY	h	gregorian
 P	zh-Hans-SG	zh-Hans
 Y	zh-Hans-SG	y年M月d日	{1} {0}
+H	zh-Hans-SG	h	gregorian
+C	zh-Hans-SG	persian	Gy年M月d日	波斯历	波斯历	ah:mm:ss	HH:mm:ss	上午	下午
 U	zh-Hans-SG	long	second	other	{0}秒
 P	zh-Hant	und
 Y	zh-Hant	y/M/d	{1} {0}
+O	zh-Hant	Bh:mm:ss	HH:mm:ss	上午	下午
+C	zh-Hant	persian	G y/M/d	波斯曆	波斯曆	Bh:mm:ss	H:mm:ss	上午	下午
+C	zh-Hant	buddhist	Gy/M/d	佛曆	佛曆	Bh:mm:ss	H:mm:ss	上午	下午
 U	zh-Hant	long	day	other	{0} 天
 U	zh-Hant	long	hour	other	{0} 小時
 U	zh-Hant	long	microsecond	other	{0} 微秒
@@ -33462,6 +34624,8 @@ N	zh-Hant	Yekaterinburg	葉卡捷琳堡標準時間	葉卡捷琳堡夏令時間
 N	zh-Hant	Yukon	育空地區時間	
 P	zh-Hant-HK	zh-Hant
 Y	zh-Hant-HK	d/M/y	{1} {0}
+O	zh-Hant-HK	ah:mm:ss	HH:mm:ss	上午	下午
+C	zh-Hant-HK	persian	Gy/M/d	波斯曆	波斯曆	Bh:mm:ss	H:mm:ss	上午	下午
 U	zh-Hant-HK	long	day	other	{0} 日
 U	zh-Hant-HK	long	nanosecond	other	{0} 納秒
 U	zh-Hant-HK	long	week	other	{0} 星期
@@ -33513,6 +34677,9 @@ P	zh-Hant-MO	zh-Hant-HK
 P	zh-Hant-MY	zh-Hant
 P	zh-Latn	zh
 Y	zh-Latn	y-MM-dd	{1} {0}
+O	zh-Latn	h:mm:ss a	HH:mm:ss	AM	PM
+C	zh-Latn	persian	G y-MM-dd	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	zh-Latn	buddhist	G y-MM-dd	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	zh-Latn	long	day	other	{0} d
 U	zh-Latn	long	hour	other	{0} h
 U	zh-Latn	long	microsecond	other	{0} μs
@@ -33544,6 +34711,10 @@ U	zh-Latn	short	second	other	{0} s
 U	zh-Latn	short	week	other	{0} w
 U	zh-Latn	short	year	other	{0} y
 P	zu	und
+O	zu	h:mm:ss a	HH:mm:ss	AM	PM
+H	zu	H	gregorian
+C	zu	persian	M/d/y	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
+C	zu	buddhist	M/d/y	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
 U	zu	long	day	one	{0} usuku
 U	zu	long	day	other	{0} izinsuku
 U	zu	long	hour	one	{0} ihora

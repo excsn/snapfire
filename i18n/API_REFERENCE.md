@@ -26,7 +26,10 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [ZoneRules](#zonerules)
   * [in_daylight](#in_daylight)
   * [zone_name](#zone_name)
+  * [Calendar](#calendar)
+  * [calendar](#calendar-1)
   * [numeric_date](#numeric_date)
+  * [clock](#clock)
   * [date_with_time](#date_with_time)
   * [duration_unit](#duration_unit)
   * [time_separator](#time_separator)
@@ -143,13 +146,25 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 
 * `pub fn zone_name(tag: &str, zone: &str, daylight: bool, now: f64, rules: &impl ZoneRules) -> String`: the long specific name of `zone` in `tag`, as ICU's `TimeZone::getDisplayName(daylight, LONG, locale)` writes it. The metazone is the one `zone` is in at the instant `now`. A zone-specific name such as `British Summer Time` comes before the metazone's. A zone with no name is written in the localized GMT format: the standard offset at `now`, plus the year's saving when `daylight` holds, `GMT-05:00`. A zone CLDR does not know is `GMT+00:00`.
 
+### Calendar
+
+* `pub enum Calendar { Gregorian, Persian, Buddhist }`: a calendar a numeric date is written in.
+
+### calendar
+
+* `pub fn calendar(tag: &str) -> Option<Calendar>`: the calendar the tag's `-u-ca-` keyword names, else the one CLDR's region of the locale prefers: `Persian` for `fa` and `ps`, `Buddhist` for `th`. `None` when the keyword names another calendar.
+
 ### numeric_date
 
-* `pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> String`: a Gregorian date as `toLocaleDateString(tag)` writes it with no options, in CLDR's `yMd` pattern and the locale's digits: `9/10/2024` in `en`, `10.9.2024` in `de`, `2024/9/10` in `ja`.
+* `pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> Option<String>`: a Gregorian date as `toLocaleDateString(tag)` writes it with no options, converted to the locale's `calendar`, in CLDR's pattern for it and the locale's digits: `9/10/2024` in `en`, `10.9.2024` in `de`, `۱۴۰۳/۶/۲۰` in `fa`. `None` when `calendar` is.
+
+### clock
+
+* `pub fn clock(tag: &str, hour: u32, minute: u32, second: u32) -> String`: a time as `toLocaleTimeString(tag)` writes it with no options, on the 12-hour or 24-hour clock CLDR gives the locale's region: `7:37:20 PM` in `en`, `19:37:20` in `de`.
 
 ### date_with_time
 
-* `pub fn date_with_time(tag: &str, date: &str, time: &str) -> String`: a date and a time, each already written, joined by the locale's short date-time pattern, as `toLocaleString(tag)` joins them with no options: `9/10/2024, 7:37:20 PM`.
+* `pub fn date_with_time(tag: &str, date: &str, time: &str) -> String`: a date and a time, each already written, joined by the locale's short `atTime` pattern, as `toLocaleString(tag)` joins them with no options: `9/10/2024, 7:37:20 PM`.
 
 ### duration_unit
 

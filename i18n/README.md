@@ -38,7 +38,7 @@ snapfire_i18n = "0"
 | `"İSTANBUL"` as `"istanbul"` in Turkish | `lower_case` |
 | Which Unicode release the case data is | `unicode_version` |
 | `Pacific Daylight Time` for a zone and an instant | `in_daylight`, `zone_name` |
-| `9/10/2024` and `9/10/2024, 7:37:20 PM` with no options | `numeric_date`, `date_with_time` |
+| `9/10/2024`, `7:37:20 PM` and `9/10/2024, 7:37:20 PM` with no options, in the Gregorian, Persian or Buddhist calendar | `numeric_date`, `clock`, `date_with_time` |
 | `United Kingdom`, `American English`, `Euro` | `display_name`, with the `display_names` feature |
 
 ## License

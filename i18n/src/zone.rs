@@ -10,7 +10,10 @@
 //! - `D locale digits`: the ten digits of a locale's numbering system when they are not ASCII.
 //! - `F locale gmt zero hours`: the localized GMT format, the format for a zero offset and the positive and negative hour patterns.
 //! - `N locale key standard daylight`: the long names of a metazone or of a zone, given by its path. An empty name falls back to the parent's.
-//! - `Y locale date glue`: the `yMd` pattern a date with no options is written in and the short pattern joining a date to a time.
+//! - `Y locale date glue`: the `yMd` pattern a date with no options is written in and the short `atTime` pattern joining a date to a time.
+//! - `O locale hms Hms am pm`: the patterns a time is written in on a 12-hour and on a 24-hour clock and the abbreviated day period markers.
+//! - `H locale hour calendar`: the clock a locale writes times on (`h` or `H`) and the calendar it writes dates in (`gregorian`, `persian` or `buddhist`). A locale with no record has its parent's.
+//! - `C locale calendar date abbreviated narrow hms Hms am pm`: the pattern a date in a calendar other than the Gregorian is written in, the abbreviated and narrow names of the era its dates fall in and the calendar's own time patterns and day period markers, which ICU writes a time in when the date is in that calendar.
 //! - `U locale width unit plural pattern`: a duration unit's pattern, `{0} hours`, at a width and a plural form.
 //! - `T locale separator`: the separator between hours, minutes and seconds.
 
@@ -40,6 +43,9 @@ struct Names {
   digits: Option<&'static str>,
   formats: Option<[&'static str; 3]>,
   dates: Option<[&'static str; 2]>,
+  clock: Option<[&'static str; 4]>,
+  defaults: Option<(&'static str, &'static str)>,
+  calendars: HashMap<&'static str, [&'static str; 7]>,
   units: HashMap<(&'static str, &'static str, &'static str), &'static str>,
   time_separator: Option<&'static str>,
   names: HashMap<&'static str, (&'static str, &'static str)>,
@@ -79,6 +85,11 @@ fn zones() -> &'static Zones {
         "D" => zones.locales.entry(f[1]).or_default().digits = Some(f[2]),
         "F" => zones.locales.entry(f[1]).or_default().formats = Some([f[2], f[3], f[4]]),
         "Y" => zones.locales.entry(f[1]).or_default().dates = Some([f[2], f[3]]),
+        "O" => zones.locales.entry(f[1]).or_default().clock = Some([f[2], f[3], f[4], f[5]]),
+        "H" => zones.locales.entry(f[1]).or_default().defaults = Some((f[2], f[3])),
+        "C" => {
+          zones.locales.entry(f[1]).or_default().calendars.insert(f[2], [f[3], f[4], f[5], f[6], f[7], f[8], f[9]]);
+        }
         "U" => {
           zones.locales.entry(f[1]).or_default().units.insert((f[2], f[3], f[4]), f[5]);
         }
@@ -155,10 +166,49 @@ pub fn zone_name(locale: &str, zone: &str, daylight: bool, now: f64, rules: &imp
   gmt(&chain, offset - saving + extra, false)
 }
 
-/// `date.toLocaleDateString(tag)` with no options: `year`, `month` and `day` in the locale's `yMd` pattern and digits, `9/10/2024` in English and `10.9.2024` in German.
-pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> String {
-  let chain = chain(tag);
-  let pattern = chain.iter().find_map(|names| names.dates).map_or("y-MM-dd", |[date, _]| date);
+/// A calendar a numeric date is written in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Calendar {
+  Gregorian,
+  Persian,
+  Buddhist,
+}
+
+impl Calendar {
+  fn name(self) -> &'static str {
+    match self {
+      Calendar::Gregorian => "gregorian",
+      Calendar::Persian => "persian",
+      Calendar::Buddhist => "buddhist",
+    }
+  }
+}
+
+/// The value of the `-u-` extension key `key` in `tag`, `islamic-civil` for `ca` in `ar-u-ca-islamic-civil`.
+fn keyword(tag: &str, key: &str) -> Option<String> {
+  let mut parts = tag.split(['-', '_']).skip_while(|part| !part.eq_ignore_ascii_case("u")).skip(1);
+  parts.by_ref().find(|part| part.eq_ignore_ascii_case(key))?;
+  let value: Vec<String> = parts.take_while(|part| part.len() > 2).map(str::to_ascii_lowercase).collect();
+  (!value.is_empty()).then(|| value.join("-"))
+}
+
+/// The calendar `tag` writes numeric dates in: the one its `-u-ca-` keyword names, else the one CLDR's region of the locale prefers, the Persian for `fa` and the Buddhist for `th`. `None` when the keyword names a calendar this crate does not write.
+pub fn calendar(tag: &str) -> Option<Calendar> {
+  match keyword(tag, "ca").as_deref() {
+    Some("gregory") => Some(Calendar::Gregorian),
+    Some("persian") => Some(Calendar::Persian),
+    Some("buddhist") => Some(Calendar::Buddhist),
+    Some(_) => None,
+    None => match chain(tag).iter().find_map(|names| names.defaults).map_or("gregorian", |(_, calendar)| calendar) {
+      "persian" => Some(Calendar::Persian),
+      "buddhist" => Some(Calendar::Buddhist),
+      _ => Some(Calendar::Gregorian),
+    },
+  }
+}
+
+/// `pattern` written out, a run of one ASCII letter replaced by what `field` gives for the letter and the run's length, quoted text unquoted and `''` a quote. A letter `field` gives nothing for is dropped.
+fn write_pattern(pattern: &str, field: impl Fn(char, usize) -> Option<String>) -> String {
   let mut out = String::new();
   let mut chars = pattern.chars().peekable();
   while let Some(c) = chars.next() {
@@ -176,30 +226,110 @@ pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> String {
           out.push(quoted);
         }
       }
-      'y' | 'M' | 'd' => {
+      c if c.is_ascii_alphabetic() => {
         let mut width = 1;
         while chars.peek() == Some(&c) {
           chars.next();
           width += 1;
         }
-        let value = match c {
-          'y' => year,
-          'M' => i64::from(month),
-          _ => i64::from(day),
-        };
-        out.push_str(&if c == 'y' && width == 2 { format!("{:02}", value.rem_euclid(100)) } else { format!("{value:0width$}") });
+        if let Some(text) = field(c, width) {
+          out.push_str(&text);
+        }
       }
       other => out.push(other),
     }
   }
-  localized_digits(&chain, out)
+  out
 }
 
-/// `date.toLocaleString(tag)` with no options: `date` and `time`, each already written, joined as the locale's short date-time pattern joins them, `9/10/2024, 7:37:20 PM`.
+/// The Julian day number of a proleptic Gregorian date.
+fn julian_day(year: i64, month: u32, day: u32) -> i64 {
+  let y = if month <= 2 { year - 1 } else { year };
+  let era = y.div_euclid(400);
+  let yoe = y - era * 400;
+  let m = i64::from(month);
+  let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + i64::from(day) - 1;
+  era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy + 1_721_120
+}
+
+/// The Julian calendar date of a Julian day number.
+fn julian_calendar(day: i64) -> (i64, u32, u32) {
+  let c = day + 32_082;
+  let d = (4 * c + 3).div_euclid(1461);
+  let e = c - (1461 * d).div_euclid(4);
+  let m = (5 * e + 2).div_euclid(153);
+  ((d - 4800 + m / 10), (m + 3 - 12 * (m / 10)) as u32, (e - (153 * m + 2).div_euclid(5) + 1) as u32)
+}
+
+/// The Buddhist year, month and day of a Gregorian date, as ICU's `BuddhistCalendar` counts: the year is 543 later. Before the Gregorian reform of 1582-10-15 the month and day are the Julian calendar's.
+fn buddhist(year: i64, month: u32, day: u32) -> (i64, u32, u32) {
+  const REFORM: i64 = 2_299_161;
+  let jd = julian_day(year, month, day);
+  let (year, month, day) = if jd < REFORM { julian_calendar(jd) } else { (year, month, day) };
+  (year + 543, month, day)
+}
+
+/// The Persian year, month and day of a Gregorian date, by the 33-year arithmetic cycle ICU's `PersianCalendar` counts in.
+fn persian(year: i64, month: u32, day: u32) -> (i64, u32, u32) {
+  const EPOCH: i64 = 1_948_320;
+  const MONTH_STARTS: [i64; 12] = [0, 31, 62, 93, 124, 155, 186, 216, 246, 276, 306, 336];
+  let since = julian_day(year, month, day) - EPOCH;
+  let year = 1 + (33 * since + 3).div_euclid(12_053);
+  let day_of_year = since - (365 * (year - 1) + (8 * year + 21).div_euclid(33));
+  let month = if day_of_year < 216 { day_of_year / 31 } else { (day_of_year - 6) / 30 };
+  (year, month as u32 + 1, (day_of_year - MONTH_STARTS[month as usize] + 1) as u32)
+}
+
+/// `date.toLocaleDateString(tag)` with no options: the Gregorian date `year`, `month` and `day` written in the locale's calendar, `yMd` pattern and digits, `9/10/2024` in English, `10.9.2024` in German and `۱۴۰۳/۶/۲۰` in Persian. A narrow no-break space is written as a space, as V8 writes it. `None` when [`calendar`] is.
+pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> Option<String> {
+  let chain = chain(tag);
+  let calendar = calendar(tag)?;
+  let (pattern, era, (year, month, day)) = match calendar {
+    Calendar::Gregorian => (chain.iter().find_map(|names| names.dates).map_or("y-MM-dd", |[date, _]| date), None, (year, month, day)),
+    other => {
+      let [pattern, abbreviated, narrow, ..] = chain.iter().find_map(|names| names.calendars.get(other.name()).copied()).unwrap_or(["G y-MM-dd", "", "", "", "", "", ""]);
+      let date = if other == Calendar::Persian { persian(year, month, day) } else { buddhist(year, month, day) };
+      (pattern, Some((abbreviated, narrow)), date)
+    }
+  };
+  let out = write_pattern(pattern, |c, width| match c {
+    'y' if width == 2 => Some(format!("{:02}", year.rem_euclid(100))),
+    'y' => Some(format!("{year:0width$}")),
+    'M' | 'L' => Some(format!("{month:0width$}")),
+    'd' => Some(format!("{day:0width$}")),
+    'G' => era.map(|(abbreviated, narrow)| if width == 5 { narrow } else { abbreviated }.to_owned()),
+    _ => None,
+  });
+  Some(localized_digits(&chain, out).replace('\u{202f}', " "))
+}
+
+/// `date.toLocaleTimeString(tag)` with no options: `hour`, `minute` and `second` on the clock the locale's region keeps, in the pattern of the locale's [`calendar`] and its digits, `7:37:20 PM` in English and `19:37:20` in German. A narrow no-break space is written as a space, as V8 writes it.
+pub fn clock(tag: &str, hour: u32, minute: u32, second: u32) -> String {
+  let chain = chain(tag);
+  let twelve = chain.iter().find_map(|names| names.defaults).is_none_or(|(hour, _)| hour == "h");
+  let gregorian = || chain.iter().find_map(|names| names.clock).unwrap_or(["h:mm:ss a", "HH:mm:ss", "AM", "PM"]);
+  let [hms, hms24, am, pm] = match calendar(tag) {
+    Some(other @ (Calendar::Persian | Calendar::Buddhist)) => chain.iter().find_map(|names| names.calendars.get(other.name())).map_or_else(gregorian, |c| [c[3], c[4], c[5], c[6]]),
+    _ => gregorian(),
+  };
+  let out = write_pattern(if twelve { hms } else { hms24 }, |c, width| match c {
+    'h' => Some(format!("{:0width$}", if hour % 12 == 0 { 12 } else { hour % 12 })),
+    'K' => Some(format!("{:0width$}", hour % 12)),
+    'H' => Some(format!("{hour:0width$}")),
+    'k' => Some(format!("{:0width$}", if hour == 0 { 24 } else { hour })),
+    'm' => Some(format!("{minute:0width$}")),
+    's' => Some(format!("{second:0width$}")),
+    'a' | 'b' | 'B' => Some(if hour < 12 { am } else { pm }.to_owned()),
+    _ => None,
+  });
+  localized_digits(&chain, out).replace('\u{202f}', " ")
+}
+
+/// `date.toLocaleString(tag)` with no options: `date` and `time`, each already written, joined as the locale's short `atTime` pattern joins them, `9/10/2024, 7:37:20 PM`.
 pub fn date_with_time(tag: &str, date: &str, time: &str) -> String {
   let chain = chain(tag);
   let glue = chain.iter().find_map(|names| names.dates).map_or("{1} {0}", |[_, glue]| glue);
-  glue.replace("{1}", date).replace("{0}", time)
+  write_pattern(&glue.replace("{1}", "\u{1}").replace("{0}", "\u{2}"), |_, _| None).replace('\u{202f}', " ").replace('\u{1}', date).replace('\u{2}', time)
 }
 
 /// The pattern a duration of `unit` is written in at `width`, `"long"`, `"short"` or `"narrow"`, for the plural form `plural`, `{0} hours`; `other` when the locale has no pattern for that form.

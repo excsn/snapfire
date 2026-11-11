@@ -206,18 +206,32 @@ ICU picks the metazone at the moment of the call, not at the instant being named
 
 ## Writing a Date With No Options
 
-`numeric_date` writes a date as `toLocaleDateString()` does with no options. `date_with_time` joins it to a time you have written, as `toLocaleString()` does:
+`numeric_date` writes a Gregorian date as `toLocaleDateString()` does with no options. `clock` writes a time as `toLocaleTimeString()` does. `date_with_time` joins the two, as `toLocaleString()` does:
 
 ```rust
-use snapfire_i18n::{date_with_time, numeric_date};
+use snapfire_i18n::{clock, date_with_time, numeric_date};
 
-assert_eq!(numeric_date("en-US", 2024, 9, 10), "9/10/2024");
-assert_eq!(numeric_date("de-DE", 2024, 9, 10), "10.9.2024");
+assert_eq!(numeric_date("en-US", 2024, 9, 10).as_deref(), Some("9/10/2024"));
+assert_eq!(numeric_date("de-DE", 2024, 9, 10).as_deref(), Some("10.9.2024"));
+assert_eq!(clock("en-US", 19, 37, 20), "7:37:20 PM");
+assert_eq!(clock("de-DE", 19, 37, 20), "19:37:20");
 assert_eq!(date_with_time("en-US", "9/10/2024", "7:37:20 PM"), "9/10/2024, 7:37:20 PM");
-assert_eq!(date_with_time("ja-JP", "2024/9/10", "19:37:20"), "2024/9/10 19:37:20");
+assert_eq!(date_with_time("pt-BR", "10/09/2024", "19:37:20"), "10/09/2024, 19:37:20");
 ```
 
-The calendar is the Gregorian one. Persian and Thai write a date in their own calendars by default, which this crate does not convert to.
+A locale whose region keeps the Persian or the Buddhist calendar has its date converted to that calendar, as ICU does. A `-u-ca-` keyword picks the calendar:
+
+```rust
+use snapfire_i18n::{calendar, numeric_date, Calendar};
+
+assert_eq!(calendar("fa"), Some(Calendar::Persian));
+assert_eq!(numeric_date("fa", 2024, 9, 10).as_deref(), Some("۱۴۰۳/۶/۲۰"));
+assert_eq!(numeric_date("th", 2024, 9, 10).as_deref(), Some("10/9/2567"));
+assert_eq!(numeric_date("en-u-ca-persian", 2024, 9, 10).as_deref(), Some("6/20/1403 AP"));
+assert_eq!(numeric_date("fa-u-ca-gregory", 2024, 9, 10).as_deref(), Some("۲۰۲۴/۹/۱۰"));
+```
+
+A keyword naming any other calendar, such as `ja-JP-u-ca-japanese`, gives `None`.
 
 ## Naming a Language, a Region or a Currency
 

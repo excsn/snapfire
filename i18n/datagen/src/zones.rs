@@ -1,4 +1,4 @@
-//! `snapfire_i18n_datagen --zones <cldr-json> <out>`: the numeric date patterns and the time zone names of the `cldr-dates-full`, `cldr-numbers-full`, `cldr-core` and `cldr-bcp47` packages, in the line format `snapfire_i18n`'s `src/zone.rs` describes.
+//! `snapfire_i18n_datagen --zones <cldr-json> <out>`: the numeric date and time patterns and the time zone names of the `cldr-dates-full`, `cldr-cal-persian-full`, `cldr-cal-buddhist-full`, `cldr-numbers-full`, `cldr-core` and `cldr-bcp47` packages, in the line format `snapfire_i18n`'s `src/zone.rs` describes.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -73,8 +73,22 @@ struct Own {
   formats: [String; 3],
   digits: Option<String>,
   dates: [String; 2],
+  /// The `atTime` pattern a short date and a time are joined by.
+  at_time: String,
+  /// The Gregorian `hms` and `Hms` patterns and the abbreviated `am` and `pm` markers.
+  clock: [String; 4],
+  /// For the Persian and the Buddhist calendars, the `yMd` and `yyyyMd` patterns, the abbreviated and narrow names of the current era and the calendar's own `hms` and `Hms` patterns and `am` and `pm` markers.
+  calendars: BTreeMap<&'static str, [String; 8]>,
   /// Duration unit patterns by width, unit and plural form, and the time separator.
   units: BTreeMap<String, String>,
+}
+
+/// The calendars besides the Gregorian whose numeric dates are written from CLDR, with the index of the era their dates fall in.
+const CALENDARS: [(&str, &str); 2] = [("persian", "0"), ("buddhist", "0")];
+
+/// The string in `node` at `path`; the empty string when there is none.
+fn text_at(node: Option<&Value>, path: &[&str]) -> String {
+  node.and_then(|n| str_at(n, path)).unwrap_or("").to_owned()
 }
 
 const DURATION_UNITS: [&str; 10] = ["year", "month", "week", "day", "hour", "minute", "second", "millisecond", "microsecond", "nanosecond"];
@@ -141,6 +155,29 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
       None => String::new(),
     };
     let numeric = str_at(formats, &["availableFormats", "yMd"]).unwrap_or("").to_owned();
+    let gregorian = calendar.pointer(&format!("/main/{locale}/dates/calendars/gregorian"));
+    let at_time = text_at(gregorian, &["dateTimeFormats-atTime", "standard", "short"]);
+    let clock = [
+      text_at(gregorian, &["dateTimeFormats", "availableFormats", "hms"]),
+      text_at(gregorian, &["dateTimeFormats", "availableFormats", "Hms"]),
+      text_at(gregorian, &["dayPeriods", "format", "abbreviated", "am"]),
+      text_at(gregorian, &["dayPeriods", "format", "abbreviated", "pm"]),
+    ];
+    let mut calendars = BTreeMap::new();
+    for (name, era) in CALENDARS {
+      let Ok(json) = read(&root.join(format!("cldr-cal-{name}-full/main")).join(&locale).join(format!("ca-{name}.json"))) else { continue };
+      let at = json.pointer(&format!("/main/{locale}/dates/calendars/{name}"));
+      calendars.insert(name, [
+        text_at(at, &["dateTimeFormats", "availableFormats", "yMd"]),
+        text_at(at, &["dateTimeFormats", "availableFormats", "yyyyMd"]),
+        text_at(at, &["eras", "eraAbbr", era]),
+        text_at(at, &["eras", "eraNarrow", era]),
+        text_at(at, &["dateTimeFormats", "availableFormats", "hms"]),
+        text_at(at, &["dateTimeFormats", "availableFormats", "Hms"]),
+        text_at(at, &["dayPeriods", "format", "abbreviated", "am"]),
+        text_at(at, &["dayPeriods", "format", "abbreviated", "pm"]),
+      ]);
+    }
     let mut units = BTreeMap::new();
     if let Ok(json) = read(&root.join("cldr-units-full/main").join(&locale).join("units.json")) {
       if let Some(all) = json.pointer(&format!("/main/{locale}/units")) {
@@ -161,7 +198,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     }
     let system = read(&numbers.join(&locale).join("numbers.json")).ok().and_then(|n| str_at(&n, &["main", &locale, "numbers", "defaultNumberingSystem"]).map(str::to_owned));
     let digits = system.filter(|s| s != "latn").and_then(|s| systems.get(&s).and_then(|info| str_at(info, &["_digits"])).map(str::to_owned));
-    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue], units });
+    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue], at_time, clock, calendars, units });
   }
   let parent_of = |locale: &str| -> Option<String> {
     if locale == "und" {
@@ -220,6 +257,38 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     }
     dates
   };
+  let resolve = |locale: &str, pick: &dyn Fn(&Own) -> &str| -> String { chain(locale).iter().filter_map(|l| own.get(l)).map(pick).find(|v| !v.is_empty()).unwrap_or("").to_owned() };
+  let resolved_dates = |locale: &str| -> [String; 2] {
+    let [numeric, glue] = resolved_dates(locale);
+    let at_time = resolve(locale, &|o| &o.at_time);
+    [numeric, if at_time.is_empty() { glue } else { at_time }]
+  };
+  let resolved_clock = |locale: &str| -> [String; 4] { std::array::from_fn(|i| resolve(locale, &|o| &o.clock[i])) };
+  let resolved_calendar = |locale: &str, name: &str| -> [String; 7] {
+    let slot = |i: usize| resolve(locale, &|o| o.calendars.get(name).map_or("", |c| &c[i]));
+    let pattern = [slot(0), slot(1)].into_iter().find(|p| !p.is_empty()).unwrap_or_else(|| "GGGGG y-MM-dd".to_owned());
+    let clock = resolved_clock(locale);
+    let or_gregorian = |i: usize| Some(slot(i)).filter(|v| !v.is_empty()).unwrap_or_else(|| clock[i - 4].clone());
+    [pattern, slot(2), slot(3), or_gregorian(4), or_gregorian(5), or_gregorian(6), or_gregorian(7)]
+  };
+  let likely = read(&core.join("supplemental/likelySubtags.json"))?;
+  let likely = likely.pointer("/supplemental/likelySubtags").and_then(Value::as_object).ok_or("no likely subtags")?.clone();
+  let hours = read(&core.join("supplemental/timeData.json"))?;
+  let hours = hours.pointer("/supplemental/timeData").and_then(Value::as_object).ok_or("no time data")?.clone();
+  let preferred = read(&core.join("supplemental/calendarPreferenceData.json"))?;
+  let preferred = preferred.pointer("/supplemental/calendarPreferenceData").and_then(Value::as_object).ok_or("no calendar preferences")?.clone();
+  let defaults = |locale: &str| -> (String, String) {
+    let parts: Vec<&str> = locale.split('-').collect();
+    let named = parts[1..].iter().find(|p| (p.len() == 2 && p.chars().all(|c| c.is_ascii_alphabetic())) || (p.len() == 3 && p.chars().all(|c| c.is_ascii_digit())));
+    let region = match named {
+      Some(region) => (*region).to_owned(),
+      None => [parts[..parts.len().min(2)].join("-"), parts[0].to_owned()].iter().find_map(|k| likely.get(k).and_then(Value::as_str)).and_then(|full| full.rsplit('-').next()).unwrap_or("001").to_owned(),
+    };
+    let hour = [format!("{}-{region}", parts[0]), region.clone(), "001".to_owned()].iter().find_map(|k| hours.get(k).and_then(|h| str_at(h, &["_preferred"]))).unwrap_or("H").to_owned();
+    let first = preferred.get(&region).and_then(Value::as_array).and_then(|list| list.first()).and_then(Value::as_str).unwrap_or("gregorian");
+    let calendar = if CALENDARS.iter().any(|(name, _)| *name == first) { first } else { "gregorian" };
+    (hour, calendar.to_owned())
+  };
   let mut sorted: Vec<&String> = own.keys().collect();
   sorted.sort();
   for locale in sorted {
@@ -238,6 +307,21 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let dates = resolved_dates(locale);
     if parent.as_deref().is_none_or(|p| resolved_dates(p) != dates) {
       writeln!(out, "Y\t{locale}\t{}\t{}", field(&dates[0])?, field(&dates[1])?).unwrap();
+    }
+    let clock = resolved_clock(locale);
+    if parent.as_deref().is_none_or(|p| resolved_clock(p) != clock) {
+      writeln!(out, "O\t{locale}\t{}\t{}\t{}\t{}", field(&clock[0])?, field(&clock[1])?, field(&clock[2])?, field(&clock[3])?).unwrap();
+    }
+    let (hour, calendar) = defaults(locale);
+    if parent.as_deref().is_none_or(|p| defaults(p) != (hour.clone(), calendar.clone())) {
+      writeln!(out, "H\t{locale}\t{hour}\t{calendar}").unwrap();
+    }
+    for (name, _) in CALENDARS {
+      let here = resolved_calendar(locale, name);
+      if parent.as_deref().is_none_or(|p| resolved_calendar(p, name) != here) {
+        let fields = here.iter().map(|f| field(f)).collect::<Result<Vec<_>, _>>()?;
+        writeln!(out, "C\t{locale}\t{name}\t{}", fields.join("\t")).unwrap();
+      }
     }
     let resolved_unit = |locale: &str, key: &str| chain(locale).iter().find_map(|l| own.get(l).and_then(|o| o.units.get(key)).cloned());
     for key in mine.units.keys() {
