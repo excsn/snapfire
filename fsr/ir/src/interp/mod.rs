@@ -602,7 +602,7 @@ pub(crate) struct Closure {
 }
 
 /// The tag of a function value: its payload indexes the render's closure table.
-pub const FUNCTION_VALUE: &str = "$fn";
+pub const FUNCTION_VALUE: &str = snapfire_fsr_core::value::typed::FUNCTION;
 
 /// How deep function values may nest their calls before the step fails. The stack grows to fit, [`on_enough_stack`].
 pub const MAX_APPLIES: usize = 256;

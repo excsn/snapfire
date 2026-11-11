@@ -7,6 +7,11 @@ use snapfire_fsr_runtime::RequestCtx;
 
 /// Each expression with `JSON.stringify` of its value as node prints it.
 const AGREES_WITH_NODE: &[(&str, &str)] = &[
+  ("String(JSON.stringify(undefined))", "\"undefined\""),
+  ("String(JSON.stringify(() => 1))", "\"undefined\""),
+  ("String(JSON.stringify(Symbol.for(\"s\")))", "\"undefined\""),
+  ("JSON.stringify({ a: () => 1, b: 2, c: undefined })", "\"{\\\"b\\\":2}\""),
+  ("JSON.stringify([() => 1, undefined, Symbol.for(\"s\")])", "\"[null,null,null]\""),
   ("\"hello\".substr(1, 3)", "\"ell\""),
   ("\"hello\".substr(-3)", "\"llo\""),
   ("\"hello\".substr(2)", "\"llo\""),

@@ -1083,7 +1083,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Some(Value::Str(s)) => s.chars().take(10).collect(),
         Some(v) => " ".repeat(number(name, v)?.clamp(0.0, 10.0) as usize),
       };
-      if matches!(arg(0)?, Value::Variant { tag, .. } if tag == snapfire_fsr_core::value::typed::SYMBOL) {
+      if snapfire_fsr_core::json::unwritten(arg(0)?) {
         return Ok(Value::Undefined);
       }
       Value::str(snapfire_fsr_core::json::stringify(arg(0)?, &indent, snapfire_fsr_core::json::Integers::Refuse).map_err(|e| Fail::internal(e.0))?)

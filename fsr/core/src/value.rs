@@ -770,6 +770,8 @@ pub mod typed {
   pub const WRAPPER: &str = "$wrapper";
   /// The field holding a regular expression's pattern in the object that stands for it, beside its flags and its `lastIndex`.
   pub const REGEX: &str = "$regex";
+  /// A function value: its payload indexes the closure table of the run that made it.
+  pub const FUNCTION: &str = "$fn";
 
   pub const ALL: [&str; 6] = [DATE, MAP, SET, BIGINT, URL, TEMPORAL];
 

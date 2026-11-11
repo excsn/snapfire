@@ -155,8 +155,9 @@ impl std::fmt::Write for Digits {
 }
 
 /// Whether a value is left out of an object, as `undefined` and a function are.
-fn skipped(value: &Value) -> bool {
-  matches!(value, Value::Undefined | Value::Ref { .. }) || matches!(value, Value::Variant { tag, .. } if tag == typed::SYMBOL)
+/// Whether `JSON.stringify` writes nothing for `value`: `undefined`, a function or a symbol, which it leaves out of an object, writes as `null` in an array and answers `undefined` for alone.
+pub fn unwritten(value: &Value) -> bool {
+  matches!(value, Value::Undefined | Value::Ref { .. }) || matches!(value, Value::Variant { tag, .. } if tag == typed::SYMBOL || tag == typed::FUNCTION)
 }
 
 fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
@@ -181,7 +182,7 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
         None => out.push_str("null"),
       },
       (typed::MAP | typed::SET, _) => out.push_str("{}"),
-      (typed::SYMBOL, _) => out.push_str("null"),
+      (typed::SYMBOL | typed::FUNCTION, _) => out.push_str("null"),
       (typed::WRAPPER, Some(primitive)) => write(out, primitive, indent, depth, integers)?,
       (typed::RAW_JSON, Some(Value::Str(text))) => out.push_str(text),
       (typed::URL, Some(href)) => write(out, href, indent, depth, integers)?,
@@ -275,10 +276,10 @@ fn array<'v>(out: &mut String, items: impl ExactSizeIterator<Item = &'v Value>, 
   Ok(())
 }
 
-/// The fields `skipped` leaves in, as `{}` when none is.
+/// The fields `unwritten` leaves in, as `{}` when none is.
 fn object<'v>(out: &mut String, fields: impl Iterator<Item = (&'v str, &'v Value)>, indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
   let mut written = 0;
-  for (key, item) in fields.filter(|(_, v)| !skipped(v)) {
+  for (key, item) in fields.filter(|(_, v)| !unwritten(v)) {
     out.push(if written == 0 { '{' } else { ',' });
     written += 1;
     newline(out, indent, depth + 1);
