@@ -7,10 +7,11 @@
 //! - `M zone metazone from to`: a metazone the zone belongs to from `from` until `to`, both milliseconds since 1970 UTC and empty for no bound.
 //! - `G metazone zone`: the zone whose rules stand for the metazone's.
 //! - `P locale parent`: the locale a locale's names fall back to.
-//! - `D locale digits`: the ten digits of a locale's numbering system when they are not ASCII.
+//! - `D locale digits system`: the ten digits of a locale's numbering system and its name, `arab`, when they are not ASCII.
 //! - `F locale gmt zero hours`: the localized GMT format, the format for a zero offset and the positive and negative hour patterns.
 //! - `N locale key standard daylight`: the long names of a metazone or of a zone, given by its path. An empty name falls back to the parent's.
 //! - `Y locale date glue`: the `yMd` pattern a date with no options is written in and the short `atTime` pattern joining a date to a time.
+//! - `J locale h H hm Hm`: the patterns of an hour alone and of an hour and its minutes on a 12-hour and on a 24-hour clock.
 //! - `O locale hms Hms am pm`: the patterns a time is written in on a 12-hour and on a 24-hour clock and the abbreviated day period markers.
 //! - `H locale hour calendar`: the clock a locale writes times on (`h` or `H`) and the calendar it writes dates in (`gregorian`, `persian` or `buddhist`). A locale with no record has its parent's.
 //! - `C locale calendar date abbreviated narrow hms Hms am pm`: the pattern a date in a calendar other than the Gregorian is written in, the abbreviated and narrow names of the era its dates fall in and the calendar's own time patterns and day period markers, which ICU writes a time in when the date is in that calendar.
@@ -41,9 +42,11 @@ struct Period {
 struct Names {
   parent: Option<&'static str>,
   digits: Option<&'static str>,
+  numbering: Option<&'static str>,
   formats: Option<[&'static str; 3]>,
   dates: Option<[&'static str; 2]>,
   clock: Option<[&'static str; 4]>,
+  hours: Option<[&'static str; 4]>,
   defaults: Option<(&'static str, &'static str)>,
   calendars: HashMap<&'static str, [&'static str; 7]>,
   units: HashMap<(&'static str, &'static str, &'static str), &'static str>,
@@ -82,10 +85,15 @@ fn zones() -> &'static Zones {
           zones.golden.insert(f[1], f[2]);
         }
         "P" => zones.locales.entry(f[1]).or_default().parent = Some(f[2]),
-        "D" => zones.locales.entry(f[1]).or_default().digits = Some(f[2]),
+        "D" => {
+          let names = zones.locales.entry(f[1]).or_default();
+          names.digits = Some(f[2]);
+          names.numbering = f.get(3).copied();
+        }
         "F" => zones.locales.entry(f[1]).or_default().formats = Some([f[2], f[3], f[4]]),
         "Y" => zones.locales.entry(f[1]).or_default().dates = Some([f[2], f[3]]),
         "O" => zones.locales.entry(f[1]).or_default().clock = Some([f[2], f[3], f[4], f[5]]),
+        "J" => zones.locales.entry(f[1]).or_default().hours = Some([f[2], f[3], f[4], f[5]]),
         "H" => zones.locales.entry(f[1]).or_default().defaults = Some((f[2], f[3])),
         "C" => {
           zones.locales.entry(f[1]).or_default().calendars.insert(f[2], [f[3], f[4], f[5], f[6], f[7], f[8], f[9]]);
@@ -344,6 +352,46 @@ pub fn duration_unit(tag: &str, width: &str, unit: &str, plural: &str) -> Option
 /// The separator `tag` writes between hours, minutes and seconds, `:` in English and `.` in Finnish.
 pub fn time_separator(tag: &str) -> &'static str {
   chain(tag).iter().find_map(|names| names.time_separator).unwrap_or(":")
+}
+
+/// The numbering system `tag` writes numbers in, as `Intl` names it: `arab` for `ar-EG`, `latn` for a locale whose digits are ASCII.
+pub fn numbering_system(tag: &str) -> &'static str {
+  chain(tag).first().and_then(|names| names.numbering).unwrap_or("latn")
+}
+
+/// The hour cycle `tag` writes a time on, as `Intl` names it: `h12` for `en` and `h23` for `de`. A `-u-hc-` keyword names it.
+pub fn hour_cycle(tag: &str) -> &'static str {
+  match keyword(tag, "hc").as_deref() {
+    Some("h11") => "h11",
+    Some("h12") => "h12",
+    Some("h23") => "h23",
+    Some("h24") => "h24",
+    _ if chain(tag).iter().find_map(|names| names.defaults).is_none_or(|(hour, _)| hour == "h") => "h12",
+    _ => "h23",
+  }
+}
+
+/// Whether the hour, the minutes and the seconds are written with two digits in the pattern `tag` writes a time of the hour alone, with `minute`, or with `minute` and `second` in: the `j`, `jm` and `jms` skeletons on the locale's [`hour_cycle`]. `[false, true, true]` for `en` with all three.
+pub fn time_widths(tag: &str, minute: bool, second: bool) -> [bool; 3] {
+  let chain = chain(tag);
+  let twelve = matches!(hour_cycle(tag), "h11" | "h12");
+  let mut hours = chain.iter().find_map(|names| names.hours).unwrap_or(["h a", "HH", "h:mm a", "HH:mm"]);
+  let mut clock = chain.iter().find_map(|names| names.clock).unwrap_or(["h:mm:ss a", "HH:mm:ss", "AM", "PM"]);
+  // A locale writing dates in another calendar writes times in that calendar's patterns too.
+  if let Some(own) = calendar(tag).filter(|c| *c != Calendar::Gregorian).and_then(|other| chain.iter().find_map(|names| names.calendars.get(other.name()))) {
+    clock = [own[3], own[4], own[5], own[6]];
+    hours = [own[3], own[4], own[3], own[4]];
+  }
+  let pattern = match (second, minute, twelve) {
+    (true, _, true) => clock[0],
+    (true, _, false) => clock[1],
+    (false, true, true) => hours[2],
+    (false, true, false) => hours[3],
+    (false, false, true) => hours[0],
+    (false, false, false) => hours[1],
+  };
+  let doubled = |letters: &[&str]| letters.iter().any(|run| pattern.contains(run));
+  [doubled(&["hh", "HH", "KK", "kk"]), doubled(&["mm"]), doubled(&["ss"])]
 }
 
 /// `text` with its ASCII digits in the numbering system of the first locale in `chain`.

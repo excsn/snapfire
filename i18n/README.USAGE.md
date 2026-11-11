@@ -17,6 +17,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
 * [Mapping Case Under a Locale](#mapping-case-under-a-locale)
 * [Naming a Time Zone](#naming-a-time-zone)
 * [Writing a Date With No Options](#writing-a-date-with-no-options)
+* [Reading What a Formatter Resolves](#reading-what-a-formatter-resolves)
 * [Naming a Language, a Region or a Currency](#naming-a-language-a-region-or-a-currency)
 * [Regenerating the Data](#regenerating-the-data)
 * [Error Handling](#error-handling)
@@ -232,6 +233,23 @@ assert_eq!(numeric_date("fa-u-ca-gregory", 2024, 9, 10).as_deref(), Some("۲۰۲
 ```
 
 A keyword naming any other calendar, such as `ja-JP-u-ca-japanese`, gives `None`.
+
+## Reading What a Formatter Resolves
+
+`hour_cycle`, `time_widths` and `numbering_system` answer what `resolvedOptions()` reports for a locale: the hour cycle, whether each field of a time is two digits and the digits numbers are written in:
+
+```rust
+use snapfire_i18n::{hour_cycle, numbering_system, time_widths};
+
+assert_eq!(hour_cycle("en"), "h12");
+assert_eq!(hour_cycle("de"), "h23");
+assert_eq!(hour_cycle("en-u-hc-h23"), "h23");
+assert_eq!(time_widths("ru", false, false), [false, false, false]);
+assert_eq!(time_widths("ru", true, false), [true, true, false]);
+assert_eq!(time_widths("en", true, true), [false, true, true]);
+assert_eq!(numbering_system("ar-EG"), "arab");
+assert_eq!(numbering_system("en"), "latn");
+```
 
 ## Naming a Language, a Region or a Currency
 

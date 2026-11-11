@@ -71,12 +71,13 @@ fn names(node: &Value, path: &mut Vec<String>, out: &mut BTreeMap<String, (Strin
 struct Own {
   names: BTreeMap<String, (String, String)>,
   formats: [String; 3],
-  digits: Option<String>,
+  digits: Option<(String, String)>,
   dates: [String; 2],
   /// The `atTime` pattern a short date and a time are joined by.
   at_time: String,
   /// The Gregorian `hms` and `Hms` patterns and the abbreviated `am` and `pm` markers.
   clock: [String; 4],
+  hours: [String; 4],
   /// For the Persian and the Buddhist calendars, the `yMd` and `yyyyMd` patterns, the abbreviated and narrow names of the current era and the calendar's own `hms` and `Hms` patterns and `am` and `pm` markers.
   calendars: BTreeMap<&'static str, [String; 8]>,
   /// Duration unit patterns by width, unit and plural form, and the time separator.
@@ -163,6 +164,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
       text_at(gregorian, &["dayPeriods", "format", "abbreviated", "am"]),
       text_at(gregorian, &["dayPeriods", "format", "abbreviated", "pm"]),
     ];
+    let hours = ["h", "H", "hm", "Hm"].map(|skeleton| text_at(gregorian, &["dateTimeFormats", "availableFormats", skeleton]));
     let mut calendars = BTreeMap::new();
     for (name, era) in CALENDARS {
       let Ok(json) = read(&root.join(format!("cldr-cal-{name}-full/main")).join(&locale).join(format!("ca-{name}.json"))) else { continue };
@@ -197,8 +199,8 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
       units.insert("timeSeparator".to_owned(), separator);
     }
     let system = read(&numbers.join(&locale).join("numbers.json")).ok().and_then(|n| str_at(&n, &["main", &locale, "numbers", "defaultNumberingSystem"]).map(str::to_owned));
-    let digits = system.filter(|s| s != "latn").and_then(|s| systems.get(&s).and_then(|info| str_at(info, &["_digits"])).map(str::to_owned));
-    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue], at_time, clock, calendars, units });
+    let digits = system.filter(|s| s != "latn").and_then(|s| systems.get(&s).and_then(|info| str_at(info, &["_digits"])).map(|digits| (digits.to_owned(), s)));
+    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue], at_time, clock, hours, calendars, units });
   }
   let parent_of = |locale: &str| -> Option<String> {
     if locale == "und" {
@@ -264,6 +266,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     [numeric, if at_time.is_empty() { glue } else { at_time }]
   };
   let resolved_clock = |locale: &str| -> [String; 4] { std::array::from_fn(|i| resolve(locale, &|o| &o.clock[i])) };
+  let resolved_hours = |locale: &str| -> [String; 4] { std::array::from_fn(|i| resolve(locale, &|o| &o.hours[i])) };
   let resolved_calendar = |locale: &str, name: &str| -> [String; 7] {
     let slot = |i: usize| resolve(locale, &|o| o.calendars.get(name).map_or("", |c| &c[i]));
     let pattern = [slot(0), slot(1)].into_iter().find(|p| !p.is_empty()).unwrap_or_else(|| "GGGGG y-MM-dd".to_owned());
@@ -297,8 +300,8 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     if let Some(parent) = &parent {
       writeln!(out, "P\t{locale}\t{parent}").unwrap();
     }
-    if let Some(digits) = &mine.digits {
-      writeln!(out, "D\t{locale}\t{}", field(digits)?).unwrap();
+    if let Some((digits, system)) = &mine.digits {
+      writeln!(out, "D\t{locale}\t{}\t{system}", field(digits)?).unwrap();
     }
     let formats = resolved_formats(locale);
     if parent.as_deref().is_none_or(|p| resolved_formats(p) != formats) {
@@ -307,6 +310,10 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let dates = resolved_dates(locale);
     if parent.as_deref().is_none_or(|p| resolved_dates(p) != dates) {
       writeln!(out, "Y\t{locale}\t{}\t{}", field(&dates[0])?, field(&dates[1])?).unwrap();
+    }
+    let hours = resolved_hours(locale);
+    if parent.as_deref().is_none_or(|p| resolved_hours(p) != hours) {
+      writeln!(out, "J\t{locale}\t{}\t{}\t{}\t{}", field(&hours[0])?, field(&hours[1])?, field(&hours[2])?, field(&hours[3])?).unwrap();
     }
     let clock = resolved_clock(locale);
     if parent.as_deref().is_none_or(|p| resolved_clock(p) != clock) {

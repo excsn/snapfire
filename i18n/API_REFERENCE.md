@@ -33,6 +33,9 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [date_with_time](#date_with_time)
   * [duration_unit](#duration_unit)
   * [time_separator](#time_separator)
+  * [hour_cycle](#hour_cycle)
+  * [time_widths](#time_widths)
+  * [numbering_system](#numbering_system)
 * [8. Display names](#8-display-names)
   * [NameKind](#namekind)
   * [display_name](#display_name)
@@ -173,6 +176,18 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 ### time_separator
 
 * `pub fn time_separator(tag: &str) -> &'static str`: the separator between hours, minutes and seconds, `:` in English and `.` in Finnish.
+
+### hour_cycle
+
+* `pub fn hour_cycle(tag: &str) -> &'static str`: the hour cycle `Intl.DateTimeFormat` resolves for the locale, `h12` in `en` and `h23` in `de`. A `-u-hc-` keyword names it.
+
+### time_widths
+
+* `pub fn time_widths(tag: &str, minute: bool, second: bool) -> [bool; 3]`: whether the hour, the minutes and the seconds are two digits in the pattern the locale writes the hour alone, with `minute` or with `minute` and `second` in, as `resolvedOptions()` reports them: `[false, true, true]` in `en` with all three.
+
+### numbering_system
+
+* `pub fn numbering_system(tag: &str) -> &'static str`: the numbering system the locale writes numbers in, `arab` in `ar-EG` and `latn` in a locale whose digits are ASCII.
 
 ## 8. Display names
 
