@@ -1,6 +1,7 @@
-//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`. `snapfire_i18n_datagen --ucd <ucd-dir> <out>` writes its case data instead, from a Unicode Character Database release.
+//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`. `snapfire_i18n_datagen --ucd <ucd-dir> <out>` writes its case data instead, from a Unicode Character Database release. `snapfire_i18n_datagen --zones <cldr-json> <out>` writes its time zone names.
 
 mod ucd;
+mod zones;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
@@ -15,15 +16,23 @@ const PLURALS: [(&str, &str); 8] = [("zero", "zero"), ("one", "one"), ("two", "t
 fn main() {
   let mut args = std::env::args().skip(1);
   let mut first = args.next();
-  let unicode = first.as_deref() == Some("--ucd");
-  if unicode {
-    first = args.next();
-  }
+  let mode = match first.as_deref() {
+    Some(flag @ ("--ucd" | "--zones")) => {
+      let flag = flag.to_owned();
+      first = args.next();
+      Some(flag)
+    }
+    _ => None,
+  };
   let (Some(root), Some(out)) = (first, args.next()) else {
-    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>\n       snapfire_i18n_datagen --ucd <ucd-dir> <out>");
+    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>\n       snapfire_i18n_datagen --ucd <ucd-dir> <out>\n       snapfire_i18n_datagen --zones <cldr-json> <out>");
     std::process::exit(2);
   };
-  let made = if unicode { ucd::generate(Path::new(&root)) } else { generate(Path::new(&root)) };
+  let made = match mode.as_deref() {
+    Some("--ucd") => ucd::generate(Path::new(&root)),
+    Some(_) => zones::generate(Path::new(&root)),
+    None => generate(Path::new(&root)),
+  };
   let text = made.unwrap_or_else(|e| {
     eprintln!("snapfire_i18n_datagen: {e}");
     std::process::exit(1);

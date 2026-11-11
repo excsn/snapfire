@@ -1,6 +1,6 @@
 # Usage Guide: snapfire_i18n
 
-How to write currency amounts, percentages and relative times with snapfire_i18n, how to map case under a locale and how to regenerate its data.
+How to write currency amounts, percentages and relative times with snapfire_i18n, how to map case under a locale, how to name a time zone and how to regenerate its data.
 
 ## Table of Contents
 
@@ -15,6 +15,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
   * [Choosing the plural](#choosing-the-plural)
 * [Writing the Digits](#writing-the-digits)
 * [Mapping Case Under a Locale](#mapping-case-under-a-locale)
+* [Naming a Time Zone](#naming-a-time-zone)
 * [Regenerating the Data](#regenerating-the-data)
 * [Error Handling](#error-handling)
 
@@ -33,6 +34,8 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
 * **Width**: `Long`, `Short` or `Narrow` wording.
 * **Plural**: the CLDR plural category the locale's rules give the number.
 * **Literal**: a word for a nearby offset, such as "yesterday", which `numeric: "auto"` writes instead of a number.
+* **Metazone**: CLDR's group of zones that share a name over a period, such as `Europe_Central`.
+* **Zone rules**: the offsets and daylight saving a zone observes, which the caller supplies through `ZoneRules`.
 * **Case mapping**: upper or lower case as Unicode defines it, changed for a few languages. Turkish, Azerbaijani, Lithuanian and Greek have their own rules. Every other tag maps as Unicode's default does.
 
 ## Quick Start
@@ -170,6 +173,35 @@ assert_eq!(upper_case("straße", "de"), "STRASSE");
 
 Only the language subtag matters. A tag that is not well formed maps as Unicode's default does, so check it first if it comes from outside.
 
+## Naming a Time Zone
+
+`zone_name` writes the zone name `Date.prototype.toString` ends with. `in_daylight` says whether ICU counts an instant as daylight time. Supply the zone rules by implementing `ZoneRules`, here from snapfire_time:
+
+```rust
+use snapfire_i18n::{in_daylight, zone_name, ZoneRules};
+use snapfire_time::{observed_in, saving_in_year, Source};
+
+struct Rules;
+
+impl ZoneRules for Rules {
+  fn observed(&self, zone: &str, ms: f64) -> Option<(i32, i32)> {
+    observed_in(Source::Compiled, zone, ms).ok().map(|o| (o.offset, o.saving))
+  }
+
+  fn saving_in_year(&self, zone: &str, ms: f64) -> Option<i32> {
+    saving_in_year(Source::Compiled, zone, ms).ok().flatten()
+  }
+}
+
+let (july, now) = (1_720_000_000_000.0, 1_794_312_000_000.0);
+let daylight = in_daylight("Europe/Berlin", july, &Rules);
+assert_eq!(zone_name("en", "Europe/Berlin", daylight, now, &Rules), "Central European Summer Time");
+assert_eq!(zone_name("de-DE", "Europe/Berlin", daylight, now, &Rules), "Mitteleuropäische Sommerzeit");
+assert_eq!(zone_name("en", "Etc/GMT+5", false, now, &Rules), "GMT-05:00");
+```
+
+ICU picks the metazone at the moment of the call, not at the instant being named, so pass the current time as `now`. Kathmandu in 1970 is `Nepal Time` even though Nepal then kept India's offset.
+
 ## Regenerating the Data
 
 `data/cldr.txt` is written by the `datagen` crate beside this one from a cldr-json release. It reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages:
@@ -181,6 +213,12 @@ cargo run --release -p snapfire_i18n_datagen -- cldr i18n/data/cldr.txt
 ```
 
 Use the CLDR release the number formatter's data was built from, so the digits and the patterns agree.
+
+`data/zones.txt` is written from the same cldr-json release with `--zones`. It also reads the `cldr-bcp47` package:
+
+```sh
+cargo run --release -p snapfire_i18n_datagen -- --zones cldr i18n/data/zones.txt
+```
 
 `data/ucd.txt` is written by the same crate from a Unicode Character Database release, with `--ucd`:
 

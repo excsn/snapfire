@@ -1,6 +1,6 @@
 # API Reference: snapfire_i18n
 
-Currency, percent and relative-time formatting from embedded CLDR data. Case mapping under a locale from embedded Unicode data.
+Currency, percent and relative-time formatting from embedded CLDR data. Time zone names from embedded CLDR data. Case mapping under a locale from embedded Unicode data.
 
 ## Contents
 
@@ -22,7 +22,11 @@ Currency, percent and relative-time formatting from embedded CLDR data. Case map
   * [upper_case](#upper_case)
   * [lower_case](#lower_case)
   * [unicode_version](#unicode_version)
-* [7. Error handling](#7-error-handling)
+* [7. Time zone names](#7-time-zone-names)
+  * [ZoneRules](#zonerules)
+  * [in_daylight](#in_daylight)
+  * [zone_name](#zone_name)
+* [8. Error handling](#8-error-handling)
   * [Error](#error)
 
 ## 1. Locales
@@ -114,7 +118,24 @@ Only the tag's language subtag is read. `tr` and `az` take the Turkish rules, `l
 
 * `pub fn unicode_version() -> &'static str`: the Unicode release the case data was generated from, `"17.0.0"`.
 
-## 7. Error handling
+## 7. Time zone names
+
+### ZoneRules
+
+What a zone observes, from a time zone database the caller holds. Zones are IANA identifiers.
+
+* `fn observed(&self, zone: &str, ms: f64) -> Option<(i32, i32)>`: the offset from UTC at the instant `ms` and the part of it that is daylight saving, both in seconds. The saving is never negative, as in the rearguard form of the IANA database. `None` for a zone the rules do not know.
+* `fn saving_in_year(&self, zone: &str, ms: f64) -> Option<i32>`: the daylight saving observed during the UTC calendar year holding `ms`, in seconds. `None` when there is none that year.
+
+### in_daylight
+
+* `pub fn in_daylight(zone: &str, ms: f64, rules: &impl ZoneRules) -> bool`: whether ICU counts the instant `ms` in `zone` as daylight time. A zone in a metazone at `ms` is in daylight time when its offset is above the standard offset of the metazone's own zone. Any other zone is in daylight time when its saving is not zero.
+
+### zone_name
+
+* `pub fn zone_name(tag: &str, zone: &str, daylight: bool, now: f64, rules: &impl ZoneRules) -> String`: the long specific name of `zone` in `tag`, as ICU's `TimeZone::getDisplayName(daylight, LONG, locale)` writes it. The metazone is the one `zone` is in at the instant `now`. A zone-specific name such as `British Summer Time` comes before the metazone's. A zone with no name is written in the localized GMT format: the standard offset at `now`, plus the year's saving when `daylight` holds, `GMT-05:00`. A zone CLDR does not know is `GMT+00:00`.
+
+## 8. Error handling
 
 ### Error
 

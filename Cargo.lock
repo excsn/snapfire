@@ -4440,6 +4440,9 @@ dependencies = [
 [[package]]
 name = "snapfire_i18n"
 version = "0.1.0"
+dependencies = [
+ "snapfire_time",
+]
 
 [[package]]
 name = "snapfire_i18n_datagen"
