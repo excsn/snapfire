@@ -141,7 +141,7 @@ impl<'a> Lowerer<'a> {
         }
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
@@ -193,6 +193,7 @@ impl<'a> Lowerer<'a> {
           js::BinaryOperator::LessEqualThan => Expr::Compare(CompareOp::Le, l, r),
           js::BinaryOperator::GreaterThan => Expr::Compare(CompareOp::Gt, l, r),
           js::BinaryOperator::GreaterEqualThan => Expr::Compare(CompareOp::Ge, l, r),
+          js::BinaryOperator::In if self.kind_of(&bin.right) == Some(Kind::Proxy) => self.proxy_trap("has", *r, vec![Expr::Str(l)], |target, args| Expr::Builtin { name: Builtin::HasKey, args: vec![target, args[0].clone()] }),
           js::BinaryOperator::In => Expr::Builtin { name: Builtin::HasKey, args: vec![*r, *l] },
           js::BinaryOperator::BitwiseAnd => Expr::Arith(ArithOp::BitAnd, l, r),
           js::BinaryOperator::BitwiseOR => Expr::Arith(ArithOp::BitOr, l, r),
@@ -480,6 +481,13 @@ impl<'a> Lowerer<'a> {
         Ok(name) => Err(self.residue(member.span(), format!("`.{name}` of a `Response`; `status`, `ok` and `headers.get` are read"))),
         Err(_) => Err(self.residue(member.span(), "a computed member of a `Response`")),
       };
+    }
+    if collection == Some(Kind::Proxy) {
+      let key = match prop(self)? {
+        Ok(name) => Expr::lit_str(&name),
+        Err(computed) => Expr::Str(Box::new(computed)),
+      };
+      return Ok(self.proxy_trap("get", target, vec![key], |target, args| Expr::Index(Box::new(target), Box::new(args[0].clone()))));
     }
     if matches!(collection, Some(Kind::Buffer | Kind::View)) {
       if let Some(name) = self.member_name(member) {

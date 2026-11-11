@@ -102,6 +102,7 @@ pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "ArrayBuffer" | "SharedArrayBuffer") => Some(Kind::Buffer),
       js::Expression::Identifier(id) if id.name.as_str() == "DataView" => Some(Kind::View),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "DisposableStack" | "AsyncDisposableStack") => Some(Kind::Stack),
+      js::Expression::Identifier(id) if id.name.as_str() == "Proxy" => Some(Kind::Proxy),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "URLSearchParams" | "SvelteURLSearchParams") => Some(Kind::Query),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "URL" | "SvelteURL") => Some(Kind::Url),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "Date" | "SvelteDate") => Some(Kind::Date),

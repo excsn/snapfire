@@ -360,6 +360,36 @@ let via = via_expr.as_member_expression().expect("matched as a member");
     };
     let mut lets = Vec::new();
     let answer = match crate::meaning::bare(expr) {
+      js::Expression::AssignmentExpression(assign) if assign.left.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Proxy)) => {
+        let m = assign.left.as_member_expression().expect("checked");
+        let proxy = self.expr(m.object())?;
+        let key = match self.member_name(m) {
+          Some(field) => Expr::lit_str(&field),
+          None => {
+            let crate::syntax::MemberProp::Computed(key) = crate::syntax::prop(m) else { return Err(self.residue(m.span(), "a write through a private field")) };
+            Expr::Str(Box::new(self.expr(key)?))
+          }
+        };
+        let value = self.expr(&assign.right)?;
+        let held_value = self.temp();
+        lets.push(Stmt::Let { name: held_value.clone(), expr: value });
+        let written = self.proxy_trap("set", proxy, vec![key, Expr::Var(held_value.clone())], |target, args| Expr::Builtin { name: Builtin::Overwrite, args: vec![target.clone(), Expr::Builtin { name: Builtin::SetAt, args: vec![target, args[0].clone(), args[1].clone()] }] });
+        lets.push(Stmt::Expr(written));
+        Expr::Var(held_value)
+      }
+      js::Expression::UnaryExpression(unary) if (crate::meaning::bare(&unary.argument)).as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Proxy)) => {
+        let m = (crate::meaning::bare(&unary.argument)).as_member_expression().expect("checked");
+        let proxy = self.expr(m.object())?;
+        let key = match self.member_name(m) {
+          Some(field) => Expr::lit_str(&field),
+          None => {
+            let crate::syntax::MemberProp::Computed(key) = crate::syntax::prop(m) else { return Err(self.residue(m.span(), "`delete` of a private field")) };
+            Expr::Str(Box::new(self.expr(key)?))
+          }
+        };
+        let deleted = self.proxy_trap("deleteProperty", proxy, vec![key], |target, args| Expr::Block(vec![Stmt::Expr(Expr::Builtin { name: Builtin::Overwrite, args: vec![target.clone(), Expr::Builtin { name: Builtin::Omit, args: vec![target, args[0].clone()] }] }), Stmt::Return(Expr::Lit(Lit::Bool(true)))]));
+        Expr::Not(Box::new(Expr::Not(Box::new(deleted))))
+      }
       js::Expression::AssignmentExpression(assign) => {
         let Some(m) = assign.left.as_member_expression() else { unreachable!() };
         let target = held(self, m.object(), &mut lets)?;

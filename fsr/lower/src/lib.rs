@@ -676,6 +676,8 @@ pub(crate) enum Kind {
   View,
   /// A `DisposableStack` or an `AsyncDisposableStack`: its callbacks, newest last, and whether it was disposed.
   Stack,
+  /// A `Proxy`: its target and its handler, whose traps a read, `in`, a write and a `delete` go through.
+  Proxy,
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.

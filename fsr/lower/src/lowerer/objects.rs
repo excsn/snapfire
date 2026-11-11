@@ -284,6 +284,13 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         Ok(Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(Expr::Lit(Lit::Float(0.0))) })))
       }
       ("DataView", Some(buffer)) => Ok(buffer),
+      ("Proxy", Some(target)) => {
+        let handler = match args.get(1) {
+          Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+          None => return Err(self.residue(n.span, "`new Proxy` without a handler")),
+        };
+        Ok(Expr::Object(vec![Entry::Field(PROXY_TARGET.to_owned(), target), Entry::Field(PROXY_HANDLER.to_owned(), handler)]))
+      }
       ("DisposableStack" | "AsyncDisposableStack", _) => Ok(Expr::Object(vec![Entry::Field(super::writes::STACK.to_owned(), Expr::Array(Vec::new())), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(false)))])),
       (name, source) if TYPED_ARRAYS.contains(&name) => {
         let element = name.trim_end_matches("Array");
@@ -422,5 +429,32 @@ impl Lowerer<'_> {
     let lowered = self.expr(parsed);
     self.scope = outer;
     lowered
+  }
+}
+
+/// The field a `Proxy` keeps its target under.
+pub(crate) const PROXY_TARGET: &str = "$target";
+/// The field a `Proxy` keeps its handler under.
+pub(crate) const PROXY_HANDLER: &str = "$handler";
+
+impl Lowerer<'_> {
+  /// The `trap` of the proxy `proxy` called with its target, `args` and the proxy, when its handler has one; else `plain` over the target and `args`.
+  pub(crate) fn proxy_trap(&mut self, trap: &str, proxy: Expr, args: Vec<Expr>, plain: impl FnOnce(Expr, &[Expr]) -> Expr) -> Expr {
+    let (held, values) = (self.temp(), self.temp());
+    let target = Expr::Field(Box::new(Expr::Var(held.clone())), PROXY_TARGET.to_owned());
+    let handler = Expr::Field(Box::new(Expr::Var(held.clone())), PROXY_HANDLER.to_owned());
+    let read: Vec<Expr> = (0..args.len()).map(|i| Expr::Index(Box::new(Expr::Var(values.clone())), Box::new(Expr::Lit(Lit::Int(i as i128))))).collect();
+    let mut called = vec![target.clone()];
+    called.extend(read.iter().cloned());
+    if trap != "ownKeys" {
+      called.push(Expr::Var(held.clone()));
+    }
+    let trapped = Expr::Apply { f: Box::new(Expr::Field(Box::new(handler.clone()), trap.to_owned())), args: called };
+    let has = Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Field(Box::new(handler), trap.to_owned())] }));
+    Expr::Block(vec![
+      Stmt::Let { name: held, expr: proxy },
+      Stmt::Let { name: values, expr: Expr::Array(args.into_iter().map(Entry::Item).collect()) },
+      Stmt::Return(Expr::Ternary(Box::new(has), Box::new(trapped), Box::new(plain(target, &read)))),
+    ])
   }
 }

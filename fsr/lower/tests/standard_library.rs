@@ -207,6 +207,14 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("new Proxy({ a: 1 }, {}).a", "1"),
+  ("new Proxy({ a: 1 }, { get: (t, k) => (k in t ? t[k] : \"none\") }).b", "\"none\""),
+  ("(() => { const p = new Proxy({ a: 1 }, { has: (t, k) => k === \"z\" }); return [\"z\" in p, \"a\" in p]; })()", "[true,false]"),
+  ("(() => { const seen = []; const t = { a: 1 }; const p = new Proxy(t, { set: (o, k, v) => { seen.push(k); o[k] = v * 2; return true; } }); p.b = 3; return [t, seen]; })()", "[{\"a\":1,\"b\":6},[\"b\"]]"),
+  ("(() => { const t = { a: 1 }; const p = new Proxy(t, {}); p.b = 2; return t; })()", "{\"a\":1,\"b\":2}"),
+  ("(() => { const t = { a: 1, b: 2 }; const p = new Proxy(t, {}); delete p.a; return t; })()", "{\"b\":2}"),
+  ("Object.keys(new Proxy({ a: 1, b: 2 }, { ownKeys: () => [\"b\"] }))", "[\"b\"]"),
+  ("Object.keys(new Proxy({ a: 1, b: 2 }, {}))", "[\"a\",\"b\"]"),
   ("new Function(\"a\", \"return a * 2\")(3)", "6"),
   ("Function(\"a\", \"b\", \"return a + b\")(1, 2)", "3"),
   ("new Function(\"return typeof x\")()", "\"undefined\""),

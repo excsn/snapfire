@@ -21,6 +21,7 @@ impl Kind {
       Kind::Buffer => "ArrayBuffer",
       Kind::View => "DataView",
       Kind::Stack => "DisposableStack",
+      Kind::Proxy => "Object",
     }
   }
 
@@ -53,7 +54,7 @@ impl Kind {
     match self {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
-      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack => None,
+      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy => None,
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),

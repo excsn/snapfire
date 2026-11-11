@@ -315,6 +315,7 @@ impl<'a> Lowerer<'a> {
               "entries" => Ok(Expr::Entries(target)),
               "fromEntries" if self.kind_of(crate::syntax::arg_expr(a)) == Some(Kind::Map) => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![Expr::Entries(target)] }),
               "fromEntries" => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![*target] }),
+              "keys" if self.kind_of(crate::syntax::arg_expr(a)) == Some(Kind::Proxy) => Ok(self.proxy_trap("ownKeys", *target, Vec::new(), |target, _| Expr::Keys(Box::new(target)))),
               "keys" => Ok(Expr::Keys(target)),
               "values" => Ok(Expr::Values(target)),
               _ => Err(self.residue(member.span(), format!("`Object.{method}`"))),
