@@ -296,12 +296,20 @@ let via = via_expr.as_member_expression().expect("matched as a member");
       js::Expression::CallExpression(call) => {
         let callee = &call.callee;
         let Some(m) = (crate::meaning::bare(callee)).as_member_expression() else { return false };
+        let held = |target: &js::Expression| reached(target);
+        let reached = |target: &js::Expression| reached(target) || made_here(target);
+        let reflect = matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if id.name.as_str() == "Reflect" && !self.scope.iter().any(|(n, _)| n == "Reflect"));
+        if reflect {
+          return matches!(self.member_name(m).as_deref(), Some("set" | "deleteProperty")) && call.arguments.first().is_some_and(|first| !crate::syntax::is_spread(first) && reached(crate::syntax::arg_expr(first)));
+        }
         match self.member_name(m).as_deref() {
-          Some("push" | "unshift" | "pop" | "shift" | "reverse" | "sort" | "splice" | "copyWithin" | "fill") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("push" | "unshift" | "pop" | "shift" | "splice") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("reverse" | "sort" | "copyWithin" | "fill") => held(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
           Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
           Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && self.kind_of(m.object()) == Some(Kind::Map),
+          Some("compile") => (matches!(crate::meaning::bare(m.object()), js::Expression::RegExpLiteral(_)) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
           Some("exec" | "test") => self.kind_of(m.object()).is_none() && matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str())),
-          Some(setter) if DATE_SETTERS.contains(&setter) || (LOCAL_DATE_SETTERS.contains(&setter) && (self.reaches(Reach::Terminal) || !self.on_render_path())) => self.kind_of(m.object()) == Some(Kind::Date) && matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str())),
+          Some(setter) if DATE_SETTERS.contains(&setter) || (LOCAL_DATE_SETTERS.contains(&setter) && (self.reaches(Reach::Terminal) || !self.on_render_path())) => self.kind_of(m.object()) == Some(Kind::Date) && (made_here(m.object()) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
           Some("assign") => matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if id.name.as_str() == "Object") && call.arguments.first().is_some_and(|first| !crate::syntax::is_spread(first) && reached(crate::syntax::arg_expr(first))),
           _ => false,
         }
@@ -367,7 +375,25 @@ let via = via_expr.as_member_expression().expect("matched as a member");
         let callee = &call.callee;
         let Some(m) = (crate::meaning::bare(callee)).as_member_expression() else { unreachable!() };
         let method = self.member_name(m).expect("object_write read the name");
-        if method == "assign" {
+        if matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if id.name.as_str() == "Reflect") {
+          let target = held(self, &crate::syntax::arg_expr(&call.arguments[0]), &mut lets)?;
+          let key = match call.arguments.get(1) {
+            Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+            None => Expr::Lit(Lit::Undefined),
+          };
+          let key = Expr::Str(Box::new(key));
+          let next = if method == "set" {
+            let value = match call.arguments.get(2) {
+              Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+              None => Expr::Lit(Lit::Undefined),
+            };
+            Expr::Builtin { name: Builtin::SetAt, args: vec![Expr::Var(target.clone()), key, value] }
+          } else {
+            Expr::Builtin { name: Builtin::Omit, args: vec![Expr::Var(target.clone()), key] }
+          };
+          lets.push(overwrite(&target, next));
+          Expr::Lit(Lit::Bool(true))
+        } else if method == "assign" {
           let target = held(self, &crate::syntax::arg_expr(&call.arguments[0]), &mut lets)?;
           let mut entries = vec![Entry::Spread(Expr::Var(target.clone()))];
           for source in &call.arguments[1..] {
@@ -375,6 +401,9 @@ let via = via_expr.as_member_expression().expect("matched as a member");
           }
           lets.push(overwrite(&target, Expr::Object(entries)));
           Expr::Var(target)
+        } else if self.kind_of(m.object()) == Some(Kind::Date) && made_here(m.object()) {
+          let held = self.expr(m.object())?;
+          self.date_set(&method, held, call)?
         } else if self.kind_of(m.object()) == Some(Kind::Date) {
           let js::Expression::Identifier(id) = crate::meaning::bare(m.object()) else { unreachable!("object_write took a local Date") };
           let name = id.name.to_string();
@@ -400,6 +429,18 @@ let via = via_expr.as_member_expression().expect("matched as a member");
               lets.push(Stmt::If { cond: missing, then: vec![overwrite(&target, added)], r#else: Vec::new() });
               Expr::Index(Box::new(read), Box::new(Expr::Var(key)))
             }
+            (_, "compile") => {
+              let mut args = self.plain_args(call)?.into_iter();
+              let pattern = args.next().map_or(Expr::lit_str("(?:)"), |p| Expr::Str(Box::new(p)));
+              let flags = args.next().map_or(Expr::lit_str(""), |f| Expr::Str(Box::new(f)));
+              let next = Expr::Object(vec![
+                Entry::Field(snapfire_fsr_ir::jsregex::PATTERN.to_owned(), pattern),
+                Entry::Field(snapfire_fsr_ir::jsregex::FLAGS.to_owned(), flags),
+                Entry::Field(snapfire_fsr_ir::jsregex::LAST_INDEX.to_owned(), Expr::Lit(Lit::Float(0.0))),
+              ]);
+              lets.push(overwrite(&target, next));
+              read
+            }
             (_, "exec" | "test") => {
               let [subject] = call.arguments.as_slice() else { return Err(self.residue(call.span, format!("`{method}` takes the string to search"))) };
               let subject = self.expr(crate::syntax::arg_expr(subject))?;
@@ -423,9 +464,20 @@ let via = via_expr.as_member_expression().expect("matched as a member");
               read
             }
             (Some(kind @ (Kind::Map | Kind::Set)), _) => {
+              let had = self.temp();
+              if method == "delete" {
+                let given = call.arguments.first().ok_or_else(|| self.residue(call.span, "`delete` takes 1 argument"))?;
+                let given = self.expr(crate::syntax::arg_expr(given))?;
+                let held = if kind == Kind::Map { Expr::Builtin { name: Builtin::HasKey, args: vec![read.clone(), Expr::Builtin { name: Builtin::MapKey, args: vec![given] }] } } else { Expr::Builtin { name: Builtin::Includes, args: vec![read.clone(), given] } };
+                lets.push(Stmt::Let { name: had.clone(), expr: held });
+              }
               let next = self.collection_written(call, kind, &method, read.clone())?;
               lets.push(overwrite(&target, next));
-              if method == "delete" { Expr::Lit(Lit::Bool(true)) } else { read }
+              match method.as_str() {
+                "delete" => Expr::Var(had),
+                "clear" => Expr::Lit(Lit::Undefined),
+                _ => read,
+              }
             }
             (_, "push" | "unshift") => {
               let mut items = Vec::with_capacity(call.arguments.len() + 1);
@@ -478,15 +530,19 @@ let via = via_expr.as_member_expression().expect("matched as a member");
   }
 }
 
-/// The setters of a `Date` a body may call on a local it made, rebinding the local.
-const DATE_SETTERS: &[&str] = &["setTime", "setUTCFullYear", "setUTCMonth", "setUTCDate", "setUTCHours", "setUTCMinutes", "setUTCSeconds", "setUTCMilliseconds"];
+/// Whether `target` is a value the expression makes in place, `[1, 2]`, `{ a: 1 }`, `/a/g`, `new Map()`, `new Set()`, `new Date()` or `new RegExp()`, which a write may change since nothing else holds it.
+fn made_here(target: &js::Expression) -> bool {
+  match crate::meaning::bare(target) {
+    js::Expression::ArrayExpression(_) | js::Expression::ObjectExpression(_) | js::Expression::RegExpLiteral(_) => true,
+    js::Expression::NewExpression(n) => matches!(&n.callee, js::Expression::Identifier(id) if matches!(id.name.as_str(), "Map" | "Set" | "Date" | "RegExp")),
+    _ => false,
+  }
+}
 
-/// The setters that read this machine's time zone, which a body off a web render path may call the same way.
-const LOCAL_DATE_SETTERS: &[&str] = &["setFullYear", "setYear", "setMonth", "setDate", "setHours", "setMinutes", "setSeconds", "setMilliseconds"];
 
 impl Lowerer<'_> {
   /// The instant `held.<method>(...)` sets, one of [`DATE_SETTERS`] or [`LOCAL_DATE_SETTERS`]: `Date.UTC` of its parts with the ones the call names replaced, so a part past its range carries into the next as JavaScript's does. A local setter reads and writes the parts in this machine's time zone. `setTime` takes the instant whole.
-  fn date_set(&mut self, method: &str, held: Expr, call: &js::CallExpression) -> Lowered<Expr> {
+  pub(crate) fn date_set(&mut self, method: &str, held: Expr, call: &js::CallExpression) -> Lowered<Expr> {
     let mut args = self.plain_args(call)?;
     if method == "setTime" {
       let given = args.into_iter().next().unwrap_or(Expr::Lit(Lit::Undefined));

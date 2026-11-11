@@ -1988,11 +1988,13 @@ The table is written from the build's own list, so it holds what the build reads
 | `new TextEncoder().encode(text)` | none | a server render, the browser and every host body |
 | `new TextDecoder().decode(bytes)` | none | a server render, the browser and every host body |
 | `new Date(ms).toLocaleTimeString(locale)` | none | every host body; in a component the browser fills it in |
+| `new Date(ms).toLocaleDateString(locale) and toLocaleString(locale) with no options` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toTimeString()` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toString(), String(date) and a date in a template` | none | every host body; in a component the browser fills it in |
 | `text.toLocaleUpperCase(locale)` | none | a server render, the browser and every host body |
 | `text.toLocaleLowerCase(locale)` | none | a server render, the browser and every host body |
 | `text.toLocaleUpperCase() and text.toLocaleLowerCase() with no locale` | none | every host body; in a component the browser fills it in |
+| `a `timeZone` named in `Intl.DateTimeFormat` options` | none | a server render, the browser and every host body |
 | `new Temporal.<type>(...args)` | none | a server render, the browser and every host body |
 | `Temporal.<type>.from(...) and Temporal.<type>.compare(a, b)` | none | a server render, the browser and every host body |
 | `value.<field> of a Temporal value` | none | a server render, the browser and every host body |

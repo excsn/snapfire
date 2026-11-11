@@ -404,6 +404,7 @@ pub(super) fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail>
   }
   if matches!(op, CompareOp::Eq | CompareOp::Ne) {
     let same = match (l, r) {
+      (Value::Variant { tag, .. }, Value::Variant { tag: other, .. }) if [snapfire_fsr_core::value::typed::SYMBOL, snapfire_fsr_core::value::typed::PROTOTYPE].contains(&tag.as_str()) || [snapfire_fsr_core::value::typed::SYMBOL, snapfire_fsr_core::value::typed::PROTOTYPE].contains(&other.as_str()) => Some(l == r),
       (Value::Map(a), Value::Map(b)) => Some(a.same(b)),
       (Value::Seq(a), Value::Seq(b)) => Some(a.same(b)),
       _ => None,

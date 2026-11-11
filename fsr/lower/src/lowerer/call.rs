@@ -292,11 +292,22 @@ impl<'a> Lowerer<'a> {
             return self.builtin_call(name, Vec::new(), call);
           }
           "Promise" if method == "allSettled" => return self.all_settled(call),
+          "Promise" if matches!(method.as_str(), "try" | "any" | "race") => return self.promise_static(&method, call),
+          "Promise" if method == "withResolvers" => return Ok(self.with_resolvers()),
+          "String" if method == "raw" => return self.string_raw(call),
+          "Map" if method == "groupBy" => return self.map_group_by(call),
+          "BigInt" if matches!(method.as_str(), "asIntN" | "asUintN") => return self.big_int_wrap(&method, call),
+          "Array" if method == "fromAsync" => return self.from_async(call),
+          "Reflect" => return self.reflect(&method, call),
+          "Symbol" if matches!(method.as_str(), "for" | "keyFor") => return self.symbol_static(&method, call),
+          "JSON" if matches!(method.as_str(), "rawJSON" | "isRawJSON") => return self.raw_json(&method, call),
+          "Object" if matches!(method.as_str(), "getOwnPropertyNames" | "create" | "getOwnPropertyDescriptor" | "getPrototypeOf" | "isFrozen" | "isSealed" | "isExtensible" | "seal" | "preventExtensions") => return self.object_reflect(&method, call),
           "Object" => {
             let a = call.arguments.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
             let target = Box::new(self.expr(crate::syntax::arg_expr(a))?);
             return match method.as_str() {
               "entries" => Ok(Expr::Entries(target)),
+              "fromEntries" if self.kind_of(crate::syntax::arg_expr(a)) == Some(Kind::Map) => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![Expr::Entries(target)] }),
               "fromEntries" => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![*target] }),
               "keys" => Ok(Expr::Keys(target)),
               "values" => Ok(Expr::Values(target)),
@@ -333,7 +344,10 @@ impl<'a> Lowerer<'a> {
               _ => both(number, both(finite, both(whole, compare(CompareOp::Le, Expr::Builtin { name: Builtin::Abs, args: vec![x] }, Expr::Lit(Lit::Int(9_007_199_254_740_991)))))),
             });
           }
-          "Math" if method == "random" && self.reaches(Reach::Terminal) && call.arguments.is_empty() => {
+          "Math" if method == "random" && self.on_render_path() && !self.reaches(Reach::Terminal) => {
+            return Err(self.browser_only(call.span, "`Math.random()` on a render path, which the server and the browser answer differently"));
+          }
+          "Math" if method == "random" => {
             let bytes = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Float(6.0))] };
             let whole = Expr::Builtin { name: Builtin::ParseInt, args: vec![bytes, Expr::Lit(Lit::Float(16.0))] };
             return Ok(Expr::Arith(ArithOp::Div, Box::new(whole), Box::new(Expr::Lit(Lit::Float(281_474_976_710_656.0)))));
@@ -458,6 +472,17 @@ impl<'a> Lowerer<'a> {
           _ => {}
         }
       }
+    }
+
+    if method == "isPrototypeOf" {
+      let [value] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`isPrototypeOf` takes one value")) };
+      let value = crate::syntax::arg_expr(value);
+      if let Some(prototype) = member.object().as_member_expression().filter(|p| self.member_name(p).as_deref() == Some("prototype")) {
+        return self.prototype_of(prototype.object(), value, call.span);
+      }
+      let held = self.expr(value)?;
+      let name = self.temp();
+      return Ok(Expr::Block(vec![Stmt::Let { name, expr: held }, Stmt::Return(Expr::Lit(Lit::Bool(false)))]));
     }
 
     if let Some((service, _via_ctx)) = self.service_of(member.object()) {
@@ -587,6 +612,11 @@ impl<'a> Lowerer<'a> {
             Ok(Expr::Builtin { name: Builtin::Includes, args: vec![target, self.expr(crate::syntax::arg_expr(arg))?] })
           }
           "values" | "keys" => Ok(target),
+          "entries" => {
+            let item = self.temp();
+            let pair = Expr::Array(vec![Entry::Item(Expr::Var(item.clone())), Entry::Item(Expr::Var(item.clone()))]);
+            Ok(Expr::Map(Box::new(target), Box::new(Expr::Lambda { params: vec![item], body: Box::new(pair) })))
+          }
           "union" | "intersection" | "difference" | "symmetricDifference" | "isSubsetOf" | "isSupersetOf" | "isDisjointFrom" => {
             let [arg] = call.arguments.as_slice() else { return Err(self.residue(call.span, format!("`{method}` takes one set"))) };
             let given = crate::syntax::arg_expr(arg);
@@ -722,7 +752,23 @@ impl<'a> Lowerer<'a> {
       }
       "getTimezoneOffset" if self.reaches(Reach::Terminal) || !self.on_render_path() => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
       "toDateString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.is_empty() => Ok(self.local_date_string(*target)),
+      "toTemporalInstant" if self.kind_of(member.object()) == Some(Kind::Date) => {
+        let b = self.build();
+        let ast = b.ast();
+        let span = call.span;
+        let name = |n: &str| js::IdentifierName::new(span, b.str(n), &ast);
+        let instant = js::Expression::new_static_member_expression(span, b.ident("Temporal", span), name("Instant"), false, &ast);
+        let from = js::Expression::new_static_member_expression(span, instant, name("fromEpochMilliseconds"), false, &ast);
+        let time = js::Expression::new_static_member_expression(span, b.copy(member.object()), name("getTime"), false, &ast);
+        let ms = js::Expression::new_call_expression(span, time, None, b.vec([]), false, &ast);
+        let made = js::Expression::new_call_expression(span, from, None, b.vec([js::Argument::from(ms)]), false, &ast);
+        self.expr(b.alloc(made))
+      }
       "toTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.is_empty() => Ok(Expr::Ext { module: "intl".to_owned(), name: "timeString".to_owned(), args: vec![*target] }),
+      "toLocaleTimeString" if call.arguments.len() == 2 && self.kind_of(member.object()) == Some(Kind::Date) => {
+        let expr = self.intl_format("DateTimeFormat", &call.arguments, *target, call.span)?;
+        Ok(self.candidate(call.span, expr))
+      }
       "toLocaleTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.len() <= 1 => {
         let locale = match call.arguments.first().map(|a| strip_parens(crate::syntax::arg_expr(a))) {
           None => Expr::Lit(Lit::Null),
@@ -932,6 +978,23 @@ impl<'a> Lowerer<'a> {
       "trimStart" | "trimEnd" | "trimLeft" | "trimRight" if call.arguments.is_empty() => {
         let side = if matches!(method.as_str(), "trimStart" | "trimLeft") { "start" } else { "end" };
         Ok(Expr::Builtin { name: Builtin::Trim, args: vec![*target, Expr::lit_str(side)] })
+      }
+      "toLocaleString" if self.kind_of(member.object()) == Some(Kind::Date) => {
+        let made = &call.arguments[..call.arguments.len().min(2)];
+        let options = made.get(1).is_some_and(|o| !matches!(strip_parens(crate::syntax::arg_expr(o)), js::Expression::Identifier(id) if id.name.as_str() == "undefined"));
+        if options {
+          let expr = self.intl_format("DateTimeFormat", made, *target, call.span)?;
+          return Ok(self.candidate(call.span, expr));
+        }
+        if self.on_render_path() && !self.reaches(Reach::Terminal) {
+          return Err(self.browser_only(member.span(), "`.toLocaleString()` of a `Date`, which reads the viewer's time zone and locale"));
+        }
+        let locale = match made.first().map(|a| strip_parens(crate::syntax::arg_expr(a))) {
+          None => Expr::Lit(Lit::Null),
+          Some(js::Expression::Identifier(id)) if id.name.as_str() == "undefined" => Expr::Lit(Lit::Null),
+          Some(other) => self.expr(other)?,
+        };
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "localDate".to_owned(), args: vec![*target, locale, Expr::Lit(Lit::Bool(true))] })
       }
       "toLocaleString" => {
         let formatted = self.intl_format("NumberFormat", &call.arguments, *target, call.span)?;

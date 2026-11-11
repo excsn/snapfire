@@ -30,6 +30,13 @@ const EN: &[(&str, &str)] = &[
   ("new Date(-62198755200000).toString()", "\"Thu Dec 31 -0002 19:03:58 GMT-0456 (Eastern Standard Time)\""),
   ("new Date(-2208988800000).toString()", "\"Sun Dec 31 1899 19:00:00 GMT-0500 (Eastern Standard Time)\""),
   ("new Date(8.64e15).toString()", "\"Fri Sep 12 275760 20:00:00 GMT-0400 (Eastern Daylight Time)\""),
+  ("new Date(1726011440123).toLocaleDateString()", "\"9/10/2024\""),
+  ("new Date(1726011440123).toLocaleString()", "\"9/10/2024, 7:37:20 PM\""),
+  ("new Date(1726011440123).toLocaleString(\"de-DE\")", "\"10.9.2024, 19:37:20\""),
+  ("new Date(Date.UTC(2024, 0, 1, 2)).toLocaleDateString(\"en-US\", { dateStyle: \"medium\" })", "\"Dec 31, 2023\""),
+  ("new Date(Date.UTC(2024, 0, 1, 2)).toLocaleTimeString(\"en-US\", { timeStyle: \"short\" })", "\"9:00 PM\""),
+  ("new Intl.DateTimeFormat(\"en-US\").format(new Date(Date.UTC(2024, 0, 1, 2)))", "\"12/31/2023\""),
+  ("new Date(NaN).toLocaleString()", "\"Invalid Date\""),
 ];
 
 #[test]

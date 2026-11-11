@@ -260,6 +260,12 @@ pub struct LoweredHandler {
 pub const HANDLER_METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 /// Names of JavaScript's own methods. A call of one that no arm lowers is refused by name rather than read as a call of a function value held in a field.
+/// The setters of a `Date` a body may call on a local it made, rebinding the local.
+pub(crate) const DATE_SETTERS: &[&str] = &["setTime", "setUTCFullYear", "setUTCMonth", "setUTCDate", "setUTCHours", "setUTCMinutes", "setUTCSeconds", "setUTCMilliseconds"];
+
+/// The setters that read this machine's time zone, which a body off a web render path may call the same way.
+pub(crate) const LOCAL_DATE_SETTERS: &[&str] = &["setFullYear", "setYear", "setMonth", "setDate", "setHours", "setMinutes", "setSeconds", "setMilliseconds"];
+
 const STANDARD_METHODS: &[&str] = &["flat", "entries", "keys", "values", "forEach", "push", "pop", "shift", "unshift", "splice", "fill", "copyWithin", "findLast", "findLastIndex", "reduceRight", "toSpliced", "with", "normalize", "trimStart", "trimEnd", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toPrecision", "toExponential", "then", "catch", "finally", "get", "set", "has", "delete", "add", "clear", "anchor", "bind", "call", "apply", "big", "blink", "bold", "fixed", "fontcolor", "fontsize", "italics", "link", "small", "strike", "sub", "sup", "getYear", "setYear", "setDate", "setFullYear", "setHours", "setMilliseconds", "setMinutes", "setMonth", "setSeconds", "setTime", "setUTCDate", "setUTCFullYear", "setUTCHours", "setUTCMilliseconds", "setUTCMinutes", "setUTCMonth", "setUTCSeconds", "toTemporalInstant", "compile", "union", "intersection", "difference", "symmetricDifference", "isSubsetOf", "isSupersetOf", "isDisjointFrom", "getOrInsert", "getOrInsertComputed"];
 
 /// Session keys with the value a body reads when the key is absent, from
@@ -279,6 +285,7 @@ pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -
 std::thread_local! {
   static HEAP_PASS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   static HEAP_WANTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+  static DEFERRED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
   static HEAP_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
@@ -727,7 +734,7 @@ enum Exit {
 }
 
 /// The `Math` functions `Builtin::Math` computes as V8 does.
-pub(crate) const JS_MATH: [&str; 23] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt", "hypot", "imul", "clz32", "fround"];
+pub(crate) const JS_MATH: [&str; 25] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt", "hypot", "imul", "clz32", "fround", "f16round"];
 
 /// What a `break` leaves: a loop or a `switch` arm the statement path reads as an `if`.
 #[derive(Clone, Copy, PartialEq, Debug)]

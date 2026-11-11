@@ -758,6 +758,16 @@ pub mod typed {
   pub const URL: &str = "$url";
   /// A Temporal value: its type's name and its canonical string, `["PlainDate", "2024-02-29"]`.
   pub const TEMPORAL: &str = "$temporal";
+  /// A symbol from `Symbol.for(key)`: its key, so two of the same key are the same symbol.
+  pub const SYMBOL: &str = "$symbol";
+  /// `JSON.rawJSON(text)`: the JSON text `JSON.stringify` writes as it is.
+  pub const RAW_JSON: &str = "$rawJSON";
+  /// A built-in constructor's `prototype`, its payload the constructor's name, so `Object.getPrototypeOf(x) === Array.prototype` compares two of them.
+  pub const PROTOTYPE: &str = "$prototype";
+  /// The field marking the object that stands for a promise `Promise.withResolvers()` made, which holds its `$state` and its `value` or `reason`.
+  pub const DEFERRED: &str = "$deferred";
+  /// The field holding a regular expression's pattern in the object that stands for it, beside its flags and its `lastIndex`.
+  pub const REGEX: &str = "$regex";
 
   pub const ALL: [&str; 6] = [DATE, MAP, SET, BIGINT, URL, TEMPORAL];
 

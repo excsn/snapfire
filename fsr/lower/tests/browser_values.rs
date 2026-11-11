@@ -152,3 +152,14 @@ fn a_browser_value_in_an_attribute_or_choosing_markup_stays_a_residue() {
   }
 }
 
+
+#[test]
+fn a_date_as_local_text_and_a_random_number_are_left_to_the_browser() {
+  let page = "export default function Page() {\n  const at = new Date(1726011440123);\n  return <p><span>{at.toLocaleString()}</span><b>{String(at)}</b><i>{at.toTimeString()}</i><u>{Math.random()}</u></p>;\n}\n";
+  let out = lower("local_text", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p><span></span><b></b><i></i><u></u></p>");
+  let source = rewritten(&out, "routes/page.tsx", page);
+  for read in ["at.toLocaleString()", "String(at)", "at.toTimeString()", "Math.random()"] {
+    assert!(source.contains(&format!("{{__sfb(() => {read})}}")), "{read} in {source}");
+  }
+}

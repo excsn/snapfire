@@ -348,9 +348,9 @@ fn an_intl_formatter_lowers_to_the_intl_member_that_formats_alike() {
   assert_eq!(ext("currency", "new Intl.NumberFormat(undefined, { style: \"currency\", currency: \"EUR\", currencyDisplay: \"code\" }).format(params.n)"), "intl.currency");
   assert_eq!(ext("date", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\" }).format(new Date(params.at))"), "intl.date");
   assert_eq!(ext("locale_date", "new Date(params.at).toLocaleDateString(undefined, { dateStyle: \"short\", timeZone: \"UTC\" })"), "intl.date");
+  assert_eq!(ext("no_style", "new Date(params.at).toLocaleDateString()"), "intl.localDate");
+  assert_eq!(ext("zone", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\", timeZone: \"Europe/Paris\" }).format(params.at)"), "intl.date");
   for (tag, expr, says) in [
-    ("no_style", "new Date(params.at).toLocaleDateString()", "without a `dateStyle`"),
-    ("zone", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\", timeZone: \"Europe/Paris\" }).format(params.at)", "`timeZone`"),
     ("compact", "new Intl.NumberFormat(undefined, { notation: \"compact\" }).format(params.n)", "`notation`"),
   ] {
     let err = lowered(tag, expr).unwrap_err();

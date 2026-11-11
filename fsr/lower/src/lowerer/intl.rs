@@ -149,12 +149,41 @@ impl<'a> Lowerer<'a> {
         Ok(Expr::Ext { module: "intl".to_owned(), name: "list".to_owned(), args: vec![value, Expr::Object(entries)] })
       }
       _ => {
-        let zone = options.iter().find(|(k, _)| k == "timeZone");
-        if zone.is_some() && literal(&options, "timeZone").as_deref() != Some("UTC") {
-          return Err(self.residue(span, "a `timeZone` other than `\"UTC\"`"));
+        let named = literal(&options, "timeZone").filter(|zone| zone != "UTC");
+        let options: Vec<(String, &js::Expression)> = if named.is_some() { options.into_iter().filter(|(k, _)| k != "timeZone").collect() } else { options };
+        let zone_given = named.is_some() || options.iter().any(|(k, _)| k == "timeZone");
+        if options.iter().any(|(k, v)| k == "timeZone" && !matches!(v, js::Expression::StringLiteral(_))) {
+          return Err(self.residue(span, "a `timeZone` that is not written in place"));
         }
+        // A named zone reads the same on the server and in the browser: the instant moves by that zone's offset and is written as UTC.
+        let value = match &named {
+          Some(name) => {
+            let at = self.temp();
+            let offset = Expr::Ext { module: "time".to_owned(), name: "offsetIn".to_owned(), args: vec![Expr::Var(at.clone()), Expr::lit_str(name)] };
+            let shifted = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Float(60_000.0))))));
+            Expr::Block(vec![Stmt::Let { name: at, expr: Expr::Num(Box::new(value)) }, Stmt::Return(shifted)])
+          }
+          None => value,
+        };
+        // A body formats in this machine's zone, as node does: the instant moves by its offset and is written as UTC.
+        let local = !zone_given && (self.reaches(Reach::Terminal) || !self.on_render_path());
+        if local && options.is_empty() {
+          let tag = match locale_entry {
+            Some(Entry::Field(_, tag)) => tag,
+            _ => Expr::Lit(Lit::Null),
+          };
+          return Ok(Expr::Ext { module: "intl".to_owned(), name: "localDate".to_owned(), args: vec![value, tag, Expr::Lit(Lit::Bool(false))] });
+        }
+        let value = if local {
+          let at = self.temp();
+          let offset = Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![Expr::Var(at.clone())] };
+          let shifted = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Float(60_000.0))))));
+          Expr::Block(vec![Stmt::Let { name: at, expr: Expr::Num(Box::new(value)) }, Stmt::Return(shifted)])
+        } else {
+          value
+        };
         if let Some((_, time_style)) = options.iter().find(|(k, _)| k == "timeStyle") {
-          if zone.is_none() {
+          if !zone_given && !local {
             return Err(self.browser_only(span, "a time of day without `timeZone: \"UTC\"`, which the browser formats in the viewer's time zone"));
           }
           if let js::Expression::StringLiteral(s) = time_style {
@@ -205,6 +234,9 @@ impl<'a> Lowerer<'a> {
           entries.push(Entry::Field(key.clone(), Expr::lit_str(text)));
         }
         if !entries.iter().any(|e| matches!(e, Entry::Field(k, _) if matches!(k.as_str(), "weekday" | "year" | "month" | "day"))) {
+          if options.is_empty() {
+            return Err(self.browser_only(span, "a date formatted with no options, which reads the viewer's time zone and locale"));
+          }
           return Err(self.residue_with(span, "a date formatted without a `dateStyle` or a part", "`{ dateStyle: \"medium\" }` or `{ weekday: \"long\" }` names a format the server and the browser write the same way"));
         }
         Ok(Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::Object(entries)] })

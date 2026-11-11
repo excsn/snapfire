@@ -156,7 +156,7 @@ impl std::fmt::Write for Digits {
 
 /// Whether a value is left out of an object, as `undefined` and a function are.
 fn skipped(value: &Value) -> bool {
-  matches!(value, Value::Undefined | Value::Ref { .. })
+  matches!(value, Value::Undefined | Value::Ref { .. }) || matches!(value, Value::Variant { tag, .. } if tag == typed::SYMBOL)
 }
 
 fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
@@ -170,6 +170,7 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
     Value::Str(s) => string(out, s),
     Value::Seq(items) if items.kind() == crate::value::Collection::Set => out.push_str("{}"),
     Value::Map(map) if map.kind() == crate::value::Collection::Map => out.push_str("{}"),
+    Value::Map(map) if map.get(typed::REGEX).is_some() => out.push_str("{}"),
     Value::Seq(items) => crate::on_enough_stack(|| array(out, items.iter(), indent, depth, integers))?,
     Value::Map(map) => crate::on_enough_stack(|| object(out, map.iter().map(|(k, v)| (k.as_str(), v)), indent, depth, integers))?,
     Value::Bytes(bytes) => indexed(out, bytes.iter().map(|b| Value::Int((*b).into())).collect(), indent, depth, integers)?,
@@ -180,6 +181,8 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
         None => out.push_str("null"),
       },
       (typed::MAP | typed::SET, _) => out.push_str("{}"),
+      (typed::SYMBOL, _) => out.push_str("null"),
+      (typed::RAW_JSON, Some(Value::Str(text))) => out.push_str(text),
       (typed::URL, Some(href)) => write(out, href, indent, depth, integers)?,
       (typed::TEMPORAL, _) if typed::temporal(value).is_some() => string(out, typed::temporal(value).map_or("", |(_, text)| text)),
       (typed::BIGINT, Some(n)) => match n {

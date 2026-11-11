@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use snapfire_fsr_core::{Value, ValueMap};
 
 /// The field a lowered regular expression keeps its source under.
-pub const PATTERN: &str = "$regex";
+pub const PATTERN: &str = snapfire_fsr_core::value::typed::REGEX;
 /// The field it keeps its flags under.
 pub const FLAGS: &str = "$flags";
 /// The longest pattern compiled, in characters.

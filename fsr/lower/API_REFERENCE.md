@@ -878,15 +878,26 @@ What lowers. Anything not listed is a `Residue`.
 
 * Each is an `Expr::Builtin` with the receiver as its first argument.
 * `Math.round`, `floor`, `ceil`, `abs`, `min`, `max`, `pow`, `sqrt`, `trunc` and `sign`.
-* `Math.hypot`, `imul`, `clz32` and `fround` are `Builtin::Math` with their name, beside the transcendental functions.
+* `Math.hypot`, `imul`, `clz32`, `fround` and `f16round` are `Builtin::Math` with their name, beside the transcendental functions and `tanh`.
+* `Math.random()` is `crypto.random` scaled to `[0, 1)` in a body and in a terminal page. On a web render path it is a value the browser fills in.
 * `Number.MAX_SAFE_INTEGER`, `MIN_SAFE_INTEGER`, `EPSILON`, `MAX_VALUE`, `MIN_VALUE`, `POSITIVE_INFINITY`, `NEGATIVE_INFINITY` and `NaN` lower to their values.
 * `isFinite(x)` is `Number.isFinite(Number(x))`. `parseFloat` and `Number.parseFloat` are `Builtin::ParseFloat`.
 * `Object.assign({...}, ...sources)` onto an object written in place is a spread of every argument. Onto anything else it is residue naming `{ ...target, ...source }`.
 * `Object.freeze(x)` is `x`. `Object.hasOwn(o, key)` and `o.hasOwnProperty(key)` are `Builtin::HasKey`, true for an array's or a string's `length` and indices. `o.propertyIsEnumerable(key)` is `HasKey` without an array's or a string's `length`. `Object.is(a, b)` is `Builtin::SameValue`.
-* `Object.groupBy(items, f)` is a `reduce` into an object keyed by `String(f(item, index))`.
+* `Object.groupBy(items, f)` is a `reduce` into an object keyed by `String(f(item, index))`. `Map.groupBy(items, f)` is the same into a `Map` keyed by the value itself.
+* `Object.getOwnPropertyNames(o)` and `Reflect.ownKeys(o)` are the keys, with an array's indices and `length`. `Object.getOwnPropertyDescriptor(o, key)` is a writable, enumerable and configurable value, since a body's objects carry no accessors. `Object.create(null)` is `{}`; another prototype is residue.
+* `Object.getPrototypeOf(x)` and `C.prototype` of a built-in constructor are a tagged value naming the constructor, so `Object.getPrototypeOf(x) === Array.prototype` compares them. `C.prototype.isPrototypeOf(x)` is `x instanceof C`, with `Object` any object. `isPrototypeOf` of anything else is `false`, since nothing makes an object with a prototype.
+* `Object.seal(x)` and `Object.preventExtensions(x)` are `x`. `Object.isFrozen`, `isSealed` and `isExtensible` answer for a primitive, an object or array written in place and a value `Object.freeze`, `seal` or `preventExtensions` makes in place. Of anything else they are residue.
+* `Reflect.get`, `has`, `set`, `deleteProperty`, `apply` and `construct` are the read, `in`, write, `delete`, call and `new` they stand for. `Reflect.getPrototypeOf` and its kin are the `Object` function of the same name.
+* `Symbol.for(key)` is a tagged value holding its key, so two of one key are equal and `typeof` is `"symbol"`. `Symbol.keyFor(s)` reads the key back. `JSON.stringify` leaves a symbol out of an object.
+* `JSON.rawJSON(text)` is a tagged value `JSON.stringify` writes as `text`. `JSON.isRawJSON(x)` tests the tag.
+* `BigInt.asUintN(bits, n)` is `n` modulo 2 to the `bits`. `BigInt.asIntN` reads the top bit as the sign.
+* `String.raw(strings, ...subs)` joins each raw string with the substitution after it.
 * `Array.of(...items)` is the array. `String.fromCharCode` and `String.fromCodePoint` are `Builtin::FromCharCode` and `FromCodePoint`. `Date.UTC(...)` is `Builtin::DateUtc`.
 * `Promise.reject(e)` where no handler resumes later throws `e`, since a body holds no promise values.
-* `Promise.allSettled(list)` settles each element of a list written in place as `{ status, value }` or `{ status, reason }`. Over a `map`, it settles each call of the map's function. `Promise.race` is residue.
+* `Promise.allSettled(list)` settles each element of a list written in place as `{ status, value }` or `{ status, reason }`. Over a `map`, it settles each call of the map's function.
+* `Promise.try(f, ...args)` is `f(...args)`. `Promise.any(list)` is the first item that does not throw, else an `AggregateError` holding each reason. `Promise.race(list)` is the first item, the others still made. `Array.fromAsync(items, f?)` is `Array.from`.
+* `Promise.withResolvers()` is `{ promise, resolve, reject }` with the promise an object holding its state, which `resolve` and `reject` overwrite. Each `await` in a body that makes one is `Builtin::Settle`, which answers the value or throws the reason. A promise read before anything settles it is an error, since a body does not wait.
 * `Math.min(...items)` and `Math.max(...items)` are `Builtin::MinOf` and `Builtin::MaxOf` over one array. A spread into `Math`, `String.fromCharCode`, `fromCodePoint`, `concat`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `padStart`, `padEnd` or `substring` is `Builtin::Spread` of that builtin over the list the arguments make. A spread into another builtin is residue.
 * A function written where it is called, `((x) => x + 1)(1)`, is an `Expr::Apply` of its lambda.
 * `f.call(this, ...args)` and `f.apply(this, args)` of a function value are an apply of `f`, and `f.bind(this, ...args)` a lambda that applies `f` to the bound arguments and its own. `this` is not read.
@@ -899,7 +910,11 @@ What lowers. Anything not listed is a `Residue`.
 * A `Set`'s `union`, `intersection`, `difference` and `symmetricDifference` are a `Set` in JavaScript's order, `intersection` walking the smaller set. `isSubsetOf`, `isSupersetOf` and `isDisjointFrom` are booleans. The argument is a `Set` or a `Map`'s keys.
 * `a.localeCompare()` compares with `"undefined"`.
 * `e.entries()`, `e.keys()` and `e.values()` of an array or a `Set` are `Builtin::Iterate`.
-* A standard method no arm lowers, such as `compile` or `toTemporalInstant`, is residue at build rather than a call of a field the value does not have.
+* A standard method no arm lowers is residue at build rather than a call of a field the value does not have.
+* A write to a value made in place, `[3, 1, 2].pop()`, `new Map().set(k, v)` or `new Date(0).setUTCHours(1)`, takes the path a write to a local takes. `Map.set` and `Set.add` answer the collection, so `.size` reads after them. `delete` answers whether the key was there and `clear` answers `undefined`.
+* `re.compile(pattern, flags)` overwrites a local or literal regular expression. A regular expression's `source`, `flags`, `global`, `ignoreCase`, `multiline`, `dotAll`, `unicode`, `unicodeSets`, `sticky` and `hasIndices` read from its pattern and flags. `JSON.stringify` writes it as `{}`.
+* `d.toTemporalInstant()` is `Temporal.Instant.fromEpochMilliseconds(d.getTime())`.
+* A `Set`'s `entries()` pairs each item with itself.
 * A string's indices count UTF-16 code units.
 * `startsWith` and `endsWith` take exactly one argument. `replace` takes exactly two.
 * `split` takes a separator and an optional limit. `split("")` fails at run time on a character outside the Basic Multilingual Plane.
@@ -930,7 +945,8 @@ What lowers. Anything not listed is a `Residue`.
 * `new Temporal.<type>(...)` is `temporal.new`, and `Temporal.<type>.from(...)`, `compare(...)` and the `Instant` epoch constructors are `temporal.static`. A field read of a Temporal value is `temporal.get` and a method call `temporal.call`. A value is Temporal when one of these made it, a method that answers a Temporal value did, or its type annotation names `Temporal.<type>`.
 * `Temporal.Now.<name>()` is `temporal.now` in a body and in a terminal page. On a web render path it is a value the browser fills in.
 * `crypto.randomUUID()` is `crypto.uuid`, under the same rule.
-* `d.toLocaleTimeString(locales?)` is `intl.localTime` in a body and in a terminal page, the locale written in place or computed. On a web render path it is a value the browser fills in.
+* `d.toLocaleTimeString(locales?)` is `intl.localTime` in a body and in a terminal page, the locale written in place or computed. On a web render path it is a value the browser fills in. With options it is `intl.date`.
+* `d.toLocaleDateString(locales?)` and `d.toLocaleString(locales?)` with no options are `intl.localDate` in a body and in a terminal page: the date in CLDR's `yMd` pattern, then for `toLocaleString` the time, joined by the locale's short date-time pattern. On a web render path they are a value the browser fills in.
 * `s.toLocaleUpperCase(locales)` and `s.toLocaleLowerCase(locales)` are `intl.upper` and `intl.lower` everywhere. A locale the code computes falls back to `intl.systemLocale` in a body and in a terminal page and to `intl.localeTag` on a web render path when it is `undefined` at run time. With no locale they read `intl.systemLocale` in a body and in a terminal page. On a web render path that is a value the browser fills in.
 * `btoa(s)` and `atob(s)` are `encoding.btoa` and `encoding.atob`.
 * `new TextEncoder().encode(s)` and `new TextDecoder().decode(bytes)` are `encoding.encode` and `encoding.decode`, with bytes as an array of numbers.
@@ -940,7 +956,7 @@ What lowers. Anything not listed is a `Residue`.
 * `new Intl.DateTimeFormat(locale, options).format(d)` and `d.toLocaleDateString(locale, options)` are `intl.date`.
 * `intl.date` takes a `dateStyle` or a `timeStyle` of `short` or `medium`.
 * `intl.date` also takes the parts `weekday`, `year`, `month` and `day` with a text month or weekday (`long`, `short`, `narrow`) and a numeric year and day.
-* `timeZone: "UTC"` is allowed. It is required beside a `timeStyle`.
+* `timeZone: "UTC"` is allowed. On a web render path it is required beside a `timeStyle`. In a body and in a terminal page a date with no `timeZone` is formatted in this machine's zone, as node formats it, the instant moved by `time.localOffset`.
 * `new Intl.PluralRules(locale, { type }).select(n)` is `intl.plural`.
 * `new Intl.Collator(locale, { sensitivity, numeric }).compare(a, b)` and `a.localeCompare(b, locale, options)` are `intl.compare`. `collator.compare` passed as a function is a lambda over it.
 * `new Intl.RelativeTimeFormat(locale, { numeric, style }).format(value, unit)` is `intl.relative`.

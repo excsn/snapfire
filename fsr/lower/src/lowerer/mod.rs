@@ -5,5 +5,6 @@ mod intl;
 mod later;
 mod objects;
 mod setup;
+pub(crate) mod statics;
 mod stmts;
 mod writes;

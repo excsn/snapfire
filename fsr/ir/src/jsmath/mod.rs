@@ -116,6 +116,25 @@ pub fn cosh(x: f64) -> f64 {
   hyperbolic::cosh(x)
 }
 
+/// `Math.tanh(x)`.
+pub fn tanh(x: f64) -> f64 {
+  hyperbolic::tanh(x)
+}
+
+/// `Math.f16round(x)`: the nearest IEEE 754 half-precision value, ties to even, past 65504 an infinity.
+pub fn f16round(x: f64) -> f64 {
+  if !x.is_finite() || x == 0.0 {
+    return x;
+  }
+  let a = x.abs();
+  if a >= 65520.0 {
+    return f64::INFINITY.copysign(x);
+  }
+  let exponent = (((a.to_bits() >> 52) & 0x7ff) as i32 - 1023).max(-14);
+  let quantum = 2f64.powi(exponent - 10);
+  ((a / quantum).round_ties_even() * quantum).copysign(x)
+}
+
 /// `Math.asinh(x)`.
 pub fn asinh(x: f64) -> f64 {
   hyperbolic::asinh(x)

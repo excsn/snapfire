@@ -117,9 +117,32 @@ pub(crate) fn field_of(target: &Value, name: &str) -> Value {
   get_field(target, name)
 }
 
+/// A property a regular expression has from its pattern and flags rather than as a field: `source`, `flags` and the flag accessors.
+fn regex_property(map: &snapfire_fsr_core::ValueMap, name: &str) -> Option<Value> {
+  let Value::Str(pattern) = map.get(crate::jsregex::PATTERN)? else { return None };
+  let flags = match map.get(crate::jsregex::FLAGS) {
+    Some(Value::Str(f)) => f.as_str(),
+    _ => "",
+  };
+  let flag = |c: char| Some(Value::Bool(flags.contains(c)));
+  match name {
+    "source" => Some(Value::str(if pattern.is_empty() { "(?:)".to_owned() } else { pattern.replace('/', "\\/").replace("\\\\/", "\\/") })),
+    "flags" => Some(Value::str("dgimsuvy".chars().filter(|c| flags.contains(*c)).collect::<String>())),
+    "hasIndices" => flag('d'),
+    "global" => flag('g'),
+    "ignoreCase" => flag('i'),
+    "multiline" => flag('m'),
+    "dotAll" => flag('s'),
+    "unicode" => flag('u'),
+    "unicodeSets" => flag('v'),
+    "sticky" => flag('y'),
+    _ => None,
+  }
+}
+
 pub(super) fn get_field(target: &Value, name: &str) -> Value {
   match target {
-    Value::Map(map) => map.get(name).cloned().unwrap_or(Value::Undefined),
+    Value::Map(map) => map.get(name).cloned().or_else(|| regex_property(map, name)).unwrap_or(Value::Undefined),
     Value::Variant { tag, .. } if tag == snapfire_fsr_runtime::RESPONSE_TAG && matches!(name, "status" | "ok") => {
       message_builtin(Builtin::ResponseMember, &[target.clone(), Value::str(name)]).unwrap_or(Value::Undefined)
     }
@@ -133,7 +156,7 @@ pub(crate) fn index_of(target: &Value, key: &Value) -> Result<Value, Fail> {
 
 pub(super) fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
   match (target, key) {
-    (Value::Map(map), Value::Str(k)) => Ok(map.get(k.as_str()).cloned().unwrap_or(Value::Undefined)),
+    (Value::Map(map), Value::Str(k)) => Ok(map.get(k.as_str()).cloned().or_else(|| regex_property(map, k.as_str())).unwrap_or(Value::Undefined)),
     (Value::Seq(items), Value::Int(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Undefined)),
     (Value::Seq(items), Value::UInt(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Undefined)),
     (Value::Seq(items), Value::F64(f)) => Ok(if f.fract() == 0.0 && *f >= 0.0 { items.get(*f as usize).cloned().unwrap_or(Value::Undefined) } else { Value::Undefined }),

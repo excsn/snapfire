@@ -1,4 +1,4 @@
-//! `sinh`, `cosh`, `asinh`, `acosh` and `atanh` as V8 computes them in src/base/ieee754.cc: fdlibm's algorithms over the LLVM libc `log`, `log1p`, `exp` and `expm1` ported beside them.
+//! `sinh`, `cosh`, `tanh`, `asinh`, `acosh` and `atanh` as V8 computes them in src/base/ieee754.cc: fdlibm's algorithms over the LLVM libc `log`, `log1p`, `exp` and `expm1` ported beside them.
 //!
 //! Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
 //! Developed at SunSoft, a Sun Microsystems, Inc. business.
@@ -69,6 +69,29 @@ pub(super) fn cosh(x: f64) -> f64 {
     return x * x;
   }
   f64::INFINITY
+}
+
+pub(super) fn tanh(x: f64) -> f64 {
+  let jx = high_word(x);
+  let ix = jx & 0x7fff_ffff;
+  if ix >= 0x7ff0_0000 {
+    return if jx >= 0 { 1.0 / x + 1.0 } else { 1.0 / x - 1.0 };
+  }
+  let z = if ix < 0x4036_0000 {
+    if ix < 0x3e30_0000 {
+      return x;
+    }
+    if ix >= 0x3ff0_0000 {
+      let t = expm1(2.0 * x.abs());
+      1.0 - 2.0 / (t + 2.0)
+    } else {
+      let t = expm1(-2.0 * x.abs());
+      -t / (t + 2.0)
+    }
+  } else {
+    1.0
+  };
+  if jx >= 0 { z } else { -z }
 }
 
 pub(super) fn asinh(x: f64) -> f64 {

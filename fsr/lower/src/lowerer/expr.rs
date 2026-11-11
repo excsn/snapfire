@@ -31,7 +31,10 @@ impl<'a> Lowerer<'a> {
     }
     match expr {
       js::Expression::ParenthesizedExpression(p) => self.expr(&p.expression),
-      js::Expression::AwaitExpression(a) => self.expr(&a.argument),
+      js::Expression::AwaitExpression(a) => {
+        let awaited = self.expr(&a.argument)?;
+        Ok(if crate::made_deferred() { Expr::Builtin { name: Builtin::Settle, args: vec![awaited] } } else { awaited })
+      }
       js::Expression::CallExpression(_) if self.promise_all(expr).is_some() => {
         let list = self.promise_all(expr).expect("checked by the guard");
         self.expr(list)
@@ -310,6 +313,9 @@ impl<'a> Lowerer<'a> {
   pub(crate) fn member(&mut self, member: &js::MemberExpression) -> Lowered<Expr> {
     if let Some(compare) = self.collator_compare(member)? {
       return Ok(compare);
+    }
+    if let Some(class) = self.builtin_prototype(member) {
+      return Ok(crate::lowerer::statics::prototype(class));
     }
     if let (js::Expression::Identifier(id), Some(key)) = (member.object(), self.member_name(member)) {
       if !self.scope.iter().any(|(n, _)| n == id.name.as_str()) && self.meanings.as_ref().and_then(|m| m.of_ident(id)) == Some(&crate::meaning::Meaning::Config(None)) {

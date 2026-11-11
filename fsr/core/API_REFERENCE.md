@@ -261,6 +261,11 @@ The tags of a `Value::Variant` that stands for a JavaScript value with no arm of
 * `pub const BIGINT: &str = "$bigint"`: payload is an integer.
 * `pub const URL: &str = "$url"`: payload is the href.
 * `pub const TEMPORAL: &str = "$temporal"`: payload is `[type, text]`, a `Temporal` type's name and its canonical string.
+* `pub const SYMBOL: &str = "$symbol"`: a symbol from `Symbol.for`, payload its key. JSON leaves it out of an object and writes `null` in an array.
+* `pub const RAW_JSON: &str = "$rawJSON"`: `JSON.rawJSON(text)`, payload the text JSON writes as it is.
+* `pub const PROTOTYPE: &str = "$prototype"`: a built-in constructor's `prototype`, payload the constructor's name.
+* `pub const DEFERRED: &str = "$deferred"`: the field marking the object that stands for a promise `Promise.withResolvers()` made.
+* `pub const REGEX: &str = "$regex"`: the field holding a regular expression's pattern in the object that stands for it. JSON writes that object as `{}`.
 * `pub const ALL: [&str; 6]`
 * `pub fn temporal(value: &Value) -> Option<(&str, &str)>`: a Temporal value's type name and string.
 * `pub fn temporal_value(kind: &str, text: &str) -> Value`: the Temporal value of type `kind` whose string is `text`.

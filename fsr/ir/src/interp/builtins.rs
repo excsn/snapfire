@@ -131,6 +131,27 @@ pub(super) fn message_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fa
 fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
   let arg = |i: usize| args.get(i).ok_or_else(|| Fail::internal(format!("{name:?} takes more arguments")));
   Ok(match name {
+    Builtin::Tagged => Value::Variant { tag: text(name, arg(0)?)?.to_owned(), payload: Some(Box::new(arg(1)?.clone())) },
+    Builtin::TaggedPayload => match arg(0)? {
+      Value::Variant { tag, payload } if tag == text(name, arg(1)?)? => payload.as_deref().cloned().unwrap_or(Value::Undefined),
+      _ => Value::Undefined,
+    },
+    Builtin::IsTagged => Value::Bool(matches!(arg(0)?, Value::Variant { tag, .. } if tag == text(name, arg(1)?)?)),
+    Builtin::Settle => match arg(0)? {
+      Value::Map(held) if held.get(snapfire_fsr_core::value::typed::DEFERRED).is_some() => match held.get("$state") {
+        Some(Value::Str(state)) if state.as_str() == "fulfilled" => held.get("value").cloned().unwrap_or(Value::Undefined),
+        Some(Value::Str(state)) if state.as_str() == "rejected" => {
+          let reason = held.get("reason").cloned().unwrap_or(Value::Undefined);
+          let message = match &reason {
+            Value::Map(fields) => fields.get("message").cloned().unwrap_or_else(|| reason.clone()),
+            other => other.clone(),
+          };
+          return Err(super::classes::thrown_fail(&[message, reason]));
+        }
+        _ => return Err(Fail::internal("a promise from `Promise.withResolvers()` that nothing resolved before it was awaited")),
+      },
+      other => other.clone(),
+    },
     Builtin::ExecFrom | Builtin::TestFrom => {
       let Value::Map(held) = arg(0)? else { return Err(type_error(&format!("{name:?}"), "a regular expression", arg(0)?)) };
       let (pattern, flags) = crate::jsregex::of(arg(0)?).ok_or_else(|| type_error(&format!("{name:?}"), "a regular expression", arg(0).unwrap_or(&Value::Null)))?;
@@ -987,6 +1008,9 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Some(Value::Str(s)) => s.chars().take(10).collect(),
         Some(v) => " ".repeat(number(name, v)?.clamp(0.0, 10.0) as usize),
       };
+      if matches!(arg(0)?, Value::Variant { tag, .. } if tag == snapfire_fsr_core::value::typed::SYMBOL) {
+        return Ok(Value::Undefined);
+      }
       Value::str(snapfire_fsr_core::json::stringify(arg(0)?, &indent, snapfire_fsr_core::json::Integers::Refuse).map_err(|e| Fail::internal(e.0))?)
     }
     Builtin::JsonParse => {
@@ -1118,6 +1142,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Str(_) => "string",
       Value::Variant { tag, .. } if tag == crate::render::HANDLER_VALUE || tag == FUNCTION_VALUE || tag == crate::render::COMPONENT_VALUE => "function",
       Value::Ref { .. } => "function",
+      Value::Variant { tag, .. } if tag == snapfire_fsr_core::value::typed::SYMBOL => "symbol",
       _ => "object",
     }),
     Builtin::ClassNames => {
@@ -1502,6 +1527,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         "atan2" => m::atan2(x, number(name, arg(2)?)?),
         "sinh" => m::sinh(x),
         "cosh" => m::cosh(x),
+        "tanh" => m::tanh(x),
         "asinh" => m::asinh(x),
         "acosh" => m::acosh(x),
         "atanh" => m::atanh(x),
@@ -1515,6 +1541,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         "imul" => f64::from((uint32(x) as i32).wrapping_mul(uint32(number(name, arg(2)?)?) as i32)),
         "clz32" => f64::from(uint32(x).leading_zeros()),
         "fround" => f64::from(x as f32),
+        "f16round" => m::f16round(x),
         other => return Err(Fail::internal(format!("`Math.{other}`, which the interpreter does not compute"))),
       })
     }
@@ -1534,6 +1561,6 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       Value::Map(map)
     }
-    Builtin::ExecFrom | Builtin::TestFrom | Builtin::Substr | Builtin::IsWellFormed | Builtin::ToWellFormed | Builtin::UtcString | Builtin::SameValue | Builtin::FromCharCode | Builtin::FromCodePoint | Builtin::DateUtc | Builtin::ToPrecision | Builtin::ToExponential | Builtin::Normalize | Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin | Builtin::Iterate => return builtin_js(name, args),
+    Builtin::Tagged | Builtin::TaggedPayload | Builtin::IsTagged | Builtin::Settle | Builtin::ExecFrom | Builtin::TestFrom | Builtin::Substr | Builtin::IsWellFormed | Builtin::ToWellFormed | Builtin::UtcString | Builtin::SameValue | Builtin::FromCharCode | Builtin::FromCodePoint | Builtin::DateUtc | Builtin::ToPrecision | Builtin::ToExponential | Builtin::Normalize | Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin | Builtin::Iterate => return builtin_js(name, args),
   })
 }

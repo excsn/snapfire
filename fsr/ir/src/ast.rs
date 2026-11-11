@@ -409,6 +409,14 @@ pub enum Builtin {
   ExecFrom,
   /// `re.test(s)` the same way: `[matched, re]`.
   TestFrom,
+  /// `(tagged "tag" payload)`: a value the model carries as a tagged variant, such as a registered symbol or raw JSON text.
+  Tagged,
+  /// `(tagged-payload value "tag")`: the payload of a variant with that tag, else `undefined`.
+  TaggedPayload,
+  /// `(is-tagged value "tag")`: whether the value is a variant with that tag.
+  IsTagged,
+  /// `(settle value)`: what `await` reads from a promise `Promise.withResolvers()` made, an object holding `$deferred`: its value once resolved, its reason thrown once rejected. Any other value is itself.
+  Settle,
   /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.
   LastIndexOf,
   /// `s.charAt(i)`: the UTF-16 code unit at `i` as a string, empty past either end.

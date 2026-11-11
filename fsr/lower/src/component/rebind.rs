@@ -242,6 +242,24 @@ pub(super) fn map_or_set_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpress
   Ok(Some((name, value, kind)))
 }
 
+/// `d.setUTCHours(h)` and the other setters with `d` a local `Date`: the local and the instant it holds after. A setter that reads this machine's time zone is one only off a web render path.
+pub(super) fn date_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpression, writable: &Writable<'_>) -> Lowered<Option<(String, Expr)>> {
+  let Some(m) = call.callee.as_member_expression() else { return Ok(None) };
+  let js::Expression::Identifier(id) = m.object() else { return Ok(None) };
+  let Some(method) = prop_name_of(m) else { return Ok(None) };
+  let local_time = lowerer.reaches(Reach::Terminal) || !lowerer.on_render_path();
+  if !(crate::DATE_SETTERS.contains(&method.as_ref()) || local_time && crate::LOCAL_DATE_SETTERS.contains(&method.as_ref())) || lowerer.kind_of(m.object()) != Some(crate::Kind::Date) {
+    return Ok(None);
+  }
+  let name = id.name.to_string();
+  if !writable.local(lowerer, &name) {
+    return Ok(None);
+  }
+  let held = current(lowerer, &name);
+  let value = lowerer.date_set(&method, held, call)?;
+  Ok(Some((name, value)))
+}
+
 /// `q.set(k, v)`, `q.append(k, v)` or `q.delete(k)` with `q` a local `URLSearchParams` (or the same on `url.searchParams` with `url` a local `URL`): the local, what it holds after the write and its kind.
 pub(super) fn search_params_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpression, writable: &Writable<'_>) -> Lowered<Option<(String, Expr, crate::Kind)>> {
   let callee = &call.callee;
@@ -506,6 +524,11 @@ pub(super) fn rebind_stmt_inner(lowerer: &mut Lowerer<'_>, stmt: &js::Statement,
           note(assigned, &name);
           return Ok(());
         }
+        if let Some((name, value)) = date_write(lowerer, call, writable)? {
+          rebind_kind(lowerer, &name, value, crate::Kind::Date);
+          note(assigned, &name);
+          return Ok(());
+        }
         if let Some((name, value, kind)) = search_params_write(lowerer, call, writable)? {
           rebind_kind(lowerer, &name, value, kind);
           note(assigned, &name);
@@ -569,6 +592,17 @@ pub(super) fn rebind_stmt_inner(lowerer: &mut Lowerer<'_>, stmt: &js::Statement,
             Ok(())
           }
         }
+      }
+      js::Expression::AwaitExpression(_) => {
+        let effect = lowerer.expr(&e.expression)?;
+        if lowerer.held.is_empty() {
+          let held = lowerer.temp();
+          lowerer.scope.push((held.clone(), effect));
+          note(assigned, &held);
+        } else {
+          hold_in_reach(lowerer, effect);
+        }
+        Ok(())
       }
       other => Err(lowerer.residue(other.span(), "an expression statement other than a write to a local")),
     },

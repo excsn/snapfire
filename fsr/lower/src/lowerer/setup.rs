@@ -438,6 +438,10 @@ let m = m_expr.as_member_expression().expect("matched as a member");
       js::Expression::CallExpression(call) => match &call.callee {
         callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Browser)) => Some(Kind::Browser),
         callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Set) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if matches!(p.name.as_str(), "union" | "intersection" | "difference" | "symmetricDifference"))) => Some(Kind::Set),
+        callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Set) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "add")) => Some(Kind::Set),
+        callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Map) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "set")) => Some(Kind::Map),
+        callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Date) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "toTemporalInstant")) => Some(Kind::Temporal),
+        callee if callee.as_member_expression().is_some_and(|m| matches!(m.object(), js::Expression::Identifier(id) if id.name.as_str() == "Map" && !self.scope.iter().any(|(n, _)| n == "Map")) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "groupBy")) => Some(Kind::Map),
         callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Temporal) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if crate::TEMPORAL_MAKERS.contains(&p.name.as_str()))) => Some(Kind::Temporal),
         js::Expression::Identifier(f) if !self.scope.iter().any(|(n, _)| n == f.name.as_str()) => {
           let returned = returned_by(f.name.as_str());
@@ -476,27 +480,44 @@ let m = m_expr.as_member_expression().expect("matched as a member");
 
   /// `x instanceof Map`, `Set`, `Date` or `Array`: a constant where the build knows what `x` holds, `Array.isArray` for `Array`.
   pub(crate) fn instance_of(&mut self, bin: &js::BinaryExpression) -> Lowered<Expr> {
-    if let Some(test) = self.class_instance_of(&bin.left, &bin.right)? {
+    self.instance_test(&bin.left, &bin.right, bin.span)
+  }
+
+  /// `C.prototype.isPrototypeOf(x)`: `x instanceof C`, with `Object` any object.
+  pub(crate) fn prototype_of(&mut self, class: &js::Expression, value: &js::Expression, span: Span) -> Lowered<Expr> {
+    if matches!(class, js::Expression::Identifier(id) if id.name.as_str() == "Object" && !self.scope.iter().any(|(n, _)| n == "Object")) {
+      let held = self.temp();
+      let kind = Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] };
+      let object = Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Eq, Box::new(kind.clone()), Box::new(Expr::lit_str("object")))), Box::new(Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Var(held.clone())] }))));
+      let answer = Expr::Logic(LogicOp::Or, Box::new(object), Box::new(Expr::Compare(CompareOp::Eq, Box::new(kind), Box::new(Expr::lit_str("function")))));
+      return Ok(Expr::Block(vec![Stmt::Let { name: held, expr: self.expr(value)? }, Stmt::Return(answer)]));
+    }
+    self.instance_test(value, class, span)
+  }
+
+  fn instance_test(&mut self, left: &js::Expression, right: &js::Expression, span: Span) -> Lowered<Expr> {
+    let bin_span = span;
+    if let Some(test) = self.class_instance_of(left, right)? {
       return Ok(test);
     }
-    let js::Expression::Identifier(class) = &bin.right else { return Err(self.residue(bin.span, "`instanceof` of a computed class")) };
+    let js::Expression::Identifier(class) = right else { return Err(self.residue(bin_span, "`instanceof` of a computed class")) };
     let class = class.name.as_str();
     if self.scope.iter().any(|(n, _)| n == class) || self.globals.iter().any(|(n, _)| n == class) {
-      return Err(self.residue(bin.span, format!("`instanceof {class}`, a class this file declares")));
+      return Err(self.residue(bin_span, format!("`instanceof {class}`, a class this file declares")));
     }
     if class == "Array" {
-      return Ok(Expr::Builtin { name: Builtin::IsArray, args: vec![self.expr(&bin.left)?] });
+      return Ok(Expr::Builtin { name: Builtin::IsArray, args: vec![self.expr(left)?] });
     }
     if ERROR_CONSTRUCTORS.contains(&class) {
-      return Ok(Expr::Builtin { name: Builtin::IsError, args: vec![self.expr(&bin.left)?, Expr::lit_str(class)] });
+      return Ok(Expr::Builtin { name: Builtin::IsError, args: vec![self.expr(left)?, Expr::lit_str(class)] });
     }
     if !matches!(class, "Map" | "Set" | "Date") {
-      return Err(self.residue(bin.span, format!("`instanceof {class}`")));
+      return Err(self.residue(bin_span, format!("`instanceof {class}`")));
     }
-    match self.kind_of(&bin.left) {
-      Some(Kind::Browser) => Err(self.browser_only(bin.left.span(), "`instanceof` of a value only the browser knows")),
+    match self.kind_of(left) {
+      Some(Kind::Browser) => Err(self.browser_only(left.span(), "`instanceof` of a value only the browser knows")),
       Some(kind) => Ok(Expr::Lit(Lit::Bool(kind.name() == class))),
-      None => Err(self.residue_with(bin.left.span(), format!("`instanceof {class}` on a value whose type the build does not know"), "make the value in place with `new` or type the prop `Map<K, V>`, `Set<T>` or `Date` where the component declares its props")),
+      None => Err(self.residue_with(left.span(), format!("`instanceof {class}` on a value whose type the build does not know"), "make the value in place with `new` or type the prop `Map<K, V>`, `Set<T>` or `Date` where the component declares its props")),
     }
   }
 

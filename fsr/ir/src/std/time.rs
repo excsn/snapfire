@@ -18,6 +18,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("time.now", Reach::Body, |ambient, _| Ok(Value::Int(ambient.now)));
   extensions.register("time.monotonic", Reach::Body, |_, _| Ok(Value::F64(STARTED.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0)));
   extensions.register("time.localOffset", Reach::Body, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?)?)));
+  extensions.register("time.offsetIn", Reach::Render, |_, args| Ok(Value::F64(offset_in(number("time.offsetIn", args, 0)?, text("time.offsetIn", args, 1)?)?)));
 }
 
 use snapfire_fsr_core::time::MS_PER_DAY;
@@ -54,6 +55,18 @@ pub use snapfire_fsr_core::time::{civil_from_days, civil_from_ms, clock_from_ms,
 /// `new Date(ms).getTimezoneOffset()` in this machine's zone, from the time zone source the build holds; `NaN` for an invalid instant.
 pub fn local_offset(ms: f64) -> Result<f64, Fail> {
   snapfire_time::local_offset(ms).map_err(|e| Fail::internal(e.to_string()))
+}
+
+/// `getTimezoneOffset` of the instant `ms` read in the IANA `zone`, as an `Intl.DateTimeFormat` with that `timeZone` reads it; `NaN` for an invalid instant. A zone the source does not know is a `RangeError`, as JavaScript throws.
+pub fn offset_in(ms: f64, zone: &str) -> Result<f64, Fail> {
+  if !(ms.abs() <= 8.64e15) {
+    return Ok(f64::NAN);
+  }
+  let source = snapfire_time::source().map_err(|e| Fail::internal(e.to_string()))?;
+  snapfire_time::offset_in(source, zone, ms).map_err(|e| match e {
+    snapfire_time::Error::UnknownZone(_) => Fail::internal(format!("RangeError: Invalid time zone specified: {zone}")),
+    other => Fail::internal(other.to_string()),
+  })
 }
 
 /// `time.format(when, pattern)`: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and

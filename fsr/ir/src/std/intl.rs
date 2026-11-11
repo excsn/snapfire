@@ -9,7 +9,7 @@ use icu_collator::preferences::CollationNumericOrdering;
 use icu_collator::{Collator, CollatorPreferences};
 use icu_datetime::fieldsets::{D, DE, E, M, MD, MDE, T, Y, YM, YMD, YMDE, YMDET, YMDT};
 use icu_datetime::input::{DateTime, Time};
-use icu_datetime::options::TimePrecision;
+use icu_datetime::options::{TimePrecision, YearStyle};
 use icu_datetime::DateTimeFormatter;
 use icu_decimal::options::{DecimalFormatterOptions, GroupingStrategy};
 use icu_decimal::DecimalFormatter;
@@ -36,6 +36,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.upper", Reach::Render, |_, args| case("intl.upper", args, snapfire_i18n::upper_case));
   extensions.register("intl.lower", Reach::Render, |_, args| case("intl.lower", args, snapfire_i18n::lower_case));
   extensions.register("intl.systemLocale", Reach::Body, |_, _| Ok(Value::str(system_locale())));
+  extensions.register("intl.localDate", Reach::Body, |_, args| Ok(Value::str(local_date(number("intl.localDate", args, 0)?, named_locale("intl.localDate", args, 1)?, matches!(args.get(2), Some(Value::Bool(true))))?)));
   extensions.register("intl.timeString", Reach::Body, |ambient, args| Ok(Value::str(time_string(number("intl.timeString", args, 0)?, ambient.now as f64)?)));
   extensions.register("intl.dateTimeString", Reach::Body, |ambient, args| Ok(Value::str(date_time_string(number("intl.dateTimeString", args, 0)?, ambient.now as f64)?)));
 }
@@ -354,6 +355,40 @@ fn system_locale() -> String {
     "" | "C" | "POSIX" => "en-US".to_owned(),
     _ => tag,
   }
+}
+
+/// `toLocaleDateString(locale?)`, or `toLocaleString(locale?)` with `with_time`, of an instant in this machine's local time zone with no options: the numeric date ICU writes by default, then the time to the second. `Invalid Date` for an invalid instant. Without a locale, the system's.
+pub fn local_date(ms: f64, locale: Option<&str>, with_time: bool) -> Result<String, Fail> {
+  let what = if with_time { "toLocaleString" } else { "toLocaleDateString" };
+  let offset = super::time::local_offset(ms)?;
+  if offset.is_nan() {
+    return Ok("Invalid Date".to_owned());
+  }
+  let local = ms - offset * 60_000.0;
+  let (y, m, d) = super::time::civil_from_ms(local);
+  let (h, min, s, _) = super::time::clock_from_ms(local);
+  let tag = locale.map_or_else(system_locale, str::to_owned);
+  let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
+  let date = Date::try_new_iso(y as i32, m as u8, d as u8).map_err(|e| data(what, e))?;
+  let time = Time::try_new(h as u8, min as u8, s as u8, 0).map_err(|e| data(what, e))?;
+  // Persian and Thai write the date in the Persian and Buddhist calendars, which ICU4X converts to.
+  let other_calendar = matches!(locale.id.language.as_str(), "fa" | "ps" | "th");
+  let out = if other_calendar {
+    if with_time {
+      DateTimeFormatter::try_new(locale.into(), YMDT::short().with_year_style(YearStyle::Full).with_time_precision(TimePrecision::Second)).map_err(|e| data(what, e))?.format(&DateTime { date, time }).to_string()
+    } else {
+      DateTimeFormatter::try_new(locale.into(), YMD::short().with_year_style(YearStyle::Full)).map_err(|e| data(what, e))?.format(&date).to_string()
+    }
+  } else {
+    let written = snapfire_i18n::numeric_date(&tag, y, m, d);
+    if with_time {
+      let clock = icu_datetime::NoCalendarFormatter::try_new(locale.into(), T::medium()).map_err(|e| data(what, e))?.format(&time).to_string();
+      snapfire_i18n::date_with_time(&tag, &written, &clock)
+    } else {
+      written
+    }
+  };
+  Ok(out.replace('\u{202f}', " "))
 }
 
 /// The zone rules of the time zone source in use.

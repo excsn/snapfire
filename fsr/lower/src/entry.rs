@@ -8,6 +8,15 @@ pub(crate) fn want_heap() {
   HEAP_WANTED.set(true);
 }
 
+/// Whether the program being lowered has made a promise with `Promise.withResolvers()`, which its `await`s settle.
+pub(crate) fn made_deferred() -> bool {
+  DEFERRED.get()
+}
+
+pub(crate) fn note_deferred() {
+  DEFERRED.set(true);
+}
+
 /// `run`, then `run` again with the heap when the first pass wrote an object or could not lower the body.
 pub(crate) fn with_heap<T, E: std::fmt::Debug>(mut run: impl FnMut() -> Result<T, E>, mark: impl FnOnce(&mut T)) -> Result<T, E> {
   if HEAP_ACTIVE.get() {
@@ -18,7 +27,7 @@ pub(crate) fn with_heap<T, E: std::fmt::Debug>(mut run: impl FnMut() -> Result<T
 
 /// [`with_heap`] for a program of its own inside another's lowering.
 pub(crate) fn with_heap_fresh<T, E: std::fmt::Debug>(mut run: impl FnMut() -> Result<T, E>, mark: impl FnOnce(&mut T)) -> Result<T, E> {
-  let (outer_pass, outer_wanted, outer_active) = (HEAP_PASS.replace(false), HEAP_WANTED.replace(false), HEAP_ACTIVE.replace(true));
+  let (outer_pass, outer_wanted, outer_active, outer_deferred) = (HEAP_PASS.replace(false), HEAP_WANTED.replace(false), HEAP_ACTIVE.replace(true), DEFERRED.replace(false));
   let first = run();
   let out = if first.is_ok() && !HEAP_WANTED.get() {
     first
@@ -44,6 +53,7 @@ pub(crate) fn with_heap_fresh<T, E: std::fmt::Debug>(mut run: impl FnMut() -> Re
   HEAP_PASS.set(outer_pass);
   HEAP_WANTED.set(outer_wanted);
   HEAP_ACTIVE.set(outer_active);
+  DEFERRED.set(outer_deferred);
   out
 }
 
