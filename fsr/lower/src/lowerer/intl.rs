@@ -3,8 +3,11 @@ use crate::*;
 impl<'a> Lowerer<'a> {
   /// Refuses an `Intl.Segmenter` the build does not split as the browser would: one outside a terminal, whose browser may hold other Unicode tables, and one whose granularity is not `"grapheme"`.
   pub(crate) fn grapheme_segmenter(&mut self, made: &js::NewExpression) -> Lowered<()> {
+    if !self.reaches(Reach::Terminal) && self.on_render_path() {
+      return Err(self.browser_only(made.span, "`Intl.Segmenter` on a render path, which splits by the browser's own Unicode tables"));
+    }
     if !self.reaches(Reach::Terminal) {
-      return Err(self.browser_only(made.span, "`Intl.Segmenter`, which splits by the browser's own Unicode tables"));
+      return Ok(());
     }
     let granularity = made.arguments.get(1).map(|options| match crate::syntax::arg_expr(options) {
       js::Expression::ObjectExpression(obj) => obj.properties.iter().find_map(|prop| match prop {

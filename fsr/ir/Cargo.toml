@@ -41,6 +41,7 @@ icu_decimal = "2"
 icu_list = "2"
 icu_locale_core = "2"
 icu_plurals = "2"
+icu_segmenter = "2"
 indexmap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

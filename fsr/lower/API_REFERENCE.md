@@ -970,6 +970,7 @@ What lowers. Anything not listed is a `Residue`.
 * `intl.date` takes a `dateStyle` or a `timeStyle` of `short` or `medium`.
 * `intl.date` also takes the parts `weekday`, `year`, `month` and `day` with a text month or weekday (`long`, `short`, `narrow`) and a numeric year and day.
 * `timeZone: "UTC"` is allowed. On a web render path it is required beside a `timeStyle`. In a body and in a terminal page a date with no `timeZone` is formatted in this machine's zone, as node formats it, the instant moved by `time.localOffset`.
+* `new Intl.Segmenter(locale, { granularity }).segment(s)` and its `containing(i)` are `Builtin::Segments` in a body: ICU's grapheme, word or sentence segments, each with its `index` and `input` and `isWordLike` for a word. In a terminal page a grapheme segmenter is `Builtin::Graphemes`. On a web render path a segmenter is a value the browser fills in, since the browser segments by its own Unicode tables.
 * `new Intl.PluralRules(locale, { type }).select(n)` is `intl.plural`.
 * `new Intl.Collator(locale, { sensitivity, numeric }).compare(a, b)` and `a.localeCompare(b, locale, options)` are `intl.compare`. `collator.compare` passed as a function is a lambda over it.
 * `new Intl.RelativeTimeFormat(locale, { numeric, style }).format(value, unit)` is `intl.relative`.

@@ -421,6 +421,8 @@ pub enum Builtin {
   ViewGet,
   /// `(view-set bytes "Uint16" offset value little)`: the bytes with `value` written at `offset` as a `DataView` writes it.
   ViewSet,
+  /// `(segments input granularity at?)`: `Intl.Segmenter`'s `segment(input)` at `"grapheme"`, `"word"` or `"sentence"` granularity as ICU segments it, each `{ segment, index, input }` with `isWordLike` for a word; with `at`, `containing(at)`.
+  Segments,
   /// `(settle value)`: what `await` reads from a promise `Promise.withResolvers()` made, an object holding `$deferred`: its value once resolved, its reason thrown once rejected. Any other value is itself.
   Settle,
   /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.

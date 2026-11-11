@@ -207,6 +207,13 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("[...new Intl.Segmenter(\"en\", { granularity: \"word\" }).segment(\"hi you\")].map((s) => s.segment)", "[\"hi\",\" \",\"you\"]"),
+  ("[...new Intl.Segmenter(\"en\", { granularity: \"word\" }).segment(\"Hello, world!\")].filter((s) => s.isWordLike).map((s) => [s.segment, s.index])", "[[\"Hello\",0],[\"world\",7]]"),
+  ("[...new Intl.Segmenter(\"en\").segment(\"ab\")].map((s) => s.segment)", "[\"a\",\"b\"]"),
+  ("[...new Intl.Segmenter(\"en\").segment(\"e\\u0301👍🏽x\")].map((s) => s.segment.length)", "[2,4,1]"),
+  ("[...new Intl.Segmenter(\"en\", { granularity: \"sentence\" }).segment(\"One. Two? Three!\")].map((s) => s.segment)", "[\"One. \",\"Two? \",\"Three!\"]"),
+  ("new Intl.Segmenter(\"en\", { granularity: \"word\" }).segment(\"hi you\").containing(4).segment", "\"you\""),
+  ("[...new Intl.Segmenter(\"ja\", { granularity: \"word\" }).segment(\"今日は良い天気\")].map((s) => s.segment)", "[\"今日\",\"は\",\"良い\",\"天気\"]"),
   ("new Proxy({ a: 1 }, {}).a", "1"),
   ("new Proxy({ a: 1 }, { get: (t, k) => (k in t ? t[k] : \"none\") }).b", "\"none\""),
   ("(() => { const p = new Proxy({ a: 1 }, { has: (t, k) => k === \"z\" }); return [\"z\" in p, \"a\" in p]; })()", "[true,false]"),

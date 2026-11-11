@@ -138,6 +138,53 @@ fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     },
     Builtin::IsTagged => Value::Bool(matches!(arg(0)?, Value::Variant { tag, .. } if tag == text(name, arg(1)?)?)),
     Builtin::ElementOf => element_of(text(name, arg(0)?)?, arg(1)?)?,
+    Builtin::Segments => {
+      let input = text(name, arg(0)?)?;
+      let granularity = text(name, arg(1)?)?;
+      let at = match args.get(2) {
+        None | Some(Value::Undefined) => None,
+        Some(v) => Some(to_number(v).unwrap_or(0.0)),
+      };
+      let (breaks, words): (Vec<usize>, Vec<bool>) = match granularity {
+        "word" => {
+          let mut iter = icu_segmenter::WordSegmenter::new_dictionary(Default::default()).segment_str(input);
+          let mut breaks = Vec::new();
+          let mut words = Vec::new();
+          while let Some(at) = iter.next() {
+            breaks.push(at);
+            words.push(iter.is_word_like());
+          }
+          (breaks, words)
+        }
+        "sentence" => (icu_segmenter::SentenceSegmenter::new(Default::default()).segment_str(input).collect(), Vec::new()),
+        "grapheme" => (icu_segmenter::GraphemeClusterSegmenter::new().segment_str(input).collect(), Vec::new()),
+        other => return Err(Fail::internal(format!("RangeError: Value {other} out of range for Intl.Segmenter options property granularity"))),
+      };
+      let mut segments = Vec::new();
+      let mut index = 0usize;
+      for (k, pair) in breaks.windows(2).enumerate() {
+        let segment = &input[pair[0]..pair[1]];
+        let units = segment.encode_utf16().count();
+        let mut map = ValueMap::default();
+        map.insert("segment".to_owned(), Value::str(segment));
+        map.insert("index".to_owned(), Value::F64(index as f64));
+        map.insert("input".to_owned(), Value::str(input));
+        if granularity == "word" {
+          map.insert("isWordLike".to_owned(), Value::Bool(words.get(k + 1).copied().unwrap_or(false)));
+        }
+        if let Some(at) = at {
+          if at >= index as f64 && at < (index + units) as f64 {
+            return Ok(Value::Map(map));
+          }
+        }
+        segments.push(Value::Map(map));
+        index += units;
+      }
+      match at {
+        Some(_) => Value::Undefined,
+        None => Value::seq(segments),
+      }
+    }
     Builtin::ViewGet => {
       let bytes = view_bytes(arg(0)?)?;
       let (kind, at, little) = (text(name, arg(1)?)?, view_offset(arg(2)?)?, truthy(args.get(3).unwrap_or(&Value::Bool(false))));
@@ -1589,7 +1636,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       Value::Map(map)
     }
-    Builtin::Tagged | Builtin::TaggedPayload | Builtin::IsTagged | Builtin::Settle | Builtin::ElementOf | Builtin::ViewGet | Builtin::ViewSet | Builtin::ExecFrom | Builtin::TestFrom | Builtin::Substr | Builtin::IsWellFormed | Builtin::ToWellFormed | Builtin::UtcString | Builtin::SameValue | Builtin::FromCharCode | Builtin::FromCodePoint | Builtin::DateUtc | Builtin::ToPrecision | Builtin::ToExponential | Builtin::Normalize | Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin | Builtin::Iterate => return builtin_js(name, args),
+    Builtin::Tagged | Builtin::TaggedPayload | Builtin::IsTagged | Builtin::Settle | Builtin::Segments | Builtin::ElementOf | Builtin::ViewGet | Builtin::ViewSet | Builtin::ExecFrom | Builtin::TestFrom | Builtin::Substr | Builtin::IsWellFormed | Builtin::ToWellFormed | Builtin::UtcString | Builtin::SameValue | Builtin::FromCharCode | Builtin::FromCodePoint | Builtin::DateUtc | Builtin::ToPrecision | Builtin::ToExponential | Builtin::Normalize | Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin | Builtin::Iterate => return builtin_js(name, args),
   })
 }
 

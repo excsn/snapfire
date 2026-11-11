@@ -545,6 +545,29 @@ impl<'a> Lowerer<'a> {
       };
       if let Some(made) = segmenter.filter(|made| platform_object(made) == Some("Segmenter")) {
         self.grapheme_segmenter(&made)?;
+        if !self.reaches(Reach::Terminal) {
+          let text = text.ok_or_else(|| self.residue(call.span, "`segment` without a string"))?;
+          let granularity = made.arguments.get(1).and_then(|options| match crate::syntax::arg_expr(options) {
+            js::Expression::ObjectExpression(obj) => obj.properties.iter().find_map(|prop| match prop {
+              js::ObjectPropertyKind::ObjectProperty(prop) => match crate::syntax::prop_of(prop) {
+                crate::syntax::Prop::KeyValue(kv) if prop_name(&kv.key, kv.computed).as_deref() == Some("granularity") => Some(&kv.value),
+                _ => None,
+              },
+              _ => None,
+            }),
+            _ => None,
+          });
+          let granularity = match granularity {
+            Some(g) => Expr::Str(Box::new(self.expr(g)?)),
+            None => Expr::lit_str("grapheme"),
+          };
+          let mut args = vec![Expr::Str(Box::new(self.expr(text)?)), granularity];
+          if method == "containing" {
+            let at = call.arguments.first().ok_or_else(|| self.residue(call.span, "`containing` without an index"))?;
+            args.push(self.expr(crate::syntax::arg_expr(at))?);
+          }
+          return Ok(Expr::Builtin { name: Builtin::Segments, args });
+        }
         let text = text.ok_or_else(|| self.residue(call.span, "`segment` without a string"))?;
         let mut args = vec![self.expr(text)?];
         if method == "containing" {
