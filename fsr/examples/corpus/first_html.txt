@@ -143,7 +143,7 @@ learn-manipulating-the-dom-with-refs-14	react fails: prepare: compiling the spec
 learn-manipulating-the-dom-with-refs-15	same
 learn-manipulating-the-dom-with-refs-16	same
 learn-manipulating-the-dom-with-refs-2	same
-learn-manipulating-the-dom-with-refs-3	differs
+learn-manipulating-the-dom-with-refs-3	same
 learn-manipulating-the-dom-with-refs-4	same
 learn-manipulating-the-dom-with-refs-5	same
 learn-manipulating-the-dom-with-refs-6	differs
@@ -521,8 +521,8 @@ reference-react-purecomponent-1	same
 reference-react-purecomponent-2	same
 reference-react-purecomponent-3	same
 reference-react-strictmode-1	same
-reference-react-strictmode-10	ir fails: filter wants an array, got variant
-reference-react-strictmode-11	ir fails: filter wants an array, got variant
+reference-react-strictmode-10	same
+reference-react-strictmode-11	same
 reference-react-strictmode-2	same
 reference-react-strictmode-3	same
 reference-react-strictmode-4	same
@@ -530,7 +530,7 @@ reference-react-strictmode-5	same
 reference-react-strictmode-6	same
 reference-react-strictmode-7	same
 reference-react-strictmode-8	same
-reference-react-strictmode-9	ir fails: filter wants an array, got variant
+reference-react-strictmode-9	same
 reference-react-suspense-1	same
 reference-react-suspense-10	same
 reference-react-suspense-11	same
@@ -618,7 +618,7 @@ reference-react-useref-4	same
 reference-react-useref-5	same
 reference-react-useref-6	same
 reference-react-usestate-1	same
-reference-react-usestate-11	ir fails: map wants an array, got variant
+reference-react-usestate-11	same
 reference-react-usestate-12	same
 reference-react-usestate-13	same
 reference-react-usestate-14	same

@@ -3,7 +3,6 @@ learn-keeping-components-pure-5	unchanged	notes 0
 learn-keeping-components-pure-6	unchanged	notes 0
 learn-manipulating-the-dom-with-refs-13	unchanged	notes 0
 learn-manipulating-the-dom-with-refs-14	unchanged	notes 0
-learn-manipulating-the-dom-with-refs-3	unchanged	notes 0
 learn-passing-props-to-a-component-10	unchanged	notes 0
 learn-rsc-sandbox-test-10	refused: src/actions.js:3:5: `count`, a module-level `let` a function writes; a body reads module state through the store	notes 0
 learn-rsc-sandbox-test-3	lowered	notes 1

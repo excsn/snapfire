@@ -31,7 +31,7 @@ examples-composition-render-prop-props	lowered
 examples-composition-render-props	lowered
 examples-context-context-api	client: src/App.svelte:7:2 `<MapMarker>` does not lower: src/MapMarker.svelte:10:20: `new` of something other than a platform global or a class the build reads
 examples-debugging-debug	lowered
-examples-easing-easing	lowered
+examples-easing-easing	client: src/eases.js:5:1 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of`, `for (let i = a; i < b; i += s)` and `try`
 examples-embeds-blog-svelte-css-in-js	client: src/styles.js:13:26 a tagged template
 examples-embeds-blog-write-less-code	lowered
 examples-embeds-untitled	lowered

@@ -135,7 +135,7 @@ with-magic	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot foll
 with-mantine	client: routes/layout.island0.tsx:6:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/layout.tsx:6:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/page.island0.tsx:9:5 `Text` comes from `@mantine/core`, which the build cannot follow	pages 1	notes 2
 with-mdbreact	client: routes/page.island0.tsx:15:5 `MDBCardTitle` comes from `mdbreact`, which the build cannot follow	pages 1	notes 1
 with-meilisearch	client: routes/page.island0.tsx:76:25 `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 5
-with-mobx	client: src/components/Page.js:7:14 a component made by `observer`, which the build does not lower | src/components/StoreProvider.js:25:14 `window` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 2
+with-mobx	client: src/components/Page.js:7:14 a component made by `observer`, which the build does not lower | src/components/StoreProvider.js:5:29 a call to `createContext`, which the build cannot follow	pages 4	notes 2
 with-mobx-state-tree	refused: src/store.ts:10:5: `store`, a module-level `let` a function writes; a body reads module state through the store	pages 4	notes 2
 with-mocha	lowered	pages 1	notes 0
 with-mongodb	refused: <app>/routes: holds `actions.ts` but no `page.tsx`; an action is named for the page beside it	pages 1	notes 6

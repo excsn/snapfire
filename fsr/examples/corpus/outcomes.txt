@@ -138,12 +138,12 @@ learn-manipulating-the-dom-with-refs-1	lowered
 learn-manipulating-the-dom-with-refs-10	lowered
 learn-manipulating-the-dom-with-refs-11	lowered
 learn-manipulating-the-dom-with-refs-12	lowered
-learn-manipulating-the-dom-with-refs-13	client: src/App.js:40:17 `new Array`
-learn-manipulating-the-dom-with-refs-14	client: src/App.js:56:17 `new Array`
+learn-manipulating-the-dom-with-refs-13	client: src/App.js:42:29 `Math.random()` on a render path or at module level, which the server and the browser answer differently
+learn-manipulating-the-dom-with-refs-14	client: src/App.js:58:29 `Math.random()` on a render path or at module level, which the server and the browser answer differently
 learn-manipulating-the-dom-with-refs-15	lowered
 learn-manipulating-the-dom-with-refs-16	lowered
 learn-manipulating-the-dom-with-refs-2	lowered
-learn-manipulating-the-dom-with-refs-3	client: src/App.js:57:19 `new Array`
+learn-manipulating-the-dom-with-refs-3	lowered
 learn-manipulating-the-dom-with-refs-4	lowered
 learn-manipulating-the-dom-with-refs-5	lowered
 learn-manipulating-the-dom-with-refs-6	lowered
