@@ -111,6 +111,19 @@ pub fn in_daylight(zone: &str, ms: f64, rules: &impl ZoneRules) -> bool {
   rules.observed(zone, ms).is_some_and(|(_, saving)| saving != 0)
 }
 
+/// The CLDR locales `tag` reads names from, most specific first, ending at the root locale.
+pub(crate) fn locale_chain(tag: &str) -> Vec<&'static str> {
+  let data = zones();
+  let mut chain = Vec::new();
+  let mut at = crate::locale::name(tag, &data.locales).or(Some("und"));
+  while let Some(name) = at {
+    let Some((key, names)) = data.locales.get_key_value(name) else { break };
+    chain.push(*key);
+    at = names.parent;
+  }
+  chain
+}
+
 /// The locales the names of `locale` are looked up in, most specific first.
 fn chain(locale: &str) -> Vec<&'static Names> {
   let data = zones();

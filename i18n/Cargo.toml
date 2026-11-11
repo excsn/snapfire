@@ -13,6 +13,12 @@ repository = "https://github.com/excsn/snapfire"
 homepage = "https://github.com/excsn/snapfire/tree/main/i18n"
 readme = "README.md"
 
+[features]
+default = ["display_names"]
+# The names of languages, regions, scripts, currencies, calendars and date
+# fields `Intl.DisplayNames` writes, about 5.9 MB of CLDR data.
+display_names = []
+
 [dependencies]
 
 [dev-dependencies]

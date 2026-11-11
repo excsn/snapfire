@@ -17,6 +17,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
 * [Mapping Case Under a Locale](#mapping-case-under-a-locale)
 * [Naming a Time Zone](#naming-a-time-zone)
 * [Writing a Date With No Options](#writing-a-date-with-no-options)
+* [Naming a Language, a Region or a Currency](#naming-a-language-a-region-or-a-currency)
 * [Regenerating the Data](#regenerating-the-data)
 * [Error Handling](#error-handling)
 
@@ -218,6 +219,25 @@ assert_eq!(date_with_time("ja-JP", "2024/9/10", "19:37:20"), "2024/9/10 19:37:20
 
 The calendar is the Gregorian one. Persian and Thai write a date in their own calendars by default, which this crate does not convert to.
 
+## Naming a Language, a Region or a Currency
+
+`display_name` gives the name `Intl.DisplayNames` writes. The data is the `display_names` feature, on by default, about 5.9 MB:
+
+```rust
+use snapfire_i18n::{display_name, NameKind};
+
+assert_eq!(display_name("en", NameKind::Region, "GB", "long", false).as_deref(), Some("United Kingdom"));
+assert_eq!(display_name("en", NameKind::Region, "GB", "short", false).as_deref(), Some("UK"));
+assert_eq!(display_name("en", NameKind::Language, "en-US", "long", false).as_deref(), Some("American English"));
+assert_eq!(display_name("en", NameKind::Language, "en-US", "long", true).as_deref(), Some("English (United States)"));
+```
+
+Leave the feature out to drop the data. Every name is then `None`:
+
+```toml
+snapfire_i18n = { version = "0", default-features = false }
+```
+
 ## Regenerating the Data
 
 `data/cldr.txt` is written by the `datagen` crate beside this one from a cldr-json release. It reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages:
@@ -234,6 +254,12 @@ Use the CLDR release the number formatter's data was built from, so the digits a
 
 ```sh
 cargo run --release -p snapfire_i18n_datagen -- --zones cldr i18n/data/zones.txt
+```
+
+`data/names.txt`, the display names, is written from the same release with `--names`. It also reads the `cldr-localenames-full` package:
+
+```sh
+cargo run --release -p snapfire_i18n_datagen -- --names cldr i18n/data/names.txt
 ```
 
 `data/ucd.txt` is written by the same crate from a Unicode Character Database release, with `--ucd`:

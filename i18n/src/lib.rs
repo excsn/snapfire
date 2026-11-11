@@ -8,6 +8,7 @@ mod case;
 mod currency;
 mod data;
 mod locale;
+mod names;
 mod pattern;
 mod percent;
 mod relative;
@@ -18,6 +19,7 @@ pub use currency::{Currency, Display};
 pub use pattern::Sign;
 pub use percent::Percent;
 pub use relative::{Plural, Relative, Unit, Width};
+pub use names::{display_name, has_display_names, NameKind};
 pub use zone::{date_with_time, duration_unit, in_daylight, numeric_date, time_separator, zone_name, ZoneRules};
 
 /// The CLDR release the embedded data was generated from.

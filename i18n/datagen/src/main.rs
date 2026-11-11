@@ -1,5 +1,6 @@
-//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`. `snapfire_i18n_datagen --ucd <ucd-dir> <out>` writes its case data instead, from a Unicode Character Database release. `snapfire_i18n_datagen --zones <cldr-json> <out>` writes its time zone names.
+//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`. `snapfire_i18n_datagen --ucd <ucd-dir> <out>` writes its case data instead, from a Unicode Character Database release. `snapfire_i18n_datagen --zones <cldr-json> <out>` writes its time zone names and `--names` its display names.
 
+mod names;
 mod ucd;
 mod zones;
 
@@ -17,7 +18,7 @@ fn main() {
   let mut args = std::env::args().skip(1);
   let mut first = args.next();
   let mode = match first.as_deref() {
-    Some(flag @ ("--ucd" | "--zones")) => {
+    Some(flag @ ("--ucd" | "--zones" | "--names")) => {
       let flag = flag.to_owned();
       first = args.next();
       Some(flag)
@@ -25,11 +26,12 @@ fn main() {
     _ => None,
   };
   let (Some(root), Some(out)) = (first, args.next()) else {
-    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>\n       snapfire_i18n_datagen --ucd <ucd-dir> <out>\n       snapfire_i18n_datagen --zones <cldr-json> <out>");
+    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>\n       snapfire_i18n_datagen --ucd <ucd-dir> <out>\n       snapfire_i18n_datagen --zones <cldr-json> <out>\n       snapfire_i18n_datagen --names <cldr-json> <out>");
     std::process::exit(2);
   };
   let made = match mode.as_deref() {
     Some("--ucd") => ucd::generate(Path::new(&root)),
+    Some("--names") => names::generate(Path::new(&root)),
     Some(_) => zones::generate(Path::new(&root)),
     None => generate(Path::new(&root)),
   };

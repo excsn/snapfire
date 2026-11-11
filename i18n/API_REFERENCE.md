@@ -30,7 +30,11 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [date_with_time](#date_with_time)
   * [duration_unit](#duration_unit)
   * [time_separator](#time_separator)
-* [8. Error handling](#8-error-handling)
+* [8. Display names](#8-display-names)
+  * [NameKind](#namekind)
+  * [display_name](#display_name)
+  * [has_display_names](#has_display_names)
+* [9. Error handling](#9-error-handling)
   * [Error](#error)
 
 ## 1. Locales
@@ -155,7 +159,25 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 
 * `pub fn time_separator(tag: &str) -> &'static str`: the separator between hours, minutes and seconds, `:` in English and `.` in Finnish.
 
-## 8. Error handling
+## 8. Display names
+
+The names `Intl.DisplayNames` writes, embedded with the `display_names` feature, on by default.
+
+### NameKind
+
+`#[derive(Debug, Clone, Copy, PartialEq, Eq)]`: `Language`, `Region`, `Script`, `Currency`, `Calendar`, `DateTimeField`.
+
+* `pub fn from_type(name: &str) -> Option<NameKind>`: the kind an `Intl.DisplayNames` `type` names.
+
+### display_name
+
+* `pub fn display_name(tag: &str, kind: NameKind, code: &str, style: &str, standard: bool) -> Option<String>`: the name of `code` in `tag`. `style` is `long`, `short` or `narrow`. A short or narrow style takes CLDR's short form where it has one. A language reads as one dialect name when CLDR has its whole tag, `American English`, else as its name with the script and region in the locale's pattern, `Chinese (Simplified, China)`; `standard` always composes it. `None` for a code the data does not name. Without the feature it is `None` for every code.
+
+### has_display_names
+
+* `pub fn has_display_names() -> bool`: whether the build holds the display names.
+
+## 9. Error handling
 
 ### Error
 

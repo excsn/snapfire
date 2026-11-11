@@ -22,7 +22,7 @@ It has no dependencies.
 snapfire_i18n = "0"
 ```
 
-No feature flags.
+`display_names`, on by default, embeds the names `Intl.DisplayNames` writes, about 5.9 MB. Without it every display name is `None`.
 
 ## What to reach for
 
@@ -39,7 +39,8 @@ No feature flags.
 | Which Unicode release the case data is | `unicode_version` |
 | `Pacific Daylight Time` for a zone and an instant | `in_daylight`, `zone_name` |
 | `9/10/2024` and `9/10/2024, 7:37:20 PM` with no options | `numeric_date`, `date_with_time` |
+| `United Kingdom`, `American English`, `Euro` | `display_name`, with the `display_names` feature |
 
 ## License
 
-The crate's code is MPL-2.0, in [LICENSE](LICENSE). The CLDR data in `data/cldr.txt` and `data/zones.txt` and the Unicode Character Database data in `data/ucd.txt` are © Unicode, Inc. under the Unicode License v3, in [data/LICENSE-UNICODE](data/LICENSE-UNICODE).
+The crate's code is MPL-2.0, in [LICENSE](LICENSE). The CLDR data in `data/cldr.txt`, `data/zones.txt` and `data/names.txt` and the Unicode Character Database data in `data/ucd.txt` are © Unicode, Inc. under the Unicode License v3, in [data/LICENSE-UNICODE](data/LICENSE-UNICODE).
