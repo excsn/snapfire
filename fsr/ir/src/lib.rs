@@ -26,4 +26,4 @@ pub use ext::{standard_reach, Ambient, Extension, Extensions, Field, Member, Rea
 pub use interp::{Clock, Derive, Fail, Interpreter, Outcome, Prepared};
 pub use prepared::PreparedBody;
 pub use render::{Frameworks, HandlerRef, ReactMajor, SvelteMajor, VueMajor};
-pub use snapfire_fsr_core::{is_place_name, Place};
+pub use snapfire_fsr_core::{is_place_name, on_enough_stack, Place};

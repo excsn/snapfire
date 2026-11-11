@@ -1,7 +1,12 @@
 use crate::*;
 
 impl<'a> Lowerer<'a> {
+  /// `expr` lowered, with the stack grown when source nests deeper than the thread's stack holds frames for.
   pub(crate) fn expr(&mut self, expr: &js::Expression) -> Lowered<Expr> {
+    snapfire_fsr_ir::on_enough_stack(|| self.expr_on_stack(expr))
+  }
+
+  fn expr_on_stack(&mut self, expr: &js::Expression) -> Lowered<Expr> {
     if !self.premade.is_empty() {
       let span = expr.span();
       if let Some(made) = self.premade.get(&(crate::lo(span), crate::hi(span))) {
