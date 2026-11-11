@@ -350,3 +350,74 @@ pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, Strin
   }
   None
 }
+
+/// Whether `stmt` writes into the value of `name`: a member assignment or update rooted at it. A call of a method that changes an array or a collection in place also counts.
+fn writes_into(stmt: &js::Statement, name: &str) -> bool {
+  struct Writes<'n>(&'n str, bool);
+  impl<'a> oxc_ast_visit::Visit<'a> for Writes<'_> {
+    fn visit_simple_assignment_target(&mut self, target: &js::SimpleAssignmentTarget<'a>) {
+      if let Some(member) = target.as_member_expression() {
+        if matches!(crate::members::member_root(member), js::Expression::Identifier(id) if id.name.as_str() == self.0) {
+          self.1 = true;
+        }
+      }
+      oxc_ast_visit::walk::walk_simple_assignment_target(self, target);
+    }
+    fn visit_call_expression(&mut self, call: &js::CallExpression<'a>) {
+      if let Some(member) = call.callee.as_member_expression() {
+        const CHANGING: [&str; 13] = ["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin", "set", "add", "delete", "clear"];
+        if matches!(member.object(), js::Expression::Identifier(id) if id.name.as_str() == self.0) && prop_name_of(member).is_some_and(|p| CHANGING.contains(&p.as_str())) {
+          self.1 = true;
+        }
+      }
+      oxc_ast_visit::walk::walk_call_expression(self, call);
+    }
+  }
+  use crate::syntax::Walk;
+  let mut writes = Writes(name, false);
+  stmt.walk(&mut writes);
+  writes.1
+}
+
+/// The module's initialisation as far as it makes the value of `name`, when top-level statements other than declarations write into it: the declarations of `name` and of every other value those statements write, with the statements among them in source order. `None` when no such statement writes `name`.
+pub(super) fn filled<'a>(parsed: &'a Parsed<'a>, name: &str) -> Option<Vec<Piece<'a>>> {
+  let body = &parsed.module().body;
+  let statements: Vec<&js::Statement> = body.iter().filter(|item| matches!(crate::syntax::top(item), crate::syntax::Top::Other) && !matches!(item, js::Statement::ImportDeclaration(_) | js::Statement::ExportNamedDeclaration(_) | js::Statement::ExportAllDeclaration(_))).collect();
+  let declared: Vec<(String, &js::Expression)> = module_lets_of(parsed).into_iter().filter_map(|(n, init, _)| init.map(|init| (n, init))).collect();
+  let mut names = vec![name.to_owned()];
+  let mut writers: Vec<*const js::Statement> = Vec::new();
+  let mut at = 0;
+  while at < names.len() {
+    for stmt in &statements {
+      if writes_into(stmt, &names[at]) && !writers.contains(&(*stmt as *const _)) {
+        writers.push(*stmt as *const _);
+        for (other, _) in &declared {
+          if !names.contains(other) && writes_into(stmt, other) {
+            names.push(other.clone());
+          }
+        }
+      }
+    }
+    at += 1;
+  }
+  if writers.is_empty() {
+    return None;
+  }
+  let mut pieces = Vec::new();
+  for item in body {
+    if writers.contains(&(item as *const _)) {
+      pieces.push(Piece::Writes(item));
+      continue;
+    }
+    if let crate::syntax::Top::Decl(js::Declaration::VariableDeclaration(var)) = crate::syntax::top(item) {
+      for decl in &var.declarations {
+        if let (js::BindingPattern::BindingIdentifier(id), Some(init)) = (&decl.id, decl.init.as_ref()) {
+          if names.iter().any(|n| n == id.name.as_str()) {
+            pieces.push(Piece::Declared(id.name.to_string(), init));
+          }
+        }
+      }
+    }
+  }
+  Some(pieces)
+}

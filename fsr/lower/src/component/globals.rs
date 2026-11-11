@@ -82,8 +82,15 @@ impl ComponentSet {
         return Ok(Some((Expr::Ext { module, name: member, args: Vec::new() }, key)));
       }
     }
-    let replays = matches!(item, Global::Const(_)) && module_lets_of(&parsed).into_iter().any(|(_, _, written)| written);
-    let constant = matches!(item, Global::Const(_));
+    let item = match item {
+      Global::Const(init) => match filled(&parsed, name) {
+        Some(pieces) => Global::Filled { name: name.to_owned(), pieces },
+        None => Global::Const(init),
+      },
+      other => other,
+    };
+    let replays = matches!(item, Global::Const(_) | Global::Filled { .. }) && module_lets_of(&parsed).into_iter().any(|(_, _, written)| written);
+    let constant = matches!(item, Global::Const(_) | Global::Filled { .. });
     self.resolving.push(key.clone());
     let result = self.lower_global(file, item);
     self.resolving.pop();
@@ -310,6 +317,23 @@ impl ComponentSet {
       lowerer.type_kinds = self.alias_kinds(file);
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
+        Global::Filled { name, pieces } => {
+          let b = lowerer.build();
+          let mut stmts = Vec::new();
+          let mut span = Span::default();
+          for piece in pieces {
+            stmts.push(match piece {
+              Piece::Declared(declared, init) => {
+                span = init.span();
+                let declarator = js::VariableDeclarator::new(span, b.binding(declared, span), None, Some(b.copy(*init)), false, &b.ast());
+                js::Statement::new_variable_declaration(span, js::VariableDeclarationKind::Let, b.vec([declarator]), false, &b.ast())
+              }
+              Piece::Writes(stmt) => b.copy(*stmt),
+            });
+          }
+          stmts.push(b.return_stmt(Some(b.ident(name, span)), span));
+          block_to_expr(&mut lowerer, b.stmts(stmts))
+        }
         Global::Function(params, body, is_async) => function_to_lambda(&mut lowerer, params, *body, *is_async),
         Global::Member { id, parent, class, name, member } => {
           lowerer.class_parent = parent.clone();

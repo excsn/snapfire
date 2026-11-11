@@ -1165,10 +1165,19 @@ pub(crate) struct IslandAlias {
 #[derive(Clone)]
 enum Global<'a> {
   Const(&'a js::Expression<'a>),
+  /// A module value named `name` that top-level statements write into, `list[i] = item` in a loop: in source order, the declarations of every value those statements write and the statements themselves.
+  Filled { name: String, pieces: Vec<Piece<'a>> },
   /// Its parameters, its body and whether it is `async`.
   Function(Vec<crate::Param<'a>>, FunctionBody<'a>, bool),
   /// A member of the class `id`, `parent` the class it extends.
   Member { id: String, parent: Option<String>, class: &'a js::Class<'a>, name: String, member: Member<'a> },
+}
+
+/// A part of a module's initialisation that a [`Global::Filled`] value replays.
+#[derive(Clone)]
+pub(super) enum Piece<'a> {
+  Declared(String, &'a js::Expression<'a>),
+  Writes(&'a js::Statement<'a>),
 }
 
 /// One member of a class as `lower_global` lowers it.

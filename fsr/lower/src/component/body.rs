@@ -847,7 +847,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               crate::syntax::ArrowBody::Block(b) => block_to_expr(&mut self.lowerer, &b.body),
             },
             member_expr if member_expr.as_member_expression().is_some_and(|member| is_date_now(member)) => { let member = member_expr.as_member_expression().expect("matched as a member"); self.lowerer.date_now(member.span()) },
-            e => self.lowerer.expr(e),
+            // React calls a function given as the initial state, `useState(setup)`. The state is what it returns.
+            e => self.lowerer.expr(e).map(|value| match value {
+              f @ (Expr::Lambda { .. } | Expr::Fix { .. }) => Expr::Apply { f: Box::new(f), args: Vec::new() },
+              value => value,
+            }),
           },
           None => Ok(Expr::Lit(Lit::Null)),
         };

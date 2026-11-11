@@ -182,3 +182,26 @@ fn a_helper_a_handler_calls_advances_the_module_let_in_the_store() {
   let second = interpreter.island_step(module, &library[module], &props, &first.state, Some(snapfire_fsr_ir::render::HandlerRef::own(0)), &snapfire_fsr_core::Value::Null, &library).unwrap();
   assert!(second.rendered.html.contains("<li data-sf-key=\"3\">3:new</li><li data-sf-key=\"4\">4:new</li>"), "{}", second.rendered.html);
 }
+
+#[test]
+fn a_constant_the_module_fills_after_declaring_it_is_what_the_filling_leaves_it_at() {
+  for (tag, made) in [("array", "new Array(n)"), ("empty", "[]")] {
+    let page = format!("const n = 3;\nconst list = {made};\nfor (let i = 0; i < n; i++) {{\n  list[i] = {{ id: i }};\n}}\nlist.push({{ id: 9 }});\nexport default function Page() {{\n  return <ul>{{list.map((c) => <li key={{c.id}}>{{c.id}}</li>)}}</ul>;\n}}\n");
+    let lowered = lower(&format!("filled_{tag}"), &[("routes/page.tsx", &page)]).unwrap_or_else(|e| panic!("{tag}: {e}"));
+    assert_eq!(lowered.html, "<ul><li>0</li><li>1</li><li>2</li><li>9</li></ul>", "{tag}");
+  }
+}
+
+#[test]
+fn one_module_statement_filling_two_values_fills_both() {
+  let page = "const xs = [1, 2, 3];\nlet a = [];\nlet b = [];\nxs.forEach((x) => {\n  if (x > 1) {\n    a.push(x);\n  } else {\n    b.push(x);\n  }\n});\nexport default function Page() {\n  return <p>{a.join(\",\")}|{b.join(\",\")}</p>;\n}\n";
+  let lowered = lower("two_filled", &[("routes/page.tsx", page)]).unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(lowered.html, "<p>2,3|1</p>");
+}
+
+#[test]
+fn a_function_given_as_initial_state_is_called_for_the_state() {
+  let page = "import { useState } from \"react\";\nfunction setup() {\n  const list = new Array(2);\n  for (let i = 0; i < 2; i++) {\n    list[i] = { id: i };\n  }\n  return list;\n}\nexport default function Page() {\n  const [list] = useState(setup);\n  return <ul>{list.map((c) => <li key={c.id}>{c.id}</li>)}</ul>;\n}\n";
+  let lowered = lower("initial_function", &[("routes/page.tsx", page)]).unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(lowered.html, "<ul><li>0</li><li>1</li></ul>");
+}
