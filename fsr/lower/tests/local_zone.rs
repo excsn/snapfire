@@ -37,6 +37,14 @@ const EN: &[(&str, &str)] = &[
   ("new Date(Date.UTC(2024, 0, 1, 2)).toLocaleTimeString(\"en-US\", { timeStyle: \"short\" })", "\"9:00 PM\""),
   ("new Intl.DateTimeFormat(\"en-US\").format(new Date(Date.UTC(2024, 0, 1, 2)))", "\"12/31/2023\""),
   ("new Date(NaN).toLocaleString()", "\"Invalid Date\""),
+  ("new Date(1726011440123).toLocaleString(\"pt-BR\")", "\"10/09/2024, 19:37:20\""),
+  ("new Date(1726011440123).toLocaleString(\"fa\")", "\"۱۴۰۳/۶/۲۰, ۱۹:۳۷:۲۰\""),
+  ("new Date(1726011440123).toLocaleDateString(\"ps\")", "\"AP ۱۴۰۳-۰۶-۲۰\""),
+  ("new Date(1726011440123).toLocaleString(\"th\")", "\"10/9/2567 19:37:20\""),
+  ("new Date(1726011440123).toLocaleTimeString(\"ckb\")", "\"٧:٣٧:٢٠ د.ن\""),
+  ("new Date(1726011440123).toLocaleString(\"en-u-ca-persian\")", "\"6/20/1403 AP, 7:37:20 PM\""),
+  ("new Date(1726011440123).toLocaleDateString(\"ja-JP-u-ca-japanese\")", "\"R6/9/10\""),
+  ("new Date(1726011440123).toLocaleTimeString(\"zh-Hant\")", "\"下午7:37:20\""),
 ];
 
 #[test]

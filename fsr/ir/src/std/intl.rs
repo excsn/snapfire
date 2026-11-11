@@ -343,7 +343,7 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   Ok(Value::str(out))
 }
 
-/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time with an ordinary space before the day period, as V8 writes it. `Invalid Date` for an invalid instant. Without a locale, the system's.
+/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: the time CLDR's patterns write on the clock the locale's region keeps. `Invalid Date` for an invalid instant. Without a locale, the system's.
 pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   let what = "toLocaleTimeString";
   let offset = super::time::local_offset(ms)?;
@@ -355,10 +355,8 @@ pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
     Some(tag) => tag.to_owned(),
     None => system_locale(),
   };
-  let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
-  let time = icu_datetime::input::Time::try_new(h as u8, m as u8, s as u8, 0).map_err(|e| data(what, e))?;
-  let formatter = icu_datetime::NoCalendarFormatter::try_new(locale.into(), icu_datetime::fieldsets::T::medium()).map_err(|e| data(what, e))?;
-  Ok(formatter.format(&time).to_string().replace('\u{202f}', " "))
+  tag.parse::<Locale>().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
+  Ok(snapfire_i18n::clock(&tag, h as u32, m as u32, s as u32))
 }
 
 /// The locale ICU takes as the default, as node runs it: the one `LC_ALL`, then `LC_MESSAGES`, then `LANG` names, with `en_US.UTF-8` read as `en-US`. `C`, `POSIX` and none at all are `en-US`.
@@ -372,7 +370,7 @@ fn system_locale() -> String {
   }
 }
 
-/// `toLocaleDateString(locale?)` of an instant in this machine's local time zone with no options, `toLocaleString(locale?)` with `with_time`: the numeric date ICU writes by default, then the time to the second. `Invalid Date` for an invalid instant. Without a locale, the system's.
+/// `toLocaleDateString(locale?)` of an instant in this machine's local time zone with no options, `toLocaleString(locale?)` with `with_time`: the numeric date ICU writes by default, then the time to the second. A calendar `snapfire_i18n` does not write, named by a `-u-ca-` keyword, is written by ICU4X. `Invalid Date` for an invalid instant. Without a locale, the system's.
 pub fn local_date(ms: f64, locale: Option<&str>, with_time: bool) -> Result<String, Fail> {
   let what = if with_time { "toLocaleString" } else { "toLocaleDateString" };
   let offset = super::time::local_offset(ms)?;
@@ -386,22 +384,11 @@ pub fn local_date(ms: f64, locale: Option<&str>, with_time: bool) -> Result<Stri
   let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
   let date = Date::try_new_iso(y as i32, m as u8, d as u8).map_err(|e| data(what, e))?;
   let time = Time::try_new(h as u8, min as u8, s as u8, 0).map_err(|e| data(what, e))?;
-  // Persian and Thai write the date in the Persian and Buddhist calendars, which ICU4X converts to.
-  let other_calendar = matches!(locale.id.language.as_str(), "fa" | "ps" | "th");
-  let out = if other_calendar {
-    if with_time {
-      DateTimeFormatter::try_new(locale.into(), YMDT::short().with_year_style(YearStyle::Full).with_time_precision(TimePrecision::Second)).map_err(|e| data(what, e))?.format(&DateTime { date, time }).to_string()
-    } else {
-      DateTimeFormatter::try_new(locale.into(), YMD::short().with_year_style(YearStyle::Full)).map_err(|e| data(what, e))?.format(&date).to_string()
-    }
-  } else {
-    let written = snapfire_i18n::numeric_date(&tag, y, m, d);
-    if with_time {
-      let clock = icu_datetime::NoCalendarFormatter::try_new(locale.into(), T::medium()).map_err(|e| data(what, e))?.format(&time).to_string();
-      snapfire_i18n::date_with_time(&tag, &written, &clock)
-    } else {
-      written
-    }
+  let out = match snapfire_i18n::numeric_date(&tag, y, m, d) {
+    Some(written) if with_time => snapfire_i18n::date_with_time(&tag, &written, &snapfire_i18n::clock(&tag, h as u32, min as u32, s as u32)),
+    Some(written) => written,
+    None if with_time => DateTimeFormatter::try_new(locale.into(), YMDT::short().with_year_style(YearStyle::Full).with_time_precision(TimePrecision::Second)).map_err(|e| data(what, e))?.format(&DateTime { date, time }).to_string(),
+    None => DateTimeFormatter::try_new(locale.into(), YMD::short().with_year_style(YearStyle::Full)).map_err(|e| data(what, e))?.format(&date).to_string(),
   };
   Ok(out.replace('\u{202f}', " "))
 }
