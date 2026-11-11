@@ -18,7 +18,7 @@ pub use currency::{Currency, Display};
 pub use pattern::Sign;
 pub use percent::Percent;
 pub use relative::{Plural, Relative, Unit, Width};
-pub use zone::{date_with_time, in_daylight, numeric_date, zone_name, ZoneRules};
+pub use zone::{date_with_time, duration_unit, in_daylight, numeric_date, time_separator, zone_name, ZoneRules};
 
 /// The CLDR release the embedded data was generated from.
 pub fn cldr_version() -> &'static str {

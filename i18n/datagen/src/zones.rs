@@ -73,7 +73,11 @@ struct Own {
   formats: [String; 3],
   digits: Option<String>,
   dates: [String; 2],
+  /// Duration unit patterns by width, unit and plural form, and the time separator.
+  units: BTreeMap<String, String>,
 }
+
+const DURATION_UNITS: [&str; 10] = ["year", "month", "week", "day", "hour", "minute", "second", "millisecond", "microsecond", "nanosecond"];
 
 pub(crate) fn generate(root: &Path) -> Result<String, String> {
   let core = root.join("cldr-core");
@@ -137,9 +141,27 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
       None => String::new(),
     };
     let numeric = str_at(formats, &["availableFormats", "yMd"]).unwrap_or("").to_owned();
+    let mut units = BTreeMap::new();
+    if let Ok(json) = read(&root.join("cldr-units-full/main").join(&locale).join("units.json")) {
+      if let Some(all) = json.pointer(&format!("/main/{locale}/units")) {
+        for width in ["long", "short", "narrow"] {
+          for unit in DURATION_UNITS {
+            let Some(patterns) = all.pointer(&format!("/{width}/duration-{unit}")).and_then(Value::as_object) else { continue };
+            for (key, pattern) in patterns {
+              if let (Some(plural), Some(pattern)) = (key.strip_prefix("unitPattern-count-"), pattern.as_str()) {
+                units.insert(format!("{width}\u{1f}{unit}\u{1f}{plural}"), pattern.to_owned());
+              }
+            }
+          }
+        }
+      }
+    }
+    if let Some(separator) = read(&numbers.join(&locale).join("numbers.json")).ok().and_then(|n| str_at(&n, &["main", &locale, "numbers", "symbols-numberSystem-latn", "timeSeparator"]).map(str::to_owned)) {
+      units.insert("timeSeparator".to_owned(), separator);
+    }
     let system = read(&numbers.join(&locale).join("numbers.json")).ok().and_then(|n| str_at(&n, &["main", &locale, "numbers", "defaultNumberingSystem"]).map(str::to_owned));
     let digits = system.filter(|s| s != "latn").and_then(|s| systems.get(&s).and_then(|info| str_at(info, &["_digits"])).map(str::to_owned));
-    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue] });
+    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue], units });
   }
   let parent_of = |locale: &str| -> Option<String> {
     if locale == "und" {
@@ -216,6 +238,17 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let dates = resolved_dates(locale);
     if parent.as_deref().is_none_or(|p| resolved_dates(p) != dates) {
       writeln!(out, "Y\t{locale}\t{}\t{}", field(&dates[0])?, field(&dates[1])?).unwrap();
+    }
+    let resolved_unit = |locale: &str, key: &str| chain(locale).iter().find_map(|l| own.get(l).and_then(|o| o.units.get(key)).cloned());
+    for key in mine.units.keys() {
+      let here = resolved_unit(locale, key);
+      if parent.as_deref().is_none_or(|p| resolved_unit(p, key) != here) {
+        let value = here.unwrap_or_default();
+        match key.split('\u{1f}').collect::<Vec<_>>()[..] {
+          [width, unit, plural] => writeln!(out, "U\t{locale}\t{width}\t{unit}\t{plural}\t{}", field(&value)?).unwrap(),
+          _ => writeln!(out, "T\t{locale}\t{}", field(&value)?).unwrap(),
+        }
+      }
     }
     for key in mine.names.keys() {
       let here = resolved_name(locale, key);

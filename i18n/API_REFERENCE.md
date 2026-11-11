@@ -28,6 +28,8 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [zone_name](#zone_name)
   * [numeric_date](#numeric_date)
   * [date_with_time](#date_with_time)
+  * [duration_unit](#duration_unit)
+  * [time_separator](#time_separator)
 * [8. Error handling](#8-error-handling)
   * [Error](#error)
 
@@ -144,6 +146,14 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 ### date_with_time
 
 * `pub fn date_with_time(tag: &str, date: &str, time: &str) -> String`: a date and a time, each already written, joined by the locale's short date-time pattern, as `toLocaleString(tag)` joins them with no options: `9/10/2024, 7:37:20 PM`.
+
+### duration_unit
+
+* `pub fn duration_unit(tag: &str, width: &str, unit: &str, plural: &str) -> Option<&'static str>`: the CLDR pattern a duration of `unit` (`year` to `nanosecond`) is written in at `width` (`long`, `short` or `narrow`) for the plural form, `{0} hours`; the `other` form when the locale has none for `plural`.
+
+### time_separator
+
+* `pub fn time_separator(tag: &str) -> &'static str`: the separator between hours, minutes and seconds, `:` in English and `.` in Finnish.
 
 ## 8. Error handling
 

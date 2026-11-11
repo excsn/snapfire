@@ -11,6 +11,8 @@
 //! - `F locale gmt zero hours`: the localized GMT format, the format for a zero offset and the positive and negative hour patterns.
 //! - `N locale key standard daylight`: the long names of a metazone or of a zone, given by its path. An empty name falls back to the parent's.
 //! - `Y locale date glue`: the `yMd` pattern a date with no options is written in and the short pattern joining a date to a time.
+//! - `U locale width unit plural pattern`: a duration unit's pattern, `{0} hours`, at a width and a plural form.
+//! - `T locale separator`: the separator between hours, minutes and seconds.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -38,6 +40,8 @@ struct Names {
   digits: Option<&'static str>,
   formats: Option<[&'static str; 3]>,
   dates: Option<[&'static str; 2]>,
+  units: HashMap<(&'static str, &'static str, &'static str), &'static str>,
+  time_separator: Option<&'static str>,
   names: HashMap<&'static str, (&'static str, &'static str)>,
 }
 
@@ -75,6 +79,10 @@ fn zones() -> &'static Zones {
         "D" => zones.locales.entry(f[1]).or_default().digits = Some(f[2]),
         "F" => zones.locales.entry(f[1]).or_default().formats = Some([f[2], f[3], f[4]]),
         "Y" => zones.locales.entry(f[1]).or_default().dates = Some([f[2], f[3]]),
+        "U" => {
+          zones.locales.entry(f[1]).or_default().units.insert((f[2], f[3], f[4]), f[5]);
+        }
+        "T" => zones.locales.entry(f[1]).or_default().time_separator = Some(f[2]),
         "N" => {
           zones.locales.entry(f[1]).or_default().names.insert(f[2], (f[3], f[4]));
         }
@@ -179,6 +187,18 @@ pub fn date_with_time(tag: &str, date: &str, time: &str) -> String {
   let chain = chain(tag);
   let glue = chain.iter().find_map(|names| names.dates).map_or("{1} {0}", |[_, glue]| glue);
   glue.replace("{1}", date).replace("{0}", time)
+}
+
+/// The pattern a duration of `unit` is written in at `width`, `"long"`, `"short"` or `"narrow"`, for the plural form `plural`, `{0} hours`; `other` when the locale has no pattern for that form.
+pub fn duration_unit(tag: &str, width: &str, unit: &str, plural: &str) -> Option<&'static str> {
+  let chain = chain(tag);
+  let find = |plural: &str| chain.iter().find_map(|names| names.units.get(&(width, unit, plural)).copied());
+  find(plural).or_else(|| find("other"))
+}
+
+/// The separator `tag` writes between hours, minutes and seconds, `:` in English and `.` in Finnish.
+pub fn time_separator(tag: &str) -> &'static str {
+  chain(tag).iter().find_map(|names| names.time_separator).unwrap_or(":")
 }
 
 /// `text` with its ASCII digits in the numbering system of the first locale in `chain`.
