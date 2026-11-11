@@ -1,14 +1,16 @@
 use crate::*;
 
 impl<'a> Lowerer<'a> {
-  /// Refuses an `Intl.Segmenter` the build does not split as the browser would: one outside a terminal, whose browser may hold other Unicode tables, and one whose granularity is not `"grapheme"`.
+  /// Leaves an `Intl.Segmenter` on a web render path to the browser, which splits by its own Unicode tables. A body and a terminal page split by ICU's.
   pub(crate) fn grapheme_segmenter(&mut self, made: &js::NewExpression) -> Lowered<()> {
     if !self.reaches(Reach::Terminal) && self.on_render_path() {
       return Err(self.browser_only(made.span, "`Intl.Segmenter` on a render path, which splits by the browser's own Unicode tables"));
     }
-    if !self.reaches(Reach::Terminal) {
-      return Ok(());
-    }
+    Ok(())
+  }
+
+  /// Whether `made` splits into graphemes, its granularity unset or `"grapheme"`.
+  pub(crate) fn splits_graphemes(&self, made: &js::NewExpression) -> bool {
     let granularity = made.arguments.get(1).map(|options| match crate::syntax::arg_expr(options) {
       js::Expression::ObjectExpression(obj) => obj.properties.iter().find_map(|prop| match prop {
         js::ObjectPropertyKind::ObjectProperty(prop) => match crate::syntax::prop_of(prop) {
@@ -22,10 +24,7 @@ impl<'a> Lowerer<'a> {
       }),
       _ => Some(String::new()),
     });
-    match granularity.flatten().as_deref() {
-      None | Some("grapheme") => Ok(()),
-      Some(_) => Err(self.residue_with(made.span, "an `Intl.Segmenter` whose granularity is not `\"grapheme\"`", "a terminal splits text into graphemes; write `{ granularity: \"grapheme\" }`")),
-    }
+    matches!(granularity.flatten().as_deref(), None | Some("grapheme"))
   }
 
   /// `collator.compare` as a value, a function of two strings, when `collator` is an `Intl.Collator`.

@@ -562,7 +562,7 @@ impl<'a> Lowerer<'a> {
       };
       if let Some(made) = segmenter.filter(|made| platform_object(made) == Some("Segmenter")) {
         self.grapheme_segmenter(&made)?;
-        if !self.reaches(Reach::Terminal) {
+        if !self.reaches(Reach::Terminal) || !self.splits_graphemes(&made) {
           let text = text.ok_or_else(|| self.residue(call.span, "`segment` without a string"))?;
           let granularity = made.arguments.get(1).and_then(|options| match crate::syntax::arg_expr(options) {
             js::Expression::ObjectExpression(obj) => obj.properties.iter().find_map(|prop| match prop {

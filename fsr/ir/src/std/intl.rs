@@ -366,7 +366,7 @@ fn system_locale() -> String {
   }
 }
 
-/// `toLocaleDateString(locale?)`, or `toLocaleString(locale?)` with `with_time`, of an instant in this machine's local time zone with no options: the numeric date ICU writes by default, then the time to the second. `Invalid Date` for an invalid instant. Without a locale, the system's.
+/// `toLocaleDateString(locale?)` of an instant in this machine's local time zone with no options, `toLocaleString(locale?)` with `with_time`: the numeric date ICU writes by default, then the time to the second. `Invalid Date` for an invalid instant. Without a locale, the system's.
 pub fn local_date(ms: f64, locale: Option<&str>, with_time: bool) -> Result<String, Fail> {
   let what = if with_time { "toLocaleString" } else { "toLocaleDateString" };
   let offset = super::time::local_offset(ms)?;
