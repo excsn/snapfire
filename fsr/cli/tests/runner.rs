@@ -370,6 +370,15 @@ test("base64, UTF-8, a clone and a random id", () => {
 }
 
 #[test]
+fn a_spec_writes_a_date_as_text_as_a_body_does() {
+  let spec = "import { expect, test } from \"@snapfire/fsr/client/testing\";\n\ntest(\"a date as text names its zone\", () => {\n  const d = new Date(1726011440123);\n  expect(/^\\d{2}:\\d{2}:\\d{2} GMT[+-]\\d{4} \\(.+\\)$/.test(d.toTimeString())).toEqual(true);\n  expect(d.toString()).toEqual(d.toDateString() + \" \" + d.toTimeString());\n  expect(String(d)).toEqual(d.toString());\n  expect(`${d}`).toEqual(d.toString());\n  expect(new Date(NaN).toTimeString()).toEqual(\"Invalid Date\");\n});\n";
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/dates.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
 fn a_spec_runs_temporal_through_the_host() {
   let spec = "import { expect, test } from \"@snapfire/fsr/client/testing\";\n\ntest(\"methods and fields\", () => {\n  expect(Temporal.PlainDate.from(\"2024-01-31\").add({ months: 1 }).toString()).toEqual(\"2024-02-29\");\n  expect(Temporal.PlainDate.from(\"2024-02-29\").dayOfWeek).toEqual(4);\n  expect(Temporal.Instant.fromEpochMilliseconds(0).until(\"1970-01-03T00:00:00Z\").total(\"days\")).toEqual(2);\n  expect(Temporal.PlainDate.from(\"2024-02-29\") instanceof Temporal.PlainDate).toEqual(true);\n});\n\ntest(\"a bad value throws a RangeError\", () => {\n  expect(() => Temporal.PlainDate.from(\"2024-13-01\")).toThrow(RangeError);\n});\n";
   let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/temporal.spec.ts", spec)]);

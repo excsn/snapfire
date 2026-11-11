@@ -234,6 +234,18 @@ let via = via_expr.as_member_expression().expect("matched as a member");
   }
 
   /// `expr` as a value JavaScript's conversion to a primitive reads the same. A `Map` or a `Set` holds an object or an array at run time, which would convert as one, so its text is decided here where its kind is known.
+  /// `expr` as JavaScript converts it with the string hint, in `String(x)`, a template or a computed key, and with the default hint `+` and `==` use. A `Date` is its `toString()`: this machine's local time in a body, the viewer's in a component, which only the browser knows.
+  pub(crate) fn as_text(&mut self, expr: &js::Expression) -> Lowered<Expr> {
+    if self.kind_of(expr) != Some(Kind::Date) {
+      return self.as_primitive(expr);
+    }
+    if self.on_render_path() && !self.reaches(Reach::Terminal) {
+      return Err(self.browser_only(expr.span(), "a `Date` written as text, which reads the viewer's time zone"));
+    }
+    let when = self.expr(expr)?;
+    Ok(Expr::Ext { module: "intl".to_owned(), name: "dateTimeString".to_owned(), args: vec![when] })
+  }
+
   pub(crate) fn as_primitive(&mut self, expr: &js::Expression) -> Lowered<Expr> {
     let text = match self.kind_of(expr) {
       Some(Kind::Map) => "[object Map]",

@@ -384,6 +384,17 @@ if (typeof globalThis.Intl === "undefined") {
   };
 }
 
+// QuickJS writes a Date as text without its zone's name. These answer through the Rust a body runs.
+{
+  const local = (name, date) => (Number.isNaN(date.getTime()) ? "Invalid Date" : JSON.parse(__sf_ext(name, JSON.stringify([date.getTime()]), "en-US")));
+  Date.prototype.toString = function () {
+    return local("intl.dateTimeString", this);
+  };
+  Date.prototype.toTimeString = function () {
+    return local("intl.timeString", this);
+  };
+}
+
 globalThis.location = { href: "http://localhost/", origin: "http://localhost", protocol: "http:", host: "localhost", hostname: "localhost", port: "", pathname: "/", search: "", hash: "", reload() {}, assign(url) { globalThis.__sf_location(url); }, replace(url) { globalThis.__sf_location(url); } };
 globalThis.__sf_location = (url) => {
   const u = new URL(String(url), location.href);

@@ -78,6 +78,8 @@ pub const STANDARD: &[Member] = &[
   member("id", "new", Reach::Body),
   member("i18n", "t", Reach::Render),
   written_for("new Date(ms).toLocaleTimeString(locale)", "intl", "localTime", Reach::Body),
+  written_for("new Date(ms).toTimeString()", "intl", "timeString", Reach::Body),
+  written_for("new Date(ms).toString(), String(date) and a date in a template", "intl", "dateTimeString", Reach::Body),
   written_for("text.toLocaleUpperCase(locale)", "intl", "upper", Reach::Render),
   written_for("text.toLocaleLowerCase(locale)", "intl", "lower", Reach::Render),
   written_for("text.toLocaleUpperCase() and text.toLocaleLowerCase() with no locale", "intl", "systemLocale", Reach::Body),

@@ -939,7 +939,8 @@ impl Hooks for SpecHooks {
       Value::Seq(items) => items,
       _ => return Err(format!("{name}: arguments must be an array")),
     };
-    let ambient = snapfire_fsr_ir::Ambient::default().locale(locale.to_owned()).now(0).catalogs(self.interpreter.catalogs().cloned());
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i128);
+    let ambient = snapfire_fsr_ir::Ambient::default().locale(locale.to_owned()).now(now).catalogs(self.interpreter.catalogs().cloned());
     let value = self.interpreter.extensions().call(name, &ambient, &args).map_err(|f| f.message)?;
     // `Intl` reads the answer with `JSON.parse`, so it gets JavaScript's JSON, which carries no tag for a whole-number float. `Temporal` decodes the wire form, which keeps a Temporal value's type.
     if name.starts_with("temporal.") {

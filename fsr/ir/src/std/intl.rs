@@ -35,7 +35,9 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.localTime", Reach::Body, |_, args| Ok(Value::str(local_time(number("intl.localTime", args, 0)?, named_locale("intl.localTime", args, 1)?)?)));
   extensions.register("intl.upper", Reach::Render, |_, args| case("intl.upper", args, snapfire_i18n::upper_case));
   extensions.register("intl.lower", Reach::Render, |_, args| case("intl.lower", args, snapfire_i18n::lower_case));
-  extensions.register("intl.systemLocale", Reach::Body, |_, _| Ok(Value::str(system_locale("LC_MESSAGES"))));
+  extensions.register("intl.systemLocale", Reach::Body, |_, _| Ok(Value::str(system_locale())));
+  extensions.register("intl.timeString", Reach::Body, |ambient, args| Ok(Value::str(time_string(number("intl.timeString", args, 0)?, ambient.now as f64)?)));
+  extensions.register("intl.dateTimeString", Reach::Body, |ambient, args| Ok(Value::str(date_time_string(number("intl.dateTimeString", args, 0)?, ambient.now as f64)?)));
 }
 
 /// `intl.upper(text, locales, fallback?)` and `intl.lower(text, locales, fallback?)`: `toLocaleUpperCase` and `toLocaleLowerCase`. `locales` is a tag or an array whose first tag applies. `fallback` applies when it names none: `undefined`, `null` or an empty array. A tag that is not well formed is refused, as JavaScript throws a `RangeError`.
@@ -325,7 +327,7 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   Ok(Value::str(out))
 }
 
-/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time, `Invalid Date` for an invalid instant. Without a locale, the system's, read from `LC_ALL`, `LC_TIME` or `LANG`, else `en-US`.
+/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time, `Invalid Date` for an invalid instant. Without a locale, the system's.
 pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   let what = "toLocaleTimeString";
   let offset = super::time::local_offset(ms)?;
@@ -335,7 +337,7 @@ pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   let (h, m, s, _) = super::time::clock_from_ms(ms - offset * 60_000.0);
   let tag = match locale {
     Some(tag) => tag.to_owned(),
-    None => system_locale("LC_TIME"),
+    None => system_locale(),
   };
   let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
   let time = icu_datetime::input::Time::try_new(h as u8, m as u8, s as u8, 0).map_err(|e| data(what, e))?;
@@ -343,15 +345,73 @@ pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   Ok(formatter.format(&time).to_string())
 }
 
-/// The locale `LC_ALL`, then `category`, then `LANG` names, with `en_US.UTF-8` read as `en-US`. `C`, `POSIX` and none at all are `en-US`.
-fn system_locale(category: &str) -> String {
-  let named = ["LC_ALL", category, "LANG"].iter().find_map(|var| std::env::var(var).ok().filter(|v| !v.is_empty()));
+/// The locale ICU takes as the default, as node runs it: the one `LC_ALL`, then `LC_MESSAGES`, then `LANG` names, with `en_US.UTF-8` read as `en-US`. `C`, `POSIX` and none at all are `en-US`.
+fn system_locale() -> String {
+  let named = ["LC_ALL", "LC_MESSAGES", "LANG"].iter().find_map(|var| std::env::var(var).ok().filter(|v| !v.is_empty()));
   let Some(named) = named else { return "en-US".to_owned() };
   let tag = named.split(['.', '@']).next().unwrap_or_default().replace('_', "-");
   match tag.as_str() {
     "" | "C" | "POSIX" => "en-US".to_owned(),
     _ => tag,
   }
+}
+
+/// The zone rules of the time zone source in use.
+struct Zones(snapfire_time::Source);
+
+impl snapfire_i18n::ZoneRules for Zones {
+  fn observed(&self, zone: &str, ms: f64) -> Option<(i32, i32)> {
+    snapfire_time::observed_in(self.0, zone, ms).ok().map(|o| (o.offset, o.saving))
+  }
+
+  fn saving_in_year(&self, zone: &str, ms: f64) -> Option<i32> {
+    snapfire_time::saving_in_year(self.0, zone, ms).ok().flatten()
+  }
+}
+
+/// An instant in this machine's zone: the local milliseconds, the offset in seconds and the zone's name in the system locale, its metazone read at `now`. `None` for an invalid instant.
+fn local_parts(ms: f64, now: f64) -> Result<Option<(f64, i32, String)>, Fail> {
+  if !(ms.abs() <= 8.64e15) {
+    return Ok(None);
+  }
+  let source = snapfire_time::source().map_err(|e| Fail::internal(e.to_string()))?;
+  let zone = snapfire_time::system_zone();
+  let rules = Zones(source);
+  let offset = match snapfire_time::observed_in(source, zone, ms) {
+    Ok(observed) => observed.offset,
+    Err(snapfire_time::Error::UnknownZone(_)) => 0,
+    Err(e) => return Err(Fail::internal(e.to_string())),
+  };
+  let daylight = snapfire_i18n::in_daylight(zone, snapfire_time::equivalent_time(ms), &rules);
+  let name = snapfire_i18n::zone_name(&system_locale(), zone, daylight, now, &rules);
+  Ok(Some((ms.floor() + f64::from(offset) * 1000.0, offset, name)))
+}
+
+/// `HH:MM:SS GMT-0400 (Eastern Daylight Time)`, the offset cut to whole minutes as V8 cuts it.
+fn time_text(local: f64, offset: i32, name: &str) -> String {
+  let (h, m, s, _) = super::time::clock_from_ms(local);
+  let minutes = offset / 60;
+  let sign = if minutes < 0 { '-' } else { '+' };
+  format!("{h:02}:{m:02}:{s:02} GMT{sign}{:02}{:02} ({name})", minutes.abs() / 60, minutes.abs() % 60)
+}
+
+/// `date.toTimeString()` in this machine's zone and locale; `Invalid Date` for an invalid instant.
+pub fn time_string(ms: f64, now: f64) -> Result<String, Fail> {
+  Ok(match local_parts(ms, now)? {
+    Some((local, offset, name)) => time_text(local, offset, &name),
+    None => "Invalid Date".to_owned(),
+  })
+}
+
+/// `date.toString()` in this machine's zone and locale, `Tue Sep 10 2024 19:37:20 GMT-0400 (Eastern Daylight Time)`; `Invalid Date` for an invalid instant.
+pub fn date_time_string(ms: f64, now: f64) -> Result<String, Fail> {
+  const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  let Some((local, offset, name)) = local_parts(ms, now)? else { return Ok("Invalid Date".to_owned()) };
+  let (year, month, day) = super::time::civil_from_ms(local);
+  let weekday = ((local / 86_400_000.0).floor() as i64 + 4).rem_euclid(7) as usize;
+  let year = if year < 0 { format!("-{:04}", -year) } else { format!("{year:04}") };
+  Ok(format!("{} {} {day:02} {year} {}", DAYS[weekday], MONTHS[month as usize - 1], time_text(local, offset, &name)))
 }
 
 enum Length {

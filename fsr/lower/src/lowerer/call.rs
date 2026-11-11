@@ -206,7 +206,7 @@ impl<'a> Lowerer<'a> {
           Ok(Box::new(this.expr(crate::syntax::arg_expr(a))?))
         };
         return match name {
-          "String" if matches!(call.arguments.as_slice(), [only] if !crate::syntax::is_spread(only)) => Ok(Expr::Str(Box::new(self.as_primitive(&crate::syntax::arg_expr(&call.arguments[0]))?))),
+          "String" if matches!(call.arguments.as_slice(), [only] if !crate::syntax::is_spread(only)) => Ok(Expr::Str(Box::new(self.as_text(&crate::syntax::arg_expr(&call.arguments[0]))?))),
           "String" => Ok(Expr::Str(one(self)?)),
           "Number" if matches!(call.arguments.as_slice(), [only] if !crate::syntax::is_spread(only)) => Ok(Expr::Num(Box::new(self.as_primitive(&crate::syntax::arg_expr(&call.arguments[0]))?))),
           "Number" => Ok(Expr::Num(one(self)?)),
@@ -678,6 +678,12 @@ impl<'a> Lowerer<'a> {
       "every" => Ok(Expr::Every(target, lambda(self, 0)?)),
       "flatMap" => Ok(Expr::FlatMap(target, lambda(self, 0)?)),
       "flat" if call.arguments.is_empty() || matches!(&*crate::syntax::arg_expr(&call.arguments[0]), js::Expression::NumericLiteral(n) if n.value == 1.0) => Ok(Expr::FlatMap(target, Box::new(Expr::Lambda { params: vec!["$item".to_owned()], body: Box::new(Expr::Var("$item".to_owned())) }))),
+      "toString" if call.arguments.is_empty() && self.kind_of(member.object()) == Some(Kind::Date) => {
+        if self.on_render_path() && !self.reaches(Reach::Terminal) {
+          return Err(self.browser_only(member.span(), "`.toString()` of a `Date`, which reads the viewer's time zone"));
+        }
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "dateTimeString".to_owned(), args: vec![*target] })
+      }
       "toString" if call.arguments.is_empty() => Ok(Expr::Str(target)),
       "toString" => Ok(Expr::Builtin { name: Builtin::Radix, args: vec![*target, self.expr(&crate::syntax::arg_expr(&call.arguments[0]))?] }),
       "getTime" | "valueOf" => Ok(*target),
@@ -716,6 +722,7 @@ impl<'a> Lowerer<'a> {
       }
       "getTimezoneOffset" if self.reaches(Reach::Terminal) || !self.on_render_path() => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
       "toDateString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.is_empty() => Ok(self.local_date_string(*target)),
+      "toTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.is_empty() => Ok(Expr::Ext { module: "intl".to_owned(), name: "timeString".to_owned(), args: vec![*target] }),
       "toLocaleTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.len() <= 1 => {
         let locale = match call.arguments.first().map(|a| strip_parens(crate::syntax::arg_expr(a))) {
           None => Expr::Lit(Lit::Null),

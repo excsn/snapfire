@@ -64,7 +64,7 @@ impl<'a> Lowerer<'a> {
             parts.push(Expr::Lit(Lit::Str(text)));
           }
           if let Some(e) = tpl.expressions.get(i) {
-            parts.push(self.as_primitive(e)?);
+            parts.push(self.as_text(e)?);
           }
         }
         Ok(Expr::Template(parts))
@@ -77,7 +77,7 @@ impl<'a> Lowerer<'a> {
             js::ObjectPropertyKind::ObjectProperty(p) => match crate::syntax::prop_of(p) {
               crate::syntax::Prop::Shorthand(id) => Entry::Field(id.name.to_string(), self.ident(id)?),
               crate::syntax::Prop::KeyValue(kv) => match kv.key.as_expression() {
-                Some(key) if kv.computed => Entry::Computed(self.as_primitive(key)?, self.expr(&kv.value)?),
+                Some(key) if kv.computed => Entry::Computed(self.as_text(key)?, self.expr(&kv.value)?),
                 _ => {
                   let key = prop_name(&kv.key, kv.computed).ok_or_else(|| self.residue(kv.key.span(), "a numeric property name"))?;
                   Entry::Field(key, self.expr(&kv.value)?)
@@ -144,8 +144,17 @@ impl<'a> Lowerer<'a> {
         let collection = |this: &Self, e: &js::Expression| matches!(this.kind_of(e), Some(Kind::Map | Kind::Set));
         let two_objects = matches!(bin.operator, js::BinaryOperator::Equality | js::BinaryOperator::Inequality) && collection(self, &bin.left) && collection(self, &bin.right);
         let converts = !two_objects && matches!(bin.operator, js::BinaryOperator::Addition | js::BinaryOperator::Subtraction | js::BinaryOperator::Multiplication | js::BinaryOperator::Division | js::BinaryOperator::Remainder | js::BinaryOperator::Exponential | js::BinaryOperator::Equality | js::BinaryOperator::Inequality | js::BinaryOperator::LessThan | js::BinaryOperator::LessEqualThan | js::BinaryOperator::GreaterThan | js::BinaryOperator::GreaterEqualThan);
-        let l = Box::new(if converts { self.as_primitive(&bin.left)? } else { self.expr(&bin.left)? });
-        let r = Box::new(if converts { self.as_primitive(&bin.right)? } else { self.expr(&bin.right)? });
+        let text = matches!(bin.operator, js::BinaryOperator::Addition | js::BinaryOperator::Equality | js::BinaryOperator::Inequality);
+        let l = Box::new(match (converts, text) {
+          (true, true) => self.as_text(&bin.left)?,
+          (true, false) => self.as_primitive(&bin.left)?,
+          _ => self.expr(&bin.left)?,
+        });
+        let r = Box::new(match (converts, text) {
+          (true, true) => self.as_text(&bin.right)?,
+          (true, false) => self.as_primitive(&bin.right)?,
+          _ => self.expr(&bin.right)?,
+        });
         Ok(match bin.operator {
           js::BinaryOperator::Addition => Expr::Arith(ArithOp::Add, l, r),
           js::BinaryOperator::Subtraction => Expr::Arith(ArithOp::Sub, l, r),
