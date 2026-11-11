@@ -966,6 +966,7 @@ What lowers. Anything not listed is a `Residue`.
 * `new TextEncoder().encode(s)` and `new TextDecoder().decode(bytes)` are `encoding.encode` and `encoding.decode`, with bytes as an array of numbers.
 * A `TextDecoder` with a label other than UTF-8 is residue. So is one with options.
 * `new Intl.NumberFormat(locale, options).format(n)` and `e.toLocaleString(locale, options)` are `intl.number`, with `style` `decimal` or `percent`, the fraction digits, `minimumIntegerDigits`, `useGrouping` and `signDisplay`.
+* `Intl.DateTimeFormat(...)`, `Intl.NumberFormat(...)` and `Intl.Collator(...)` called without `new` lower as the `new` expression. The global `Intl`'s other formatters called without `new` throw in JavaScript and are residue.
 * `Intl.NumberFormat` with `style: "currency"` is `intl.currency`, with `currencyDisplay` as `display` (default `symbol`) and the fraction digits.
 * `new Intl.DateTimeFormat(locale, options).format(d)` and `d.toLocaleDateString(locale, options)` are `intl.date`.
 * `intl.date` takes a `dateStyle` or a `timeStyle` of `short` or `medium`.

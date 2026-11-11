@@ -17,13 +17,13 @@ const day = () =>
     },
   });
 
-test("the venue page is composition with an island the browser renders alone and a Vue island in it", async () => {
+test("the venue page is composition with a clock the browser finishes and a Vue island in it", async () => {
   await load("/venue", { ctx: day() });
   await settle();
   expect(screen.getByText("The Old Exchange"), "the page is the server's markup").toBeTruthy();
   expect(document.querySelector('sf-i[data-sf-module="routes/venue/page.tsx#default"]'), "no framework holds the page").toBeNull();
   const clock = document.querySelector('sf-i[data-sf-module="src/ui/LocalClock.tsx#default"][data-sf-mounted]');
-  expect(clock, "the clock reads the visitor's time zone, which the server cannot, so the browser renders it alone").toBeTruthy();
+  expect(clock, "the server writes the clock and the browser fills in the visitor's time zone, which the server cannot know").toBeTruthy();
   expect(clock!.querySelector(".local-clock")?.textContent?.startsWith("Times are the venue's. You are in "), clock!.innerHTML).toBeTruthy();
   expect(screen.getByLabelText("my schedule"), "and the layout around it").toBeTruthy();
   const rooms = document.querySelectorAll(".floors-room");
@@ -39,7 +39,7 @@ test("one page under one layout holds an island of every owner", async () => {
   const owner = (module: string) => document.querySelector(`sf-i[data-sf-module="${module}"]`);
   expect(owner("src/ui/Saved.tsx#default")?.hasAttribute("data-sf-mounted"), "React, in the layout").toEqual(true);
   expect(owner("src/ui/Floors.vue#default")?.hasAttribute("data-sf-mounted"), "Vue").toEqual(true);
-  expect(owner("src/ui/LocalClock.tsx#default")?.hasAttribute("data-sf-mounted"), "React, mounted fresh since the server cannot render it").toEqual(true);
+  expect(owner("src/ui/LocalClock.tsx#default")?.hasAttribute("data-sf-mounted"), "React, hydrating the clock the server wrote").toEqual(true);
   const count = document.querySelector("talk-count");
   expect(count?.hasAttribute("data-upgraded"), "the custom element defined itself").toEqual(true);
   expect(count?.textContent).toEqual("3 talks today");
@@ -49,9 +49,9 @@ test("one page under one layout holds an island of every owner", async () => {
   expect(screen.getByText("Asked 1 time"), "the server answered the click").toBeTruthy();
 });
 
-test("the clock renders on its own through React, with nothing from the server to hydrate", async () => {
+test("the server writes the clock and React fills in the visitor's time zone as it hydrates", async () => {
   const r = await render(<LocalClock />);
-  expect(r.hydrated, "the server could not render it").toBeNull();
+  expect(r.hydrated, "the server rendered it").toEqual("src/ui/LocalClock.tsx#default");
   expect(r.container.querySelector("sf-i")?.hasAttribute("data-sf-mounted"), "React's mounter ran").toEqual(true);
   expect(r.getByText(/You are in/).textContent).toMatch(/Times are the venue's\. You are in .+\./);
 });

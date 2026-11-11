@@ -99,7 +99,7 @@ fn a_component_that_hydrates_places_an_embed_and_the_server_writes_its_still() {
 
 #[test]
 fn a_component_the_browser_renders_alone_that_places_an_embed_under_local_stills_is_reported() {
-  let player = "import { Embed } from \"@snapfire/fsr/client/react\";\nexport default function Player() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <div>{zone}<Embed provider=\"youtube\" id=\"dQw4w9WgXcQ\" title=\"t\" /></div>;\n}\n";
+  let player = "import { Embed } from \"@snapfire/fsr/client/react\";\nexport default function Player() {\n  const zone = currentZone();\n  return <div>{zone}<Embed provider=\"youtube\" id=\"dQw4w9WgXcQ\" title=\"t\" /></div>;\n}\n";
   let root = project("browser-local", PLACES_PLAYER, "\n[media]\nembed_stills = \"local\"\n");
   with_player(&root, player);
   let app = root.join("app");

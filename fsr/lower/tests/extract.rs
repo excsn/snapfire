@@ -196,7 +196,7 @@ export default function Shell({ children, drawer }: { children: unknown; drawer:
 #[test]
 fn what_the_lowerer_cannot_read_in_a_page_body_moves_with_the_markup_that_shows_it() {
   let page = r#"export default function Venue({ venue }: { venue: string }) {
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const zone = currentZone();
   return (
     <section>
       <h2>{venue}</h2>
@@ -207,7 +207,7 @@ fn what_the_lowerer_cannot_read_in_a_page_body_moves_with_the_markup_that_shows_
 "#;
   let mut set = set(&[("routes/venue/page.tsx", page)]);
   let extracted = set.lower_route("routes/venue/page.tsx#default").unwrap().expect("the time zone moved");
-  assert!(extracted.source.contains("const zone = Intl.DateTimeFormat()"), "{}", extracted.source);
+  assert!(extracted.source.contains("const zone = currentZone()"), "{}", extracted.source);
   assert!(extracted.source.contains("return (\n    zone\n  );"), "the island shows the value alone: {}", extracted.source);
   assert!(!extracted.source.contains("<p"), "{}", extracted.source);
   assert!(extracted.page.1.contains("<p className=\"clock\">You are in <SfIsland />.</p>"), "{}", extracted.page.1);
@@ -232,7 +232,7 @@ function label() {
 }
 
 function zone() {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return currentZone();
 }
 "#;
   let mut set = set(&[("routes/venue/page.tsx", page)]);

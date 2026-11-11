@@ -1489,7 +1489,7 @@ fn a_component_that_does_not_lower_is_a_component_of_the_apps_jsx_framework() {
   let page = "import { Clock } from \"../src/ui/Clock\";\nimport { Ticker } from \"../src/ui/Ticker\";\nexport default function Page() {\n  return <main><Clock /><Ticker /></main>;\n}\n";
   let dir = app(&[
     ("routes/page.tsx", page),
-    ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;\n}\n"),
+    ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{currentZone()}</p>;\n}\n"),
     ("src/ui/Ticker.tsx", "import { useEffect } from \"react\";\nexport function Ticker() {\n  return <p>{window.location.host}</p>;\n}\n"),
   ]);
   let built = build(&dir, &Options::default()).unwrap();
@@ -1523,7 +1523,7 @@ fn the_island_registry_imports_no_framework_adapter_until_a_page_shows_an_island
 #[test]
 fn an_application_without_a_jsx_framework_refuses_a_component_that_does_not_lower() {
   let page = "import { Clock } from \"../src/ui/Clock\";\nexport default function Page() {\n  return <main><Clock /></main>;\n}\n";
-  let dir = app(&[("routes/page.tsx", page), ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;\n}\n")]);
+  let dir = app(&[("routes/page.tsx", page), ("src/ui/Clock.tsx", "export function Clock() {\n  return <p>{currentZone()}</p>;\n}\n")]);
   std::fs::write(dir.join("importmap.json"), NO_REACT).unwrap();
   let error = fails(&dir).to_string();
   assert!(error.contains("`src/ui/Clock.tsx#Clock` does not lower (src/ui/Clock.tsx:2:14:") && error.contains("no JSX framework") && error.contains("Vue or Svelte component or a custom element"), "{error}");
@@ -1532,7 +1532,7 @@ fn an_application_without_a_jsx_framework_refuses_a_component_that_does_not_lowe
 
 #[test]
 fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_react_island_and_is_refused_without_react() {
-  let page = "export default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone}</p></section>;\n}\n";
+  let page = "export default function Venue() {\n  const zone = currentZone();\n  return <section><h2>venue</h2><p>{zone}</p></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", page)]);
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/page.tsx#default" && owner == "lowered" && detail == "static"), "{}", built.report);
@@ -1548,7 +1548,7 @@ fn a_page_whose_body_reads_what_only_a_browser_knows_lowers_around_a_react_islan
 
 #[test]
 fn an_island_takes_the_dialects_placements_from_its_own_framework_wherever_it_reaches() {
-  let page = "import { Link } from \"@snapfire/fsr/template\";\nexport default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone} <Link href=\"/\">home</Link></p></section>;\n}\n";
+  let page = "import { Link } from \"@snapfire/fsr/template\";\nexport default function Venue() {\n  const zone = currentZone();\n  return <section><h2>venue</h2><p>{zone} <Link href=\"/\">home</Link></p></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", page)]);
   let built = build(&dir, &Options::default()).unwrap();
   let island = generated(&built, ".fsr/bundle/routes/page.island0.tsx").expect("the island's bundle copy");

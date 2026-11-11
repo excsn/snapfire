@@ -409,7 +409,7 @@ fn a_component_that_does_not_lower_is_placed_from_composition_and_hands_a_framew
   let set = lower(
     &[
       ("routes/page.tsx", "import Clock from \"./clock\";\nimport Panel from \"./panel\";\nexport default function Page() {\n  return <main><Clock /><Panel /></main>;\n}\n"),
-      ("routes/clock.tsx", "export default function Clock() {\n  return <p>{Intl.DateTimeFormat().resolvedOptions().timeZone}</p>;\n}\n"),
+      ("routes/clock.tsx", "export default function Clock() {\n  return <p>{currentZone()}</p>;\n}\n"),
       ("routes/panel.tsx", "import { useState } from \"react\";\nimport Clock from \"./clock\";\nexport default function Panel() {\n  const [open, setOpen] = useState(false);\n  return <section onClick={() => setOpen(!open)}><Clock /></section>;\n}\n"),
     ],
     "routes/page.tsx#default",

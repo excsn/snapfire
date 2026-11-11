@@ -94,6 +94,16 @@ fn a_binding_and_a_helper_that_read_the_clock_are_left_to_the_browser() {
 }
 
 #[test]
+fn the_viewers_time_zone_from_a_formatter_called_without_new_is_left_to_the_browser() {
+  let page = "export default function Page() {\n  const zone = typeof Intl === \"undefined\" ? \"an unknown zone\" : Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <p className=\"local-clock\">You are in {zone}.</p>;\n}\n";
+  let out = lower("zone", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p class=\"local-clock\">You are in .</p>");
+  let source = rewritten(&out, "routes/page.tsx", page);
+  assert!(source.contains("const zone = __sfb(() => typeof Intl === \"undefined\" ? \"an unknown zone\" : Intl.DateTimeFormat().resolvedOptions().timeZone);"), "{source}");
+  assert!(out.set.browser_texts[0].1.starts_with("routes/page.tsx:2:16: `resolvedOptions()` of a date formatter with no `timeZone`, which names the viewer's time zone"), "{:?}", out.set.browser_texts);
+}
+
+#[test]
 fn a_browser_value_at_the_root_or_under_a_placement_is_left_to_the_browser_too() {
   for (tag, body, html) in [("root", "<>{new Date().toLocaleTimeString()}</>", ""), ("placed", "<Box>{new Date().toLocaleTimeString()}</Box>", "<div></div>")] {
     let page = format!("function Box({{ children }}) {{\n  return <div>{{children}}</div>;\n}}\nexport default function Page() {{\n  return {body};\n}}\n");
@@ -145,6 +155,7 @@ fn a_browser_value_in_an_attribute_or_choosing_markup_stays_a_residue() {
     ("attribute", "<p title={new Date().toLocaleTimeString()}>x</p>", "the current time on a render path"),
     ("branch", "<p>{new Date().getHours() > 6 ? <b>day</b> : <i>night</i>}</p>", "the current time on a render path"),
     ("condition", "<p className={new Date().getHours() > 6 ? \"day\" : \"night\"}>x</p>", "the current time on a render path"),
+    ("zone", "<p title={Intl.DateTimeFormat().resolvedOptions().timeZone}>x</p>", "which names the viewer's time zone"),
   ] {
     let page = format!("function Box({{ children }}) {{\n  return <div>{{children}}</div>;\n}}\nexport default function Page() {{\n  return {body};\n}}\n");
     let out = lower(tag, &[("routes/page.tsx", &page)]);

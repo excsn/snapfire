@@ -36,7 +36,7 @@ The programme is on <http://127.0.0.1:8150/>.
 | `src/ui/Saved.tsx` | the masthead island: store-backed count, React state for the panel |
 | `src/ui/SaveTalk.tsx` | the action call, optimistic against the store |
 | `src/ui/Feedback.tsx` | placed with `island(Feedback, { when: "visible" })` |
-| `src/ui/LocalClock.tsx` | the visitor's time zone, which only a browser knows: it does not lower, so React renders it in the browser alone; it imports nothing, and JSX that imports nothing is this React application's |
+| `src/ui/LocalClock.tsx` | the visitor's time zone, which only a browser knows: the server writes the clock and React fills in the zone as it hydrates; it imports nothing, and JSX that imports nothing is this React application's |
 | `src/ui/Checklist.tsx` | a React island writing which items are ticked to the `venue/packed` store key, on the venue page, which activity pauses under `<Activity>` rather than unmounting |
 | `src/ui/Floors.vue` | the rooms, a Vue island the build lowers and Vue hydrates |
 | `src/elements/talk-count.ts` | the day's talks in words, a custom element the venue page defines at load through `<Island define>` |
@@ -45,7 +45,7 @@ The programme is on <http://127.0.0.1:8150/>.
 
 ## Every body is lowered
 
-`fsr build --verbose app` prints what answers each name and every source and action row says `lowered`: no body runs in an engine and nothing is bound in Rust, because there is no Rust here to bind it in. One component row says `client`: `LocalClock` reads the visitor's time zone, which the server cannot know, so it renders in the browser alone and the venue page lowers around it.
+`fsr build --verbose app` prints what answers each name and every source and action row says `lowered`: no body runs in an engine and nothing is bound in Rust, because there is no Rust here to bind it in. One component row says `client`: `Export` makes a call for its effect, which a straight-line body cannot hold, so React renders it in the browser alone and the planner lowers around it. `LocalClock` reads the visitor's time zone, which the server cannot know. It still lowers and the `browser` section names the two values the browser fills in.
 
 Read `app/generated/plan.sexp` to see what the server will actually do. The day's loader comes out as:
 
@@ -79,7 +79,7 @@ The same file shows the session defaults folded in. `session.saved` is written p
 | Client navigation preserving layout state | open the masthead panel, click a talk: the page region is replaced and the panel stays open |
 | Layouts as composition | both layouts render on the server alone: a click to another talk keeps the masthead, the crumbs and the saved count's state and replaces the talk; `tests/navigation.spec.tsx` |
 | A page's own state moved into an island | the talk page's `useState` and the button that sets it become `routes/talk/[id]/page.island0.tsx`, listed under `extracted` in the `--verbose` report; the page around it stays `static` |
-| An island of every owner on one page | `/venue`: `Saved` in the layout hydrates under React, `LocalClock` mounts fresh under React, `Floors.vue` hydrates under Vue, `talk-count` defines itself and `AskDesk` steps on the server, while the page is server markup; `tests/venue.spec.tsx` |
+| An island of every owner on one page | `/venue`: `Saved` in the layout hydrates under React, `LocalClock` hydrates under React with the zone filled in, `Floors.vue` hydrates under Vue, `talk-count` defines itself and `AskDesk` steps on the server, while the page is server markup; `tests/venue.spec.tsx` |
 | A navigation animated by the browser | `enableNavigation({ transitions: true })` in `src/main.ts`; the masthead has a `view-transition-name` in `styles/conference.css`, so it holds still while the page crossfades |
 | A page kept while the visitor is elsewhere | `activity: true` beside `transitions` in `src/main.ts`: leave `/venue` and come back by the back button or the nav: the note typed into its textarea, the video's position, the `talk-count` element and the React checklist's ticks come back as they were, the checklist paused under React 19's `<Activity>`; the chosen tab, though the schedule's tabs are the same radio group; the help desk's count; an attribute a script set; the Vue rooms mount afresh, so a chosen room is not kept; `tests/activity.spec.tsx` |
 | A server island reading a key a browser island wrote | tick an item on `/venue`'s checklist and the help desk steps to say how many are packed; leave and come back without activity and it steps again on mount, since the server rendered it without the key; `tests/activity.spec.tsx` |
@@ -116,7 +116,7 @@ fsr serve dist/app
 
 ## The lab
 
-Build it and read the report: `fsr build --verbose app` names every source, action and component; each one says `lowered` but `LocalClock`, which says `client`.
+Build it and read the report: `fsr build --verbose app` names every source, action and component; each one says `lowered` but `Export`, which says `client`.
 
 Read the cache policy where it lives. `app/generated/contracts/program.json` carries `getConference` and `listTalks` with their ttl and their `program` tag while the other two carry nothing, because the policy is a property of the method rather than of a call site. Deleting `[cache.data]` from `config/app.toml` turns every one of them off without touching a loader.
 

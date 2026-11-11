@@ -91,7 +91,7 @@ export default function VenuePage({ venue, track, tracks, talks }: VenueProps) {
         A note for the day
         <textarea name="note" rows={2} />
       </label>
-      <p className="note">The time zone is the visitor&apos;s, which only a browser knows, so the clock renders in the browser. The rooms are a Vue island, the talk count a custom element and the help desk a server island. The walk from the station is a plain video element whose files the page imports. The notices are a page htmx fetches once their tab is open.</p>
+      <p className="note">The time zone is the visitor&apos;s, which only a browser knows, so the server writes the clock and the browser fills in the zone. The rooms are a Vue island, the talk count a custom element and the help desk a server island. The walk from the station is a plain video element whose files the page imports. The notices are a page htmx fetches once their tab is open.</p>
     </section>
   );
 }

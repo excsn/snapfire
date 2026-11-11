@@ -171,6 +171,7 @@ pub(crate) fn parse_into<'a>(arena: &'a Allocator, file: &str, source: &str, tsx
     }
     create_element::desugar(arena, &scope, &mut program);
     methods::desugar(&mut program);
+    intl_calls::desugar(arena, &scope, &mut program);
     if let Some((name, again, first)) = bound_twice(&program) {
       let ((line, column), (first_line, _)) = (at(again), at(first));
       return Err(LowerError::Residue(Residue {

@@ -7,6 +7,7 @@ pub mod component;
 mod classes;
 mod create_element;
 pub mod extract;
+mod intl_calls;
 mod methods;
 pub mod hoist;
 pub mod meaning;
