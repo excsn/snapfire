@@ -4,7 +4,7 @@ import { stringWidth } from "@snapfire/fsr/terminal";
 
 type Task = { id: number; title: string; done: boolean; due: string };
 type Done = { id: number; title: string; at: string };
-type State = { tasks: Task[]; log: Done[]; draft: string; next: number };
+type State = { tasks: Task[]; log: Done[]; draft: string; next: number; opened: string };
 type Action =
   | { type: "type"; text: string }
   | { type: "erase" }
@@ -57,7 +57,7 @@ function Row({ task }: { task: Task }) {
 }
 
 export default function Tasks() {
-  const [state, dispatch] = useReducer(reducer, { tasks: [], log: [], draft: "", next: 1 });
+  const [state, dispatch] = useReducer(reducer, { tasks: [], log: [], draft: "", next: 1, opened: new Date().toString() });
   const { activeId } = useFocusManager();
   const { setCursorPosition } = useCursor();
 
@@ -99,6 +99,7 @@ export default function Tasks() {
             <Row key={task.id} task={task} />
           ))}
         </Box>
+        <Text dimColor>Opened {state.opened}</Text>
       </Box>
     </>
   );

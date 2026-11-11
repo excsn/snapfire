@@ -30,7 +30,7 @@ Three chunks: the board, then the weather, then the gate changes.
 | Piece | What it is |
 | --- | --- |
 | `routes/page.tsx` | the clock and both boards, from one call to `board.getBoard`, with each flight's lateness worked out by `Temporal.PlainTime` as the server renders the row |
-| `routes/page.loader.ts` | the board and the next flight due, found with `Temporal.PlainTime.compare` against the field time |
+| `routes/page.loader.ts` | the board and the next flight due, found with `Temporal.PlainTime.compare` against the field time. The page's footer is `new Date().toTimeString()`, the server's own clock in its zone, `19:37:20 GMT-0400 (Eastern Daylight Time)` |
 | `routes/slots/weather/` | a parallel segment with its own loader and its own `loading.tsx` |
 | `routes/slots/gates/` | the same, behind a service that takes twice as long |
 | `routes/layout.tsx` | places `children`, `weather` and `gates`, plus the island that follows the field |

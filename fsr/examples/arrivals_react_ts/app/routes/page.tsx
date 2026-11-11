@@ -41,7 +41,7 @@ function Table({ heading, column, flights }: { heading: string; column: string; 
   );
 }
 
-export default function BoardPage({ at, arrivals, departures, next }: RootProps) {
+export default function BoardPage({ at, arrivals, departures, next, served }: RootProps) {
   return (
     <div className="boards">
       <p className="clock">
@@ -55,6 +55,7 @@ export default function BoardPage({ at, arrivals, departures, next }: RootProps)
       </p>
       <Table heading="Arrivals" column="From" flights={arrivals} />
       <Table heading="Departures" column="To" flights={departures} />
+      <p className="served">Served at {served} by the server's own clock</p>
     </div>
   );
 }

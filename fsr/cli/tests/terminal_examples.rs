@@ -57,6 +57,23 @@ fn tasks_adds_what_is_typed_moves_the_focus_with_tab_and_logs_a_task_marked_done
 }
 
 #[test]
+fn tasks_says_when_it_opened_in_this_machines_zone() {
+  let mut session = open("tasks_terminal_ts");
+  let shown = lines(session.view().unwrap(), 120);
+  let opened = shown.iter().find_map(|l| l.strip_prefix("Opened ")).unwrap_or_else(|| panic!("an Opened line: {shown:?}"));
+  let words: Vec<&str> = opened.splitn(7, ' ').collect();
+  assert_eq!(words.len(), 7, "`new Date().toString()`: {opened}");
+  assert!(words[5].starts_with("GMT") && words[5].len() == 8, "the offset: {opened}");
+  assert!(words[6].starts_with('(') && words[6].ends_with(')'), "the zone's name: {opened}");
+  let (h, m) = (&words[4][..2], &words[4][3..5]);
+  let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as f64;
+  let local = ms - snapfire_fsr_ir::std::time::local_offset(ms).unwrap() * 60_000.0;
+  let minutes = (local / 60_000.0).floor() as i64 % 1440;
+  let shown_minutes = h.parse::<i64>().unwrap() * 60 + m.parse::<i64>().unwrap();
+  assert!((minutes - shown_minutes).rem_euclid(1440) <= 2, "the local time now: {opened}");
+}
+
+#[test]
 fn log_streams_what_git_writes_and_scrolls_it_in_a_box_it_measures() {
   use snapfire_fsr_cli::terminal::Report;
   let mut session = open("log_terminal_ts");
