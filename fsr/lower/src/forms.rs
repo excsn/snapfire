@@ -91,6 +91,7 @@ pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
     js::Expression::ParenthesizedExpression(p) => made_kind(&p.expression),
     js::Expression::TSAsExpression(a) => made_kind(&a.expression),
     js::Expression::TSNonNullExpression(a) => made_kind(&a.expression),
+    js::Expression::NewExpression(n) if intl_member(&n.callee) == Some("Locale") => Some(Kind::Locale),
     js::Expression::NewExpression(n) => match &n.callee {
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "Map" | "SvelteMap") => Some(Kind::Map),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "Set" | "SvelteSet") => Some(Kind::Set),
@@ -228,4 +229,10 @@ pub(crate) fn list_and(items: &[String]) -> String {
     [one] => one.clone(),
     [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
   }
+}
+
+/// The member of `Intl` `callee` names, `Locale` in `Intl.Locale`.
+pub(crate) fn intl_member<'e>(callee: &'e js::Expression) -> Option<&'e str> {
+  let js::Expression::StaticMemberExpression(m) = callee else { return None };
+  matches!(&m.object, js::Expression::Identifier(id) if id.name.as_str() == "Intl").then(|| m.property.name.as_str())
 }

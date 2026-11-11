@@ -678,6 +678,8 @@ pub(crate) enum Kind {
   Stack,
   /// A `Proxy`: its target and its handler, whose traps a read, `in`, a write and a `delete` go through.
   Proxy,
+  /// An `Intl.Locale`: its fields, with its tag under `$tag`.
+  Locale,
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.

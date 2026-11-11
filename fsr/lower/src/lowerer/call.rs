@@ -300,6 +300,23 @@ impl<'a> Lowerer<'a> {
           "BigInt" if matches!(method.as_str(), "asIntN" | "asUintN") => return self.big_int_wrap(&method, call),
           "Array" if method == "fromAsync" => return self.from_async(call),
           "Reflect" => return self.reflect(&method, call),
+          "Intl" if method == "supportedValuesOf" => {
+            let [key] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Intl.supportedValuesOf` takes one key")) };
+            let key = Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(key))?));
+            return Ok(Expr::Ext { module: "intl".to_owned(), name: "supported".to_owned(), args: vec![key] });
+          }
+          "Intl" if method == "getCanonicalLocales" => {
+            let given = match call.arguments.first() {
+              Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+              None => Expr::Array(Vec::new()),
+            };
+            let (held, tag) = (self.temp(), self.temp());
+            let string = Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::lit_str("string")));
+            let tags = Expr::Ternary(Box::new(string), Box::new(Expr::Array(vec![Entry::Item(Expr::Var(held.clone()))])), Box::new(Expr::Array(vec![Entry::Spread(Expr::Var(held.clone()))])));
+            let canonical = Expr::Lambda { params: vec![tag.clone()], body: Box::new(Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![Expr::Str(Box::new(Expr::Var(tag))), Expr::lit_str("canonical")] }) };
+            let unique = Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Map(Box::new(tags), Box::new(canonical))] };
+            return Ok(Expr::Block(vec![Stmt::Let { name: held, expr: given }, Stmt::Return(Expr::Array(vec![Entry::Spread(unique)]))]));
+          }
           "Iterator" if method == "from" => {
             let [source] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Iterator.from` takes one iterable")) };
             let items = self.expr(crate::syntax::arg_expr(source))?;
@@ -639,6 +656,18 @@ impl<'a> Lowerer<'a> {
       let mut args = vec![target, Expr::lit_str(&method[3..])];
       args.extend(self.plain_args(call)?);
       return Ok(Expr::Builtin { name: Builtin::ViewGet, args });
+    }
+    if self.kind_of(member.object()) == Some(Kind::Locale) {
+      let target = self.expr(member.object())?;
+      let tag = Expr::Field(Box::new(target), "$tag".to_owned());
+      return match method.as_str() {
+        "toString" | "toJSON" => Ok(tag),
+        "maximize" | "minimize" => {
+          let changed = Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![tag, Expr::lit_str(&method)] };
+          Ok(Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![changed, Expr::lit_str("parse")] })
+        }
+        other => Err(self.residue(member.span(), format!("`.{other}()` of an `Intl.Locale`; `maximize`, `minimize` and `toString` are read"))),
+      };
     }
     if self.kind_of(member.object()) == Some(Kind::WeakRef) && method == "deref" {
       let target = self.expr(member.object())?;

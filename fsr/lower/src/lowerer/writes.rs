@@ -275,6 +275,10 @@ let via = via_expr.as_member_expression().expect("matched as a member");
     let text = match self.kind_of(expr) {
       Some(Kind::Map) => "[object Map]",
       Some(Kind::Set) => "[object Set]",
+      Some(Kind::Locale) => {
+        let value = self.expr(expr)?;
+        return Ok(Expr::Field(Box::new(value), "$tag".to_owned()));
+      }
       Some(Kind::WeakMap) => "[object WeakMap]",
       Some(Kind::WeakSet) => "[object WeakSet]",
       Some(Kind::WeakRef) => "[object WeakRef]",

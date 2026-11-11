@@ -29,6 +29,12 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.date", Reach::Render, date);
   extensions.register("intl.dateParts", Reach::Render, date_parts);
   extensions.register("intl.numberParts", Reach::Render, number_parts);
+  extensions.register("intl.locale", Reach::Render, locale_op);
+  extensions.register("intl.supported", Reach::Render, |_, args| {
+    let key = text("intl.supported", args, 0)?;
+    let values = super::supported::supported(key).ok_or_else(|| Fail::internal(format!("RangeError: Invalid key : {key}")))?;
+    Ok(Value::seq(values.iter().map(|v| Value::str(*v)).collect::<Vec<_>>()))
+  });
   extensions.register("intl.plural", Reach::Render, plural);
   extensions.register("intl.list", Reach::Render, list);
   extensions.register("intl.compare", Reach::Render, compare);
@@ -765,4 +771,41 @@ fn number_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     map.insert("value".to_owned(), Value::str(value));
     Value::Map(map)
   }).collect::<Vec<_>>()))
+}
+
+/// `intl.locale(tag, op)`: `"canonical"` the tag `Intl.getCanonicalLocales` gives, `"maximize"` and `"minimize"` the tags `Intl.Locale`'s methods give and `"parse"` an `Intl.Locale`'s fields, with its tag under `$tag`. A tag that does not parse is a `RangeError`, as JavaScript throws.
+fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "intl.locale";
+  let tag = text(what, args, 0)?;
+  let op = text(what, args, 1)?;
+  let mut locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("RangeError: Incorrect locale information provided")))?;
+  icu_locale::LocaleCanonicalizer::new_extended().canonicalize(&mut locale);
+  match op {
+    "canonical" => Ok(Value::str(locale.to_string())),
+    "maximize" | "minimize" => {
+      let expander = icu_locale::LocaleExpander::new_extended();
+      if op == "maximize" { expander.maximize(&mut locale.id) } else { expander.minimize(&mut locale.id) };
+      Ok(Value::str(locale.to_string()))
+    }
+    _ => {
+      let mut map = snapfire_fsr_core::ValueMap::default();
+      map.insert("$tag".to_owned(), Value::str(locale.to_string()));
+      map.insert("baseName".to_owned(), Value::str(locale.id.to_string()));
+      map.insert("language".to_owned(), Value::str(locale.id.language.as_str()));
+      if let Some(script) = locale.id.script {
+        map.insert("script".to_owned(), Value::str(script.as_str()));
+      }
+      if let Some(region) = locale.id.region {
+        map.insert("region".to_owned(), Value::str(region.as_str()));
+      }
+      for (key, field) in [("ca", "calendar"), ("co", "collation"), ("hc", "hourCycle"), ("kf", "caseFirst"), ("nu", "numberingSystem")] {
+        if let Some(value) = key.parse().ok().and_then(|k| locale.extensions.unicode.keywords.get(&k)) {
+          map.insert(field.to_owned(), Value::str(value.to_string()));
+        }
+      }
+      let numeric = "kn".parse().ok().and_then(|k| locale.extensions.unicode.keywords.get(&k)).is_some_and(|v| v.to_string().is_empty() || v.to_string() == "true");
+      map.insert("numeric".to_owned(), Value::Bool(numeric));
+      Ok(Value::Map(map))
+    }
+  }
 }

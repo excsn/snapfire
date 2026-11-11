@@ -14,6 +14,7 @@ pub mod frontmatter;
 pub mod i18n;
 pub mod id;
 pub mod intl;
+mod supported;
 pub mod log;
 pub mod path;
 pub mod system;

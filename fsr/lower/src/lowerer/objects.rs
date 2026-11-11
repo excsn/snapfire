@@ -214,6 +214,13 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         return Ok(Expr::Object(fields));
       }
     }
+    if crate::intl_member(&n.callee) == Some("Locale") {
+      let tag = match args.first() {
+        Some(a) => Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(a))?)),
+        None => return Err(self.residue(n.span, "`new Intl.Locale` without a tag")),
+      };
+      return Ok(Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![tag, Expr::lit_str("parse")] });
+    }
     if let Some(name) = crate::temporal_type(&n.callee) {
       let mut lowered = vec![Expr::lit_str(name)];
       for a in args {

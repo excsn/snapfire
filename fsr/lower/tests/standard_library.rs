@@ -207,6 +207,19 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("new Intl.Locale(\"en-Latn-US\").language", "\"en\""),
+  ("new Intl.Locale(\"en-US\").maximize().toString()", "\"en-Latn-US\""),
+  ("new Intl.Locale(\"zh-TW\").region", "\"TW\""),
+  ("new Intl.Locale(\"en-Latn-US\").minimize().toString()", "\"en\""),
+  ("new Intl.Locale(\"zh\").maximize().baseName", "\"zh-Hans-CN\""),
+  ("String(new Intl.Locale(\"de-u-ca-gregory\"))", "\"de-u-ca-gregory\""),
+  ("new Intl.Locale(\"ja-JP-u-ca-japanese-hc-h12\").calendar", "\"japanese\""),
+  ("new Intl.Locale(\"ja-JP-u-ca-japanese-hc-h12\").hourCycle", "\"h12\""),
+  ("Intl.getCanonicalLocales(\"EN-us\")", "[\"en-US\"]"),
+  ("Intl.getCanonicalLocales([\"en-us\", \"EN-US\", \"de\"])", "[\"en-US\",\"de\"]"),
+  ("Intl.supportedValuesOf(\"currency\").length > 100", "true"),
+  ("Intl.supportedValuesOf(\"calendar\").includes(\"gregory\")", "true"),
+  ("Intl.supportedValuesOf(\"timeZone\").includes(\"Asia/Tokyo\")", "true"),
   ("new Intl.NumberFormat(\"en\").formatToParts(1234.5).map((p) => p.type)", "[\"integer\",\"group\",\"integer\",\"decimal\",\"fraction\"]"),
   ("new Intl.NumberFormat(\"de-DE\").formatToParts(-1234.5)", "[{\"type\":\"minusSign\",\"value\":\"-\"},{\"type\":\"integer\",\"value\":\"1\"},{\"type\":\"group\",\"value\":\".\"},{\"type\":\"integer\",\"value\":\"234\"},{\"type\":\"decimal\",\"value\":\",\"},{\"type\":\"fraction\",\"value\":\"5\"}]"),
   ("new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\" }).formatToParts(1234.5)", "[{\"type\":\"currency\",\"value\":\"$\"},{\"type\":\"integer\",\"value\":\"1\"},{\"type\":\"group\",\"value\":\",\"},{\"type\":\"integer\",\"value\":\"234\"},{\"type\":\"decimal\",\"value\":\".\"},{\"type\":\"fraction\",\"value\":\"50\"}]"),

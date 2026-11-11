@@ -89,6 +89,8 @@ pub const STANDARD: &[Member] = &[
   written_for("Intl.DateTimeFormat().resolvedOptions().timeZone", "time", "zone", Reach::Body),
   written_for("formatter.formatToParts(date) of an Intl.DateTimeFormat", "intl", "dateParts", Reach::Render),
   written_for("formatter.formatToParts(n) of an Intl.NumberFormat", "intl", "numberParts", Reach::Render),
+  written_for("new Intl.Locale(tag), its maximize and minimize and Intl.getCanonicalLocales", "intl", "locale", Reach::Render),
+  written_for("Intl.supportedValuesOf(key)", "intl", "supported", Reach::Render),
   written_for("new Temporal.<type>(...args)", "temporal", "new", Reach::Render),
   written_for("Temporal.<type>.from(...) and Temporal.<type>.compare(a, b)", "temporal", "static", Reach::Render),
   written_for("value.<field> of a Temporal value", "temporal", "get", Reach::Render),

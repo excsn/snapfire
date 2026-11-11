@@ -141,7 +141,7 @@ impl<'a> Lowerer<'a> {
         }
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack | Kind::Proxy | Kind::Locale) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
