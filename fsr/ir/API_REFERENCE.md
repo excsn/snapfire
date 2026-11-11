@@ -1029,6 +1029,7 @@ A `file` path resolves against `Ambient.files`, confined to its roots. Without o
 | `intl.numberParts` | render | `text`, `style`, `options` | `formatToParts` of a number `intl.number` or `intl.currency` wrote, read back by the locale's separators |
 | `intl.locale` | render | `tag`, `op` | `"canonical"`, `"maximize"` or `"minimize"` the tag; `"parse"` an `Intl.Locale`'s fields with the tag under `$tag` |
 | `intl.supported` | render | `key` | `Intl.supportedValuesOf(key)` as ICU 78.3 lists it |
+| `intl.duration` | render | `duration`, `options?` | `new Intl.DurationFormat(locale, { style }).format(duration)` |
 | `intl.timeString` | body | `when` | `toTimeString()` in this machine's time zone, `19:37:20 GMT-0400 (Eastern Daylight Time)`, the zone named in the locale `intl.systemLocale` reads; `Invalid Date` for an invalid instant |
 | `intl.dateTimeString` | body | `when` | `toString()` of a `Date` in this machine's time zone, `Tue Sep 10 2024 19:37:20 GMT-0400 (Eastern Daylight Time)`; `Invalid Date` for an invalid instant |
 | `intl.upper` | render | `text`, `locales`, `fallback?` | `text.toLocaleUpperCase(locales)`, with `locales` a tag or an array whose first tag applies and `fallback` the tag for `undefined`, `null` or an empty array: Unicode's mapping, with the Turkish and Azerbaijani dotted i, Lithuanian's dot above dropped after i and j and Greek accents dropped as ICU drops them; a locale that is not a well-formed tag is `Internal` |

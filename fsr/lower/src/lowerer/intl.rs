@@ -56,6 +56,7 @@ impl<'a> Lowerer<'a> {
     let (name, allowed): (&str, &[(&str, &[&str])]) = match formatter {
       "PluralRules" => ("plural", &[("type", &["cardinal", "ordinal"])]),
       "Collator" => ("compare", &[("sensitivity", &["base", "accent", "case", "variant"]), ("numeric", &[]), ("usage", &["sort"])]),
+      "DurationFormat" => ("duration", &[("style", &["long", "short", "narrow", "digital"])]),
       _ => ("relative", &[("numeric", &["always", "auto"]), ("style", &["long", "short", "narrow"])]),
     };
     let mut entries: Vec<Entry> = locale.into_iter().collect();

@@ -218,6 +218,7 @@ pub(crate) fn platform_object(n: &js::NewExpression) -> Option<&'static str> {
     "PluralRules" => Some("PluralRules"),
     "Collator" => Some("Collator"),
     "RelativeTimeFormat" => Some("RelativeTimeFormat"),
+    "DurationFormat" => Some("DurationFormat"),
     _ => None,
   }
 }

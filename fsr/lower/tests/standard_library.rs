@@ -207,6 +207,20 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("new Intl.DurationFormat(\"en\", { style: \"long\" }).format({ years: 1, months: 2, weeks: 1, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7, microseconds: 8, nanoseconds: 9 })", "\"1 year, 2 months, 1 week, 3 days, 4 hours, 5 minutes, 6 seconds, 7 milliseconds, 8 microseconds, 9 nanoseconds\""),
+  ("new Intl.DurationFormat(\"en\", { style: \"short\" }).format({ years: 1, months: 2, weeks: 1, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7, microseconds: 8, nanoseconds: 9 })", "\"1 yr, 2 mths, 1 wk, 3 days, 4 hr, 5 min, 6 sec, 7 ms, 8 μs, 9 ns\""),
+  ("new Intl.DurationFormat(\"en\", { style: \"narrow\" }).format({ years: 1, months: 2, weeks: 1, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7, microseconds: 8, nanoseconds: 9 })", "\"1y 2m 1w 3d 4h 5m 6s 7ms 8μs 9ns\""),
+  ("new Intl.DurationFormat(\"en\", { style: \"digital\" }).format({ years: 1, months: 2, weeks: 1, days: 3, hours: 4, minutes: 5, seconds: 6, milliseconds: 7, microseconds: 8, nanoseconds: 9 })", "\"1 yr, 2 mths, 1 wk, 3 days, 4:05:06.007008009\""),
+  ("new Intl.DurationFormat(\"de\", { style: \"long\" }).format({ hours: 1, minutes: 2 })", "\"1 Stunde, 2 Minuten\""),
+  ("new Intl.DurationFormat(\"en\", { style: \"digital\" }).format({ hours: 1, minutes: 2, seconds: 3 })", "\"1:02:03\""),
+  ("new Intl.DurationFormat(\"en\").format({ hours: 0 })", "\"\""),
+  ("new Intl.DurationFormat(\"en\", { style: \"digital\" }).format({ minutes: 5 })", "\"0:05:00\""),
+  ("new Intl.DurationFormat(\"fr\", { style: \"short\" }).format({ hours: 2, minutes: 30 })", "\"2 h et 30 min\""),
+  ("new Intl.DurationFormat(\"en\").format({ minutes: 5 })", "\"5 min\""),
+  ("new Intl.DurationFormat(\"fi\", { style: \"digital\" }).format({ hours: 1, minutes: 2, seconds: 3 })", "\"1.02.03\""),
+  ("new Intl.DurationFormat(\"en\", { style: \"long\" }).format({ hours: 1000, minutes: 1 })", "\"1,000 hours, 1 minute\""),
+  ("new Intl.DurationFormat(\"ar\", { style: \"long\" }).format({ hours: 2, days: 3 })", "\"3 أيام وساعتان\""),
+  ("new Intl.DurationFormat(\"ja\").format({ hours: 2, minutes: 3 })", "\"2 時間 3 分\""),
   ("new Intl.Locale(\"en-Latn-US\").language", "\"en\""),
   ("new Intl.Locale(\"en-US\").maximize().toString()", "\"en-Latn-US\""),
   ("new Intl.Locale(\"zh-TW\").region", "\"TW\""),

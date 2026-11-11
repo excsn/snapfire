@@ -30,6 +30,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.dateParts", Reach::Render, date_parts);
   extensions.register("intl.numberParts", Reach::Render, number_parts);
   extensions.register("intl.locale", Reach::Render, locale_op);
+  extensions.register("intl.duration", Reach::Render, duration);
   extensions.register("intl.supported", Reach::Render, |_, args| {
     let key = text("intl.supported", args, 0)?;
     let values = super::supported::supported(key).ok_or_else(|| Fail::internal(format!("RangeError: Invalid key : {key}")))?;
@@ -808,4 +809,76 @@ fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
       Ok(Value::Map(map))
     }
   }
+}
+
+/// `intl.duration(duration, { locale?, style? })`: `new Intl.DurationFormat(locale, { style }).format(duration)`. Each unit the duration holds is written in its CLDR pattern for the style and its plural form. The units are joined as a unit list. `digital` writes years to days in their short patterns, then hours, minutes and seconds as numbers with the locale's time separator and anything below a second as their fraction.
+fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "intl.duration";
+  let Some(Value::Map(given)) = args.first() else { return Err(Fail::internal(format!("TypeError: {what}: a duration is an object"))) };
+  let amount = |key: &str| -> f64 {
+    match given.get(key) {
+      Some(Value::Int(n)) => *n as f64,
+      Some(Value::UInt(n)) => *n as f64,
+      Some(Value::F64(n)) => *n,
+      Some(Value::F32(n)) => f64::from(*n),
+      _ => 0.0,
+    }
+  };
+  let style = match args.get(1) {
+    Some(Value::Map(o)) => match o.get("style") {
+      Some(Value::Str(s)) => s.to_string(),
+      _ => "short".to_owned(),
+    },
+    _ => "short".to_owned(),
+  };
+  let locale = locale_for(what, ambient, args.get(1))?;
+  let tag = locale.to_string();
+  let numbers = DecimalFormatter::try_new((&locale).into(), DecimalFormatterOptions::default()).map_err(|e| data(what, e))?;
+  let plurals = PluralRules::try_new_cardinal((&locale).into()).map_err(|e| data(what, e))?;
+  let unit_width = if style == "digital" { "short" } else { style.as_str() };
+  let written = |unit: &str, n: f64| -> Result<String, Fail> {
+    let decimal = Decimal::try_from_f64(n, FloatPrecision::RoundTrip).map_err(|e| Fail::internal(format!("{what}: {e:?}")))?;
+    let plural = match plurals.category_for(&decimal) {
+      PluralCategory::Zero => "zero",
+      PluralCategory::One => "one",
+      PluralCategory::Two => "two",
+      PluralCategory::Few => "few",
+      PluralCategory::Many => "many",
+      PluralCategory::Other => "other",
+    };
+    let pattern = snapfire_i18n::duration_unit(&tag, unit_width, unit, plural).ok_or_else(|| Fail::internal(format!("{what}: no `{unit}` pattern for {tag}")))?;
+    Ok(pattern.replace("{0}", &numbers.format(&decimal).to_string()))
+  };
+  let mut items = Vec::new();
+  let date_units = [("years", "year"), ("months", "month"), ("weeks", "week"), ("days", "day")];
+  let time_units = [("hours", "hour"), ("minutes", "minute"), ("seconds", "second"), ("milliseconds", "millisecond"), ("microseconds", "microsecond"), ("nanoseconds", "nanosecond")];
+  for (key, unit) in date_units {
+    if amount(key) != 0.0 {
+      items.push(written(unit, amount(key))?);
+    }
+  }
+  if style == "digital" {
+    let below = amount("milliseconds") * 1e6 + amount("microseconds") * 1e3 + amount("nanoseconds");
+    let separator = snapfire_i18n::time_separator(&tag);
+    let mut clock = format!("{}{separator}{:02}{separator}{:02}", amount("hours"), amount("minutes"), amount("seconds"));
+    if below != 0.0 {
+      let fraction = format!("{:09}", below as u64);
+      clock.push('.');
+      clock.push_str(fraction.trim_end_matches('0'));
+    }
+    items.push(clock);
+  } else {
+    for (key, unit) in time_units {
+      if amount(key) != 0.0 {
+        items.push(written(unit, amount(key))?);
+      }
+    }
+  }
+  let length = match style.as_str() {
+    "long" => ListLength::Wide,
+    "narrow" => ListLength::Narrow,
+    _ => ListLength::Short,
+  };
+  let list = ListFormatter::try_new_unit((&locale).into(), ListFormatterOptions::default().with_length(length)).map_err(|e| data(what, e))?;
+  Ok(Value::str(list.format(items.iter().map(String::as_str)).to_string()))
 }
