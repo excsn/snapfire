@@ -697,7 +697,7 @@ pub(crate) enum Kind {
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.
-pub(crate) const TEMPORAL_MAKERS: &[&str] = &["add", "subtract", "until", "since", "with", "withPlainTime", "withTimeZone", "round", "negated", "abs", "startOfDay", "toInstant", "toPlainDate", "toPlainTime", "toPlainDateTime", "toZonedDateTime", "toZonedDateTimeISO"];
+pub(crate) const TEMPORAL_MAKERS: &[&str] = &["add", "subtract", "until", "since", "with", "withPlainTime", "withTimeZone", "round", "negated", "abs", "startOfDay", "toInstant", "toPlainDate", "toPlainTime", "toPlainDateTime", "toZonedDateTime", "toZonedDateTimeISO", "toPlainYearMonth", "toPlainMonthDay"];
 
 /// The `Temporal` statics that answer a Temporal value.
 pub(crate) const TEMPORAL_FROM: &[&str] = &["from", "fromEpochMilliseconds", "fromEpochNanoseconds"];

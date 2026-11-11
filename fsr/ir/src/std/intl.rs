@@ -244,7 +244,7 @@ fn currency(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
 /// `weekday`, `year`, `month` and `day` options given as an object, which may
 /// also name a `locale`. `when` is milliseconds since the epoch or an ISO
 /// 8601 string.
-fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+pub(super) fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.date";
   let ms = match args.first() {
     Some(Value::Str(s)) => super::time::parse_iso(s).ok_or_else(|| Fail::internal(format!("{what}: `{s}` is not an ISO 8601 date")))?,
@@ -378,7 +378,7 @@ pub fn local_date(ms: f64, locale: Option<&str>, with_time: bool) -> Result<Stri
 }
 
 /// The UTC fields of `local` as JavaScript writes a date with no options other than a time zone: the numeric date for `mode` `"date"`, the time for `"time"` and both joined for `"both"`. `Invalid Date` for NaN.
-fn numeric_written(what: &str, local: f64, tag: &str, mode: &str) -> Result<String, Fail> {
+pub(super) fn numeric_written(what: &str, local: f64, tag: &str, mode: &str) -> Result<String, Fail> {
   if local.is_nan() {
     return Ok("Invalid Date".to_owned());
   }
@@ -405,7 +405,7 @@ fn numeric_written(what: &str, local: f64, tag: &str, mode: &str) -> Result<Stri
 }
 
 /// The zone rules of the time zone source in use.
-struct Zones(snapfire_time::Source);
+pub(super) struct Zones(pub(super) snapfire_time::Source);
 
 impl snapfire_i18n::ZoneRules for Zones {
   fn observed(&self, zone: &str, ms: f64) -> Option<(i32, i32)> {
@@ -816,7 +816,7 @@ fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
 }
 
 /// `intl.duration(duration, { locale?, style? })`: `new Intl.DurationFormat(locale, { style }).format(duration)`. Each unit the duration holds is written in its CLDR pattern for the style and its plural form. The units are joined as a unit list. `digital` writes years to days in their short patterns, then hours, minutes and seconds as numbers with the locale's time separator and anything below a second as their fraction.
-fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+pub(super) fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.duration";
   let Some(Value::Map(given)) = args.first() else { return Err(Fail::internal(format!("TypeError: {what}: a duration is an object"))) };
   let amount = |key: &str| -> f64 {
