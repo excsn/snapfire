@@ -1390,6 +1390,10 @@ U	af	short	week	one	{0} w.
 U	af	short	week	other	{0} w.
 U	af	short	year	one	{0} j.
 U	af	short	year	other	{0} j.
+S	af	Africa_Central	CAT	
+S	af	Africa_Eastern	EAT	
+S	af	Africa_Southern	SAST	
+S	af	Africa_Western	WAT	
 N	af	Afghanistan	Afganistan-tyd	
 N	af	Africa_Central	Sentraal-Afrika-tyd	
 N	af	Africa_Eastern	Oos-Afrika-tyd	
@@ -2413,6 +2417,7 @@ U	as	short	week	one	{0} সপ্তাহ
 U	as	short	week	other	{0} সপ্তাহ
 U	as	short	year	one	{0} বছৰ
 U	as	short	year	other	{0} বছৰ
+S	as	India	ভা. স.	
 N	as	Afghanistan	আফগানিস্তানৰ সময়	
 N	as	Africa_Central	মধ্য আফ্ৰিকাৰ সময়	
 N	as	Africa_Eastern	পূব আফ্ৰিকাৰ সময়	
@@ -2629,6 +2634,14 @@ U	ast	short	week	one	{0} sel
 U	ast	short	week	other	{0} sels
 U	ast	short	year	one	{0} añ
 U	ast	short	year	other	{0} añs
+S	ast	Alaska	AKST	AKDT
+S	ast	America_Central	CST	CDT
+S	ast	America_Eastern	EST	EDT
+S	ast	America_Mountain	MST	MDT
+S	ast	America_Pacific	PST	PDT
+S	ast	Atlantic	AST	ADT
+S	ast	GMT	GMT	
+S	ast	Hawaii_Aleutian	HAST	HADT
 N	ast	Acre	hora estándar d’Acre	hora braniega d’Acre
 N	ast	Afghanistan	Hora d’Afganistán	
 N	ast	Africa_Central	Hora d’África central	
@@ -3058,6 +3071,11 @@ U	ba	short	nanosecond	other	{0} нс
 U	ba	short	second	other	{0} с
 U	ba	short	week	other	{0} аҙна
 U	ba	short	year	other	{0} йыл
+S	ba	Alaska	AKST	AKST
+S	ba	America_Central	CST	CDT
+S	ba	America_Eastern	EST	EDT
+S	ba	America_Mountain	MST	MDT
+S	ba	America_Pacific	PST	PDT
 N	ba	Acre	Акри стандарт ваҡыты	Акри йәйге ваҡыты
 N	ba	Afghanistan	Афғанстан ваҡыты	
 N	ba	Africa_Central	Үҙәк Африка ваҡыты	
@@ -4007,6 +4025,8 @@ O	blo	h:mm:ss a	HH:mm:ss	1ka	2ja
 H	blo	H	gregorian
 C	blo	persian	M/d/y G	AP	AP	h a mm:ss	HH:mm:ss	1ka	2ja
 C	blo	buddhist	M/d/y G	BE	BE	h a mm:ss	HH:mm:ss	1ka	2ja
+S	blo	Etc/UTC	ƉAK	
+S	blo	GMT	Gk	
 N	blo	Afghanistan	Afganistan kaakɔŋkɔŋɔ̀	
 N	blo	Africa_Central	Garɩɖontǝna gɩcɩɩca kaakɔŋkɔŋɔ̀	
 N	blo	Africa_Eastern	Garɩɖontǝna gajakalaŋ kaakɔŋkɔŋɔ̀	
@@ -4226,6 +4246,7 @@ U	bn	short	week	one	{0} সপ্তাহ
 U	bn	short	week	other	{0} সপ্তাহ
 U	bn	short	year	one	{0} বছর
 U	bn	short	year	other	{0} বছর
+S	bn	India	IST	
 N	bn	Acre	একর মানক সময়	একর গ্রীষ্মকাল সময়
 N	bn	Afghanistan	আফগানিস্তান সময়	
 N	bn	Africa_Central	মধ্য আফ্রিকা সময়	
@@ -4687,6 +4708,7 @@ U	brx	long	week	one	{0} सप्ताह
 U	brx	long	week	other	{0} सप्ताह
 U	brx	long	year	one	{0} साल
 U	brx	long	year	other	{0} साल
+S	brx	India	IST	
 N	brx	Acre	आकर स्टैंडर्ड टाईम	आकर समर टाईम
 N	brx	Afghanistan	आफगानीस्तान सम	
 N	brx	Africa_Central	मिरु आफ्रिका सम	
@@ -4920,6 +4942,10 @@ U	bs	short	week	other	{0} sedm.
 U	bs	short	year	few	{0} god.
 U	bs	short	year	one	{0} god.
 U	bs	short	year	other	{0} god.
+S	bs	Europe_Central	CET	CEST
+S	bs	Europe_Eastern	EET	EEST
+S	bs	Europe_Western	WET	WEST
+S	bs	GMT	GMT	
 N	bs	Acre	Acre standardno vreme	Acre letnje računanje vremena
 N	bs	Afghanistan	Afganistansko vrijeme	
 N	bs	Africa_Central	Centralnoafričko vrijeme	
@@ -5374,6 +5400,10 @@ U	ca	short	week	one	{0} setm.
 U	ca	short	week	other	{0} setm.
 U	ca	short	year	one	{0} any
 U	ca	short	year	other	{0} anys
+S	ca	Europe_Central	CET	CEST
+S	ca	Europe_Eastern	EET	EEST
+S	ca	Europe_Western	WET	WEST
+S	ca	GMT	GMT	
 N	ca	Afghanistan	Hora de l’Afganistan	
 N	ca	Africa_Central	Hora de l’Àfrica central	
 N	ca	Africa_Eastern	Hora de l’Àfrica oriental	
@@ -5574,6 +5604,7 @@ U	ccp	short	month	other	{0} 𑄟𑄌𑄴
 U	ccp	short	second	other	{0} 𑄥𑄬𑄇𑄬𑄚𑄳𑄓𑄴
 U	ccp	short	week	other	{0} 𑄥𑄛𑄴𑄖
 U	ccp	short	year	other	{0} 𑄝𑄧𑄏𑄧𑄢𑄴
+S	ccp	India	IST	
 N	ccp	Afghanistan	𑄃𑄛𑄴𑄉𑄚𑄨𑄌𑄴𑄖𑄚𑄴 𑄃𑄧𑄇𑄴𑄖𑄧	
 N	ccp	Africa_Central	𑄟𑄧𑄖𑄴𑄙𑄳𑄠 𑄃𑄜𑄳𑄢𑄨𑄇 𑄃𑄧𑄇𑄴𑄖𑄧	
 N	ccp	Africa_Eastern	𑄛𑄪𑄉𑄬𑄘𑄨 𑄃𑄜𑄳𑄢𑄨𑄇 𑄃𑄧𑄇𑄴𑄖𑄧	
@@ -6206,6 +6237,14 @@ U	chr	short	week	one	{0} ᏒᎾ
 U	chr	short	week	other	{0} ᎢᏳᎾ
 U	chr	short	year	one	{0} ᎤᏕ
 U	chr	short	year	other	{0} ᏧᏕ
+S	chr	Alaska	AKST	AKDT
+S	chr	America_Central	CST	CDT
+S	chr	America_Eastern	EST	EDT
+S	chr	America_Mountain	MST	MDT
+S	chr	America_Pacific	PST	PDT
+S	chr	Atlantic	AST	ADT
+S	chr	Hawaii	HAST	
+S	chr	Hawaii_Aleutian	HAST	HADT
 N	chr	Afghanistan	ᎠᏫᎨᏂᏍᏖᏂ ᎠᏟᎢᎵᏒ	
 N	chr	Africa_Central	ᎠᏰᏟ ᎬᎿᎨᏍᏛ ᎠᏟᎢᎵᏒ	
 N	chr	Africa_Eastern	ᏗᎧᎸᎬ ᎬᎿᎨᏍᏛ ᎠᏟᎢᎵᏒ	
@@ -6459,6 +6498,13 @@ U	cs	short	year	few	{0} roky
 U	cs	short	year	many	{0} roku
 U	cs	short	year	one	{0} rok
 U	cs	short	year	other	{0} let
+S	cs	Alaska	AKST	AKDT
+S	cs	America_Central	CST	CDT
+S	cs	America_Eastern	EST	EDT
+S	cs	America_Mountain	MST	MDT
+S	cs	America_Pacific	PST	PDT
+S	cs	Atlantic	AST	ADT
+S	cs	Europe_Central	SEČ	SELČ
 N	cs	Acre	acrejský standardní čas	acrejský letní čas
 N	cs	Afghanistan	afghánský čas	
 N	cs	Africa_Central	středoafrický čas	
@@ -6725,6 +6771,165 @@ U	cv	short	week	zero	{0} эрне
 U	cv	short	year	one	{0} ҫул
 U	cv	short	year	other	{0} ҫул
 U	cv	short	year	zero	{0} ҫул
+S	cv	Acre	ACT Acre	ACST Acre
+S	cv	Afghanistan	AFT	
+S	cv	Africa_Central	CAT	
+S	cv	Africa_Eastern	EAT	
+S	cv	Africa_Southern	SAST	
+S	cv	Africa_Western	WAT	
+S	cv	Alaska	AKST	AKDT
+S	cv	Almaty	ALMT	ALMT DST
+S	cv	Amazon	AMT	AMST
+S	cv	America_Central	CST	CDT
+S	cv	America_Eastern	EST	EDT
+S	cv	America_Mountain	MST	MDT
+S	cv	America_Pacific	PST	PDT
+S	cv	Anadyr	ANAT	ANAST
+S	cv	Apia	SST Samoa Apia	SST Samoa Apia DST
+S	cv	Aqtau	ALMT Aktau	ALMT Aktau DST
+S	cv	Aqtobe	AQTT	AQTT DST
+S	cv	Arabian	AST Arabia	ADT Arabia
+S	cv	Argentina	ART	ARST
+S	cv	Argentina_Western	WART	WARST
+S	cv	Armenia	AMT Armenia	AMST Armenia
+S	cv	Atlantic	AST	ADT
+S	cv	Australia_Central	ACST	ACDT
+S	cv	Australia_CentralWestern	ACWST	ACWDT
+S	cv	Australia_Eastern	AEST	AEDT
+S	cv	Australia_Western	AWST	AWDT
+S	cv	Azerbaijan	AZT	AZST
+S	cv	Azores	AZOT	AZOST
+S	cv	Bangladesh	BST Bangladesh	BDT Bangladesh
+S	cv	Bhutan	BTT	
+S	cv	Bolivia	BOT	
+S	cv	Brasilia	BRT	BRST
+S	cv	Brunei	BNT	
+S	cv	Cape_Verde	CVT	CVST
+S	cv	Casey	CAST	
+S	cv	Chamorro	ChST	
+S	cv	Chatham	CHAST	CHADT
+S	cv	Chile	CLT	CLST
+S	cv	China	CST China	CST China DST
+S	cv	Christmas	CXT	
+S	cv	Cocos	CCT	
+S	cv	Colombia	COT	COST
+S	cv	Cook	CKT	CKT DST
+S	cv	Cuba	CST Cuba	CDT Cuba
+S	cv	Davis	DAVT	
+S	cv	DumontDUrville	DDUT	
+S	cv	East_Timor	TLT	
+S	cv	Easter	EAST	EASST
+S	cv	Ecuador	ECT Ecuador	
+S	cv	Europe_Central	CET	CEST
+S	cv	Europe_Eastern	EET	EEST
+S	cv	Europe_Further_Eastern	FEET	
+S	cv	Europe_Western	WET	WEST
+S	cv	Falkland	FKT	FKST
+S	cv	Fiji	FJT	FJT Summer
+S	cv	French_Guiana	GFT	
+S	cv	French_Southern	TAAF	
+S	cv	GMT	GMT	
+S	cv	Galapagos	GALT	
+S	cv	Gambier	GAMT	
+S	cv	Georgia	GET	GEST
+S	cv	Gilbert_Islands	GIT	
+S	cv	Greenland	GNST	GNSST
+S	cv	Greenland_Eastern	EGT	EGST
+S	cv	Greenland_Western	WGT	WGST
+S	cv	Guam	GST Guam	
+S	cv	Gulf	GST Gulf	
+S	cv	Guyana	GYT	
+S	cv	Hawaii	HST	
+S	cv	Hawaii_Aleutian	HST	HDT
+S	cv	Hong_Kong	HKT	HKT DST
+S	cv	Hovd	HOVT	HOVST
+S	cv	India	IST Indian	
+S	cv	Indian_Ocean	IOT	
+S	cv	Indochina	ICT	
+S	cv	Indonesia_Central	CIT	
+S	cv	Indonesia_Eastern	EIT	
+S	cv	Indonesia_Western	WIT	
+S	cv	Iran	IRST	IRST DST
+S	cv	Irkutsk	IRKT	IRKST
+S	cv	Israel	IST Israel	IDT
+S	cv	Japan	JST	JST DST
+S	cv	Kamchatka	PETST	PETDT
+S	cv	Kazakhstan	Казахстан вхч	
+S	cv	Kazakhstan_Eastern	Хӗвелтухӑҫ Казахстан вхч	
+S	cv	Kazakhstan_Western	Анӑҫ Казахстан вхч	
+S	cv	Korea	KST	KST DST
+S	cv	Kosrae	KOST	
+S	cv	Krasnoyarsk	KRAT	KRAST
+S	cv	Kyrgystan	KGT	
+S	cv	Lanka	SLST	
+S	cv	Line_Islands	LINT	
+S	cv	Lord_Howe	LHST	LHST Summer
+S	cv	Macau	MST Macao	MST Macao DST
+S	cv	Magadan	MAGT	MAGST
+S	cv	Malaysia	MYT	
+S	cv	Maldives	MVT	
+S	cv	Marquesas	MART	
+S	cv	Marshall_Islands	MHT	
+S	cv	Mauritius	MUT	MUST
+S	cv	Mawson	MAWT	
+S	cv	Mexico_Pacific	PSTM	PDTM
+S	cv	Mongolia	ULAT	ULAST
+S	cv	Moscow	МСК	MSD
+S	cv	Myanmar	MMT	
+S	cv	Nauru	NRT	
+S	cv	Nepal	NPT	
+S	cv	New_Caledonia	NCT	NDT New Caledonia
+S	cv	New_Zealand	NZST	NZDT
+S	cv	Newfoundland	NST	NDT
+S	cv	Niue	NUT	
+S	cv	Norfolk	NFT	NFDT
+S	cv	Noronha	FNT	FNST
+S	cv	North_Mariana	ChST NMI	
+S	cv	Novosibirsk	NOVT	NOVST
+S	cv	Omsk	OMST	OMSST
+S	cv	Pakistan	PKT	PKT DST
+S	cv	Palau	PWT	
+S	cv	Papua_New_Guinea	PGT	
+S	cv	Paraguay	PYT	PYST
+S	cv	Peru	PET	EDT Peru
+S	cv	Philippines	PST Philippine	PST Philippine DST
+S	cv	Phoenix_Islands	PHOT	
+S	cv	Pierre_Miquelon	PMST	PMDT
+S	cv	Pitcairn	PST Pitcairn	
+S	cv	Ponape	PONT	
+S	cv	Pyongyang	PYT Korea	
+S	cv	Qyzylorda	QYZT	QYZT DST
+S	cv	Reunion	RET	
+S	cv	Rothera	ROTT	
+S	cv	Sakhalin	SAKT	SAKST
+S	cv	Samara	SAMT	SAMST
+S	cv	Samoa	SST Samoa	SST Samoa DST
+S	cv	Seychelles	SCT	
+S	cv	Singapore	SGT	
+S	cv	Solomon	SBT	
+S	cv	South_Georgia	GST	
+S	cv	Suriname	SRT	
+S	cv	Syowa	SYOT	
+S	cv	Tahiti	TAHT	
+S	cv	Taipei	TWT	TWT DST
+S	cv	Tajikistan	TJT	
+S	cv	Tokelau	TKT	
+S	cv	Tonga	TOT	TOST
+S	cv	Truk	CHUT	
+S	cv	Turkmenistan	TMT	TMT DST
+S	cv	Tuvalu	TVT	
+S	cv	Uruguay	UYT	UYST
+S	cv	Uzbekistan	UZT	UZT DST
+S	cv	Vanuatu	VUT	VUT DST
+S	cv	Venezuela	VnzlT	
+S	cv	Vladivostok	VLAT	VLAST
+S	cv	Volgograd	VOLT	VOLST
+S	cv	Vostok	VOST	
+S	cv	Wake	WAKT	
+S	cv	Wallis	WFT	
+S	cv	Yakutsk	YAKT	YAKST
+S	cv	Yekaterinburg	YEKT	YEKST
+S	cv	Yukon	YST	
 N	cv	Acre	Акри стандартлӑ вӑхӑчӗ	Акри ҫуллахи вӑхӑчӗ
 N	cv	Afghanistan	Афганистан вӑхӑчӗ	
 N	cv	Africa_Central	Вӑта Африка вӑхӑчӗ	
@@ -7049,6 +7254,10 @@ U	cy	short	year	one	{0} bl
 U	cy	short	year	other	{0} bl
 U	cy	short	year	two	{0} bl
 U	cy	short	year	zero	{0} bl
+S	cy	Europe_Central	CET	CEST
+S	cy	Europe_Eastern	EET	EEST
+S	cy	Europe_Western	WET	WEST
+S	cy	GMT	GMT	
 N	cy	Afghanistan	Amser Afghanistan	
 N	cy	Africa_Central	Amser Canolbarth Affrica	
 N	cy	Africa_Eastern	Amser Dwyrain Affrica	
@@ -7256,6 +7465,9 @@ U	da	short	week	other	{0} uger
 U	da	short	year	one	{0} år
 U	da	short	year	other	{0} år
 T	da	.
+S	da	Europe_Central	CET	CEST
+S	da	Europe_Eastern	EET	EEST
+S	da	Europe_Western	WET	WEST
 N	da	Acre	Acre-normaltid	Acre-sommertid
 N	da	Afghanistan	Afghansk tid	
 N	da	Africa_Central	Centralafrikansk tid	
@@ -7482,6 +7694,9 @@ U	de	short	week	one	{0} Wo.
 U	de	short	week	other	{0} Wo.
 U	de	short	year	one	{0} J
 U	de	short	year	other	{0} J
+S	de	Europe_Central	MEZ	MESZ
+S	de	Europe_Eastern	OEZ	OESZ
+S	de	Europe_Western	WEZ	WESZ
 N	de	Acre	Acre-Normalzeit	Acre-Sommerzeit
 N	de	Afghanistan	Afghanistan-Zeit	
 N	de	Africa_Central	Zentralafrikanische Zeit	
@@ -7776,6 +7991,9 @@ U	dsb	short	year	few	{0} l.
 U	dsb	short	year	one	{0} l.
 U	dsb	short	year	other	{0} l.
 U	dsb	short	year	two	{0} l.
+S	dsb	Europe_Central	MEZ	MESZ
+S	dsb	Europe_Eastern	OEZ	OESZ
+S	dsb	Europe_Western	WEZ	WESZ
 N	dsb	Afghanistan	Afghaniski cas	
 N	dsb	Africa_Central	Srjejźoafriski cas	
 N	dsb	Africa_Eastern	Pódzajtšnoafriski cas	
@@ -8097,6 +8315,10 @@ U	ee	short	week	one	kɔsiɖa {0}
 U	ee	short	week	other	kɔsiɖa {0}
 U	ee	short	year	one	ƒe {0}
 U	ee	short	year	other	ƒe {0}
+S	ee	Africa_Central	CAT	
+S	ee	Africa_Eastern	EAT	
+S	ee	Africa_Southern	SAST	
+S	ee	Africa_Western	WAT	
 N	ee	Afghanistan	Afghanistan gaƒoƒo me	
 N	ee	Africa_Central	Central Africa gaƒoƒo me	
 N	ee	Africa_Eastern	East Africa gaƒoƒo me	
@@ -8298,6 +8520,9 @@ U	el	short	week	one	{0} εβδ.
 U	el	short	week	other	{0} εβδ.
 U	el	short	year	one	{0} έτ.
 U	el	short	year	other	{0} έτ.
+S	el	Europe_Central	CET	CEST
+S	el	Europe_Eastern	EET	EEST
+S	el	Europe_Western	WET	WEST
 N	el	Acre	Χειμερινή ώρα Άκρε	Θερινή ώρα Άκρε
 N	el	Afghanistan	Ώρα Αφγανιστάν	
 N	el	Africa_Central	Ώρα Κεντρικής Αφρικής	
@@ -8518,6 +8743,15 @@ U	en	short	week	one	{0} wk
 U	en	short	week	other	{0} wks
 U	en	short	year	one	{0} yr
 U	en	short	year	other	{0} yrs
+S	en	Alaska	AKST	AKDT
+S	en	America_Central	CST	CDT
+S	en	America_Eastern	EST	EDT
+S	en	America_Mountain	MST	MDT
+S	en	America_Pacific	PST	PDT
+S	en	Atlantic	AST	ADT
+S	en	GMT	GMT	
+S	en	Hawaii	HST	
+S	en	Hawaii_Aleutian	HAST	HADT
 N	en	Acre	Acre Standard Time	Acre Summer Time
 N	en	Afghanistan	Afghanistan Time	
 N	en	Africa_Central	Central Africa Time	
@@ -8689,13 +8923,33 @@ C	en-001	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 U	en-001	short	hour	other	{0} hrs
 U	en-001	short	minute	other	{0} mins
 U	en-001	short	second	other	{0} secs
+S	en-001	Alaska		
+S	en-001	America_Central		
+S	en-001	America_Eastern		
+S	en-001	America_Mountain		
+S	en-001	America_Pacific		
+S	en-001	Atlantic		
+S	en-001	Hawaii		
+S	en-001	Hawaii_Aleutian		
 N	en-001	Pierre_Miquelon	St Pierre & Miquelon Standard Time	St Pierre & Miquelon Daylight Time
 P	en-150	en-001
 H	en-150	H	gregorian
+S	en-150	Europe_Central	CET	CEST
+S	en-150	Europe_Eastern	EET	EEST
+S	en-150	Europe_Western	WET	WEST
 P	en-AE	en
 Y	en-AE	dd/MM/y	{1}, {0}
 C	en-AE	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
 C	en-AE	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	AM	PM
+S	en-AE	Alaska		
+S	en-AE	America_Central		
+S	en-AE	America_Eastern		
+S	en-AE	America_Mountain		
+S	en-AE	America_Pacific		
+S	en-AE	Atlantic		
+S	en-AE	Gulf	GST	
+S	en-AE	Hawaii		
+S	en-AE	Hawaii_Aleutian		
 P	en-AG	en-001
 P	en-AI	en-001
 H	en-AI	H	gregorian
@@ -8704,6 +8958,12 @@ P	en-AT	en-150
 P	en-AU	en-001
 C	en-AU	persian	dd/MM/y	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-AU	buddhist	dd/MM/y	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-AU	Australia_Central	ACST	ACDT
+S	en-AU	Australia_CentralWestern	ACWST	ACWDT
+S	en-AU	Australia_Eastern	AEST	AEDT
+S	en-AU	Australia_Western	AWST	AWDT
+S	en-AU	Lord_Howe	LHST	LHDT
+S	en-AU	New_Zealand	NZST	NZDT
 N	en-AU	China	China Standard Time	China Summer Time
 N	en-AU	French_Southern	French Southern and Antarctic Time	
 N	en-AU	Japan	Japan Standard Time	Japan Summer Time
@@ -8723,6 +8983,10 @@ P	en-BW	en-001
 H	en-BW	H	gregorian
 C	en-BW	persian	dd/MM/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-BW	buddhist	dd/MM/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-BW	Africa_Central	CAT	
+S	en-BW	Africa_Eastern	EAT	
+S	en-BW	Africa_Southern	SAST	
+S	en-BW	Africa_Western	WAT	WAST
 P	en-BZ	en-001
 H	en-BZ	H	gregorian
 C	en-BZ	persian	dd/MM/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
@@ -8745,6 +9009,8 @@ U	en-CA	short	month	other	{0} mos
 U	en-CA	short	nanosecond	one	{0} nanosec
 U	en-CA	short	nanosecond	other	{0} nanosecs
 U	en-CA	short	second	other	{0} secs
+S	en-CA	Newfoundland	NST	NDT
+S	en-CA	Pierre_Miquelon	PMST	PMDT
 N	en-CA	French_Southern	French Southern and Antarctic Time	
 N	en-CA	Pierre_Miquelon	Saint-Pierre-et-Miquelon Standard Time	Saint-Pierre-et-Miquelon Daylight Time
 N	en-CA	Wallis	Wallis and Futuna Time	
@@ -8758,6 +9024,10 @@ P	en-CK	en-001
 H	en-CK	H	gregorian
 P	en-CM	en-001
 H	en-CM	H	gregorian
+S	en-CM	Africa_Central	CAT	
+S	en-CM	Africa_Eastern	EAT	
+S	en-CM	Africa_Southern	SAST	
+S	en-CM	Africa_Western	WAT	WAST
 P	en-CX	en-001
 H	en-CX	H	gregorian
 P	en-CY	en-001
@@ -8801,6 +9071,10 @@ N	en-Dsrt	Hong_Kong	𐐐𐐱𐑍 𐐗𐐱𐑍 𐐝𐐻𐐰𐑌𐐼𐐲𐑉𐐼 �
 N	en-Dsrt	Newfoundland	𐐤𐐭𐑁𐐲𐑌𐐼𐑊𐐲𐑌𐐼 𐐝𐐻𐐰𐑌𐐼𐐲𐑉𐐼 𐐓𐐴𐑋	𐐤𐐭𐑁𐐲𐑌𐐼𐑊𐐲𐑌𐐼 𐐔𐐩𐑊𐐴𐐻 𐐓𐐴𐑋
 P	en-EE	en-150
 P	en-ER	en-001
+S	en-ER	Africa_Central	CAT	
+S	en-ER	Africa_Eastern	EAT	
+S	en-ER	Africa_Southern	SAST	
+S	en-ER	Africa_Western	WAT	WAST
 P	en-ES	en-150
 P	en-FI	en-150
 J	en-FI	h a	HH	h.mm a	H.mm
@@ -8815,22 +9089,38 @@ P	en-FM	en-001
 P	en-FR	en-150
 P	en-GB	en-001
 H	en-GB	H	gregorian
+S	en-GB	Europe/London		BST
+S	en-GB	Europe_Central	CET	CEST
+S	en-GB	Europe_Eastern	EET	EEST
+S	en-GB	Europe_Western	WET	WEST
+S	en-GB	Gulf	GST	
 P	en-GD	en-001
 P	en-GE	en-150
 P	en-GG	en-001
 H	en-GG	H	gregorian
 P	en-GH	en-001
+S	en-GH	Africa_Central	CAT	
+S	en-GH	Africa_Eastern	EAT	
+S	en-GH	Africa_Southern	SAST	
+S	en-GH	Africa_Western	WAT	WAST
 P	en-GI	en-001
 H	en-GI	H	gregorian
 P	en-GM	en-001
+S	en-GM	Africa_Central	CAT	
+S	en-GM	Africa_Eastern	EAT	
+S	en-GM	Africa_Southern	SAST	
+S	en-GM	Africa_Western	WAT	WAST
 P	en-GS	en-001
 H	en-GS	H	gregorian
 P	en-GU	en
+S	en-GU	Chamorro	ChST	
 P	en-GY	en-001
+S	en-GY	Guyana	GYT	
 P	en-HK	en-001
 Y	en-HK	d/M/y	{1}, {0}
 C	en-HK	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-HK	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-HK	Hong_Kong	HKT	HKST
 P	en-HU	en-150
 P	en-ID	en-001
 J	en-ID	h a	HH	h.mm a	HH.mm
@@ -8838,11 +9128,15 @@ O	en-ID	h.mm.ss a	HH.mm.ss	am	pm
 H	en-ID	H	gregorian
 C	en-ID	persian	dd/MM/y GGGGG	AP	AP	h.mm.ss a	HH.mm.ss	am	pm
 C	en-ID	buddhist	dd/MM/y GGGGG	BE	BE	h.mm.ss a	HH.mm.ss	am	pm
+S	en-ID	Indonesia_Central	WITA	
+S	en-ID	Indonesia_Eastern	WIT	
+S	en-ID	Indonesia_Western	WIB	
 P	en-IE	en-001
 Y	en-IE	d/M/y	{1}, {0}
 H	en-IE	H	gregorian
 C	en-IE	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-IE	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-IE	Europe/Dublin		IST
 P	en-IL	en-001
 J	en-IL	h a	H	h:mm a	H:mm
 O	en-IL	h:mm:ss a	H:mm:ss	am	pm
@@ -8855,6 +9149,8 @@ P	en-IN	en-001
 Y	en-IN	d/M/y	{1}, {0}
 C	en-IN	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-IN	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-IN	Gulf	GST	
+S	en-IN	India	IST	
 P	en-IO	en-001
 H	en-IO	H	gregorian
 P	en-IT	en-150
@@ -8868,36 +9164,95 @@ O	en-JP	h:mm:ss a	H:mm:ss	AM	PM
 H	en-JP	H	gregorian
 C	en-JP	persian	GGGGG y/MM/dd	AP	AP	h:mm:ss a	H:mm:ss	AM	PM
 C	en-JP	buddhist	GGGGG y/MM/dd	BE	BE	h:mm:ss a	H:mm:ss	AM	PM
+S	en-JP	Alaska		
+S	en-JP	America_Central		
+S	en-JP	America_Eastern		
+S	en-JP	America_Mountain		
+S	en-JP	America_Pacific		
+S	en-JP	Atlantic		
+S	en-JP	Hawaii		
+S	en-JP	Hawaii_Aleutian		
 P	en-KE	en-001
 H	en-KE	H	gregorian
+S	en-KE	Africa_Central	CAT	
+S	en-KE	Africa_Eastern	EAT	
+S	en-KE	Africa_Southern	SAST	
+S	en-KE	Africa_Western	WAT	WAST
 P	en-KI	en-001
 P	en-KN	en-001
 P	en-KY	en-001
 P	en-LC	en-001
 P	en-LR	en-001
+S	en-LR	Africa_Central	CAT	
+S	en-LR	Africa_Eastern	EAT	
+S	en-LR	Africa_Southern	SAST	
+S	en-LR	Africa_Western	WAT	WAST
 P	en-LS	en-001
+S	en-LS	Africa_Central	CAT	
+S	en-LS	Africa_Eastern	EAT	
+S	en-LS	Africa_Southern	SAST	
+S	en-LS	Africa_Western	WAT	WAST
 P	en-LT	en-150
 P	en-LV	en-150
 P	en-MG	en-001
 H	en-MG	H	gregorian
+S	en-MG	Africa_Central	CAT	
+S	en-MG	Africa_Eastern	EAT	
+S	en-MG	Africa_Southern	SAST	
+S	en-MG	Africa_Western	WAT	WAST
 P	en-MH	en
+S	en-MH	Alaska		
+S	en-MH	America_Central		
+S	en-MH	America_Eastern		
+S	en-MH	America_Mountain		
+S	en-MH	America_Pacific		
+S	en-MH	Atlantic		
+S	en-MH	Hawaii		
+S	en-MH	Hawaii_Aleutian		
 P	en-MO	en-001
+S	en-MO	Hong_Kong	HKT	HKST
+S	en-MO	Macau	MST	MDT
 P	en-MP	en
+S	en-MP	Alaska		
+S	en-MP	America_Central		
+S	en-MP	America_Eastern		
+S	en-MP	America_Mountain		
+S	en-MP	America_Pacific		
+S	en-MP	Atlantic		
+S	en-MP	Hawaii		
+S	en-MP	Hawaii_Aleutian		
 P	en-MS	en-001
 H	en-MS	H	gregorian
 P	en-MT	en-001
 H	en-MT	H	gregorian
 P	en-MU	en-001
 H	en-MU	H	gregorian
+S	en-MU	Africa_Central	CAT	
+S	en-MU	Africa_Eastern	EAT	
+S	en-MU	Africa_Southern	SAST	
+S	en-MU	Africa_Western	WAT	WAST
 P	en-MV	en-001
 H	en-MV	H	gregorian
 P	en-MW	en-001
+S	en-MW	Africa_Central	CAT	
+S	en-MW	Africa_Eastern	EAT	
+S	en-MW	Africa_Southern	SAST	
+S	en-MW	Africa_Western	WAT	WAST
 P	en-MY	en-001
+S	en-MY	Malaysia	MYT	
 P	en-NA	en-001
+S	en-NA	Africa_Central	CAT	
+S	en-NA	Africa_Eastern	EAT	
+S	en-NA	Africa_Southern	SAST	
+S	en-NA	Africa_Western	WAT	WAST
 P	en-NF	en-001
 H	en-NF	H	gregorian
 P	en-NG	en-001
 H	en-NG	H	gregorian
+S	en-NG	Africa_Central	CAT	
+S	en-NG	Africa_Eastern	EAT	
+S	en-NG	Africa_Southern	SAST	
+S	en-NG	Africa_Western	WAT	WAST
 P	en-NL	en-150
 P	en-NO	en-150
 P	en-NR	en-001
@@ -8908,6 +9263,13 @@ P	en-NZ	en-001
 Y	en-NZ	d/MM/y	{1}, {0}
 C	en-NZ	persian	d/MM/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-NZ	buddhist	d/MM/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-NZ	Australia_Central	ACST	ACDT
+S	en-NZ	Australia_CentralWestern	ACWST	ACWDT
+S	en-NZ	Australia_Eastern	AEST	AEDT
+S	en-NZ	Australia_Western	AWST	AWDT
+S	en-NZ	Chatham	CHAST	CHADT
+S	en-NZ	Lord_Howe	LHST	LHDT
+S	en-NZ	New_Zealand	NZST	NZDT
 P	en-PG	en-001
 P	en-PH	en
 P	en-PK	en-001
@@ -8920,24 +9282,46 @@ P	en-PW	en-001
 P	en-RO	en-150
 P	en-RW	en-001
 H	en-RW	H	gregorian
+S	en-RW	Africa_Central	CAT	
+S	en-RW	Africa_Eastern	EAT	
+S	en-RW	Africa_Southern	SAST	
+S	en-RW	Africa_Western	WAT	WAST
 P	en-SB	en-001
 P	en-SC	en-001
 H	en-SC	H	gregorian
 P	en-SD	en-001
+S	en-SD	Africa_Central	CAT	
+S	en-SD	Africa_Eastern	EAT	
+S	en-SD	Africa_Southern	SAST	
+S	en-SD	Africa_Western	WAT	WAST
 P	en-SE	en-150
 Y	en-SE	y-MM-dd	{1}, {0}
 C	en-SE	persian	y-MM-dd G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-SE	buddhist	y-MM-dd G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
 P	en-SG	en-001
+S	en-SG	Malaysia	MYT	
+S	en-SG	Singapore	SGT	
 P	en-SH	en-001
 H	en-SH	H	gregorian
 P	en-SI	en-150
 P	en-SK	en-150
 P	en-SL	en-001
+S	en-SL	Africa_Central	CAT	
+S	en-SL	Africa_Eastern	EAT	
+S	en-SL	Africa_Southern	SAST	
+S	en-SL	Africa_Western	WAT	WAST
 P	en-SS	en-001
+S	en-SS	Africa_Central	CAT	
+S	en-SS	Africa_Eastern	EAT	
+S	en-SS	Africa_Southern	SAST	
+S	en-SS	Africa_Western	WAT	WAST
 P	en-SX	en-001
 H	en-SX	H	gregorian
 P	en-SZ	en-001
+S	en-SZ	Africa_Central	CAT	
+S	en-SZ	Africa_Eastern	EAT	
+S	en-SZ	Africa_Southern	SAST	
+S	en-SZ	Africa_Western	WAT	WAST
 P	en-Shaw	und
 F	en-Shaw	·𐑜𐑥𐑑{0}	·𐑜𐑥𐑑	+HH:mm;-HH:mm
 O	en-Shaw	h:mm:ss a	HH:mm:ss	𐑨𐑥	𐑐𐑥
@@ -8953,9 +9337,17 @@ P	en-TV	en-001
 H	en-TV	H	gregorian
 P	en-TZ	en-001
 H	en-TZ	H	gregorian
+S	en-TZ	Africa_Central	CAT	
+S	en-TZ	Africa_Eastern	EAT	
+S	en-TZ	Africa_Southern	SAST	
+S	en-TZ	Africa_Western	WAT	WAST
 P	en-UA	en-150
 P	en-UG	en-001
 H	en-UG	H	gregorian
+S	en-UG	Africa_Central	CAT	
+S	en-UG	Africa_Eastern	EAT	
+S	en-UG	Africa_Southern	SAST	
+S	en-UG	Africa_Western	WAT	WAST
 P	en-UM	en
 P	en-VC	en-001
 P	en-VG	en-001
@@ -8967,12 +9359,24 @@ Y	en-ZA	y/MM/dd	{1}, {0}
 H	en-ZA	H	gregorian
 C	en-ZA	persian	G y/MM/dd	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-ZA	buddhist	G y/MM/dd	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-ZA	Africa_Central	CAT	
+S	en-ZA	Africa_Eastern	EAT	
+S	en-ZA	Africa_Southern	SAST	
+S	en-ZA	Africa_Western	WAT	WAST
 P	en-ZM	en-001
+S	en-ZM	Africa_Central	CAT	
+S	en-ZM	Africa_Eastern	EAT	
+S	en-ZM	Africa_Southern	SAST	
+S	en-ZM	Africa_Western	WAT	WAST
 P	en-ZW	en-001
 Y	en-ZW	d/M/y	{1}, {0}
 H	en-ZW	H	gregorian
 C	en-ZW	persian	d/M/y G	AP	AP	h:mm:ss a	HH:mm:ss	am	pm
 C	en-ZW	buddhist	d/M/y G	BE	BE	h:mm:ss a	HH:mm:ss	am	pm
+S	en-ZW	Africa_Central	CAT	
+S	en-ZW	Africa_Eastern	EAT	
+S	en-ZW	Africa_Southern	SAST	
+S	en-ZW	Africa_Western	WAT	WAST
 P	eo	und
 F	eo	UTC{0}	UTC	+HH:mm;-HH:mm
 J	eo	h a	HH'H'	h:mm a	HH:mm
@@ -9241,6 +9645,10 @@ U	es	short	week	one	{0} sem.
 U	es	short	week	other	{0} sem.
 U	es	short	year	one	{0} a
 U	es	short	year	other	{0} a
+S	es	Europe_Central	CET	CEST
+S	es	Europe_Eastern	EET	EEST
+S	es	Europe_Western	WET	WEST
+S	es	GMT	GMT	
 N	es	Acre	Hora estándar de Acre	Hora de verano de Acre
 N	es	Afghanistan	hora de Afganistán	
 N	es	Africa_Central	hora de África central	
@@ -9421,6 +9829,10 @@ U	es-419	short	month	other	{0} mm.
 U	es-419	short	week	other	{0} sems.
 U	es-419	short	year	one	{0} a.
 U	es-419	short	year	other	{0} aa.
+S	es-419	Europe_Central		
+S	es-419	Europe_Eastern		
+S	es-419	Europe_Western		
+S	es-419	GMT		
 N	es-419	America_Mountain	hora estándar de la montaña	hora de verano de la montaña
 N	es-419	Cocos	hora de Islas Cocos	
 N	es-419	Cook	hora estándar de las islas Cook	hora de verano media de las islas Cook
@@ -9451,10 +9863,13 @@ U	es-AR	short	second	one	{0} seg.
 U	es-AR	short	second	other	{0} seg.
 U	es-AR	short	year	one	{0} año
 U	es-AR	short	year	other	{0} años
+S	es-AR	Argentina	ART	ARST
+S	es-AR	Argentina_Western	WART	WARST
 P	es-BO	es-419
 O	es-BO	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-BO	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-BO	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+S	es-BO	Bolivia	BOT	
 P	es-BR	es-419
 H	es-BR	H	gregorian
 P	es-BZ	es-419
@@ -9464,6 +9879,7 @@ Y	es-CL	dd-MM-y	{1}, {0}
 O	es-CL	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-CL	persian	dd-MM-y G	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-CL	buddhist	dd-MM-y G	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+S	es-CL	Chile	CLT	CLST
 P	es-CO	es-419
 J	es-CO	h a	H	h:mm a	H:mm
 O	es-CO	h:mm:ss a	H:mm:ss	a. m.	p. m.
@@ -9490,6 +9906,7 @@ U	es-CO	short	day	other	{0} días
 U	es-CO	short	month	one	{0} mes
 U	es-CO	short	month	other	{0} meses
 U	es-CO	short	year	other	{0} a.
+S	es-CO	Colombia	COT	COST
 P	es-CR	es-419
 O	es-CR	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-CR	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
@@ -9508,6 +9925,7 @@ P	es-EC	es-419
 O	es-EC	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-EC	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-EC	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+S	es-EC	Ecuador	ECT	
 P	es-GQ	es
 P	es-GT	es-419
 O	es-GT	h:mm:ss a	HH:mm:ss	a. m.	p. m.
@@ -9562,6 +9980,7 @@ P	es-PE	es-419
 O	es-PE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-PE	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-PE	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+S	es-PE	Peru	PET	PEST
 P	es-PH	es
 H	es-PH	h	gregorian
 P	es-PR	es-419
@@ -9596,6 +10015,14 @@ U	es-US	short	day	one	{0} día
 U	es-US	short	day	other	{0} días
 U	es-US	short	month	one	{0} m
 U	es-US	short	year	one	{0} a
+S	es-US	Alaska	AKST	AKDT
+S	es-US	America_Central	CST	CDT
+S	es-US	America_Eastern	EST	EDT
+S	es-US	America_Mountain	MST	MDT
+S	es-US	America_Pacific	PST	PDT
+S	es-US	Atlantic	AST	ADT
+S	es-US	Hawaii	HST	
+S	es-US	Hawaii_Aleutian	HAST	HADT
 N	es-US	America_Mountain	hora estándar de las Montañas Rocosas	hora de verano de las Montañas Rocosas
 N	es-US	Apia	hora estándar de Apia	hora de verano de Apia
 N	es-US	Chamorro	hora de Chamorro	
@@ -9619,10 +10046,12 @@ P	es-UY	es-419
 O	es-UY	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-UY	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-UY	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+S	es-UY	Uruguay	UYT	UYST
 P	es-VE	es-419
 O	es-VE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-VE	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a. m.	p. m.
 C	es-VE	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a. m.	p. m.
+S	es-VE	Venezuela	VET	
 P	et	und
 F	et	GMT {0}	GMT	+HH:mm;−HH:mm
 Y	et	d.M.y	{1}, {0}
@@ -9881,6 +10310,18 @@ U	eu	short	week	one	{0} aste
 U	eu	short	week	other	{0} aste
 U	eu	short	year	one	{0} urte
 U	eu	short	year	other	{0} urte
+S	eu	Alaska	AKST	AKDT
+S	eu	America_Central	CST	CDT
+S	eu	America_Eastern	EST	EDT
+S	eu	America_Mountain	MST	MDT
+S	eu	America_Pacific	PST	PDT
+S	eu	Atlantic	AST	ADT
+S	eu	Europe_Central	CET	CEST
+S	eu	Europe_Eastern	EET	EEST
+S	eu	Europe_Western	WET	WEST
+S	eu	GMT	GMT	
+S	eu	Hawaii	HAST	
+S	eu	Hawaii_Aleutian	HAST	HADT
 N	eu	Acre	Acreko ordu estandarra	Acreko udako ordua
 N	eu	Afghanistan	Afganistango ordua	
 N	eu	Africa_Central	Afrikako erdialdeko ordua	
@@ -10354,6 +10795,7 @@ U	ff-Adlm	short	week	one	{0} 𞤴𞤼
 U	ff-Adlm	short	week	other	{0} 𞤶𞤼
 U	ff-Adlm	short	year	one	{0} 𞤸𞤭𞤼
 U	ff-Adlm	short	year	other	{0} 𞤳𞤭𞤼
+S	ff-Adlm	Etc/UTC	𞤑𞤖𞤊	
 N	ff-Adlm	Acre	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤖𞤢𞤱𞤪𞤵𞤲𞥋𞤣𞤫 𞤀𞥄𞤳𞤭𞤪	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤕𞤫𞥅𞤯𞤵 𞤀𞥄𞤳𞤭𞤪
 N	ff-Adlm	Afghanistan	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤀𞤬𞤺𞤢𞤲𞤭𞤧𞤼𞤢𞥄𞤲	
 N	ff-Adlm	Africa_Central	𞤑𞤭𞤶𞤮𞥅𞤪𞤫 𞤚𞤵𞤥𞤦𞤮𞥅𞤪𞤭 𞤀𞤬𞤪𞤭𞤳𞤢𞥄	
@@ -11456,6 +11898,13 @@ U	fr-CA	short	second	one	{0} s
 U	fr-CA	short	second	other	{0} s
 U	fr-CA	short	week	one	{0} sem.
 U	fr-CA	short	week	other	{0} sem.
+S	fr-CA	America_Central	HNC	HAC
+S	fr-CA	America_Eastern	HNE	HAE
+S	fr-CA	America_Mountain	HNR	HAR
+S	fr-CA	America_Pacific	HNP	HAP
+S	fr-CA	Atlantic	HNA	HAA
+S	fr-CA	Newfoundland	HNT	HAT
+S	fr-CA	Pierre_Miquelon	HNPM	HAPM
 N	fr-CA	Acre	heure normale de l’Acre	heure avancée de l’Acre
 N	fr-CA	Africa_Central	heure d’Afrique centrale	
 N	fr-CA	Africa_Eastern	heure d’Afrique orientale	
@@ -11566,6 +12015,7 @@ P	fr-DZ	fr
 H	fr-DZ	h	gregorian
 P	fr-GA	fr
 P	fr-GF	fr
+S	fr-GF	French_Guiana	GFT	
 P	fr-GN	fr
 P	fr-GP	fr
 P	fr-GQ	fr
@@ -11623,6 +12073,10 @@ U	fur	long	week	one	{0} setemane
 U	fur	long	week	other	{0} setemanis
 U	fur	long	year	one	{0} an
 U	fur	long	year	other	{0} agns
+S	fur	Europe_Central	CET	CEST
+S	fur	Europe_Eastern	EET	EEST
+S	fur	Europe_Western	WET	WEST
+S	fur	GMT	GMT	
 N	fur	Europe_Central	Ore standard de Europe centrâl	Ore estive de Europe centrâl
 N	fur	Europe_Eastern	Ore standard de Europe orientâl	Ore estive de Europe orientâl
 N	fur	Europe_Western	Ore standard de Europe ocidentâl	Ore estive de Europe ocidentâl
@@ -11672,6 +12126,9 @@ U	fy	short	week	one	{0} wk
 U	fy	short	week	other	{0} wkn
 U	fy	short	year	one	{0} jr
 U	fy	short	year	other	{0} jr
+S	fy	Europe_Central	CET	CEST
+S	fy	Europe_Eastern	EET	EEST
+S	fy	Europe_Western	WET	WEST
 N	fy	Acre	Acre-standerttiid	Acre-simmertiid
 N	fy	Afghanistan	Afghaanske tiid	
 N	fy	Africa_Central	Sintraal-Afrikaanske tiid	
@@ -11951,6 +12408,13 @@ U	ga	short	year	many	{0} bl
 U	ga	short	year	one	{0} bl
 U	ga	short	year	other	{0} bl
 U	ga	short	year	two	{0} bl
+S	ga	America_Pacific	ACAC	ASAC
+S	ga	Europe/Dublin		ACÉ
+S	ga	Europe/London		ASB
+S	ga	Europe_Central	CET	CEST
+S	ga	Europe_Eastern	EET	EEST
+S	ga	Europe_Western	WET	WEST
+S	ga	GMT	MAG	
 N	ga	Acre	Am Caighdeánach Acre	Am Samhraidh Acre
 N	ga	Afghanistan	Am na hAfganastáine	
 N	ga	Africa_Central	Am na hAfraice Láir	
@@ -12231,6 +12695,20 @@ U	gd	short	year	few	{0} blia
 U	gd	short	year	one	{0} bhlia
 U	gd	short	year	other	{0} blia
 U	gd	short	year	two	{0} bhlia
+S	gd	Alaska	AKST	AKDT
+S	gd	America_Central	CST	CDT
+S	gd	America_Eastern	EST	EDT
+S	gd	America_Mountain	MST	MDT
+S	gd	America_Pacific	PST	PDT
+S	gd	Atlantic	AST	ADT
+S	gd	Europe/Dublin		TSÈ (Èirinn)
+S	gd	Europe/London		TSB
+S	gd	Europe_Central	CET	CEST
+S	gd	Europe_Eastern	EET	EEST
+S	gd	Europe_Western	WET	WEST
+S	gd	GMT	GMT	
+S	gd	Hawaii	HAST	
+S	gd	Hawaii_Aleutian	HAST	HADT
 N	gd	Acre	Bun-àm Acre	Tìde samhraidh Acre
 N	gd	Afghanistan	Àm Afghanastàin	
 N	gd	Africa_Central	Àm Meadhan Afraga	
@@ -12438,6 +12916,10 @@ U	gl	short	week	one	{0} sem.
 U	gl	short	week	other	{0} sem.
 U	gl	short	year	one	{0} ano
 U	gl	short	year	other	{0} anos
+S	gl	Europe_Central	CET	CEST
+S	gl	Europe_Eastern	EET	EEST
+S	gl	Europe_Western	WET	WEST
+S	gl	GMT	GMT	
 N	gl	Acre	hora estándar de Acre	hora de verán de Acre
 N	gl	Afghanistan	hora de Afganistán	
 N	gl	Africa_Central	hora de África Central	
@@ -12611,6 +13093,9 @@ U	gsw	long	week	one	{0} Wuche
 U	gsw	long	week	other	{0} Wuche
 U	gsw	long	year	one	{0} Jahr
 U	gsw	long	year	other	{0} Jahr
+S	gsw	Europe_Central	MEZ	MESZ
+S	gsw	Europe_Eastern	OEZ	OESZ
+S	gsw	Europe_Western	WEZ	WESZ
 N	gsw	Acre	Acre-Schtandardziit	Acre-Summerziit
 N	gsw	Afghanistan	Afghanischtan-Ziit	
 N	gsw	Africa_Central	Zentralafrikanischi Ziit	
@@ -12683,6 +13168,7 @@ U	gu	short	week	one	{0} અઠ.
 U	gu	short	week	other	{0} અઠ.
 U	gu	short	year	one	{0} વર્ષ
 U	gu	short	year	other	{0} વર્ષ
+S	gu	India	IST	
 N	gu	Acre	એકર પ્રમાણભૂત સમય	એકર ગ્રીષ્મ સમય
 N	gu	Afghanistan	અફઘાનિસ્તાન સમય	
 N	gu	Africa_Central	મધ્ય આફ્રિકા સમય	
@@ -13094,6 +13580,9 @@ U	haw	long	week	one	{0} pule
 U	haw	long	week	other	{0} pule
 U	haw	long	year	one	{0} makahiki
 U	haw	long	year	other	{0} makahiki
+S	haw	Alaska	AKST	AKDT
+S	haw	Hawaii	HAST	HADT
+S	haw	Hawaii_Aleutian	HAST	HADT
 P	he	und
 F	he	GMT{0}‎	GMT	‎+HH:mm;-HH:mm‎
 Y	he	d.M.y	{1}, {0}
@@ -13404,6 +13893,7 @@ U	hi	short	week	one	{0} सप्ताह
 U	hi	short	week	other	{0} सप्ताह
 U	hi	short	year	one	{0} वर्ष
 U	hi	short	year	other	{0} वर्ष
+S	hi	India	IST	
 N	hi	Afghanistan	अफ़गानिस्तान समय	
 N	hi	Africa_Central	मध्य अफ़्रीका समय	
 N	hi	Africa_Eastern	पूर्वी अफ़्रीका समय	
@@ -13642,6 +14132,10 @@ U	hr	short	week	other	{0} tj.
 U	hr	short	year	few	{0} g.
 U	hr	short	year	one	{0} g.
 U	hr	short	year	other	{0} g.
+S	hr	Europe_Central	CET	CEST
+S	hr	Europe_Eastern	EET	EEST
+S	hr	Europe_Western	WET	WEST
+S	hr	GMT	GMT	
 N	hr	Acre	Acre standardno vrijeme	Acre ljetno vrijeme
 N	hr	Afghanistan	afganistansko vrijeme	
 N	hr	Africa_Central	srednjoafričko vrijeme	
@@ -13904,6 +14398,9 @@ U	hsb	short	year	few	{0} l.
 U	hsb	short	year	one	{0} l.
 U	hsb	short	year	other	{0} l.
 U	hsb	short	year	two	{0} l.
+S	hsb	Europe_Central	MEZ	MESZ
+S	hsb	Europe_Eastern	OEZ	OESZ
+S	hsb	Europe_Western	WEZ	WESZ
 N	hsb	Afghanistan	afghanski čas	
 N	hsb	Africa_Central	centralnoafriski čas	
 N	hsb	Africa_Eastern	wuchodoafriski čas	
@@ -14108,6 +14605,10 @@ U	hu	short	week	one	{0} hét
 U	hu	short	week	other	{0} hét
 U	hu	short	year	one	{0} év
 U	hu	short	year	other	{0} év
+S	hu	Europe_Central	CET	CEST
+S	hu	Europe_Eastern	EET	EEST
+S	hu	Europe_Western	WET	WEST
+S	hu	GMT	GMT	
 N	hu	Acre	Acre zónaidő	Acre nyári idő
 N	hu	Afghanistan	afganisztáni idő	
 N	hu	Africa_Central	közép-afrikai téli idő	
@@ -14732,6 +15233,21 @@ U	id	short	second	other	{0} dtk
 U	id	short	week	other	{0} mgg
 U	id	short	year	other	{0} thn
 T	id	.
+S	id	Alaska	AKST	AKDT
+S	id	America_Central	CST	CDT
+S	id	America_Eastern	EST	EDT
+S	id	America_Mountain	MST	MDT
+S	id	America_Pacific	PST	PDT
+S	id	Atlantic	AST	ADT
+S	id	Cuba	CST (Kuba)	CDT (Kuba)
+S	id	Greenland_Eastern	EGST	EGDT
+S	id	Hawaii	HAST	
+S	id	Hawaii_Aleutian	HAST	HADT
+S	id	Indonesia_Central	WITA	
+S	id	Indonesia_Eastern	WIT	
+S	id	Indonesia_Western	WIB	
+S	id	Newfoundland	NST	NDT
+S	id	Pierre_Miquelon	PMST	PMDT
 N	id	Acre	Waktu Standar Acre	Waktu Musim Panas Acre
 N	id	Afghanistan	Waktu Afganistan	
 N	id	Africa_Central	Waktu Afrika Tengah	
@@ -15348,6 +15864,9 @@ U	it	short	week	one	{0} sett.
 U	it	short	week	other	{0} sett.
 U	it	short	year	one	{0} anno
 U	it	short	year	other	{0} anni
+S	it	Europe_Central	CET	CEST
+S	it	Europe_Eastern	EET	EEST
+S	it	Europe_Western	WET	WEST
 N	it	Afghanistan	Ora dell’Afghanistan	
 N	it	Africa_Central	Ora dell’Africa centrale	
 N	it	Africa_Eastern	Ora dell’Africa orientale	
@@ -15542,6 +16061,7 @@ U	ja	short	month	other	{0} か月
 U	ja	short	second	other	{0} 秒
 U	ja	short	week	other	{0} 週間
 U	ja	short	year	other	{0} 年
+S	ja	Japan	JST	JDT
 N	ja	Acre	アクレ標準時	アクレ夏時間
 N	ja	Afghanistan	アフガニスタン時間	
 N	ja	Africa_Central	中央アフリカ時間	
@@ -16257,6 +16777,9 @@ U	kgp	short	second	other	{0} sig
 U	kgp	short	week	other	{0} sim.
 U	kgp	short	year	one	{0} prỹg
 U	kgp	short	year	other	{0} prỹg ag
+S	kgp	Acre	ACT	ACST
+S	kgp	Amazon	AMT	AMST
+S	kgp	Brasilia	BRT	BRST
 N	kgp	Acre	Óra Pã Akre tá	Rỹ Kã óra Akre tá
 N	kgp	Afghanistan	Afeganĩtã tá óra	
 N	kgp	Africa_Central	Afrika-Kuju tá óra	
@@ -16493,6 +17016,7 @@ U	kk	short	week	one	{0} ап.
 U	kk	short	week	other	{0} ап.
 U	kk	short	year	one	{0} ж.
 U	kk	short	year	other	{0} ж.
+S	kk	Europe_Eastern	EET	EEST
 N	kk	Afghanistan	Ауғанстан уақыты	
 N	kk	Africa_Central	Орталық Африка уақыты	
 N	kk	Africa_Eastern	Шығыс Африка уақыты	
@@ -16707,6 +17231,14 @@ U	kk-Arab	short	week	one	{0} اپتا
 U	kk-Arab	short	week	other	{0} اپتا
 U	kk-Arab	short	year	one	{0} جىل
 U	kk-Arab	short	year	other	{0} جىل
+S	kk-Arab	Almaty	الماتى	الماتى قالاسى
+S	kk-Arab	Aqtau	اقتاۋ	اقتاۋ قالاسى
+S	kk-Arab	Aqtobe	اقتوبە	اقتوبە قالاسى
+S	kk-Arab	Kazakhstan	قازاق ەلى	
+S	kk-Arab	Kazakhstan_Eastern	شىعىش قازاق ەلى	
+S	kk-Arab	Kazakhstan_Western	باتىس قازاق ەلى	
+S	kk-Arab	Kyrgystan	قىرعىزستان	
+S	kk-Arab	Qyzylorda	قىزىلوردا	قىزىلوردا قالاسى
 N	kk-Arab	Afghanistan	اۋعانستان ۋاقىتى	
 N	kk-Arab	Africa_Central	ورتالىق افريكا ۋاقىتى	
 N	kk-Arab	Africa_Eastern	شىعىس افريكا ۋاقىتى	
@@ -17113,6 +17645,7 @@ U	kn	short	week	one	{0} ವಾರ
 U	kn	short	week	other	{0} ವಾರಗಳು
 U	kn	short	year	one	{0} ವರ್ಷ
 U	kn	short	year	other	{0} ವರ್ಷಗಳು
+S	kn	India	IST	
 N	kn	Acre	ಏಕರ್ ಪ್ರಮಾಣಿತ ಸಮಯ	ಏಕರ್ ಬೇಸಿಗೆ ಸಮಯ
 N	kn	Afghanistan	ಅಫಘಾನಿಸ್ತಾನ ಸಮಯ	
 N	kn	Africa_Central	ಮಧ್ಯ ಆಫ್ರಿಕಾ ಸಮಯ	
@@ -17537,6 +18070,7 @@ U	kok	short	week	one	{0} सप्तक
 U	kok	short	week	other	{0} सप्तक
 U	kok	short	year	one	{0} वर्स
 U	kok	short	year	other	{0} वर्सां
+S	kok	India	IST	
 N	kok	Afghanistan	अफगानिस्तान वेळ	
 N	kok	Africa_Central	मध्य आफ्रिका वेळ	
 N	kok	Africa_Eastern	उदेंत आफ्रिका वेळ	
@@ -18009,6 +18543,9 @@ U	ksh	narrow	minute	zero	{0}m
 U	ksh	narrow	second	one	{0}s
 U	ksh	narrow	second	other	{0}s
 U	ksh	narrow	second	zero	{0}s
+S	ksh	Europe_Central	MEZ	MESZ
+S	ksh	Europe_Eastern	OEZ	OESZ
+S	ksh	Europe_Western	WEZ	WESZ
 N	ksh	Africa_Central	Zentraal-Affrekaanesche Zigg	
 N	ksh	Africa_Eastern	Oß-Affrekaanesche Zigg	
 N	ksh	Africa_Southern	Söd-Affrekaanesche Zigg	
@@ -18072,6 +18609,7 @@ U	ku	short	week	one	{0} hf
 U	ku	short	week	other	{0} hf
 U	ku	short	year	one	{0} sal
 U	ku	short	year	other	{0} sal
+S	ku	Etc/UTC	SGH	
 N	ku	Acre	Saeta Acreyê ya Standard	Saeta Havînê ya Acreyê
 N	ku	Afghanistan	Saeta Efxanistanê	
 N	ku	Africa_Central	Saeta Afrîkaya Navîn	
@@ -20027,6 +20565,9 @@ U	lv	short	week	zero	{0} ned.
 U	lv	short	year	one	{0} g.
 U	lv	short	year	other	{0} g.
 U	lv	short	year	zero	{0} g.
+S	lv	Europe_Central	CET	CEST
+S	lv	Europe_Eastern	EET	EEST
+S	lv	Europe_Western	WET	WEST
 N	lv	Afghanistan	Afganistānas laiks	
 N	lv	Africa_Central	Centrālāfrikas laiks	
 N	lv	Africa_Eastern	Austrumāfrikas laiks	
@@ -20574,6 +21115,9 @@ U	mk	short	week	one	{0} сед.
 U	mk	short	week	other	{0} сед.
 U	mk	short	year	one	{0} год.
 U	mk	short	year	other	{0} год.
+S	mk	Europe_Central	CET	CEST
+S	mk	Europe_Eastern	EET	EEST
+S	mk	Europe_Western	WET	WEST
 N	mk	Acre	Акре стандардно време	Акре летно сметање на времето
 N	mk	Afghanistan	Време во Авганистан	
 N	mk	Africa_Central	Средноафриканско време	
@@ -20791,6 +21335,7 @@ U	ml	short	week	one	{0} ആ
 U	ml	short	week	other	{0} ആ
 U	ml	short	year	one	{0} വ
 U	ml	short	year	other	{0} വ
+S	ml	India	IST	
 N	ml	Acre	എയ്ക്കർ സ്റ്റാൻഡേർഡ് സമയം	എയ്ക്കർ വേനൽക്കാല സമയം
 N	ml	Afghanistan	അഫ്‌ഗാനിസ്ഥാൻ സമയം	
 N	ml	Africa_Central	മധ്യ ആഫ്രിക്ക സമയം	
@@ -21267,6 +21812,7 @@ U	mr	short	week	one	{0} आ
 U	mr	short	week	other	{0} आ
 U	mr	short	year	one	{0} वर्ष
 U	mr	short	year	other	{0} वर्षे
+S	mr	India	IST	
 N	mr	Acre	एकर प्रमाणवेळ	ऐकर ग्रीष्म वेळ
 N	mr	Afghanistan	अफगाणिस्तान वेळ	
 N	mr	Africa_Central	मध्‍य आफ्रिका वेळ	
@@ -21455,6 +22001,9 @@ U	ms	short	month	other	{0} bln
 U	ms	short	second	other	{0} saat
 U	ms	short	week	other	{0} mgu
 U	ms	short	year	other	{0} thn
+S	ms	GMT	GMT	
+S	ms	Malaysia	MYT	
+S	ms	Singapore	SGT	
 N	ms	Acre	Waktu Piawai Acre	Waktu Musim Panas Acre
 N	ms	Afghanistan	Waktu Afghanistan	
 N	ms	Africa_Central	Waktu Afrika Tengah	
@@ -21662,6 +22211,10 @@ U	mt	narrow	millisecond	many	{0}ms
 U	mt	narrow	millisecond	one	{0}ms
 U	mt	narrow	millisecond	other	{0}ms
 U	mt	narrow	millisecond	two	{0}ms
+S	mt	Europe_Central	CET	CEST
+S	mt	Europe_Eastern	EET	EEST
+S	mt	Europe_Western	WET	WEST
+S	mt	GMT	GMT	
 N	mt	Europe_Central	Ħin Ċentrali Ewropew Standard	Ħin Ċentrali Ewropew tas-Sajf
 N	mt	GMT	Greenwich Mean Time	
 P	mua	und
@@ -22142,6 +22695,7 @@ N	ne	Yukon	युकोनको समय
 P	ne-IN	ne
 D	ne-IN	०१२३४५६७८९	deva
 H	ne-IN	h	gregorian
+S	ne-IN	India	IST	
 P	nl	und
 Y	nl	d-M-y	{1}, {0}
 O	nl	h:mm:ss a	HH:mm:ss	a.m.	p.m.
@@ -22190,6 +22744,18 @@ U	nl	short	week	one	{0} wk
 U	nl	short	week	other	{0} wkn
 U	nl	short	year	one	{0} jr
 U	nl	short	year	other	{0} jr
+S	nl	Alaska	AKST	AKDT
+S	nl	America_Central	CST	CDT
+S	nl	America_Eastern	EST	EDT
+S	nl	America_Mountain	MST	MDT
+S	nl	America_Pacific	PST	PDT
+S	nl	Atlantic	AST	ADT
+S	nl	Europe_Central	CET	CEST
+S	nl	Europe_Eastern	EET	EEST
+S	nl	Europe_Western	WET	WEST
+S	nl	GMT	GMT	
+S	nl	Hawaii	HAST	
+S	nl	Hawaii_Aleutian	HAST	HADT
 N	nl	Acre	Acre-standaardtijd	Acre-zomertijd
 N	nl	Afghanistan	Afghaanse tijd	
 N	nl	Africa_Central	Centraal-Afrikaanse tijd	
@@ -22361,6 +22927,7 @@ C	nl-BE	buddhist	d/M/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 P	nl-BQ	nl
 P	nl-CW	nl
 P	nl-SR	nl
+S	nl-SR	Suriname	SRT	
 P	nl-SX	nl
 P	nmg	und
 Y	nmg	d/M/y	{1} {0}
@@ -22545,6 +23112,18 @@ U	no	short	week	one	{0} u
 U	no	short	week	other	{0} u
 U	no	short	year	one	{0} år
 U	no	short	year	other	{0} år
+S	no	Alaska	AKST	AKDT
+S	no	America_Central	CST	CDT
+S	no	America_Eastern	EST	EDT
+S	no	America_Mountain	MST	MDT
+S	no	America_Pacific	PST	PDT
+S	no	Atlantic	AST	ADT
+S	no	Europe_Central	CET	CEST
+S	no	Europe_Eastern	EET	EEST
+S	no	Europe_Western	WET	WEST
+S	no	GMT	GMT	
+S	no	Hawaii	HAST	
+S	no	Hawaii_Aleutian	HAST	HADT
 N	no	Acre	Acre normaltid	Acre sommertid
 N	no	Afghanistan	afghansk tid	
 N	no	Africa_Central	sentralafrikansk tid	
@@ -22934,6 +23513,14 @@ J	om	h a	HH	h:mm a	HH:mm
 O	om	h:mm:ss a	HH:mm:ss	WD	WB
 C	om	persian	M/d/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	WD	WB
 C	om	buddhist	M/d/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	WD	WB
+S	om	Alaska	AKST	AKDT
+S	om	America_Central	CST	CDT
+S	om	America_Eastern	EST	EDT
+S	om	America_Mountain	MST	MDT
+S	om	America_Pacific	PST	PDT
+S	om	Atlantic	AST	ADT
+S	om	Hawaii	HAS	
+S	om	Hawaii_Aleutian	HAS	HADT
 N	om	Afghanistan	Sa’aatii Afgaanistaan	
 N	om	Africa_Central	Sa’aatii Afrikaa Gidduugaleessaa	
 N	om	Africa_Eastern	Sa’aatii Baha Afrikaa	
@@ -23140,6 +23727,8 @@ U	or	short	week	one	{0} ସପ୍ତାହ
 U	or	short	week	other	{0} ସପ୍ତାହ
 U	or	short	year	one	{0} ବର୍ଷ
 U	or	short	year	other	{0} ବର୍ଷ
+S	or	GMT	GMT	
+S	or	India	IST	
 N	or	Acre	ଆକା ମାନକ ସମୟ	ଆକା ଗ୍ରୀଷ୍ମ ସମୟ
 N	or	Afghanistan	ଆଫଗାନିସ୍ତାନ ସମୟ	
 N	or	Africa_Central	ମଧ୍ୟ ଆଫ୍ରିକା ସମୟ	
@@ -23403,6 +23992,7 @@ U	pa	short	week	one	{0} ਹਫ਼ਤਾ
 U	pa	short	week	other	{0} ਹਫ਼ਤੇ
 U	pa	short	year	one	{0} ਸਾਲ
 U	pa	short	year	other	{0} ਸਾਲ
+S	pa	India	IST	
 N	pa	Afghanistan	ਅਫ਼ਗਾਨਿਸਤਾਨ ਵੇਲਾ	
 N	pa	Africa_Central	ਕੇਂਦਰੀ ਅਫ਼ਰੀਕਾ ਵੇਲਾ	
 N	pa	Africa_Eastern	ਪੂਰਬੀ ਅਫ਼ਰੀਕਾ ਵੇਲਾ	
@@ -23879,6 +24469,9 @@ U	pl	short	year	few	{0} lata
 U	pl	short	year	many	{0} lat
 U	pl	short	year	one	{0} rok
 U	pl	short	year	other	{0} roku
+S	pl	Europe_Central	CET	CEST
+S	pl	Europe_Eastern	EET	EEST
+S	pl	Europe_Western	WET	WEST
 N	pl	Afghanistan	czas Afganistan	
 N	pl	Africa_Central	czas środkowoafrykański	
 N	pl	Africa_Eastern	czas wschodnioafrykański	
@@ -24306,6 +24899,9 @@ U	pt	short	week	one	{0} sem.
 U	pt	short	week	other	{0} sem.
 U	pt	short	year	one	{0} ano
 U	pt	short	year	other	{0} anos
+S	pt	Acre	ACT	ACST
+S	pt	Amazon	AMT	AMST
+S	pt	Brasilia	BRT	BRST
 N	pt	Acre	Horário Padrão do Acre	Horário de Verão do Acre
 N	pt	Afghanistan	Horário do Afeganistão	
 N	pt	Africa_Central	Horário da África Central	
@@ -24468,18 +25064,45 @@ N	pt	Yakutsk	Horário Padrão de Yakutsk	Horário de Verão de Yakutsk
 N	pt	Yekaterinburg	Horário Padrão de Ecaterimburgo	Horário de Verão de Ecaterimburgo
 N	pt	Yukon	Horário do Yukon	
 P	pt-AO	pt-PT
+S	pt-AO	Azores		
+S	pt-AO	Europe_Central		
+S	pt-AO	Europe_Eastern		
+S	pt-AO	Europe_Western		
 P	pt-CH	pt-PT
 P	pt-CV	pt-PT
+S	pt-CV	Azores		
+S	pt-CV	Europe_Central		
+S	pt-CV	Europe_Eastern		
+S	pt-CV	Europe_Western		
 P	pt-GQ	pt-PT
 P	pt-GW	pt-PT
+S	pt-GW	Azores		
+S	pt-GW	Europe_Central		
+S	pt-GW	Europe_Eastern		
+S	pt-GW	Europe_Western		
 P	pt-LU	pt-PT
 P	pt-MO	pt-PT
 H	pt-MO	h	gregorian
+S	pt-MO	Azores		
+S	pt-MO	Europe_Central		
+S	pt-MO	Europe_Eastern		
+S	pt-MO	Europe_Western		
 P	pt-MZ	pt-PT
+S	pt-MZ	Azores		
+S	pt-MZ	Europe_Central		
+S	pt-MZ	Europe_Eastern		
+S	pt-MZ	Europe_Western		
 P	pt-PT	pt
 O	pt-PT	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 C	pt-PT	persian	dd/MM/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	a.m.	p.m.
 C	pt-PT	buddhist	dd/MM/y GGGGG	BE	BE	h:mm:ss a	HH:mm:ss	a.m.	p.m.
+S	pt-PT	Acre		
+S	pt-PT	Amazon		
+S	pt-PT	Azores	AZOT	AZOST
+S	pt-PT	Brasilia		
+S	pt-PT	Europe_Central	CET	CEST
+S	pt-PT	Europe_Eastern	EET	EEST
+S	pt-PT	Europe_Western	WET	WEST
 N	pt-PT	Acre	Hora padrão do Acre	Hora de verão do Acre
 N	pt-PT	Afghanistan	Hora do Afeganistão	
 N	pt-PT	Africa_Central	Hora da África Central	
@@ -24642,7 +25265,15 @@ N	pt-PT	Yakutsk	Hora padrão de Yakutsk	Hora de verão de Yakutsk
 N	pt-PT	Yekaterinburg	Hora padrão de Ecaterimburgo	Hora de verão de Ecaterimburgo
 N	pt-PT	Yukon	Hora do Yukon	
 P	pt-ST	pt-PT
+S	pt-ST	Azores		
+S	pt-ST	Europe_Central		
+S	pt-ST	Europe_Eastern		
+S	pt-ST	Europe_Western		
 P	pt-TL	pt-PT
+S	pt-TL	Azores		
+S	pt-TL	Europe_Central		
+S	pt-TL	Europe_Eastern		
+S	pt-TL	Europe_Western		
 P	qu	und
 Y	qu	dd-MM-y	{1}, {0}
 J	qu	h a	HH	h:mm a	HH:mm
@@ -24663,6 +25294,7 @@ U	qu	narrow	day	other	{0} p
 U	qu	narrow	month	other	{0} k
 U	qu	narrow	week	other	{0} s
 U	qu	narrow	year	other	{0} w
+S	qu	Peru	PET	PEST
 N	qu	Afghanistan	Hora de Afganistán	
 N	qu	Africa_Central	Hora de Africa Central	
 N	qu	Africa_Eastern	Hora de Africa Oriental	
@@ -24812,7 +25444,11 @@ N	qu	Yakutsk	Hora Estandar de Yakutsk	Hora de Verano de Yakutsk
 N	qu	Yekaterinburg	Hora Estandar de Ekaterinburgo	Hora de Verano de Ekaterinburgo
 N	qu	Yukon	Yukon Ura	
 P	qu-BO	qu
+S	qu-BO	Bolivia	BOT	
+S	qu-BO	Peru		
 P	qu-EC	qu
+S	qu-EC	Ecuador	ECT	
+S	qu-EC	Peru		
 P	quc	und
 P	raj	und
 D	raj	०१२३४५६७८९	deva
@@ -25109,6 +25745,10 @@ U	ro	short	week	other	{0} săpt.
 U	ro	short	year	few	{0} ani
 U	ro	short	year	one	{0} an
 U	ro	short	year	other	{0} ani
+S	ro	Europe_Central	CET	CEST
+S	ro	Europe_Eastern	EET	EEST
+S	ro	Europe_Western	WET	WEST
+S	ro	GMT	GMT	
 N	ro	Acre	Ora standard Acre	Ora de vară Acre
 N	ro	Afghanistan	Ora Afganistanului	
 N	ro	Africa_Central	Ora Africii Centrale	
@@ -25762,6 +26402,15 @@ U	sc	short	week	one	{0} chida
 U	sc	short	week	other	{0} chida
 U	sc	short	year	one	{0} annu
 U	sc	short	year	other	{0} annos
+S	sc	Alaska	OIAK	OLAK
+S	sc	America_Central	OIT	OLT
+S	sc	America_Eastern	OIO	OLO
+S	sc	America_Mountain	OIMP	OLMP
+S	sc	America_Pacific	OIP	OLP
+S	sc	Atlantic	OIA	OLA
+S	sc	Cuba	OIC	OLC
+S	sc	Etc/UTC	TCU	
+S	sc	GMT	OMG	
 N	sc	Acre	Ora istandard de Acre	Ora legale de Acre
 N	sc	Afghanistan	Ora de s’Afghànistan	
 N	sc	Africa_Central	Ora de s’Àfrica tzentrale	
@@ -25931,6 +26580,15 @@ O	scn	h:mm:ss a	HH:mm:ss	AM	PM
 H	scn	H	gregorian
 C	scn	persian	d/M/y GGGGG	AP	AP	hh:mm:ss a	HH:mm:ss	AM	PM
 C	scn	buddhist	d/M/y GGGGG	BE	BE	hh:mm:ss a	HH:mm:ss	AM	PM
+S	scn	Alaska	AKST	AKDT
+S	scn	America_Central	CST	CDT
+S	scn	America_Eastern	EST	EDT
+S	scn	America_Mountain	MST	MDT
+S	scn	America_Pacific	PST	PDT
+S	scn	Atlantic	AST	ADT
+S	scn	Cuba	CuST	CuDT
+S	scn	Hawaii	HAST	
+S	scn	Hawaii_Aleutian	HAST	HADT
 N	scn	Afghanistan	Ura di l’Afghànistan	
 N	scn	Africa_Central	Ura di l’Àfrica Cintrali	
 N	scn	Africa_Eastern	Ura di l’Àfrica di Livanti	
@@ -26144,6 +26802,7 @@ U	sd	short	week	one	{0} هفتو
 U	sd	short	week	other	{0} هفتا
 U	sd	short	year	one	{0} سال
 U	sd	short	year	other	{0} سال
+S	sd	Etc/UTC	م ع و	
 N	sd	Afghanistan	افغانستان جو وقت	
 N	sd	Africa_Central	مرڪزي آفريقا جو وقت	
 N	sd	Africa_Eastern	اوڀر آفريڪا جو وقت	
@@ -26378,6 +27037,10 @@ U	se	short	week	two	{0} v
 U	se	short	year	one	{0} jah
 U	se	short	year	other	{0} jah
 U	se	short	year	two	{0} jah
+S	se	Europe_Central	CET	CEST
+S	se	Europe_Eastern	EET	EEST
+S	se	Europe_Western	WET	WEST
+S	se	GMT	GMT	
 N	se	Europe_Central	gaska-Eurohpá dábálašáigi	gaska-Eurohpá geassiáigi
 N	se	Europe_Eastern	nuorti-Eurohpá dábálašáigi	nuorti-Eurohpá geassiáigi
 N	se	Europe_Western	oarje-Eurohpá dábálašáigi	oarje-Eurohpá geassiáigi
@@ -26597,6 +27260,7 @@ U	shn	short	nanosecond	other	{0} ၼႃႇၸႅၵ်ႉ
 U	shn	short	second	other	{0} ၸႅၵ်ႉ
 U	shn	short	week	other	{0} ဝူင်ႈ
 U	shn	short	year	other	{0} ပီ
+S	shn	Myanmar	MMT	
 N	shn	Acre	လၵ်းၸဵင် ၶၢဝ်းယၢမ်း ဢေႇၵႃႇ	ၶၢဝ်းယၢမ်း ၶၢဝ်းမႆႈ ဢေႇၵႃႇ
 N	shn	Afghanistan	ၶၢဝ်းယၢမ်း ဢႃႇၾၵၢၼ်ႇၼီႇသတၢၼ်ႇ	
 N	shn	Africa_Central	ၶၢဝ်းယၢမ်း ဢႃႇၾရိၵ ပွတ်းၵၢင်	
@@ -27059,6 +27723,7 @@ U	sk	short	year	few	{0} r.
 U	sk	short	year	many	{0} r.
 U	sk	short	year	one	{0} r.
 U	sk	short	year	other	{0} r.
+S	sk	Europe_Central	SEČ	SELČ
 N	sk	Acre	acrejský štandardný čas	acrejský letný čas
 N	sk	Afghanistan	afganský čas	
 N	sk	Africa_Central	stredoafrický čas	
@@ -27523,6 +28188,9 @@ U	so	short	week	one	{0} tdbd
 U	so	short	week	other	{0} tdbd
 U	so	short	year	one	snd
 U	so	short	year	other	{0} snd
+S	so	Etc/UTC	Waqtiga UTC	
+S	so	Hawaii	HAST	
+S	so	Hawaii_Aleutian	HAST	HADT
 N	so	Acre	Wakhtiga Caadiga ah ee Acre	Wakhtiga Kulka ee Acre
 N	so	Afghanistan	Waqtiga Afggaanistaan	
 N	so	Africa_Central	Waqtiga Bartamaha Afrika	
@@ -27984,6 +28652,10 @@ U	sr	short	week	other	{0} нед.
 U	sr	short	year	few	{0} год.
 U	sr	short	year	one	{0} год
 U	sr	short	year	other	{0} год.
+S	sr	Europe_Central	CET	CEST
+S	sr	Europe_Eastern	EET	EEST
+S	sr	Europe_Western	WET	WEST
+S	sr	GMT	GMT	
 N	sr	Acre	Акре стандардно време	Акре летње рачунање времена
 N	sr	Afghanistan	Авганистан време	
 N	sr	Africa_Central	Централно-афричко време	
@@ -28389,6 +29061,10 @@ U	sr-Latn	short	week	other	{0} ned.
 U	sr-Latn	short	year	few	{0} god.
 U	sr-Latn	short	year	one	{0} god
 U	sr-Latn	short	year	other	{0} god.
+S	sr-Latn	Europe_Central	CET	CEST
+S	sr-Latn	Europe_Eastern	EET	EEST
+S	sr-Latn	Europe_Western	WET	WEST
+S	sr-Latn	GMT	GMT	
 N	sr-Latn	Acre	Akre standardno vreme	Akre letnje računanje vremena
 N	sr-Latn	Afghanistan	Avganistan vreme	
 N	sr-Latn	Africa_Central	Centralno-afričko vreme	
@@ -28809,6 +29485,10 @@ U	sv	short	week	one	{0} v
 U	sv	short	week	other	{0} v
 U	sv	short	year	one	{0} år
 U	sv	short	year	other	{0} år
+S	sv	Europe_Central	CET	CEST
+S	sv	Europe_Eastern	EET	EEST
+S	sv	Europe_Western	WET	WEST
+S	sv	GMT	GMT	
 N	sv	Acre	västbrasiliansk normaltid	västbrasiliansk sommartid
 N	sv	Afghanistan	afghansk tid	
 N	sv	Africa_Central	centralafrikansk tid	
@@ -29562,6 +30242,7 @@ U	ta	short	week	one	{0} வாரம்
 U	ta	short	week	other	{0} வார.
 U	ta	short	year	one	{0} ஆண்டு
 U	ta	short	year	other	{0} ஆண்டு.
+S	ta	India	IST	
 N	ta	Acre	அக்ரே தர நேரம்	அக்ரே கோடை நேரம்
 N	ta	Afghanistan	ஆஃப்கானிஸ்தான் நேரம்	
 N	ta	Africa_Central	மத்திய ஆப்பிரிக்க நேரம்	
@@ -29726,7 +30407,13 @@ N	ta	Yukon	யூகோன் நேரம்
 P	ta-LK	ta
 H	ta-LK	H	gregorian
 P	ta-MY	ta
+S	ta-MY	India		
+S	ta-MY	Malaysia	MYT	
+S	ta-MY	Singapore	SGT	
 P	ta-SG	ta
+S	ta-SG	India		
+S	ta-SG	Malaysia	MYT	
+S	ta-SG	Singapore	SGT	
 P	te	und
 Y	te	d/M/y	{1} {0}
 C	te	persian	d/M/y GGGGG	AP	AP	h:mm:ss a	HH:mm:ss	AM	PM
@@ -29791,6 +30478,7 @@ U	te	short	week	one	{0} వా.
 U	te	short	week	other	{0} వా.
 U	te	short	year	one	{0} సం.
 U	te	short	year	other	{0} సం.
+S	te	India	IST	
 N	te	Acre	ఏకర్ ప్రామాణిక సమయం	ఏకర్ వేసవి సమయం
 N	te	Afghanistan	ఆఫ్ఘనిస్తాన్ సమయం	
 N	te	Africa_Central	సెంట్రల్ ఆఫ్రికా సమయం	
@@ -31888,6 +32576,7 @@ U	und	short	second	other	{0} s
 U	und	short	week	other	{0} w
 U	und	short	year	other	{0} y
 T	und	:
+S	und	Etc/UTC	UTC	
 P	ur	und
 F	ur	GMT {0}	GMT	+HH:mm;-HH:mm
 Y	ur	d/M/y	{1}، {0}
@@ -32809,6 +33498,14 @@ U	vi	short	nanosecond	other	{0} nano giây
 U	vi	short	second	other	{0} giây
 U	vi	short	week	other	{0} tuần
 U	vi	short	year	other	{0} năm
+S	vi	Alaska	AKST	AKDT
+S	vi	America_Central	CST	CDT
+S	vi	America_Eastern	EST	EDT
+S	vi	America_Mountain	MST	MDT
+S	vi	America_Pacific	PST	PDT
+S	vi	Atlantic	AST	ADT
+S	vi	Hawaii	HAST	
+S	vi	Hawaii_Aleutian	HAST	HADT
 N	vi	Acre	Giờ Chuẩn Acre	Giờ Mùa Hè Acre
 N	vi	Afghanistan	Giờ Afghanistan	
 N	vi	Africa_Central	Giờ Trung Phi	
@@ -33006,6 +33703,9 @@ U	wae	long	week	one	{0} wuča
 U	wae	long	week	other	{0} wučä
 U	wae	long	year	one	{0} jár
 U	wae	long	year	other	{0} jár
+S	wae	Europe_Central	MEZ	MESZ
+S	wae	Europe_Eastern	OEZ	OESZ
+S	wae	Europe_Western	WEZ	WESZ
 N	wae	Atlantic	Atlantiši Standardzit	Atlantiši Summerzit
 N	wae	Europe_Central	Mitteleuropäiši Standardzit	Mitteleuropäiši Summerzit
 N	wae	Europe_Eastern	Ošteuropäiši Standardzit	Ošteuropäiši Summerzit
@@ -33820,6 +34520,9 @@ U	yrl	short	second	other	{0} seg
 U	yrl	short	week	one	{0} sem.
 U	yrl	short	week	other	{0} sem
 U	yrl	short	year	other	{0} akayú
+S	yrl	Acre	ACT	ACST
+S	yrl	Amazon	AMT	AMST
+S	yrl	Brasilia	BRT	BRST
 N	yrl	Acre	Hurariyu Retewa Acre yara	Hurariyu Kurasí Ara Acre yara
 N	yrl	Afghanistan	Afegãniretãma Hurariyu	
 N	yrl	Africa_Central	Afirika Piterawara Hurariyu	
@@ -34619,6 +35322,8 @@ Y	zh-Hans-SG	y年M月d日	{1} {0}
 H	zh-Hans-SG	h	gregorian
 C	zh-Hans-SG	persian	Gy年M月d日	波斯历	波斯历	ah:mm:ss	HH:mm:ss	上午	下午
 U	zh-Hans-SG	long	second	other	{0}秒
+S	zh-Hans-SG	Malaysia	MYT	
+S	zh-Hans-SG	Singapore	SGT	
 P	zh-Hant	und
 Y	zh-Hant	y/M/d	{1} {0}
 J	zh-Hant	Bh時	H時	Bh:mm	HH:mm
@@ -34655,6 +35360,15 @@ U	zh-Hant	short	nanosecond	other	{0} 奈秒
 U	zh-Hant	short	second	other	{0} 秒
 U	zh-Hant	short	week	other	{0} 週
 U	zh-Hant	short	year	other	{0} 年
+S	zh-Hant	Alaska	AKST	AKDT
+S	zh-Hant	America_Central	CST	CDT
+S	zh-Hant	America_Eastern	EST	EDT
+S	zh-Hant	America_Mountain	MST	MDT
+S	zh-Hant	America_Pacific	PST	PDT
+S	zh-Hant	Atlantic	AST	ADT
+S	zh-Hant	GMT	GMT	
+S	zh-Hant	Hawaii	HAST	
+S	zh-Hant	Hawaii_Aleutian	HAST	HADT
 N	zh-Hant	Acre	艾克標準時間	艾克夏令時間
 N	zh-Hant	Afghanistan	阿富汗時間	
 N	zh-Hant	Africa_Central	中非時間	

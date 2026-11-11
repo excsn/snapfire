@@ -203,6 +203,19 @@ assert_eq!(zone_name("de-DE", "Europe/Berlin", daylight, now, &Rules), "Mitteleu
 assert_eq!(zone_name("en", "Etc/GMT+5", false, now, &Rules), "GMT-05:00");
 ```
 
+`short_zone_name` gives the name a formatted date writes under `timeZoneName: "short"`, judged at the instant written. A locale with no short name for the zone writes the short GMT format:
+
+With the same `Rules`:
+
+```rust
+use snapfire_i18n::short_zone_name;
+
+let september = 1_725_969_600_000.0;
+assert_eq!(short_zone_name("en-US", "America/New_York", september, &Rules), "EDT");
+assert_eq!(short_zone_name("en-GB", "America/New_York", september, &Rules), "GMT-4");
+assert_eq!(short_zone_name("en-US", "Europe/Paris", september, &Rules), "GMT+2");
+```
+
 ICU picks the metazone at the moment of the call, not at the instant being named, so pass the current time as `now`. Kathmandu in 1970 is `Nepal Time` even though Nepal then kept India's offset.
 
 ## Writing a Date With No Options

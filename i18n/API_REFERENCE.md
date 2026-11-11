@@ -26,6 +26,7 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [ZoneRules](#zonerules)
   * [in_daylight](#in_daylight)
   * [zone_name](#zone_name)
+  * [short_zone_name](#short_zone_name)
   * [Calendar](#calendar)
   * [calendar](#calendar-1)
   * [numeric_date](#numeric_date)
@@ -148,6 +149,10 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 ### zone_name
 
 * `pub fn zone_name(tag: &str, zone: &str, daylight: bool, now: f64, rules: &impl ZoneRules) -> String`: the long specific name of `zone` in `tag`, as ICU's `TimeZone::getDisplayName(daylight, LONG, locale)` writes it. The metazone is the one `zone` is in at the instant `now`. A zone-specific name such as `British Summer Time` comes before the metazone's. A zone with no name is written in the localized GMT format: the standard offset at `now`, plus the year's saving when `daylight` holds, `GMT-05:00`. A zone CLDR does not know is `GMT+00:00`.
+
+### short_zone_name
+
+* `pub fn short_zone_name(locale: &str, zone: &str, ms: f64, rules: &impl ZoneRules) -> String`: the name `Intl.DateTimeFormat` writes under `timeZoneName: "short"` for the zone at the instant `ms`: `EDT` for `America/New_York` in `en-US`, else the short GMT format, `GMT+2` for `Europe/Paris` in `en-US`.
 
 ### Calendar
 

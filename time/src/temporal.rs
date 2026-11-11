@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use temporal_rs::options::{DifferenceSettings, DisplayCalendar, DisplayOffset, DisplayTimeZone, Overflow, RoundingIncrement, RoundingOptions, ToStringRoundingOptions, Unit};
 use temporal_rs::partial::{PartialDuration, PartialTime};
 use temporal_rs::provider::TimeZoneProvider;
-use temporal_rs::{Calendar, Duration, Instant, PlainDate, PlainDateTime, PlainTime, TimeZone, ZonedDateTime};
+use temporal_rs::{Calendar, Duration, Instant, PlainDate, PlainDateTime, PlainMonthDay, PlainTime, PlainYearMonth, TimeZone, ZonedDateTime};
 
 use crate::Error;
 
@@ -18,6 +18,8 @@ pub enum Kind {
   PlainDateTime,
   ZonedDateTime,
   Duration,
+  PlainYearMonth,
+  PlainMonthDay,
 }
 
 impl Kind {
@@ -30,12 +32,14 @@ impl Kind {
       Kind::PlainDateTime => "PlainDateTime",
       Kind::ZonedDateTime => "ZonedDateTime",
       Kind::Duration => "Duration",
+      Kind::PlainYearMonth => "PlainYearMonth",
+      Kind::PlainMonthDay => "PlainMonthDay",
     }
   }
 
   /// The type `name` names, `None` for one this crate does not hold.
   pub fn of(name: &str) -> Option<Kind> {
-    [Kind::Instant, Kind::PlainDate, Kind::PlainTime, Kind::PlainDateTime, Kind::ZonedDateTime, Kind::Duration].into_iter().find(|k| k.name() == name)
+    [Kind::Instant, Kind::PlainDate, Kind::PlainTime, Kind::PlainDateTime, Kind::ZonedDateTime, Kind::Duration, Kind::PlainYearMonth, Kind::PlainMonthDay].into_iter().find(|k| k.name() == name)
   }
 }
 
@@ -244,6 +248,14 @@ fn answer_instant(i: Instant) -> Result<Answer, Error> {
   with_provider(|p| Ok(Answer::Temporal(Kind::Instant, instant_text(&i, p)?)))
 }
 
+fn answer_year_month(v: PlainYearMonth) -> Answer {
+  Answer::Temporal(Kind::PlainYearMonth, v.to_ixdtf_string(DisplayCalendar::Auto))
+}
+
+fn answer_month_day(v: PlainMonthDay) -> Answer {
+  Answer::Temporal(Kind::PlainMonthDay, v.to_ixdtf_string(DisplayCalendar::Auto))
+}
+
 fn answer_zoned(z: ZonedDateTime) -> Result<Answer, Error> {
   with_provider(|p| Ok(Answer::Temporal(Kind::ZonedDateTime, zoned_text(&z, p)?)))
 }
@@ -284,6 +296,33 @@ fn plain_date(a: &Arg, options: &Arg) -> Result<PlainDate, Error> {
       PlainDate::from_partial(partial, overflow(options)?).map_err(range)
     }
     _ => Err(type_error("a PlainDate is a string, an object or a Temporal date")),
+  }
+}
+
+fn year_month(a: &Arg, options: &Arg) -> Result<PlainYearMonth, Error> {
+  match a {
+    Arg::Str(s) | Arg::Temporal(Kind::PlainYearMonth, s) => PlainYearMonth::from_utf8(s.as_bytes()).map_err(range),
+    Arg::Temporal(Kind::PlainDate, s) => PlainDate::from_utf8(s.as_bytes()).map_err(range)?.to_plain_year_month().map_err(range),
+    Arg::Obj(fields) => {
+      let mut wanted = temporal_rs::fields::YearMonthCalendarFields::default();
+      let given = calendar_fields(fields)?;
+      (wanted.year, wanted.month, wanted.month_code) = (given.year, given.month, given.month_code);
+      let partial = temporal_rs::partial::PartialYearMonth { calendar_fields: wanted, calendar: calendar(field(fields, "calendar").unwrap_or(&Arg::Undefined))? };
+      PlainYearMonth::from_partial(partial, overflow(options)?).map_err(range)
+    }
+    _ => Err(type_error("a PlainYearMonth is a string, an object or a Temporal year and month")),
+  }
+}
+
+fn month_day(a: &Arg, options: &Arg) -> Result<PlainMonthDay, Error> {
+  match a {
+    Arg::Str(s) | Arg::Temporal(Kind::PlainMonthDay, s) => PlainMonthDay::from_utf8(s.as_bytes()).map_err(range),
+    Arg::Temporal(Kind::PlainDate, s) => PlainDate::from_utf8(s.as_bytes()).map_err(range)?.to_plain_month_day().map_err(range),
+    Arg::Obj(fields) => {
+      let partial = temporal_rs::partial::PartialDate { calendar_fields: calendar_fields(fields)?, calendar: calendar(field(fields, "calendar").unwrap_or(&Arg::Undefined))? };
+      PlainMonthDay::from_partial(partial, overflow(options)?).map_err(range)
+    }
+    _ => Err(type_error("a PlainMonthDay is a string, an object or a Temporal month and day")),
   }
 }
 
@@ -394,6 +433,21 @@ pub fn construct(kind: Kind, args: &[Arg]) -> Result<Answer, Error> {
       let made = PlainDateTime::try_new(year, narrow(integer("month", arg(args, 1))?, "month")?, narrow(integer("day", arg(args, 2))?, "day")?, narrow(int(3, "hour")?, "hour")?, narrow(int(4, "minute")?, "minute")?, narrow(int(5, "second")?, "second")?, wide(int(6, "millisecond")?, "millisecond")?, wide(int(7, "microsecond")?, "microsecond")?, wide(int(8, "nanosecond")?, "nanosecond")?, calendar(arg(args, 9))?);
       answer_date_time(made.map_err(range)?)
     }
+    Kind::PlainYearMonth => {
+      let year = i32::try_from(integer("year", arg(args, 0))?).map_err(range)?;
+      let day = match arg(args, 3) {
+        Arg::Undefined => None,
+        a => Some(narrow(integer("referenceISODay", a)?, "referenceISODay")?),
+      };
+      PlainYearMonth::try_new(year, narrow(integer("month", arg(args, 1))?, "month")?, day, calendar(arg(args, 2))?).map(answer_year_month).map_err(range)
+    }
+    Kind::PlainMonthDay => {
+      let year = match arg(args, 3) {
+        Arg::Undefined => None,
+        a => Some(i32::try_from(integer("referenceISOYear", a)?).map_err(range)?),
+      };
+      PlainMonthDay::new_with_overflow(narrow(integer("month", arg(args, 0))?, "month")?, narrow(integer("day", arg(args, 1))?, "day")?, calendar(arg(args, 2))?, Overflow::Reject, year).map(answer_month_day).map_err(range)
+    }
     Kind::Duration => {
       let d = Duration::new(int(0, "years")?, int(1, "months")?, int(2, "weeks")?, int(3, "days")?, int(4, "hours")?, int(5, "minutes")?, int(6, "seconds")?, int(7, "milliseconds")?, int(8, "microseconds")?.into(), int(9, "nanoseconds")?.into());
       Ok(answer_duration(d.map_err(range)?))
@@ -428,6 +482,9 @@ pub fn call_static(kind: Kind, name: &str, args: &[Arg]) -> Result<Answer, Error
     (Kind::Instant, "from") => answer_instant(instant(a)?),
     (Kind::ZonedDateTime, "from") => answer_zoned(zoned(a)?),
     (Kind::Duration, "from") => Ok(answer_duration(duration(a)?)),
+    (Kind::PlainYearMonth, "from") => Ok(answer_year_month(year_month(a, b)?)),
+    (Kind::PlainMonthDay, "from") => Ok(answer_month_day(month_day(a, b)?)),
+    (Kind::PlainYearMonth, "compare") => Ok(ordering(year_month(a, &Arg::Undefined)?.compare_iso(&year_month(b, &Arg::Undefined)?))),
     (Kind::Instant, "fromEpochMilliseconds") => answer_instant(Instant::from_epoch_milliseconds(integer("epochMilliseconds", a)?).map_err(range)?),
     (Kind::Instant, "fromEpochNanoseconds") => match a {
       Arg::BigInt(n) => answer_instant(Instant::try_new(*n).map_err(range)?),
@@ -507,6 +564,31 @@ pub fn get(kind: Kind, value: &str, name: &str) -> Result<Answer, Error> {
         _ => date_field!(v, name).or_else(|| time_field!(v, name)),
       }
     }
+    Kind::PlainYearMonth => {
+      let v = year_month(&this, &Arg::Undefined)?;
+      match name {
+        "year" => Some(num(v.year())),
+        "month" => Some(num(v.month())),
+        "monthCode" => Some(Answer::Str(v.month_code().as_str().to_owned())),
+        "daysInMonth" => Some(num(v.days_in_month())),
+        "daysInYear" => Some(num(v.days_in_year())),
+        "monthsInYear" => Some(num(v.months_in_year())),
+        "inLeapYear" => Some(Answer::Bool(v.in_leap_year())),
+        "calendarId" => Some(Answer::Str(v.calendar_id().to_owned())),
+        "era" => Some(v.era().map_or(Answer::Undefined, |e| Answer::Str(e.to_string()))),
+        "eraYear" => Some(v.era_year().map_or(Answer::Undefined, |y| num(y))),
+        _ => None,
+      }
+    }
+    Kind::PlainMonthDay => {
+      let v = month_day(&this, &Arg::Undefined)?;
+      match name {
+        "monthCode" => Some(Answer::Str(v.month_code().as_str().to_owned())),
+        "day" => Some(num(v.day())),
+        "calendarId" => Some(Answer::Str(v.calendar_id().to_owned())),
+        _ => None,
+      }
+    }
     Kind::Instant => {
       let v = instant(&this)?;
       match name {
@@ -567,6 +649,8 @@ pub fn call(kind: Kind, value: &str, method: &str, args: &[Arg]) -> Result<Answe
           };
           answer_date_time(v.to_plain_date_time(time).map_err(range)?)
         }
+        "toPlainYearMonth" => v.to_plain_year_month().map(answer_year_month).map_err(range),
+        "toPlainMonthDay" => v.to_plain_month_day().map(answer_month_day).map_err(range),
         "toZonedDateTime" => {
           let (zone, time) = match a {
             Arg::Str(zone) => (zone.clone(), None),
@@ -698,6 +782,49 @@ pub fn call(kind: Kind, value: &str, method: &str, args: &[Arg]) -> Result<Answe
           let rounding = to_string_options(&options)?;
           with_provider(|p| Ok(Answer::Str(v.to_ixdtf_string_with_provider(display_offset, display_zone, display_calendar, rounding, p).map_err(range)?)))
         }
+        _ => Err(not_a_method()),
+      }
+    }
+    Kind::PlainYearMonth => {
+      let v = year_month(&this, &Arg::Undefined)?;
+      match method {
+        "add" => v.add(&duration(a)?, overflow(b)?.unwrap_or_default()).map(answer_year_month).map_err(range),
+        "subtract" => v.subtract(&duration(a)?, overflow(b)?.unwrap_or_default()).map(answer_year_month).map_err(range),
+        "until" => v.until(&year_month(a, &Arg::Undefined)?, difference(b)?).map(answer_duration).map_err(range),
+        "since" => v.since(&year_month(a, &Arg::Undefined)?, difference(b)?).map(answer_duration).map_err(range),
+        "with" => match a {
+          Arg::Obj(fields) => {
+            let mut wanted = temporal_rs::fields::YearMonthCalendarFields::default();
+            let given = calendar_fields(fields)?;
+            (wanted.year, wanted.month, wanted.month_code) = (given.year, given.month, given.month_code);
+            v.with(wanted, overflow(b)?).map(answer_year_month).map_err(range)
+          }
+          _ => Err(type_error("with takes an object")),
+        },
+        "equals" => Ok(Answer::Bool(v == year_month(a, &Arg::Undefined)?)),
+        "toPlainDate" => match a {
+          Arg::Obj(fields) => v.to_plain_date(Some(calendar_fields(fields)?)).map(answer_date).map_err(range),
+          _ => Err(type_error("toPlainDate takes { day }")),
+        },
+        "toString" => Ok(Answer::Str(v.to_ixdtf_string(calendar_display(a)?))),
+        "toJSON" => Ok(Answer::Str(v.to_ixdtf_string(DisplayCalendar::Auto))),
+        _ => Err(not_a_method()),
+      }
+    }
+    Kind::PlainMonthDay => {
+      let v = month_day(&this, &Arg::Undefined)?;
+      match method {
+        "with" => match a {
+          Arg::Obj(fields) => v.with(calendar_fields(fields)?, overflow(b)?).map(answer_month_day).map_err(range),
+          _ => Err(type_error("with takes an object")),
+        },
+        "equals" => Ok(Answer::Bool(v == month_day(a, &Arg::Undefined)?)),
+        "toPlainDate" => match a {
+          Arg::Obj(fields) => v.to_plain_date(Some(calendar_fields(fields)?)).map(answer_date).map_err(range),
+          _ => Err(type_error("toPlainDate takes { year }")),
+        },
+        "toString" => Ok(Answer::Str(v.to_ixdtf_string(calendar_display(a)?))),
+        "toJSON" => Ok(Answer::Str(v.to_ixdtf_string(DisplayCalendar::Auto))),
         _ => Err(not_a_method()),
       }
     }

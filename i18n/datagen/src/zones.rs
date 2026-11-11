@@ -49,12 +49,12 @@ fn periods(node: &Value, path: &mut Vec<String>, out: &mut Vec<String>) -> Resul
   Ok(())
 }
 
-/// The long standard and daylight names under `node`, keyed by metazone or by zone path.
-fn names(node: &Value, path: &mut Vec<String>, out: &mut BTreeMap<String, (String, String)>) {
+/// The standard and daylight names under `node` at `width`, `long` or `short`, keyed by metazone or by zone path.
+fn names(node: &Value, width: &str, path: &mut Vec<String>, out: &mut BTreeMap<String, (String, String)>) {
   let Value::Object(children) = node else { return };
-  if let Some(long) = children.get("long") {
-    let standard = str_at(long, &["standard"]).unwrap_or("").to_owned();
-    let daylight = str_at(long, &["daylight"]).unwrap_or("").to_owned();
+  if let Some(named) = children.get(width) {
+    let standard = str_at(named, &["standard"]).unwrap_or("").to_owned();
+    let daylight = str_at(named, &["daylight"]).unwrap_or("").to_owned();
     if !standard.is_empty() || !daylight.is_empty() {
       out.insert(path.join("/"), (standard, daylight));
     }
@@ -62,7 +62,7 @@ fn names(node: &Value, path: &mut Vec<String>, out: &mut BTreeMap<String, (Strin
   for (name, child) in children {
     if name != "long" && name != "short" && child.is_object() {
       path.push(name.clone());
-      names(child, path, out);
+      names(child, width, path, out);
       path.pop();
     }
   }
@@ -70,6 +70,8 @@ fn names(node: &Value, path: &mut Vec<String>, out: &mut BTreeMap<String, (Strin
 
 struct Own {
   names: BTreeMap<String, (String, String)>,
+  /// The short names, as resolved for the locale: one missing is blocked, as `∅∅∅` blocks it in CLDR's XML.
+  short: BTreeMap<String, (String, String)>,
   formats: [String; 3],
   digits: Option<(String, String)>,
   dates: [String; 2],
@@ -139,12 +141,15 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     let json = read(&dates.join(&locale).join("timeZoneNames.json"))?;
     let tz = json.pointer(&format!("/main/{locale}/dates/timeZoneNames")).ok_or_else(|| format!("{locale}: no timeZoneNames"))?;
     let mut found = BTreeMap::new();
+    let mut short = BTreeMap::new();
     if let Some(metazones) = tz.get("metazone") {
-      names(metazones, &mut Vec::new(), &mut found);
+      names(metazones, "long", &mut Vec::new(), &mut found);
+      names(metazones, "short", &mut Vec::new(), &mut short);
     }
     let mut zoned = BTreeMap::new();
     if let Some(zones) = tz.get("zone") {
-      names(zones, &mut Vec::new(), &mut zoned);
+      names(zones, "long", &mut Vec::new(), &mut zoned);
+      names(zones, "short", &mut Vec::new(), &mut short);
     }
     found.extend(zoned);
     let format = |key: &str| str_at(tz, &[key]).unwrap_or("").to_owned();
@@ -200,7 +205,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     }
     let system = read(&numbers.join(&locale).join("numbers.json")).ok().and_then(|n| str_at(&n, &["main", &locale, "numbers", "defaultNumberingSystem"]).map(str::to_owned));
     let digits = system.filter(|s| s != "latn").and_then(|s| systems.get(&s).and_then(|info| str_at(info, &["_digits"])).map(|digits| (digits.to_owned(), s)));
-    own.insert(locale, Own { names: found, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue], at_time, clock, hours, calendars, units });
+    own.insert(locale, Own { names: found, short, formats: [format("gmtFormat"), format("gmtZeroFormat"), format("hourFormat")], digits, dates: [numeric, glue], at_time, clock, hours, calendars, units });
   }
   let parent_of = |locale: &str| -> Option<String> {
     if locale == "und" {
@@ -233,6 +238,7 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     }
     (standard, daylight)
   };
+  let resolved_short = |locale: &str, key: &str| -> (String, String) { own.get(locale).and_then(|o| o.short.get(key)).cloned().unwrap_or_default() };
   let resolved_formats = |locale: &str| -> [String; 3] {
     let mut formats: [String; 3] = Default::default();
     for l in chain(locale) {
@@ -339,6 +345,13 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
           [width, unit, plural] => writeln!(out, "U\t{locale}\t{width}\t{unit}\t{plural}\t{}", field(&value)?).unwrap(),
           _ => writeln!(out, "T\t{locale}\t{}", field(&value)?).unwrap(),
         }
+      }
+    }
+    let shorts: std::collections::BTreeSet<&String> = [Some(locale.as_str()), parent.as_deref()].into_iter().flatten().filter_map(|l| own.get(l)).flat_map(|o| o.short.keys()).collect();
+    for key in shorts {
+      let here = resolved_short(locale, key);
+      if parent.as_deref().is_none_or(|p| resolved_short(p, key) != here) {
+        writeln!(out, "S\t{locale}\t{key}\t{}\t{}", field(&here.0)?, field(&here.1)?).unwrap();
       }
     }
     for key in mine.names.keys() {

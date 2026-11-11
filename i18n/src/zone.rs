@@ -10,6 +10,7 @@
 //! - `D locale digits system`: the ten digits of a locale's numbering system and its name, `arab`, when they are not ASCII.
 //! - `F locale gmt zero hours`: the localized GMT format, the format for a zero offset and the positive and negative hour patterns.
 //! - `N locale key standard daylight`: the long names of a metazone or of a zone, given by its path. An empty name falls back to the parent's.
+//! - `S locale key standard daylight`: the short names, `EST` and `EDT`. Empty names block the parent's, so the locale writes the GMT format.
 //! - `Y locale date glue`: the `yMd` pattern a date with no options is written in and the short `atTime` pattern joining a date to a time.
 //! - `J locale h H hm Hm`: the patterns of an hour alone and of an hour and its minutes on a 12-hour and on a 24-hour clock.
 //! - `O locale hms Hms am pm`: the patterns a time is written in on a 12-hour and on a 24-hour clock and the abbreviated day period markers.
@@ -52,6 +53,7 @@ struct Names {
   units: HashMap<(&'static str, &'static str, &'static str), &'static str>,
   time_separator: Option<&'static str>,
   names: HashMap<&'static str, (&'static str, &'static str)>,
+  short: HashMap<&'static str, (&'static str, &'static str)>,
 }
 
 #[derive(Default)]
@@ -85,6 +87,9 @@ fn zones() -> &'static Zones {
           zones.golden.insert(f[1], f[2]);
         }
         "P" => zones.locales.entry(f[1]).or_default().parent = Some(f[2]),
+        "S" => {
+          zones.locales.entry(f[1]).or_default().short.insert(f[2], (f[3], f[4]));
+        }
         "D" => {
           let names = zones.locales.entry(f[1]).or_default();
           names.digits = Some(f[2]);
@@ -172,6 +177,36 @@ pub fn zone_name(locale: &str, zone: &str, daylight: bool, now: f64, rules: &imp
   let (offset, saving) = rules.observed(zone, now).unwrap_or((0, 0));
   let extra = if daylight { rules.saving_in_year(zone, now).unwrap_or(0) } else { 0 };
   gmt(&chain, offset - saving + extra, false)
+}
+
+/// The short name `zone` goes by at the instant `ms` in `locale`, as `Intl.DateTimeFormat` writes it under `timeZoneName: "short"`: `EDT` for `America/New_York` in `en-US`, else the short GMT format, `GMT+2` for `Europe/Paris` in `en-US` and `GMT+5:30` for `Asia/Kolkata`.
+pub fn short_zone_name(locale: &str, zone: &str, ms: f64, rules: &impl ZoneRules) -> String {
+  let data = zones();
+  let names = chain(locale);
+  let (offset, _) = rules.observed(zone, ms).unwrap_or((0, 0));
+  if let Some(&canonical) = data.canonical.get(zone).filter(|c| **c != "Etc/Unknown") {
+    let daylight = in_daylight(zone, ms, rules);
+    let pick = |(standard, daylight_name): (&'static str, &'static str)| if daylight { daylight_name } else { standard };
+    let own = |key: &str| names.iter().find_map(|held| held.short.get(key).copied());
+    let named = |key: &str| own(key).map(pick).filter(|n| !n.is_empty());
+    if let Some(name) = named(canonical).or_else(|| metazone(canonical, ms).and_then(named)) {
+      return name.to_owned();
+    }
+  }
+  short_gmt(&names, offset)
+}
+
+/// `offset` in seconds as the short localized GMT format writes it: the hours unpadded and the minutes only when there are some, separated as the locale's hour format separates them: `GMT+2`, `GMT+5:30` and `GMT+0`.
+fn short_gmt(chain: &[&'static Names], offset: i32) -> String {
+  let formats = chain.iter().find_map(|names| names.formats).unwrap_or(["GMT{0}", "GMT", "+HH:mm;-HH:mm"]);
+  let total = offset.unsigned_abs();
+  let (hours, minutes) = (total / 3600, total / 60 % 60);
+  let (positive, negative) = formats[2].split_once(';').unwrap_or((formats[2], formats[2]));
+  let pattern = if offset < 0 { negative } else { positive };
+  let (sign, after) = pattern.split_once('H').unwrap_or(("+", "H:mm"));
+  let separator = after.trim_start_matches('H').split_once('m').map_or(":", |(between, _)| between);
+  let amount = if minutes == 0 { format!("{sign}{hours}") } else { format!("{sign}{hours}{separator}{minutes:02}") };
+  localized_digits(chain, formats[0].replace("{0}", &amount))
 }
 
 /// A calendar a numeric date is written in.

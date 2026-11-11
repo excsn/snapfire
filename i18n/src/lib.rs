@@ -20,7 +20,7 @@ pub use pattern::Sign;
 pub use percent::Percent;
 pub use relative::{Plural, Relative, Unit, Width};
 pub use names::{display_name, has_display_names, NameKind};
-pub use zone::{calendar, clock, date_with_time, duration_unit, hour_cycle, in_daylight, numbering_system, numeric_date, time_separator, time_widths, zone_name, Calendar, ZoneRules};
+pub use zone::{calendar, clock, date_with_time, duration_unit, hour_cycle, in_daylight, numbering_system, numeric_date, short_zone_name, time_separator, time_widths, zone_name, Calendar, ZoneRules};
 
 /// The CLDR release the embedded data was generated from.
 pub fn cldr_version() -> &'static str {
