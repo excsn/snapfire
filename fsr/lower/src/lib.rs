@@ -143,6 +143,9 @@ pub(crate) fn node_module(source: &str) -> bool {
 }
 
 /// JavaScript's error constructors, which a `throw` and a `new` read as `{ name, message }`.
+/// The typed arrays a body makes as arrays of numbers, each element converted as its type stores it. `Uint8Array` has its own arm, since response bodies and `TextEncoder` read its bytes.
+pub(crate) const TYPED_ARRAYS: [&str; 11] = ["Int8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float16Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array"];
+
 pub(crate) const ERROR_CONSTRUCTORS: [&str; 9] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AggregateError", "SuppressedError"];
 
 /// The import aliases every fsr application has, each a prefix and the app
@@ -667,6 +670,10 @@ pub(crate) enum Kind {
   Registry,
   /// A `Number`, `Boolean` or `String` object made with `new`: an object that reads as the primitive it wraps.
   Wrapper,
+  /// An `ArrayBuffer` or a `SharedArrayBuffer`: an array of bytes.
+  Buffer,
+  /// A `DataView`: the bytes of the buffer it was made over.
+  View,
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.

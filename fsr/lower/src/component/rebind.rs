@@ -242,6 +242,20 @@ pub(super) fn map_or_set_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpress
   Ok(Some((name, value, kind)))
 }
 
+/// `v.setUint16(offset, value, little)` and the other setters with `v` a local `DataView`: the local and the bytes it holds after.
+pub(super) fn view_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpression, writable: &Writable<'_>) -> Lowered<Option<(String, Expr)>> {
+  let Some(m) = call.callee.as_member_expression() else { return Ok(None) };
+  let js::Expression::Identifier(id) = m.object() else { return Ok(None) };
+  let Some(method) = prop_name_of(m).filter(|method| method.starts_with("set")) else { return Ok(None) };
+  if lowerer.kind_of(m.object()) != Some(crate::Kind::View) || !writable.local(lowerer, id.name.as_str()) {
+    return Ok(None);
+  }
+  let name = id.name.to_string();
+  let mut args = vec![current(lowerer, &name), Expr::lit_str(&method[3..])];
+  args.extend(lowerer.plain_args(call)?);
+  Ok(Some((name, Expr::Builtin { name: Builtin::ViewSet, args })))
+}
+
 /// `d.setUTCHours(h)` and the other setters with `d` a local `Date`: the local and the instant it holds after. A setter that reads this machine's time zone is one only off a web render path.
 pub(super) fn date_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpression, writable: &Writable<'_>) -> Lowered<Option<(String, Expr)>> {
   let Some(m) = call.callee.as_member_expression() else { return Ok(None) };
@@ -521,6 +535,11 @@ pub(super) fn rebind_stmt_inner(lowerer: &mut Lowerer<'_>, stmt: &js::Statement,
         }
         if let Some((name, value, kind)) = map_or_set_write(lowerer, call, writable)? {
           rebind_kind(lowerer, &name, value, kind);
+          note(assigned, &name);
+          return Ok(());
+        }
+        if let Some((name, value)) = view_write(lowerer, call, writable)? {
+          rebind_kind(lowerer, &name, value, crate::Kind::View);
           note(assigned, &name);
           return Ok(());
         }

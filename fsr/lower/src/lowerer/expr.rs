@@ -127,7 +127,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOperator::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
@@ -461,6 +461,16 @@ impl<'a> Lowerer<'a> {
         Ok(name) => Err(self.residue(member.span(), format!("`.{name}` of a `Response`; `status`, `ok` and `headers.get` are read"))),
         Err(_) => Err(self.residue(member.span(), "a computed member of a `Response`")),
       };
+    }
+    if matches!(collection, Some(Kind::Buffer | Kind::View)) {
+      if let Some(name) = self.member_name(member) {
+        match (collection, name.as_str()) {
+          (_, "byteLength") => return Ok(Expr::Length(Box::new(target))),
+          (Some(Kind::View), "buffer") => return Ok(target),
+          (Some(Kind::View), "byteOffset") => return Ok(Expr::Lit(Lit::Float(0.0))),
+          _ => {}
+        }
+      }
     }
     if collection == Some(Kind::Temporal) {
       return match prop(self)? {

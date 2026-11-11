@@ -275,6 +275,25 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         };
         Ok(Expr::Builtin { name: Builtin::Tagged, args: vec![Expr::lit_str(snapfire_fsr_ir::render::typed::WRAPPER), primitive] })
       }
+      ("ArrayBuffer" | "SharedArrayBuffer", length) => {
+        let slot = self.temp();
+        let length = Expr::Num(Box::new(length.unwrap_or(Expr::Lit(Lit::Float(0.0)))));
+        Ok(Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(Expr::Lit(Lit::Float(0.0))) })))
+      }
+      ("DataView", Some(buffer)) => Ok(buffer),
+      (name, source) if TYPED_ARRAYS.contains(&name) => {
+        let element = name.trim_end_matches("Array");
+        let big = element.starts_with("Big");
+        let zero = if big { Expr::Lit(Lit::Int(0)) } else { Expr::Lit(Lit::Float(0.0)) };
+        let Some(source) = source else { return Ok(Expr::Array(Vec::new())) };
+        let (held, item) = (self.temp(), self.temp());
+        let convert = Expr::Lambda { params: vec![item.clone()], body: Box::new(Expr::Builtin { name: Builtin::ElementOf, args: vec![Expr::lit_str(element), Expr::Var(item.clone())] }) };
+        let slot = self.temp();
+        let sized = Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(zero) }));
+        let copied = Expr::Map(Box::new(Expr::Array(vec![Entry::Spread(Expr::Var(held.clone()))])), Box::new(convert));
+        let number = Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::lit_str("number")));
+        Ok(Expr::Block(vec![Stmt::Let { name: held, expr: source }, Stmt::Return(Expr::Ternary(Box::new(number), Box::new(sized), Box::new(copied)))]))
+      }
       ("Array", None) => Ok(Expr::Array(Vec::new())),
       ("Array", Some(first)) if args.len() == 1 => {
         let held = self.temp();

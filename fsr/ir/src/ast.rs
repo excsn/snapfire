@@ -415,6 +415,12 @@ pub enum Builtin {
   TaggedPayload,
   /// `(is-tagged value "tag")`: whether the value is a variant with that tag.
   IsTagged,
+  /// `(element-of "Int8" n)`: `n` as an element of the typed array named, wrapped, clamped or rounded as that array stores it. A `BigInt64` or `BigUint64` element is a BigInt.
+  ElementOf,
+  /// `(view-get bytes "Uint16" offset little)`: the value a `DataView` reads at `offset` of an array of bytes, big-endian unless `little`.
+  ViewGet,
+  /// `(view-set bytes "Uint16" offset value little)`: the bytes with `value` written at `offset` as a `DataView` writes it.
+  ViewSet,
   /// `(settle value)`: what `await` reads from a promise `Promise.withResolvers()` made, an object holding `$deferred`: its value once resolved, its reason thrown once rejected. Any other value is itself.
   Settle,
   /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.

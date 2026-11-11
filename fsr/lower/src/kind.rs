@@ -18,6 +18,8 @@ impl Kind {
       Kind::WeakRef => "WeakRef",
       Kind::Registry => "FinalizationRegistry",
       Kind::Wrapper => "Object",
+      Kind::Buffer => "ArrayBuffer",
+      Kind::View => "DataView",
     }
   }
 
@@ -50,7 +52,7 @@ impl Kind {
     match self {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
-      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper => None,
+      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View => None,
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),

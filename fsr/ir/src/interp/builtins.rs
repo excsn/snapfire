@@ -137,6 +137,34 @@ fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       _ => Value::Undefined,
     },
     Builtin::IsTagged => Value::Bool(matches!(arg(0)?, Value::Variant { tag, .. } if tag == text(name, arg(1)?)?)),
+    Builtin::ElementOf => element_of(text(name, arg(0)?)?, arg(1)?)?,
+    Builtin::ViewGet => {
+      let bytes = view_bytes(arg(0)?)?;
+      let (kind, at, little) = (text(name, arg(1)?)?, view_offset(arg(2)?)?, truthy(args.get(3).unwrap_or(&Value::Bool(false))));
+      let width = element_width(kind)?;
+      if at + width > bytes.len() {
+        return Err(Fail::internal("RangeError: Offset is outside the bounds of the DataView"));
+      }
+      let mut raw = bytes[at..at + width].to_vec();
+      if !little {
+        raw.reverse();
+      }
+      element_from_le(kind, &raw)?
+    }
+    Builtin::ViewSet => {
+      let mut bytes = view_bytes(arg(0)?)?;
+      let (kind, at, little) = (text(name, arg(1)?)?, view_offset(arg(2)?)?, truthy(args.get(4).unwrap_or(&Value::Bool(false))));
+      let width = element_width(kind)?;
+      if at + width > bytes.len() {
+        return Err(Fail::internal("RangeError: Offset is outside the bounds of the DataView"));
+      }
+      let mut raw = element_to_le(kind, arg(3)?)?;
+      if !little {
+        raw.reverse();
+      }
+      bytes[at..at + width].copy_from_slice(&raw);
+      Value::seq(bytes.into_iter().map(|b| Value::F64(f64::from(b))).collect::<Vec<_>>())
+    }
     Builtin::Settle => match arg(0)? {
       Value::Map(held) if held.get(snapfire_fsr_core::value::typed::DEFERRED).is_some() => match held.get("$state") {
         Some(Value::Str(state)) if state.as_str() == "fulfilled" => held.get("value").cloned().unwrap_or(Value::Undefined),
@@ -1561,6 +1589,150 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       Value::Map(map)
     }
-    Builtin::Tagged | Builtin::TaggedPayload | Builtin::IsTagged | Builtin::Settle | Builtin::ExecFrom | Builtin::TestFrom | Builtin::Substr | Builtin::IsWellFormed | Builtin::ToWellFormed | Builtin::UtcString | Builtin::SameValue | Builtin::FromCharCode | Builtin::FromCodePoint | Builtin::DateUtc | Builtin::ToPrecision | Builtin::ToExponential | Builtin::Normalize | Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin | Builtin::Iterate => return builtin_js(name, args),
+    Builtin::Tagged | Builtin::TaggedPayload | Builtin::IsTagged | Builtin::Settle | Builtin::ElementOf | Builtin::ViewGet | Builtin::ViewSet | Builtin::ExecFrom | Builtin::TestFrom | Builtin::Substr | Builtin::IsWellFormed | Builtin::ToWellFormed | Builtin::UtcString | Builtin::SameValue | Builtin::FromCharCode | Builtin::FromCodePoint | Builtin::DateUtc | Builtin::ToPrecision | Builtin::ToExponential | Builtin::Normalize | Builtin::ToSpliced | Builtin::Splice | Builtin::ArrayWith | Builtin::Fill | Builtin::CopyWithin | Builtin::Iterate => return builtin_js(name, args),
   })
+}
+
+/// The bytes an `ArrayBuffer` or a `DataView` holds, an array of numbers from 0 to 255.
+fn view_bytes(value: &Value) -> Result<Vec<u8>, Fail> {
+  match value {
+    Value::Seq(items) => items.iter().map(|item| to_number(item).map(|n| n as u8).ok_or_else(|| type_error("a DataView", "bytes", item))).collect(),
+    Value::TypedArray(snapfire_fsr_core::TypedArray::U8(bytes)) | Value::Bytes(bytes) => Ok(bytes.clone()),
+    other => Err(type_error("a DataView", "an ArrayBuffer", other)),
+  }
+}
+
+fn view_offset(value: &Value) -> Result<usize, Fail> {
+  let n = to_number(value).unwrap_or(f64::NAN);
+  let n = if n.is_nan() { 0.0 } else { n.trunc() };
+  if n < 0.0 {
+    return Err(Fail::internal("RangeError: Offset is outside the bounds of the DataView"));
+  }
+  Ok(n as usize)
+}
+
+/// The width in bytes of a typed array element or a `DataView` access.
+fn element_width(kind: &str) -> Result<usize, Fail> {
+  Ok(match kind {
+    "Int8" | "Uint8" | "Uint8Clamped" => 1,
+    "Int16" | "Uint16" | "Float16" => 2,
+    "Int32" | "Uint32" | "Float32" => 4,
+    "Float64" | "BigInt64" | "BigUint64" => 8,
+    other => return Err(Fail::internal(format!("`{other}` is not a typed array element"))),
+  })
+}
+
+fn big_of(value: &Value) -> Result<i128, Fail> {
+  match value {
+    Value::Int(n) => Ok(*n),
+    Value::UInt(n) => Ok(*n as i128),
+    Value::Variant { tag, payload: Some(p) } if tag == snapfire_fsr_core::value::typed::BIGINT => big_of(p),
+    Value::Str(s) => s.parse().map_err(|_| Fail::internal(format!("TypeError: Cannot convert {s} to a BigInt"))),
+    other => Err(Fail::internal(format!("TypeError: Cannot convert {} to a BigInt", stringify(other).unwrap_or_default()))),
+  }
+}
+
+/// `value` converted as a typed array of `kind` stores it.
+fn element_of(kind: &str, value: &Value) -> Result<Value, Fail> {
+  if matches!(kind, "BigInt64" | "BigUint64") {
+    let n = big_of(value)?;
+    return Ok(Value::Int(if kind == "BigInt64" { i128::from(n as i64) } else { i128::from(n as u64) }));
+  }
+  let n = to_number(value).unwrap_or(f64::NAN);
+  let wrap = |bits: u32, signed: bool| -> f64 {
+    if !n.is_finite() {
+      return 0.0;
+    }
+    let modulus = 2f64.powi(bits as i32);
+    let r = n.trunc().rem_euclid(modulus);
+    if signed && r >= modulus / 2.0 { r - modulus } else { r }
+  };
+  Ok(Value::F64(match kind {
+    "Int8" => wrap(8, true),
+    "Uint8" => wrap(8, false),
+    "Uint8Clamped" => if n.is_nan() { 0.0 } else { n.clamp(0.0, 255.0).round_ties_even() },
+    "Int16" => wrap(16, true),
+    "Uint16" => wrap(16, false),
+    "Int32" => wrap(32, true),
+    "Uint32" => wrap(32, false),
+    "Float16" => crate::jsmath::f16round(n),
+    "Float32" => f64::from(n as f32),
+    "Float64" => n,
+    other => return Err(Fail::internal(format!("`{other}` is not a typed array element"))),
+  } + 0.0))
+}
+
+fn element_to_le(kind: &str, value: &Value) -> Result<Vec<u8>, Fail> {
+  let Value::F64(n) = element_of(kind, value)? else {
+    let n = big_of(&element_of(kind, value)?)?;
+    return Ok(if kind == "BigInt64" { (n as i64).to_le_bytes().to_vec() } else { (n as u64).to_le_bytes().to_vec() });
+  };
+  Ok(match kind {
+    "Int8" => (n as i8).to_le_bytes().to_vec(),
+    "Uint8" | "Uint8Clamped" => (n as u8).to_le_bytes().to_vec(),
+    "Int16" => (n as i16).to_le_bytes().to_vec(),
+    "Uint16" => (n as u16).to_le_bytes().to_vec(),
+    "Int32" => (n as i32).to_le_bytes().to_vec(),
+    "Uint32" => (n as u32).to_le_bytes().to_vec(),
+    "Float16" => f16_bits(n).to_le_bytes().to_vec(),
+    "Float32" => (n as f32).to_le_bytes().to_vec(),
+    _ => n.to_le_bytes().to_vec(),
+  })
+}
+
+fn element_from_le(kind: &str, raw: &[u8]) -> Result<Value, Fail> {
+  let bytes = |w: usize| -> [u8; 8] {
+    let mut out = [0u8; 8];
+    out[..w].copy_from_slice(&raw[..w]);
+    out
+  };
+  let b = bytes(raw.len());
+  Ok(match kind {
+    "Int8" => Value::F64(f64::from(raw[0] as i8)),
+    "Uint8" | "Uint8Clamped" => Value::F64(f64::from(raw[0])),
+    "Int16" => Value::F64(f64::from(i16::from_le_bytes([b[0], b[1]]))),
+    "Uint16" => Value::F64(f64::from(u16::from_le_bytes([b[0], b[1]]))),
+    "Int32" => Value::F64(f64::from(i32::from_le_bytes([b[0], b[1], b[2], b[3]]))),
+    "Uint32" => Value::F64(f64::from(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))),
+    "Float16" => Value::F64(f16_value(u16::from_le_bytes([b[0], b[1]]))),
+    "Float32" => Value::F64(f64::from(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))),
+    "Float64" => Value::F64(f64::from_le_bytes(b)),
+    "BigInt64" => Value::Int(i128::from(i64::from_le_bytes(b))),
+    "BigUint64" => Value::Int(i128::from(u64::from_le_bytes(b))),
+    other => return Err(Fail::internal(format!("`{other}` is not a typed array element"))),
+  })
+}
+
+/// The IEEE 754 half-precision bits of `n`, which [`crate::jsmath::f16round`] has already rounded to a half value.
+fn f16_bits(n: f64) -> u16 {
+  let n = crate::jsmath::f16round(n);
+  let sign = if n.is_sign_negative() { 0x8000 } else { 0 };
+  let a = n.abs();
+  if a.is_nan() {
+    return 0x7e00;
+  }
+  if a.is_infinite() {
+    return sign | 0x7c00;
+  }
+  if a == 0.0 {
+    return sign;
+  }
+  let exponent = a.log2().floor() as i32;
+  if exponent < -14 {
+    return sign | (a / 2f64.powi(-24)).round() as u16;
+  }
+  let mantissa = ((a / 2f64.powi(exponent) - 1.0) * 1024.0).round() as u16;
+  sign | (((exponent + 15) as u16) << 10) | mantissa
+}
+
+fn f16_value(bits: u16) -> f64 {
+  let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
+  let exponent = i32::from((bits >> 10) & 0x1f);
+  let mantissa = f64::from(bits & 0x3ff);
+  sign * match exponent {
+    0 => mantissa * 2f64.powi(-24),
+    31 if mantissa == 0.0 => f64::INFINITY,
+    31 => f64::NAN,
+    e => (1.0 + mantissa / 1024.0) * 2f64.powi(e - 15),
+  }
 }

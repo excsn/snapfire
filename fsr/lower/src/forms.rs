@@ -99,6 +99,8 @@ pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
       js::Expression::Identifier(id) if id.name.as_str() == "WeakRef" => Some(Kind::WeakRef),
       js::Expression::Identifier(id) if id.name.as_str() == "FinalizationRegistry" => Some(Kind::Registry),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "Number" | "Boolean" | "String") => Some(Kind::Wrapper),
+      js::Expression::Identifier(id) if matches!(id.name.as_str(), "ArrayBuffer" | "SharedArrayBuffer") => Some(Kind::Buffer),
+      js::Expression::Identifier(id) if id.name.as_str() == "DataView" => Some(Kind::View),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "URLSearchParams" | "SvelteURLSearchParams") => Some(Kind::Query),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "URL" | "SvelteURL") => Some(Kind::Url),
       js::Expression::Identifier(id) if matches!(id.name.as_str(), "Date" | "SvelteDate") => Some(Kind::Date),

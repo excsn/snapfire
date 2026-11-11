@@ -336,6 +336,7 @@ let via = via_expr.as_member_expression().expect("matched as a member");
           Some("reverse" | "sort" | "copyWithin" | "fill") => held(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
           Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()).map(Kind::collection), Some(Kind::Map | Kind::Set)),
           Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && self.kind_of(m.object()) == Some(Kind::Map),
+          Some(setter) if setter.starts_with("set") && self.kind_of(m.object()) == Some(Kind::View) => reached(m.object()),
           Some("compile") => (matches!(crate::meaning::bare(m.object()), js::Expression::RegExpLiteral(_)) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
           Some("exec" | "test") => self.kind_of(m.object()).is_none() && matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str())),
           Some(setter) if DATE_SETTERS.contains(&setter) || (LOCAL_DATE_SETTERS.contains(&setter) && (self.reaches(Reach::Terminal) || !self.on_render_path())) => self.kind_of(m.object()) == Some(Kind::Date) && (made_here(m.object()) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
@@ -457,6 +458,12 @@ let via = via_expr.as_member_expression().expect("matched as a member");
               let missing = Expr::Not(Box::new(Expr::Builtin { name: Builtin::HasKey, args: vec![read.clone(), Expr::Var(key.clone())] }));
               lets.push(Stmt::If { cond: missing, then: vec![overwrite(&target, added)], r#else: Vec::new() });
               Expr::Index(Box::new(read), Box::new(Expr::Var(key)))
+            }
+            (Some(Kind::View), setter) => {
+              let mut args = vec![read.clone(), Expr::lit_str(&setter[3..])];
+              args.extend(self.plain_args(call)?);
+              lets.push(overwrite(&target, Expr::Builtin { name: Builtin::ViewSet, args }));
+              Expr::Lit(Lit::Undefined)
             }
             (_, "compile") => {
               let mut args = self.plain_args(call)?.into_iter();

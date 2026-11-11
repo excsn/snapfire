@@ -299,6 +299,11 @@ impl<'a> Lowerer<'a> {
           "BigInt" if matches!(method.as_str(), "asIntN" | "asUintN") => return self.big_int_wrap(&method, call),
           "Array" if method == "fromAsync" => return self.from_async(call),
           "Reflect" => return self.reflect(&method, call),
+          "Iterator" if method == "from" => {
+            let [source] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Iterator.from` takes one iterable")) };
+            let items = self.expr(crate::syntax::arg_expr(source))?;
+            return Ok(Expr::Array(vec![Entry::Spread(items)]));
+          }
           "Symbol" if matches!(method.as_str(), "for" | "keyFor") => return self.symbol_static(&method, call),
           "JSON" if matches!(method.as_str(), "rawJSON" | "isRawJSON") => return self.raw_json(&method, call),
           "Object" if matches!(method.as_str(), "getOwnPropertyNames" | "create" | "getOwnPropertyDescriptor" | "getPrototypeOf" | "isFrozen" | "isSealed" | "isExtensible" | "seal" | "preventExtensions") => return self.object_reflect(&method, call),
@@ -588,6 +593,21 @@ impl<'a> Lowerer<'a> {
         }
       }
     }
+    if matches!(method.as_str(), "toArray" | "take" | "drop") && iterator_made(member.object()) {
+      let target = self.expr(member.object())?;
+      let mut args = self.plain_args(call)?.into_iter();
+      return Ok(match method.as_str() {
+        "toArray" => Expr::Array(vec![Entry::Spread(target)]),
+        "take" => Expr::Builtin { name: Builtin::Slice, args: vec![target, Expr::Lit(Lit::Int(0)), Expr::Num(Box::new(args.next().unwrap_or(Expr::Lit(Lit::Undefined))))] },
+        _ => Expr::Builtin { name: Builtin::Slice, args: vec![target, Expr::Num(Box::new(args.next().unwrap_or(Expr::Lit(Lit::Undefined))))] },
+      });
+    }
+    if self.kind_of(member.object()) == Some(Kind::View) && method.starts_with("get") {
+      let target = self.expr(member.object())?;
+      let mut args = vec![target, Expr::lit_str(&method[3..])];
+      args.extend(self.plain_args(call)?);
+      return Ok(Expr::Builtin { name: Builtin::ViewGet, args });
+    }
     if self.kind_of(member.object()) == Some(Kind::WeakRef) && method == "deref" {
       let target = self.expr(member.object())?;
       return Ok(Expr::Field(Box::new(target), "$weakRef".to_owned()));
@@ -674,9 +694,25 @@ impl<'a> Lowerer<'a> {
       let a = call.arguments.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes a function")))?;
       if let js::Expression::Identifier(id) = crate::syntax::arg_expr(a) {
         let name = id.name.as_str();
-        if name == "Boolean" && !this.scope.iter().any(|(n, _)| n == name) && this.root_of(id).is_none() && !this.globals.iter().any(|(n, _)| n == name) {
+        let unbound = !this.scope.iter().any(|(n, _)| n == name) && this.root_of(id).is_none() && !this.globals.iter().any(|(n, _)| n == name);
+        if unbound && matches!(name, "Boolean" | "String" | "Number" | "BigInt" | "parseFloat" | "encodeURIComponent" | "decodeURIComponent") {
           let item = this.temp();
-          return Ok(Box::new(Expr::Lambda { params: vec![item.clone()], body: Box::new(Expr::Not(Box::new(Expr::Not(Box::new(Expr::Var(item)))))) }));
+          let read = Box::new(Expr::Var(item.clone()));
+          let body = match name {
+            "Boolean" => Expr::Not(Box::new(Expr::Not(read))),
+            "String" => Expr::Str(read),
+            "Number" => Expr::Num(read),
+            "BigInt" => Expr::BigInt(read),
+            "parseFloat" => Expr::Builtin { name: Builtin::ParseFloat, args: vec![*read] },
+            "encodeURIComponent" => Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*read] },
+            _ => Expr::Builtin { name: Builtin::DecodeUriComponent, args: vec![*read] },
+          };
+          return Ok(Box::new(Expr::Lambda { params: vec![item], body: Box::new(body) }));
+        }
+        if unbound && name == "parseInt" {
+          let (item, index) = (this.temp(), this.temp());
+          let body = Expr::Builtin { name: Builtin::ParseInt, args: vec![Expr::Var(item.clone()), Expr::Var(index.clone())] };
+          return Ok(Box::new(Expr::Lambda { params: vec![item, index], body: Box::new(body) }));
         }
         if let Some(function) = this.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| *f) {
           return this.function_expr(&function).map(Box::new);
@@ -1490,5 +1526,21 @@ fn written_locale(given: &js::Expression) -> Option<Option<String>> {
       Some(tags?.into_iter().next())
     }
     _ => None,
+  }
+}
+
+/// Whether `e` makes an iterator: `values()`, `keys()` or `entries()` of a value, `Iterator.from(x)` or an iterator helper over one. A body's iterators are the arrays they would yield.
+fn iterator_made(e: &js::Expression) -> bool {
+  let js::Expression::CallExpression(call) = strip_parens(e) else { return false };
+  let Some(member) = call.callee.as_member_expression() else { return false };
+  let name = match crate::syntax::prop(member) {
+    crate::syntax::MemberProp::Ident(p) => p.name.as_str(),
+    _ => return false,
+  };
+  match name {
+    "values" | "keys" | "entries" => true,
+    "from" => matches!(member.object(), js::Expression::Identifier(id) if id.name.as_str() == "Iterator"),
+    "map" | "filter" | "take" | "drop" | "flatMap" => iterator_made(member.object()),
+    _ => false,
   }
 }
