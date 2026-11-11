@@ -264,8 +264,8 @@ fn a_terminal_reads_local_time_in_this_machines_zone() {
   let (hours, minutes) = (seconds / 3600, seconds / 60 % 60);
   assert_eq!((parts[0], parts[1]), (hours.to_string().as_str(), minutes.to_string().as_str()), "{text}");
   let twelve = if hours % 12 == 0 { 12 } else { hours % 12 };
-  assert_eq!(parts[3], format!("{twelve}:{minutes:02}:{:02}\u{202f}{}", seconds % 60, if hours < 12 { "AM" } else { "PM" }), "{text}");
-  assert_eq!(parts[4], "now");
+  assert_eq!(format!("{} {}", parts[3], parts[4]), format!("{twelve}:{minutes:02}:{:02} {}", seconds % 60, if hours < 12 { "AM" } else { "PM" }), "{text}");
+  assert_eq!(parts[5], "now");
 }
 
 #[test]

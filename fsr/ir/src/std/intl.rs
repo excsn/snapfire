@@ -327,7 +327,7 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   Ok(Value::str(out))
 }
 
-/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time, `Invalid Date` for an invalid instant. Without a locale, the system's.
+/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time with an ordinary space before the day period, as V8 writes it. `Invalid Date` for an invalid instant. Without a locale, the system's.
 pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   let what = "toLocaleTimeString";
   let offset = super::time::local_offset(ms)?;
@@ -342,7 +342,7 @@ pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
   let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
   let time = icu_datetime::input::Time::try_new(h as u8, m as u8, s as u8, 0).map_err(|e| data(what, e))?;
   let formatter = icu_datetime::NoCalendarFormatter::try_new(locale.into(), icu_datetime::fieldsets::T::medium()).map_err(|e| data(what, e))?;
-  Ok(formatter.format(&time).to_string())
+  Ok(formatter.format(&time).to_string().replace('\u{202f}', " "))
 }
 
 /// The locale ICU takes as the default, as node runs it: the one `LC_ALL`, then `LC_MESSAGES`, then `LANG` names, with `en_US.UTF-8` read as `en-US`. `C`, `POSIX` and none at all are `en-US`.

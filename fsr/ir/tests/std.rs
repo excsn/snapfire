@@ -225,7 +225,7 @@ fn local_time_is_the_instant_shifted_by_this_machines_offset_as_to_locale_time_s
   assert!(minutes.fract() == 0.0 && minutes.abs() <= 14.0 * 60.0, "{minutes}");
   let seconds = ((ms - minutes * 60_000.0) / 1000.0).floor().rem_euclid(86_400.0) as u32;
   let (hours, minute, second) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
-  let expected = format!("{}:{minute:02}:{second:02}\u{202f}{}", if hours % 12 == 0 { 12 } else { hours % 12 }, if hours < 12 { "AM" } else { "PM" });
+  let expected = format!("{}:{minute:02}:{second:02} {}", if hours % 12 == 0 { 12 } else { hours % 12 }, if hours < 12 { "AM" } else { "PM" });
   assert_eq!(call("", "intl.localTime", vec![n(ms), s("en-US")]), Ok(s(&expected)));
   assert_eq!(call("", "intl.localTime", vec![n(f64::NAN), s("en-US")]), Ok(s("Invalid Date")));
   assert!(matches!(call("", "time.localOffset", vec![n(f64::NAN)]), Ok(Value::F64(m)) if m.is_nan()));

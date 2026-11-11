@@ -234,7 +234,7 @@ fn a_helper_reading_the_date_clock_is_left_to_the_browser_as_an_inline_read_is()
   assert!(result.is_ok(), "{result:?}");
   assert!(!set.browser_only.iter().any(|(m, _)| m == "src/Stamp.tsx#default"), "{:?}", set.browser_only);
   let text = set.browser_texts.iter().find(|(m, _)| m == "src/Stamp.tsx#default").map(|(_, site)| site.clone());
-  assert!(text.as_deref().is_some_and(|t| t.starts_with("src/Stamp.tsx:5:14: `now` reads the current time on a render path")), "{text:?}");
+  assert!(text.as_deref().is_some_and(|t| t.starts_with("src/Stamp.tsx:5:14: `now` reads the current time or the viewer's time zone on a render path")), "{text:?}");
 }
 
 #[test]
