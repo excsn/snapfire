@@ -17,6 +17,7 @@ Time zone offsets and `Temporal` as JavaScript reads them, from a compiled IANA 
   * [Observed](#observed)
   * [observed_in](#observed_in)
   * [saving_in_year](#saving_in_year)
+  * [equivalent_time](#equivalent_time)
 * [4. Temporal](#4-temporal)
   * [Kind](#kind)
   * [Arg](#arg)
@@ -80,6 +81,10 @@ What a zone observes at an instant, in seconds. `#[derive(Debug, Clone, Copy, Pa
 ### saving_in_year
 
 * `pub fn saving_in_year(source: Source, zone: &str, ms: f64) -> Result<Option<i32>, Error>`: the daylight saving `zone` observes during the UTC calendar year holding `ms`, the largest when there is more than one, in seconds. `None` when it observes none that year. This is how ICU's `useDaylightTime` and `getDSTSavings` read a year.
+
+### equivalent_time
+
+* `pub fn equivalent_time(ms: f64) -> f64`: the instant V8 reads daylight saving at when it names the zone of `ms`. An instant before 1970 or after 2038-01-19T03:14:07Z moves to the same month, day and time in a year from 2008 to 2035 with the same length and the same first weekday. Any other instant, `NaN` included, is returned as it is.
 
 ## 4. Temporal
 

@@ -151,6 +151,25 @@ pub(crate) fn offset_seconds(source: Source, zone: &str, ms: f64) -> Result<i32,
   })?
 }
 
+/// The last instant V8 reads daylight saving at directly, 2038-01-19T03:14:07Z.
+const MAX_EPOCH_MS: f64 = 2_147_483_647_000.0;
+
+/// The instant V8 reads a zone's daylight saving at when naming the zone of `ms`. An instant before 1970 or after [`MAX_EPOCH_MS`] moves to the same month, day and time in a year from 2008 to 2035 that starts on the same weekday and has the same length (V8's `DateCache::EquivalentTime`). Any other instant stays.
+pub fn equivalent_time(ms: f64) -> f64 {
+  if !ms.is_finite() || (0.0..=MAX_EPOCH_MS).contains(&ms) {
+    return ms;
+  }
+  const DAY: f64 = 86_400_000.0;
+  let days = (ms / DAY).floor();
+  let within = ms - days * DAY;
+  let (year, month, day) = observed::civil(days as i64);
+  let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+  let weekday = (observed::days_from_civil(year, 1, 1) + 4).rem_euclid(7);
+  let recent = if leap { 1956 } else { 1967 } + (weekday * 12) % 28;
+  let equivalent = 2008 + (recent + 3 * 28 - 2008) % 28;
+  (observed::days_from_civil(equivalent, month, 1) + i64::from(day) - 1) as f64 * DAY + within
+}
+
 /// `new Date(ms).getTimezoneOffset()` in [`system_zone`] from [`source`]; `NaN` for an invalid instant. A zone the source does not know reads as `UTC`, as node treats an unknown `TZ`.
 pub fn local_offset(ms: f64) -> Result<f64, Error> {
   if !ms.is_finite() || ms.abs() > MAX_DATE_MS {

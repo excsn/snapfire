@@ -76,6 +76,15 @@ assert_eq!(saving_in_year(Source::Compiled, "Asia/Tokyo", july), Ok(None));
 
 The saving follows the rearguard form of the IANA database, which ICU reads. The main form calls Dublin's winter a negative saving. Here the summer is the hour of saving.
 
+V8 names the zone of a `Date` before 1970 or after 2038 from the daylight saving of an equivalent year from 2008 to 2035. `equivalent_time` gives that instant:
+
+```rust
+use snapfire_time::equivalent_time;
+
+let new_year_1900 = -2_208_988_800_000.0;
+assert_eq!(equivalent_time(new_year_1900), 2_051_222_400_000.0);
+```
+
 ## Running Temporal
 
 `snapfire_time::temporal` runs `Temporal` over values held as strings. `construct` is `new`, `call_static` the type's own functions, `get` a field read and `call` a method:

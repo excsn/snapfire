@@ -155,7 +155,7 @@ pub fn saving_in_year(source: Source, zone: &str, ms: f64) -> Result<Option<i32>
 }
 
 /// The year, month and day of `days` since 1970-01-01, in the proleptic Gregorian calendar.
-fn civil(days: i64) -> (i64, u32, u32) {
+pub(crate) fn civil(days: i64) -> (i64, u32, u32) {
   let z = days + 719_468;
   let era = z.div_euclid(146_097);
   let doe = z - era * 146_097;
@@ -167,7 +167,7 @@ fn civil(days: i64) -> (i64, u32, u32) {
   (yoe + era * 400 + i64::from(month <= 2), month, day)
 }
 
-fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+pub(crate) fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
   let year = if month <= 2 { year - 1 } else { year };
   let era = year.div_euclid(400);
   let yoe = year - era * 400;
