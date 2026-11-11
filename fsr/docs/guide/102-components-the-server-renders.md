@@ -50,6 +50,7 @@ One bare specifier is not residue: `@snapfire/fsr/client`, the standard library'
 | `new TextDecoder().decode(bytes)` | none | a server render, the browser and every host body |
 | `new Date(ms).toLocaleTimeString(locale)` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toLocaleDateString(locale) and toLocaleString(locale) with no options` | none | every host body; in a component the browser fills it in |
+| `new Date(ms).toLocaleString(locale, { timeZone }) and its date and time forms` | none | a server render, the browser and every host body |
 | `new Date(ms).toTimeString()` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toString(), String(date) and a date in a template` | none | every host body; in a component the browser fills it in |
 | `text.toLocaleUpperCase(locale)` | none | a server render, the browser and every host body |

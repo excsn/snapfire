@@ -46,6 +46,15 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.upper", Reach::Render, |_, args| case("intl.upper", args, snapfire_i18n::upper_case));
   extensions.register("intl.lower", Reach::Render, |_, args| case("intl.lower", args, snapfire_i18n::lower_case));
   extensions.register("intl.systemLocale", Reach::Body, |_, _| Ok(Value::str(system_locale())));
+  extensions.register("intl.numeric", Reach::Render, |ambient, args| {
+    let what = "intl.numeric";
+    let tag = named_locale(what, args, 1)?.map_or_else(|| ambient.bcp47().to_owned(), str::to_owned);
+    let mode = match args.get(2) {
+      Some(Value::Str(mode)) => mode.to_string(),
+      _ => "date".to_owned(),
+    };
+    Ok(Value::str(numeric_written(what, number(what, args, 0)?, &tag, &mode)?))
+  });
   extensions.register("intl.localDate", Reach::Body, |_, args| Ok(Value::str(local_date(number("intl.localDate", args, 0)?, named_locale("intl.localDate", args, 1)?, matches!(args.get(2), Some(Value::Bool(true))))?)));
   extensions.register("intl.timeString", Reach::Body, |ambient, args| Ok(Value::str(time_string(number("intl.timeString", args, 0)?, ambient.now as f64)?)));
   extensions.register("intl.dateTimeString", Reach::Body, |ambient, args| Ok(Value::str(date_time_string(number("intl.dateTimeString", args, 0)?, ambient.now as f64)?)));
@@ -345,18 +354,8 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
 
 /// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: the time CLDR's patterns write on the clock the locale's region keeps. `Invalid Date` for an invalid instant. Without a locale, the system's.
 pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
-  let what = "toLocaleTimeString";
   let offset = super::time::local_offset(ms)?;
-  if offset.is_nan() {
-    return Ok("Invalid Date".to_owned());
-  }
-  let (h, m, s, _) = super::time::clock_from_ms(ms - offset * 60_000.0);
-  let tag = match locale {
-    Some(tag) => tag.to_owned(),
-    None => system_locale(),
-  };
-  tag.parse::<Locale>().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
-  Ok(snapfire_i18n::clock(&tag, h as u32, m as u32, s as u32))
+  numeric_written("toLocaleTimeString", ms - offset * 60_000.0, &locale.map_or_else(system_locale, str::to_owned), "time")
 }
 
 /// The locale ICU takes as the default, as node runs it: the one `LC_ALL`, then `LC_MESSAGES`, then `LANG` names, with `en_US.UTF-8` read as `en-US`. `C`, `POSIX` and none at all are `en-US`.
@@ -374,21 +373,32 @@ fn system_locale() -> String {
 pub fn local_date(ms: f64, locale: Option<&str>, with_time: bool) -> Result<String, Fail> {
   let what = if with_time { "toLocaleString" } else { "toLocaleDateString" };
   let offset = super::time::local_offset(ms)?;
-  if offset.is_nan() {
+  numeric_written(what, ms - offset * 60_000.0, &locale.map_or_else(system_locale, str::to_owned), if with_time { "both" } else { "date" })
+}
+
+/// The UTC fields of `local` as JavaScript writes a date with no options other than a time zone: the numeric date for `mode` `"date"`, the time for `"time"` and both joined for `"both"`. `Invalid Date` for NaN.
+fn numeric_written(what: &str, local: f64, tag: &str, mode: &str) -> Result<String, Fail> {
+  if local.is_nan() {
     return Ok("Invalid Date".to_owned());
   }
-  let local = ms - offset * 60_000.0;
+  let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("RangeError: {what}: `{tag}` is not a locale")))?;
   let (y, m, d) = super::time::civil_from_ms(local);
   let (h, min, s, _) = super::time::clock_from_ms(local);
-  let tag = locale.map_or_else(system_locale, str::to_owned);
-  let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
-  let date = Date::try_new_iso(y as i32, m as u8, d as u8).map_err(|e| data(what, e))?;
-  let time = Time::try_new(h as u8, min as u8, s as u8, 0).map_err(|e| data(what, e))?;
-  let out = match snapfire_i18n::numeric_date(&tag, y, m, d) {
-    Some(written) if with_time => snapfire_i18n::date_with_time(&tag, &written, &snapfire_i18n::clock(&tag, h as u32, min as u32, s as u32)),
+  let clock = || snapfire_i18n::clock(tag, h as u32, min as u32, s as u32);
+  if mode == "time" {
+    return Ok(clock());
+  }
+  let out = match snapfire_i18n::numeric_date(tag, y, m, d) {
+    Some(written) if mode == "both" => snapfire_i18n::date_with_time(tag, &written, &clock()),
     Some(written) => written,
-    None if with_time => DateTimeFormatter::try_new(locale.into(), YMDT::short().with_year_style(YearStyle::Full).with_time_precision(TimePrecision::Second)).map_err(|e| data(what, e))?.format(&DateTime { date, time }).to_string(),
-    None => DateTimeFormatter::try_new(locale.into(), YMD::short().with_year_style(YearStyle::Full)).map_err(|e| data(what, e))?.format(&date).to_string(),
+    None => {
+      let date = Date::try_new_iso(y as i32, m as u8, d as u8).map_err(|e| data(what, e))?;
+      let time = Time::try_new(h as u8, min as u8, s as u8, 0).map_err(|e| data(what, e))?;
+      match mode {
+        "both" => DateTimeFormatter::try_new(locale.into(), YMDT::short().with_year_style(YearStyle::Full).with_time_precision(TimePrecision::Second)).map_err(|e| data(what, e))?.format(&DateTime { date, time }).to_string(),
+        _ => DateTimeFormatter::try_new(locale.into(), YMD::short().with_year_style(YearStyle::Full)).map_err(|e| data(what, e))?.format(&date).to_string(),
+      }
+    }
   };
   Ok(out.replace('\u{202f}', " "))
 }

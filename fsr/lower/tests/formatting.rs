@@ -123,6 +123,10 @@ fn number_and_date_formats_read_grouping_sign_integer_digits_and_time_styles() {
   assert_eq!(page("{new Intl.NumberFormat(\"en-US\", { signDisplay: \"always\" }).format(5)}").as_deref(), Ok("<p>+5</p>"));
   assert_eq!(page("{new Intl.DateTimeFormat(\"en-US\", { timeStyle: \"short\", timeZone: \"UTC\" }).format(when)}").as_deref(), Ok("<p>12:00 PM</p>"));
   assert_eq!(page("{new Intl.DateTimeFormat(\"en-US\", { dateStyle: \"medium\", timeStyle: \"short\", timeZone: \"UTC\" }).format(when)}").as_deref(), Ok("<p>Jun 15, 2025, 12:00 PM</p>"));
+  assert_eq!(page("{when.toLocaleString(\"en-US\", { timeZone: \"UTC\" })}").as_deref(), Ok("<p>6/15/2025, 12:00:00 PM</p>"));
+  assert_eq!(page("{when.toLocaleDateString(\"fa\", { timeZone: \"Asia/Tehran\" })}").as_deref(), Ok("<p>۱۴۰۴/۳/۲۵</p>"));
+  assert_eq!(page("{when.toLocaleTimeString(\"de-DE\", { timeZone: \"Asia/Tokyo\" })}").as_deref(), Ok("<p>21:00:00</p>"));
+  assert_eq!(page("{new Intl.DateTimeFormat(\"th\", { timeZone: \"UTC\" }).format(when)}").as_deref(), Ok("<p>15/6/2568</p>"));
   let viewer = "export default function Page() {\n  return <p>{new Intl.DateTimeFormat(\"en-US\", { timeStyle: \"short\" }).format(new Date(\"2025-06-15T12:00:00Z\"))}</p>;\n}\n";
   let dir = app("viewer_zone", &[("routes/page.tsx", viewer)]);
   let mut set = ComponentSet::new(&dir);

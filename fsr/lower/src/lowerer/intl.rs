@@ -106,6 +106,34 @@ impl<'a> Lowerer<'a> {
     Ok(entries)
   }
 
+  /// The instant `value` moved by the offset of the zone `name`, which written as UTC reads as the time in that zone.
+  fn shifted_into(&mut self, value: Expr, name: &str) -> Expr {
+    let at = self.temp();
+    let offset = Expr::Ext { module: "time".to_owned(), name: "offsetIn".to_owned(), args: vec![Expr::Var(at.clone()), Expr::lit_str(name)] };
+    let shifted = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Float(60_000.0))))));
+    Expr::Block(vec![Stmt::Let { name: at, expr: Expr::Num(Box::new(value)) }, Stmt::Return(shifted)])
+  }
+
+  /// `toLocaleString(locale, { timeZone })` and `toLocaleTimeString(locale, { timeZone })` of a date in the zone the options name: the numeric date and the time. For `mode` `"time"` it is the time alone. `None` when the options name anything but a `timeZone` written in place.
+  pub(crate) fn date_in_zone(&mut self, made: &[js::Argument], value: Expr, mode: &str) -> Lowered<Option<Expr>> {
+    let Some(js::Expression::ObjectExpression(obj)) = made.get(1).map(|a| strip_parens(crate::syntax::arg_expr(a))) else { return Ok(None) };
+    let [js::ObjectPropertyKind::ObjectProperty(prop)] = &obj.properties[..] else { return Ok(None) };
+    let crate::syntax::Prop::KeyValue(kv) = crate::syntax::prop_of(prop) else { return Ok(None) };
+    let (Some("timeZone"), js::Expression::StringLiteral(zone)) = (prop_name(&kv.key, kv.computed).as_deref(), &kv.value) else { return Ok(None) };
+    let (locale, _) = self.intl_made("DateTimeFormat", &made[..1])?;
+    Ok(Some(self.numeric_in_zone(value, &crate::lossy(zone.value), locale, mode)))
+  }
+
+  /// `intl.numeric` of `value` in the zone `zone`, `UTC` or an IANA name.
+  fn numeric_in_zone(&mut self, value: Expr, zone: &str, locale: Option<Entry>, mode: &str) -> Expr {
+    let value = if zone == "UTC" { value } else { self.shifted_into(value, zone) };
+    let tag = match locale {
+      Some(Entry::Field(_, tag)) => tag,
+      _ => Expr::Lit(Lit::Null),
+    };
+    Expr::Ext { module: "intl".to_owned(), name: "numeric".to_owned(), args: vec![value, tag, Expr::lit_str(mode)] }
+  }
+
   /// `new Intl.NumberFormat(locale, options).format(value)`, `new Intl.DateTimeFormat(locale, options).format(value)` and `new Intl.ListFormat(locale, options).format(items)`.
   pub(crate) fn intl_format(&mut self, formatter: &str, made: &[js::Argument], value: Expr, span: Span) -> Lowered<Expr> {
     let (locale_entry, options) = self.intl_made(formatter, made)?;
@@ -153,6 +181,11 @@ impl<'a> Lowerer<'a> {
         Ok(Expr::Ext { module: "intl".to_owned(), name: "list".to_owned(), args: vec![value, Expr::Object(entries)] })
       }
       _ => {
+        if let [(key, js::Expression::StringLiteral(zone))] = &options[..] {
+          if key == "timeZone" {
+            return Ok(self.numeric_in_zone(value, &crate::lossy(zone.value), locale_entry, "date"));
+          }
+        }
         let named = literal(&options, "timeZone").filter(|zone| zone != "UTC");
         let options: Vec<(String, &js::Expression)> = if named.is_some() { options.into_iter().filter(|(k, _)| k != "timeZone").collect() } else { options };
         let zone_given = named.is_some() || options.iter().any(|(k, _)| k == "timeZone");
@@ -161,12 +194,7 @@ impl<'a> Lowerer<'a> {
         }
         // A named zone reads the same on the server and in the browser: the instant moves by that zone's offset and is written as UTC.
         let value = match &named {
-          Some(name) => {
-            let at = self.temp();
-            let offset = Expr::Ext { module: "time".to_owned(), name: "offsetIn".to_owned(), args: vec![Expr::Var(at.clone()), Expr::lit_str(name)] };
-            let shifted = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Float(60_000.0))))));
-            Expr::Block(vec![Stmt::Let { name: at, expr: Expr::Num(Box::new(value)) }, Stmt::Return(shifted)])
-          }
+          Some(name) => self.shifted_into(value, name),
           None => value,
         };
         // A body formats in this machine's zone, as node does: the instant moves by its offset and is written as UTC.

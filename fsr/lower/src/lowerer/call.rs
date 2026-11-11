@@ -878,6 +878,9 @@ impl<'a> Lowerer<'a> {
       }
       "toTimeString" if (self.reaches(Reach::Terminal) || !self.on_render_path()) && call.arguments.is_empty() => Ok(Expr::Ext { module: "intl".to_owned(), name: "timeString".to_owned(), args: vec![*target] }),
       "toLocaleTimeString" if call.arguments.len() == 2 && self.kind_of(member.object()) == Some(Kind::Date) => {
+        if let Some(expr) = self.date_in_zone(&call.arguments, (*target).clone(), "time")? {
+          return Ok(self.candidate(call.span, expr));
+        }
         let expr = self.intl_format("DateTimeFormat", &call.arguments, *target, call.span)?;
         Ok(self.candidate(call.span, expr))
       }
@@ -1095,6 +1098,9 @@ impl<'a> Lowerer<'a> {
         let made = &call.arguments[..call.arguments.len().min(2)];
         let options = made.get(1).is_some_and(|o| !matches!(strip_parens(crate::syntax::arg_expr(o)), js::Expression::Identifier(id) if id.name.as_str() == "undefined"));
         if options {
+          if let Some(expr) = self.date_in_zone(made, (*target).clone(), "both")? {
+            return Ok(self.candidate(call.span, expr));
+          }
           let expr = self.intl_format("DateTimeFormat", made, *target, call.span)?;
           return Ok(self.candidate(call.span, expr));
         }

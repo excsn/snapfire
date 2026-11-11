@@ -79,6 +79,7 @@ pub const STANDARD: &[Member] = &[
   member("i18n", "t", Reach::Render),
   written_for("new Date(ms).toLocaleTimeString(locale)", "intl", "localTime", Reach::Body),
   written_for("new Date(ms).toLocaleDateString(locale) and toLocaleString(locale) with no options", "intl", "localDate", Reach::Body),
+  written_for("new Date(ms).toLocaleString(locale, { timeZone }) and its date and time forms", "intl", "numeric", Reach::Render),
   written_for("new Date(ms).toTimeString()", "intl", "timeString", Reach::Body),
   written_for("new Date(ms).toString(), String(date) and a date in a template", "intl", "dateTimeString", Reach::Body),
   written_for("text.toLocaleUpperCase(locale)", "intl", "upper", Reach::Render),
