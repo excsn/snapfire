@@ -149,6 +149,9 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
     if self.reaches(Reach::Later) && matches!(&n.callee, js::Expression::Identifier(id) if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && id.name.as_str() == "Promise") {
       return self.terminal_promise(n, &args);
     }
+    if matches!(&n.callee, js::Expression::Identifier(id) if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && id.name.as_str() == "Function") {
+      return self.function_from_text(args, n.span);
+    }
     if matches!(&n.callee, js::Expression::Identifier(id) if self.parsed.ctxt(id) == crate::Ctxt::Unresolved && id.name.as_str() == "Promise") {
       let Some(executor) = args.first() else { return Err(self.residue(n.span, "`new Promise` without an executor")) };
       let executor = self.expr(crate::syntax::arg_expr(executor))?;
@@ -396,5 +399,28 @@ impl Lowerer<'_> {
       Stmt::Let { name: late.clone(), expr: moved(&after) },
       Stmt::Return(Expr::Ternary(Box::new(only_late), Box::new(var(&late)), Box::new(var(&early)))),
     ])
+  }
+}
+
+impl Lowerer<'_> {
+  /// `new Function(...params, body)` and `Function(...)` with every argument a string written in place: the function that text declares, read at build. It sees the module's globals and none of the locals around it, as JavaScript's does.
+  pub(crate) fn function_from_text(&mut self, args: &[js::Argument], span: Span) -> Lowered<Expr> {
+    let mut texts = Vec::with_capacity(args.len());
+    for a in args {
+      match strip_parens(crate::syntax::arg_expr(a)) {
+        js::Expression::StringLiteral(s) => texts.push(crate::lossy(s.value).to_string()),
+        js::Expression::TemplateLiteral(t) if t.expressions.is_empty() => texts.push(t.quasis.iter().filter_map(|q| q.value.cooked.map(crate::lossy)).collect::<Vec<_>>().concat()),
+        other => return Err(self.residue_with(other.span(), "`Function` of text made at run time", "the build reads a function only from text written in place; write the function itself")),
+      }
+    }
+    let body = texts.pop().unwrap_or_default();
+    let source = format!("(function anonymous({}\n) {{\n{body}\n}})", texts.join(","));
+    let (line, column) = self.parsed.loc(span.start);
+    let parsed = self.parsed.parse_expr_at(&source, line, column).map_err(|e| self.residue(span, format!("`Function` of text that does not parse: {e}")))?;
+    let parsed = self.parsed.arena().alloc(parsed);
+    let outer = std::mem::take(&mut self.scope);
+    let lowered = self.expr(parsed);
+    self.scope = outer;
+    lowered
   }
 }

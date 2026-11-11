@@ -125,6 +125,20 @@ impl<'a> Lowerer<'a> {
         js::UnaryOperator::BitwiseNot if self.kind_of(&u.argument) == Some(Kind::BigInt) => Err(self.residue(u.span, "the `~` operator on a `bigint`")),
         js::UnaryOperator::BitwiseNot => Ok(Expr::Arith(ArithOp::BitXor, Box::new(self.expr(&u.argument)?), Box::new(Expr::Lit(Lit::Float(-1.0))))),
         js::UnaryOperator::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
+        js::UnaryOperator::Typeof if matches!(&u.argument, js::Expression::Identifier(id) if self.unbound_name(id)) => {
+          let js::Expression::Identifier(id) = &u.argument else { unreachable!("matched") };
+          let name = id.name.as_str();
+          if STANDARD_FUNCTIONS.contains(&name) {
+            return Ok(Expr::lit_str("function"));
+          }
+          if STANDARD_OBJECTS.contains(&name) {
+            return Ok(Expr::lit_str("object"));
+          }
+          if BROWSER_GLOBALS.contains(&name) && self.on_render_path() && !self.reaches(Reach::Terminal) {
+            return Err(self.browser_only(u.span, format!("`typeof {name}`, which the server and the browser answer differently")));
+          }
+          Ok(Expr::lit_str("undefined"))
+        }
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
           Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry | Kind::Wrapper | Kind::Buffer | Kind::View | Kind::Stack) => Expr::lit_str("object"),
@@ -549,5 +563,22 @@ impl<'a> Lowerer<'a> {
         None => Err(self.residue(call.span, "`useSyncExternalStore` without `getServerSnapshot`, which React's server renderer refuses too")),
       },
     }
+  }
+}
+
+/// The standard constructors and functions `typeof` answers `"function"` for where nothing binds their name.
+const STANDARD_FUNCTIONS: &[&str] = &["Object", "Function", "Array", "Number", "Boolean", "String", "Symbol", "BigInt", "Date", "Promise", "RegExp", "Error", "AggregateError", "SuppressedError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError", "Map", "Set", "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry", "ArrayBuffer", "SharedArrayBuffer", "DataView", "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float16Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array", "Proxy", "Iterator", "DisposableStack", "AsyncDisposableStack", "URL", "URLSearchParams", "TextEncoder", "TextDecoder", "Response", "Request", "Headers", "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURI", "encodeURIComponent", "decodeURI", "decodeURIComponent", "structuredClone", "atob", "btoa", "fetch", "queueMicrotask", "setTimeout", "clearTimeout", "setInterval", "clearInterval"];
+
+/// The standard namespace objects `typeof` answers `"object"` for where nothing binds their name.
+const STANDARD_OBJECTS: &[&str] = &["Math", "JSON", "Reflect", "Intl", "Atomics", "globalThis", "Temporal", "console", "crypto"];
+
+/// The globals a browser has and the server does not, which `typeof` reads as `"undefined"` in a body.
+const BROWSER_GLOBALS: &[&str] = &["window", "document", "navigator", "localStorage", "sessionStorage", "location", "history", "self", "screen", "matchMedia", "requestAnimationFrame", "customElements", "HTMLElement", "Element", "Node", "Event", "CustomEvent", "IntersectionObserver", "ResizeObserver", "MutationObserver"];
+
+impl Lowerer<'_> {
+  /// Whether nothing in the program binds `id`'s name: no local, module name, root or import.
+  pub(crate) fn unbound_name(&self, id: &js::IdentifierReference) -> bool {
+    let name = id.name.as_str();
+    !self.scope.iter().any(|(n, _)| n == name) && !self.globals.iter().any(|(n, _)| n == name) && self.root_of(id).is_none() && !self.cells.iter().any(|(n, _)| n == name) && matches!(self.parsed.ctxt(id), crate::Ctxt::Unresolved | crate::Ctxt::Written)
   }
 }

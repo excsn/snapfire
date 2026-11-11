@@ -207,6 +207,14 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("new Function(\"a\", \"return a * 2\")(3)", "6"),
+  ("Function(\"a\", \"b\", \"return a + b\")(1, 2)", "3"),
+  ("new Function(\"return typeof x\")()", "\"undefined\""),
+  ("(() => { const x = 5; return new Function(\"return typeof x\")(); })()", "\"undefined\""),
+  ("typeof window", "\"undefined\""),
+  ("typeof Math", "\"object\""),
+  ("typeof Map", "\"function\""),
+  ("typeof notDeclaredAnywhere", "\"undefined\""),
   ("(() => { const log = []; const s = new DisposableStack(); s.defer(() => log.push(\"a\")); s.defer(() => log.push(\"b\")); s.dispose(); return [log, s.disposed]; })()", "[[\"b\",\"a\"],true]"),
   ("(() => { const log = []; const s = new DisposableStack(); const v = s.adopt(5, (x) => log.push(x)); s.dispose(); return [v, log]; })()", "[5,[5]]"),
   ("(() => { const log = []; const s = new DisposableStack(); s.use({ [Symbol.dispose]() { log.push(\"d\"); } }); s.dispose(); s.dispose(); return log; })()", "[\"d\"]"),
