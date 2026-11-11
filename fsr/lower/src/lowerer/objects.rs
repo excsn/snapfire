@@ -194,6 +194,23 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
       ("Map", Some(pairs)) => Ok(Kind::Map.made(Expr::Builtin { name: Builtin::MapOf, args: vec![pairs] })),
       ("Set", None) => Ok(Kind::Set.made(Expr::Array(Vec::new()))),
       ("Set", Some(items)) => Ok(Kind::Set.made(Expr::Builtin { name: Builtin::Unique, args: vec![items] })),
+      ("WeakMap", None) => Ok(Kind::WeakMap.made(Expr::Object(Vec::new()))),
+      ("WeakMap", Some(pairs)) => {
+        let pair = self.temp();
+        let key = Expr::Index(Box::new(Expr::Var(pair.clone())), Box::new(Expr::Lit(Lit::Int(0))));
+        let checked = Expr::Array(vec![Entry::Item(self.weak_checked(Kind::WeakMap, key)), Entry::Item(Expr::Index(Box::new(Expr::Var(pair.clone())), Box::new(Expr::Lit(Lit::Int(1)))))]);
+        let pairs = Expr::Map(Box::new(Expr::Array(vec![Entry::Spread(pairs)])), Box::new(Expr::Lambda { params: vec![pair], body: Box::new(checked) }));
+        Ok(Kind::WeakMap.made(Expr::Builtin { name: Builtin::MapOf, args: vec![pairs] }))
+      }
+      ("WeakSet", None) => Ok(Kind::WeakSet.made(Expr::Array(Vec::new()))),
+      ("WeakSet", Some(items)) => {
+        let item = self.temp();
+        let checked = self.weak_checked(Kind::WeakSet, Expr::Var(item.clone()));
+        let items = Expr::Map(Box::new(Expr::Array(vec![Entry::Spread(items)])), Box::new(Expr::Lambda { params: vec![item], body: Box::new(checked) }));
+        Ok(Kind::WeakSet.made(Expr::Builtin { name: Builtin::Unique, args: vec![items] }))
+      }
+      ("WeakRef", Some(target)) => Ok(Expr::Object(vec![Entry::Field("$weakRef".to_owned(), target)])),
+      ("FinalizationRegistry", _) => Ok(Expr::Object(Vec::new())),
       ("Response", body) => {
         let mut args = vec![body.unwrap_or(Expr::Lit(Lit::Undefined))];
         if let Some(init) = n.arguments.get(1) {

@@ -890,9 +890,9 @@ fn a_default_export_of_a_package_component_is_residue_naming_the_package() {
 
 #[test]
 fn residue_names_the_line_and_the_construct() {
-  let page = "export default function Page() {\n  const params = new WeakMap();\n  return <a href={String(params)}>x</a>;\n}\n";
+  let page = "export default function Page() {\n  const params = Object.create({ a: 1 });\n  return <a href={String(params)}>x</a>;\n}\n";
   let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
-  assert_eq!(err.to_string(), "routes/index/page.tsx:2:18: `new WeakMap`");
+  assert_eq!(err.to_string(), "routes/index/page.tsx:2:18: `Object.create` of a prototype other than `null` or `Object.prototype`\n  a body's objects carry no prototype; build the object with its own fields");
   let page = "import { Chart } from \"chart-lib\";\nexport default function Page() {\n  return <Chart />;\n}\n";
   let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
   assert!(err.to_string().contains("`Chart` comes from `chart-lib`, which the build cannot follow"), "{err}");

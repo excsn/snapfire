@@ -13,14 +13,32 @@ impl Kind {
       Kind::Browser => "value only the browser knows",
       Kind::Scope => "Scope",
       Kind::Temporal => "Temporal",
+      Kind::WeakMap => "WeakMap",
+      Kind::WeakSet => "WeakSet",
+      Kind::WeakRef => "WeakRef",
+      Kind::Registry => "FinalizationRegistry",
     }
+  }
+
+  /// The collection a kind reads and writes as: a `WeakMap` as a `Map` and a `WeakSet` as a `Set`.
+  pub(crate) fn collection(self) -> Kind {
+    match self {
+      Kind::WeakMap => Kind::Map,
+      Kind::WeakSet => Kind::Set,
+      other => other,
+    }
+  }
+
+  /// Whether the kind holds its keys weakly, so a key must be an object.
+  pub(crate) fn weak(self) -> bool {
+    matches!(self, Kind::WeakMap | Kind::WeakSet)
   }
 
   /// `built` marked as the collection it makes, for a `Map` or a `Set`, so it converts and serializes as one wherever it goes.
   pub(crate) fn made(self, built: Expr) -> Expr {
     match self {
-      Kind::Map => Expr::Builtin { name: Builtin::AsMap, args: vec![built] },
-      Kind::Set => Expr::Builtin { name: Builtin::AsSet, args: vec![built] },
+      Kind::Map | Kind::WeakMap => Expr::Builtin { name: Builtin::AsMap, args: vec![built] },
+      Kind::Set | Kind::WeakSet => Expr::Builtin { name: Builtin::AsSet, args: vec![built] },
       _ => built,
     }
   }
@@ -31,7 +49,7 @@ impl Kind {
     match self {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
-      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope => None,
+      Kind::Query | Kind::Browser | Kind::Response | Kind::Scope | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry => None,
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),

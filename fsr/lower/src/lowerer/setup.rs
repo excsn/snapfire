@@ -511,7 +511,7 @@ let m = m_expr.as_member_expression().expect("matched as a member");
     if ERROR_CONSTRUCTORS.contains(&class) {
       return Ok(Expr::Builtin { name: Builtin::IsError, args: vec![self.expr(left)?, Expr::lit_str(class)] });
     }
-    if !matches!(class, "Map" | "Set" | "Date") {
+    if !matches!(class, "Map" | "Set" | "Date" | "WeakMap" | "WeakSet" | "WeakRef" | "FinalizationRegistry") {
       return Err(self.residue(bin_span, format!("`instanceof {class}`")));
     }
     match self.kind_of(left) {

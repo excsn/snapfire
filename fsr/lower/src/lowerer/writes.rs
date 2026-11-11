@@ -41,10 +41,14 @@ impl<'a> Lowerer<'a> {
       let a = call.arguments.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
       this.expr(crate::syntax::arg_expr(a))
     };
-    let written = match (kind, method) {
-      (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Builtin { name: Builtin::MapKey, args: vec![arg(self, 0)?] }, arg(self, 1)?)]),
+    let weak_key = |this: &mut Self| -> Lowered<Expr> {
+      let key = arg(this, 0)?;
+      Ok(if kind.weak() { this.weak_checked(kind, key) } else { key })
+    };
+    let written = match (kind.collection(), method) {
+      (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Builtin { name: Builtin::MapKey, args: vec![weak_key(self)?] }, arg(self, 1)?)]),
       (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Builtin { name: Builtin::MapKey, args: vec![arg(self, 0)?] }] },
-      (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
+      (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(weak_key(self)?)])] },
       (Kind::Set, "delete") => {
         let item = self.temp();
         let kept = Expr::Compare(CompareOp::Ne, Box::new(Expr::Var(item.clone())), Box::new(arg(self, 0)?));
@@ -57,6 +61,18 @@ impl<'a> Lowerer<'a> {
       (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
     };
     Ok(kind.made(written))
+  }
+
+  /// `key` as a key of the weak collection `kind`, a `TypeError` thrown when it is not an object, as a `WeakMap` and a `WeakSet` throw.
+  pub(crate) fn weak_checked(&mut self, kind: Kind, key: Expr) -> Expr {
+    let held = self.temp();
+    let kind_of = Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] };
+    let object = Expr::Logic(LogicOp::And, Box::new(Expr::Compare(CompareOp::Eq, Box::new(kind_of.clone()), Box::new(Expr::lit_str("object")))), Box::new(Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![Expr::Var(held.clone())] }))));
+    let object = Expr::Logic(LogicOp::Or, Box::new(object), Box::new(Expr::Compare(CompareOp::Eq, Box::new(kind_of), Box::new(Expr::lit_str("function")))));
+    let message = format!("Invalid value used {}", if kind == Kind::WeakMap { "as weak map key" } else { "in weak set" });
+    let error = Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("TypeError")), Entry::Field("message".to_owned(), Expr::lit_str(&message))]);
+    let thrown = Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str(&message), error] };
+    Expr::Block(vec![Stmt::Let { name: held.clone(), expr: key }, Stmt::If { cond: Expr::Not(Box::new(object)), then: vec![Stmt::Expr(thrown)], r#else: Vec::new() }, Stmt::Return(Expr::Var(held))])
   }
 
   /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` held in a cell: the cell's handle, the collection's kind and the method.
@@ -250,6 +266,10 @@ let via = via_expr.as_member_expression().expect("matched as a member");
     let text = match self.kind_of(expr) {
       Some(Kind::Map) => "[object Map]",
       Some(Kind::Set) => "[object Set]",
+      Some(Kind::WeakMap) => "[object WeakMap]",
+      Some(Kind::WeakSet) => "[object WeakSet]",
+      Some(Kind::WeakRef) => "[object WeakRef]",
+      Some(Kind::Registry) => "[object FinalizationRegistry]",
       _ => return self.expr(expr),
     };
     if matches!(crate::meaning::bare(expr), js::Expression::Identifier(_)) {
@@ -305,7 +325,7 @@ let via = via_expr.as_member_expression().expect("matched as a member");
         match self.member_name(m).as_deref() {
           Some("push" | "unshift" | "pop" | "shift" | "splice") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
           Some("reverse" | "sort" | "copyWithin" | "fill") => held(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
-          Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()).map(Kind::collection), Some(Kind::Map | Kind::Set)),
           Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && self.kind_of(m.object()) == Some(Kind::Map),
           Some("compile") => (matches!(crate::meaning::bare(m.object()), js::Expression::RegExpLiteral(_)) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
           Some("exec" | "test") => self.kind_of(m.object()).is_none() && matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str())),
@@ -463,12 +483,12 @@ let via = via_expr.as_member_expression().expect("matched as a member");
               lets.push(overwrite(&target, changed));
               read
             }
-            (Some(kind @ (Kind::Map | Kind::Set)), _) => {
+            (Some(kind @ (Kind::Map | Kind::Set | Kind::WeakMap | Kind::WeakSet)), _) => {
               let had = self.temp();
               if method == "delete" {
                 let given = call.arguments.first().ok_or_else(|| self.residue(call.span, "`delete` takes 1 argument"))?;
                 let given = self.expr(crate::syntax::arg_expr(given))?;
-                let held = if kind == Kind::Map { Expr::Builtin { name: Builtin::HasKey, args: vec![read.clone(), Expr::Builtin { name: Builtin::MapKey, args: vec![given] }] } } else { Expr::Builtin { name: Builtin::Includes, args: vec![read.clone(), given] } };
+                let held = if kind.collection() == Kind::Map { Expr::Builtin { name: Builtin::HasKey, args: vec![read.clone(), Expr::Builtin { name: Builtin::MapKey, args: vec![given] }] } } else { Expr::Builtin { name: Builtin::Includes, args: vec![read.clone(), given] } };
                 lets.push(Stmt::Let { name: had.clone(), expr: held });
               }
               let next = self.collection_written(call, kind, &method, read.clone())?;

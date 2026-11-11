@@ -588,7 +588,22 @@ impl<'a> Lowerer<'a> {
         }
       }
     }
-    match self.kind_of(member.object()) {
+    if self.kind_of(member.object()) == Some(Kind::WeakRef) && method == "deref" {
+      let target = self.expr(member.object())?;
+      return Ok(Expr::Field(Box::new(target), "$weakRef".to_owned()));
+    }
+    if self.kind_of(member.object()) == Some(Kind::Registry) && matches!(method.as_str(), "register" | "unregister") {
+      let mut stmts = Vec::new();
+      for a in &call.arguments {
+        stmts.push(Stmt::Expr(self.expr(crate::syntax::arg_expr(a))?));
+      }
+      stmts.push(Stmt::Return(if method == "register" { Expr::Lit(Lit::Undefined) } else { Expr::Lit(Lit::Bool(false)) }));
+      return Ok(Expr::Block(stmts));
+    }
+    if self.kind_of(member.object()).is_some_and(Kind::weak) && !matches!(method.as_str(), "get" | "has" | "set" | "add" | "delete") {
+      return Err(self.residue(member.span(), format!("`.{method}()` of a `{}`, which has no such method", self.kind_of(member.object()).map_or("", Kind::name))));
+    }
+    match self.kind_of(member.object()).map(Kind::collection) {
       Some(Kind::Map) => {
         let target = self.expr(member.object())?;
         let key = |this: &mut Self| -> Lowered<Expr> {

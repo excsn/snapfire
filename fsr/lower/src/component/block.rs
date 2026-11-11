@@ -193,6 +193,9 @@ pub(super) fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::State
           expr = Expr::Var(held);
         }
         bind_pattern(lowerer, &decl.id, expr)?;
+        if let (js::BindingPattern::BindingIdentifier(id), Some(init)) = (&decl.id, decl.init.as_ref()) {
+          lowerer.note_kind(id.name.as_str(), init);
+        }
       }
       let value = block_to_expr_inner(lowerer, rest, floor)?;
       Ok(sequenced(lets, value))
@@ -388,7 +391,14 @@ pub(super) fn writes_a_cell(lowerer: &Lowerer<'_>, expr: &js::Expression) -> boo
   match expr {
     js::Expression::AssignmentExpression(assign) => lowerer.cell_of_target(&assign.left).is_some(),
     js::Expression::UpdateExpression(update) => matches!(&update.argument, js::SimpleAssignmentTarget::AssignmentTargetIdentifier(id) if held(id.name.as_str())),
-    js::Expression::CallExpression(_) => true,
+    js::Expression::CallExpression(call) => {
+      let collection_write = call.callee.as_member_expression().is_some_and(|m| {
+        matches!(m.object(), js::Expression::Identifier(id) if !held(id.name.as_str()))
+          && matches!(lowerer.kind_of(m.object()).map(crate::Kind::collection), Some(crate::Kind::Map | crate::Kind::Set))
+          && matches!(prop_name_of(m).as_deref(), Some("set" | "add" | "delete" | "clear"))
+      });
+      !collection_write
+    }
     _ => false,
   }
 }

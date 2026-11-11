@@ -207,6 +207,15 @@ const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].ma
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[
+  ("(() => { try { new WeakSet([1]); return \"no\"; } catch (e) { return [e.name, e.message]; } })()", "[\"TypeError\",\"Invalid value used in weak set\"]"),
+  ("(() => { try { new WeakMap([[1, 2]]); return \"no\"; } catch (e) { return [e.name, e.message]; } })()", "[\"TypeError\",\"Invalid value used as weak map key\"]"),
+  ("String(new WeakMap())", "\"[object WeakMap]\""),
+  ("(() => { const m = new WeakMap(); const k = {}; m.set(k, 1); return [m.get(k), m.has(k), m.has({}), m.delete(k), m.has(k)]; })()", "[1,true,false,true,false]"),
+  ("(() => { const s = new WeakSet(); const k = {}; s.add(k); return [s.has(k), s.has({}), s.delete(k), s.has(k)]; })()", "[true,false,true,false]"),
+  ("(() => { const m = new WeakMap([[{}, 1]]); return m instanceof WeakMap; })()", "true"),
+  ("(() => { const k = { a: 1 }; return new WeakRef(k).deref() === k; })()", "true"),
+  ("(() => { const r = new FinalizationRegistry(() => {}); r.register({}, 1); return typeof r; })()", "\"object\""),
+  ("(() => { const m = new WeakMap(); try { m.set(1, 2); return \"no\"; } catch (e) { return e.name; } })()", "\"TypeError\""),
   ("new Date(0).setUTCHours(1)", "3600000"),
   ("new Map().getOrInsert(\"a\", 1)", "1"),
   ("/a/.compile()", "{}"),

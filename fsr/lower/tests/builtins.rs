@@ -332,8 +332,8 @@ fn new_lowers_dates_collections_and_query_strings_and_refuses_the_rest() {
   let reads_offset = |body: &[Stmt]| format!("{body:?}").contains("localOffset");
   assert!(reads_offset(&lowered("local_getter", "new Date(params.at).getFullYear()").unwrap()), "a body reads this machine's time zone");
   assert!(reads_offset(&lowered("fields", "new Date(2026, 9, 5)").unwrap()), "a body reads this machine's time zone");
-  let err = lowered("other_new", "new WeakMap()").unwrap_err();
-  assert!(err.contains("`new WeakMap`"), "{err}");
+  let err = lowered("other_new", "Object.create({ a: 1 })").unwrap_err();
+  assert!(err.contains("`Object.create`"), "{err}");
   assert!(matches!(&lowered("kept", "new Intl.NumberFormat()").unwrap()[0], Stmt::Let { expr: Expr::Lit(snapfire_fsr_ir::ast::Lit::Null), .. }), "a formatter kept as a value is null as a value; `.format` on its name lowers");
 }
 

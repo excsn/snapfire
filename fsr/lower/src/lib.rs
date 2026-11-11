@@ -657,6 +657,14 @@ pub(crate) enum Kind {
   Scope,
   /// A value of one of `Temporal`'s types, which carries its type at run time.
   Temporal,
+  /// A `WeakMap`: a `Map` whose keys are objects, by identity. A body runs to its end without a collection, so nothing it holds goes.
+  WeakMap,
+  /// A `WeakSet`: a `Set` of objects, by identity.
+  WeakSet,
+  /// A `WeakRef`: its target, which a body never loses.
+  WeakRef,
+  /// A `FinalizationRegistry`, whose callback never runs, since nothing is collected while a body runs.
+  Registry,
 }
 
 /// The `Temporal` methods that answer another Temporal value, so a call of one keeps the kind.

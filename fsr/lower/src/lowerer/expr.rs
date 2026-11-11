@@ -127,7 +127,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOperator::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOperator::Typeof => Ok(match self.kind_of(&u.argument) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response | Kind::Scope | Kind::Temporal | Kind::WeakMap | Kind::WeakSet | Kind::WeakRef | Kind::Registry) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.argument)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other.as_str()))),
@@ -144,7 +144,7 @@ impl<'a> Lowerer<'a> {
         })
       }
       js::Expression::BinaryExpression(bin) => {
-        let collection = |this: &Self, e: &js::Expression| matches!(this.kind_of(e), Some(Kind::Map | Kind::Set));
+        let collection = |this: &Self, e: &js::Expression| matches!(this.kind_of(e).map(Kind::collection), Some(Kind::Map | Kind::Set));
         let two_objects = matches!(bin.operator, js::BinaryOperator::Equality | js::BinaryOperator::Inequality) && collection(self, &bin.left) && collection(self, &bin.right);
         let converts = !two_objects && matches!(bin.operator, js::BinaryOperator::Addition | js::BinaryOperator::Subtraction | js::BinaryOperator::Multiplication | js::BinaryOperator::Division | js::BinaryOperator::Remainder | js::BinaryOperator::Exponential | js::BinaryOperator::Equality | js::BinaryOperator::Inequality | js::BinaryOperator::LessThan | js::BinaryOperator::LessEqualThan | js::BinaryOperator::GreaterThan | js::BinaryOperator::GreaterEqualThan);
         let text = matches!(bin.operator, js::BinaryOperator::Addition | js::BinaryOperator::Equality | js::BinaryOperator::Inequality);

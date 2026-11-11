@@ -232,7 +232,7 @@ pub(super) fn map_or_set_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpress
   let Some(m) = (callee).as_member_expression() else { return Ok(None) };
   let js::Expression::Identifier(id) = m.object() else { return Ok(None) };
   let Some(method) = prop_name_of(m).filter(|method| matches!(method.as_ref(), "set" | "add" | "delete" | "clear")) else { return Ok(None) };
-  let Some(kind @ (crate::Kind::Map | crate::Kind::Set)) = lowerer.kind_of(m.object()) else { return Ok(None) };
+  let Some(kind @ (crate::Kind::Map | crate::Kind::Set | crate::Kind::WeakMap | crate::Kind::WeakSet)) = lowerer.kind_of(m.object()) else { return Ok(None) };
   let name = id.name.to_string();
   if !writable.local(lowerer, &name) {
     return Ok(None);
@@ -593,7 +593,7 @@ pub(super) fn rebind_stmt_inner(lowerer: &mut Lowerer<'_>, stmt: &js::Statement,
           }
         }
       }
-      js::Expression::AwaitExpression(_) => {
+      _ => {
         let effect = lowerer.expr(&e.expression)?;
         if lowerer.held.is_empty() {
           let held = lowerer.temp();
@@ -604,7 +604,6 @@ pub(super) fn rebind_stmt_inner(lowerer: &mut Lowerer<'_>, stmt: &js::Statement,
         }
         Ok(())
       }
-      other => Err(lowerer.residue(other.span(), "an expression statement other than a write to a local")),
     },
     js::Statement::IfStatement(branch) => {
       let mut cond = lowerer.expr(&branch.test)?;

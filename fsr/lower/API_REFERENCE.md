@@ -915,6 +915,8 @@ What lowers. Anything not listed is a `Residue`.
 * `re.compile(pattern, flags)` overwrites a local or literal regular expression. A regular expression's `source`, `flags`, `global`, `ignoreCase`, `multiline`, `dotAll`, `unicode`, `unicodeSets`, `sticky` and `hasIndices` read from its pattern and flags. `JSON.stringify` writes it as `{}`.
 * `d.toTemporalInstant()` is `Temporal.Instant.fromEpochMilliseconds(d.getTime())`.
 * A `Set`'s `entries()` pairs each item with itself.
+* `new WeakMap(pairs)` and `new WeakSet(items)` are a `Map` and a `Set` keyed by object identity, with `get`, `has`, `set`, `add` and `delete`. A key that is not an object throws a `TypeError`, as JavaScript does. A body runs to its end without a collection, so nothing they hold goes. `new WeakRef(x).deref()` is `x`. A `FinalizationRegistry`'s `register` and `unregister` change nothing, since its callback never runs within a body.
+* An expression statement in a function, `new WeakSet(items);` or a call for its effect, is evaluated where it stands for what it does and what it throws.
 * A string's indices count UTF-16 code units.
 * `startsWith` and `endsWith` take exactly one argument. `replace` takes exactly two.
 * `split` takes a separator and an optional limit. `split("")` fails at run time on a character outside the Basic Multilingual Plane.
