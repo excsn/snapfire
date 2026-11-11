@@ -70,6 +70,28 @@ fn a_date_with_no_options_is_written_as_node_writes_it() {
   assert!(failed.is_empty(), "{}", failed.join("\n"));
 }
 
+/// `toLocaleDateString` under `timeZone: "UTC"` of 1 January in the years 0, -1 and -100, as node v26.8.1 writes it.
+const BEFORE_ONE: &[(&str, [&str; 3])] = &[
+  ("en-US", ["1/1/1", "1/1/2", "1/1/101"]),
+  ("de", ["1.1.1", "1.1.2", "1.1.101"]),
+  ("th", ["3/1/543", "3/1/542", "4/1/443"]),
+  ("fa", ["\u{200e}−۶۲۲/۱۰/۱۱", "\u{200e}−۶۲۳/۱۰/۱۱", "\u{200e}−۷۲۲/۱۰/۱۱"]),
+];
+
+#[test]
+fn a_year_before_one_is_written_as_node_writes_it() {
+  let mut failed = Vec::new();
+  for &(tag, want) in BEFORE_ONE {
+    for (year, want) in [0, -1, -100].into_iter().zip(want) {
+      let got = numeric_date(tag, year, 1, 1);
+      if got.as_deref() != Some(want) {
+        failed.push(format!("{tag} {year}: got {got:?}, want {want:?}"));
+      }
+    }
+  }
+  assert!(failed.is_empty(), "{}", failed.join("\n"));
+}
+
 #[test]
 fn a_calendar_this_crate_does_not_write_is_none() {
   assert_eq!(numeric_date("ja-JP-u-ca-japanese", 2024, 9, 10), None);

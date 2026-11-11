@@ -280,20 +280,22 @@ fn persian(year: i64, month: u32, day: u32) -> (i64, u32, u32) {
   (year, month as u32 + 1, (day_of_year - MONTH_STARTS[month as usize] + 1) as u32)
 }
 
-/// `date.toLocaleDateString(tag)` with no options: the Gregorian date `year`, `month` and `day` written in the locale's calendar, `yMd` pattern and digits, `9/10/2024` in English, `10.9.2024` in German and `۱۴۰۳/۶/۲۰` in Persian. A narrow no-break space is written as a space, as V8 writes it. `None` when [`calendar`] is.
+/// `date.toLocaleDateString(tag)` with no options: the Gregorian date `year`, `month` and `day` written in the locale's calendar, `yMd` pattern and digits, a Gregorian year before 1 as its year before the common era, `9/10/2024` in English, `10.9.2024` in German and `۱۴۰۳/۶/۲۰` in Persian. A narrow no-break space is written as a space, as V8 writes it. `None` when [`calendar`] is.
 pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> Option<String> {
   let chain = chain(tag);
   let calendar = calendar(tag)?;
   let (pattern, era, (year, month, day)) = match calendar {
-    Calendar::Gregorian => (chain.iter().find_map(|names| names.dates).map_or("y-MM-dd", |[date, _]| date), None, (year, month, day)),
+    Calendar::Gregorian => (chain.iter().find_map(|names| names.dates).map_or("y-MM-dd", |[date, _]| date), None, (if year < 1 { 1 - year } else { year }, month, day)),
     other => {
       let [pattern, abbreviated, narrow, ..] = chain.iter().find_map(|names| names.calendars.get(other.name()).copied()).unwrap_or(["G y-MM-dd", "", "", "", "", "", ""]);
       let date = if other == Calendar::Persian { persian(year, month, day) } else { buddhist(year, month, day) };
       (pattern, Some((abbreviated, narrow)), date)
     }
   };
+  let minus = crate::data::data().numbers[crate::locale::resolve(tag).numbers].minus;
   let out = write_pattern(pattern, |c, width| match c {
     'y' if width == 2 => Some(format!("{:02}", year.rem_euclid(100))),
+    'y' if year < 0 => Some(format!("{minus}{:0width$}", -year)),
     'y' => Some(format!("{year:0width$}")),
     'M' | 'L' => Some(format!("{month:0width$}")),
     'd' => Some(format!("{day:0width$}")),
