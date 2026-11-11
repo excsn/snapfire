@@ -31,6 +31,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.numberParts", Reach::Render, number_parts);
   extensions.register("intl.locale", Reach::Render, locale_op);
   extensions.register("intl.duration", Reach::Render, duration);
+  extensions.register("intl.displayNames", Reach::Render, display_names);
   extensions.register("intl.supported", Reach::Render, |_, args| {
     let key = text("intl.supported", args, 0)?;
     let values = super::supported::supported(key).ok_or_else(|| Fail::internal(format!("RangeError: Invalid key : {key}")))?;
@@ -79,11 +80,16 @@ fn locale_of(ambient: &Ambient) -> Locale {
   ambient.bcp47().parse().unwrap_or_else(|_| locale!("en"))
 }
 
-/// The locale an options object names under `locale`, else the ambient one. A locale written in the code formats the same everywhere, which is what the author asked for by writing it.
+/// The locale an options object names under `locale`, else the ambient one. A list of locales names its first; an empty list is the ambient one. A locale written in the code formats the same everywhere, which is what the author asked for by writing it.
 fn locale_for(what: &str, ambient: &Ambient, options: Option<&Value>) -> Result<Locale, Fail> {
   match options {
     Some(Value::Map(map)) => match map.get("locale") {
       Some(Value::Str(tag)) => tag.as_str().parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale"))),
+      Some(Value::Seq(tags)) => match tags.first() {
+        Some(Value::Str(tag)) => tag.as_str().parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale"))),
+        None => Ok(locale_of(ambient)),
+        Some(other) => Err(Fail::internal(format!("TypeError: {what}: a locale wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+      },
       Some(Value::Null | Value::Undefined) | None => Ok(locale_of(ambient)),
       Some(other) => Err(Fail::internal(format!("{what}: `locale` wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
     },
@@ -881,4 +887,32 @@ fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   };
   let list = ListFormatter::try_new_unit((&locale).into(), ListFormatterOptions::default().with_length(length)).map_err(|e| data(what, e))?;
   Ok(Value::str(list.format(items.iter().map(String::as_str)).to_string()))
+}
+
+/// `intl.displayNames(code, { locale?, type, style?, languageDisplay?, fallback? })`: `new Intl.DisplayNames(locale, options).of(code)`. A code CLDR does not name is itself under `fallback: "code"` (the default) and `undefined` under `"none"`.
+fn display_names(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "intl.displayNames";
+  let code = text(what, args, 0)?;
+  let read = |key: &str| -> Option<String> {
+    match args.get(1) {
+      Some(Value::Map(o)) => match o.get(key) {
+        Some(Value::Str(s)) => Some(s.to_string()),
+        _ => None,
+      },
+      _ => None,
+    }
+  };
+  let kind_name = read("type").ok_or_else(|| Fail::internal("TypeError: Required option 'type' is missing"))?;
+  let kind = snapfire_i18n::NameKind::from_type(&kind_name).ok_or_else(|| Fail::internal(format!("RangeError: Value {kind_name} out of range for Intl.DisplayNames options property type")))?;
+  if kind == snapfire_i18n::NameKind::Language && code.split(['-', '_']).any(|part| part.len() == 1) {
+    return Err(Fail::internal("RangeError: invalid_argument"));
+  }
+  let locale = locale_for(what, ambient, args.get(1))?;
+  let style = read("style").unwrap_or_else(|| "long".to_owned());
+  let standard = read("languageDisplay").as_deref() == Some("standard");
+  match snapfire_i18n::display_name(&locale.to_string(), kind, code, &style, standard) {
+    Some(name) => Ok(Value::str(name)),
+    None if read("fallback").as_deref() == Some("none") => Ok(Value::Undefined),
+    None => Ok(Value::str(code)),
+  }
 }

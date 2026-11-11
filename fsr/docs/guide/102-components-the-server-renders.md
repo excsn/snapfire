@@ -62,6 +62,7 @@ One bare specifier is not residue: `@snapfire/fsr/client`, the standard library'
 | `new Intl.Locale(tag), its maximize and minimize and Intl.getCanonicalLocales` | none | a server render, the browser and every host body |
 | `Intl.supportedValuesOf(key)` | none | a server render, the browser and every host body |
 | `new Intl.DurationFormat(locale, options).format(duration)` | none | a server render, the browser and every host body |
+| `new Intl.DisplayNames(locale, options).of(code)` | none | a server render, the browser and every host body |
 | `new Temporal.<type>(...args)` | none | a server render, the browser and every host body |
 | `Temporal.<type>.from(...) and Temporal.<type>.compare(a, b)` | none | a server render, the browser and every host body |
 | `value.<field> of a Temporal value` | none | a server render, the browser and every host body |

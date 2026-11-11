@@ -626,10 +626,10 @@ impl<'a> Lowerer<'a> {
         }
       }
     }
-    if matches!(method.as_str(), "format" | "select" | "compare") {
+    if matches!(method.as_str(), "format" | "select" | "compare" | "of") {
       if let Some(made) = self.formatter_of(member.object()) {
         let called = match (platform_object(&made), method.as_str()) {
-          (Some(formatter @ ("NumberFormat" | "DateTimeFormat" | "ListFormat" | "RelativeTimeFormat" | "DurationFormat")), "format") | (Some(formatter @ "PluralRules"), "select") | (Some(formatter @ "Collator"), "compare") => Some(formatter),
+          (Some(formatter @ ("NumberFormat" | "DateTimeFormat" | "ListFormat" | "RelativeTimeFormat" | "DurationFormat")), "format") | (Some(formatter @ "PluralRules"), "select") | (Some(formatter @ "Collator"), "compare") | (Some(formatter @ "DisplayNames"), "of") => Some(formatter),
           _ => None,
         };
         if let Some(formatter) = called {

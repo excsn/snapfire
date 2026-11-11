@@ -219,6 +219,7 @@ pub(crate) fn platform_object(n: &js::NewExpression) -> Option<&'static str> {
     "Collator" => Some("Collator"),
     "RelativeTimeFormat" => Some("RelativeTimeFormat"),
     "DurationFormat" => Some("DurationFormat"),
+    "DisplayNames" => Some("DisplayNames"),
     _ => None,
   }
 }

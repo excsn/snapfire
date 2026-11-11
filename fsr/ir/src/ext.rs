@@ -92,6 +92,7 @@ pub const STANDARD: &[Member] = &[
   written_for("new Intl.Locale(tag), its maximize and minimize and Intl.getCanonicalLocales", "intl", "locale", Reach::Render),
   written_for("Intl.supportedValuesOf(key)", "intl", "supported", Reach::Render),
   written_for("new Intl.DurationFormat(locale, options).format(duration)", "intl", "duration", Reach::Render),
+  written_for("new Intl.DisplayNames(locale, options).of(code)", "intl", "displayNames", Reach::Render),
   written_for("new Temporal.<type>(...args)", "temporal", "new", Reach::Render),
   written_for("Temporal.<type>.from(...) and Temporal.<type>.compare(a, b)", "temporal", "static", Reach::Render),
   written_for("value.<field> of a Temporal value", "temporal", "get", Reach::Render),

@@ -56,6 +56,7 @@ impl<'a> Lowerer<'a> {
       "PluralRules" => ("plural", &[("type", &["cardinal", "ordinal"])]),
       "Collator" => ("compare", &[("sensitivity", &["base", "accent", "case", "variant"]), ("numeric", &[]), ("usage", &["sort"])]),
       "DurationFormat" => ("duration", &[("style", &["long", "short", "narrow", "digital"])]),
+      "DisplayNames" => ("displayNames", &[("type", &["language", "region", "script", "currency", "calendar", "dateTimeField"]), ("style", &["long", "short", "narrow"]), ("languageDisplay", &["dialect", "standard"]), ("fallback", &["code", "none"])]),
       _ => ("relative", &[("numeric", &["always", "auto"]), ("style", &["long", "short", "narrow"])]),
     };
     let mut entries: Vec<Entry> = locale.into_iter().collect();
