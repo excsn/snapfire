@@ -1990,6 +1990,9 @@ The table is written from the build's own list, so it holds what the build reads
 | `new Date(ms).toLocaleTimeString(locale)` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toLocaleDateString(locale) and toLocaleString(locale) with no options` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toLocaleString(locale, { timeZone }) and its date and time forms` | none | a server render, the browser and every host body |
+| `formatter.formatToParts(date) of an Intl.DateTimeFormat given only a timeZone` | none | a server render, the browser and every host body |
+| `formatter.formatToParts(items) of an Intl.ListFormat` | none | a server render, the browser and every host body |
+| `formatter.formatToParts(value, unit) of an Intl.RelativeTimeFormat` | none | a server render, the browser and every host body |
 | `new Date(ms).toTimeString()` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toString(), String(date) and a date in a template` | none | every host body; in a component the browser fills it in |
 | `text.toLocaleUpperCase(locale)` | none | a server render, the browser and every host body |
@@ -1999,11 +2002,16 @@ The table is written from the build's own list, so it holds what the build reads
 | `Intl.DateTimeFormat().resolvedOptions().timeZone` | none | every host body; in a component the browser fills it in |
 | `formatter.formatToParts(date) of an Intl.DateTimeFormat` | none | a server render, the browser and every host body |
 | `formatter.formatToParts(n) of an Intl.NumberFormat` | none | a server render, the browser and every host body |
-| `new Intl.Locale(tag), its maximize and minimize and Intl.getCanonicalLocales` | none | a server render, the browser and every host body |
+| `new Intl.Locale(tag), its maximize, minimize, getCalendars, getHourCycles, getNumberingSystems, getTextInfo, getTimeZones and getWeekInfo and Intl.getCanonicalLocales` | none | a server render, the browser and every host body |
 | `Intl.supportedValuesOf(key)` | none | a server render, the browser and every host body |
 | `new Intl.DurationFormat(locale, options).format(duration)` | none | a server render, the browser and every host body |
 | `new Intl.DisplayNames(locale, options).of(code)` | none | a server render, the browser and every host body |
-| `formatter.resolvedOptions() of an Intl.DateTimeFormat or an Intl.NumberFormat` | none | a server render, the browser and every host body |
+| `bytes.toBase64(options) of a Uint8Array` | none | a server render, the browser and every host body |
+| `bytes.toHex() of a Uint8Array` | none | a server render, the browser and every host body |
+| `Uint8Array.fromBase64(text, options)` | none | a server render, the browser and every host body |
+| `Uint8Array.fromHex(text)` | none | a server render, the browser and every host body |
+| `formatter.resolvedOptions() of each Intl formatter` | none | a server render, the browser and every host body |
+| `Intl.<formatter>.supportedLocalesOf(locales)` | none | a server render, the browser and every host body |
 | `new Temporal.<type>(...args)` | none | a server render, the browser and every host body |
 | `Temporal.<type>.from(...) and Temporal.<type>.compare(a, b)` | none | a server render, the browser and every host body |
 | `value.<field> of a Temporal value` | none | a server render, the browser and every host body |

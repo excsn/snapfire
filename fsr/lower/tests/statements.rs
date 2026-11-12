@@ -46,9 +46,9 @@ fn array_of_a_length_filled_holds_the_value_at_every_index() {
 }
 
 #[test]
-fn array_of_a_length_without_fill_is_not_lowered() {
+fn array_of_a_length_without_fill_has_that_length() {
   let page = "export default function Page() {\n  const holes = Array(3);\n  return <p>{holes.length}</p>;\n}\n";
-  assert!(html("holes", page).is_err());
+  assert_eq!(html("holes", page).as_deref(), Ok("<p>3</p>"));
 }
 
 const WINNER: &str = "function calculateWinner(squares) {\n  const lines = [[0, 1, 2], [3, 4, 5], [0, 3, 6]];\n  for (let i = 0; i < lines.length; i++) {\n    const [a, b, c] = lines[i];\n    if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {\n      return squares[a];\n    }\n  }\n  return null;\n}\n";

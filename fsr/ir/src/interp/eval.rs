@@ -418,16 +418,16 @@ impl Env {
         }
         Expr::Entries(e) => match self.eval(e).await? {
           Value::Map(map) => Ok(Value::Seq(
-            map.into_iter().map(|(k, v)| Value::seq(vec![self.key_value(k.to_string()), v])).collect(),
+            map.into_iter().filter(|(k, _)| !snapfire_fsr_core::value::typed::symbol_key(k)).map(|(k, v)| Value::seq(vec![self.key_value(k.to_string()), v])).collect(),
           )),
           other => Err(type_error("Object.entries", "an object", &other)),
         },
         Expr::Keys(e) => match self.eval(e).await? {
-          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(|k| self.key_value(k.to_string())).collect())),
+          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().filter(|k| !snapfire_fsr_core::value::typed::symbol_key(k)).map(|k| self.key_value(k.to_string())).collect())),
           other => Err(type_error("Object.keys", "an object", &other)),
         },
         Expr::Values(e) => match self.eval(e).await? {
-          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_values().collect())),
+          Value::Map(map) => Ok(Value::Seq(map.into_fields().into_iter().filter(|(k, _)| !snapfire_fsr_core::value::typed::symbol_key(k)).map(|(_, v)| v).collect())),
           other => Err(type_error("Object.values", "an object", &other)),
         },
         Expr::Length(e) => match self.eval(e).await? {

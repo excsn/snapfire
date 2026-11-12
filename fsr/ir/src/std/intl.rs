@@ -4,8 +4,8 @@
 
 use fixed_decimal::{Decimal, FloatPrecision, SignDisplay, SignedRoundingMode, UnsignedRoundingMode};
 use icu_calendar::Date;
-use icu_collator::options::{CaseLevel, CollatorOptions, Strength};
-use icu_collator::preferences::CollationNumericOrdering;
+use icu_collator::options::{AlternateHandling, CaseLevel, CollatorOptions, Strength};
+use icu_collator::preferences::{CollationCaseFirst, CollationNumericOrdering};
 use icu_collator::{Collator, CollatorPreferences};
 use icu_datetime::fieldsets::{D, DE, E, M, MD, MDE, T, Y, YM, YMD, YMDE, YMDET, YMDT};
 use icu_datetime::input::{DateTime, Time};
@@ -33,6 +33,26 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.duration", Reach::Render, duration);
   extensions.register("intl.displayNames", Reach::Render, display_names);
   extensions.register("intl.resolvedOptions", Reach::Render, resolved_options);
+  extensions.register("intl.supportedLocales", Reach::Render, |_, args| {
+    let given: Vec<String> = match args.first() {
+      Some(Value::Str(tag)) => vec![tag.to_string()],
+      Some(Value::Seq(tags)) => tags.iter().map(|t| match t {
+        Value::Str(tag) => Ok(tag.to_string()),
+        other => Err(Fail::internal(format!("TypeError: supportedLocalesOf: a locale is a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+      }).collect::<Result<_, _>>()?,
+      Some(Value::Null | Value::Undefined) | None => Vec::new(),
+      Some(other) => return Err(Fail::internal(format!("TypeError: supportedLocalesOf: the locales are a string or an array, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+    };
+    let mut out: Vec<Value> = Vec::new();
+    for tag in given {
+      let canonical: Locale = tag.parse().map_err(|_| Fail::internal(format!("RangeError: Incorrect locale information provided: {tag}")))?;
+      let canonical = canonical.to_string();
+      if snapfire_i18n::supported(&canonical) && !out.iter().any(|v| matches!(v, Value::Str(s) if s.as_str() == canonical)) {
+        out.push(Value::str(canonical));
+      }
+    }
+    Ok(Value::seq(out))
+  });
   extensions.register("intl.supported", Reach::Render, |_, args| {
     let key = text("intl.supported", args, 0)?;
     let values = super::supported::supported(key).ok_or_else(|| Fail::internal(format!("RangeError: Invalid key : {key}")))?;
@@ -40,8 +60,10 @@ pub fn register(extensions: &mut Extensions) {
   });
   extensions.register("intl.plural", Reach::Render, plural);
   extensions.register("intl.list", Reach::Render, list);
+  extensions.register("intl.listParts", Reach::Render, list_parts);
   extensions.register("intl.compare", Reach::Render, compare);
   extensions.register("intl.relative", Reach::Render, relative);
+  extensions.register("intl.relativeParts", Reach::Render, relative_parts);
   extensions.register("intl.localeTag", Reach::Render, |ambient, _| Ok(Value::str(ambient.bcp47())));
   extensions.register("intl.localTime", Reach::Body, |_, args| Ok(Value::str(local_time(number("intl.localTime", args, 0)?, named_locale("intl.localTime", args, 1)?)?)));
   extensions.register("intl.upper", Reach::Render, |_, args| case("intl.upper", args, snapfire_i18n::upper_case));
@@ -55,6 +77,22 @@ pub fn register(extensions: &mut Extensions) {
       _ => "date".to_owned(),
     };
     Ok(Value::str(numeric_written(what, number(what, args, 0)?, &tag, &mode)?))
+  });
+  extensions.register("intl.numericParts", Reach::Render, |ambient, args| {
+    let what = "intl.numericParts";
+    let tag = named_locale(what, args, 1)?.map_or_else(|| ambient.bcp47().to_owned(), str::to_owned);
+    let local = number(what, args, 0)?;
+    if local.is_nan() {
+      return Err(Fail::internal("RangeError: Invalid time value"));
+    }
+    let (y, m, d) = super::time::civil_from_ms(local);
+    let parts = snapfire_i18n::numeric_date_parts(&tag, y, m, d).ok_or_else(|| Fail::internal(format!("{what}: the parts of a date in the calendar `{tag}` names")))?;
+    Ok(Value::seq(parts.into_iter().map(|(kind, value)| {
+      let mut map = snapfire_fsr_core::ValueMap::default();
+      map.insert("type".to_owned(), Value::str(kind));
+      map.insert("value".to_owned(), Value::str(value));
+      Value::Map(map)
+    }).collect::<Vec<_>>()))
   });
   extensions.register("intl.localDate", Reach::Body, |_, args| Ok(Value::str(local_date(number("intl.localDate", args, 0)?, named_locale("intl.localDate", args, 1)?, matches!(args.get(2), Some(Value::Bool(true))))?)));
   extensions.register("intl.timeString", Reach::Body, |ambient, args| Ok(Value::str(time_string(number("intl.timeString", args, 0)?, ambient.now as f64)?)));
@@ -539,23 +577,59 @@ fn list(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(other) => return Err(Fail::internal(format!("{what}: `type` is conjunction, disjunction or unit, got `{other}`"))),
   }
   .map_err(|e| data(what, e))?;
-  Ok(Value::str(formatter.format(items.iter().map(String::as_str)).to_string()))
+  Ok(Value::str(formatter.format(items.iter().map(String::as_str)).parts_out()))
 }
 
-/// `intl.compare(a, b, { locale?, sensitivity?, numeric? })`: -1, 0 or 1 as `new Intl.Collator(locale, options).compare(a, b)` answers. `sensitivity` is `base`, `accent`, `case` or `variant` (the default); `numeric` orders runs of digits by their value.
+/// `intl.listParts(items, options)`: `formatToParts` of an `Intl.ListFormat`, each item an `element` and the text between them a `literal`.
+fn list_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  PARTS.with(|parts| *parts.borrow_mut() = Some(Vec::new()));
+  let written = list(ambient, args);
+  let collected = PARTS.with(|parts| parts.borrow_mut().take()).unwrap_or_default();
+  written?;
+  Ok(parts_value(collected))
+}
+
+/// Collected parts as the array of `{ type, value }` objects `formatToParts` answers.
+fn parts_value(parts: Vec<(String, String)>) -> Value {
+  Value::seq(parts.into_iter().map(|(kind, value)| {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("type".to_owned(), Value::str(kind));
+    map.insert("value".to_owned(), Value::str(value));
+    Value::Map(map)
+  }).collect::<Vec<_>>())
+}
+
+/// `intl.compare(a, b, { locale?, sensitivity?, numeric?, ignorePunctuation?, caseFirst? })`: -1, 0 or 1 as `new Intl.Collator(locale, options).compare(a, b)` answers. `sensitivity` is `base`, `accent`, `case` or `variant` (the default); `numeric` orders runs of digits by their value; `ignorePunctuation` skips punctuation and spaces; `caseFirst` is `upper`, `lower` or `false`.
 fn compare(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.compare";
   let a = text(what, args, 0)?;
   let b = text(what, args, 1)?;
-  let locale = locale_for(what, ambient, args.get(2))?;
+  let collator = collator(what, ambient, args, 2)?;
+  Ok(Value::F64(match collator.compare(&a, &b) {
+    std::cmp::Ordering::Less => -1.0,
+    std::cmp::Ordering::Equal => 0.0,
+    std::cmp::Ordering::Greater => 1.0,
+  }))
+}
+
+/// The collator `new Intl.Collator(locale, options)` makes, from the options at `args[at]`. A locale's own defaults stand where an option is not given: Thai ignores punctuation and Danish and Maltese sort capitals first.
+fn collator(what: &str, ambient: &Ambient, args: &[Value], at: usize) -> Result<icu_collator::CollatorBorrowed<'static>, Fail> {
+  let locale = locale_for(what, ambient, args.get(at))?;
   let mut prefs: CollatorPreferences = locale.into();
-  match option(what, args, 2, "numeric")? {
-    None | Some(Value::Bool(false)) => {}
-    Some(Value::Bool(true)) => prefs.numeric_ordering = Some(CollationNumericOrdering::True),
+  match option(what, args, at, "numeric")? {
+    None => {}
+    Some(Value::Bool(numeric)) => prefs.numeric_ordering = Some(if *numeric { CollationNumericOrdering::True } else { CollationNumericOrdering::False }),
     Some(other) => return Err(Fail::internal(format!("{what}: `numeric` wants a boolean, got {}", snapfire_fsr_core::ext::kind_name(other)))),
   }
+  match string_option(what, args, at, "caseFirst")?.as_deref() {
+    None => {}
+    Some("upper") => prefs.case_first = Some(CollationCaseFirst::Upper),
+    Some("lower") => prefs.case_first = Some(CollationCaseFirst::Lower),
+    Some("false") => prefs.case_first = Some(CollationCaseFirst::False),
+    Some(other) => return Err(Fail::internal(format!("RangeError: {what}: `caseFirst` is upper, lower or false, got `{other}`"))),
+  }
   let mut options = CollatorOptions::default();
-  match string_option(what, args, 2, "sensitivity")?.as_deref() {
+  match string_option(what, args, at, "sensitivity")?.as_deref() {
     None | Some("variant") => {}
     Some("base") => options.strength = Some(Strength::Primary),
     Some("accent") => options.strength = Some(Strength::Secondary),
@@ -565,16 +639,50 @@ fn compare(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     }
     Some(other) => return Err(Fail::internal(format!("{what}: `sensitivity` is base, accent, case or variant, got `{other}`"))),
   }
-  let collator = Collator::try_new(prefs, options).map_err(|e| data(what, e))?;
-  Ok(Value::F64(match collator.compare(&a, &b) {
-    std::cmp::Ordering::Less => -1.0,
-    std::cmp::Ordering::Equal => 0.0,
-    std::cmp::Ordering::Greater => 1.0,
-  }))
+  match option(what, args, at, "ignorePunctuation")? {
+    None => {}
+    Some(Value::Bool(ignore)) => options.alternate_handling = Some(if *ignore { AlternateHandling::Shifted } else { AlternateHandling::NonIgnorable }),
+    Some(other) => return Err(Fail::internal(format!("{what}: `ignorePunctuation` wants a boolean, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+  }
+  Collator::try_new(prefs, options).map_err(|e| data(what, e))
 }
 
 /// `intl.relative(value, unit, { locale?, numeric?, style? })`: the phrase `new Intl.RelativeTimeFormat(locale, options).format(value, unit)` writes. `unit` is `second`, `minute`, `hour`, `day`, `week`, `month`, `quarter` or `year`, singular or plural; `numeric` is `always` (the default) or `auto`, which writes "yesterday" where the locale has a word; `style` is `long` (the default), `short` or `narrow`.
 fn relative(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  Ok(Value::str(relative_written(ambient, args)?.0))
+}
+
+/// `intl.relativeParts(value, unit, options)`: `formatToParts` of an `Intl.RelativeTimeFormat`, the number's parts carrying the singular `unit` and the text around it a `literal`.
+fn relative_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let unit = text("intl.relativeParts", args, 1)?.trim_end_matches('s').to_owned();
+  let (phrase, number) = relative_written(ambient, args)?;
+  let Some((digits, parts)) = number else { return Ok(parts_value(vec![("literal".to_owned(), phrase)])) };
+  let at = phrase.find(&digits).ok_or_else(|| Fail::internal("intl.relativeParts: the number is not in the text it was written into"))?;
+  let mut out = Vec::new();
+  let literal = |piece: &str| {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("type".to_owned(), Value::str("literal"));
+    map.insert("value".to_owned(), Value::str(piece));
+    Value::Map(map)
+  };
+  if at > 0 {
+    out.push(literal(&phrase[..at]));
+  }
+  for (kind, value) in parts {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("type".to_owned(), Value::str(kind));
+    map.insert("value".to_owned(), Value::str(value));
+    map.insert("unit".to_owned(), Value::str(unit.as_str()));
+    out.push(Value::Map(map));
+  }
+  if at + digits.len() < phrase.len() {
+    out.push(literal(&phrase[at + digits.len()..]));
+  }
+  Ok(Value::seq(out))
+}
+
+/// The phrase [`relative`] writes and, when it holds a number, the number's text and parts.
+fn relative_written(ambient: &Ambient, args: &[Value]) -> Result<(String, Option<(String, Vec<(String, String)>)>), Fail> {
   let what = "intl.relative";
   let mut value = match decimal(what, args, 0)? {
     Ok(d) => d,
@@ -605,7 +713,7 @@ fn relative(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   if auto && whole {
     let digit = value.absolute.digit_at(0) as i8;
     if let Some(word) = relative.literal(if past { -digit } else { digit }) {
-      return Ok(Value::str(word.to_owned()));
+      return Ok((word.to_owned(), None));
     }
   }
   let rules = PluralRules::try_new_cardinal((&locale).into()).map_err(|e| data(what, e))?;
@@ -622,7 +730,11 @@ fn relative(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     _ => None,
   };
   let formatter = DecimalFormatter::try_new((&locale).into(), Default::default()).map_err(|e| data(what, e))?;
-  Ok(Value::str(relative.format(&formatter.format(&value).to_string(), past, plural, exact)))
+  let formatted = formatter.format(&value);
+  let mut sink = Collector { parts: Vec::new(), current: None };
+  let _ = writeable::Writeable::write_to_parts(&formatted, &mut sink);
+  let digits = formatted.to_string();
+  Ok((relative.format(&digits, past, plural, exact), Some((digits, sink.parts))))
 }
 
 std::thread_local! {
@@ -648,7 +760,7 @@ impl<T: writeable::Writeable> PartsOut for T {
   }
 }
 
-/// Collects written text by the part each piece sits in, the outermost part naming it: a year's digits are `year`, not `integer`.
+/// Collects written text by the part each piece sits in, the outermost part naming it: a year's digits are `year`, not `integer`. A group separator inside an integer is a `group`, as JavaScript splits it.
 struct Collector {
   parts: Vec<(String, String)>,
   current: Option<&'static str>,
@@ -656,6 +768,9 @@ struct Collector {
 
 impl std::fmt::Write for Collector {
   fn write_str(&mut self, text: &str) -> std::fmt::Result {
+    if text.is_empty() {
+      return Ok(());
+    }
     let kind = self.current.unwrap_or("literal");
     match self.parts.last_mut() {
       Some((last, value)) if last == kind => value.push_str(text),
@@ -670,7 +785,7 @@ impl writeable::PartsWrite for Collector {
 
   fn with_part(&mut self, part: writeable::Part, mut f: impl FnMut(&mut Self) -> std::fmt::Result) -> std::fmt::Result {
     let outer = self.current;
-    if outer.is_none() {
+    if outer.is_none() || (outer == Some("integer") && part == icu_decimal::parts::GROUP) {
       self.current = Some(part_name(part));
     }
     let written = f(self);
@@ -702,6 +817,7 @@ fn part_name(part: writeable::Part) -> &'static str {
     p if p == n::DECIMAL => "decimal",
     p if p == n::MINUS_SIGN => "minusSign",
     p if p == n::PLUS_SIGN => "plusSign",
+    p if p == icu_list::parts::ELEMENT => "element",
     _ => "literal",
   }
 }
@@ -733,7 +849,7 @@ fn number_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let _ = probe.format(&sample).parts_out();
   let symbols = PARTS.with(|parts| parts.borrow_mut().take()).unwrap_or_default();
   let symbol = |kind: &str| symbols.iter().find(|(k, _)| k == kind).map(|(_, v)| v.clone()).unwrap_or_default();
-  let group: String = symbol("integer").chars().filter(|c| !c.is_numeric()).collect();
+  let group = symbol("group");
   let decimal = symbol("decimal");
   let mut parts: Vec<(&'static str, String)> = Vec::new();
   let mut seen_decimal = false;
@@ -778,15 +894,52 @@ fn number_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   }).collect::<Vec<_>>()))
 }
 
-/// `intl.locale(tag, op)`: `"canonical"` the tag `Intl.getCanonicalLocales` gives, `"maximize"` and `"minimize"` the tags `Intl.Locale`'s methods give and `"parse"` an `Intl.Locale`'s fields, with its tag under `$tag`. A tag that does not parse is a `RangeError`, as JavaScript throws.
+/// `intl.locale(tag, op)`: `"canonical"` the tag `Intl.getCanonicalLocales` gives, `"maximize"` and `"minimize"` the tags `Intl.Locale`'s methods give and `"parse"` an `Intl.Locale`'s fields with its tag under `$tag`. `"getCalendars"`, `"getHourCycles"`, `"getNumberingSystems"`, `"getTextInfo"`, `"getTimeZones"` and `"getWeekInfo"` answer what those methods of an `Intl.Locale` answer. A tag that does not parse is a `RangeError`, as JavaScript throws.
 fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.locale";
   let tag = text(what, args, 0)?;
   let op = text(what, args, 1)?;
   let mut locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("RangeError: Incorrect locale information provided")))?;
   icu_locale::LocaleCanonicalizer::new_extended().canonicalize(&mut locale);
+  let keyword = |key: &str| key.parse().ok().and_then(|k| locale.extensions.unicode.keywords.get(&k)).map(|v| v.to_string()).filter(|v| !v.is_empty());
+  let list = |items: Vec<String>| Value::Seq(items.into_iter().map(Value::str).collect::<Vec<_>>().into());
+  let maximized = || {
+    let mut id = locale.id.clone();
+    icu_locale::LocaleExpander::new_extended().maximize(&mut id);
+    id
+  };
   match op {
     "canonical" => Ok(Value::str(locale.to_string())),
+    "getCalendars" => Ok(list(match keyword("ca") {
+      Some(calendar) => vec![calendar],
+      None => snapfire_i18n::preferred_calendars(maximized().region.as_ref().map_or("001", |r| r.as_str())).iter().map(|c| (*c).to_owned()).collect(),
+    })),
+    "getHourCycles" => Ok(list(vec![keyword("hc").unwrap_or_else(|| snapfire_i18n::hour_cycle(&locale.to_string()).to_owned())])),
+    "getNumberingSystems" => Ok(list(vec![keyword("nu").unwrap_or_else(|| snapfire_i18n::numbering_system(&locale.to_string()).to_owned())])),
+    "getTextInfo" => {
+      let direction = match icu_locale::LocaleDirectionality::new_extended().get(&locale.id) {
+        Some(icu_locale::Direction::RightToLeft) => "rtl",
+        _ => "ltr",
+      };
+      let mut map = snapfire_fsr_core::ValueMap::default();
+      map.insert("direction".to_owned(), Value::str(direction));
+      Ok(Value::Map(map))
+    }
+    "getTimeZones" => Ok(match locale.id.region {
+      Some(region) => list(snapfire_i18n::region_zones(region.as_str()).iter().map(|z| (*z).to_owned()).collect()),
+      None => Value::Undefined,
+    }),
+    "getWeekInfo" => {
+      let mut regional = locale.clone();
+      regional.id = maximized();
+      let week = icu_calendar::week::WeekInformation::try_new((&regional).into()).map_err(|e| data(what, e))?;
+      let mut weekend: Vec<f64> = week.weekend().map(|day| f64::from(day as u8)).collect();
+      weekend.sort_by(f64::total_cmp);
+      let mut map = snapfire_fsr_core::ValueMap::default();
+      map.insert("firstDay".to_owned(), Value::F64(f64::from(week.first_weekday as u8)));
+      map.insert("weekend".to_owned(), Value::Seq(weekend.into_iter().map(Value::F64).collect::<Vec<_>>().into()));
+      Ok(Value::Map(map))
+    }
     "maximize" | "minimize" => {
       let expander = icu_locale::LocaleExpander::new_extended();
       if op == "maximize" { expander.maximize(&mut locale.id) } else { expander.minimize(&mut locale.id) };
@@ -950,6 +1103,100 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
       }
     }
     return Ok(Value::Map(out));
+  }
+  let text_or = |key: &str, default: &str| Value::str(word(key).unwrap_or_else(|| default.to_owned()));
+  match formatter {
+    "Collator" => {
+      let resolved = collator(what, ambient, args, 1)?.resolved_options();
+      let keyword = |key: &str| tag.split("-u-").nth(1).and_then(|keys| keys.split('-').skip_while(|k| *k != key).nth(1)).map(str::to_owned);
+      out.insert("usage".to_owned(), text_or("usage", "sort"));
+      out.insert("sensitivity".to_owned(), text_or("sensitivity", "variant"));
+      out.insert("ignorePunctuation".to_owned(), Value::Bool(resolved.alternate_handling == AlternateHandling::Shifted));
+      out.insert("collation".to_owned(), Value::str(keyword("co").unwrap_or_else(|| "default".to_owned())));
+      out.insert("numeric".to_owned(), Value::Bool(resolved.numeric == CollationNumericOrdering::True));
+      let case_first = match resolved.case_first {
+        CollationCaseFirst::Upper => "upper",
+        CollationCaseFirst::Lower => "lower",
+        _ => "false",
+      };
+      out.insert("caseFirst".to_owned(), Value::str(case_first));
+      return Ok(Value::Map(out));
+    }
+    "ListFormat" => {
+      out.insert("type".to_owned(), text_or("type", "conjunction"));
+      out.insert("style".to_owned(), text_or("style", "long"));
+      return Ok(Value::Map(out));
+    }
+    "Segmenter" => {
+      out.insert("granularity".to_owned(), text_or("granularity", "grapheme"));
+      return Ok(Value::Map(out));
+    }
+    "DisplayNames" => {
+      let kind = word("type").ok_or_else(|| Fail::internal("TypeError: Required option 'type' is missing"))?;
+      out.insert("style".to_owned(), text_or("style", "long"));
+      out.insert("type".to_owned(), Value::str(kind.as_str()));
+      out.insert("fallback".to_owned(), text_or("fallback", "code"));
+      if kind == "language" {
+        out.insert("languageDisplay".to_owned(), text_or("languageDisplay", "dialect"));
+      }
+      return Ok(Value::Map(out));
+    }
+    "RelativeTimeFormat" => {
+      out.insert("style".to_owned(), text_or("style", "long"));
+      out.insert("numeric".to_owned(), text_or("numeric", "always"));
+      out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+      return Ok(Value::Map(out));
+    }
+    "DurationFormat" => {
+      const UNITS: [&str; 10] = ["years", "months", "weeks", "days", "hours", "minutes", "seconds", "milliseconds", "microseconds", "nanoseconds"];
+      out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+      let style = word("style").unwrap_or_else(|| "short".to_owned());
+      out.insert("style".to_owned(), Value::str(style.as_str()));
+      for (unit, at) in UNITS.iter().zip(0..) {
+        let (width, display) = match (style.as_str(), at) {
+          ("digital", 0..=3) => ("short", "auto"),
+          ("digital", 4) => ("numeric", "always"),
+          ("digital", 5 | 6) => ("2-digit", "always"),
+          ("digital", _) => ("numeric", "auto"),
+          (other, _) => (other, "auto"),
+        };
+        out.insert((*unit).to_owned(), Value::str(width));
+        out.insert(format!("{unit}Display"), Value::str(display));
+      }
+      if let Some(digits) = given("fractionalDigits") {
+        out.insert("fractionalDigits".to_owned(), digits);
+      }
+      return Ok(Value::Map(out));
+    }
+    "PluralRules" => {
+      let ordinal = word("type").as_deref() == Some("ordinal");
+      let mut numbers = args.to_vec();
+      numbers[0] = Value::str("NumberFormat");
+      let Value::Map(number) = resolved_options(ambient, &numbers)? else { return Err(Fail::internal(format!("{what}: the number options are not an object"))) };
+      out.insert("type".to_owned(), Value::str(if ordinal { "ordinal" } else { "cardinal" }));
+      let compact = word("notation").as_deref() == Some("compact") && given("minimumFractionDigits").is_none() && given("maximumFractionDigits").is_none();
+      for key in ["notation", "compactDisplay", "minimumIntegerDigits", "minimumFractionDigits", "maximumFractionDigits", "minimumSignificantDigits", "maximumSignificantDigits"] {
+        if compact && key.ends_with("FractionDigits") {
+          continue;
+        }
+        if let Some(value) = number.get(key) {
+          out.insert(key.to_owned(), value.clone());
+        }
+      }
+      let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
+      let rules = if ordinal { PluralRules::try_new_ordinal((&locale).into()) } else { PluralRules::try_new_cardinal((&locale).into()) }.map_err(|e| data(what, e))?;
+      let order = [PluralCategory::Zero, PluralCategory::One, PluralCategory::Two, PluralCategory::Few, PluralCategory::Many, PluralCategory::Other];
+      let held: Vec<PluralCategory> = rules.categories().collect();
+      let categories = order.iter().filter(|c| held.contains(c)).map(|c| Value::str(format!("{c:?}").to_ascii_lowercase())).collect::<Vec<_>>();
+      out.insert("pluralCategories".to_owned(), Value::seq(categories));
+      for key in ["roundingIncrement", "roundingMode", "roundingPriority", "trailingZeroDisplay"] {
+        if let Some(value) = number.get(key) {
+          out.insert(key.to_owned(), value.clone());
+        }
+      }
+      return Ok(Value::Map(out));
+    }
+    _ => {}
   }
   let int = |key: &str| match given(key) {
     Some(Value::Int(n)) => Some(n as f64),

@@ -832,8 +832,29 @@ pub mod typed {
   pub const REGEX: &str = "$regex";
   /// A function value: its payload indexes the closure table of the run that made it.
   pub const FUNCTION: &str = "$fn";
+  /// `new Request(url, init)`: its payload an object holding the request's `url`, `method` and the other fields the Fetch standard gives it.
+  pub const REQUEST: &str = "$request";
 
   pub const ALL: [&str; 6] = [DATE, MAP, SET, BIGINT, URL, TEMPORAL];
+
+  /// The description of the symbol held under `key`: `Symbol.iterator` for `@@iterator`, the key `Symbol.for` registered for `@@for:key`, the description `Symbol(description)` gave for `@@#n:description`, `None` for `@@#n`.
+  pub fn symbol_description(key: &str) -> Option<String> {
+    if let Some(registered) = key.strip_prefix("@@for:") {
+      return Some(registered.to_owned());
+    }
+    if let Some(unique) = key.strip_prefix("@@#") {
+      return unique.split_once(':').map(|(_, description)| description.to_owned());
+    }
+    Some(match key.strip_prefix("@@") {
+      Some(name) => format!("Symbol.{name}"),
+      None => key.to_owned(),
+    })
+  }
+
+  /// Whether a field name is the key a symbol is held under, `@@iterator`, which `Object.keys` and JSON leave out.
+  pub fn symbol_key(key: &str) -> bool {
+    key.starts_with("@@")
+  }
 
   /// The milliseconds a `Date` value holds, `None` for any other value.
   pub fn date_ms(value: &super::Value) -> Option<f64> {

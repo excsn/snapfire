@@ -304,7 +304,7 @@ impl Env {
       }
       Expr::Entries(e) => match self.eval_sync(e)? {
         Value::Map(map) => Ok(Value::Seq(
-          map.into_iter().map(|(k, v)| Value::seq(vec![self.key_value(k.to_string()), v])).collect(),
+          map.into_iter().filter(|(k, _)| !snapfire_fsr_core::value::typed::symbol_key(k)).map(|(k, v)| Value::seq(vec![self.key_value(k.to_string()), v])).collect(),
         )),
         other => Err(type_error("Object.entries", "an object", &other)),
       },
@@ -549,7 +549,7 @@ impl Env {
   /// `Object.keys(value)`, a `Map`'s object keys read back as the objects they are.
   pub(crate) fn keys_of(&self, value: Value) -> Result<Value, Fail> {
     match value {
-      Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().map(|k| self.key_value(k.to_string())).collect())),
+      Value::Map(map) => Ok(Value::Seq(map.into_fields().into_keys().filter(|k| !snapfire_fsr_core::value::typed::symbol_key(k)).map(|k| self.key_value(k.to_string())).collect())),
       other => Err(type_error("Object.keys", "an object", &other)),
     }
   }

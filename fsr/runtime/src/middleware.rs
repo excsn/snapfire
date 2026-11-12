@@ -10,8 +10,8 @@ use snapfire_fsr_core::Value;
 
 use crate::{ActionError, FailureKind, HttpResponse, RequestCtx};
 
-/// The tag of the `Value::Variant` `new Request(url)` makes; its payload is an object holding `url`.
-pub const REQUEST_TAG: &str = "$request";
+/// The tag of the `Value::Variant` `new Request(url, init)` makes; its payload is an object holding `url`.
+pub const REQUEST_TAG: &str = snapfire_fsr_core::value::typed::REQUEST;
 
 type NextFn = dyn Fn(Value) -> BoxFuture<'static, Result<Value, ActionError>> + Send + Sync;
 

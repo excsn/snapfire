@@ -39,12 +39,11 @@ pub(super) fn own_copy(value: &Value) -> Value {
 /// `Object.values(value)`.
 pub(crate) fn values_of(value: Value) -> Result<Value, Fail> {
   match value {
-    Value::Map(map) => Ok(Value::Seq(map.into_fields().into_values().collect())),
+    Value::Map(map) => Ok(Value::Seq(map.into_fields().into_iter().filter(|(k, _)| !snapfire_fsr_core::value::typed::symbol_key(k)).map(|(_, v)| v).collect())),
     other => Err(type_error("Object.values", "an object", &other)),
   }
 }
 
-/// `value.length`: an array's items, a string's UTF-16 units or an object's fields.
 /// A typed array or bytes as the array of numbers JavaScript reads from it, a 64-bit one's items as bigints, a typed array keeping its element; any other value as it is.
 pub(crate) fn as_items(value: Value) -> Value {
   let element = match &value {
@@ -76,6 +75,7 @@ fn as_numbers(value: Value) -> Value {
   }
 }
 
+/// `value.length`: an array's items, a string's UTF-16 units or an object's fields.
 pub(crate) fn length_of(value: Value) -> Result<Value, Fail> {
   match as_items(value) {
     Value::Seq(items) => Ok(Value::F64(items.len() as f64)),

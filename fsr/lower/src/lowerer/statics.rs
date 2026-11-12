@@ -148,16 +148,16 @@ impl<'a> Lowerer<'a> {
     })
   }
 
-  /// `Symbol.for(key)` and `Symbol.keyFor(symbol)`: a registered symbol is its key, so two of the same key are the same symbol.
+  /// `Symbol.for(key)` and `Symbol.keyFor(symbol)`: a registered symbol is held under `@@for:` and its key, so two of the same key are the same symbol.
   pub(crate) fn symbol_static(&mut self, method: &str, call: &js::CallExpression) -> Lowered<Expr> {
     let given = match call.arguments.first() {
       Some(a) => self.expr(crate::syntax::arg_expr(a))?,
       None => Expr::Lit(Lit::Undefined),
     };
     Ok(if method == "for" {
-      Expr::Builtin { name: Builtin::Tagged, args: vec![Expr::lit_str(typed::SYMBOL), Expr::Str(Box::new(given))] }
+      Expr::Builtin { name: Builtin::Tagged, args: vec![Expr::lit_str(typed::SYMBOL), Expr::Arith(ArithOp::Add, Box::new(Expr::lit_str("@@for:")), Box::new(Expr::Str(Box::new(given))))] }
     } else {
-      Expr::Builtin { name: Builtin::TaggedPayload, args: vec![given, Expr::lit_str(typed::SYMBOL)] }
+      Expr::Builtin { name: Builtin::SymbolKeyFor, args: vec![given] }
     })
   }
 

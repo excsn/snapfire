@@ -646,6 +646,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) dispatching: Vec<String>,
   /// The type aliases the file declares or imports that stand for a kind.
   pub(crate) type_kinds: Vec<(String, AliasKind)>,
+  /// Each declarator of the module whose value is a function written in place, by the name it binds, read once when `.name`, `.length` or `.toString()` first asks.
+  pub(crate) function_declarators: std::cell::OnceCell<Vec<(String, &'a js::VariableDeclarator<'a>)>>,
 }
 
 /// A JavaScript type the value model has no arm for and what it lowered to: a `Map` as an object keyed by `String(key)`, a `Set` as an array without repeats, a `URLSearchParams` as the encoded string, a `URL` as its href, a `Date` as milliseconds since the epoch and a `BigInt` as an integer.

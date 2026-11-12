@@ -241,6 +241,7 @@ impl<'a> Lowerer<'a> {
             };
             Ok(crate::error_object(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), message)])))
           }
+          "Symbol" => Ok(Expr::Builtin { name: Builtin::SymbolNew, args: self.plain_args(call)? }),
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           "redirect" if self.parsed.names_server(&call.callee, "redirect") => self.redirect_to(call),
           "after" if self.parsed.names_server(&call.callee, "after") => self.after_of(call),
@@ -282,12 +283,16 @@ impl<'a> Lowerer<'a> {
     if self.kind_of(member.object()) == Some(Kind::Scope) {
       return self.scope_call(&method, member, call);
     }
+    if method == "supportedLocalesOf" && crate::intl_member(member.object()).is_some() {
+      return Ok(Expr::Ext { module: "intl".to_owned(), name: "supportedLocales".to_owned(), args: self.plain_args(call)? });
+    }
 
     if let js::Expression::Identifier(obj) = member.object() {
       let global = obj.name.as_str();
       if !self.scope.iter().any(|(n, _)| n == global) && !self.globals.iter().any(|(n, _)| n == global) {
         match global {
           "Object" if matches!(method.as_str(), "assign" | "freeze" | "hasOwn" | "is" | "groupBy") => return self.object_static(&method, call),
+          "Uint8Array" if matches!(method.as_str(), "fromBase64" | "fromHex") => return Ok(Expr::Ext { module: "encoding".to_owned(), name: method.clone(), args: self.plain_args(call)? }),
           typed if crate::TYPED_ELEMENTS.iter().any(|(name, _)| *name == typed) && matches!(method.as_str(), "from" | "of") => {
             let element = crate::TYPED_ELEMENTS.iter().find(|(name, _)| *name == typed).map(|(_, e)| *e).expect("matched");
             let mut items = Vec::with_capacity(call.arguments.len());
@@ -337,6 +342,54 @@ impl<'a> Lowerer<'a> {
             let canonical = Expr::Lambda { params: vec![tag.clone()], body: Box::new(Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![Expr::Str(Box::new(Expr::Var(tag))), Expr::lit_str("canonical")] }) };
             let unique = Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Map(Box::new(tags), Box::new(canonical))] };
             return Ok(Expr::Block(vec![Stmt::Let { name: held, expr: given }, Stmt::Return(Expr::Array(vec![Entry::Spread(unique)]))]));
+          }
+          "Iterator" if method == "concat" => {
+            let mut parts = Vec::with_capacity(call.arguments.len());
+            for a in &call.arguments {
+              parts.push(Entry::Spread(self.expr(crate::syntax::arg_expr(a))?));
+            }
+            return Ok(Expr::Array(parts));
+          }
+          "RegExp" if method == "escape" => {
+            let given = match call.arguments.first() {
+              Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+              None => Expr::Lit(Lit::Undefined),
+            };
+            return Ok(Expr::Builtin { name: Builtin::RegExpEscape, args: vec![given] });
+          }
+          "Error" if method == "isError" => {
+            let given = match call.arguments.first() {
+              Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+              None => Expr::Lit(Lit::Undefined),
+            };
+            return Ok(Expr::Builtin { name: Builtin::Is, args: vec![given, Expr::lit_str("error")] });
+          }
+          "ArrayBuffer" if method == "isView" => {
+            let Some(a) = call.arguments.first() else { return Ok(Expr::Lit(Lit::Bool(false))) };
+            if matches!(self.kind_of(crate::syntax::arg_expr(a)), Some(Kind::View | Kind::Typed)) {
+              return Ok(Expr::Lit(Lit::Bool(true)));
+            }
+            let given = self.expr(crate::syntax::arg_expr(a))?;
+            return Ok(Expr::Builtin { name: Builtin::Is, args: vec![given, Expr::lit_str("view")] });
+          }
+          "URL" if matches!(method.as_str(), "parse" | "canParse") => {
+            let tried = Expr::Builtin { name: Builtin::UrlTry, args: self.plain_args(call)? };
+            return Ok(if method == "parse" { tried } else { Expr::Not(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![tried] })) });
+          }
+          "Object" if method == "getOwnPropertySymbols" => {
+            let a = call.arguments.first().ok_or_else(|| self.residue(call.span, "`Object.getOwnPropertySymbols` takes an object"))?;
+            let held = self.expr(crate::syntax::arg_expr(a))?;
+            return Ok(Expr::Builtin { name: Builtin::SymbolKeys, args: vec![held] });
+          }
+          "Object" if method == "getOwnPropertyDescriptors" => {
+            let a = call.arguments.first().ok_or_else(|| self.residue(call.span, "`Object.getOwnPropertyDescriptors` takes an object"))?;
+            let held = self.expr(crate::syntax::arg_expr(a))?;
+            let pair = self.temp();
+            let at = |i: f64| Expr::Index(Box::new(Expr::Var(pair.clone())), Box::new(Expr::Lit(Lit::Float(i))));
+            let field = |name: &str, value: Expr| Entry::Field(name.to_owned(), value);
+            let described = Expr::Array(vec![Entry::Item(at(0.0)), Entry::Item(Expr::Object(vec![field("value", at(1.0)), field("writable", Expr::Lit(Lit::Bool(true))), field("enumerable", Expr::Lit(Lit::Bool(true))), field("configurable", Expr::Lit(Lit::Bool(true)))]))]);
+            let pairs = Expr::Map(Box::new(Expr::Entries(Box::new(held))), Box::new(Expr::Lambda { params: vec![pair.clone()], body: Box::new(described) }));
+            return Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![pairs] });
           }
           "Iterator" if method == "from" => {
             let [source] = call.arguments.as_slice() else { return Err(self.residue(call.span, "`Iterator.from` takes one iterable")) };
@@ -642,8 +695,10 @@ impl<'a> Lowerer<'a> {
     }
     if matches!(method.as_str(), "formatToParts" | "resolvedOptions") {
       if let Some(made) = self.formatter_of(member.object()) {
-        if let Some(formatter @ ("NumberFormat" | "DateTimeFormat")) = platform_object(&made) {
-          return if method == "resolvedOptions" { self.resolved_options(formatter, &made) } else { self.format_to_parts(formatter, &made, call) };
+        match (platform_object(&made), method.as_str()) {
+          (Some(formatter @ ("NumberFormat" | "DateTimeFormat" | "ListFormat" | "RelativeTimeFormat")), "formatToParts") => return self.format_to_parts(formatter, &made, call),
+          (Some(formatter @ ("NumberFormat" | "DateTimeFormat" | "Collator" | "ListFormat" | "Segmenter" | "DisplayNames" | "RelativeTimeFormat" | "PluralRules" | "DurationFormat")), "resolvedOptions") => return self.resolved_options(formatter, &made),
+          _ => {}
         }
       }
     }
@@ -692,7 +747,8 @@ impl<'a> Lowerer<'a> {
           let changed = Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![tag, Expr::lit_str(&method)] };
           Ok(Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![changed, Expr::lit_str("parse")] })
         }
-        other => Err(self.residue(member.span(), format!("`.{other}()` of an `Intl.Locale`; `maximize`, `minimize` and `toString` are read"))),
+        "getCalendars" | "getHourCycles" | "getNumberingSystems" | "getTextInfo" | "getTimeZones" | "getWeekInfo" => Ok(Expr::Ext { module: "intl".to_owned(), name: "locale".to_owned(), args: vec![tag, Expr::lit_str(&method)] }),
+        other => Err(self.residue(member.span(), format!("`.{other}()` of an `Intl.Locale`; `maximize`, `minimize`, `toString`, `getCalendars`, `getHourCycles`, `getNumberingSystems`, `getTextInfo`, `getTimeZones` and `getWeekInfo` are read"))),
       };
     }
     if self.kind_of(member.object()) == Some(Kind::WeakRef) && method == "deref" {
@@ -707,7 +763,7 @@ impl<'a> Lowerer<'a> {
       stmts.push(Stmt::Return(if method == "register" { Expr::Lit(Lit::Undefined) } else { Expr::Lit(Lit::Bool(false)) }));
       return Ok(Expr::Block(stmts));
     }
-    if self.kind_of(member.object()).is_some_and(Kind::weak) && !matches!(method.as_str(), "get" | "has" | "set" | "add" | "delete") {
+    if self.kind_of(member.object()).is_some_and(Kind::weak) && !matches!(method.as_str(), "get" | "has" | "set" | "add" | "delete" | "getOrInsert" | "getOrInsertComputed") {
       return Err(self.residue(member.span(), format!("`.{method}()` of a `{}`, which has no such method", self.kind_of(member.object()).map_or("", Kind::name))));
     }
     match self.kind_of(member.object()).map(Kind::collection) {
@@ -765,6 +821,12 @@ impl<'a> Lowerer<'a> {
             Ok(Expr::Builtin { name, args: vec![target, Expr::Str(Box::new(self.expr(crate::syntax::arg_expr(arg))?))] })
           }
           "entries" => Ok(Expr::Builtin { name: Builtin::FormEntries, args: vec![target] }),
+          "keys" | "values" => {
+            let pair = self.temp();
+            let at = if method == "keys" { 0.0 } else { 1.0 };
+            Ok(Expr::Map(Box::new(Expr::Builtin { name: Builtin::FormEntries, args: vec![target] }), Box::new(Expr::Lambda { params: vec![pair.clone()], body: Box::new(Expr::Index(Box::new(Expr::Var(pair)), Box::new(Expr::Lit(Lit::Float(at))))) })))
+          }
+          "set" | "append" | "delete" | "sort" => Err(self.residue(member.span(), format!("the value `.{method}()` of a `URLSearchParams` answers; it is lowered as a statement of its own"))),
           other => Err(self.residue(member.span(), format!("`.{other}()` of a `URLSearchParams`"))),
         };
       }
@@ -854,7 +916,8 @@ impl<'a> Lowerer<'a> {
       }
       "toString" if call.arguments.is_empty() => Ok(Expr::Str(target)),
       "toString" => Ok(Expr::Builtin { name: Builtin::Radix, args: vec![*target, self.expr(&crate::syntax::arg_expr(&call.arguments[0]))?] }),
-      "getTime" | "valueOf" => Ok(Expr::Num(target)),
+      "getTime" | "valueOf" if self.kind_of(member.object()) == Some(Kind::Date) => Ok(Expr::Num(target)),
+      "getTime" | "valueOf" => Ok(*target),
       "toJSON" if self.kind_of(member.object()) == Some(Kind::Url) => Ok(*target),
       "toISOString" | "toJSON" => Ok(Expr::Builtin { name: Builtin::IsoString, args: vec![*target] }),
       "getUTCFullYear" | "getUTCMonth" | "getUTCDate" | "getUTCDay" | "getUTCHours" | "getUTCMinutes" | "getUTCSeconds" | "getUTCMilliseconds" | "getMilliseconds" => {
@@ -1326,7 +1389,8 @@ impl Lowerer<'_> {
       js::Expression::Identifier(id) => {
         let name = id.name.as_str();
         if let Some(bound) = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, b)| b.clone()) {
-          return Ok(matches!(bound, Expr::Lambda { .. } | Expr::Fix { .. }).then_some(bound));
+          let function = matches!(bound, Expr::Lambda { .. } | Expr::Fix { .. }) || self.function_source(e).is_some();
+          return Ok(function.then_some(bound));
         }
         if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| *f) {
           return self.function_expr(&function).map(Some);

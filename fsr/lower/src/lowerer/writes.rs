@@ -58,6 +58,14 @@ impl<'a> Lowerer<'a> {
       (Kind::Set, "clear") => Expr::Array(Vec::new()),
       (Kind::Query, "set" | "append") => Expr::Builtin { name: if method == "set" { Builtin::FormSet } else { Builtin::FormAppend }, args: vec![held, Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?] },
       (Kind::Query, "delete") => Expr::Builtin { name: Builtin::FormDelete, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
+      (Kind::Query, "sort") => {
+        // The pairs in the order of their keys, those of one key in the order they were in.
+        let (a, b) = (self.temp(), self.temp());
+        let key = |n: &String| Expr::Index(Box::new(Expr::Var(n.clone())), Box::new(Expr::Lit(Lit::Float(0.0))));
+        let order = Expr::Ternary(Box::new(Expr::Compare(CompareOp::Lt, Box::new(key(&a)), Box::new(key(&b)))), Box::new(Expr::Lit(Lit::Float(-1.0))), Box::new(Expr::Ternary(Box::new(Expr::Compare(CompareOp::Gt, Box::new(key(&a)), Box::new(key(&b)))), Box::new(Expr::Lit(Lit::Float(1.0))), Box::new(Expr::Lit(Lit::Float(0.0))))));
+        let sorted = Expr::Sort(Box::new(Expr::Builtin { name: Builtin::FormEntries, args: vec![held] }), Box::new(Expr::Lambda { params: vec![a, b], body: Box::new(order) }));
+        Expr::Builtin { name: Builtin::FormEncode, args: vec![sorted] }
+      }
       (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
     };
     Ok(kind.made(written))
@@ -337,10 +345,10 @@ let via = via_expr.as_member_expression().expect("matched as a member");
         }
         match self.member_name(m).as_deref() {
           Some("push" | "unshift" | "pop" | "shift" | "splice") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
-          Some("reverse" | "sort" | "copyWithin" | "fill") => held(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("reverse" | "sort" | "copyWithin" | "fill") if self.kind_of(m.object()) != Some(Kind::Query) => held(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
           Some("set") if self.kind_of(m.object()) == Some(Kind::Typed) => held(m.object()),
           Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()).map(Kind::collection), Some(Kind::Map | Kind::Set)),
-          Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && self.kind_of(m.object()) == Some(Kind::Map),
+          Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::WeakMap)),
           Some(setter) if setter.starts_with("set") && self.kind_of(m.object()) == Some(Kind::View) => reached(m.object()),
           Some("defer" | "adopt" | "use" | "dispose" | "disposeAsync" | "move") if self.kind_of(m.object()) == Some(Kind::Stack) => reached(m.object()),
           Some("compile") => (matches!(crate::meaning::bare(m.object()), js::Expression::RegExpLiteral(_)) || matches!(crate::meaning::bare(m.object()), js::Expression::Identifier(id) if self.is_local(id.name.as_str()))),
@@ -481,16 +489,17 @@ let via = via_expr.as_member_expression().expect("matched as a member");
           let target = held(self, m.object(), &mut lets)?;
           let read = Expr::Var(target.clone());
           match (kind, method.as_str()) {
-            (Some(Kind::Map), "getOrInsert" | "getOrInsertComputed") => {
+            (Some(map @ (Kind::Map | Kind::WeakMap)), "getOrInsert" | "getOrInsertComputed") => {
               let (given, key) = (self.temp(), self.temp());
               let first = call.arguments.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without a key")))?;
               let first = self.expr(crate::syntax::arg_expr(first))?;
+              let first = if map.weak() { self.weak_checked(map, first) } else { first };
               lets.push(Stmt::Let { name: given.clone(), expr: first });
               lets.push(Stmt::Let { name: key.clone(), expr: Expr::Builtin { name: Builtin::MapKey, args: vec![Expr::Var(given.clone())] } });
               let second = call.arguments.get(1).ok_or_else(|| self.residue(call.span, format!("`{method}` without a value")))?;
               let second = self.expr(crate::syntax::arg_expr(second))?;
               let value = if method == "getOrInsert" { second } else { Expr::Apply { f: Box::new(second), args: vec![Expr::Var(given)] } };
-              let added = Kind::Map.made(Expr::Object(vec![Entry::Spread(read.clone()), Entry::Computed(Expr::Var(key.clone()), value)]));
+              let added = map.made(Expr::Object(vec![Entry::Spread(read.clone()), Entry::Computed(Expr::Var(key.clone()), value)]));
               let missing = Expr::Not(Box::new(Expr::Builtin { name: Builtin::HasKey, args: vec![read.clone(), Expr::Var(key.clone())] }));
               lets.push(Stmt::If { cond: missing, then: vec![overwrite(&target, added)], r#else: Vec::new() });
               Expr::Index(Box::new(read), Box::new(Expr::Var(key)))

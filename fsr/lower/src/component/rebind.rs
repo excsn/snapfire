@@ -274,12 +274,12 @@ pub(super) fn date_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpression, w
   Ok(Some((name, value)))
 }
 
-/// `q.set(k, v)`, `q.append(k, v)` or `q.delete(k)` with `q` a local `URLSearchParams` (or the same on `url.searchParams` with `url` a local `URL`): the local, what it holds after the write and its kind.
+/// `q.set(k, v)`, `q.append(k, v)`, `q.delete(k)` or `q.sort()` with `q` a local `URLSearchParams` (or the same on `url.searchParams` with `url` a local `URL`): the local, what it holds after the write and its kind.
 pub(super) fn search_params_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpression, writable: &Writable<'_>) -> Lowered<Option<(String, Expr, crate::Kind)>> {
   let callee = &call.callee;
   let Some(m) = (callee).as_member_expression() else { return Ok(None) };
   let method = match prop_name_of(m).as_deref() {
-    Some(method @ ("set" | "append" | "delete")) => method.to_owned(),
+    Some(method @ ("set" | "append" | "delete" | "sort")) => method.to_owned(),
     _ => return Ok(None),
   };
   let (name, kind) = match m.object() {
@@ -511,7 +511,7 @@ pub(super) fn rebind_stmt_inner(lowerer: &mut Lowerer<'_>, stmt: &js::Statement,
           if let Some(m) = (callee).as_member_expression() {
             if let (js::Expression::Identifier(id), Some(method @ ("reverse" | "sort" | "pop" | "shift"))) = (m.object(), prop_name_of(m).as_deref()) {
               let name = id.name.to_string();
-              if writable.local(lowerer, &name) {
+              if writable.local(lowerer, &name) && !matches!(lowerer.kind_of(m.object()), Some(crate::Kind::Query | crate::Kind::Typed | crate::Kind::Map | crate::Kind::Set)) {
                 let held = current(lowerer, &name);
                 let value = match method {
                   "reverse" => Expr::Builtin { name: Builtin::Reverse, args: vec![held] },
@@ -723,8 +723,8 @@ impl<'a> oxc_ast_visit::Visit<'a> for Writes {
   fn visit_call_expression(&mut self, call: &js::CallExpression<'a>) {
     if let Some(m) = call.callee.as_member_expression() {
       match (m.object(), prop_name_of(m).as_deref()) {
-        (js::Expression::Identifier(id), Some("push" | "unshift" | "set" | "append" | "delete" | "add" | "clear")) => self.wrote(id.name.as_str()),
-        (object, Some("set" | "append" | "delete")) => {
+        (js::Expression::Identifier(id), Some("push" | "unshift" | "set" | "append" | "delete" | "add" | "clear" | "sort")) => self.wrote(id.name.as_str()),
+        (object, Some("set" | "append" | "delete" | "sort")) => {
           if let Some(params) = object.as_member_expression() {
             if let (js::Expression::Identifier(id), Some("searchParams")) = (params.object(), prop_name_of(params).as_deref()) {
               self.wrote(id.name.as_str());

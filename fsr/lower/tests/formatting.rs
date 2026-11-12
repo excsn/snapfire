@@ -112,8 +112,8 @@ fn plural_rules_a_collator_and_relative_time_format_on_the_server() {
   assert_eq!(page("{\"a\".localeCompare(\"A\", \"en-US\", { sensitivity: \"base\" })}").as_deref(), Ok("<p>0</p>"));
   assert_eq!(page("{new Intl.RelativeTimeFormat(\"en-US\", { numeric: \"auto\" }).format(-1, \"day\")}").as_deref(), Ok("<p>yesterday</p>"));
   assert_eq!(page("{new Intl.RelativeTimeFormat(\"fr-FR\").format(3, \"hours\")}").as_deref(), Ok("<p>dans 3 heures</p>"));
-  let out = page("{new Intl.Collator(\"en-US\", { caseFirst: \"upper\" }).compare(\"a\", \"A\")}");
-  assert!(out.as_ref().is_err_and(|e| e.contains("`caseFirst`")), "{out:?}");
+  assert_eq!(page("{new Intl.Collator(\"en-US\", { caseFirst: \"upper\" }).compare(\"a\", \"A\")}").as_deref(), Ok("<p>1</p>"));
+  assert_eq!(page("{new Intl.Collator(\"en-US\", { ignorePunctuation: true }).compare(\"a-b\", \"ab\")}").as_deref(), Ok("<p>0</p>"));
 }
 
 #[test]

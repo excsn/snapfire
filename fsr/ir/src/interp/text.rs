@@ -94,15 +94,8 @@ pub(super) fn plain_text_into(value: &Value, out: &mut String) -> Result<bool, F
     // A `Date` the build could not see as one, written as `Date.prototype.toString` writes it in this machine's zone.
     date if snapfire_fsr_core::value::typed::date_ms(date).is_some() => out.push_str(&crate::std::intl::date_time_string(snapfire_fsr_core::value::typed::date_ms(date).expect("checked"), snapfire_fsr_core::value::typed::date_ms(date).expect("checked"))?),
     Value::Variant { tag, payload: Some(key) } if tag == snapfire_fsr_core::value::typed::SYMBOL => {
-      let key = stringify(key)?;
       out.push_str("Symbol(");
-      match key.strip_prefix("@@") {
-        Some(name) => {
-          out.push_str("Symbol.");
-          out.push_str(name);
-        }
-        None => out.push_str(&key),
-      }
+      out.push_str(&snapfire_fsr_core::value::typed::symbol_description(&stringify(key)?).unwrap_or_default());
       out.push(')');
     }
     temporal @ Value::Variant { .. } if snapfire_fsr_core::value::typed::temporal(temporal).is_some() => out.push_str(snapfire_fsr_core::value::typed::temporal(temporal).map_or("", |(_, text)| text)),

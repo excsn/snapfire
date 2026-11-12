@@ -45,6 +45,11 @@ impl<'a> Lowerer<'a> {
     }
     match expr {
       js::Expression::ParenthesizedExpression(p) => self.expr(&p.expression),
+      js::Expression::AwaitExpression(a) if self.response_body(&a.argument).is_some() => {
+        let (response, method) = self.response_body(&a.argument).expect("checked by the guard");
+        let target = self.expr(response)?;
+        Ok(Expr::Builtin { name: Builtin::ResponseMember, args: vec![target, Expr::lit_str(method)] })
+      }
       js::Expression::AwaitExpression(a) => {
         let awaited = self.expr(&a.argument)?;
         Ok(if crate::made_deferred() { Expr::Builtin { name: Builtin::Settle, args: vec![awaited] } } else { awaited })
@@ -528,8 +533,8 @@ impl<'a> Lowerer<'a> {
     let target = self.unwrapped(member.object())?;
     if collection == Some(Kind::Response) {
       return match prop(self)? {
-        Ok(name) if matches!(name.as_str(), "status" | "ok") => Ok(Expr::Builtin { name: Builtin::ResponseMember, args: vec![target, Expr::lit_str(&name)] }),
-        Ok(name) => Err(self.residue(member.span(), format!("`.{name}` of a `Response`; `status`, `ok` and `headers.get` are read"))),
+        Ok(name) if matches!(name.as_str(), "status" | "ok" | "statusText" | "type" | "url" | "redirected") => Ok(Expr::Builtin { name: Builtin::ResponseMember, args: vec![target, Expr::lit_str(&name)] }),
+        Ok(name) => Err(self.residue(member.span(), format!("`.{name}` of a `Response`; `status`, `ok`, `statusText`, `type`, `url`, `redirected` and `headers.get` are read. `text()`, `json()` and `bytes()` are read when awaited"))),
         Err(_) => Err(self.residue(member.span(), "a computed member of a `Response`")),
       };
     }
@@ -568,7 +573,11 @@ impl<'a> Lowerer<'a> {
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
       Ok(name) if name == "size" && matches!(collection.map(Kind::collection), Some(Kind::Map | Kind::Set)) => Ok(Expr::Length(Box::new(target))),
-      Ok(name) if collection == Some(Kind::Typed) && matches!(name.as_str(), "byteLength" | "byteOffset" | "BYTES_PER_ELEMENT") => Ok(Expr::Builtin { name: Builtin::TypedField, args: vec![target, Expr::lit_str(&name)] }),
+      Ok(name) if collection == Some(Kind::Buffer) && name == "maxByteLength" => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if collection == Some(Kind::Buffer) && matches!(name.as_str(), "resizable" | "detached" | "growable") => Ok(Expr::Lit(Lit::Bool(false))),
+      Ok(name) if collection == Some(Kind::Query) && name == "size" => Ok(Expr::Length(Box::new(Expr::Builtin { name: Builtin::FormEntries, args: vec![target] }))),
+      Ok(name) if collection == Some(Kind::Typed) && matches!(name.as_str(), "byteLength" | "byteOffset" | "BYTES_PER_ELEMENT" | "buffer") => Ok(Expr::Builtin { name: Builtin::TypedField, args: vec![target, Expr::lit_str(&name)] }),
+      Ok(name) if collection == Some(Kind::Request) && crate::standard::REQUEST_FIELDS.contains(&name.as_str()) => Ok(Expr::Field(Box::new(Expr::Builtin { name: Builtin::TaggedPayload, args: vec![target, Expr::lit_str(snapfire_fsr_ir::render::typed::REQUEST)] }), name)),
       Ok(name) if collection.is_some_and(|kind| crate::standard::unread(kind, &name)) => Err(self.residue(member.span(), format!("`.{name}` of {}, which the build does not read", collection.expect("checked").described()))),
       Ok(name) if collection.is_none() && self.may_be_getter(&name) && !crate::classes::plain_root(&target) => {
         let t = self.temp();
@@ -628,6 +637,24 @@ impl<'a> Lowerer<'a> {
 }
 
 /// The standard constructors and functions `typeof` answers `"function"` for where nothing binds their name.
+impl Lowerer<'_> {
+  /// The response and the body method of `response.text()`, `response.json()` or `response.bytes()` on a `Response` the build made, which an `await` reads the body through.
+  fn response_body<'e, 'a>(&self, expr: &'e js::Expression<'a>) -> Option<(&'e js::Expression<'a>, &'static str)> {
+    let js::Expression::CallExpression(call) = crate::meaning::bare(expr) else { return None };
+    let member = crate::meaning::bare(&call.callee).as_member_expression()?;
+    if !call.arguments.is_empty() || self.kind_of(member.object()) != Some(Kind::Response) {
+      return None;
+    }
+    let method = match self.member_name(member)?.as_str() {
+      "text" => "text",
+      "json" => "json",
+      "bytes" => "bytes",
+      _ => return None,
+    };
+    Some((member.object(), method))
+  }
+}
+
 const STANDARD_FUNCTIONS: &[&str] = &["Object", "Function", "Array", "Number", "Boolean", "String", "Symbol", "BigInt", "Date", "Promise", "RegExp", "Error", "AggregateError", "SuppressedError", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError", "Map", "Set", "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry", "ArrayBuffer", "SharedArrayBuffer", "DataView", "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float16Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array", "Proxy", "Iterator", "DisposableStack", "AsyncDisposableStack", "URL", "URLSearchParams", "TextEncoder", "TextDecoder", "Response", "Request", "Headers", "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURI", "encodeURIComponent", "decodeURI", "decodeURIComponent", "structuredClone", "atob", "btoa", "fetch", "queueMicrotask", "setTimeout", "clearTimeout", "setInterval", "clearInterval"];
 
 /// The standard namespace objects `typeof` answers `"object"` for where nothing binds their name.

@@ -357,6 +357,20 @@ pub enum Builtin {
   AsSet,
   /// Its argument, an object of a `name` and a `message`, marked as an `Error`.
   AsError,
+  /// Whether its first argument is what the second names: `error` for an `Error`, `view` for a typed array.
+  Is,
+  /// `URL.parse(text, base?)`: the URL, null for text no URL parses from.
+  UrlTry,
+  /// The symbols an object holds fields under, `Object.getOwnPropertySymbols`.
+  SymbolKeys,
+  /// `Symbol(description?)`: a symbol no other equals.
+  SymbolNew,
+  /// A symbol's `description`, `undefined` for one made with none.
+  SymbolDescription,
+  /// `Symbol.keyFor(symbol)`: the key `Symbol.for` registered it under, `undefined` for any other symbol.
+  SymbolKeyFor,
+  /// `RegExp.escape(text)`: the text with each character a pattern would read as syntax escaped, as ECMA-262's `EncodeForRegExpEscape` writes it.
+  RegExpEscape,
   /// `new <element>Array(source)`: a typed array of the element named, `Int16`, from a length, an array or another typed array.
   TypedNew,
   /// Its second argument, an array, as a typed array of the first one's element type; any other first argument answers the array.

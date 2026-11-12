@@ -339,7 +339,13 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         }
         Ok(Expr::Builtin { name: Builtin::Response, args })
       }
-      ("Request", Some(url)) => Ok(Expr::Builtin { name: Builtin::RequestNew, args: vec![url] }),
+      ("Request", Some(url)) => {
+        let mut args = vec![url];
+        if let Some(init) = n.arguments.get(1) {
+          args.push(self.expr(crate::syntax::arg_expr(init))?);
+        }
+        Ok(Expr::Builtin { name: Builtin::RequestNew, args })
+      }
       ("URLSearchParams", None) => Ok(Expr::lit_str("")),
       ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
       ("URL", Some(x)) => {

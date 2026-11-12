@@ -27,7 +27,7 @@ A page calls helpers: `money(cents)`, `categoryLabel(key)`, `percentOff(price, l
 
 Imports resolve by relative path or by the aliases [chapter 302](302-imports-and-aliases.md) describes, `@src/ui/Header` or `@generated/client`. A namespace import works as a tag: `<Ui.Card>` reaches `Card` in the file `import * as Ui` names. A rest in a destructuring is the object without the named keys, so `{ className, ...rest }` spread onto an element or a component passes everything else through. A bare specifier the render reaches, a chart library say, is residue, since the build cannot read it.
 
-The platform's own globals are not residue either. `new Intl.NumberFormat().format(n)` groups a number for the page's locale on both sides. `Intl.DateTimeFormat`, `Intl.PluralRules`, `Intl.ListFormat`, `Intl.Collator`, `Intl.RelativeTimeFormat`, `toLocaleString` and `localeCompare` do what their names say. The build reads each call and answers it on the server with Rust checked against what Chrome writes, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. A call the build cannot read, an option it does not know, leaves the component to render in the browser, where the platform runs it.
+The platform's own globals are not residue either. `new Intl.NumberFormat().format(n)` groups a number for the page's locale on both sides. `Intl.DateTimeFormat`, `Intl.PluralRules`, `Intl.ListFormat`, `Intl.Collator`, `Intl.RelativeTimeFormat`, `toLocaleString` and `localeCompare` do what their names say. The build reads each call and answers it on the server with Rust checked against what Chrome writes, which is what lets the stars on a product card say `1,834` in English and `1 834` in French from one line of TypeScript. A call the build cannot read, an option it does not know, leaves the component to render in the browser, where the platform runs it. [Chapter 901](901-javascripts-built-ins.md) lists every member of JavaScript's standard library with what the build does with it.
 
 One bare specifier is not residue: `@snapfire/fsr/client`, the standard library's side a component imports, for what the platform has no form for. Its counterpart `@snapfire/fsr/host` is what a loader imports: the same members plus the ones only a host runs, which no component may import. `text.slug` and `text.truncate` shape strings, `time.format`, `time.add`, `time.diff` and `time.parse` work on instants in UTC, `crypto.hash` is SHA-256 and `intl.localeTag()` is the locale both sides format under. Each is a pair: a Rust function the server calls and a JavaScript function the browser calls, agreeing byte for byte under the same locale. The same import works in a loader and so does any helper: a body follows imports the way a component does, so `count(n, "item")` from `ext/labels.ts` labels an order on the page and could label it in the loader that fetched it.
 
@@ -51,6 +51,9 @@ One bare specifier is not residue: `@snapfire/fsr/client`, the standard library'
 | `new Date(ms).toLocaleTimeString(locale)` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toLocaleDateString(locale) and toLocaleString(locale) with no options` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toLocaleString(locale, { timeZone }) and its date and time forms` | none | a server render, the browser and every host body |
+| `formatter.formatToParts(date) of an Intl.DateTimeFormat given only a timeZone` | none | a server render, the browser and every host body |
+| `formatter.formatToParts(items) of an Intl.ListFormat` | none | a server render, the browser and every host body |
+| `formatter.formatToParts(value, unit) of an Intl.RelativeTimeFormat` | none | a server render, the browser and every host body |
 | `new Date(ms).toTimeString()` | none | every host body; in a component the browser fills it in |
 | `new Date(ms).toString(), String(date) and a date in a template` | none | every host body; in a component the browser fills it in |
 | `text.toLocaleUpperCase(locale)` | none | a server render, the browser and every host body |
@@ -60,11 +63,16 @@ One bare specifier is not residue: `@snapfire/fsr/client`, the standard library'
 | `Intl.DateTimeFormat().resolvedOptions().timeZone` | none | every host body; in a component the browser fills it in |
 | `formatter.formatToParts(date) of an Intl.DateTimeFormat` | none | a server render, the browser and every host body |
 | `formatter.formatToParts(n) of an Intl.NumberFormat` | none | a server render, the browser and every host body |
-| `new Intl.Locale(tag), its maximize and minimize and Intl.getCanonicalLocales` | none | a server render, the browser and every host body |
+| `new Intl.Locale(tag), its maximize, minimize, getCalendars, getHourCycles, getNumberingSystems, getTextInfo, getTimeZones and getWeekInfo and Intl.getCanonicalLocales` | none | a server render, the browser and every host body |
 | `Intl.supportedValuesOf(key)` | none | a server render, the browser and every host body |
 | `new Intl.DurationFormat(locale, options).format(duration)` | none | a server render, the browser and every host body |
 | `new Intl.DisplayNames(locale, options).of(code)` | none | a server render, the browser and every host body |
-| `formatter.resolvedOptions() of an Intl.DateTimeFormat or an Intl.NumberFormat` | none | a server render, the browser and every host body |
+| `bytes.toBase64(options) of a Uint8Array` | none | a server render, the browser and every host body |
+| `bytes.toHex() of a Uint8Array` | none | a server render, the browser and every host body |
+| `Uint8Array.fromBase64(text, options)` | none | a server render, the browser and every host body |
+| `Uint8Array.fromHex(text)` | none | a server render, the browser and every host body |
+| `formatter.resolvedOptions() of each Intl formatter` | none | a server render, the browser and every host body |
+| `Intl.<formatter>.supportedLocalesOf(locales)` | none | a server render, the browser and every host body |
 | `new Temporal.<type>(...args)` | none | a server render, the browser and every host body |
 | `Temporal.<type>.from(...) and Temporal.<type>.compare(a, b)` | none | a server render, the browser and every host body |
 | `value.<field> of a Temporal value` | none | a server render, the browser and every host body |

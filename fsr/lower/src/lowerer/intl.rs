@@ -54,7 +54,7 @@ impl<'a> Lowerer<'a> {
     let (locale, options) = self.intl_made(formatter, made)?;
     let (name, allowed): (&str, &[(&str, &[&str])]) = match formatter {
       "PluralRules" => ("plural", &[("type", &["cardinal", "ordinal"])]),
-      "Collator" => ("compare", &[("sensitivity", &["base", "accent", "case", "variant"]), ("numeric", &[]), ("usage", &["sort"])]),
+      "Collator" => ("compare", &[("sensitivity", &["base", "accent", "case", "variant"]), ("numeric", &[]), ("usage", &["sort"]), ("ignorePunctuation", &[]), ("caseFirst", &["upper", "lower", "false"])]),
       "DurationFormat" => ("duration", &[("style", &["long", "short", "narrow", "digital"])]),
       "DisplayNames" => ("displayNames", &[("type", &["language", "region", "script", "currency", "calendar", "dateTimeField"]), ("style", &["long", "short", "narrow"]), ("languageDisplay", &["dialect", "standard"]), ("fallback", &["code", "none"])]),
       _ => ("relative", &[("numeric", &["always", "auto"]), ("style", &["long", "short", "narrow"])]),
@@ -276,15 +276,21 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// `formatter.formatToParts(value)` of an `Intl.NumberFormat` or an `Intl.DateTimeFormat`: the call that formats it, with its text read back into parts.
+  /// `formatter.formatToParts(value)` of an `Intl.NumberFormat`, an `Intl.DateTimeFormat`, an `Intl.ListFormat` or an `Intl.RelativeTimeFormat`: the call that formats it, written in parts.
   pub(crate) fn format_to_parts(&mut self, formatter: &str, made: &js::NewExpression, call: &js::CallExpression) -> Lowered<Expr> {
-    let value = match call.arguments.first() {
-      Some(a) => self.expr(crate::syntax::arg_expr(a))?,
-      None => Expr::Lit(Lit::Undefined),
-    };
-    let formatted = self.intl_call(formatter, &made.arguments, vec![value], made.span)?;
+    let mut values = Vec::with_capacity(call.arguments.len().max(1));
+    for a in &call.arguments {
+      values.push(self.expr(crate::syntax::arg_expr(a))?);
+    }
+    if values.is_empty() {
+      values.push(Expr::Lit(Lit::Undefined));
+    }
+    let formatted = self.intl_call(formatter, &made.arguments, values, made.span)?;
     match formatted {
       Expr::Ext { module, name, args } if module == "intl" && name == "date" => Ok(Expr::Ext { module, name: "dateParts".to_owned(), args }),
+      Expr::Ext { module, name, args } if module == "intl" && name == "list" => Ok(Expr::Ext { module, name: "listParts".to_owned(), args }),
+      Expr::Ext { module, name, args } if module == "intl" && name == "relative" => Ok(Expr::Ext { module, name: "relativeParts".to_owned(), args }),
+      Expr::Ext { module, name, args } if module == "intl" && name == "numeric" && matches!(args.get(2), Some(Expr::Lit(Lit::Str(mode))) if mode == "date") => Ok(Expr::Ext { module, name: "numericParts".to_owned(), args }),
       Expr::Ext { module, name, args } if module == "intl" && matches!(name.as_str(), "number" | "currency") => {
         let options = args.last().cloned().unwrap_or(Expr::Object(Vec::new()));
         let style = match name.as_str() {
@@ -304,6 +310,9 @@ impl<'a> Lowerer<'a> {
   /// `formatter.resolvedOptions()` of an `Intl.NumberFormat` or an `Intl.DateTimeFormat`: the locale it resolved to, the Gregorian calendar and the Latin digits the build formats in, the options written where it is made and, for a date, its time zone.
   pub(crate) fn resolved_options(&mut self, formatter: &str, made: &js::NewExpression) -> Lowered<Expr> {
     let (locale, options) = self.intl_made(formatter, &made.arguments)?;
+    if formatter == "DurationFormat" && options.iter().any(|(key, _)| !matches!(key.as_str(), "style" | "numberingSystem" | "fractionalDigits" | "localeMatcher")) {
+      return Err(self.residue(made.span, "`resolvedOptions()` of an `Intl.DurationFormat` given a unit's own style or display; `style`, `numberingSystem` and `fractionalDigits` are read"));
+    }
     let body = self.reaches(Reach::Terminal) || !self.on_render_path();
     let locale = match locale {
       Some(Entry::Field(_, tag)) => tag,

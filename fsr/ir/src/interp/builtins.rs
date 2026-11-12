@@ -38,6 +38,19 @@ pub(super) fn response_builtin(name: Builtin, args: &[Value]) -> Result<Value, F
     Ok(())
   };
   let mut response = HttpResponse::new(200);
+  let status_text = match args.get(if name == Builtin::Response || name == Builtin::ResponseJson { 1 } else { usize::MAX }) {
+    Some(Value::Map(init)) => match init.get("statusText") {
+      None | Some(Value::Undefined) => String::new(),
+      Some(text) => {
+        let text = stringify(text)?;
+        if text.chars().any(|c| c == '\r' || c == '\n' || u32::from(c) > 0xff) {
+          return Err(Fail::internal("TypeError: Response constructor: Invalid statusText"));
+        }
+        text
+      }
+    },
+    _ => String::new(),
+  };
   match name {
     Builtin::Response => {
       init(&mut response, args.get(1))?;
@@ -80,27 +93,151 @@ pub(super) fn response_builtin(name: Builtin, args: &[Value]) -> Result<Value, F
     }
     _ => return Err(Fail::internal(format!("{name:?} does not make a response"))),
   }
-  Ok(response.to_value())
+  Ok(with_status_text(response.to_value(), status_text))
 }
 
-/// `new Request(url)` and what a response's members read and write.
+/// The field of a response value holding its `statusText`, which JavaScript reads and the response written to the wire does not carry.
+const STATUS_TEXT: &str = "statusText";
+
+/// `response` holding `text` as its `statusText`, when there is one.
+fn with_status_text(response: Value, text: String) -> Value {
+  match response {
+    Value::Variant { tag, payload: Some(payload) } if !text.is_empty() => match *payload {
+      Value::Map(mut fields) => {
+        fields.insert(STATUS_TEXT.to_owned(), Value::str(text));
+        Value::Variant { tag, payload: Some(Box::new(Value::Map(fields))) }
+      }
+      other => Value::Variant { tag, payload: Some(Box::new(other)) },
+    },
+    other => other,
+  }
+}
+
+/// The `statusText` a response value holds, empty when it holds none.
+fn status_text_of(response: &Value) -> String {
+  match response {
+    Value::Variant { payload: Some(payload), .. } => match &**payload {
+      Value::Map(fields) => match fields.get(STATUS_TEXT) {
+        Some(Value::Str(text)) => text.to_string(),
+        _ => String::new(),
+      },
+      _ => String::new(),
+    },
+    _ => String::new(),
+  }
+}
+
+/// `new Request(url, init)`: the request's fields as the Fetch standard sets them, the method upper-cased when it is one the standard names. An absolute url is written as the URL parser writes it and a path is kept as given, which a middleware's `next` runs on this origin. An init holding a body, headers or a signal is refused, since the request does not carry them.
+fn request_new(args: &[Value]) -> Result<Value, Fail> {
+  const STRINGS: [(&str, &str, &[&str]); 7] = [
+    ("mode", "cors", &["cors", "no-cors", "same-origin"]),
+    ("credentials", "same-origin", &["omit", "same-origin", "include"]),
+    ("cache", "default", &["default", "no-store", "reload", "no-cache", "force-cache", "only-if-cached"]),
+    ("redirect", "follow", &["follow", "error", "manual"]),
+    ("integrity", "", &[]),
+    ("referrer", "about:client", &[]),
+    ("referrerPolicy", "", &["", "no-referrer", "no-referrer-when-downgrade", "same-origin", "origin", "strict-origin", "origin-when-cross-origin", "strict-origin-when-cross-origin", "unsafe-url"]),
+  ];
+  let given = stringify(args.first().unwrap_or(&Value::Undefined))?;
+  let url = match url::Url::parse(&given) {
+    Ok(parsed) => parsed.to_string(),
+    Err(_) if given.starts_with('/') => given,
+    Err(_) => return Err(Fail::internal(format!("TypeError: Failed to parse URL from {given}"))),
+  };
+  let init = match args.get(1) {
+    None | Some(Value::Null | Value::Undefined) => ValueMap::default(),
+    Some(Value::Map(init)) => init.clone(),
+    Some(other) => return Err(type_error("a request init", "an object", other)),
+  };
+  if let Some(key) = init.keys().find(|key| !matches!(key.as_str(), "method" | "keepalive") && !STRINGS.iter().any(|(name, _, _)| name == key)) {
+    return Err(Fail::internal(format!("a `Request` init holding `{key}`, which the request the build makes does not carry")));
+  }
+  let read = |key: &str| init.get(key).filter(|v| !matches!(v, Value::Undefined));
+  let method = match read("method") {
+    None => "GET".to_owned(),
+    Some(method) => {
+      let method = stringify(method)?;
+      let upper = method.to_ascii_uppercase();
+      if matches!(upper.as_str(), "CONNECT" | "TRACE" | "TRACK") {
+        return Err(Fail::internal(format!("TypeError: '{method}' HTTP method is unsupported.")));
+      }
+      if matches!(upper.as_str(), "DELETE" | "GET" | "HEAD" | "OPTIONS" | "POST" | "PUT") { upper } else { method }
+    }
+  };
+  let mut fields = ValueMap::default();
+  fields.insert("method".to_owned(), Value::str(method));
+  fields.insert("url".to_owned(), Value::str(url));
+  for (key, default, allowed) in STRINGS {
+    let value = match read(key) {
+      None => default.to_owned(),
+      Some(value) => stringify(value)?,
+    };
+    if !allowed.is_empty() && !allowed.contains(&value.as_str()) {
+      return Err(Fail::internal(format!("TypeError: Request constructor: invalid request {key} {value}.")));
+    }
+    fields.insert(key.to_owned(), Value::str(value));
+  }
+  fields.insert("keepalive".to_owned(), Value::Bool(read("keepalive").is_some_and(truthy)));
+  fields.insert("destination".to_owned(), Value::str(""));
+  fields.insert("isReloadNavigation".to_owned(), Value::Bool(false));
+  fields.insert("isHistoryNavigation".to_owned(), Value::Bool(false));
+  fields.insert("duplex".to_owned(), Value::str("half"));
+  Ok(Value::Variant { tag: snapfire_fsr_runtime::REQUEST_TAG.to_owned(), payload: Some(Box::new(Value::Map(fields))) })
+}
+
+/// `text` as `RegExp.escape` writes it: a leading digit or ASCII letter, the punctuators a pattern could read and white space as `\x` or `\u` escapes, the syntax characters after a backslash and the control characters as their escapes.
+fn regexp_escape(text: &str) -> String {
+  let mut out = String::new();
+  for (at, c) in text.chars().enumerate() {
+    let code = u32::from(c);
+    match c {
+      _ if at == 0 && c.is_ascii_alphanumeric() => out.push_str(&format!("\\x{code:02x}")),
+      '^' | '$' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '/' => {
+        out.push('\\');
+        out.push(c);
+      }
+      '\t' => out.push_str("\\t"),
+      '\n' => out.push_str("\\n"),
+      '\u{b}' => out.push_str("\\v"),
+      '\u{c}' => out.push_str("\\f"),
+      '\r' => out.push_str("\\r"),
+      ',' | '-' | '=' | '<' | '>' | '#' | '&' | '!' | '%' | ':' | ';' | '@' | '~' | '\'' | '`' | '"' => out.push_str(&format!("\\x{code:02x}")),
+      _ if c.is_whitespace() || c == '\u{feff}' => {
+        if code <= 0xff { out.push_str(&format!("\\x{code:02x}")) } else { out.push_str(&format!("\\u{code:04x}")) }
+      }
+      _ => out.push(c),
+    }
+  }
+  out
+}
+
+/// What a response's members read and write.
 pub(super) fn message_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
   use snapfire_fsr_runtime::HttpResponse;
   let text = |at: usize| args.get(at).map(stringify).unwrap_or_else(|| Ok(String::new()));
   if name == Builtin::RequestNew {
-    let mut fields = ValueMap::default();
-    fields.insert("url".to_owned(), Value::str(text(0)?));
-    return Ok(Value::Variant { tag: snapfire_fsr_runtime::REQUEST_TAG.to_owned(), payload: Some(Box::new(Value::Map(fields))) });
+    return request_new(args);
   }
   let mut response = match args.first().and_then(HttpResponse::from_value) {
     Some(Ok(response)) => response,
     Some(Err(message)) => return Err(Fail::internal(message)),
     None => return Err(type_error("a response member", "a Response", args.first().unwrap_or(&Value::Undefined))),
   };
+  let member = if name == Builtin::ResponseMember { text(1)? } else { String::new() };
+  if response.downstream.is_some() && matches!(member.as_str(), "text" | "json" | "bytes") {
+    return Err(Fail::internal(format!("`{member}()` of the response `next` answers, whose body the host holds")));
+  }
   Ok(match name {
-    Builtin::ResponseMember => match text(1)?.as_str() {
+    Builtin::ResponseMember => match member.as_str() {
       "status" => Value::F64(f64::from(response.status)),
       "ok" => Value::Bool((200..300).contains(&response.status)),
+      "statusText" => Value::str(status_text_of(&args[0])),
+      "type" => Value::str("default"),
+      "url" => Value::str(""),
+      "redirected" => Value::Bool(false),
+      "text" => Value::str(String::from_utf8_lossy(&response.body).into_owned()),
+      "json" => builtin(Builtin::JsonParse, vec![Value::str(String::from_utf8_lossy(&response.body).into_owned())])?,
+      "bytes" => Value::Seq(snapfire_fsr_core::ValueSeq::from(response.body.iter().map(|b| Value::F64(f64::from(*b))).collect::<Vec<_>>()).with_kind(Collection::Typed(snapfire_fsr_core::TypedElement::Uint8))),
       other => return Err(Fail::internal(format!("`{other}` is not a member of a Response the build reads"))),
     },
     Builtin::ResponseHeaderGet => {
@@ -122,7 +259,7 @@ pub(super) fn message_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fa
         "delete" => response.headers.retain(|(n, _)| !n.eq_ignore_ascii_case(&header)),
         other => return Err(Fail::internal(format!("`headers.{other}` is not one the build reads"))),
       }
-      response.to_value()
+      with_status_text(response.to_value(), status_text_of(&args[0]))
     }
   })
 }
@@ -1356,6 +1493,44 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Some(Value::TypedArray(snapfire_fsr_core::TypedArray::U8(bytes))) => bytes.clone(),
       Some(length) => vec![0; number(name, length)?.max(0.0) as usize],
     })),
+    Builtin::Is => Value::Bool(match text(name, arg(1)?)? {
+      "error" => matches!(arg(0)?, Value::Map(map) if map.kind() == Collection::Error),
+      "view" => typed_element(arg(0)?).is_some(),
+      other => return Err(Fail::internal(format!("Is: `{other}` is not a kind it tells"))),
+    }),
+    Builtin::RegExpEscape => match arg(0)? {
+      Value::Str(text) => Value::str(regexp_escape(text)),
+      other => return Err(type_error("RegExp.escape", "a string", other)),
+    },
+    Builtin::SymbolNew => {
+      static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+      let n = MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+      let key = match args.first() {
+        None | Some(Value::Undefined) => format!("@@#{n}"),
+        Some(description) => format!("@@#{n}:{}", stringify(description)?),
+      };
+      Value::Variant { tag: snapfire_fsr_core::value::typed::SYMBOL.to_owned(), payload: Some(Box::new(Value::str(key))) }
+    }
+    Builtin::SymbolDescription | Builtin::SymbolKeyFor => match arg(0)? {
+      Value::Variant { tag, payload: Some(key) } if tag == snapfire_fsr_core::value::typed::SYMBOL => {
+        let key = stringify(key)?;
+        let found = if name == Builtin::SymbolKeyFor { key.strip_prefix("@@for:").map(str::to_owned) } else { snapfire_fsr_core::value::typed::symbol_description(&key) };
+        found.map_or(Value::Undefined, Value::str)
+      }
+      other => return Err(type_error(&format!("{name:?}"), "a symbol", other)),
+    },
+    Builtin::SymbolKeys => match arg(0)? {
+      Value::Map(map) => Value::seq(map.keys().filter(|k| snapfire_fsr_core::value::typed::symbol_key(k)).map(|k| Value::Variant { tag: snapfire_fsr_core::value::typed::SYMBOL.to_owned(), payload: Some(Box::new(Value::str(k.as_str()))) }).collect::<Vec<_>>()),
+      other => return Err(type_error("Object.getOwnPropertySymbols", "an object", other)),
+    },
+    Builtin::UrlTry => {
+      let text = stringify(arg(0)?)?;
+      let parsed = match args.get(1) {
+        None | Some(Value::Undefined) => url::Url::parse(&text),
+        Some(base) => url::Url::parse(&stringify(base)?).and_then(|base| base.join(&text)),
+      };
+      parsed.map_or(Value::Null, |url| Value::str(url.to_string()))
+    }
     Builtin::UrlParse => {
       let text = stringify(arg(0)?)?;
       let parsed = match args.get(1) {
@@ -1775,10 +1950,19 @@ fn typed_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
       let field = text(name, arg(1))?;
       match (typed_element(arg(0)), arg(0)) {
         (Some(element), array) => {
-          let length = match as_items(array.clone()) {
-            Value::Seq(items) => items.len() as f64,
-            _ => 0.0,
+          let items = match as_items(array.clone()) {
+            Value::Seq(items) => items.into_items(),
+            _ => Vec::new(),
           };
+          if field == "buffer" {
+            let mut bytes = Vec::with_capacity(items.len() * element.bytes());
+            for item in &items {
+              bytes.extend(element_to_le(element.name(), item)?);
+            }
+            let bytes: Vec<Value> = bytes.into_iter().map(|b| Value::F64(f64::from(b))).collect();
+            return Ok(Value::Seq(snapfire_fsr_core::ValueSeq::from(bytes).with_kind(Collection::Opaque)));
+          }
+          let length = items.len() as f64;
           Ok(Value::F64(match field {
             "byteLength" => length * element.bytes() as f64,
             "byteOffset" => 0.0,

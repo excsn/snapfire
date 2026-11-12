@@ -13,6 +13,37 @@ pub fn register(extensions: &mut Extensions) {
     crate::interp::typed_from("Uint8", &bytes)
   });
   extensions.register("encoding.decode", Reach::Render, |_, args| decode(args.first()));
+  extensions.register("encoding.toBase64", Reach::Render, |_, args| {
+    let bytes = byte_list("Uint8Array.prototype.toBase64", args.first())?;
+    let (url, bare) = (option(args.get(1), "alphabet").as_deref() == Some("base64url"), args.get(1).is_some_and(|o| matches!(o, Value::Map(m) if matches!(m.get("omitPadding"), Some(Value::Bool(true))))));
+    let mut text = super::crypto::base64(&bytes);
+    if url {
+      text = text.replace('+', "-").replace('/', "_");
+    }
+    if bare {
+      text = text.trim_end_matches('=').to_owned();
+    }
+    Ok(Value::str(text))
+  });
+  extensions.register("encoding.toHex", Reach::Render, |_, args| {
+    let bytes = byte_list("Uint8Array.prototype.toHex", args.first())?;
+    Ok(Value::str(bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()))
+  });
+  extensions.register("encoding.fromBase64", Reach::Render, |_, args| {
+    let given = text("Uint8Array.fromBase64", args, 0)?;
+    let standard = if option(args.get(1), "alphabet").as_deref() == Some("base64url") { given.replace('-', "+").replace('_', "/") } else { given.to_owned() };
+    let decoded = atob(&standard).map_err(|_| Fail::internal("SyntaxError: Uint8Array.fromBase64: not base64"))?;
+    crate::interp::typed_from("Uint8", &decoded.chars().map(|c| Value::F64(f64::from(u32::from(c)))).collect::<Vec<_>>())
+  });
+  extensions.register("encoding.fromHex", Reach::Render, |_, args| {
+    let given = text("Uint8Array.fromHex", args, 0)?;
+    let invalid = || Fail::internal("SyntaxError: Uint8Array.fromHex: not hex");
+    if given.len() % 2 != 0 {
+      return Err(invalid());
+    }
+    let bytes = (0..given.len()).step_by(2).map(|at| given.get(at..at + 2).and_then(|pair| u8::from_str_radix(pair, 16).ok()).map(|b| Value::F64(f64::from(b))).ok_or_else(invalid)).collect::<Result<Vec<_>, _>>()?;
+    crate::interp::typed_from("Uint8", &bytes)
+  });
 }
 
 /// The base64 of `s`'s code units, each of which must be at most U+00FF, as the browser's `btoa` answers.
@@ -61,6 +92,29 @@ pub fn atob(s: &str) -> Result<String, Fail> {
     }
   }
   Ok(out)
+}
+
+/// A string option of `options`.
+fn option(options: Option<&Value>, key: &str) -> Option<String> {
+  match options {
+    Some(Value::Map(map)) => match map.get(key) {
+      Some(Value::Str(s)) => Some(s.to_string()),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
+/// The bytes of a `Uint8Array` or of an array of numbers from 0 to 255.
+fn byte_list(what: &str, bytes: Option<&Value>) -> Result<Vec<u8>, Fail> {
+  match bytes.cloned().map(crate::interp::as_items) {
+    Some(Value::Seq(items)) => items.iter().map(|b| match b {
+      Value::F64(n) => Ok(*n as u8),
+      Value::Int(n) => Ok(*n as u8),
+      other => Err(Fail::internal(format!("TypeError: {what}: a byte wants a number, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+    }).collect(),
+    other => Err(Fail::internal(format!("TypeError: {what}: wants a Uint8Array, got {}", other.as_ref().map_or("nothing", snapfire_fsr_core::ext::kind_name)))),
+  }
 }
 
 /// The UTF-8 text of `bytes`, a malformed sequence as U+FFFD and a leading byte order mark dropped, as `new TextDecoder().decode(bytes)` answers.

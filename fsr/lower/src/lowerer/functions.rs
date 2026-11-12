@@ -225,26 +225,25 @@ impl<'a> Lowerer<'a> {
         if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| *f) {
           return Some(named(name.to_owned(), function));
         }
-        struct Declarators<'n, 'b, 'a> {
-          name: &'n str,
-          b: crate::syntax::Build<'a>,
-          found: Vec<&'b js::VariableDeclarator<'a>>,
-        }
-        impl<'a> oxc_ast_visit::Visit<'a> for Declarators<'_, '_, 'a> {
-          fn visit_variable_declarator(&mut self, decl: &js::VariableDeclarator<'a>) {
-            if matches!(&decl.id, js::BindingPattern::BindingIdentifier(bound) if bound.name.as_str() == self.name) {
-              self.found.push(self.b.alloc(self.b.copy(decl)));
-            }
-            oxc_ast_visit::walk::walk_variable_declarator(self, decl);
+        let all = self.function_declarators.get_or_init(|| {
+          struct Declarators<'a> {
+            b: crate::syntax::Build<'a>,
+            found: Vec<(String, &'a js::VariableDeclarator<'a>)>,
           }
-        }
-        let holds_function = |bound: Option<&Expr>| matches!(bound, Some(Expr::Lambda { .. } | Expr::Fix { .. }));
-        if !holds_function(self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, b)| b)) && !holds_function(self.globals.iter().rev().find(|(n, _)| n == name).map(|(_, b)| b)) {
-          return None;
-        }
-        let mut declarators = Declarators { name, b: self.build(), found: Vec::new() };
-        oxc_ast_visit::Visit::visit_program(&mut declarators, self.parsed.module());
-        let [decl] = declarators.found[..] else { return None };
+          impl<'a> oxc_ast_visit::Visit<'a> for Declarators<'a> {
+            fn visit_variable_declarator(&mut self, decl: &js::VariableDeclarator<'a>) {
+              if let (js::BindingPattern::BindingIdentifier(bound), Some(js::Expression::FunctionExpression(_) | js::Expression::ArrowFunctionExpression(_))) = (&decl.id, decl.init.as_ref().map(strip_parens)) {
+                self.found.push((bound.name.to_string(), self.b.alloc(self.b.copy(decl))));
+              }
+              oxc_ast_visit::walk::walk_variable_declarator(self, decl);
+            }
+          }
+          let mut declarators = Declarators { b: self.build(), found: Vec::new() };
+          oxc_ast_visit::Visit::visit_program(&mut declarators, self.parsed.module());
+          declarators.found
+        });
+        let found: Vec<&'a js::VariableDeclarator<'a>> = all.iter().filter(|(n, _)| n == name).map(|(_, d)| *d).collect();
+        let [decl] = found[..] else { return None };
         match decl.init.as_ref().map(strip_parens) {
           Some(js::Expression::FunctionExpression(f)) => Some(named(name.to_owned(), f)),
           Some(js::Expression::ArrowFunctionExpression(arrow)) => Some((name.to_owned(), &*arrow.params, arrow.span)),

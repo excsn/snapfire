@@ -288,7 +288,7 @@ fn array<'v>(out: &mut String, items: impl ExactSizeIterator<Item = &'v Value>, 
 /// The fields `unwritten` leaves in, as `{}` when none is.
 fn object<'v>(out: &mut String, fields: impl Iterator<Item = (&'v str, &'v Value)>, indent: &str, depth: usize, integers: Integers) -> Result<(), Unwritable> {
   let mut written = 0;
-  for (key, item) in fields.filter(|(_, v)| !unwritten(v)) {
+  for (key, item) in fields.filter(|(k, v)| !unwritten(v) && !typed::symbol_key(k)) {
     out.push(if written == 0 { '{' } else { ',' });
     written += 1;
     newline(out, indent, depth + 1);

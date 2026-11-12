@@ -31,6 +31,9 @@ pub(crate) fn members(kind: Kind) -> &'static [&'static str] {
   }
 }
 
+/// The fields of a `Request` the build makes, which a read of one lowers to.
+pub(crate) const REQUEST_FIELDS: &[&str] = &["method", "url", "mode", "credentials", "cache", "redirect", "integrity", "keepalive", "destination", "referrer", "referrerPolicy", "isReloadNavigation", "isHistoryNavigation", "duplex"];
+
 /// The members a value of `kind` holds as its own fields, which a read lowers to.
 fn held(kind: Kind) -> &'static [&'static str] {
   match kind {
@@ -38,6 +41,7 @@ fn held(kind: Kind) -> &'static [&'static str] {
     Kind::Locale => &["language", "script", "region", "baseName", "calendar", "caseFirst", "collation", "firstDayOfWeek", "hourCycle", "numeric", "numberingSystem"],
     Kind::Error => &["name", "message"],
     Kind::Stack => &["disposed"],
+    Kind::Request => REQUEST_FIELDS,
     _ => &[],
   }
 }

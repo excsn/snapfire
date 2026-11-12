@@ -7,6 +7,11 @@ impl Lowerer<'_> {
   /// `array.<method>(...)` of a typed array: the method an array has, called on its numbers, the answer a typed array of the receiver's element type where JavaScript's is one. `subarray` copies, as a typed array the build holds owns its items. `toSorted` with no comparator orders the numbers, not their text.
   pub(crate) fn typed_call(&mut self, method: &str, member: &js::MemberExpression, call: &js::CallExpression) -> Lowered<Expr> {
     let receiver = self.expr(member.object())?;
+    if matches!(method, "toBase64" | "toHex") {
+      let mut args = vec![receiver];
+      args.extend(self.plain_args(call)?);
+      return Ok(Expr::Ext { module: "encoding".to_owned(), name: method.to_owned(), args });
+    }
     let held = self.temp();
     let b = self.build();
     let ast = b.ast();
