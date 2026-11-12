@@ -1408,7 +1408,7 @@ transport = "mock"
 Desktop mode is experimental and tried on macOS only. With the `desktop` feature, `--desktop` opens the application in a native window over the system webview: WebKit on macOS and Linux, WebView2 on Windows. The page and the host are the ones a browser gets; the window loads the host over loopback.
 
 ```sh
-cargo install --path fsr/cli --features desktop
+cargo install snapfire_fsr_cli --features desktop
 ```
 
 `fsr serve --desktop` binds an ephemeral port on `127.0.0.1` unless `--listen` names one, opens the window once the port answers and exits when the window closes.
@@ -1458,7 +1458,7 @@ The window installs a bridge before the page's scripts run, which `@snapfire/fsr
 Terminal mode is experimental. With the `terminal` feature, `fsr dev` runs an app whose `config/app.toml` has `runs = "terminal"` under `[app]` in this terminal instead of serving it; `--terminal` asks for the terminal on any app. `fsr new --terminal` writes that line and an Ink root page. `fsr migrate` writes it for an Ink application. A root page that imports from `@snapfire/fsr/terminal/ink` in an app without it is refused by the build, naming the line. `fsr run app` runs the program once with no watcher, its own arguments after `--`; a refused page ends the run with the reason instead of waiting for an edit. `fsr build` and `fsr check` lower such an app as the terminal does, with no browser half, so its generated types follow its loader. `fsr check` typechecks it against FSR's declarations of its terminal modules, which the binary writes under `types/@snapfire/fsr/terminal/`, and against React's own from `fsr types`; a Box or Text prop the terminal does not draw is a type error. The page is an Ink component: `Box`, `Text`, `Spacer`, `Newline` and `useInput` come from `@snapfire/fsr/terminal/ink`, FSR's own Ink; an import from `ink` is refused with that module named. `fsr migrate` writes it in place of `ink`. No Node runs and nothing is served.
 
 ```sh
-cargo install --path fsr/cli --features terminal
+cargo install snapfire_fsr_cli --features terminal
 fsr dev app
 ```
 
