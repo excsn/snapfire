@@ -766,6 +766,10 @@ fn main() -> ExitCode {
       match emit(&args.app_dir, args.options()) {
         Ok(emitted) => {
           snapfire_fsr_cli::dev::print_report(&emitted.built.report, args.verbose);
+          match snapfire_fsr_cli::features::check(&args.app_dir, &emitted.built) {
+            Ok(lines) => lines.iter().for_each(|line| println!("{line}")),
+            Err(e) => return failed(e),
+          }
           if args.verbose {
             for path in emitted.written {
               println!("wrote {}", path.display());

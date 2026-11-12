@@ -134,6 +134,16 @@ wrote app/generated/services.d.ts
 wrote app/generated/host.ts
 ```
 
+The build then checks the host features the application calls for against the binary that will serve it, as the host itself would at boot. An application with no crate is served by `fsr serve` and `fsr-server`, which both carry the host's `stock` features. One with its own crate is checked against the features cargo resolves for `snapfire_fsr_host` in it, so a missing feature stops the build and names where to turn it on:
+
+```
+this host is built without features the application calls for:
+  needs the host's `tls` for [server.tls]
+turn them on for snapfire_fsr_host in /path/to/project/Cargo.toml
+```
+
+A client's transport and a `.tera` template are printed as `features` rows rather than refused, since a crate can answer them in code: by handing the host its services or by registering its own evaluator.
+
 ## Laying Out Routes
 
 A directory is a route when it holds `page.tsx`. Directories without one are only path segments.

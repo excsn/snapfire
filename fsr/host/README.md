@@ -42,8 +42,9 @@ Serving with hyper or axum needs no feature.
 | `graphql` | off | `clients/<name>.graphql` contracts |
 | `http` | off | OpenAPI contracts called over HTTP. A mocked client is served without it |
 | `sites_reload` | off | `POST /__fsr/sites/reload`, which reloads the mounted sites. The host does not guard this route |
+| `stock` | off | What the stock host carries, the one `fsr serve` and `fsr-server` run: `auth`, `oidc`, `passkey`, `tera`, `tls`, `grpc`, `graphql`, `http`, `share_cards`, `tz_compiled` and `tz_system` |
 
-When a configuration needs a feature the binary was built without, the host refuses to boot and names the feature. That covers an `[auth]` section, an `oidc` or `passkey` method, `[server.tls]`, a plan that draws card images and a `.proto`, `.graphql` or HTTP client.
+When a configuration needs a feature the binary was built without, the host refuses to boot and names the feature with what calls for it. That covers an `[auth]` section, an `oidc` or `passkey` method, `[server.tls]`, `[time] zones`, a `.tera` template, a plan that draws card images and a `.proto`, `.graphql` or HTTP client. A client is not asked for when the builder is handed its services, nor a template that an evaluator registered on the builder answers. `features::needs` is that rule. `fsr build` runs it against an application's own crate before anything boots.
 
 ## Quick start
 

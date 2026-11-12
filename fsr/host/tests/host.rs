@@ -8737,3 +8737,37 @@ async fn under_actix_the_body_limit_is_server_max_body() {
   assert_eq!(via.0, 413, "{via:?}");
   assert!(via.1.contains("server.max_body"), "the host's own refusal: {via:?}");
 }
+
+/// Each host feature an application's configuration or files call for, named with what calls for it.
+#[test]
+fn needs_names_each_feature_with_what_calls_for_it() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  let extra = "\n[time]\nzones = \"compiled\"\n\n[clients.stock]\ndocument = \"clients/stock.proto\"\nbase_url = \"http://127.0.0.1:1\"\n\n[clients.ledger]\ndocument = \"clients/ledger.graphql\"\nbase_url = \"http://127.0.0.1:1\"\n\n[clients.mocked]\ntransport = \"mock\"\n";
+  std::fs::write(dir.join("app.toml"), format!("{toml}{extra}")).unwrap();
+  std::fs::create_dir_all(dir.join("routes/about")).unwrap();
+  std::fs::write(dir.join("routes/about/page.tera"), "<p>about</p>").unwrap();
+  let config = snapfire_fsr_host::config::Config::load(dir.join("app.toml")).unwrap();
+  let needs = snapfire_fsr_host::features::needs(&config, true).unwrap();
+  let named: Vec<String> = needs.iter().map(|need| need.to_string()).collect();
+  for want in ["`tz_compiled` for [time] zones = \"compiled\"", "`grpc` for clients/stock.proto", "`graphql` for clients/ledger.graphql", "`tera` for routes/about/page.tera", "`share_cards` for a card image the plan draws"] {
+    assert!(named.iter().any(|need| need == want), "{want} in {named:?}");
+  }
+  assert!(!named.iter().any(|need| need.contains("mocked")), "a mocked client calls for nothing: {named:?}");
+  assert!(needs.iter().filter(|need| need.instead.is_some()).all(|need| ["grpc", "graphql", "http", "tera"].contains(&need.feature)));
+}
+
+/// A host built without a feature the configuration calls for refuses at boot, naming the feature and what calls for it. A client's transport is not asked of a host handed its services.
+#[test]
+fn a_host_without_a_feature_the_application_calls_for_refuses_naming_both() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[clients.stock]\ndocument = \"clients/stock.proto\"\nbase_url = \"http://127.0.0.1:1\"\n")).unwrap();
+  let refused = Host::from(dir.join("app.toml")).unwrap().build().err().map(|e| e.to_string());
+  match snapfire_fsr_host::features::built("grpc") {
+    true => assert!(refused.as_deref().is_none_or(|e| !e.contains("built without")), "{refused:?}"),
+    false => assert!(refused.as_deref().is_some_and(|e| e.contains("`grpc` for clients/stock.proto")), "{refused:?}"),
+  }
+  let handed = Host::from(dir.join("app.toml")).unwrap().services(snapfire_fsr_service::registry::Services::builder().build()).build().err().map(|e| e.to_string());
+  assert!(handed.as_deref().is_none_or(|e| !e.contains("built without")), "{handed:?}");
+}

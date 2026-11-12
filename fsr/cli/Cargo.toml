@@ -18,7 +18,9 @@ name = "fsr"
 path = "src/main.rs"
 
 [features]
-default = ["test", "web", "tera", "mdx-highlight", "mdx-frontmatter", "grpc", "graphql", "http", "share_cards", "tz_system"]
+default = ["test", "web", "mdx-highlight", "mdx-frontmatter", "stock"]
+# The host `fsr serve` runs carries the host's `stock` features, the same ones `fsr-server` carries in production.
+stock = ["tera", "grpc", "graphql", "http", "share_cards", "tz_system", "tls", "snapfire_fsr_host/stock"]
 # `fsr test` and the QuickJS engine it runs specs in. Off, the binary links no
 # JavaScript engine, which is the build to serve a deployment with.
 test = ["web", "dep:snapfire_fsr_engine"]

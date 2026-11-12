@@ -25,15 +25,16 @@ The default features cover a web application. Add `--features desktop` for a nat
 | --- | --- | --- |
 | `test` | on | `fsr test` and the QuickJS engine it runs specs in. It turns `web` on. Off, the binary links no JavaScript engine |
 | `web` | on | The web half: `fsr prerender`, `bundle`, `sites`, `census`, `use`, `add`, `types` and `fonts`. Off, `fsr` still builds, serves and checks an app but has none of these commands |
-| `tera` | on | `page.tera` and `layout.tera` routes, rendered by the stock host |
+| `stock` | on | The stock host's features, the host's own `stock` feature: `tera`, `share_cards`, `grpc`, `graphql`, `http`, `tls`, `tz_system` and every sign-in method. `fsr-server` carries the same, so an application boots the same under `fsr serve` and in production |
+| `tera` | with `stock` | `page.tera` and `layout.tera` routes, rendered by the stock host |
 | `mdx` | on | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
 | `mdx-highlight` | on | `mdx`, plus fenced code highlighted at build and `styles/code.css` from the direction |
 | `mdx-frontmatter` | on | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
-| `share_cards` | on | Card images drawn by the stock host |
-| `grpc` | on | `clients/<name>.proto` contracts, imported at build and called over gRPC |
-| `graphql` | on | `clients/<name>.graphql` contracts |
-| `http` | on | OpenAPI contracts called over HTTP by the stock host |
-| `tls` | off | TLS in the stock host |
+| `share_cards` | with `stock` | Card images drawn by the stock host |
+| `grpc` | with `stock` | `clients/<name>.proto` contracts, imported at build and called over gRPC |
+| `graphql` | with `stock` | `clients/<name>.graphql` contracts |
+| `http` | with `stock` | OpenAPI contracts called over HTTP by the stock host |
+| `tls` | with `stock` | TLS in the stock host |
 | `client-source-maps` | off | The browser client's source maps, with its TypeScript, served beside it so devtools show the client's source; about 1.3 MB |
 | `desktop` | off | Experimental. It turns `web` on. `fsr dev --desktop` and `fsr serve --desktop`: the application in a native window over the system webview, through wry, tao and muda |
 | `terminal` | off | Experimental. `fsr dev --terminal`: the root page run in the terminal with Ink's elements and `useInput`, through `snapfire_fsr_terminal` and crossterm. Needs no `web`, so `--no-default-features --features terminal` is an `fsr` without Tera or MDX |

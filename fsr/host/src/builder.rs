@@ -435,6 +435,21 @@ impl HostBuilder {
     #[cfg(feature = "ws")]
     let sockets = self.sockets.take().unwrap_or_else(|| Arc::new(socket::Sockets::new()));
     let http2 = self.http2;
+    let handed_services = self.services.is_some();
+    let needs = crate::features::needs(&self.artifact.config, false)?;
+    // A template is checked once the evaluators are known, by `templates_answered`.
+    let missing: Vec<&crate::features::Need> = needs
+      .iter()
+      .filter(|need| !crate::features::built(need.feature))
+      .filter(|need| match need.instead {
+        Some(crate::features::Instead::Services) => !handed_services,
+        Some(crate::features::Instead::Evaluator) => false,
+        None => true,
+      })
+      .collect();
+    if !missing.is_empty() {
+      return Err(HostError::Config(self.artifact.config.root.clone(), crate::features::refusal(&missing)));
+    }
     let (tables, mut config) = self.assemble()?;
     if config.session.key.is_none() && config.dev() {
       config.session.key = Some(snapfire_fsr_session::random_token());

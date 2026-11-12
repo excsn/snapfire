@@ -53,6 +53,8 @@ grpc = ["snapfire_fsr_service/grpc"]
 graphql = ["snapfire_fsr_service/graphql"]
 # An OpenAPI contract called over HTTP. A mocked one needs no feature.
 http = ["snapfire_fsr_service/http"]
+# What the stock host carries, the one `fsr serve` runs in development and `fsr-server` in production, so the two boot the same applications. `features::STOCK` lists it.
+stock = ["auth", "oidc", "passkey", "tera", "tls", "grpc", "graphql", "http", "share_cards", "tz_compiled", "tz_system"]
 
 [dependencies]
 fibre = "0.6"

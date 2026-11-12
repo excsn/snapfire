@@ -20,7 +20,7 @@ reload_route = ["snapfire_fsr_host/sites_reload"]
 # `HttpStore`, a store fetched over HTTP.
 http = ["dep:ureq"]
 # The `fsr-server` binary: the stock host for an application with no crate of its own, in production.
-server = ["http", "snapfire_fsr_host/auth", "snapfire_fsr_host/oidc", "snapfire_fsr_host/passkey", "snapfire_fsr_host/tera", "snapfire_fsr_host/tls", "snapfire_fsr_host/grpc", "snapfire_fsr_host/graphql", "snapfire_fsr_host/http", "snapfire_fsr_host/share_cards", "tokio/rt-multi-thread", "tokio/net"]
+server = ["http", "snapfire_fsr_host/stock", "tokio/rt-multi-thread", "tokio/net"]
 
 [dependencies]
 snapfire_fsr_core.workspace = true

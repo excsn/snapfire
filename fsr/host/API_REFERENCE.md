@@ -59,6 +59,7 @@ The stock FSR host: `config/` and the build's artifacts served as a `tower::Serv
   * [Artifact](#artifact)
   * [Host::from](#hostfrom)
   * [HostBuilder](#hostbuilder)
+  * [features](#features)
 * [3. The Host](#3-the-host)
   * [Host](#host)
   * [Host::reload](#hostreload)
@@ -796,6 +797,18 @@ A built application as the host reads it.
   * Builds the session layer and the static roots.
   * Everything except the session layer is the host's tables, which `reload` replaces whole.
   * When `LIFELINE` is set in the environment, starts watching stdin.
+
+### features
+
+Which of the host's Cargo features an application calls for, read from its configuration and files.
+
+* `pub const STOCK: &[&str]`: the features of the `stock` feature, which `fsr serve` and `fsr-server` are built with.
+* `pub fn built(feature: &str) -> bool`: whether this build holds `feature`. A name the host does not define is `false`.
+* `pub fn needs(config: &Config, draws_cards: bool) -> Result<Vec<Need>, HostError>`: each feature `config` and the files under its app directory call for. `draws_cards` is whether the plan holds a card image. `Io` when the app directory does not read.
+* `pub struct Need { pub feature: &'static str, pub because: String, pub instead: Option<Instead> }`, `#[non_exhaustive]`. `because` is what calls for the feature as the configuration or tree spells it, such as `[server.tls]` or `clients/shop.proto`. `instead` is what a crate can do in code in place of the feature. `Display` writes `` `tls` for [server.tls] ``.
+* `pub enum Instead { Services, Evaluator }`, `#[non_exhaustive]`. A client's transport is not built for a builder handed `HostBuilder::services`. A template a registered `HostBuilder::evaluator` answers needs no `tera`. `describe(self) -> &'static str` says so in a sentence.
+* `pub fn refusal(missing: &[&Need]) -> String`: the message the host and `fsr build` give for features a binary lacks, one line each.
+* `HostBuilder::build` refuses with `Config` and that message when the build lacks a feature the configuration calls for. A client's need is skipped when the builder was handed its services. A template's is left to the check that runs once the evaluators are known.
 
 ## 3. The Host
 

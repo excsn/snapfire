@@ -11,6 +11,7 @@ pub mod desktop;
 pub mod dev;
 pub mod direction;
 pub mod doctor;
+pub mod features;
 pub mod migrate;
 pub mod new;
 pub mod plugins;
@@ -232,6 +233,9 @@ pub enum BuildError {
   Types(String),
   #[error("bundle: {0}")]
   Bundle(String),
+  /// Host features the application calls for that the binary serving it lacks.
+  #[error("{0}")]
+  Features(String),
   #[error("{0}")]
   Tool(String),
   #[error("typecheck: {0}")]
