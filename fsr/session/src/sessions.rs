@@ -363,8 +363,37 @@ impl Sessions {
     self.csrf.issue(opened)
   }
 
-  pub fn verify_csrf(&self, opened: &Opened, token: &str) -> bool {
-    self.csrf.verify(opened, token)
+  /// Whether `token` stands for this request, spending it under a single-use scheme. A token the stored
+  /// record held when the request opened is checked and spent in the store, under the lock saves take, so
+  /// two requests that opened before either saved cannot both spend it. A store shared between processes
+  /// can still interleave them. A sealed session has no store and is checked against its own cookie.
+  pub async fn verify_csrf(&self, opened: &Opened, token: &str) -> bool {
+    if !self.csrf.verify(opened, token) {
+      return false;
+    }
+    let (Keeping::Stored { store, .. }, Some(base)) = (&self.keeping, &opened.base) else {
+      return true;
+    };
+    if !self.csrf.verify(&Self::with_csrf_state(opened, &base.csrf), token) {
+      return true;
+    }
+    let _holding = self.saving[stripe_of(&opened.id)].lock().await;
+    let Some(mut latest) = store.load(&opened.id).await else { return false };
+    let probe = Self::with_csrf_state(opened, &latest.csrf);
+    if !self.csrf.verify(&probe, token) {
+      return false;
+    }
+    let spent = probe.csrf.snapshot();
+    if spent == latest.csrf {
+      return true;
+    }
+    latest.csrf = spent;
+    store.save(&opened.id, latest).await.is_ok()
+  }
+
+  /// `opened` holding `csrf` as its scheme state, for asking the scheme about another copy of the record.
+  fn with_csrf_state(opened: &Opened, csrf: &ValueMap) -> Opened {
+    Opened { csrf: TokenCell::new(csrf.clone()), ..opened.clone() }
   }
 
   /// The same session under a new id, the old record deleted. Called on sign-in, so an id someone else fixed in the visitor's browser before login never becomes the signed-in one.

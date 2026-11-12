@@ -225,7 +225,7 @@ Logout is a state change, so the adapter verifies CSRF first, then calls `logout
 
 ```rust
 async fn handle_logout(sessions: &Sessions, auth: &Auth, opened: &Opened, token: &str) -> Response {
-  if !sessions.verify_csrf(opened, token) {
+  if !sessions.verify_csrf(opened, token).await {
     return status(403, "csrf verification failed".to_owned());
   }
   auth.logout(opened);

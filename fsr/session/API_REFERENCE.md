@@ -129,7 +129,7 @@ A sealed session:
 CSRF:
 
 * `pub fn csrf_token(&self, opened: &Opened) -> String`: the scheme's `issue`.
-* `pub fn verify_csrf(&self, opened: &Opened, token: &str) -> bool`: the scheme's `verify`. A token never verifies for another session.
+* `pub async fn verify_csrf(&self, opened: &Opened, token: &str) -> bool`: the scheme's `verify`. A token the stored record held when the request opened is also checked and spent in the store, under the lock saves take in this process, so two overlapping requests cannot both spend a single-use token. A sealed session is checked against its cookie alone. A token never verifies for another session.
 * `pub fn rotate_csrf(&self, opened: &Opened)`: the scheme's `rotate`.
 * `pub fn csrf_scheme(&self) -> Arc<dyn CsrfScheme>`
 

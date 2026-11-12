@@ -273,11 +273,11 @@ impl Host {
   }
 
   /// Whether a write's CSRF token stands, under `session.csrf`: none is asked under `origin`, nor of an anonymous session under `identified`, since the origin check already passed.
-  pub(crate) fn token_holds(&self, opened: &Opened, token: &str) -> bool {
+  pub(crate) async fn token_holds(&self, opened: &Opened, token: &str) -> bool {
     match self.csrf {
       crate::CsrfTokens::None => true,
       crate::CsrfTokens::Identified if opened.cell.identity().is_none() => true,
-      _ => self.sessions.verify_csrf(opened, token),
+      _ => self.sessions.verify_csrf(opened, token).await,
     }
   }
 
@@ -841,7 +841,7 @@ impl Host {
             Some(Value::Str(token)) => token.to_string(),
             _ => String::new(),
           };
-          if !self.token_holds(opened, &token) {
+          if !self.token_holds(opened, &token).await {
             return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
           }
           let mut input = Value::Map(fields);
@@ -959,7 +959,7 @@ impl Host {
           Some(Value::Str(token)) => token.to_string(),
           _ => String::new(),
         };
-        if !self.token_holds(opened, &token) {
+        if !self.token_holds(opened, &token).await {
           return text_response(StatusCode::FORBIDDEN, "csrf verification failed".to_owned());
         }
         Value::Map(fields)

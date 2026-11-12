@@ -270,17 +270,17 @@ let csrf = sessions.csrf_token(&opened);
 Pass it into the render so pages can embed it in forms, then check it on the way back.
 
 ```rust
-if !sessions.verify_csrf(&opened, &submitted) {
+if !sessions.verify_csrf(&opened, &submitted).await {
   return HttpResponse::Forbidden().body("csrf verification failed");
 }
 ```
 
-A token never validates for another session and a wrong one returns `false` rather than panicking. A scheme keeps whatever it needs in `opened.csrf`, a cell the layer persists with the rest of the record and that nothing else reads. Call `rotate_csrf` once a session is identified, so a token learned before sign-in is worthless after; `destroy` rotates on its own.
+A token never validates for another session and a wrong one returns `false` rather than panicking. A token the stored record held when the request opened is checked and spent in the store, so two posts that opened the session before either saved cannot both use it. Across processes sharing one store they still can. A scheme keeps whatever it needs in `opened.csrf`, a cell the layer persists with the rest of the record and that nothing else reads. Call `rotate_csrf` once a session is identified, so a token learned before sign-in is worthless after; `destroy` rotates on its own.
 
 ```rust
 let token = sessions.csrf_token(&opened);
-assert!(sessions.verify_csrf(&opened, &token));
-assert!(!sessions.verify_csrf(&opened, &token), "single use");
+assert!(sessions.verify_csrf(&opened, &token).await);
+assert!(!sessions.verify_csrf(&opened, &token).await, "single use");
 sessions.rotate_csrf(&opened);
 ```
 
@@ -373,7 +373,7 @@ let token = match params.shift_remove("_csrf") {
   Some(Value::Str(token)) => token,
   _ => String::new(),
 };
-if !app.sessions.verify_csrf(&opened, &token) {
+if !app.sessions.verify_csrf(&opened, &token).await {
   return HttpResponse::Forbidden().body("csrf verification failed");
 }
 ```
@@ -594,7 +594,7 @@ match sessions.persist(&opened).await {
   Err(error) => tracing::error!(%error, "the session was not saved"),
 }
 
-if !sessions.verify_csrf(&opened, &submitted) {
+if !sessions.verify_csrf(&opened, &submitted).await {
   return forbidden();
 }
 

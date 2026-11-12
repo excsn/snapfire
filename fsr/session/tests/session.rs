@@ -81,11 +81,43 @@ fn csrf_tokens_bind_to_the_session_and_verify_once() {
   let b = block_on(layer.open(None));
 
   let token = layer.csrf_token(&a);
-  assert!(!layer.verify_csrf(&b, &token), "a token never validates for another session");
-  assert!(!layer.verify_csrf(&a, "deadbeef"));
-  assert!(layer.verify_csrf(&a, &token));
-  assert!(!layer.verify_csrf(&a, &token), "single use is the default: a second post with the same token is refused");
+  assert!(!block_on(layer.verify_csrf(&b, &token)), "a token never validates for another session");
+  assert!(!block_on(layer.verify_csrf(&a, "deadbeef")));
+  assert!(block_on(layer.verify_csrf(&a, &token)));
+  assert!(!block_on(layer.verify_csrf(&a, &token)), "single use is the default: a second post with the same token is refused");
   assert!(a.csrf.is_dirty(), "the scheme's state is the session's to persist");
+}
+
+/// Two posts that opened the session before either saved: the token is spent in the store by the
+/// first, so the second is refused. It stays spent once both have saved.
+#[test]
+fn two_overlapping_posts_cannot_both_spend_one_single_use_token() {
+  let layer = sessions();
+  let page = block_on(layer.open(None));
+  let token = layer.csrf_token(&page);
+  let header = block_on(layer.persist(&page)).unwrap().unwrap().split(';').next().unwrap().to_owned();
+
+  let first = block_on(layer.open(Some(&header)));
+  let second = block_on(layer.open(Some(&header)));
+  assert!(block_on(layer.verify_csrf(&first, &token)), "the first post spends the token");
+  assert!(!block_on(layer.verify_csrf(&second, &token)), "the second post, opened before the first saved, is refused");
+  block_on(layer.persist(&first)).unwrap();
+  block_on(layer.persist(&second)).unwrap();
+  let later = block_on(layer.open(Some(&header)));
+  assert!(!block_on(layer.verify_csrf(&later, &token)), "it stays spent");
+}
+
+/// A token minted in this request, before the session is saved, verifies against this request's copy.
+#[test]
+fn a_token_minted_in_this_request_verifies_before_the_session_is_saved() {
+  let layer = sessions();
+  let page = block_on(layer.open(None));
+  page.cell.insert("visits", Value::int(1i64));
+  let header = block_on(layer.persist(&page)).unwrap().unwrap().split(';').next().unwrap().to_owned();
+  let opened = block_on(layer.open(Some(&header)));
+  let token = layer.csrf_token(&opened);
+  assert!(block_on(layer.verify_csrf(&opened, &token)));
+  assert!(!block_on(layer.verify_csrf(&opened, &token)));
 }
 
 #[test]
@@ -95,12 +127,12 @@ fn single_use_keeps_a_bounded_number_of_outstanding_tokens() {
   let first = layer.csrf_token(&opened);
   let second = layer.csrf_token(&opened);
   let third = layer.csrf_token(&opened);
-  assert!(!layer.verify_csrf(&opened, &first), "the oldest was dropped when a third was minted");
-  assert!(layer.verify_csrf(&opened, &second));
-  assert!(layer.verify_csrf(&opened, &third));
+  assert!(!block_on(layer.verify_csrf(&opened, &first)), "the oldest was dropped when a third was minted");
+  assert!(block_on(layer.verify_csrf(&opened, &second)));
+  assert!(block_on(layer.verify_csrf(&opened, &third)));
   let fourth = layer.csrf_token(&opened);
   layer.rotate_csrf(&opened);
-  assert!(!layer.verify_csrf(&opened, &fourth), "rotation drops every outstanding token");
+  assert!(!block_on(layer.verify_csrf(&opened, &fourth)), "rotation drops every outstanding token");
   assert!(layer.csrf_scheme().memo(&opened).is_none(), "a per-render token keeps its subtree out of the render memo");
 }
 
@@ -110,11 +142,11 @@ fn a_per_session_token_is_stable_until_rotated() {
   let opened = block_on(layer.open(None));
   let token = layer.csrf_token(&opened);
   assert_eq!(layer.csrf_token(&opened), token);
-  assert!(layer.verify_csrf(&opened, &token));
-  assert!(layer.verify_csrf(&opened, &token), "not single use");
+  assert!(block_on(layer.verify_csrf(&opened, &token)));
+  assert!(block_on(layer.verify_csrf(&opened, &token)), "not single use");
   assert_eq!(layer.csrf_scheme().memo(&opened).as_deref(), Some(token.as_str()));
   layer.rotate_csrf(&opened);
-  assert!(!layer.verify_csrf(&opened, &token));
+  assert!(!block_on(layer.verify_csrf(&opened, &token)));
   assert_ne!(layer.csrf_token(&opened), token);
 }
 
@@ -134,7 +166,7 @@ fn a_derived_token_is_the_hmac_of_the_id_and_survives_rotation() {
   let opened = block_on(layer.open(None));
   let token = layer.csrf_token(&opened);
   layer.rotate_csrf(&opened);
-  assert!(layer.verify_csrf(&opened, &token));
+  assert!(block_on(layer.verify_csrf(&opened, &token)));
   assert!(!opened.csrf.is_dirty(), "nothing is stored");
   assert_eq!(layer.csrf_scheme().memo(&opened).as_deref(), Some(token.as_str()));
 }
@@ -156,8 +188,8 @@ fn a_scheme_of_the_callers_own_is_asked_at_both_ends() {
   let layer = sessions().with_csrf(Arc::new(Fixed));
   let opened = block_on(layer.open(None));
   assert_eq!(layer.csrf_token(&opened), "fixed");
-  assert!(layer.verify_csrf(&opened, "fixed"));
-  assert!(!layer.verify_csrf(&opened, "other"));
+  assert!(block_on(layer.verify_csrf(&opened, "fixed")));
+  assert!(!block_on(layer.verify_csrf(&opened, "other")));
 }
 
 #[test]
@@ -167,10 +199,10 @@ fn the_csrf_state_round_trips_through_the_store_and_dies_with_the_session() {
   let token = layer.csrf_token(&opened);
   let header = block_on(layer.persist(&opened)).unwrap().map(|c| c.split(';').next().unwrap().to_owned()).expect("a minted token establishes the session");
   let back = block_on(layer.open(Some(&header)));
-  assert!(layer.verify_csrf(&back, &token), "the outstanding token survived the round trip");
+  assert!(block_on(layer.verify_csrf(&back, &token)), "the outstanding token survived the round trip");
   let again = layer.csrf_token(&back);
   block_on(layer.destroy(&back)).unwrap();
-  assert!(!layer.verify_csrf(&back, &again));
+  assert!(!block_on(layer.verify_csrf(&back, &again)));
 }
 
 #[test]
@@ -535,8 +567,8 @@ fn overlapping_requests_keep_each_others_csrf_tokens() {
   block_on(layer.persist(&b)).unwrap();
 
   let after = block_on(layer.open(Some(&cookie)));
-  assert!(layer.verify_csrf(&after, &from_a), "the earlier save's token survives the later one");
-  assert!(layer.verify_csrf(&after, &from_b));
+  assert!(block_on(layer.verify_csrf(&after, &from_a)), "the earlier save's token survives the later one");
+  assert!(block_on(layer.verify_csrf(&after, &from_b)));
 }
 
 #[test]
@@ -549,14 +581,14 @@ fn a_token_one_request_spent_stays_spent_when_another_saves() {
 
   let spender = block_on(layer.open(Some(&cookie)));
   let other = block_on(layer.open(Some(&cookie)));
-  assert!(layer.verify_csrf(&spender, &token));
+  assert!(block_on(layer.verify_csrf(&spender, &token)));
   let minted = layer.csrf_token(&other);
   block_on(layer.persist(&spender)).unwrap();
   block_on(layer.persist(&other)).unwrap();
 
   let after = block_on(layer.open(Some(&cookie)));
-  assert!(!layer.verify_csrf(&after, &token), "the other request held the token and must not bring it back");
-  assert!(layer.verify_csrf(&after, &minted));
+  assert!(!block_on(layer.verify_csrf(&after, &token)), "the other request held the token and must not bring it back");
+  assert!(block_on(layer.verify_csrf(&after, &minted)));
 }
 
 #[test]
@@ -616,5 +648,5 @@ fn a_custom_scheme_without_a_merge_keeps_its_keys_by_who_changed_them() {
   let a = block_on(layer.open(Some(&cookie)));
   let token = layer.csrf_token(&a);
   block_on(layer.persist(&a)).unwrap();
-  assert!(layer.verify_csrf(&block_on(layer.open(Some(&cookie))), &token));
+  assert!(block_on(layer.verify_csrf(&block_on(layer.open(Some(&cookie))), &token)));
 }
