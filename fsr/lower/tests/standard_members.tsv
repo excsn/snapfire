@@ -1,0 +1,928 @@
+# global	member	loader	component	body	node v26.8.1 with TZ=UTC	Chrome where FSR answers as Chrome does
+Object	assign	lowered	server	const v = Object.assign({}, { a: 1 });	ok:{"a":1}	
+Object	getOwnPropertyDescriptor	lowered	server	const v = Object.getOwnPropertyDescriptor({ a: 1 }, "a");	ok:{"value":1,"writable":true,"enumerable":true,"configurable":true}	
+Object	getOwnPropertyDescriptors	lowered	server	const v = Object.getOwnPropertyDescriptors({ a: 1 });	ok:{"a":{"value":1,"writable":true,"enumerable":true,"configurable":true}}	
+Object	getOwnPropertyNames	lowered	server	const v = Object.getOwnPropertyNames({ a: 1 });	ok:["a"]	
+Object	getOwnPropertySymbols	lowered	server	const v = Object.getOwnPropertySymbols({ a: 1 });	ok:[]	
+Object	hasOwn	lowered	server	const v = Object.hasOwn({ a: 1 }, "a");	ok:true	
+Object	is	lowered	server	const v = Object.is(NaN, NaN);	ok:true	
+Object	preventExtensions	lowered	server	const v = Object.preventExtensions({ a: 1 });	ok:{"a":1}	
+Object	seal	lowered	server	const v = Object.seal({ a: 1 });	ok:{"a":1}	
+Object	create	lowered	server	const v = Object.create(null);	ok:{}	
+Object	defineProperties	refused	refused	const v = Object.defineProperties({ a: 1 });	throws:TypeError	
+Object	defineProperty	refused	refused	const v = Object.defineProperty({ a: 1 });	throws:TypeError	
+Object	freeze	lowered	server	const v = Object.freeze({ a: 1 });	ok:{"a":1}	
+Object	getPrototypeOf	lowered	server	const v = Object.getPrototypeOf({ a: 1 });	ok:{}	
+Object	setPrototypeOf	refused	refused	const v = Object.setPrototypeOf({ a: 1 });	throws:TypeError	
+Object	isExtensible	lowered	server	const v = Object.isExtensible({ a: 1 });	ok:true	
+Object	isFrozen	lowered	server	const v = Object.isFrozen({ a: 1 });	ok:false	
+Object	isSealed	lowered	server	const v = Object.isSealed({ a: 1 });	ok:false	
+Object	keys	lowered	server	const v = Object.keys({ a: 1 });	ok:["a"]	
+Object	entries	lowered	server	const v = Object.entries({ a: 1 });	ok:[["a",1]]	
+Object	fromEntries	lowered	server	const v = Object.fromEntries([["a", 1]]);	ok:{"a":1}	
+Object	values	lowered	server	const v = Object.values({ a: 1 });	ok:[1]	
+Object	groupBy	lowered	server	const v = Object.groupBy([1, 2, 3], (x) => (x % 2 ? "odd" : "even"));	ok:{"odd":[1,3],"even":[2]}	
+Object	__defineGetter__	refused	refused	const r = { a: 1, b: 2 };   const v = r.__defineGetter__();	throws:TypeError	
+Object	__defineSetter__	refused	refused	const r = { a: 1, b: 2 };   const v = r.__defineSetter__();	throws:TypeError	
+Object	hasOwnProperty	lowered	server	const r = { a: 1, b: 2 };   const v = r.hasOwnProperty();	ok:false	
+Object	__lookupGetter__	refused	refused	const r = { a: 1, b: 2 };   const v = r.__lookupGetter__();	ok:undefined	
+Object	__lookupSetter__	refused	refused	const r = { a: 1, b: 2 };   const v = r.__lookupSetter__();	ok:undefined	
+Object	isPrototypeOf	refused	refused	const v = Object.prototype.isPrototypeOf.call(Object.prototype, {});	ok:true	
+Object	propertyIsEnumerable	lowered	server	const r = { a: 1, b: 2 };   const v = r.propertyIsEnumerable();	ok:false	
+Object	toString	lowered	server	const r = { a: 1, b: 2 };   const v = r.toString();	ok:"[object Object]"	
+Object	valueOf	lowered	server	const r = { a: 1, b: 2 };   const v = r.valueOf();	ok:{"a":1,"b":2}	
+Object	__proto__	lowered	server	const r = { a: 1, b: 2 };   const v = r.__proto__;	ok:{}	
+Object	toLocaleString	lowered	server	const r = { a: 1, b: 2 };   const v = r.toLocaleString("en-US");	ok:"[object Object]"	
+Function	length	lowered	server	const r = function f(a, b) { return a + b; };   const v = r.length;	ok:2	
+Function	name	lowered	server	const r = function f(a, b) { return a + b; };   const v = r.name;	ok:"f"	
+Function	apply	lowered	refused	const f = function (a, b) { return a + b; };  const v = f.apply(null, [1, 2]);	ok:3	
+Function	bind	lowered	refused	const f = function (a, b) { return a + b; };  const v = f.bind(null, 1)(2);	ok:3	
+Function	call	lowered	refused	const f = function (a, b) { return a + b; };  const v = f.call(null, 1, 2);	ok:3	
+Function	toString	lowered	server	const r = function f(a, b) { return a + b; };   const v = r.toString();	ok:"function f(a, b) { return a + b; }"	
+Function	arguments	throws	throws	const r = function f(a, b) { return a + b; };   const v = r.arguments;	throws:TypeError	
+Function	caller	throws	throws	const r = function f(a, b) { return a + b; };   const v = r.caller;	throws:TypeError	
+Array	isArray	lowered	server	const v = Array.isArray([1]);	ok:true	
+Array	from	lowered	server	const v = Array.from("abc");	ok:["a","b","c"]	
+Array	fromAsync	lowered	awaits	const v = await Array.fromAsync([1, 2]);	ok:[1,2]	
+Array	of	lowered	server	const v = Array.of(1, 2);	ok:[1,2]	
+Array	length	lowered	server	const r = [3, 1, 2];   const v = r.length;	ok:3	
+Array	at	lowered	server	const r = [3, 1, 2];   const v = r.at(-1);	ok:2	
+Array	concat	lowered	server	const r = [3, 1, 2];   const v = r.concat([4]);	ok:[3,1,2,4]	
+Array	copyWithin	lowered	server	const r = [3, 1, 2];   const v = r.copyWithin(0, 1);	ok:[1,2,2]	
+Array	fill	lowered	server	const r = [3, 1, 2];   const v = r.fill(0);	ok:[0,0,0]	
+Array	find	lowered	server	const r = [3, 1, 2];   const v = r.find((x) => x > 1);	ok:3	
+Array	findIndex	lowered	server	const r = [3, 1, 2];   const v = r.findIndex((x) => x > 1);	ok:0	
+Array	findLast	lowered	server	const r = [3, 1, 2];   const v = r.findLast((x) => x > 1);	ok:2	
+Array	findLastIndex	lowered	server	const r = [3, 1, 2];   const v = r.findLastIndex((x) => x > 1);	ok:2	
+Array	lastIndexOf	lowered	server	const r = [3, 1, 2];   const v = r.lastIndexOf(2);	ok:2	
+Array	pop	lowered	server	const r = [3, 1, 2];   const v = r.pop();	ok:2	
+Array	push	lowered	server	const r = [3, 1, 2];   const v = r.push(4);	ok:4	
+Array	reverse	lowered	server	const r = [3, 1, 2];   const v = r.reverse();	ok:[2,1,3]	
+Array	shift	lowered	server	const r = [3, 1, 2];   const v = r.shift();	ok:3	
+Array	unshift	lowered	server	const r = [3, 1, 2];   const v = r.unshift(4);	ok:4	
+Array	slice	lowered	server	const r = [3, 1, 2];   const v = r.slice(1);	ok:[1,2]	
+Array	sort	lowered	server	const r = [3, 1, 2];   const v = r.sort((a, b) => a - b);	ok:[1,2,3]	
+Array	splice	lowered	server	const r = [3, 1, 2];   const v = r.splice(1, 1);	ok:[1]	
+Array	includes	lowered	server	const r = [3, 1, 2];   const v = r.includes(2);	ok:true	
+Array	indexOf	lowered	server	const r = [3, 1, 2];   const v = r.indexOf(2);	ok:2	
+Array	join	lowered	server	const r = [3, 1, 2];   const v = r.join("-");	ok:"3-1-2"	
+Array	keys	lowered	server	const r = [3, 1, 2];   const v = [...r.keys()];	ok:[0,1,2]	
+Array	entries	lowered	server	const r = [3, 1, 2];   const v = [...r.entries()];	ok:[[0,3],[1,1],[2,2]]	
+Array	values	lowered	server	const r = [3, 1, 2];   const v = [...r.values()];	ok:[3,1,2]	
+Array	forEach	lowered	server	const r = [3, 1, 2];   const v = r.forEach((x) => x);	ok:undefined	
+Array	filter	lowered	server	const r = [3, 1, 2];   const v = r.filter((x) => x > 1);	ok:[3,2]	
+Array	flat	lowered	server	const r = [3, 1, 2];   const v = r.flat();	ok:[3,1,2]	
+Array	flatMap	lowered	server	const r = [3, 1, 2];   const v = r.flatMap((x) => [x, x]);	ok:[3,3,1,1,2,2]	
+Array	map	lowered	server	const r = [3, 1, 2];   const v = r.map((x) => x);	ok:[3,1,2]	
+Array	every	lowered	server	const r = [3, 1, 2];   const v = r.every((x) => x > 1);	ok:false	
+Array	some	lowered	server	const r = [3, 1, 2];   const v = r.some((x) => x > 1);	ok:true	
+Array	reduce	lowered	server	const r = [3, 1, 2];   const v = r.reduce((a, b) => a + b);	ok:6	
+Array	reduceRight	lowered	server	const r = [3, 1, 2];   const v = r.reduceRight((a, b) => a + b);	ok:6	
+Array	toReversed	lowered	server	const r = [3, 1, 2];   const v = r.toReversed();	ok:[2,1,3]	
+Array	toSorted	lowered	server	const r = [3, 1, 2];   const v = r.toSorted((a, b) => a - b);	ok:[1,2,3]	
+Array	toSpliced	lowered	server	const r = [3, 1, 2];   const v = r.toSpliced(1, 1);	ok:[3,2]	
+Array	with	lowered	server	const r = [3, 1, 2];   const v = r.with(0, 9);	ok:[9,1,2]	
+Array	toLocaleString	lowered	server	const r = [3, 1, 2];   const v = r.toLocaleString("en-US");	ok:"3,1,2"	
+Array	toString	lowered	server	const r = [3, 1, 2];   const v = r.toString();	ok:"3,1,2"	
+Number	isFinite	lowered	server	const v = Number.isFinite(5);	ok:true	
+Number	isInteger	lowered	server	const v = Number.isInteger(5);	ok:true	
+Number	isNaN	lowered	server	const v = Number.isNaN(NaN);	ok:true	
+Number	isSafeInteger	lowered	server	const v = Number.isSafeInteger(5);	ok:true	
+Number	parseFloat	lowered	server	const v = Number.parseFloat("1.5");	ok:1.5	
+Number	parseInt	lowered	server	const v = Number.parseInt("42");	ok:42	
+Number	MAX_VALUE	lowered	server	const v = Number.MAX_VALUE;	ok:1.7976931348623157e+308	
+Number	MIN_VALUE	lowered	server	const v = Number.MIN_VALUE;	ok:5e-324	
+Number	NaN	lowered	server	const v = Number.NaN;	ok:null	
+Number	NEGATIVE_INFINITY	lowered	server	const v = Number.NEGATIVE_INFINITY;	ok:null	
+Number	POSITIVE_INFINITY	lowered	server	const v = Number.POSITIVE_INFINITY;	ok:null	
+Number	MAX_SAFE_INTEGER	lowered	server	const v = Number.MAX_SAFE_INTEGER;	ok:9007199254740991	
+Number	MIN_SAFE_INTEGER	lowered	server	const v = Number.MIN_SAFE_INTEGER;	ok:-9007199254740991	
+Number	EPSILON	lowered	server	const v = Number.EPSILON;	ok:2.220446049250313e-16	
+Number	toExponential	lowered	server	const r = 1234.5678;   const v = r.toExponential(2);	ok:"1.23e+3"	
+Number	toFixed	lowered	server	const r = 1234.5678;   const v = r.toFixed(2);	ok:"1234.57"	
+Number	toPrecision	lowered	server	const r = 1234.5678;   const v = r.toPrecision(3);	ok:"1.23e+3"	
+Number	toString	lowered	server	const r = 1234.5678;   const v = r.toString();	ok:"1234.5678"	
+Number	valueOf	lowered	server	const r = 1234.5678;   const v = r.valueOf();	ok:1234.5678	
+Number	toLocaleString	lowered	server	const r = 1234.5678;   const v = r.toLocaleString("en-US");	ok:"1,234.568"	
+Boolean	toString	lowered	server	const r = true;   const v = r.toString();	ok:"true"	
+Boolean	valueOf	lowered	server	const r = true;   const v = r.valueOf();	ok:true	
+String	fromCharCode	lowered	server	const v = String.fromCharCode(72, 105);	ok:"Hi"	
+String	fromCodePoint	lowered	server	const v = String.fromCodePoint(128512);	ok:"😀"	
+String	raw	lowered	server	const v = String.raw({ raw: ["a", "b"] }, 1);	ok:"a1b"	
+Symbol	for	lowered	server	const v = Symbol.for("k");	ok:undefined	
+Symbol	keyFor	lowered	server	const v = Symbol.keyFor(Symbol.for("k"));	ok:"k"	
+Symbol	asyncIterator	lowered	server	const v = Symbol.asyncIterator;	ok:undefined	
+Symbol	hasInstance	lowered	server	const v = Symbol.hasInstance;	ok:undefined	
+Symbol	isConcatSpreadable	lowered	server	const v = Symbol.isConcatSpreadable;	ok:undefined	
+Symbol	iterator	lowered	server	const v = Symbol.iterator;	ok:undefined	
+Symbol	match	lowered	server	const v = Symbol.match;	ok:undefined	
+Symbol	matchAll	lowered	server	const v = Symbol.matchAll;	ok:undefined	
+Symbol	replace	lowered	server	const v = Symbol.replace;	ok:undefined	
+Symbol	search	lowered	server	const v = Symbol.search;	ok:undefined	
+Symbol	species	lowered	server	const v = Symbol.species;	ok:undefined	
+Symbol	split	lowered	server	const v = Symbol.split;	ok:undefined	
+Symbol	toPrimitive	lowered	server	const v = Symbol.toPrimitive;	ok:undefined	
+Symbol	toStringTag	lowered	server	const v = Symbol.toStringTag;	ok:undefined	
+Symbol	unscopables	lowered	server	const v = Symbol.unscopables;	ok:undefined	
+Symbol	dispose	lowered	server	const v = Symbol.dispose;	ok:undefined	
+Symbol	asyncDispose	lowered	server	const v = Symbol.asyncDispose;	ok:undefined	
+Symbol	toString	lowered	server	const r = Symbol("s");   const v = r.toString();	ok:"Symbol(s)"	
+Symbol	valueOf	lowered	server	const r = Symbol("s");   const v = r.valueOf();	ok:undefined	
+Symbol	description	lowered	server	const r = Symbol("s");   const v = r.description;	ok:"s"	
+BigInt	asUintN	throws	throws	const v = BigInt.asUintN(8, 257n);	throws:TypeError	
+BigInt	asIntN	throws	throws	const v = BigInt.asIntN(8, 257n);	throws:TypeError	
+BigInt	toLocaleString	lowered	server	const r = 12n;   const v = r.toLocaleString("en-US");	ok:"12"	
+BigInt	toString	lowered	server	const r = 12n;   const v = r.toString();	ok:"12"	
+BigInt	valueOf	throws	throws	const r = 12n;   const v = r.valueOf();	throws:TypeError	
+Math	abs	lowered	server	const v = Math.abs(2.5);	ok:2.5	
+Math	acos	lowered	server	const v = Math.acos(2.5);	ok:null	
+Math	acosh	lowered	server	const v = Math.acosh(2.5);	ok:1.566799236972411	
+Math	asin	lowered	server	const v = Math.asin(2.5);	ok:null	
+Math	asinh	lowered	server	const v = Math.asinh(2.5);	ok:1.6472311463710958	
+Math	atan	lowered	server	const v = Math.atan(2.5);	ok:1.1902899496825317	
+Math	atanh	lowered	server	const v = Math.atanh(2.5);	ok:null	
+Math	atan2	lowered	server	const v = Math.atan2(1, 1);	ok:0.7853981633974483	
+Math	ceil	lowered	server	const v = Math.ceil(2.5);	ok:3	
+Math	cbrt	lowered	server	const v = Math.cbrt(2.5);	ok:1.3572088082974532	ok:1.3572088082974534
+Math	expm1	lowered	server	const v = Math.expm1(2.5);	ok:11.182493960703473	
+Math	clz32	lowered	server	const v = Math.clz32(2.5);	ok:30	
+Math	cos	lowered	server	const v = Math.cos(2.5);	ok:-0.8011436155469337	
+Math	cosh	lowered	server	const v = Math.cosh(2.5);	ok:6.132289479663686	
+Math	exp	lowered	server	const v = Math.exp(2.5);	ok:12.182493960703473	
+Math	floor	lowered	server	const v = Math.floor(2.5);	ok:2	
+Math	fround	lowered	server	const v = Math.fround(2.5);	ok:2.5	
+Math	hypot	lowered	server	const v = Math.hypot(3, 4);	ok:5	
+Math	imul	lowered	server	const v = Math.imul(3, 4);	ok:12	
+Math	log	lowered	server	const v = Math.log(2.5);	ok:0.9162907318741551	
+Math	log1p	lowered	server	const v = Math.log1p(2.5);	ok:1.252762968495368	
+Math	log2	lowered	server	const v = Math.log2(2.5);	ok:1.3219280948873624	
+Math	log10	lowered	server	const v = Math.log10(2.5);	ok:0.3979400086720376	
+Math	max	lowered	server	const v = Math.max(1, 3);	ok:3	
+Math	min	lowered	server	const v = Math.min(1, 3);	ok:1	
+Math	pow	lowered	server	const v = Math.pow(2, 10);	ok:1024	
+Math	random	lowered	browser	const v = typeof Math.random(2.5);	ok:"number"	
+Math	round	lowered	server	const v = Math.round(2.5);	ok:3	
+Math	sign	lowered	server	const v = Math.sign(2.5);	ok:1	
+Math	sin	lowered	server	const v = Math.sin(2.5);	ok:0.5984721441039564	ok:0.5984721441039565
+Math	sinh	lowered	server	const v = Math.sinh(2.5);	ok:6.0502044810397875	
+Math	sqrt	lowered	server	const v = Math.sqrt(2.5);	ok:1.5811388300841898	
+Math	tan	lowered	server	const v = Math.tan(2.5);	ok:-0.7470222972386603	
+Math	tanh	lowered	server	const v = Math.tanh(2.5);	ok:0.9866142981514303	
+Math	trunc	lowered	server	const v = Math.trunc(2.5);	ok:2	
+Math	E	lowered	server	const v = Math.E;	ok:2.718281828459045	
+Math	LN10	lowered	server	const v = Math.LN10;	ok:2.302585092994046	
+Math	LN2	lowered	server	const v = Math.LN2;	ok:0.6931471805599453	
+Math	LOG10E	lowered	server	const v = Math.LOG10E;	ok:0.4342944819032518	
+Math	LOG2E	lowered	server	const v = Math.LOG2E;	ok:1.4426950408889634	
+Math	PI	lowered	server	const v = Math.PI;	ok:3.141592653589793	
+Math	SQRT1_2	lowered	server	const v = Math.SQRT1_2;	ok:0.7071067811865476	
+Math	SQRT2	lowered	server	const v = Math.SQRT2;	ok:1.4142135623730951	
+Math	f16round	lowered	server	const v = Math.f16round(2.5);	ok:2.5	
+JSON	parse	lowered	server	const v = JSON.parse("{\"a\":1}");	ok:{"a":1}	
+JSON	stringify	lowered	server	const v = JSON.stringify({ a: [1, "x"] });	ok:"{\"a\":[1,\"x\"]}"	
+JSON	rawJSON	lowered	server	const v = JSON.rawJSON("1");	ok:1	
+JSON	isRawJSON	lowered	server	const v = JSON.isRawJSON(1);	ok:false	
+Reflect	defineProperty	refused	refused	const v = Reflect.defineProperty({}, "a", { value: 1 });	ok:true	
+Reflect	deleteProperty	lowered	server	const v = Reflect.deleteProperty({ a: 1 }, "a");	ok:true	
+Reflect	apply	lowered	server	const v = Reflect.apply(Math.max, null, [1, 2]);	ok:2	
+Reflect	construct	lowered	server	const v = Reflect.construct(Date, [0]);	ok:"1970-01-01T00:00:00.000Z"	
+Reflect	get	lowered	server	const v = Reflect.get({ a: 1 }, "a");	ok:1	
+Reflect	getOwnPropertyDescriptor	lowered	server	const v = Reflect.getOwnPropertyDescriptor({ a: 1 }, "a");	ok:{"value":1,"writable":true,"enumerable":true,"configurable":true}	
+Reflect	getPrototypeOf	lowered	server	const v = Reflect.getPrototypeOf([]);	ok:[]	
+Reflect	has	lowered	server	const v = Reflect.has({ a: 1 }, "a");	ok:true	
+Reflect	isExtensible	lowered	server	const v = Reflect.isExtensible({});	ok:true	
+Reflect	ownKeys	lowered	server	const v = Reflect.ownKeys({ a: 1 });	ok:["a"]	
+Reflect	preventExtensions	lowered	server	const v = Reflect.preventExtensions({});	ok:true	
+Reflect	set	lowered	server	const v = Reflect.set({ a: 1 }, "a", 2);	ok:true	
+Reflect	setPrototypeOf	refused	refused	const v = Reflect.setPrototypeOf({}, null);	ok:true	
+Date	now	lowered	browser	const v = typeof Date.now();	ok:"number"	
+Date	parse	lowered	server	const v = Date.parse("2024-01-01T00:00:00Z");	ok:1704067200000	
+Date	UTC	lowered	server	const v = Date.UTC(2024, 0, 1);	ok:1704067200000	
+Date	toString	lowered	browser	const r = new Date(1726011440123);   const v = r.toString();	ok:"Tue Sep 10 2024 23:37:20 GMT+0000 (Coordinated Universal Time)"	
+Date	toDateString	lowered	browser	const r = new Date(1726011440123);   const v = r.toDateString();	ok:"Tue Sep 10 2024"	
+Date	toTimeString	lowered	browser	const r = new Date(1726011440123);   const v = r.toTimeString();	ok:"23:37:20 GMT+0000 (Coordinated Universal Time)"	
+Date	toISOString	lowered	server	const r = new Date(1726011440123);   const v = r.toISOString();	ok:"2024-09-10T23:37:20.123Z"	
+Date	toUTCString	lowered	server	const r = new Date(1726011440123);   const v = r.toUTCString();	ok:"Tue, 10 Sep 2024 23:37:20 GMT"	
+Date	toGMTString	lowered	server	const r = new Date(1726011440123);   const v = r.toGMTString();	ok:"Tue, 10 Sep 2024 23:37:20 GMT"	
+Date	getDate	lowered	browser	const r = new Date(1726011440123);   const v = r.getDate();	ok:10	
+Date	setDate	lowered	browser	const r = new Date(1726011440123);   const v = r.setDate();	ok:null	
+Date	getDay	lowered	browser	const r = new Date(1726011440123);   const v = r.getDay();	ok:2	
+Date	getFullYear	lowered	browser	const r = new Date(1726011440123);   const v = r.getFullYear();	ok:2024	
+Date	setFullYear	lowered	browser	const r = new Date(1726011440123);   const v = r.setFullYear();	ok:null	
+Date	getHours	lowered	browser	const r = new Date(1726011440123);   const v = r.getHours();	ok:23	
+Date	setHours	lowered	browser	const r = new Date(1726011440123);   const v = r.setHours();	ok:null	
+Date	getMilliseconds	lowered	server	const r = new Date(1726011440123);   const v = r.getMilliseconds();	ok:123	
+Date	setMilliseconds	lowered	browser	const r = new Date(1726011440123);   const v = r.setMilliseconds();	ok:null	
+Date	getMinutes	lowered	browser	const r = new Date(1726011440123);   const v = r.getMinutes();	ok:37	
+Date	setMinutes	lowered	browser	const r = new Date(1726011440123);   const v = r.setMinutes();	ok:null	
+Date	getMonth	lowered	browser	const r = new Date(1726011440123);   const v = r.getMonth();	ok:8	
+Date	setMonth	lowered	browser	const r = new Date(1726011440123);   const v = r.setMonth();	ok:null	
+Date	getSeconds	lowered	browser	const r = new Date(1726011440123);   const v = r.getSeconds();	ok:20	
+Date	setSeconds	lowered	browser	const r = new Date(1726011440123);   const v = r.setSeconds();	ok:null	
+Date	getTime	lowered	server	const r = new Date(1726011440123);   const v = r.getTime();	ok:1726011440123	
+Date	setTime	lowered	server	const r = new Date(1726011440123);   const v = r.setTime();	ok:null	
+Date	getTimezoneOffset	lowered	browser	const r = new Date(1726011440123);   const v = r.getTimezoneOffset();	ok:0	
+Date	getUTCDate	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCDate();	ok:10	
+Date	setUTCDate	lowered	server	const r = new Date(1726011440123);   const v = r.setUTCDate();	ok:null	
+Date	getUTCDay	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCDay();	ok:2	
+Date	getUTCFullYear	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCFullYear();	ok:2024	
+Date	setUTCFullYear	lowered	server	const r = new Date(1726011440123);   const v = r.setUTCFullYear();	ok:null	
+Date	getUTCHours	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCHours();	ok:23	
+Date	setUTCHours	lowered	server	const r = new Date(1726011440123);   const v = r.setUTCHours();	ok:null	
+Date	getUTCMilliseconds	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCMilliseconds();	ok:123	
+Date	setUTCMilliseconds	lowered	server	const r = new Date(1726011440123);   const v = r.setUTCMilliseconds();	ok:null	
+Date	getUTCMinutes	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCMinutes();	ok:37	
+Date	setUTCMinutes	lowered	server	const r = new Date(1726011440123);   const v = r.setUTCMinutes();	ok:null	
+Date	getUTCMonth	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCMonth();	ok:8	
+Date	setUTCMonth	lowered	server	const r = new Date(1726011440123);   const v = r.setUTCMonth();	ok:null	
+Date	getUTCSeconds	lowered	server	const r = new Date(1726011440123);   const v = r.getUTCSeconds();	ok:20	
+Date	setUTCSeconds	lowered	server	const r = new Date(1726011440123);   const v = r.setUTCSeconds();	ok:null	
+Date	valueOf	lowered	server	const r = new Date(1726011440123);   const v = r.valueOf();	ok:1726011440123	
+Date	getYear	lowered	browser	const r = new Date(1726011440123);   const v = r.getYear();	ok:124	
+Date	setYear	lowered	browser	const r = new Date(1726011440123);   const v = r.setYear();	ok:null	
+Date	toJSON	lowered	server	const r = new Date(1726011440123);   const v = r.toJSON();	ok:"2024-09-10T23:37:20.123Z"	
+Date	toLocaleString	lowered	browser	const r = new Date(1726011440123);   const v = r.toLocaleString("en-US");	ok:"9/10/2024, 11:37:20 PM"	
+Date	toLocaleDateString	lowered	browser	const r = new Date(1726011440123);   const v = r.toLocaleDateString();	ok:"9/10/2024"	
+Date	toLocaleTimeString	lowered	browser	const r = new Date(1726011440123);   const v = r.toLocaleTimeString();	ok:"11:37:20 PM"	
+Date	toTemporalInstant	lowered	server	const r = new Date(1726011440123);   const v = r.toTemporalInstant();	ok:"2024-09-10T23:37:20.123Z"	
+RegExp	input	refused	refused	const v = RegExp.input;	ok:""	
+RegExp	$_	refused	refused	const v = RegExp.$_;	ok:""	
+RegExp	lastMatch	refused	refused	const v = RegExp.lastMatch;	ok:""	
+RegExp	$&	refused	refused	const v = RegExp.$&;	throws:SyntaxError	
+RegExp	lastParen	refused	refused	const v = RegExp.lastParen;	ok:""	
+RegExp	$+	refused	refused	const v = RegExp.$+;	throws:SyntaxError	
+RegExp	leftContext	refused	refused	const v = RegExp.leftContext;	ok:""	
+RegExp	$`	refused	refused	const v = RegExp.$`;	throws:SyntaxError	
+RegExp	rightContext	refused	refused	const v = RegExp.rightContext;	ok:""	
+RegExp	$'	refused	refused	const v = RegExp.$';	throws:SyntaxError	
+RegExp	$1	refused	refused	const v = RegExp.$1;	ok:""	
+RegExp	$2	refused	refused	const v = RegExp.$2;	ok:""	
+RegExp	$3	refused	refused	const v = RegExp.$3;	ok:""	
+RegExp	$4	refused	refused	const v = RegExp.$4;	ok:""	
+RegExp	$5	refused	refused	const v = RegExp.$5;	ok:""	
+RegExp	$6	refused	refused	const v = RegExp.$6;	ok:""	
+RegExp	$7	refused	refused	const v = RegExp.$7;	ok:""	
+RegExp	$8	refused	refused	const v = RegExp.$8;	ok:""	
+RegExp	$9	refused	refused	const v = RegExp.$9;	ok:""	
+RegExp	escape	throws	throws	const v = RegExp.escape();	throws:TypeError	
+RegExp	exec	lowered	server	const r = /a(b)/g;   const v = r.exec("xab");	ok:["ab","b"]	
+RegExp	dotAll	lowered	server	const r = /a(b)/g;   const v = r.dotAll;	ok:false	
+RegExp	flags	lowered	server	const r = /a(b)/g;   const v = r.flags;	ok:"g"	
+RegExp	global	lowered	server	const r = /a(b)/g;   const v = r.global;	ok:true	
+RegExp	hasIndices	lowered	server	const r = /a(b)/g;   const v = r.hasIndices;	ok:false	
+RegExp	ignoreCase	lowered	server	const r = /a(b)/g;   const v = r.ignoreCase;	ok:false	
+RegExp	multiline	lowered	server	const r = /a(b)/g;   const v = r.multiline;	ok:false	
+RegExp	source	lowered	server	const r = /a(b)/g;   const v = r.source;	ok:"a(b)"	
+RegExp	sticky	lowered	server	const r = /a(b)/g;   const v = r.sticky;	ok:false	
+RegExp	unicode	lowered	server	const r = /a(b)/g;   const v = r.unicode;	ok:false	
+RegExp	unicodeSets	lowered	server	const r = /a(b)/g;   const v = r.unicodeSets;	ok:false	
+RegExp	compile	lowered	server	const r = /a(b)/g;   const v = r.compile();	ok:{}	
+RegExp	toString	lowered	server	const r = /a(b)/g;   const v = r.toString();	ok:"/a(b)/g"	
+RegExp	test	lowered	server	const r = /a(b)/g;   const v = r.test("xab");	ok:true	
+Map	groupBy	lowered	server	const v = Map.groupBy([1, 2, 3], (x) => x % 2);	ok:{}	
+Map	get	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.get("a");	ok:1	
+Map	set	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.set("c", 3);	ok:{}	
+Map	has	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.has("a");	ok:true	
+Map	delete	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.delete("a");	ok:true	
+Map	clear	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.clear();	ok:undefined	
+Map	entries	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = [...r.entries()];	ok:[["a",1],["b",2]]	
+Map	forEach	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.forEach((x) => x);	ok:undefined	
+Map	keys	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = [...r.keys()];	ok:["a","b"]	
+Map	size	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.size;	ok:2	
+Map	values	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = [...r.values()];	ok:[1,2]	
+Map	getOrInsert	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.getOrInsert("z", 9);	ok:9	
+Map	getOrInsertComputed	lowered	server	const r = new Map([["a", 1], ["b", 2]]);   const v = r.getOrInsertComputed("z", () => 9);	ok:9	
+Set	has	lowered	server	const r = new Set([1, 2]);   const v = r.has("a");	ok:false	
+Set	add	lowered	server	const r = new Set([1, 2]);   const v = r.add(3);	ok:{}	
+Set	delete	lowered	server	const r = new Set([1, 2]);   const v = r.delete("a");	ok:false	
+Set	difference	lowered	server	const r = new Set([1, 2]);   const v = r.difference(new Set([1]));	ok:{}	
+Set	clear	lowered	server	const r = new Set([1, 2]);   const v = r.clear();	ok:undefined	
+Set	entries	lowered	server	const r = new Set([1, 2]);   const v = [...r.entries()];	ok:[[1,1],[2,2]]	
+Set	forEach	lowered	server	const r = new Set([1, 2]);   const v = r.forEach((x) => x);	ok:undefined	
+Set	intersection	lowered	server	const r = new Set([1, 2]);   const v = r.intersection(new Set([1]));	ok:{}	
+Set	isSubsetOf	lowered	server	const r = new Set([1, 2]);   const v = r.isSubsetOf(new Set([1, 2, 3]));	ok:true	
+Set	isSupersetOf	lowered	server	const r = new Set([1, 2]);   const v = r.isSupersetOf(new Set([1]));	ok:true	
+Set	isDisjointFrom	lowered	server	const r = new Set([1, 2]);   const v = r.isDisjointFrom(new Set([5]));	ok:true	
+Set	size	lowered	server	const r = new Set([1, 2]);   const v = r.size;	ok:2	
+Set	symmetricDifference	lowered	server	const r = new Set([1, 2]);   const v = r.symmetricDifference(new Set([1]));	ok:{}	
+Set	union	lowered	server	const r = new Set([1, 2]);   const v = r.union(new Set([3]));	ok:{}	
+Set	values	lowered	server	const r = new Set([1, 2]);   const v = [...r.values()];	ok:[1,2]	
+Set	keys	lowered	server	const r = new Set([1, 2]);   const v = [...r.keys()];	ok:[1,2]	
+WeakMap	delete	lowered	server	const r = new WeakMap();   const v = r.delete("a");	ok:false	
+WeakMap	get	lowered	server	const r = new WeakMap();   const v = r.get("a");	ok:undefined	
+WeakMap	set	throws	throws	const r = new WeakMap();   const v = r.set("c", 3);	throws:TypeError	
+WeakMap	has	lowered	server	const r = new WeakMap();   const v = r.has("a");	ok:false	
+WeakMap	getOrInsert	lowered	server	const r = new WeakMap(); const k = {}; const v = [r.getOrInsert(k, 9), r.get(k)];	ok:[9,9]	
+WeakMap	getOrInsertComputed	lowered	server	const r = new WeakMap(); const k = {}; const v = [r.getOrInsertComputed(k, () => 9), r.get(k)];	ok:[9,9]	
+WeakSet	delete	lowered	server	const r = new WeakSet();   const v = r.delete("a");	ok:false	
+WeakSet	has	lowered	server	const r = new WeakSet();   const v = r.has("a");	ok:false	
+WeakSet	add	throws	throws	const r = new WeakSet();   const v = r.add(3);	throws:TypeError	
+WeakRef	deref	lowered	server	const r = new WeakRef({});   const v = r.deref();	ok:{}	
+FinalizationRegistry	register	lowered	server	const r = new FinalizationRegistry(() => {});   const v = r.register({}, 1);	ok:undefined	
+FinalizationRegistry	unregister	lowered	server	const r = new FinalizationRegistry(() => {});   const v = r.unregister({});	ok:false	
+Promise	all	lowered	awaits	const v = await Promise.all([1, Promise.resolve(2)]);	ok:[1,2]	
+Promise	allSettled	lowered	awaits	const v = await Promise.allSettled([1]);	ok:[{"status":"fulfilled","value":1}]	
+Promise	any	lowered	awaits	const v = await Promise.any([1]);	ok:1	
+Promise	race	lowered	awaits	const v = await Promise.race([1]);	ok:1	
+Promise	resolve	lowered	awaits	const v = await Promise.resolve(1);	ok:1	
+Promise	reject	throws	awaits	const v = await Promise.reject(new Error("x"));	throws:Error	
+Promise	withResolvers	lowered	awaits	const { promise, resolve } = Promise.withResolvers();  resolve(5);  const v = await promise;	ok:5	
+Promise	try	lowered	awaits	const v = await Promise.try(() => 1);	ok:1	
+Promise	then	refused	awaits	const r = Promise.resolve(1);  const v = await r.then((x) => x + 1);	ok:2	
+Promise	catch	refused	awaits	const r = Promise.reject(new Error("x"));  const v = await r.catch((e) => e.message);	ok:"x"	
+Promise	finally	refused	awaits	const r = Promise.resolve(1);  const v = await r.finally(() => 0);	ok:1	
+Proxy	revocable	refused	refused	const v = Proxy.revocable();	throws:TypeError	
+Error	captureStackTrace	refused	refused	const v = Error.captureStackTrace({});	ok:undefined	
+Error	prepareStackTrace	refused	refused	const v = Error.prepareStackTrace();	throws:TypeError	
+Error	isError	lowered	server	const v = Error.isError(new Error("x"));	ok:true	
+Error	stackTraceLimit	refused	refused	const v = Error.stackTraceLimit;	ok:10	
+Error	name	lowered	server	const r = new Error("boom");   const v = r.name;	ok:"Error"	
+Error	message	lowered	server	const r = new Error("boom");   const v = r.message;	ok:"boom"	
+Error	toString	lowered	server	const r = new Error("boom");   const v = r.toString();	ok:"Error: boom"	
+ArrayBuffer	isView	lowered	server	const v = ArrayBuffer.isView(new Uint8Array(1));	ok:true	
+ArrayBuffer	byteLength	lowered	server	const r = new ArrayBuffer(8);   const v = r.byteLength;	ok:8	
+ArrayBuffer	slice	lowered	server	const r = new ArrayBuffer(8);   const v = r.slice(1);	ok:{}	
+ArrayBuffer	maxByteLength	lowered	server	const r = new ArrayBuffer(8);   const v = r.maxByteLength;	ok:8	
+ArrayBuffer	resizable	lowered	server	const r = new ArrayBuffer(8);   const v = r.resizable;	ok:false	
+ArrayBuffer	resize	refused	refused	const r = new ArrayBuffer(8);   const v = r.resize(4);	throws:TypeError	
+ArrayBuffer	transfer	refused	refused	const r = new ArrayBuffer(8);   const v = r.transfer();	ok:{}	
+ArrayBuffer	transferToFixedLength	refused	refused	const r = new ArrayBuffer(8);   const v = r.transferToFixedLength();	ok:{}	
+ArrayBuffer	detached	lowered	server	const r = new ArrayBuffer(8);   const v = r.detached;	ok:false	
+DataView	buffer	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.buffer;	ok:{}	
+DataView	byteLength	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.byteLength;	ok:8	
+DataView	byteOffset	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.byteOffset;	ok:0	
+DataView	getInt8	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getInt8(0);	ok:0	
+DataView	setInt8	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setInt8(0, 7);	ok:undefined	
+DataView	getUint8	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getUint8(0);	ok:0	
+DataView	setUint8	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setUint8(0, 7);	ok:undefined	
+DataView	getInt16	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getInt16(0);	ok:0	
+DataView	setInt16	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setInt16(0, 7);	ok:undefined	
+DataView	getUint16	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getUint16(0);	ok:0	
+DataView	setUint16	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setUint16(0, 7);	ok:undefined	
+DataView	getInt32	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getInt32(0);	ok:0	
+DataView	setInt32	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setInt32(0, 7);	ok:undefined	
+DataView	getUint32	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getUint32(0);	ok:0	
+DataView	setUint32	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setUint32(0, 7);	ok:undefined	
+DataView	getFloat32	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getFloat32(0);	ok:0	
+DataView	setFloat32	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setFloat32(0, 1.5);	ok:undefined	
+DataView	getFloat64	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getFloat64(0);	ok:0	
+DataView	setFloat64	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setFloat64(0, 1.5);	ok:undefined	
+DataView	getBigInt64	throws	throws	const r = new DataView(new ArrayBuffer(8));   const v = r.getBigInt64(0);	throws:TypeError	
+DataView	setBigInt64	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setBigInt64(0, 7n);	ok:undefined	
+DataView	getBigUint64	throws	throws	const r = new DataView(new ArrayBuffer(8));   const v = r.getBigUint64(0);	throws:TypeError	
+DataView	setBigUint64	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setBigUint64(0, 7n);	ok:undefined	
+DataView	getFloat16	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.getFloat16(0);	ok:0	
+DataView	setFloat16	lowered	server	const r = new DataView(new ArrayBuffer(8));   const v = r.setFloat16(0, 1.5);	ok:undefined	
+Uint8Array	BYTES_PER_ELEMENT	lowered	server	const v = Uint8Array.BYTES_PER_ELEMENT;	ok:1	
+Uint8Array	fromBase64	throws	throws	const v = Uint8Array.fromBase64();	throws:TypeError	
+Uint8Array	fromHex	throws	throws	const v = Uint8Array.fromHex();	throws:TypeError	
+Uint8Array	BYTES_PER_ELEMENT	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.BYTES_PER_ELEMENT;	ok:1	
+Uint8Array	toBase64	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.toBase64();	ok:"AwEC"	
+Uint8Array	setFromBase64	throws	throws	const r = new Uint8Array([3, 1, 2]);   const v = r.setFromBase64();	throws:TypeError	
+Uint8Array	toHex	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.toHex();	ok:"030102"	
+Uint8Array	setFromHex	throws	throws	const r = new Uint8Array([3, 1, 2]);   const v = r.setFromHex();	throws:TypeError	
+Iterator	from	lowered	server	const v = [...Iterator.from([1, 2])];	ok:[1,2]	
+Iterator	concat	lowered	server	const v = [...Iterator.concat([1], [2])];	ok:[1,2]	
+Iterator	reduce	lowered	server	const r = [1, 2, 3].values();   const v = r.reduce((a, b) => a + b);	ok:6	
+Iterator	toArray	lowered	server	const r = [1, 2, 3].values();   const v = r.toArray();	ok:[1,2,3]	
+Iterator	forEach	lowered	server	const r = [1, 2, 3].values();   const v = r.forEach((x) => x);	ok:undefined	
+Iterator	some	lowered	server	const r = [1, 2, 3].values();   const v = r.some((x) => x > 1);	ok:true	
+Iterator	every	lowered	server	const r = [1, 2, 3].values();   const v = r.every((x) => x > 1);	ok:false	
+Iterator	find	lowered	server	const r = [1, 2, 3].values();   const v = r.find((x) => x > 1);	ok:2	
+Iterator	map	lowered	server	const r = [1, 2, 3].values();   const v = [...r.map((x) => x)];	ok:[1,2,3]	
+Iterator	filter	lowered	server	const r = [1, 2, 3].values();   const v = [...r.filter((x) => x > 1)];	ok:[2,3]	
+Iterator	take	lowered	server	const r = [1, 2, 3].values();   const v = [...r.take(2)];	ok:[1,2]	
+Iterator	drop	lowered	server	const r = [1, 2, 3].values();   const v = [...r.drop(1)];	ok:[2,3]	
+Iterator	flatMap	lowered	server	const r = [1, 2, 3].values();   const v = [...r.flatMap((x) => [x, x])];	ok:[1,1,2,2,3,3]	
+Intl	getCanonicalLocales	lowered	server	const v = Intl.getCanonicalLocales("EN-us");	ok:["en-US"]	
+Intl	supportedValuesOf	lowered	server	const v = Intl.supportedValuesOf("calendar");	ok:["buddhist","chinese","coptic","dangi","ethioaa","ethiopic","gregory","hebrew","indian","islamic","islamic-civil","islamic-rgsa","islamic-tbla","islamic-umalqura","iso8601","japanese","persian","roc"]	
+Intl	DateTimeFormat	lowered	server	const v = new Intl.DateTimeFormat("en", { timeZone: "UTC" }).format(0);	ok:"1/1/1970"	
+Intl	NumberFormat	lowered	server	const v = new Intl.NumberFormat("en").format(1234.5);	ok:"1,234.5"	
+Intl	Collator	lowered	server	const v = new Intl.Collator("en").compare("a", "b");	ok:-1	
+Intl	PluralRules	lowered	server	const v = new Intl.PluralRules("en").select(1);	ok:"one"	
+Intl	RelativeTimeFormat	lowered	server	const v = new Intl.RelativeTimeFormat("en").format(-1, "day");	ok:"1 day ago"	
+Intl	ListFormat	lowered	server	const v = new Intl.ListFormat("en").format(["a", "b"]);	ok:"a and b"	
+Intl	Locale	lowered	server	const v = new Intl.Locale("en-US").language;	ok:"en"	
+Intl	DisplayNames	lowered	server	const v = new Intl.DisplayNames("en", { type: "region" }).of("DE");	ok:"Germany"	
+Intl	Segmenter	lowered	server	const v = new Intl.Segmenter("en").resolvedOptions().granularity;	ok:"grapheme"	
+Intl	DurationFormat	lowered	server	const v = new Intl.DurationFormat("en").format({ hours: 1 });	ok:"1 hr"	
+Temporal	Now	lowered	browser	const v = typeof Temporal.Now.instant().epochMilliseconds;	ok:"number"	
+Temporal	PlainDate	lowered	server	const v = new Temporal.PlainDate(2024, 1, 2).toString();	ok:"2024-01-02"	
+Temporal	PlainTime	lowered	server	const v = new Temporal.PlainTime(3, 4).toString();	ok:"03:04:00"	
+Temporal	PlainDateTime	lowered	server	const v = new Temporal.PlainDateTime(2024, 1, 2, 3, 4).toString();	ok:"2024-01-02T03:04:00"	
+Temporal	ZonedDateTime	lowered	server	const v = new Temporal.ZonedDateTime(0n, "UTC").toString();	ok:"1970-01-01T00:00:00+00:00[UTC]"	
+Temporal	Duration	lowered	server	const v = new Temporal.Duration(1, 2).toString();	ok:"P1Y2M"	
+Temporal	Instant	lowered	server	const v = new Temporal.Instant(0n).toString();	ok:"1970-01-01T00:00:00Z"	
+Temporal	PlainYearMonth	lowered	server	const v = new Temporal.PlainYearMonth(2024, 1).toString();	ok:"2024-01"	
+Temporal	PlainMonthDay	lowered	server	const v = new Temporal.PlainMonthDay(1, 2).toString();	ok:"01-02"	
+URL	parse	lowered	server	const v = URL.parse("https://a.example/");	ok:"https://a.example/"	
+URL	canParse	lowered	server	const v = URL.canParse("https://a.example/");	ok:true	
+URL	createObjectURL	refused	refused	const v = URL.createObjectURL();	throws:TypeError	
+URL	revokeObjectURL	refused	refused	const v = URL.revokeObjectURL();	throws:TypeError	
+URL	toString	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.toString();	ok:"https://a.example/p?q=1#h"	
+URL	href	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.href;	ok:"https://a.example/p?q=1#h"	
+URL	origin	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.origin;	ok:"https://a.example"	
+URL	protocol	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.protocol;	ok:"https:"	
+URL	username	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.username;	ok:""	
+URL	password	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.password;	ok:""	
+URL	host	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.host;	ok:"a.example"	
+URL	hostname	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.hostname;	ok:"a.example"	
+URL	port	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.port;	ok:""	
+URL	pathname	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.pathname;	ok:"/p"	
+URL	search	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.search;	ok:"?q=1"	
+URL	searchParams	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.searchParams.get("q");	ok:"1"	
+URL	hash	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.hash;	ok:"#h"	
+URL	toJSON	lowered	server	const r = new URL("https://a.example/p?q=1#h");   const v = r.toJSON();	ok:"https://a.example/p?q=1#h"	
+URLSearchParams	size	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = r.size;	ok:2	
+URLSearchParams	append	refused	refused	const r = new URLSearchParams("a=1&b=2");   const v = r.append("c", "3");	ok:undefined	
+URLSearchParams	delete	refused	refused	const r = new URLSearchParams("a=1&b=2");   const v = r.delete("a");	ok:undefined	
+URLSearchParams	get	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = r.get("a");	ok:"1"	
+URLSearchParams	getAll	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = r.getAll("a");	ok:["1"]	
+URLSearchParams	has	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = r.has("a");	ok:true	
+URLSearchParams	set	refused	refused	const r = new URLSearchParams("a=1&b=2");   const v = r.set("c", 3);	ok:undefined	
+URLSearchParams	sort	refused	refused	const r = new URLSearchParams("a=1&b=2");   const v = r.sort((a, b) => a - b);	ok:undefined	
+URLSearchParams	entries	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = [...r.entries()];	ok:[["a","1"],["b","2"]]	
+URLSearchParams	forEach	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = r.forEach((x) => x);	ok:undefined	
+URLSearchParams	keys	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = [...r.keys()];	ok:["a","b"]	
+URLSearchParams	values	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = [...r.values()];	ok:["1","2"]	
+URLSearchParams	toString	lowered	server	const r = new URLSearchParams("a=1&b=2");   const v = r.toString();	ok:"a=1&b=2"	
+TextEncoder	encoding	lowered	server	const r = new TextEncoder();   const v = r.encoding;	ok:"utf-8"	
+TextEncoder	encode	lowered	server	const r = new TextEncoder();  const v = [...r.encode("hé")];	ok:[104,195,169]	
+TextEncoder	encodeInto	refused	refused	const r = new TextEncoder();   const v = r.encodeInto("hi", new Uint8Array(4));	ok:{"read":2,"written":2}	
+TextDecoder	decode	lowered	server	const r = new TextDecoder();  const v = r.decode(new Uint8Array([104, 105]));	ok:"hi"	
+TextDecoder	encoding	lowered	server	const r = new TextDecoder();   const v = r.encoding;	ok:"utf-8"	
+TextDecoder	fatal	lowered	server	const r = new TextDecoder();   const v = r.fatal;	ok:false	
+TextDecoder	ignoreBOM	lowered	server	const r = new TextDecoder();   const v = r.ignoreBOM;	ok:false	
+console	log	refused	refused	const v = console.log("x");	ok:undefined	
+console	info	refused	refused	const v = console.info("x");	ok:undefined	
+console	debug	refused	refused	const v = console.debug("x");	ok:undefined	
+console	warn	refused	refused	const v = console.warn("x");	ok:undefined	
+console	error	refused	refused	const v = console.error("x");	ok:undefined	
+console	dir	refused	refused	const v = console.dir("x");	ok:undefined	
+console	time	refused	refused	const v = console.time("x");	ok:undefined	
+console	timeEnd	refused	refused	const v = console.timeEnd("x");	ok:undefined	
+console	timeLog	refused	refused	const v = console.timeLog("x");	ok:undefined	
+console	trace	refused	refused	const v = console.trace("x");	ok:undefined	
+console	assert	refused	refused	const v = console.assert("x");	ok:undefined	
+console	clear	refused	refused	const v = console.clear("x");	ok:undefined	
+console	count	refused	refused	const v = console.count("x");	ok:undefined	
+console	countReset	refused	refused	const v = console.countReset("x");	ok:undefined	
+console	group	refused	refused	const v = console.group("x");	ok:undefined	
+console	groupEnd	refused	refused	const v = console.groupEnd("x");	ok:undefined	
+console	table	refused	refused	const v = console.table("x");	ok:undefined	
+console	dirxml	refused	refused	const v = console.dirxml("x");	ok:undefined	
+console	groupCollapsed	refused	refused	const v = console.groupCollapsed("x");	ok:undefined	
+console	_stdoutErrorHandler	refused	refused	const v = console._stdoutErrorHandler("x");	ok:undefined	
+console	_stderrErrorHandler	refused	refused	const v = console._stderrErrorHandler("x");	ok:undefined	
+console	_ignoreErrors	refused	refused	const v = console._ignoreErrors;	ok:true	
+console	_times	refused	refused	const v = console._times;	ok:{}	
+console	Console	refused	refused	const v = console.Console("x");	ok:undefined	
+console	profile	refused	refused	const v = console.profile("x");	ok:undefined	
+console	profileEnd	refused	refused	const v = console.profileEnd("x");	ok:undefined	
+console	timeStamp	refused	refused	const v = console.timeStamp("x");	ok:undefined	
+console	context	refused	refused	const v = console.context("x");	ok:undefined	
+console	createTask	refused	refused	const v = console.createTask("x");	ok:undefined	
+console	_stdout	refused	refused	const v = console._stdout;	ok:{"_events":{},"_writableState":{"highWaterMark":65536,"length":0,"corked":0,"writelen":0,"bufferedIndex":0,"pendingcb":0},"fd":1,"readable":false,"autoClose":false,"_type":"fs","_isStdio":true,"_eventsCount":1}	
+console	_stderr	refused	refused	const v = console._stderr;	ok:{"_events":{},"_writableState":{"highWaterMark":65536,"length":0,"corked":0,"writelen":0,"bufferedIndex":0,"pendingcb":0},"fd":2,"readable":false,"autoClose":false,"_type":"fs","_isStdio":true,"_eventsCount":1}	
+Atomics	load	refused	refused	const v = Atomics.load(new Int32Array(new SharedArrayBuffer(8)), 0);	ok:0	
+Atomics	store	refused	refused	const v = Atomics.store(new Int32Array(new SharedArrayBuffer(8)), 0, 1);	ok:1	
+Atomics	add	refused	refused	const v = Atomics.add(new Int32Array(new SharedArrayBuffer(8)), 0, 1);	ok:0	
+Atomics	sub	refused	refused	const v = Atomics.sub(new Int32Array(new SharedArrayBuffer(8)), 0, 1);	ok:0	
+Atomics	and	refused	refused	const v = Atomics.and(new Int32Array(new SharedArrayBuffer(8)), 0, 1);	ok:0	
+Atomics	or	refused	refused	const v = Atomics.or(new Int32Array(new SharedArrayBuffer(8)), 0, 1);	ok:0	
+Atomics	xor	refused	refused	const v = Atomics.xor(new Int32Array(new SharedArrayBuffer(8)), 0, 1);	ok:0	
+Atomics	exchange	refused	refused	const v = Atomics.exchange(new Int32Array(new SharedArrayBuffer(8)), 0, 1);	ok:0	
+Atomics	compareExchange	refused	refused	const v = Atomics.compareExchange(new Int32Array(new SharedArrayBuffer(8)), 0, 0, 1);	ok:0	
+Atomics	isLockFree	refused	refused	const v = Atomics.isLockFree(new Int32Array(new SharedArrayBuffer(8)), 0);	ok:false	
+Atomics	waitAsync	refused	refused	const v = Atomics.waitAsync(new Int32Array(new SharedArrayBuffer(8)), 0);	ok:{"async":true,"value":{}}	
+Atomics	notify	refused	refused	const v = Atomics.notify(new Int32Array(new SharedArrayBuffer(8)), 0);	ok:0	
+Atomics	pause	refused	refused	const v = Atomics.pause(new Int32Array(new SharedArrayBuffer(8)), 0);	throws:TypeError	
+DisposableStack	use	lowered	server	const r = new DisposableStack();  const v = typeof r.use({ [Symbol.dispose]() {} });	ok:"object"	
+DisposableStack	dispose	lowered	server	const r = new DisposableStack();   const v = r.dispose();	ok:undefined	
+DisposableStack	adopt	lowered	server	const r = new DisposableStack();   const v = r.adopt(1, () => {});	ok:1	
+DisposableStack	defer	lowered	server	const r = new DisposableStack();   const v = r.defer(() => {});	ok:undefined	
+DisposableStack	move	lowered	server	const r = new DisposableStack();   const v = r.move();	ok:{}	
+DisposableStack	disposed	lowered	server	const r = new DisposableStack();   const v = r.disposed;	ok:false	
+AsyncDisposableStack	use	lowered	server	const r = new AsyncDisposableStack();  const v = typeof r.use({ [Symbol.asyncDispose]() {} });	ok:"object"	
+AsyncDisposableStack	disposeAsync	lowered	awaits	const r = new AsyncDisposableStack();   const v = await r.disposeAsync();	ok:undefined	
+AsyncDisposableStack	adopt	lowered	server	const r = new AsyncDisposableStack();   const v = r.adopt(1, () => {});	ok:1	
+AsyncDisposableStack	defer	lowered	server	const r = new AsyncDisposableStack();   const v = r.defer(() => {});	ok:undefined	
+AsyncDisposableStack	move	lowered	server	const r = new AsyncDisposableStack();   const v = r.move();	ok:{}	
+AsyncDisposableStack	disposed	lowered	server	const r = new AsyncDisposableStack();   const v = r.disposed;	ok:false	
+SharedArrayBuffer	byteLength	lowered	server	const r = new SharedArrayBuffer(8);   const v = r.byteLength;	ok:8	
+SharedArrayBuffer	slice	lowered	server	const r = new SharedArrayBuffer(8);   const v = r.slice(1);	ok:{}	
+SharedArrayBuffer	maxByteLength	lowered	server	const r = new SharedArrayBuffer(8);   const v = r.maxByteLength;	ok:8	
+SharedArrayBuffer	growable	lowered	server	const r = new SharedArrayBuffer(8);   const v = r.growable;	ok:false	
+SharedArrayBuffer	grow	refused	refused	const r = new SharedArrayBuffer(8);   const v = r.grow();	throws:TypeError	
+Headers	append	refused	refused	const r = new Headers({ a: "1" });   const v = r.append("c", "3");	ok:undefined	
+Headers	delete	refused	refused	const r = new Headers({ a: "1" });   const v = r.delete("a");	ok:undefined	
+Headers	get	refused	refused	const r = new Headers({ a: "1" });   const v = r.get("a");	ok:"1"	
+Headers	has	refused	refused	const r = new Headers({ a: "1" });   const v = r.has("a");	ok:true	
+Headers	set	refused	refused	const r = new Headers({ a: "1" });   const v = r.set("c", 3);	ok:undefined	
+Headers	getSetCookie	refused	refused	const r = new Headers({ a: "1" });   const v = r.getSetCookie();	ok:[]	
+Headers	keys	refused	refused	const r = new Headers({ a: "1" });   const v = [...r.keys()];	ok:["a"]	
+Headers	values	refused	refused	const r = new Headers({ a: "1" });   const v = [...r.values()];	ok:["1"]	
+Headers	entries	refused	refused	const r = new Headers({ a: "1" });   const v = [...r.entries()];	ok:[["a","1"]]	
+Headers	forEach	refused	refused	const r = new Headers({ a: "1" });   const v = r.forEach((x) => x);	ok:undefined	
+Response	error	refused	refused	const v = Response.error();	ok:{}	
+Response	json	lowered	awaits	const v = await Response.json({ a: 1 }).json();	ok:{"a":1}	
+Response	redirect	lowered	server	const v = Response.redirect("https://a.example/").status;	ok:302	
+Response	type	lowered	server	const r = new Response("hi");   const v = r.type;	ok:"default"	
+Response	url	lowered	server	const r = new Response("hi");   const v = r.url;	ok:""	
+Response	redirected	lowered	server	const r = new Response("hi");   const v = r.redirected;	ok:false	
+Response	status	lowered	server	const r = new Response("hi");   const v = r.status;	ok:200	
+Response	ok	lowered	server	const r = new Response("hi");   const v = r.ok;	ok:true	
+Response	statusText	lowered	server	const r = new Response("hi");   const v = r.statusText;	ok:""	
+Response	headers	refused	refused	const r = new Response("hi");   const v = r.headers;	ok:{}	
+Response	body	refused	refused	const r = new Response("hi");   const v = r.body;	ok:{}	
+Response	bodyUsed	refused	refused	const r = new Response("hi");   const v = r.bodyUsed;	ok:false	
+Response	clone	refused	refused	const r = new Response("hi");   const v = r.clone();	ok:{}	
+Response	blob	refused	refused	const r = new Response("hi");   const v = r.blob();	ok:{}	
+Response	arrayBuffer	refused	refused	const r = new Response("hi");   const v = r.arrayBuffer();	ok:{}	
+Response	text	refused	refused	const r = new Response("hi");   const v = r.text();	ok:{}	
+Response	json	lowered	awaits	const v = await Response.json({ a: 1 }).json();	ok:{"a":1}	
+Response	formData	refused	refused	const r = new Response("hi");   const v = r.formData();	ok:{}	
+Response	bytes	refused	refused	const r = new Response("hi");   const v = r.bytes();	ok:{}	
+Response	textStream	refused	refused	const r = new Response("hi");   const v = r.textStream();	ok:{}	
+Request	method	lowered	server	const r = new Request("https://a.example/");   const v = r.method;	ok:"GET"	
+Request	url	lowered	server	const r = new Request("https://a.example/");   const v = r.url;	ok:"https://a.example/"	
+Request	headers	refused	refused	const r = new Request("https://a.example/");   const v = r.headers;	ok:{}	
+Request	destination	lowered	server	const r = new Request("https://a.example/");   const v = r.destination;	ok:""	
+Request	referrer	lowered	server	const r = new Request("https://a.example/");   const v = r.referrer;	ok:"about:client"	
+Request	referrerPolicy	lowered	server	const r = new Request("https://a.example/");   const v = r.referrerPolicy;	ok:""	
+Request	mode	lowered	server	const r = new Request("https://a.example/");   const v = r.mode;	ok:"cors"	
+Request	credentials	lowered	server	const r = new Request("https://a.example/");   const v = r.credentials;	ok:"same-origin"	
+Request	cache	lowered	server	const r = new Request("https://a.example/");   const v = r.cache;	ok:"default"	
+Request	redirect	lowered	server	const r = new Request("https://a.example/");   const v = r.redirect;	ok:"follow"	
+Request	integrity	lowered	server	const r = new Request("https://a.example/");   const v = r.integrity;	ok:""	
+Request	keepalive	lowered	server	const r = new Request("https://a.example/");   const v = r.keepalive;	ok:false	
+Request	isReloadNavigation	lowered	server	const r = new Request("https://a.example/");   const v = r.isReloadNavigation;	ok:false	
+Request	isHistoryNavigation	lowered	server	const r = new Request("https://a.example/");   const v = r.isHistoryNavigation;	ok:false	
+Request	signal	refused	refused	const r = new Request("https://a.example/");   const v = r.signal;	ok:{}	
+Request	body	refused	refused	const r = new Request("https://a.example/");   const v = r.body;	ok:null	
+Request	bodyUsed	refused	refused	const r = new Request("https://a.example/");   const v = r.bodyUsed;	ok:false	
+Request	duplex	lowered	server	const r = new Request("https://a.example/");   const v = r.duplex;	ok:"half"	
+Request	clone	refused	refused	const r = new Request("https://a.example/");   const v = r.clone();	ok:{}	
+Request	blob	refused	refused	const r = new Request("https://a.example/");   const v = r.blob();	ok:{}	
+Request	arrayBuffer	refused	refused	const r = new Request("https://a.example/");   const v = r.arrayBuffer();	ok:{}	
+Request	text	refused	refused	const r = new Request("https://a.example/");   const v = r.text();	ok:{}	
+Request	json	refused	refused	const r = new Request("https://a.example/");   const v = r.json();	ok:{}	
+Request	formData	refused	refused	const r = new Request("https://a.example/");   const v = r.formData();	ok:{}	
+Request	bytes	refused	refused	const r = new Request("https://a.example/");   const v = r.bytes();	ok:{}	
+Request	textStream	refused	refused	const r = new Request("https://a.example/");   const v = r.textStream();	ok:{}	
+Request	attribute	refused	refused	const r = new Request("https://a.example/");   const v = r.attribute;	ok:undefined	
+AbortController	signal	refused	refused	const r = new AbortController();   const v = r.signal;	ok:{}	
+AbortController	abort	refused	refused	const r = new AbortController();   const v = r.abort();	ok:undefined	
+Intl.Collator	supportedLocalesOf	lowered	server	const v = Intl.Collator.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.Collator	resolvedOptions	lowered	server	const r = new Intl.Collator("en");   const v = r.resolvedOptions();	ok:{"locale":"en","usage":"sort","sensitivity":"variant","ignorePunctuation":false,"collation":"default","numeric":false,"caseFirst":"false"}	
+Intl.Collator	compare	lowered	server	const r = new Intl.Collator("en");  const v = r.compare("a", "b");	ok:-1	
+Intl.DateTimeFormat	supportedLocalesOf	lowered	server	const v = Intl.DateTimeFormat.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.DateTimeFormat	resolvedOptions	lowered	server	const r = new Intl.DateTimeFormat("en", { timeZone: "UTC" });   const v = r.resolvedOptions();	ok:{"locale":"en","calendar":"gregory","numberingSystem":"latn","timeZone":"UTC","year":"numeric","month":"numeric","day":"numeric"}	
+Intl.DateTimeFormat	formatToParts	lowered	server	const r = new Intl.DateTimeFormat("en", { timeZone: "UTC" });  const v = r.formatToParts(new Date(0));	ok:[{"type":"month","value":"1"},{"type":"literal","value":"/"},{"type":"day","value":"1"},{"type":"literal","value":"/"},{"type":"year","value":"1970"}]	
+Intl.DateTimeFormat	format	lowered	server	const r = new Intl.DateTimeFormat("en", { timeZone: "UTC" });  const v = r.format(new Date(0));	ok:"1/1/1970"	
+Intl.DateTimeFormat	formatRange	refused	refused	const r = new Intl.DateTimeFormat("en", { timeZone: "UTC" });  const v = r.formatRange(new Date(0), new Date(86400000));	ok:"1/1/1970 – 1/2/1970"	
+Intl.DateTimeFormat	formatRangeToParts	refused	refused	const r = new Intl.DateTimeFormat("en", { timeZone: "UTC" });  const v = r.formatRangeToParts(new Date(0), new Date(86400000));	ok:[{"type":"month","value":"1","source":"startRange"},{"type":"literal","value":"/","source":"startRange"},{"type":"day","value":"1","source":"startRange"},{"type":"literal","value":"/","source":"startRange"},{"type":"year","value":"1970","source":"startRange"},{"type":"literal","value":" – ","source":"shared"},{"type":"month","value":"1","source":"endRange"},{"type":"literal","value":"/","source":"endRange"},{"type":"day","value":"2","source":"endRange"},{"type":"literal","value":"/","source":"endRange"},{"type":"year","value":"1970","source":"endRange"}]	
+Intl.DisplayNames	supportedLocalesOf	lowered	server	const v = Intl.DisplayNames.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.DisplayNames	resolvedOptions	lowered	server	const r = new Intl.DisplayNames("en", { type: "region" });   const v = r.resolvedOptions();	ok:{"locale":"en","style":"long","type":"region","fallback":"code"}	
+Intl.DisplayNames	of	lowered	server	const r = new Intl.DisplayNames("en", { type: "region" });   const v = r.of("US");	ok:"United States"	
+Intl.DurationFormat	supportedLocalesOf	lowered	server	const v = Intl.DurationFormat.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.DurationFormat	resolvedOptions	lowered	server	const r = new Intl.DurationFormat("en");   const v = r.resolvedOptions();	ok:{"locale":"en","numberingSystem":"latn","style":"short","years":"short","yearsDisplay":"auto","months":"short","monthsDisplay":"auto","weeks":"short","weeksDisplay":"auto","days":"short","daysDisplay":"auto","hours":"short","hoursDisplay":"auto","minutes":"short","minutesDisplay":"auto","seconds":"short","secondsDisplay":"auto","milliseconds":"short","millisecondsDisplay":"auto","microseconds":"short","microsecondsDisplay":"auto","nanoseconds":"short","nanosecondsDisplay":"auto"}	
+Intl.DurationFormat	format	lowered	server	const r = new Intl.DurationFormat("en");  const v = r.format({ hours: 1, minutes: 2 });	ok:"1 hr, 2 min"	
+Intl.DurationFormat	formatToParts	refused	refused	const r = new Intl.DurationFormat("en");  const v = r.formatToParts({ hours: 1, minutes: 2 });	ok:[{"type":"integer","value":"1","unit":"hour"},{"type":"literal","value":" ","unit":"hour"},{"type":"unit","value":"hr","unit":"hour"},{"type":"literal","value":", "},{"type":"integer","value":"2","unit":"minute"},{"type":"literal","value":" ","unit":"minute"},{"type":"unit","value":"min","unit":"minute"}]	
+Intl.ListFormat	supportedLocalesOf	lowered	server	const v = Intl.ListFormat.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.ListFormat	resolvedOptions	lowered	server	const r = new Intl.ListFormat("en");   const v = r.resolvedOptions();	ok:{"locale":"en","type":"conjunction","style":"long"}	
+Intl.ListFormat	format	lowered	server	const r = new Intl.ListFormat("en");  const v = r.format(["a", "b", "c"]);	ok:"a, b, and c"	
+Intl.ListFormat	formatToParts	lowered	server	const r = new Intl.ListFormat("en");  const v = r.formatToParts(["a", "b"]);	ok:[{"type":"element","value":"a"},{"type":"literal","value":" and "},{"type":"element","value":"b"}]	
+Intl.Locale	toString	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.toString();	ok:"en-Latn-US"	
+Intl.Locale	maximize	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.maximize();	ok:{}	
+Intl.Locale	minimize	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.minimize();	ok:{}	
+Intl.Locale	language	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.language;	ok:"en"	
+Intl.Locale	script	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.script;	ok:"Latn"	
+Intl.Locale	region	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.region;	ok:"US"	
+Intl.Locale	baseName	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.baseName;	ok:"en-Latn-US"	
+Intl.Locale	calendar	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.calendar;	ok:undefined	
+Intl.Locale	caseFirst	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.caseFirst;	ok:undefined	
+Intl.Locale	collation	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.collation;	ok:undefined	
+Intl.Locale	firstDayOfWeek	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.firstDayOfWeek;	ok:undefined	
+Intl.Locale	hourCycle	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.hourCycle;	ok:undefined	
+Intl.Locale	numeric	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.numeric;	ok:false	
+Intl.Locale	numberingSystem	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.numberingSystem;	ok:undefined	
+Intl.Locale	getCalendars	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.getCalendars();	ok:["gregory"]	
+Intl.Locale	getCollations	refused	refused	const r = new Intl.Locale("en-Latn-US");   const v = r.getCollations();	ok:["emoji","eor"]	
+Intl.Locale	getHourCycles	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.getHourCycles();	ok:["h12"]	
+Intl.Locale	getNumberingSystems	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.getNumberingSystems();	ok:["latn"]	
+Intl.Locale	getTimeZones	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.getTimeZones();	ok:["America/Adak","America/Anchorage","America/Boise","America/Chicago","America/Denver","America/Detroit","America/Indiana/Knox","America/Indiana/Marengo","America/Indiana/Petersburg","America/Indiana/Tell_City","America/Indiana/Vevay","America/Indiana/Vincennes","America/Indiana/Winamac","America/Indianapolis","America/Juneau","America/Kentucky/Monticello","America/Los_Angeles","America/Louisville","America/Menominee","America/Metlakatla","America/New_York","America/Nome","America/North_Dakota/Beulah","America/North_Dakota/Center","America/North_Dakota/New_Salem","America/Phoenix","America/Sitka","America/Yakutat","Pacific/Honolulu"]	
+Intl.Locale	getTextInfo	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.getTextInfo();	ok:{"direction":"ltr"}	
+Intl.Locale	getWeekInfo	lowered	server	const r = new Intl.Locale("en-Latn-US");   const v = r.getWeekInfo();	ok:{"firstDay":7,"weekend":[6,7]}	
+Intl.NumberFormat	supportedLocalesOf	lowered	server	const v = Intl.NumberFormat.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.NumberFormat	resolvedOptions	lowered	server	const r = new Intl.NumberFormat("en");   const v = r.resolvedOptions();	ok:{"locale":"en","numberingSystem":"latn","style":"decimal","minimumIntegerDigits":1,"minimumFractionDigits":0,"maximumFractionDigits":3,"useGrouping":"auto","notation":"standard","signDisplay":"auto","roundingIncrement":1,"roundingMode":"halfExpand","roundingPriority":"auto","trailingZeroDisplay":"auto"}	
+Intl.NumberFormat	formatToParts	lowered	server	const r = new Intl.NumberFormat("en");   const v = r.formatToParts(1234.5);	ok:[{"type":"integer","value":"1"},{"type":"group","value":","},{"type":"integer","value":"234"},{"type":"decimal","value":"."},{"type":"fraction","value":"5"}]	
+Intl.NumberFormat	format	lowered	server	const r = new Intl.NumberFormat("en");  const v = r.format(1234.5);	ok:"1,234.5"	
+Intl.NumberFormat	formatRange	refused	refused	const r = new Intl.NumberFormat("en");   const v = r.formatRange(1, 2);	ok:"1–2"	
+Intl.NumberFormat	formatRangeToParts	refused	refused	const r = new Intl.NumberFormat("en");   const v = r.formatRangeToParts(1, 2);	ok:[{"type":"integer","value":"1","source":"startRange"},{"type":"literal","value":"–","source":"shared"},{"type":"integer","value":"2","source":"endRange"}]	
+Intl.PluralRules	supportedLocalesOf	lowered	server	const v = Intl.PluralRules.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.PluralRules	resolvedOptions	lowered	server	const r = new Intl.PluralRules("en");   const v = r.resolvedOptions();	ok:{"locale":"en","type":"cardinal","notation":"standard","minimumIntegerDigits":1,"minimumFractionDigits":0,"maximumFractionDigits":3,"pluralCategories":["one","other"],"roundingIncrement":1,"roundingMode":"halfExpand","roundingPriority":"auto","trailingZeroDisplay":"auto"}	
+Intl.PluralRules	select	lowered	server	const r = new Intl.PluralRules("en");   const v = r.select(1);	ok:"one"	
+Intl.PluralRules	selectRange	refused	refused	const r = new Intl.PluralRules("en");   const v = r.selectRange(1, 2);	ok:"other"	
+Intl.RelativeTimeFormat	supportedLocalesOf	lowered	server	const v = Intl.RelativeTimeFormat.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.RelativeTimeFormat	resolvedOptions	lowered	server	const r = new Intl.RelativeTimeFormat("en");   const v = r.resolvedOptions();	ok:{"locale":"en","style":"long","numeric":"always","numberingSystem":"latn"}	
+Intl.RelativeTimeFormat	format	lowered	server	const r = new Intl.RelativeTimeFormat("en");  const v = r.format(-1, "day");	ok:"1 day ago"	
+Intl.RelativeTimeFormat	formatToParts	lowered	server	const r = new Intl.RelativeTimeFormat("en");  const v = r.formatToParts(-1, "day");	ok:[{"type":"integer","value":"1","unit":"day"},{"type":"literal","value":" day ago"}]	
+Intl.Segmenter	supportedLocalesOf	lowered	server	const v = Intl.Segmenter.supportedLocalesOf(["en", "xx"]);	ok:["en"]	
+Intl.Segmenter	resolvedOptions	lowered	server	const r = new Intl.Segmenter("en", { granularity: "word" });   const v = r.resolvedOptions();	ok:{"locale":"en","granularity":"word"}	
+Intl.Segmenter	segment	lowered	browser	const r = new Intl.Segmenter("en", { granularity: "word" });   const v = [...r.segment("hi you")].map((s) => s.segment);	ok:["hi"," ","you"]	
+Temporal.PlainDate	from	lowered	server	const v = Temporal.PlainDate.from("2024-09-10");	ok:"2024-09-10"	
+Temporal.PlainDate	compare	lowered	server	const v = Temporal.PlainDate.compare("2024-09-10", "2024-09-11");	ok:-1	
+Temporal.PlainDate	era	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.era;	ok:undefined	
+Temporal.PlainDate	eraYear	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.eraYear;	ok:undefined	
+Temporal.PlainDate	calendarId	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.calendarId;	ok:"iso8601"	
+Temporal.PlainDate	year	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.year;	ok:2024	
+Temporal.PlainDate	month	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.month;	ok:9	
+Temporal.PlainDate	monthCode	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.monthCode;	ok:"M09"	
+Temporal.PlainDate	day	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.day;	ok:10	
+Temporal.PlainDate	dayOfWeek	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.dayOfWeek;	ok:2	
+Temporal.PlainDate	dayOfYear	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.dayOfYear;	ok:254	
+Temporal.PlainDate	weekOfYear	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.weekOfYear;	ok:37	
+Temporal.PlainDate	yearOfWeek	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.yearOfWeek;	ok:2024	
+Temporal.PlainDate	daysInWeek	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.daysInWeek;	ok:7	
+Temporal.PlainDate	daysInMonth	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.daysInMonth;	ok:30	
+Temporal.PlainDate	daysInYear	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.daysInYear;	ok:366	
+Temporal.PlainDate	monthsInYear	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.monthsInYear;	ok:12	
+Temporal.PlainDate	inLeapYear	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.inLeapYear;	ok:true	
+Temporal.PlainDate	toPlainYearMonth	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.toPlainYearMonth();	ok:"2024-09"	
+Temporal.PlainDate	toPlainMonthDay	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.toPlainMonthDay();	ok:"09-10"	
+Temporal.PlainDate	add	throws	throws	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.add(3);	throws:TypeError	
+Temporal.PlainDate	subtract	throws	throws	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.subtract();	throws:TypeError	
+Temporal.PlainDate	with	throws	throws	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.with(0, 9);	throws:TypeError	
+Temporal.PlainDate	withCalendar	throws	throws	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.withCalendar();	throws:TypeError	
+Temporal.PlainDate	until	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.until(Temporal.PlainDate.from("2024-12-25"));	ok:"P106D"	
+Temporal.PlainDate	since	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.since(Temporal.PlainDate.from("2024-01-01"));	ok:"P253D"	
+Temporal.PlainDate	equals	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.equals(Temporal.PlainDate.from("2024-09-10"));	ok:true	
+Temporal.PlainDate	toPlainDateTime	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.toPlainDateTime();	ok:"2024-09-10T00:00:00"	
+Temporal.PlainDate	toZonedDateTime	throws	throws	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.toZonedDateTime();	throws:TypeError	
+Temporal.PlainDate	toString	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.toString();	ok:"2024-09-10"	
+Temporal.PlainDate	toLocaleString	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.toLocaleString("en-US");	ok:"9/10/2024"	
+Temporal.PlainDate	toJSON	lowered	server	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.toJSON();	ok:"2024-09-10"	
+Temporal.PlainDate	valueOf	throws	throws	const r = Temporal.PlainDate.from("2024-09-10");   const v = r.valueOf();	throws:TypeError	
+Temporal.PlainTime	from	lowered	server	const v = Temporal.PlainTime.from("10:20");	ok:"10:20:00"	
+Temporal.PlainTime	compare	lowered	server	const v = Temporal.PlainTime.compare("10:20", "10:21");	ok:-1	
+Temporal.PlainTime	hour	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.hour;	ok:10	
+Temporal.PlainTime	minute	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.minute;	ok:20	
+Temporal.PlainTime	second	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.second;	ok:30	
+Temporal.PlainTime	millisecond	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.millisecond;	ok:0	
+Temporal.PlainTime	microsecond	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.microsecond;	ok:0	
+Temporal.PlainTime	nanosecond	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.nanosecond;	ok:0	
+Temporal.PlainTime	add	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.add(3);	throws:TypeError	
+Temporal.PlainTime	subtract	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.subtract();	throws:TypeError	
+Temporal.PlainTime	with	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.with(0, 9);	throws:TypeError	
+Temporal.PlainTime	until	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.until(Temporal.PlainDate.from("2024-12-25"));	throws:TypeError	
+Temporal.PlainTime	since	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.since(Temporal.PlainDate.from("2024-01-01"));	throws:TypeError	
+Temporal.PlainTime	round	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.round();	throws:TypeError	
+Temporal.PlainTime	equals	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.equals(Temporal.PlainDate.from("2024-09-10"));	throws:TypeError	
+Temporal.PlainTime	toLocaleString	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.toLocaleString("en-US");	ok:"10:20:30 AM"	
+Temporal.PlainTime	toString	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.toString();	ok:"10:20:30"	
+Temporal.PlainTime	toJSON	lowered	server	const r = Temporal.PlainTime.from("10:20:30");   const v = r.toJSON();	ok:"10:20:30"	
+Temporal.PlainTime	valueOf	throws	throws	const r = Temporal.PlainTime.from("10:20:30");   const v = r.valueOf();	throws:TypeError	
+Temporal.PlainDateTime	from	lowered	server	const v = Temporal.PlainDateTime.from("2024-09-10T10:20");	ok:"2024-09-10T10:20:00"	
+Temporal.PlainDateTime	compare	lowered	server	const v = Temporal.PlainDateTime.compare("2024-09-10T10:20", "2024-09-10T10:21");	ok:-1	
+Temporal.PlainDateTime	calendarId	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.calendarId;	ok:"iso8601"	
+Temporal.PlainDateTime	era	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.era;	ok:undefined	
+Temporal.PlainDateTime	eraYear	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.eraYear;	ok:undefined	
+Temporal.PlainDateTime	year	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.year;	ok:2024	
+Temporal.PlainDateTime	month	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.month;	ok:9	
+Temporal.PlainDateTime	monthCode	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.monthCode;	ok:"M09"	
+Temporal.PlainDateTime	day	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.day;	ok:10	
+Temporal.PlainDateTime	hour	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.hour;	ok:10	
+Temporal.PlainDateTime	minute	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.minute;	ok:20	
+Temporal.PlainDateTime	second	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.second;	ok:30	
+Temporal.PlainDateTime	millisecond	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.millisecond;	ok:0	
+Temporal.PlainDateTime	microsecond	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.microsecond;	ok:0	
+Temporal.PlainDateTime	nanosecond	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.nanosecond;	ok:0	
+Temporal.PlainDateTime	dayOfWeek	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.dayOfWeek;	ok:2	
+Temporal.PlainDateTime	dayOfYear	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.dayOfYear;	ok:254	
+Temporal.PlainDateTime	weekOfYear	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.weekOfYear;	ok:37	
+Temporal.PlainDateTime	yearOfWeek	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.yearOfWeek;	ok:2024	
+Temporal.PlainDateTime	daysInWeek	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.daysInWeek;	ok:7	
+Temporal.PlainDateTime	daysInMonth	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.daysInMonth;	ok:30	
+Temporal.PlainDateTime	daysInYear	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.daysInYear;	ok:366	
+Temporal.PlainDateTime	monthsInYear	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.monthsInYear;	ok:12	
+Temporal.PlainDateTime	inLeapYear	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.inLeapYear;	ok:true	
+Temporal.PlainDateTime	with	throws	throws	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.with(0, 9);	throws:TypeError	
+Temporal.PlainDateTime	withCalendar	throws	throws	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.withCalendar();	throws:TypeError	
+Temporal.PlainDateTime	withPlainTime	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.withPlainTime();	ok:"2024-09-10T00:00:00"	
+Temporal.PlainDateTime	add	throws	throws	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.add(3);	throws:TypeError	
+Temporal.PlainDateTime	subtract	throws	throws	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.subtract();	throws:TypeError	
+Temporal.PlainDateTime	until	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.until(Temporal.PlainDate.from("2024-12-25"));	ok:"P105DT13H39M30S"	
+Temporal.PlainDateTime	since	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.since(Temporal.PlainDate.from("2024-01-01"));	ok:"P253DT10H20M30S"	
+Temporal.PlainDateTime	round	throws	throws	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.round();	throws:TypeError	
+Temporal.PlainDateTime	equals	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.equals(Temporal.PlainDate.from("2024-09-10"));	ok:false	
+Temporal.PlainDateTime	toLocaleString	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.toLocaleString("en-US");	ok:"9/10/2024, 10:20:30 AM"	
+Temporal.PlainDateTime	toJSON	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.toJSON();	ok:"2024-09-10T10:20:30"	
+Temporal.PlainDateTime	toString	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.toString();	ok:"2024-09-10T10:20:30"	
+Temporal.PlainDateTime	valueOf	throws	throws	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.valueOf();	throws:TypeError	
+Temporal.PlainDateTime	toZonedDateTime	throws	throws	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.toZonedDateTime();	throws:TypeError	
+Temporal.PlainDateTime	toPlainDate	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.toPlainDate();	ok:"2024-09-10"	
+Temporal.PlainDateTime	toPlainTime	lowered	server	const r = Temporal.PlainDateTime.from("2024-09-10T10:20:30");   const v = r.toPlainTime();	ok:"10:20:30"	
+Temporal.ZonedDateTime	from	lowered	server	const v = Temporal.ZonedDateTime.from("2024-09-10T10:20[UTC]");	ok:"2024-09-10T10:20:00+00:00[UTC]"	
+Temporal.ZonedDateTime	compare	lowered	server	const v = Temporal.ZonedDateTime.compare("2024-09-10T10:20[UTC]", "2024-09-10T10:21[UTC]");	ok:-1	
+Temporal.ZonedDateTime	timeZoneId	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.timeZoneId;	ok:"Europe/Paris"	
+Temporal.ZonedDateTime	calendarId	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.calendarId;	ok:"iso8601"	
+Temporal.ZonedDateTime	era	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.era;	ok:undefined	
+Temporal.ZonedDateTime	eraYear	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.eraYear;	ok:undefined	
+Temporal.ZonedDateTime	year	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.year;	ok:2024	
+Temporal.ZonedDateTime	month	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.month;	ok:9	
+Temporal.ZonedDateTime	monthCode	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.monthCode;	ok:"M09"	
+Temporal.ZonedDateTime	day	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.day;	ok:10	
+Temporal.ZonedDateTime	hour	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.hour;	ok:10	
+Temporal.ZonedDateTime	minute	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.minute;	ok:20	
+Temporal.ZonedDateTime	second	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.second;	ok:30	
+Temporal.ZonedDateTime	millisecond	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.millisecond;	ok:0	
+Temporal.ZonedDateTime	microsecond	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.microsecond;	ok:0	
+Temporal.ZonedDateTime	nanosecond	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.nanosecond;	ok:0	
+Temporal.ZonedDateTime	epochMilliseconds	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.epochMilliseconds;	ok:1725956430000	
+Temporal.ZonedDateTime	epochNanoseconds	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.epochNanoseconds;	throws:TypeError	
+Temporal.ZonedDateTime	dayOfWeek	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.dayOfWeek;	ok:2	
+Temporal.ZonedDateTime	dayOfYear	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.dayOfYear;	ok:254	
+Temporal.ZonedDateTime	weekOfYear	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.weekOfYear;	ok:37	
+Temporal.ZonedDateTime	yearOfWeek	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.yearOfWeek;	ok:2024	
+Temporal.ZonedDateTime	hoursInDay	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.hoursInDay;	ok:24	
+Temporal.ZonedDateTime	daysInWeek	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.daysInWeek;	ok:7	
+Temporal.ZonedDateTime	daysInMonth	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.daysInMonth;	ok:30	
+Temporal.ZonedDateTime	daysInYear	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.daysInYear;	ok:366	
+Temporal.ZonedDateTime	monthsInYear	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.monthsInYear;	ok:12	
+Temporal.ZonedDateTime	inLeapYear	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.inLeapYear;	ok:true	
+Temporal.ZonedDateTime	offsetNanoseconds	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.offsetNanoseconds;	ok:7200000000000	
+Temporal.ZonedDateTime	offset	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.offset;	ok:"+02:00"	
+Temporal.ZonedDateTime	with	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.with(0, 9);	throws:TypeError	
+Temporal.ZonedDateTime	withCalendar	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.withCalendar();	throws:TypeError	
+Temporal.ZonedDateTime	withPlainTime	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.withPlainTime();	ok:"2024-09-10T00:00:00+02:00[Europe/Paris]"	
+Temporal.ZonedDateTime	withTimeZone	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.withTimeZone();	throws:TypeError	
+Temporal.ZonedDateTime	add	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.add(3);	throws:TypeError	
+Temporal.ZonedDateTime	subtract	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.subtract();	throws:TypeError	
+Temporal.ZonedDateTime	until	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.until(Temporal.PlainDate.from("2024-12-25"));	throws:TypeError	
+Temporal.ZonedDateTime	since	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.since(Temporal.PlainDate.from("2024-01-01"));	throws:TypeError	
+Temporal.ZonedDateTime	round	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.round();	throws:TypeError	
+Temporal.ZonedDateTime	equals	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.equals(Temporal.PlainDate.from("2024-09-10"));	throws:TypeError	
+Temporal.ZonedDateTime	toLocaleString	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.toLocaleString("en-US");	ok:"9/10/2024, 10:20:30 AM GMT+2"	
+Temporal.ZonedDateTime	toString	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.toString();	ok:"2024-09-10T10:20:30+02:00[Europe/Paris]"	
+Temporal.ZonedDateTime	toJSON	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.toJSON();	ok:"2024-09-10T10:20:30+02:00[Europe/Paris]"	
+Temporal.ZonedDateTime	valueOf	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.valueOf();	throws:TypeError	
+Temporal.ZonedDateTime	startOfDay	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.startOfDay();	ok:"2024-09-10T00:00:00+02:00[Europe/Paris]"	
+Temporal.ZonedDateTime	getTimeZoneTransition	throws	throws	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.getTimeZoneTransition();	throws:TypeError	
+Temporal.ZonedDateTime	toInstant	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.toInstant();	ok:"2024-09-10T08:20:30Z"	
+Temporal.ZonedDateTime	toPlainDate	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.toPlainDate();	ok:"2024-09-10"	
+Temporal.ZonedDateTime	toPlainTime	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.toPlainTime();	ok:"10:20:30"	
+Temporal.ZonedDateTime	toPlainDateTime	lowered	server	const r = Temporal.ZonedDateTime.from("2024-09-10T10:20:30[Europe/Paris]");   const v = r.toPlainDateTime();	ok:"2024-09-10T10:20:30"	
+Temporal.Duration	from	lowered	server	const v = Temporal.Duration.from("PT1H");	ok:"PT1H"	
+Temporal.Duration	compare	lowered	server	const v = Temporal.Duration.compare("PT1H", "PT2H");	ok:-1	
+Temporal.Duration	years	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.years;	ok:0	
+Temporal.Duration	months	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.months;	ok:0	
+Temporal.Duration	weeks	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.weeks;	ok:0	
+Temporal.Duration	days	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.days;	ok:1	
+Temporal.Duration	hours	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.hours;	ok:2	
+Temporal.Duration	minutes	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.minutes;	ok:0	
+Temporal.Duration	seconds	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.seconds;	ok:0	
+Temporal.Duration	milliseconds	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.milliseconds;	ok:0	
+Temporal.Duration	microseconds	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.microseconds;	ok:0	
+Temporal.Duration	nanoseconds	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.nanoseconds;	ok:0	
+Temporal.Duration	sign	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.sign;	ok:1	
+Temporal.Duration	blank	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.blank;	ok:false	
+Temporal.Duration	with	throws	throws	const r = Temporal.Duration.from("P1DT2H");   const v = r.with(0, 9);	throws:TypeError	
+Temporal.Duration	negated	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.negated();	ok:"-P1DT2H"	
+Temporal.Duration	abs	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.abs();	ok:"P1DT2H"	
+Temporal.Duration	add	throws	throws	const r = Temporal.Duration.from("P1DT2H");   const v = r.add(3);	throws:TypeError	
+Temporal.Duration	subtract	throws	throws	const r = Temporal.Duration.from("P1DT2H");   const v = r.subtract();	throws:TypeError	
+Temporal.Duration	round	throws	throws	const r = Temporal.Duration.from("P1DT2H");   const v = r.round();	throws:TypeError	
+Temporal.Duration	total	throws	throws	const r = Temporal.Duration.from("P1DT2H");   const v = r.total();	throws:TypeError	
+Temporal.Duration	toLocaleString	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.toLocaleString("en-US");	ok:"1 day, 2 hr"	
+Temporal.Duration	toString	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.toString();	ok:"P1DT2H"	
+Temporal.Duration	toJSON	lowered	server	const r = Temporal.Duration.from("P1DT2H");   const v = r.toJSON();	ok:"P1DT2H"	
+Temporal.Duration	valueOf	throws	throws	const r = Temporal.Duration.from("P1DT2H");   const v = r.valueOf();	throws:TypeError	
+Temporal.Instant	from	lowered	server	const v = Temporal.Instant.from("2024-09-10T10:20Z");	ok:"2024-09-10T10:20:00Z"	
+Temporal.Instant	fromEpochMilliseconds	lowered	server	const v = Temporal.Instant.fromEpochMilliseconds(1726011440123);	ok:"2024-09-10T23:37:20.123Z"	
+Temporal.Instant	fromEpochNanoseconds	lowered	server	const v = Temporal.Instant.fromEpochNanoseconds(1726011440123000000n);	ok:"2024-09-10T23:37:20.123Z"	
+Temporal.Instant	compare	lowered	server	const v = Temporal.Instant.compare("2024-09-10T10:20Z", "2024-09-10T10:21Z");	ok:-1	
+Temporal.Instant	epochMilliseconds	lowered	server	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.epochMilliseconds;	ok:1725963630000	
+Temporal.Instant	epochNanoseconds	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.epochNanoseconds;	throws:TypeError	
+Temporal.Instant	add	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.add(3);	throws:TypeError	
+Temporal.Instant	subtract	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.subtract();	throws:TypeError	
+Temporal.Instant	until	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.until(Temporal.PlainDate.from("2024-12-25"));	throws:RangeError	
+Temporal.Instant	since	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.since(Temporal.PlainDate.from("2024-01-01"));	throws:RangeError	
+Temporal.Instant	round	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.round();	throws:TypeError	
+Temporal.Instant	equals	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.equals(Temporal.PlainDate.from("2024-09-10"));	throws:RangeError	
+Temporal.Instant	toLocaleString	lowered	server	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.toLocaleString("en-US");	ok:"9/10/2024, 10:20:30 AM"	
+Temporal.Instant	toString	lowered	server	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.toString();	ok:"2024-09-10T10:20:30Z"	
+Temporal.Instant	toJSON	lowered	server	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.toJSON();	ok:"2024-09-10T10:20:30Z"	
+Temporal.Instant	valueOf	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.valueOf();	throws:TypeError	
+Temporal.Instant	toZonedDateTimeISO	throws	throws	const r = Temporal.Instant.from("2024-09-10T10:20:30Z");   const v = r.toZonedDateTimeISO();	throws:TypeError	
+Temporal.PlainYearMonth	from	lowered	server	const v = Temporal.PlainYearMonth.from("2024-09");	ok:"2024-09"	
+Temporal.PlainYearMonth	compare	lowered	server	const v = Temporal.PlainYearMonth.compare("2024-09", "2024-10");	ok:-1	
+Temporal.PlainYearMonth	calendarId	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.calendarId;	ok:"iso8601"	
+Temporal.PlainYearMonth	era	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.era;	ok:undefined	
+Temporal.PlainYearMonth	eraYear	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.eraYear;	ok:undefined	
+Temporal.PlainYearMonth	year	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.year;	ok:2024	
+Temporal.PlainYearMonth	month	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.month;	ok:9	
+Temporal.PlainYearMonth	monthCode	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.monthCode;	ok:"M09"	
+Temporal.PlainYearMonth	daysInYear	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.daysInYear;	ok:366	
+Temporal.PlainYearMonth	daysInMonth	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.daysInMonth;	ok:30	
+Temporal.PlainYearMonth	monthsInYear	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.monthsInYear;	ok:12	
+Temporal.PlainYearMonth	inLeapYear	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.inLeapYear;	ok:true	
+Temporal.PlainYearMonth	with	throws	throws	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.with(0, 9);	throws:TypeError	
+Temporal.PlainYearMonth	add	throws	throws	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.add(3);	throws:TypeError	
+Temporal.PlainYearMonth	subtract	throws	throws	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.subtract();	throws:TypeError	
+Temporal.PlainYearMonth	until	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.until(Temporal.PlainDate.from("2024-12-25"));	ok:"P3M"	
+Temporal.PlainYearMonth	since	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.since(Temporal.PlainDate.from("2024-01-01"));	ok:"P8M"	
+Temporal.PlainYearMonth	equals	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.equals(Temporal.PlainDate.from("2024-09-10"));	ok:true	
+Temporal.PlainYearMonth	toLocaleString	throws	throws	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.toLocaleString("en-US");	throws:RangeError	
+Temporal.PlainYearMonth	toString	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.toString();	ok:"2024-09"	
+Temporal.PlainYearMonth	toJSON	lowered	server	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.toJSON();	ok:"2024-09"	
+Temporal.PlainYearMonth	valueOf	throws	throws	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.valueOf();	throws:TypeError	
+Temporal.PlainYearMonth	toPlainDate	throws	throws	const r = Temporal.PlainYearMonth.from("2024-09");   const v = r.toPlainDate();	throws:TypeError	
+Temporal.PlainMonthDay	from	lowered	server	const v = Temporal.PlainMonthDay.from("--09-10");	ok:"09-10"	
+Temporal.PlainMonthDay	calendarId	lowered	server	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.calendarId;	ok:"iso8601"	
+Temporal.PlainMonthDay	monthCode	lowered	server	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.monthCode;	ok:"M09"	
+Temporal.PlainMonthDay	day	lowered	server	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.day;	ok:10	
+Temporal.PlainMonthDay	with	throws	throws	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.with(0, 9);	throws:TypeError	
+Temporal.PlainMonthDay	equals	lowered	server	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.equals(Temporal.PlainDate.from("2024-09-10"));	ok:true	
+Temporal.PlainMonthDay	toLocaleString	throws	throws	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.toLocaleString("en-US");	throws:RangeError	
+Temporal.PlainMonthDay	toString	lowered	server	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.toString();	ok:"09-10"	
+Temporal.PlainMonthDay	toJSON	lowered	server	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.toJSON();	ok:"09-10"	
+Temporal.PlainMonthDay	valueOf	throws	throws	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.valueOf();	throws:TypeError	
+Temporal.PlainMonthDay	toPlainDate	throws	throws	const r = Temporal.PlainMonthDay.from("--09-10");   const v = r.toPlainDate();	throws:TypeError	
+Temporal.Now	instant	lowered	server	const v = typeof Temporal.Now.instant();	ok:"object"	
+Temporal.Now	timeZoneId	lowered	browser	const v = typeof Temporal.Now.timeZoneId();	ok:"string"	
+Temporal.Now	plainDateTimeISO	lowered	server	const v = typeof Temporal.Now.plainDateTimeISO();	ok:"object"	
+Temporal.Now	zonedDateTimeISO	lowered	server	const v = typeof Temporal.Now.zonedDateTimeISO();	ok:"object"	
+Temporal.Now	plainDateISO	lowered	server	const v = typeof Temporal.Now.plainDateISO();	ok:"object"	
+Temporal.Now	plainTimeISO	lowered	server	const v = typeof Temporal.Now.plainTimeISO();	ok:"object"	
+Iterator.prototype	constructor	lowered	server	const r = [1, 2, 3].values();   const v = r.constructor;	ok:undefined	
+Iterator.prototype	reduce	lowered	server	const r = [1, 2, 3].values();   const v = r.reduce((a, b) => a + b);	ok:6	
+Iterator.prototype	toArray	lowered	server	const r = [1, 2, 3].values();   const v = r.toArray();	ok:[1,2,3]	
+Iterator.prototype	forEach	lowered	server	const r = [1, 2, 3].values();   const v = r.forEach((x) => x);	ok:undefined	
+Iterator.prototype	some	lowered	server	const r = [1, 2, 3].values();   const v = r.some((x) => x > 1);	ok:true	
+Iterator.prototype	every	lowered	server	const r = [1, 2, 3].values();   const v = r.every((x) => x > 1);	ok:false	
+Iterator.prototype	find	lowered	server	const r = [1, 2, 3].values();   const v = r.find((x) => x > 1);	ok:2	
+Iterator.prototype	map	lowered	server	const r = [1, 2, 3].values();   const v = [...r.map((x) => x)];	ok:[1,2,3]	
+Iterator.prototype	filter	lowered	server	const r = [1, 2, 3].values();   const v = [...r.filter((x) => x > 1)];	ok:[2,3]	
+Iterator.prototype	take	lowered	server	const r = [1, 2, 3].values();   const v = [...r.take(2)];	ok:[1,2]	
+Iterator.prototype	drop	lowered	server	const r = [1, 2, 3].values();   const v = [...r.drop(1)];	ok:[2,3]	
+Iterator.prototype	flatMap	lowered	server	const r = [1, 2, 3].values();   const v = [...r.flatMap((x) => [x, x])];	ok:[1,1,2,2,3,3]	
+TypedArray	of	lowered	server	const v = [...Uint8Array.of(1, 2)];	ok:[1,2]	
+TypedArray	from	lowered	server	const v = [...Uint8Array.from([1, 2])];	ok:[1,2]	
+TypedArray	buffer	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.buffer;	ok:{}	
+TypedArray	byteLength	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.byteLength;	ok:3	
+TypedArray	byteOffset	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.byteOffset;	ok:0	
+TypedArray	length	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.length;	ok:3	
+TypedArray	entries	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = [...r.entries()];	ok:[[0,3],[1,1],[2,2]]	
+TypedArray	keys	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = [...r.keys()];	ok:[0,1,2]	
+TypedArray	values	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = [...r.values()];	ok:[3,1,2]	
+TypedArray	at	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.at(-1);	ok:2	
+TypedArray	copyWithin	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.copyWithin(0, 1);	ok:{"0":1,"1":2,"2":2}	
+TypedArray	every	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.every((x) => x > 1);	ok:false	
+TypedArray	fill	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.fill(0);	ok:{"0":0,"1":0,"2":0}	
+TypedArray	filter	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.filter((x) => x > 1);	ok:{"0":3,"1":2}	
+TypedArray	find	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.find((x) => x > 1);	ok:3	
+TypedArray	findIndex	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.findIndex((x) => x > 1);	ok:0	
+TypedArray	findLast	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.findLast((x) => x > 1);	ok:2	
+TypedArray	findLastIndex	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.findLastIndex((x) => x > 1);	ok:2	
+TypedArray	forEach	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.forEach((x) => x);	ok:undefined	
+TypedArray	includes	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.includes(2);	ok:true	
+TypedArray	indexOf	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.indexOf(2);	ok:2	
+TypedArray	join	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.join("-");	ok:"3-1-2"	
+TypedArray	lastIndexOf	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.lastIndexOf(2);	ok:2	
+TypedArray	map	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.map((x) => x);	ok:{"0":3,"1":1,"2":2}	
+TypedArray	reverse	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.reverse();	ok:{"0":2,"1":1,"2":3}	
+TypedArray	reduce	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.reduce((a, b) => a + b);	ok:6	
+TypedArray	reduceRight	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.reduceRight((a, b) => a + b);	ok:6	
+TypedArray	set	lowered	server	const r = new Uint8Array([3, 1, 2]);  r.set([9], 1);  const v = r;	ok:{"0":3,"1":9,"2":2}	
+TypedArray	slice	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.slice(1);	ok:{"0":1,"1":2}	
+TypedArray	some	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.some((x) => x > 1);	ok:true	
+TypedArray	sort	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.sort((a, b) => a - b);	ok:{"0":1,"1":2,"2":3}	
+TypedArray	subarray	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.subarray(1);	ok:{"0":1,"1":2}	
+TypedArray	toReversed	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.toReversed();	ok:{"0":2,"1":1,"2":3}	
+TypedArray	toSorted	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.toSorted((a, b) => a - b);	ok:{"0":1,"1":2,"2":3}	
+TypedArray	with	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.with(0, 9);	ok:{"0":9,"1":1,"2":2}	
+TypedArray	toLocaleString	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.toLocaleString("en-US");	ok:"3,1,2"	
+TypedArray	toString	lowered	server	const r = new Uint8Array([3, 1, 2]);   const v = r.toString();	ok:"3,1,2"	
+structuredClone	structuredClone	lowered	server	const v = structuredClone({ a: [1] });	ok:{"a":[1]}	
+atob	atob	lowered	server	const v = atob("aGk=");	ok:"hi"	
+btoa	btoa	lowered	server	const v = btoa("hi");	ok:"aGk="	
+parseInt	parseInt	lowered	server	const v = parseInt("42px");	ok:42	
+parseFloat	parseFloat	lowered	server	const v = parseFloat("1.5e3");	ok:1500	
+isNaN	isNaN	lowered	server	const v = isNaN("x");	ok:true	
+isFinite	isFinite	lowered	server	const v = isFinite("1");	ok:true	
+encodeURI	encodeURI	lowered	server	const v = encodeURI("a b/é");	ok:"a%20b/%C3%A9"	
+encodeURIComponent	encodeURIComponent	lowered	server	const v = encodeURIComponent("a b/é");	ok:"a%20b%2F%C3%A9"	
+decodeURI	decodeURI	lowered	server	const v = decodeURI("a%20b");	ok:"a b"	
+decodeURIComponent	decodeURIComponent	lowered	server	const v = decodeURIComponent("a%2Fb");	ok:"a/b"	
+Object	Object()	lowered	server	const v = Object({ a: 1 });	ok:{"a":1}	
+Array	Array()	lowered	server	const v = Array(3);	ok:[null,null,null]	
+Number	Number()	lowered	server	const v = Number("7");	ok:7	
+Boolean	Boolean()	lowered	server	const v = Boolean(0);	ok:false	
+String	String()	lowered	server	const v = String(12);	ok:"12"	
+Symbol	Symbol()	lowered	server	const v = Symbol("d");	ok:undefined	
+BigInt	BigInt()	throws	throws	const v = BigInt(5);	throws:TypeError	
+Date	Date()	lowered	browser	const v = typeof Date(0) === "string" && Date(0).length > 20;	ok:true	
+RegExp	RegExp()	lowered	server	const v = RegExp("a+");	ok:{}	
+Error	Error()	lowered	server	const v = Error("m");	ok:{}	
+Function	Function()	lowered	server	const v = Function("return 1");	ok:undefined	

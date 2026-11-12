@@ -64,9 +64,10 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 
 - [400. Terminal apps with Ink](400-terminal-apps-with-ink.md), an Ink application run by `fsr dev --terminal` with no Node, Ink's hooks written in TypeScript over a few primitives, effects with their timers and cleanups, the files, paths and environment a page reads, the processes it starts, promises and the terminal handed to another program, `fsr migrate` for an application written against Ink, then how much of Ink runs. App developers.
 
-And one appendix:
+And two appendices:
 
 - [900. The parts bin](900-the-parts-bin.md), every block in every crate, one line each, grouped by what you are trying to do.
+- [901. JavaScript's built-ins](901-javascripts-built-ins.md), every member of JavaScript's standard library with what a loader and a component do with it: answered on the server as node answers, left to the browser or refused at build, plus what to write in place of each refusal. App developers.
 
 ## Reading paths
 
