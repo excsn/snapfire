@@ -98,7 +98,7 @@ signing_key = "apple_key"
 In development, an `oidc` method whose secret has no value is a stand-in: `/auth/login` presents a form naming the users of `config/auth.toml` and signs in as the one chosen, with that user's claims. The boot report says so:
 
 ```text
-auth      oidc google, a stand-in until secrets.google has a value, login page /login, ...
+auth      oidc google, a stand-in until secrets.google has a value, login page /login
 ```
 
 Set the secret and restart to sign in against the issuer itself.

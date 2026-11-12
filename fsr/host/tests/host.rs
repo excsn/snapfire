@@ -8365,6 +8365,7 @@ mod oidc_method {
     let dir = dir_with("[auth]\nprovider = \"oidc\"\npreset = \"google\"\nclient_id = \"app\"\nclient_secret = \"google\"\n", "\n[secrets.google]\ndescription = \"the Google client secret\"\n");
     let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
     assert!(host.report().to_string().contains("oidc google, a stand-in until secrets.google has a value"), "{}", host.report());
+    assert!(host.report().brief().to_string().contains("oidc google, a stand-in until secrets.google has a value"), "the brief report fsr dev prints names the stand-in: {}", host.report().brief());
     let response = host.handle(Request::get("/auth/login?return_to=/who").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
     let step: serde_json::Value = serde_json::from_str(&body_of(response).await).unwrap();
     assert_eq!(step, serde_json::json!({ "next": "present", "kind": "form", "data": { "fields": ["user"], "users": ["alice", "bob"] } }));

@@ -1182,7 +1182,7 @@ What the host bound. `Display` prints the full report and `brief` prints what ne
 * `csp`: `document.csp` with the import map's source substituted, the header an HTML response carries. `None` when unset. Printed on the line under the `csp` row, which says when it is unset.
 * `csp_report_only`: the same for `document.csp_report_only`.
 * `Display` prints the app's report, then the `services` rows, the `static` rows, the `config` sources and the `inferred` lines, with the rows above.
-* `brief(&self) -> Brief<'_>`: `Display` of only what needs attention: `unanswered_routes`, each site's ignored rows, each prerenderable pattern when the directory is stale, `crawl.unlisted` and `ignored`. `fsr serve` prints it unless `--verbose`.
+* `brief(&self) -> Brief<'_>`: `Display` of only what needs attention: an `auth` row whose method is a development stand-in, `unanswered_routes`, each site's ignored rows, each prerenderable pattern when the directory is stale, `crawl.unlisted` and `ignored`. `fsr serve` prints it unless `--verbose`.
 
 ### TlsReport
 

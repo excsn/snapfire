@@ -134,9 +134,16 @@ impl HostReport {
   }
 }
 
+/// What an `auth` row says of a method signing in as any user of its table until its secret is set.
+/// The brief report shows such a row, since sign-in does not yet reach the identity provider.
+pub(crate) const STAND_IN: &str = "a stand-in until";
+
 impl std::fmt::Display for Brief<'_> {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let report = self.0;
+    if let Some((provider, login)) = report.auth.as_ref().filter(|(provider, _)| provider.contains(STAND_IN)) {
+      writeln!(f, "{:<9} {provider}, login page {login}", "auth")?;
+    }
     for pattern in &report.unanswered_routes {
       writeln!(f, "{:<9} {pattern:<22} declared by [[route]], registered by nothing here", "routes")?;
     }

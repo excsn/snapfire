@@ -281,7 +281,7 @@ fn oidc_provider(method: &crate::config::MethodSection, config: &Config) -> Resu
     if !config.dev() {
       return Err(refuse(format!("`secrets.{name}.value` has no value; set C5_SECRETS__{}__VALUE", name.to_ascii_uppercase())));
     }
-    return Ok((Arc::new(users_of(method, config)?.stand_in()), format!("oidc {label}, a stand-in until secrets.{name} has a value")));
+    return Ok((Arc::new(users_of(method, config)?.stand_in()), format!("oidc {label}, {} secrets.{name} has a value", crate::report::STAND_IN)));
   }
   let origin = match config.origin()? {
     Some(origin) => origin,
