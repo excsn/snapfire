@@ -101,7 +101,7 @@ toml = "1"
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["fs"] }
 tracing = "0.1"
-actix-web = { version = "4", optional = true }
+actix-web = { version = "4", optional = true, default-features = false, features = ["http2", "macros"] }
 actix-ws = { version = "0.3", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"], optional = true }
 rustls-pki-types = { version = "1", optional = true }
@@ -114,7 +114,7 @@ libc = "0.2"
 
 [dev-dependencies]
 snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql", "http"] }
-actix-web = "4"
+actix-web = { version = "4", default-features = false, features = ["http2", "macros"] }
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 snapfire_fsr_test_internal = { path = "../test_internal" }
 # The tests sign in, so they build the host with every sign-in method.

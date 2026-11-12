@@ -8682,3 +8682,45 @@ fn time_zones_names_a_source_the_build_holds() {
   std::fs::write(dir.join("app.toml"), format!("{toml}\n[time]\nzones = \"compiled\"\n")).unwrap();
   assert!(Host::from(dir.join("app.toml")).is_ok());
 }
+
+/// What the actix binding hands the host for one request, against what the host answers when it is
+/// handed the request as sent, which is what the hyper server does.
+#[cfg(feature = "actix")]
+async fn through_actix_and_as_sent(body: Vec<u8>, encoding: Option<&str>) -> ((u16, String), (u16, String)) {
+  use actix_web::{App, test, web};
+
+  let (host, _) = host();
+  let mut direct = Request::post("/_sf/action/index.bump").header(header::CONTENT_TYPE, "application/json");
+  let mut via = test::TestRequest::post().uri("/_sf/action/index.bump").insert_header(("content-type", "application/json"));
+  if let Some(encoding) = encoding {
+    direct = direct.header(header::CONTENT_ENCODING, encoding);
+    via = via.insert_header(("content-encoding", encoding));
+  }
+  let answered = host.handle(direct.body(Bytes::from(body.clone())).unwrap()).await;
+  let status = answered.status().as_u16();
+  let text = String::from_utf8_lossy(&answered.into_body().collect().await.unwrap().to_bytes()).into_owned();
+
+  let app = test::init_service(App::new().app_data(web::Data::new(host.clone())).default_service(web::to(snapfire_fsr_host::actix::handle))).await;
+  let response = test::call_service(&app, via.set_payload(body).to_request()).await;
+  let via_status = response.status().as_u16();
+  let via_text = String::from_utf8_lossy(&test::read_body(response).await).into_owned();
+  ((via_status, via_text), (status, text))
+}
+
+#[cfg(feature = "actix")]
+#[actix_web::test]
+async fn under_actix_a_compressed_body_reaches_the_host_as_sent() {
+  let gzipped = vec![31, 139, 8, 0, 0, 0, 0, 0, 0, 255, 171, 174, 5, 0, 67, 191, 166, 163, 2, 0, 0, 0];
+  let (via, direct) = through_actix_and_as_sent(gzipped, Some("gzip")).await;
+  assert_eq!(via, direct, "actix answered {via:?}, the host as sent {direct:?}");
+}
+
+#[cfg(feature = "actix")]
+#[actix_web::test]
+async fn under_actix_the_body_limit_is_server_max_body() {
+  let (via, direct) = through_actix_and_as_sent(vec![b' '; 300 * 1024], None).await;
+  assert_eq!(via.0, direct.0, "a body under server.max_body: actix answered {via:?}, the host as sent {direct:?}");
+  let (via, _) = through_actix_and_as_sent(vec![b' '; (1 << 20) + 1], None).await;
+  assert_eq!(via.0, 413, "{via:?}");
+  assert!(via.1.contains("server.max_body"), "the host's own refusal: {via:?}");
+}

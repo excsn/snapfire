@@ -4,8 +4,8 @@
 use std::sync::Arc;
 
 use actix_web::web::{Bytes, Data};
-use actix_web::{App, FromRequest, HttpRequest, HttpResponse, HttpServer, web};
-use futures_util::TryStreamExt;
+use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
+use futures_util::{StreamExt, TryStreamExt};
 use http::Request;
 use http_body_util::BodyExt;
 
@@ -14,7 +14,7 @@ use crate::Host;
 /// One actix handler over the host, for embedding in an existing actix `App`
 /// as its default service. `/_sf/socket` upgrades here, since the upgrade the
 /// host does itself needs hyper's connection.
-pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, payload: web::Payload) -> HttpResponse {
+pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, mut payload: web::Payload) -> HttpResponse {
   #[cfg(feature = "ws")]
   let binding = (req.path() == "/_sf/socket" && req.headers().contains_key("sec-websocket-key")).then(crate::socket::BindingUpgrade::default);
   #[cfg(not(feature = "ws"))]
@@ -22,9 +22,9 @@ pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, payload: web::Paylo
   let (body, payload) = if binding.is_some() {
     (Bytes::new(), Some(payload))
   } else {
-    match Bytes::from_request(&req, &mut payload.into_inner()).await {
+    match read_body(&host, &mut payload).await {
       Ok(body) => (body, None),
-      Err(e) => return e.error_response(),
+      Err(refused) => return refused,
     }
   };
   let mut builder = Request::builder()
@@ -37,7 +37,7 @@ pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, payload: web::Paylo
   if let Some(binding) = &binding {
     builder = builder.extension(binding.clone());
   }
-  let request = match builder.body(bytes::Bytes::copy_from_slice(&body)) {
+  let request = match builder.body(body) {
     Ok(request) => request,
     Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
   };
@@ -54,6 +54,20 @@ pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, payload: web::Paylo
     };
   }
   to_actix(answered)
+}
+
+/// The body as the client sent it, still encoded, refused past `server.max_body` with the host's own 413
+/// as `serve_io` refuses it.
+async fn read_body(host: &Host, payload: &mut web::Payload) -> Result<Bytes, HttpResponse> {
+  let mut body = bytes::BytesMut::new();
+  while let Some(chunk) = payload.next().await {
+    let chunk = chunk.map_err(|e| HttpResponse::BadRequest().body(e.to_string()))?;
+    if body.len() + chunk.len() > host.max_body {
+      return Err(to_actix(host.too_large()));
+    }
+    body.extend_from_slice(&chunk);
+  }
+  Ok(body.freeze())
 }
 
 /// One upgraded connection, as `socket::serve` serves one over hyper's.
