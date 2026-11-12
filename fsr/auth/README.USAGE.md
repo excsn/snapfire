@@ -330,7 +330,7 @@ fn refresh(&self, tokens: ValueMap) -> BoxFuture<'_, Result<Option<ValueMap>, Au
 
 ## Offering Several Methods
 
-`Methods` puts several providers behind one login page by name. A sign-in that names one runs it; one that names none presents a `choose` step listing them, which the page answers with `{ method }`:
+`Methods` puts several providers behind one login page by name. A sign-in that names one runs it; one that names none presents a `choose` step listing them, which the page answers with `{ method }`. An answer carrying the method's fields as well, `{ method, user, password }` from a plain HTML form, begins that method and answers its first step in the same post:
 
 ```rust
 use snapfire_fsr_auth::{Methods, Start};

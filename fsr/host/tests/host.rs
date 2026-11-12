@@ -8434,6 +8434,18 @@ mod passkey_method {
     assert_eq!(step["data"]["publicKey"]["allowCredentials"], serde_json::json!([]));
   }
 
+  /// A login page seeds a `choose` when two methods are listed; the plain password form answers it by naming its method beside its fields.
+  #[tokio::test]
+  async fn a_plain_password_form_signs_in_when_the_page_offers_a_passkey_too() {
+    let host = host("[auth]\nlogin = \"/login\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\nstore = \"data/passkeys\"\n");
+    let (cookie, step) = json(&host, Request::get("/auth/login?return_to=/account").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert_eq!(step["kind"], "choose", "{step}");
+    let request = Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::ACCEPT, "application/json").header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("method=password&user=alice&password=wonder")).unwrap();
+    let (_, step) = json(&host, request).await;
+    assert_eq!(step["next"], "complete", "{step}");
+    assert_eq!(step["to"], "/account", "{step}");
+  }
+
   #[tokio::test]
   async fn a_passkey_second_factor_after_a_password_creates_the_first_passkey() {
     let host = host("[auth]\nlogin = \"/login\"\nsecond_factor = \"passkey\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\nstore = \"data/passkeys\"\nverification = \"required\"\n");

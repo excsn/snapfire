@@ -62,7 +62,9 @@ fn start_of(map: &ValueMap, method: Option<String>) -> Start {
 
 /// Several methods on one login page, by name. `Start::method` picks one; with none and more than
 /// one method the first step is a `choose` the page presents, `{ methods: [names] }`, answered with
-/// `{ method }`. Each method's steps carry its name, so its answers reach it alone.
+/// `{ method }`. An answer carrying the method's fields as well, such as a plain HTML password form
+/// with a hidden `method`, begins that method and answers its first step in the same post. Each
+/// method's steps carry its name, so its answers reach it alone.
 #[derive(Default)]
 pub struct Methods {
   methods: Vec<(String, Arc<dyn IdentityProvider>)>,
@@ -119,7 +121,22 @@ impl IdentityProvider for Methods {
       let Some(name) = text(&params, "method") else {
         return Box::pin(futures_util::future::ready(Err(AuthError::Invalid("choose a method".to_owned()))));
       };
-      return self.run(name.clone(), start_of(start, Some(name)));
+      let start = start_of(start, Some(name.clone()));
+      let mut fields = params;
+      fields.shift_remove("method");
+      if fields.is_empty() {
+        return self.run(name, start);
+      }
+      return Box::pin(async move {
+        let provider = self.find(&name)?;
+        let next = match provider.begin(Start { method: None, ..start }).await? {
+          Next::Present { state, .. } => provider.advance(fields, state).await?,
+          other => other,
+        };
+        let mut extra = ValueMap::default();
+        extra.insert("method".to_owned(), Value::str(name));
+        Ok(wrapped(next, extra))
+      });
     }
     Box::pin(async move {
       let name = text(&state, "method").ok_or_else(|| AuthError::Invalid("a step without its method".to_owned()))?;

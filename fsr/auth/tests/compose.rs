@@ -66,6 +66,18 @@ fn several_methods_offer_a_choice_and_run_the_one_chosen() {
   assert_eq!(opened.cell.identity().unwrap().subject, "alice");
 }
 
+/// A plain HTML form posts its method's fields with the method's name, so one post answers the
+/// `choose` a typed login URL seeds and the step that method would present next.
+#[test]
+fn a_choose_answered_with_a_methods_fields_completes_in_one_post() {
+  let auth = Auth::new(Arc::new(methods()));
+  let opened = opened();
+  block_on(auth.begin(&opened, Start::sign_in("/inbox"))).unwrap();
+  let step = block_on(auth.advance(&opened, map(&[("method", "password"), ("user", "alice"), ("password", "wonder")]))).unwrap();
+  assert_eq!(step, Step::Complete { to: "/inbox".to_owned(), signed_in: true });
+  assert_eq!(opened.cell.identity().unwrap().subject, "alice");
+}
+
 #[test]
 fn a_method_named_at_the_start_runs_directly_and_an_unknown_one_is_invalid() {
   let auth = Auth::new(Arc::new(methods()));

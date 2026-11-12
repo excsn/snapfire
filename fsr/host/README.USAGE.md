@@ -969,7 +969,7 @@ provider = "passkey"
 store = "data/passkeys"
 ```
 
-Several methods on one login page are `[[auth.methods]]`, in the order the page lists them. A sign-in with `?method=<name>` runs that one; one with none presents a `choose` step naming them all. `second_factor` names a method every sign-in through the others must also pass for the same subject:
+Several methods on one login page are `[[auth.methods]]`, in the order the page lists them. A sign-in with `?method=<name>` runs that one; one with none presents a `choose` step naming them all. A plain HTML form answers that step and the method's own in one post by sending the method's name as `method` beside its fields, `<input type="hidden" name="method" value="password">` for the password form. `second_factor` names a method every sign-in through the others must also pass for the same subject:
 
 ```toml
 [auth]
