@@ -17,6 +17,7 @@ fn to_json(value: &Value) -> serde_json::Value {
     Value::Str(s) => serde_json::Value::String(s.to_string()),
     Value::Int(n) => serde_json::json!(*n as i64),
     Value::Seq(items) => serde_json::Value::Array(items.iter().map(to_json).collect()),
+    Value::TypedArray(snapfire_fsr_core::TypedArray::U8(bytes)) => serde_json::Value::Array(bytes.iter().map(|b| serde_json::json!(*b)).collect()),
     other => panic!("{other:?}"),
   }
 }

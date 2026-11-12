@@ -779,6 +779,18 @@ pub mod typed {
 
   pub const ALL: [&str; 6] = [DATE, MAP, SET, BIGINT, URL, TEMPORAL];
 
+  /// The milliseconds a `Date` value holds, `None` for any other value.
+  pub fn date_ms(value: &super::Value) -> Option<f64> {
+    match value {
+      super::Value::Variant { tag, payload: Some(ms) } if tag == DATE => match **ms {
+        super::Value::F64(ms) => Some(ms),
+        super::Value::Int(ms) => Some(ms as f64),
+        _ => None,
+      },
+      _ => None,
+    }
+  }
+
   /// A Temporal value's type name and canonical string, the text `toString` and `toJSON` give.
   pub fn temporal(value: &super::Value) -> Option<(&str, &str)> {
     let super::Value::Variant { tag, payload: Some(payload) } = value else { return None };

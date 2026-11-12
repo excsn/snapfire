@@ -93,7 +93,12 @@ pub(super) fn is_number(value: &Value) -> bool {
 }
 
 /// JavaScript's `ToNumber`, through [`stringify`] for an array or an object: null is 0, undefined NaN, a boolean 0 or 1 and a string its numeric literal or NaN. `None` for anything else.
+pub(crate) use snapfire_fsr_core::value::typed::date_ms;
+
 pub(super) fn to_number(value: &Value) -> Option<f64> {
+  if let Some(ms) = date_ms(value) {
+    return Some(ms);
+  }
   match value {
     Value::Null => Some(0.0),
     Value::Undefined => Some(f64::NAN),
@@ -395,6 +400,9 @@ pub(super) fn string_number(s: &str) -> f64 {
 
 pub(super) fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
   use std::cmp::Ordering;
+  if !matches!(op, CompareOp::Eq | CompareOp::Ne) && (date_ms(l).is_some() || date_ms(r).is_some()) {
+    return compare(op, &Value::F64(to_number(l).unwrap_or(f64::NAN)), &Value::F64(to_number(r).unwrap_or(f64::NAN)));
+  }
   if !matches!(op, CompareOp::Eq | CompareOp::Ne) && (matches!(l, Value::Seq(_) | Value::Map(_)) || matches!(r, Value::Seq(_) | Value::Map(_))) {
     let primitive = |v: &Value| match v {
       Value::Seq(_) | Value::Map(_) => stringify(v).map(Value::str),

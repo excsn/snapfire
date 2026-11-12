@@ -326,7 +326,9 @@ fn a_case_written_as_a_block_ends_where_its_block_does() {
 #[test]
 fn new_lowers_dates_collections_and_query_strings_and_refuses_the_rest() {
   use snapfire_fsr_ir::ast::Builtin;
-  assert_eq!(builtin_of(&lowered("date_of", "new Date(params.at)").unwrap()), Builtin::DateMs);
+  let date = lowered("date_of", "new Date(params.at)").unwrap();
+  assert_eq!(builtin_of(&date), Builtin::Tagged, "a date is tagged as one");
+  assert!(format!("{date:?}").contains("DateMs"), "{date:?}");
   assert_eq!(builtin_of(&lowered("query", "new URLSearchParams({ q: params.q })").unwrap_or_else(|e| panic!("{e}"))), Builtin::FormEncode);
   assert!(matches!(&lowered("now", "new Date().getTime()").unwrap()[0], Stmt::Let { expr: Expr::Num(_), .. }), "a body reads the request's clock");
   let reads_offset = |body: &[Stmt]| format!("{body:?}").contains("localOffset");
@@ -334,7 +336,8 @@ fn new_lowers_dates_collections_and_query_strings_and_refuses_the_rest() {
   assert!(reads_offset(&lowered("fields", "new Date(2026, 9, 5)").unwrap()), "a body reads this machine's time zone");
   let err = lowered("other_new", "Object.create({ a: 1 })").unwrap_err();
   assert!(err.contains("`Object.create`"), "{err}");
-  assert!(matches!(&lowered("kept", "new Intl.NumberFormat()").unwrap()[0], Stmt::Let { expr: Expr::Lit(snapfire_fsr_ir::ast::Lit::Null), .. }), "a formatter kept as a value is null as a value; `.format` on its name lowers");
+  let err = lowered("kept", "new Intl.NumberFormat()").unwrap_err();
+  assert!(err.contains("kept as a value"), "a formatter read as a value is refused; `.format` on its name lowers: {err}");
 }
 
 #[test]

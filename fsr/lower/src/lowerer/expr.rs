@@ -258,6 +258,9 @@ impl<'a> Lowerer<'a> {
   pub(crate) fn ident(&mut self, id: &js::IdentifierReference) -> Lowered<Expr> {
     let name = id.name.as_str();
     if let Some((_, bound)) = self.scope.iter().rev().find(|(n, _)| n == name) {
+      if self.formatters.iter().rev().any(|(n, held, _)| n == name && held == bound) {
+        return Err(self.residue_with(id.span, format!("`{name}`, an `Intl` formatter or a text coder kept as a value"), "call its method on the name it is bound to, `formatter.format(n)`"));
+      }
       if self.kinds.iter().rev().any(|(n, held, kind)| n == name && held == bound && *kind == Kind::Browser) {
         return Err(self.browser_only(id.span, format!("`{name}`, a value only the browser knows")));
       }
@@ -503,7 +506,15 @@ impl<'a> Lowerer<'a> {
       let symbol = self.expr(member.object())?;
       return Ok(crate::symbol_description(symbol));
     }
-    if let Some(name @ ("name" | "length")) = self.member_name(member).as_deref() {
+    if self.member_name(member).as_deref() == Some("__proto__") {
+      let b = self.build();
+      let ast = b.ast();
+      let span = member.span();
+      let callee = js::Expression::new_static_member_expression(span, b.ident("Object", span), js::IdentifierName::new(span, b.str("getPrototypeOf"), &ast), false, &ast);
+      let call = js::Expression::new_call_expression(span, callee, None, b.vec([js::Argument::from(b.copy(member.object()))]), false, &ast);
+      return self.expr(b.alloc(call));
+    }
+    if let Some(name @ ("name" | "length" | "caller" | "arguments")) = self.member_name(member).as_deref() {
       if let Some(read) = self.function_property(member.object(), name) {
         return Ok(read);
       }

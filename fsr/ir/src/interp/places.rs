@@ -280,7 +280,7 @@ impl Env {
           }
         }
         Stmt::ForOf { name, over, body } => {
-          let items = match self.eval_sync(over)? {
+          let items = match as_items(self.eval_sync(over)?) {
             Value::Seq(items) => items,
             other => return Err(type_error("for...of", "an array", &other)),
           };
@@ -514,7 +514,7 @@ impl Env {
         }
       }
       Stmt::ForOf { name, over, body } => {
-        let items = match self.eval(over).await? {
+        let items = match as_items(self.eval(over).await?) {
           Value::Seq(items) => items,
           other => return Err(type_error("for...of", "an array", &other)),
         };

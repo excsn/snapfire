@@ -228,6 +228,11 @@ pub(super) fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::State
     js::Statement::VariableDeclaration(var) => {
       let mut lets = Vec::new();
       for decl in &var.declarations {
+        if let (js::BindingPattern::BindingIdentifier(id), Some(init)) = (&decl.id, decl.init.as_ref()) {
+          if lowerer.bind_formatter(id.name.as_str(), init) {
+            continue;
+          }
+        }
         let mut expr = match decl.init.as_ref() {
           Some(init) => lowerer.expr(init)?,
           None => Expr::Lit(Lit::Undefined),

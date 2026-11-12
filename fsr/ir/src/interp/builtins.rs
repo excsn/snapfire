@@ -210,7 +210,14 @@ fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         raw.reverse();
       }
       bytes[at..at + width].copy_from_slice(&raw);
-      Value::seq(bytes.into_iter().map(|b| Value::F64(f64::from(b))).collect::<Vec<_>>())
+      let kind = match arg(0)? {
+        Value::Seq(items) => items.kind(),
+        _ => Collection::Plain,
+      };
+      match Value::seq(bytes.into_iter().map(|b| Value::F64(f64::from(b))).collect::<Vec<_>>()) {
+        Value::Seq(items) => Value::Seq(items.with_kind(kind)),
+        other => other,
+      }
     }
     Builtin::Settle => match arg(0)? {
       Value::Map(held) if held.get(snapfire_fsr_core::value::typed::DEFERRED).is_some() => match held.get("$state") {
@@ -597,6 +604,9 @@ pub(crate) fn range_len_of(value: &Value) -> Result<usize, Fail> {
 }
 
 pub(super) fn number(what: Builtin, value: &Value) -> Result<f64, Fail> {
+  if let Some(ms) = date_ms(value) {
+    return Ok(ms);
+  }
   match value {
     Value::Int(n) => Ok(*n as f64),
     Value::UInt(n) => Ok(*n as f64),
@@ -660,6 +670,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       (Builtin::AsMap, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Map)),
       (Builtin::AsError, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Error)),
       (Builtin::AsOpaque, Some(Value::Map(map))) => Value::Map(map.with_kind(Collection::Opaque)),
+      (Builtin::AsOpaque, Some(Value::Seq(items))) => Value::Seq(items.with_kind(Collection::Opaque)),
       (Builtin::AsSet, Some(Value::Seq(items))) => Value::Seq(items.with_kind(Collection::Set)),
       (_, other) => other.unwrap_or(Value::Undefined),
     });

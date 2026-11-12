@@ -357,7 +357,7 @@ pub enum Builtin {
   AsSet,
   /// Its argument, an object of a `name` and a `message`, marked as an `Error`.
   AsError,
-  /// Its argument, an object, marked as one of the platform's whose fields JavaScript does not enumerate.
+  /// Its argument, an object or the bytes of a buffer, marked as one of the platform's whose fields JavaScript does not enumerate.
   AsOpaque,
   /// The global `isNaN(x)`: whether `Number(x)` is NaN.
   IsNaN,

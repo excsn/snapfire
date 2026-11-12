@@ -362,7 +362,7 @@ impl Env {
       match entry {
         Entry::Baked(_) => {}
         Entry::Item(e) => items.push(self.eval_sync(e)?),
-        Entry::Spread(e) => match self.eval_sync(e)? {
+        Entry::Spread(e) => match as_items(self.eval_sync(e)?) {
           Value::Seq(inner) => items.extend(inner),
           Value::Null | Value::Undefined => {}
           Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
@@ -675,7 +675,7 @@ impl Env {
 
 
   pub(super) fn seq_sync(&mut self, over: &Expr, what: &str) -> Result<Vec<Value>, Fail> {
-    match self.eval_sync(over)? {
+    match as_items(self.eval_sync(over)?) {
       Value::Seq(items) => Ok(items.into_items()),
       other => Err(type_error(what, "an array", &other)),
     }

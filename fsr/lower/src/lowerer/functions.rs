@@ -262,6 +262,11 @@ impl<'a> Lowerer<'a> {
       "name" => Expr::lit_str(&name),
       "length" => Expr::Lit(Lit::Float(params_of(params).iter().take_while(|p| !p.rest && p.default.is_none()).count() as f64)),
       "toString" => Expr::lit_str(&self.parsed.text()[self.parsed.range(span)]),
+      "caller" | "arguments" => {
+        let message = "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them";
+        let error = crate::error_object(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("TypeError")), Entry::Field("message".to_owned(), Expr::lit_str(message))]));
+        Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str(message), error] }
+      }
       _ => return None,
     })
   }

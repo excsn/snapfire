@@ -56,11 +56,12 @@ impl Kind {
     matches!(self, Kind::WeakMap | Kind::WeakSet)
   }
 
-  /// `built` marked as the collection it makes, for a `Map` or a `Set`, so it converts and serializes as one wherever it goes.
+  /// `built` marked as what it makes, for a `Map`, a `Set` or a `Date` from its milliseconds, so it converts and serializes as one wherever it goes.
   pub(crate) fn made(self, built: Expr) -> Expr {
     match self {
       Kind::Map | Kind::WeakMap => Expr::Builtin { name: Builtin::AsMap, args: vec![built] },
       Kind::Set | Kind::WeakSet => Expr::Builtin { name: Builtin::AsSet, args: vec![built] },
+      Kind::Date => Expr::Builtin { name: Builtin::Tagged, args: vec![Expr::lit_str(snapfire_fsr_ir::render::typed::DATE), built] },
       _ => built,
     }
   }

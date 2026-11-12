@@ -243,14 +243,14 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
       None => None,
     };
     match (global.as_str(), first) {
-      ("Date", None) => self.date_now(n.span),
-      ("Date", Some(x)) if args.len() == 1 => Ok(Expr::Builtin { name: Builtin::DateMs, args: vec![x] }),
+      ("Date", None) => Ok(Kind::Date.made(self.date_now(n.span)?)),
+      ("Date", Some(x)) if args.len() == 1 => Ok(Kind::Date.made(Expr::Builtin { name: Builtin::DateMs, args: vec![x] })),
       ("Date", Some(year)) if self.reaches(Reach::Terminal) || !self.on_render_path() => {
         let mut parts = vec![year];
         for a in args.iter().skip(1).take(6) {
           parts.push(self.expr(crate::syntax::arg_expr(a))?);
         }
-        Ok(self.local_to_utc(Expr::Builtin { name: Builtin::DateUtc, args: parts }))
+        Ok(Kind::Date.made(self.local_to_utc(Expr::Builtin { name: Builtin::DateUtc, args: parts })))
       }
       ("Date", Some(_)) => Err(self.browser_only(n.span, "`new Date(year, month, ...)`, which reads the viewer's time zone")),
       ("Map", None) => Ok(Kind::Map.made(Expr::Object(Vec::new()))),
@@ -288,7 +288,7 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
       ("ArrayBuffer" | "SharedArrayBuffer", length) => {
         let slot = self.temp();
         let length = Expr::Num(Box::new(length.unwrap_or(Expr::Lit(Lit::Float(0.0)))));
-        Ok(Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(Expr::Lit(Lit::Float(0.0))) })))
+        Ok(crate::opaque_object(Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(Expr::Lit(Lit::Float(0.0))) }))))
       }
       ("DataView", Some(buffer)) => Ok(buffer),
       ("Proxy", Some(target)) => {

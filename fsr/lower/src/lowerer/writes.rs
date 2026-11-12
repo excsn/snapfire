@@ -473,8 +473,8 @@ let via = via_expr.as_member_expression().expect("matched as a member");
           let js::Expression::Identifier(id) = crate::meaning::bare(m.object()) else { unreachable!("object_write took a local Date") };
           let name = id.name.to_string();
           let next = self.date_set(&method, Expr::Var(name.clone()), call)?;
-          lets.push(Stmt::Set { name: name.clone(), expr: next });
-          Expr::Var(name)
+          lets.push(Stmt::Set { name: name.clone(), expr: Kind::Date.made(next) });
+          Expr::Num(Box::new(Expr::Var(name)))
         } else {
           let kind = self.kind_of(m.object());
           let target = held(self, m.object(), &mut lets)?;

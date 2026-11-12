@@ -488,6 +488,9 @@ pub fn type_error(what: &str, wanted: &str, got: &Value) -> Fail {
 /// A number argument as `f64`; `Int` and `UInt` included, since a BigInt
 /// reaches an extension the way it reaches a builtin.
 pub fn number(what: &str, args: &[Value], i: usize) -> Result<f64, Fail> {
+  if let Some(ms) = args.get(i).and_then(crate::value::typed::date_ms) {
+    return Ok(ms);
+  }
   match args.get(i) {
     Some(Value::Int(n)) => Ok(*n as f64),
     Some(Value::UInt(n)) => Ok(*n as f64),

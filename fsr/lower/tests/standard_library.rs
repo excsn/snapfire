@@ -7,6 +7,20 @@ use snapfire_fsr_runtime::RequestCtx;
 
 /// Each expression with `JSON.stringify` of its value as node prints it.
 const AGREES_WITH_NODE: &[(&str, &str)] = &[
+  ("JSON.stringify(new Date(0))", "\"\\\"1970-01-01T00:00:00.000Z\\\"\""),
+  ("JSON.stringify({ d: new Date(0) })", "\"{\\\"d\\\":\\\"1970-01-01T00:00:00.000Z\\\"}\""),
+  ("(() => { const d = new Date(0); return JSON.stringify([d]); })()", "\"[\\\"1970-01-01T00:00:00.000Z\\\"]\""),
+  ("(() => { const r = function f(a, b) { return a + b; }; return [r.name, r.length, r.toString()]; })()", "[\"f\",2,\"function f(a, b) { return a + b; }\"]"),
+  ("(() => { const f = function (a, b) { return a; }; try { return String(f.caller); } catch (e) { return e.name; } })()", "\"TypeError\""),
+  ("JSON.stringify(Reflect.construct(Date, [0]))", "\"\\\"1970-01-01T00:00:00.000Z\\\"\""),
+  ("JSON.stringify(Object.getPrototypeOf([]))", "\"[]\""),
+  ("JSON.stringify(({ a: 1 }).__proto__)", "\"{}\""),
+  ("[].__proto__ === Array.prototype", "true"),
+  ("JSON.stringify(new ArrayBuffer(4))", "\"{}\""),
+  ("JSON.stringify(new DataView(new ArrayBuffer(2)).buffer)", "\"{}\""),
+  ("(() => { const e = new TextEncoder(); return [...e.encode(\"hé\")]; })()", "[104,195,169]"),
+  ("(() => { const d = new TextDecoder(); return d.decode(new Uint8Array([104, 105])); })()", "\"hi\""),
+  ("(() => { const t = new Uint8Array([3, 1, 2]); return t.length; })()", "3"),
   ("new Intl.NumberFormat(\"en\", { style: \"percent\" }).resolvedOptions()", "{\"locale\":\"en\",\"numberingSystem\":\"latn\",\"style\":\"percent\",\"minimumIntegerDigits\":1,\"minimumFractionDigits\":0,\"maximumFractionDigits\":0,\"useGrouping\":\"auto\",\"notation\":\"standard\",\"signDisplay\":\"auto\",\"roundingIncrement\":1,\"roundingMode\":\"halfExpand\",\"roundingPriority\":\"auto\",\"trailingZeroDisplay\":\"auto\"}"),
   ("new Intl.NumberFormat(\"en\", { style: \"currency\", currency: \"EUR\" }).resolvedOptions()", "{\"locale\":\"en\",\"numberingSystem\":\"latn\",\"style\":\"currency\",\"currency\":\"EUR\",\"currencyDisplay\":\"symbol\",\"currencySign\":\"standard\",\"minimumIntegerDigits\":1,\"minimumFractionDigits\":2,\"maximumFractionDigits\":2,\"useGrouping\":\"auto\",\"notation\":\"standard\",\"signDisplay\":\"auto\",\"roundingIncrement\":1,\"roundingMode\":\"halfExpand\",\"roundingPriority\":\"auto\",\"trailingZeroDisplay\":\"auto\"}"),
   ("new Intl.NumberFormat(\"en\", { style: \"currency\", currency: \"JPY\" }).resolvedOptions()", "{\"locale\":\"en\",\"numberingSystem\":\"latn\",\"style\":\"currency\",\"currency\":\"JPY\",\"currencyDisplay\":\"symbol\",\"currencySign\":\"standard\",\"minimumIntegerDigits\":1,\"minimumFractionDigits\":0,\"maximumFractionDigits\":0,\"useGrouping\":\"auto\",\"notation\":\"standard\",\"signDisplay\":\"auto\",\"roundingIncrement\":1,\"roundingMode\":\"halfExpand\",\"roundingPriority\":\"auto\",\"trailingZeroDisplay\":\"auto\"}"),
@@ -267,7 +281,7 @@ const AGREES_WITH_NODE: &[(&str, &str)] = &[
 ];
 
 /// Standard methods FSR does not lower, each of which must be refused at build rather than read as a call of a field the value does not have.
-const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].map((x) => x))"];
+const REFUSED: &[&str] = &["Object.create({ a: 1 })", "Object.isFrozen([1, 2].map((x) => x))", "({ a: 1 }).__lookupGetter__(\"a\")", "({ a: 1 }).__lookupSetter__(\"a\")", "(() => { const f = new Intl.NumberFormat(\"en\"); return String(f); })()"];
 
 /// Standard methods on values a body makes in place, the `Object`, `Reflect`, `Symbol`, `JSON`, `BigInt`, `Math` and `Promise` statics and `Promise.withResolvers`, with `JSON.stringify` of each value as node v26.8.1 prints it.
 const METHODS_AGREE_WITH_NODE: &[(&str, &str)] = &[

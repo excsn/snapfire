@@ -117,7 +117,7 @@ impl Env {
             match entry {
               Entry::Baked(_) => {}
               Entry::Item(e) => items.push(self.eval(e).await?),
-              Entry::Spread(e) => match self.eval(e).await? {
+              Entry::Spread(e) => match as_items(self.eval(e).await?) {
                 Value::Seq(inner) => items.extend(inner),
                 Value::Null | Value::Undefined => {}
                 Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
@@ -434,7 +434,7 @@ impl Env {
           Value::Seq(items) => Ok(Value::F64(items.len() as f64)),
           Value::Str(s) => Ok(Value::F64(s.encode_utf16().count() as f64)),
           Value::Map(map) => Ok(Value::F64(map.len() as f64)),
-          other => Err(type_error("length", "an array, a string or an object", &other)),
+          other => length_of(other),
         },
         Expr::Str(e) => {
           let value = self.eval(e).await?;
@@ -447,7 +447,7 @@ impl Env {
   }
 
   pub(super) async fn seq(&mut self, over: &Expr, what: &str) -> Result<Vec<Value>, Fail> {
-    match self.eval(over).await? {
+    match as_items(self.eval(over).await?) {
       Value::Seq(items) => Ok(items.into_items()),
       other => Err(type_error(what, "an array", &other)),
     }

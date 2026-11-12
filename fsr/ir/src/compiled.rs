@@ -397,7 +397,7 @@ fn run_steps(steps: &[Step], env: &mut Env, base: usize) -> Result<Flow, Fail> {
         }
       }
       Step::ForOf { name, over, body } => {
-        let items = match eval(over, env, base)? {
+        let items = match crate::interp::as_items(eval(over, env, base)?) {
           Value::Seq(items) => items,
           other => return Err(crate::interp::type_error("for...of", "an array", &other)),
         };
@@ -567,7 +567,7 @@ fn eval(code: &Code, env: &mut Env, base: usize) -> Result<Value, Fail> {
       for part in parts {
         match part {
           Part::Item(e) => items.push(eval(e, env, base)?),
-          Part::Spread(e) => match eval(e, env, base)? {
+          Part::Spread(e) => match crate::interp::as_items(eval(e, env, base)?) {
             Value::Seq(inner) => items.extend(inner),
             Value::Null | Value::Undefined => {}
             Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
@@ -681,7 +681,7 @@ fn eval(code: &Code, env: &mut Env, base: usize) -> Result<Value, Fail> {
 }
 
 fn sequence(over: &Code, env: &mut Env, base: usize, what: &str) -> Result<Vec<Value>, Fail> {
-  match eval(over, env, base)? {
+  match crate::interp::as_items(eval(over, env, base)?) {
     Value::Seq(items) => Ok(items.into_items()),
     other => Err(crate::interp::type_error(what, "an array", &other)),
   }

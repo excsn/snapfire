@@ -1,4 +1,4 @@
-//! `encoding`: what the lowerer writes for `btoa`, `atob`, `new TextEncoder().encode(s)` and `new TextDecoder().decode(bytes)`. Bytes are an array of numbers from 0 to 255.
+//! `encoding`: what the lowerer writes for `btoa`, `atob`, `new TextEncoder().encode(s)` and `new TextDecoder().decode(bytes)`. `encode` answers a `Uint8Array`; `decode` takes one or an array of numbers from 0 to 255.
 
 use snapfire_fsr_core::Value;
 
@@ -8,7 +8,7 @@ use crate::interp::Fail;
 pub fn register(extensions: &mut Extensions) {
   extensions.register("encoding.btoa", Reach::Render, |_, args| btoa(&text("btoa", args, 0)?).map(Value::str));
   extensions.register("encoding.atob", Reach::Render, |_, args| atob(&text("atob", args, 0)?).map(Value::str));
-  extensions.register("encoding.encode", Reach::Render, |_, args| Ok(Value::Seq(text("TextEncoder.encode", args, 0)?.bytes().map(Value::int).collect())));
+  extensions.register("encoding.encode", Reach::Render, |_, args| Ok(Value::TypedArray(snapfire_fsr_core::TypedArray::U8(text("TextEncoder.encode", args, 0)?.as_bytes().to_vec()))));
   extensions.register("encoding.decode", Reach::Render, |_, args| decode(args.first()));
 }
 
@@ -65,6 +65,7 @@ fn decode(bytes: Option<&Value>) -> Result<Value, Fail> {
   let what = "TextDecoder.decode";
   let raw: Vec<u8> = match bytes {
     None | Some(Value::Null | Value::Undefined) => Vec::new(),
+    Some(Value::TypedArray(snapfire_fsr_core::TypedArray::U8(bytes)) | Value::Bytes(bytes)) => bytes.clone(),
     Some(Value::Seq(items)) => items
       .iter()
       .map(|item| match item {

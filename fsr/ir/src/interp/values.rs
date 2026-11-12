@@ -45,8 +45,27 @@ pub(crate) fn values_of(value: Value) -> Result<Value, Fail> {
 }
 
 /// `value.length`: an array's items, a string's UTF-16 units or an object's fields.
-pub(crate) fn length_of(value: Value) -> Result<Value, Fail> {
+/// A typed array or bytes as the array of numbers JavaScript reads from it, a 64-bit one's items as bigints; any other value as it is.
+pub(crate) fn as_items(value: Value) -> Value {
+  use snapfire_fsr_core::TypedArray as T;
+  let numbers = |items: Vec<f64>| Value::seq(items.into_iter().map(Value::F64).collect::<Vec<_>>());
   match value {
+    Value::Bytes(bytes) | Value::TypedArray(T::U8(bytes)) => numbers(bytes.into_iter().map(f64::from).collect()),
+    Value::TypedArray(T::I8(v)) => numbers(v.into_iter().map(f64::from).collect()),
+    Value::TypedArray(T::I16(v)) => numbers(v.into_iter().map(f64::from).collect()),
+    Value::TypedArray(T::U16(v)) => numbers(v.into_iter().map(f64::from).collect()),
+    Value::TypedArray(T::I32(v)) => numbers(v.into_iter().map(f64::from).collect()),
+    Value::TypedArray(T::U32(v)) => numbers(v.into_iter().map(f64::from).collect()),
+    Value::TypedArray(T::F32(v)) => numbers(v.into_iter().map(f64::from).collect()),
+    Value::TypedArray(T::F64(v)) => numbers(v),
+    Value::TypedArray(T::I64(v)) => Value::seq(v.into_iter().map(|n| Value::Int(n.into())).collect::<Vec<_>>()),
+    Value::TypedArray(T::U64(v)) => Value::seq(v.into_iter().map(|n| Value::Int(n.into())).collect::<Vec<_>>()),
+    other => other,
+  }
+}
+
+pub(crate) fn length_of(value: Value) -> Result<Value, Fail> {
+  match as_items(value) {
     Value::Seq(items) => Ok(Value::F64(items.len() as f64)),
     Value::Str(s) => Ok(Value::F64(s.encode_utf16().count() as f64)),
     Value::Map(map) => Ok(Value::F64(map.len() as f64)),
@@ -155,6 +174,9 @@ pub(crate) fn index_of(target: &Value, key: &Value) -> Result<Value, Fail> {
 }
 
 pub(super) fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
+  if matches!(target, Value::TypedArray(_) | Value::Bytes(_)) {
+    return index(&as_items(target.clone()), key);
+  }
   match (target, key) {
     (Value::Map(map), Value::Str(k)) => Ok(map.get(k.as_str()).cloned().or_else(|| regex_property(map, k.as_str())).unwrap_or(Value::Undefined)),
     (Value::Seq(items), Value::Int(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Undefined)),

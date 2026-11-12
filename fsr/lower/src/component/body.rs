@@ -880,7 +880,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         if browser {
           self.lowerer.kinds.push((name.clone(), Expr::Var(name.clone()), crate::Kind::Browser));
         } else if let Some(initial) = call.arguments.first() {
-          self.lowerer.note_kind(&name, crate::syntax::arg_expr(initial));
+          // `useState(() => value)` holds what the arrow returns.
+          let held = match crate::syntax::arg_expr(initial) {
+            js::Expression::ArrowFunctionExpression(arrow) => match crate::syntax::arrow_body_of(arrow) {
+              crate::syntax::ArrowBody::Expr(e) => e,
+              crate::syntax::ArrowBody::Block(_) => crate::syntax::arg_expr(initial),
+            },
+            other => other,
+          };
+          self.lowerer.note_kind(&name, held);
         }
         Ok(Some(Stmt::Let { name, expr }))
       }

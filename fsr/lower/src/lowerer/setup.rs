@@ -446,6 +446,12 @@ let m = m_expr.as_member_expression().expect("matched as a member");
         callee if callee.as_member_expression().is_some_and(|m| matches!(m.object(), js::Expression::Identifier(id) if id.name.as_str() == "Map" && !self.scope.iter().any(|(n, _)| n == "Map")) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if p.name.as_str() == "groupBy")) => Some(Kind::Map),
         callee if callee.as_member_expression().is_some_and(|m| self.kind_of(m.object()) == Some(Kind::Temporal) && matches!(crate::syntax::prop(m), crate::syntax::MemberProp::Ident(p) if crate::TEMPORAL_MAKERS.contains(&p.name.as_str()))) => Some(Kind::Temporal),
         callee if callee.as_member_expression().is_some_and(|m| self.makes_iterator(m)) => Some(Kind::Iterator),
+        js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(r) if r.name.as_str() == "Reflect" && !self.scope.iter().any(|(n, _)| n == "Reflect")) && m.property.name.as_str() == "construct" => {
+          let constructor = call.arguments.first().map(crate::syntax::arg_expr)?;
+          let b = self.build();
+          let made = js::Expression::new_new_expression(call.span, b.copy(constructor), None, b.vec([]), &b.ast());
+          made_kind(&made)
+        }
         js::Expression::Identifier(f) if !self.scope.iter().any(|(n, _)| n == f.name.as_str()) => {
           let returned = returned_by(f.name.as_str());
           self.global_kinds.iter().find(|(n, _)| *n == returned).map(|(_, kind)| *kind).or_else(|| made_kind(e))
