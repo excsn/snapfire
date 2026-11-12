@@ -18,7 +18,7 @@ pub use fingerprint::Fingerprint;
 pub use module_id::ModuleId;
 pub use node::{is_place_name, Html, Node, Place, SlotId};
 pub use plan::{CacheKey, DataSourceId, NodeId, PlanNode, SlotName};
-pub use value::{collect_cycles, reaches, Collection, Fields, Items, Props, RefKind, Text, TypedArray, Value, ValueHasher, ValueMap, ValueSeq, ValueStr};
+pub use value::{collect_cycles, reaches, Collection, TypedElement, Fields, Items, Props, RefKind, Text, TypedArray, Value, ValueHasher, ValueMap, ValueSeq, ValueStr};
 
 pub type Params = indexmap::IndexMap<String, String>;
 pub type Data = value::ValueMap;

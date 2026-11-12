@@ -337,7 +337,8 @@ let via = via_expr.as_member_expression().expect("matched as a member");
         }
         match self.member_name(m).as_deref() {
           Some("push" | "unshift" | "pop" | "shift" | "splice") => reached(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
-          Some("reverse" | "sort" | "copyWithin" | "fill") => held(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set | Kind::Typed)),
+          Some("reverse" | "sort" | "copyWithin" | "fill") => held(m.object()) && !matches!(self.kind_of(m.object()), Some(Kind::Map | Kind::Set)),
+          Some("set") if self.kind_of(m.object()) == Some(Kind::Typed) => held(m.object()),
           Some("set" | "add" | "delete" | "clear") => reached(m.object()) && matches!(self.kind_of(m.object()).map(Kind::collection), Some(Kind::Map | Kind::Set)),
           Some("getOrInsert" | "getOrInsertComputed") => reached(m.object()) && self.kind_of(m.object()) == Some(Kind::Map),
           Some(setter) if setter.starts_with("set") && self.kind_of(m.object()) == Some(Kind::View) => reached(m.object()),
@@ -495,6 +496,39 @@ let via = via_expr.as_member_expression().expect("matched as a member");
               Expr::Index(Box::new(read), Box::new(Expr::Var(key)))
             }
             (Some(Kind::Stack), stacked) => self.stack_write(stacked, &target, read.clone(), call, &mut lets)?,
+            (Some(Kind::Typed), changed) => {
+              let mut args = self.plain_args(call)?.into_iter();
+              let next = match changed {
+                "reverse" => Expr::Builtin { name: Builtin::Reverse, args: vec![read.clone()] },
+                "fill" | "copyWithin" => Expr::Builtin { name: if changed == "fill" { Builtin::Fill } else { Builtin::CopyWithin }, args: [vec![read.clone()], args.collect()].concat() },
+                "set" => {
+                  // `array.set(source, offset)` writes the source's items over the array's from the offset, keeping its length.
+                  let source = args.next().unwrap_or(Expr::Array(Vec::new()));
+                  let offset = args.next().unwrap_or(Expr::Lit(Lit::Float(0.0)));
+                  let (from, items) = (self.temp(), self.temp());
+                  let before = Expr::Builtin { name: Builtin::Slice, args: vec![read.clone(), Expr::Lit(Lit::Float(0.0)), Expr::Var(from.clone())] };
+                  let after = Expr::Builtin { name: Builtin::Slice, args: vec![read.clone(), Expr::Arith(ArithOp::Add, Box::new(Expr::Var(from.clone())), Box::new(Expr::Length(Box::new(Expr::Var(items.clone())))))] };
+                  Expr::Block(vec![
+                    Stmt::Let { name: from.clone(), expr: Expr::Num(Box::new(offset)) },
+                    Stmt::Let { name: items.clone(), expr: Expr::Array(vec![Entry::Spread(source)]) },
+                    Stmt::Return(Expr::Array(vec![Entry::Spread(before), Entry::Spread(Expr::Var(items)), Entry::Spread(after)])),
+                  ])
+                }
+                _ => {
+                  let by = match call.arguments.first().map(|a| crate::syntax::arg_expr(a)) {
+                    None => {
+                      let (x, y) = (self.temp(), self.temp());
+                      Expr::Lambda { params: vec![x.clone(), y.clone()], body: Box::new(Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(x)), Box::new(Expr::Var(y)))) }
+                    }
+                    Some(js::Expression::ArrowFunctionExpression(arrow)) => self.lambda(arrow)?,
+                    Some(other) => self.expr(other)?,
+                  };
+                  Expr::Sort(Box::new(read.clone()), Box::new(by))
+                }
+              };
+              lets.push(overwrite(&target, Expr::Builtin { name: Builtin::TypedLike, args: vec![read.clone(), next] }));
+              if changed == "set" { Expr::Lit(Lit::Undefined) } else { read }
+            }
             (Some(Kind::View), setter) => {
               let mut args = vec![read.clone(), Expr::lit_str(&setter[3..])];
               args.extend(self.plain_args(call)?);

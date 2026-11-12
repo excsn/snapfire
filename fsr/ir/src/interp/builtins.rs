@@ -46,6 +46,7 @@ pub(super) fn response_builtin(name: Builtin, args: &[Value]) -> Result<Value, F
         Some(body) if [204, 205, 304].contains(&response.status) => return Err(type_error("a response with a null body status", "no body", body)),
         Some(Value::Bytes(bytes)) => response.body = bytes.clone(),
         Some(Value::TypedArray(snapfire_fsr_core::TypedArray::U8(bytes))) => response.body = bytes.clone(),
+        Some(Value::Seq(bytes)) if bytes.kind() == Collection::Typed(snapfire_fsr_core::TypedElement::Uint8) => response.body = bytes.iter().map(|b| to_number(b).unwrap_or(0.0) as u8).collect(),
         Some(body) => {
           response.body = stringify(body)?.into_bytes();
           response.header_default("content-type", "text/plain;charset=UTF-8");
@@ -664,6 +665,17 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     };
     let inner = crate::sexpr::builtin_of(inner.as_str()).filter(|b| *b != Builtin::Spread).ok_or_else(|| Fail::internal(format!("Spread: `{inner}` is not a builtin")))?;
     return builtin(inner, items.to_vec());
+  }
+  // A typed array an array builtin is given reads as its numbers.
+  let args = if matches!(args.first(), Some(Value::TypedArray(_))) && !matches!(name, Builtin::TypedLike | Builtin::TypedField | Builtin::IsArray | Builtin::Json | Builtin::TypeOf | Builtin::Uint8Array | Builtin::ViewGet | Builtin::ViewSet | Builtin::Response) {
+    let mut args = args;
+    args[0] = as_items(args[0].clone());
+    args
+  } else {
+    args
+  };
+  if matches!(name, Builtin::TypedNew | Builtin::TypedLike | Builtin::TypedField) {
+    return typed_builtin(name, &args);
   }
   if matches!(name, Builtin::AsMap | Builtin::AsSet | Builtin::AsError | Builtin::AsOpaque) {
     return Ok(match (name, args.into_iter().next()) {
@@ -1433,7 +1445,7 @@ pub(super) fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::LooseEq => Value::Bool(loose_equal(arg(0)?, arg(1)?)?),
     Builtin::MapKey => Value::str(map_key(arg(0)?)?),
     Builtin::HeapOn | Builtin::Overwrite => Value::Null,
-    Builtin::AsMap | Builtin::AsSet | Builtin::AsError | Builtin::AsOpaque | Builtin::Spread => unreachable!("taken before the match"),
+    Builtin::AsMap | Builtin::AsSet | Builtin::AsError | Builtin::AsOpaque | Builtin::TypedNew | Builtin::TypedLike | Builtin::TypedField | Builtin::Spread => unreachable!("taken before the match"),
     Builtin::CopyDeep => own_copy(arg(0)?),
     Builtin::MapOf => match arg(0)? {
       Value::Seq(pairs) => {
@@ -1692,8 +1704,96 @@ fn big_of(value: &Value) -> Result<i128, Fail> {
   }
 }
 
+/// The element a typed array holds, as its constructor names it without `Array`.
+fn element_name(array: &snapfire_fsr_core::TypedArray) -> &'static str {
+  use snapfire_fsr_core::TypedArray as T;
+  match array {
+    T::I8(_) => "Int8",
+    T::U8(_) => "Uint8",
+    T::I16(_) => "Int16",
+    T::U16(_) => "Uint16",
+    T::I32(_) => "Int32",
+    T::U32(_) => "Uint32",
+    T::I64(_) => "BigInt64",
+    T::U64(_) => "BigUint64",
+    T::F32(_) => "Float32",
+    T::F64(_) => "Float64",
+  }
+}
+
+/// The bytes one element of `element` takes.
+fn element_bytes(element: &str) -> Result<f64, Fail> {
+  Ok(match element {
+    "Int8" | "Uint8" | "Uint8Clamped" => 1.0,
+    "Int16" | "Uint16" | "Float16" => 2.0,
+    "Int32" | "Uint32" | "Float32" => 4.0,
+    "BigInt64" | "BigUint64" | "Float64" => 8.0,
+    other => return Err(Fail::internal(format!("`{other}` is not a typed array element"))),
+  })
+}
+
+/// `items` stored as a typed array of `element`, each converted as the array converts it.
+pub(crate) fn typed_from(element: &str, items: &[Value]) -> Result<Value, Fail> {
+  let kind = snapfire_fsr_core::TypedElement::of(element).ok_or_else(|| Fail::internal(format!("`{element}` is not a typed array element")))?;
+  let converted = items.iter().map(|item| element_of(element, item)).collect::<Result<Vec<_>, _>>()?;
+  Ok(match Value::seq(converted) {
+    Value::Seq(items) => Value::Seq(items.with_kind(Collection::Typed(kind))),
+    other => other,
+  })
+}
+
+/// The element a typed array the build holds or a service sent is of, `None` for any other value.
+pub(crate) fn typed_element(value: &Value) -> Option<snapfire_fsr_core::TypedElement> {
+  match value {
+    Value::Seq(items) => match items.kind() {
+      Collection::Typed(element) => Some(element),
+      _ => None,
+    },
+    Value::TypedArray(array) => snapfire_fsr_core::TypedElement::of(element_name(array)),
+    _ => None,
+  }
+}
+
+/// [`Builtin::TypedNew`], [`Builtin::TypedLike`] and [`Builtin::TypedField`].
+fn typed_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
+  let arg = |i: usize| args.get(i).unwrap_or(&Value::Undefined);
+  match name {
+    Builtin::TypedNew => {
+      let element = text(name, arg(0))?;
+      let items = match as_items(arg(1).clone()) {
+        Value::Seq(items) => items.into_items(),
+        Value::Null | Value::Undefined => Vec::new(),
+        length => vec![Value::F64(0.0); to_number(&length).filter(|n| *n >= 0.0 && n.fract() == 0.0).ok_or_else(|| Fail::internal("RangeError: Invalid typed array length"))? as usize],
+      };
+      typed_from(element, &items)
+    }
+    Builtin::TypedLike => match (typed_element(arg(0)), as_items(arg(1).clone())) {
+      (Some(element), Value::Seq(items)) => typed_from(element.name(), &items.into_items()),
+      (_, other) => Ok(other),
+    },
+    _ => {
+      let field = text(name, arg(1))?;
+      match (typed_element(arg(0)), arg(0)) {
+        (Some(element), array) => {
+          let length = match as_items(array.clone()) {
+            Value::Seq(items) => items.len() as f64,
+            _ => 0.0,
+          };
+          Ok(Value::F64(match field {
+            "byteLength" => length * element.bytes() as f64,
+            "byteOffset" => 0.0,
+            _ => element.bytes() as f64,
+          }))
+        }
+        (None, Value::Str(element)) => Ok(Value::F64(element_bytes(element.as_str())?)),
+        (None, other) => Err(type_error(&format!("{name:?}"), "a typed array", other)),
+      }
+    }
+  }
+}
+
 /// `value` converted as a typed array of `kind` stores it.
-fn element_of(kind: &str, value: &Value) -> Result<Value, Fail> {
+pub(crate) fn element_of(kind: &str, value: &Value) -> Result<Value, Fail> {
   if matches!(kind, "BigInt64" | "BigUint64") {
     let n = big_of(value)?;
     return Ok(Value::Int(if kind == "BigInt64" { i128::from(n as i64) } else { i128::from(n as u64) }));

@@ -276,8 +276,8 @@ impl<'a> Lowerer<'a> {
         return Ok(text);
       }
     }
-    if self.kind_of(member.object()) == Some(Kind::Typed) {
-      return Err(self.residue(member.span(), format!("`.{method}()` of a typed array, which the build does not lower")));
+    if self.kind_of(member.object()) == Some(Kind::Typed) && !matches!(method.as_str(), "set" | "sort" | "reverse" | "fill" | "copyWithin") {
+      return self.typed_call(&method, member, call);
     }
     if self.kind_of(member.object()) == Some(Kind::Scope) {
       return self.scope_call(&method, member, call);
@@ -288,6 +288,19 @@ impl<'a> Lowerer<'a> {
       if !self.scope.iter().any(|(n, _)| n == global) && !self.globals.iter().any(|(n, _)| n == global) {
         match global {
           "Object" if matches!(method.as_str(), "assign" | "freeze" | "hasOwn" | "is" | "groupBy") => return self.object_static(&method, call),
+          typed if crate::TYPED_ELEMENTS.iter().any(|(name, _)| *name == typed) && matches!(method.as_str(), "from" | "of") => {
+            let element = crate::TYPED_ELEMENTS.iter().find(|(name, _)| *name == typed).map(|(_, e)| *e).expect("matched");
+            let mut items = Vec::with_capacity(call.arguments.len());
+            for (at, a) in call.arguments.iter().enumerate() {
+              let value = self.expr(crate::syntax::arg_expr(a))?;
+              match method.as_str() {
+                "from" if at == 0 => items.push(Entry::Spread(value)),
+                "from" => return Err(self.residue(call.span, format!("`{typed}.from` with a mapping function"))),
+                _ => items.push(if crate::syntax::is_spread(a) { Entry::Spread(value) } else { Entry::Item(value) }),
+              }
+            }
+            return Ok(Expr::Builtin { name: Builtin::TypedNew, args: vec![Expr::lit_str(element), Expr::Array(items)] });
+          }
           "Array" if method == "of" => {
             let mut items = Vec::with_capacity(call.arguments.len());
             for a in &call.arguments {

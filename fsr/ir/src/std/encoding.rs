@@ -8,7 +8,10 @@ use crate::interp::Fail;
 pub fn register(extensions: &mut Extensions) {
   extensions.register("encoding.btoa", Reach::Render, |_, args| btoa(&text("btoa", args, 0)?).map(Value::str));
   extensions.register("encoding.atob", Reach::Render, |_, args| atob(&text("atob", args, 0)?).map(Value::str));
-  extensions.register("encoding.encode", Reach::Render, |_, args| Ok(Value::TypedArray(snapfire_fsr_core::TypedArray::U8(text("TextEncoder.encode", args, 0)?.as_bytes().to_vec()))));
+  extensions.register("encoding.encode", Reach::Render, |_, args| {
+    let bytes: Vec<Value> = text("TextEncoder.encode", args, 0)?.bytes().map(|b| Value::F64(f64::from(b))).collect();
+    crate::interp::typed_from("Uint8", &bytes)
+  });
   extensions.register("encoding.decode", Reach::Render, |_, args| decode(args.first()));
 }
 

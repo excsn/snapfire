@@ -163,6 +163,62 @@ pub enum Collection {
   Error,
   /// An object of the platform's whose fields JavaScript does not enumerate, such as an `Intl.Locale` or a `DisposableStack`: JSON writes it as `{}`.
   Opaque,
+  /// A typed array of the element named, kept as an array of its items already converted to it. A write converts what it writes and JSON writes the items as an object of their indexes.
+  Typed(TypedElement),
+}
+
+/// The element a typed array holds, as its constructor names it without `Array`: `Int16` for `Int16Array`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TypedElement {
+  Int8,
+  Uint8,
+  Uint8Clamped,
+  Int16,
+  Uint16,
+  Int32,
+  Uint32,
+  Float16,
+  Float32,
+  Float64,
+  BigInt64,
+  BigUint64,
+}
+
+impl TypedElement {
+  pub const ALL: [TypedElement; 12] = [TypedElement::Int8, TypedElement::Uint8, TypedElement::Uint8Clamped, TypedElement::Int16, TypedElement::Uint16, TypedElement::Int32, TypedElement::Uint32, TypedElement::Float16, TypedElement::Float32, TypedElement::Float64, TypedElement::BigInt64, TypedElement::BigUint64];
+
+  /// The element's name, `Int16`.
+  pub fn name(self) -> &'static str {
+    match self {
+      TypedElement::Int8 => "Int8",
+      TypedElement::Uint8 => "Uint8",
+      TypedElement::Uint8Clamped => "Uint8Clamped",
+      TypedElement::Int16 => "Int16",
+      TypedElement::Uint16 => "Uint16",
+      TypedElement::Int32 => "Int32",
+      TypedElement::Uint32 => "Uint32",
+      TypedElement::Float16 => "Float16",
+      TypedElement::Float32 => "Float32",
+      TypedElement::Float64 => "Float64",
+      TypedElement::BigInt64 => "BigInt64",
+      TypedElement::BigUint64 => "BigUint64",
+    }
+  }
+
+  /// The element `name` names, `None` for any other name.
+  pub fn of(name: &str) -> Option<TypedElement> {
+    TypedElement::ALL.into_iter().find(|e| e.name() == name)
+  }
+
+  /// The bytes one element takes.
+  pub fn bytes(self) -> usize {
+    match self {
+      TypedElement::Int8 | TypedElement::Uint8 | TypedElement::Uint8Clamped => 1,
+      TypedElement::Int16 | TypedElement::Uint16 | TypedElement::Float16 => 2,
+      TypedElement::Int32 | TypedElement::Uint32 | TypedElement::Float32 => 4,
+      TypedElement::Float64 | TypedElement::BigInt64 | TypedElement::BigUint64 => 8,
+    }
+  }
 }
 
 impl<T> Place<T> {

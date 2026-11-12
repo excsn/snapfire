@@ -299,18 +299,9 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         Ok(Expr::Object(vec![Entry::Field(PROXY_TARGET.to_owned(), target), Entry::Field(PROXY_HANDLER.to_owned(), handler)]))
       }
       ("DisposableStack" | "AsyncDisposableStack", _) => Ok(crate::opaque_object(Expr::Object(vec![Entry::Field(super::writes::STACK.to_owned(), Expr::Array(Vec::new())), Entry::Field("disposed".to_owned(), Expr::Lit(Lit::Bool(false)))]))),
-      (name, source) if TYPED_ARRAYS.contains(&name) => {
-        let element = name.trim_end_matches("Array");
-        let big = element.starts_with("Big");
-        let zero = if big { Expr::Lit(Lit::Int(0)) } else { Expr::Lit(Lit::Float(0.0)) };
-        let Some(source) = source else { return Ok(Expr::Array(Vec::new())) };
-        let (held, item) = (self.temp(), self.temp());
-        let convert = Expr::Lambda { params: vec![item.clone()], body: Box::new(Expr::Builtin { name: Builtin::ElementOf, args: vec![Expr::lit_str(element), Expr::Var(item.clone())] }) };
-        let slot = self.temp();
-        let sized = Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::Lambda { params: vec![slot], body: Box::new(zero) }));
-        let copied = Expr::Map(Box::new(Expr::Array(vec![Entry::Spread(Expr::Var(held.clone()))])), Box::new(convert));
-        let number = Expr::Compare(CompareOp::Eq, Box::new(Expr::Builtin { name: Builtin::TypeOf, args: vec![Expr::Var(held.clone())] }), Box::new(Expr::lit_str("number")));
-        Ok(Expr::Block(vec![Stmt::Let { name: held, expr: source }, Stmt::Return(Expr::Ternary(Box::new(number), Box::new(sized), Box::new(copied)))]))
+      (name, source) if crate::TYPED_ELEMENTS.iter().any(|(n, _)| *n == name) => {
+        let element = crate::TYPED_ELEMENTS.iter().find(|(n, _)| *n == name).map(|(_, e)| *e).expect("matched");
+        Ok(Expr::Builtin { name: Builtin::TypedNew, args: vec![Expr::lit_str(element), source.unwrap_or(Expr::Lit(Lit::Float(0.0)))] })
       }
       ("Array", None) => Ok(Expr::Array(Vec::new())),
       ("Array", Some(first)) if args.len() == 1 => {
@@ -349,7 +340,6 @@ let inner = inner_expr.as_member_expression().expect("matched as a member");
         Ok(Expr::Builtin { name: Builtin::Response, args })
       }
       ("Request", Some(url)) => Ok(Expr::Builtin { name: Builtin::RequestNew, args: vec![url] }),
-      ("Uint8Array", source) => Ok(Expr::Builtin { name: Builtin::Uint8Array, args: source.into_iter().collect() }),
       ("URLSearchParams", None) => Ok(Expr::lit_str("")),
       ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
       ("URL", Some(x)) => {

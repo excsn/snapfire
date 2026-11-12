@@ -176,6 +176,7 @@ fn write(out: &mut String, value: &Value, indent: &str, depth: usize, integers: 
     Value::Map(map) if map.kind() == crate::value::Collection::Map => out.push_str("{}"),
     Value::Map(map) if map.get(typed::REGEX).is_some() => out.push_str("{}"),
     Value::Seq(items) if items.kind() == crate::value::Collection::Opaque => out.push_str("{}"),
+    Value::Seq(items) if matches!(items.kind(), crate::value::Collection::Typed(_)) => indexed(out, items.to_vec(), indent, depth, integers)?,
     Value::Seq(items) => crate::on_enough_stack(|| array(out, items.iter(), indent, depth, integers))?,
     Value::Map(map) if map.kind() == crate::value::Collection::Opaque => out.push_str("{}"),
     Value::Map(map) if map.kind() == crate::value::Collection::Error => crate::on_enough_stack(|| object(out, map.iter().filter(|(k, _)| !ERROR_FIELDS.contains(&k.as_str())).map(|(k, v)| (k.as_str(), v)), indent, depth, integers))?,

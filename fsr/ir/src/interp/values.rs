@@ -45,8 +45,20 @@ pub(crate) fn values_of(value: Value) -> Result<Value, Fail> {
 }
 
 /// `value.length`: an array's items, a string's UTF-16 units or an object's fields.
-/// A typed array or bytes as the array of numbers JavaScript reads from it, a 64-bit one's items as bigints; any other value as it is.
+/// A typed array or bytes as the array of numbers JavaScript reads from it, a 64-bit one's items as bigints, a typed array keeping its element; any other value as it is.
 pub(crate) fn as_items(value: Value) -> Value {
+  let element = match &value {
+    Value::TypedArray(_) => typed_element(&value),
+    _ => None,
+  };
+  let read = as_numbers(value);
+  match (element, read) {
+    (Some(element), Value::Seq(items)) => Value::Seq(items.with_kind(Collection::Typed(element))),
+    (_, read) => read,
+  }
+}
+
+fn as_numbers(value: Value) -> Value {
   use snapfire_fsr_core::TypedArray as T;
   let numbers = |items: Vec<f64>| Value::seq(items.into_iter().map(Value::F64).collect::<Vec<_>>());
   match value {

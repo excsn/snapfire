@@ -357,6 +357,12 @@ pub enum Builtin {
   AsSet,
   /// Its argument, an object of a `name` and a `message`, marked as an `Error`.
   AsError,
+  /// `new <element>Array(source)`: a typed array of the element named, `Int16`, from a length, an array or another typed array.
+  TypedNew,
+  /// Its second argument, an array, as a typed array of the first one's element type; any other first argument answers the array.
+  TypedLike,
+  /// A typed array's `byteLength`, `byteOffset` or `BYTES_PER_ELEMENT`, or the `BYTES_PER_ELEMENT` of an element named.
+  TypedField,
   /// Its argument, an object or the bytes of a buffer, marked as one of the platform's whose fields JavaScript does not enumerate.
   AsOpaque,
   /// The global `isNaN(x)`: whether `Number(x)` is NaN.

@@ -146,6 +146,9 @@ pub(crate) fn node_module(source: &str) -> bool {
 
 /// JavaScript's error constructors, which a `throw` and a `new` read as `{ name, message }`.
 /// The typed arrays a body makes as arrays of numbers, each element converted as its type stores it. `Uint8Array` has its own arm, since response bodies and `TextEncoder` read its bytes.
+/// The typed array constructors and the element each holds.
+pub(crate) const TYPED_ELEMENTS: [(&str, &str); 12] = [("Int8Array", "Int8"), ("Uint8Array", "Uint8"), ("Uint8ClampedArray", "Uint8Clamped"), ("Int16Array", "Int16"), ("Uint16Array", "Uint16"), ("Int32Array", "Int32"), ("Uint32Array", "Uint32"), ("Float16Array", "Float16"), ("Float32Array", "Float32"), ("Float64Array", "Float64"), ("BigInt64Array", "BigInt64"), ("BigUint64Array", "BigUint64")];
+
 pub(crate) const TYPED_ARRAYS: [&str; 11] = ["Int8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array", "Int32Array", "Uint32Array", "Float16Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array"];
 
 pub(crate) const ERROR_CONSTRUCTORS: [&str; 9] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError", "AggregateError", "SuppressedError"];

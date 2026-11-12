@@ -154,6 +154,7 @@ pub(crate) fn made_kind(e: &js::Expression) -> Option<Kind> {
     js::Expression::CallExpression(call) => match &call.callee {
       js::Expression::Identifier(id) if id.name.as_str() == "BigInt" => Some(Kind::BigInt),
       js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if obj.name.as_str() == "Symbol") && m.property.name.as_str() == "for" => Some(Kind::Symbol),
+      js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if TYPED_ARRAYS.contains(&obj.name.as_str())) && matches!(m.property.name.as_str(), "from" | "of") => Some(Kind::Typed),
       js::Expression::Identifier(id) if ERRORS.contains(&id.name.as_str()) => Some(Kind::Error),
       js::Expression::StaticMemberExpression(m) if matches!(&m.object, js::Expression::Identifier(obj) if obj.name.as_str() == "Response") && matches!(m.property.name.as_str(), "json" | "redirect") => Some(Kind::Response),
       js::Expression::StaticMemberExpression(m) if crate::temporal_type(&m.object).is_some() && crate::TEMPORAL_FROM.contains(&m.property.name.as_str()) => Some(Kind::Temporal),

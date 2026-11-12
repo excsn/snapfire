@@ -7,4 +7,5 @@ mod objects;
 mod setup;
 pub(crate) mod statics;
 mod stmts;
+mod typed;
 mod writes;

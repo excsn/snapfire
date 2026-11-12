@@ -24,7 +24,7 @@ impl<'a> Lowerer<'a> {
         {
       let callee = &call.callee;
           if let Some(m) = (crate::meaning::bare(callee)).as_member_expression() {
-            if self.member_name(m).as_deref() == Some("forEach") && call.arguments.len() == 1 && self.kind_of(m.object()) != Some(Kind::Typed) {
+            if self.member_name(m).as_deref() == Some("forEach") && call.arguments.len() == 1 {
               let kind = self.kind_of(m.object()).map(Kind::collection);
               let over = self.expr(m.object())?;
               let f = self.expr(&crate::syntax::arg_expr(&call.arguments[0]))?;
@@ -351,6 +351,11 @@ impl<'a> Lowerer<'a> {
       if id.name.as_str() == "Symbol" && !self.scope.iter().any(|(n, _)| n == "Symbol") && crate::WELL_KNOWN_SYMBOLS.contains(&key.as_str()) {
         return Ok(crate::well_known_symbol(&key));
       }
+      if key == "BYTES_PER_ELEMENT" && !self.scope.iter().any(|(n, _)| n == id.name.as_str()) {
+        if let Some(element) = id.name.as_str().strip_suffix("Array").filter(|_| crate::forms::TYPED_ARRAYS.contains(&id.name.as_str())) {
+          return Ok(Expr::Builtin { name: Builtin::TypedField, args: vec![Expr::lit_str(element), Expr::lit_str("BYTES_PER_ELEMENT")] });
+        }
+      }
     }
     if let Some(class) = self.builtin_prototype(member) {
       return Ok(crate::lowerer::statics::prototype(class));
@@ -563,6 +568,7 @@ impl<'a> Lowerer<'a> {
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
       Ok(name) if name == "size" && matches!(collection.map(Kind::collection), Some(Kind::Map | Kind::Set)) => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if collection == Some(Kind::Typed) && matches!(name.as_str(), "byteLength" | "byteOffset" | "BYTES_PER_ELEMENT") => Ok(Expr::Builtin { name: Builtin::TypedField, args: vec![target, Expr::lit_str(&name)] }),
       Ok(name) if collection.is_some_and(|kind| crate::standard::unread(kind, &name)) => Err(self.residue(member.span(), format!("`.{name}` of {}, which the build does not read", collection.expect("checked").described()))),
       Ok(name) if collection.is_none() && self.may_be_getter(&name) && !crate::classes::plain_root(&target) => {
         let t = self.temp();

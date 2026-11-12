@@ -803,6 +803,12 @@ impl Env {
       }
       (Value::Seq(items), Write::At(key, value)) => {
         let Some(at) = to_number(&key).filter(|at| at.fract() == 0.0 && *at >= 0.0) else { return Err(Fail::internal("a write at a key of an array that is not an index")) };
+        let value = match items.kind() {
+          Collection::Typed(element) if (at as usize) < items.len() => element_of(element.name(), &value)?,
+          // A typed array has the length it was made with; a write past it writes nothing.
+          Collection::Typed(_) => return Ok(held),
+          _ => value,
+        };
         self.note_link(&held, &value);
         let items = items.through().ok_or_else(frozen)?;
         let at = at as usize;
