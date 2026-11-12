@@ -1,4 +1,4 @@
-//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`. `snapfire_i18n_datagen --ucd <ucd-dir> <out>` writes its case data instead, from a Unicode Character Database release. `snapfire_i18n_datagen --zones <cldr-json> <out>` writes its time zone names and `--names` its display names.
+//! `snapfire_i18n_datagen <cldr-json> <out>`: reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages of a cldr-json release and writes the data file `snapfire_i18n` embeds. The line format is described in the crate's `src/data.rs`. `snapfire_i18n_datagen --ucd <ucd-dir> <out>` writes its case data instead, from a Unicode Character Database release. `snapfire_i18n_datagen --zones <cldr-json> <zone.tab> <out>` writes its time zone names and each region's calendars from cldr-json and each region's zones from a tz database `zone.tab`. `--names` writes its display names.
 
 mod names;
 mod ucd;
@@ -25,14 +25,15 @@ fn main() {
     }
     _ => None,
   };
+  let tab = if mode.as_deref() == Some("--zones") { args.next() } else { None };
   let (Some(root), Some(out)) = (first, args.next()) else {
-    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>\n       snapfire_i18n_datagen --ucd <ucd-dir> <out>\n       snapfire_i18n_datagen --zones <cldr-json> <out>\n       snapfire_i18n_datagen --names <cldr-json> <out>");
+    eprintln!("usage: snapfire_i18n_datagen <cldr-json> <out>\n       snapfire_i18n_datagen --ucd <ucd-dir> <out>\n       snapfire_i18n_datagen --zones <cldr-json> <zone.tab> <out>\n       snapfire_i18n_datagen --names <cldr-json> <out>");
     std::process::exit(2);
   };
   let made = match mode.as_deref() {
     Some("--ucd") => ucd::generate(Path::new(&root)),
     Some("--names") => names::generate(Path::new(&root)),
-    Some(_) => zones::generate(Path::new(&root)),
+    Some(_) => zones::generate(Path::new(&root), Path::new(&tab.unwrap_or_default())),
     None => generate(Path::new(&root)),
   };
   let text = made.unwrap_or_else(|e| {

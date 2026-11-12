@@ -446,6 +446,305 @@ K	Indian/Mayotte
 K	Africa/Johannesburg	
 K	Africa/Lusaka	
 K	Africa/Harare	
+Z	AD	Europe/Andorra
+Z	AE	Asia/Dubai
+Z	AF	Asia/Kabul
+Z	AG	America/Antigua
+Z	AI	America/Anguilla
+Z	AL	Europe/Tirane
+Z	AM	Asia/Yerevan
+Z	AO	Africa/Luanda
+Z	AQ	Antarctica/Casey	Antarctica/Davis	Antarctica/DumontDUrville	Antarctica/Mawson	Antarctica/McMurdo	Antarctica/Palmer	Antarctica/Rothera	Antarctica/Syowa	Antarctica/Troll	Antarctica/Vostok
+Z	AR	America/Argentina/La_Rioja	America/Argentina/Rio_Gallegos	America/Argentina/Salta	America/Argentina/San_Juan	America/Argentina/San_Luis	America/Argentina/Tucuman	America/Argentina/Ushuaia	America/Buenos_Aires	America/Catamarca	America/Cordoba	America/Jujuy	America/Mendoza
+Z	AS	Pacific/Pago_Pago
+Z	AT	Europe/Vienna
+Z	AU	Antarctica/Macquarie	Australia/Adelaide	Australia/Brisbane	Australia/Broken_Hill	Australia/Darwin	Australia/Eucla	Australia/Hobart	Australia/Lindeman	Australia/Lord_Howe	Australia/Melbourne	Australia/Perth	Australia/Sydney
+Z	AW	America/Aruba
+Z	AX	Europe/Mariehamn
+Z	AZ	Asia/Baku
+Z	BA	Europe/Sarajevo
+Z	BB	America/Barbados
+Z	BD	Asia/Dhaka
+Z	BE	Europe/Brussels
+Z	BF	Africa/Ouagadougou
+Z	BG	Europe/Sofia
+Z	BH	Asia/Bahrain
+Z	BI	Africa/Bujumbura
+Z	BJ	Africa/Porto-Novo
+Z	BL	America/St_Barthelemy
+Z	BM	Atlantic/Bermuda
+Z	BN	Asia/Brunei
+Z	BO	America/La_Paz
+Z	BQ	America/Kralendijk
+Z	BR	America/Araguaina	America/Bahia	America/Belem	America/Boa_Vista	America/Campo_Grande	America/Cuiaba	America/Eirunepe	America/Fortaleza	America/Maceio	America/Manaus	America/Noronha	America/Porto_Velho	America/Recife	America/Rio_Branco	America/Santarem	America/Sao_Paulo
+Z	BS	America/Nassau
+Z	BT	Asia/Thimphu
+Z	BW	Africa/Gaborone
+Z	BY	Europe/Minsk
+Z	BZ	America/Belize
+Z	CA	America/Blanc-Sablon	America/Cambridge_Bay	America/Coral_Harbour	America/Creston	America/Dawson	America/Dawson_Creek	America/Edmonton	America/Fort_Nelson	America/Glace_Bay	America/Goose_Bay	America/Halifax	America/Inuvik	America/Iqaluit	America/Moncton	America/Rankin_Inlet	America/Regina	America/Resolute	America/St_Johns	America/Swift_Current	America/Toronto	America/Vancouver	America/Whitehorse	America/Winnipeg
+Z	CC	Indian/Cocos
+Z	CD	Africa/Kinshasa	Africa/Lubumbashi
+Z	CF	Africa/Bangui
+Z	CG	Africa/Brazzaville
+Z	CH	Europe/Zurich
+Z	CI	Africa/Abidjan
+Z	CK	Pacific/Rarotonga
+Z	CL	America/Coyhaique	America/Punta_Arenas	America/Santiago	Pacific/Easter
+Z	CM	Africa/Douala
+Z	CN	Asia/Shanghai	Asia/Urumqi
+Z	CO	America/Bogota
+Z	CR	America/Costa_Rica
+Z	CU	America/Havana
+Z	CV	Atlantic/Cape_Verde
+Z	CW	America/Curacao
+Z	CX	Indian/Christmas
+Z	CY	Asia/Famagusta	Asia/Nicosia
+Z	CZ	Europe/Prague
+Z	DE	Europe/Berlin	Europe/Busingen
+Z	DJ	Africa/Djibouti
+Z	DK	Europe/Copenhagen
+Z	DM	America/Dominica
+Z	DO	America/Santo_Domingo
+Z	DZ	Africa/Algiers
+Z	EC	America/Guayaquil	Pacific/Galapagos
+Z	EE	Europe/Tallinn
+Z	EG	Africa/Cairo
+Z	EH	Africa/El_Aaiun
+Z	ER	Africa/Asmera
+Z	ES	Africa/Ceuta	Atlantic/Canary	Europe/Madrid
+Z	ET	Africa/Addis_Ababa
+Z	FI	Europe/Helsinki
+Z	FJ	Pacific/Fiji
+Z	FK	Atlantic/Stanley
+Z	FM	Pacific/Kosrae	Pacific/Ponape	Pacific/Truk
+Z	FO	Atlantic/Faeroe
+Z	FR	Europe/Paris
+Z	GA	Africa/Libreville
+Z	GB	Europe/London
+Z	GD	America/Grenada
+Z	GE	Asia/Tbilisi
+Z	GF	America/Cayenne
+Z	GG	Europe/Guernsey
+Z	GH	Africa/Accra
+Z	GI	Europe/Gibraltar
+Z	GL	America/Danmarkshavn	America/Godthab	America/Scoresbysund	America/Thule
+Z	GM	Africa/Banjul
+Z	GN	Africa/Conakry
+Z	GP	America/Guadeloupe
+Z	GQ	Africa/Malabo
+Z	GR	Europe/Athens
+Z	GS	Atlantic/South_Georgia
+Z	GT	America/Guatemala
+Z	GU	Pacific/Guam
+Z	GW	Africa/Bissau
+Z	GY	America/Guyana
+Z	HK	Asia/Hong_Kong
+Z	HN	America/Tegucigalpa
+Z	HR	Europe/Zagreb
+Z	HT	America/Port-au-Prince
+Z	HU	Europe/Budapest
+Z	ID	Asia/Jakarta	Asia/Jayapura	Asia/Makassar	Asia/Pontianak
+Z	IE	Europe/Dublin
+Z	IL	Asia/Jerusalem
+Z	IM	Europe/Isle_of_Man
+Z	IN	Asia/Calcutta
+Z	IO	Indian/Chagos
+Z	IQ	Asia/Baghdad
+Z	IR	Asia/Tehran
+Z	IS	Atlantic/Reykjavik
+Z	IT	Europe/Rome
+Z	JE	Europe/Jersey
+Z	JM	America/Jamaica
+Z	JO	Asia/Amman
+Z	JP	Asia/Tokyo
+Z	KE	Africa/Nairobi
+Z	KG	Asia/Bishkek
+Z	KH	Asia/Phnom_Penh
+Z	KI	Pacific/Enderbury	Pacific/Kiritimati	Pacific/Tarawa
+Z	KM	Indian/Comoro
+Z	KN	America/St_Kitts
+Z	KP	Asia/Pyongyang
+Z	KR	Asia/Seoul
+Z	KW	Asia/Kuwait
+Z	KY	America/Cayman
+Z	KZ	Asia/Almaty	Asia/Aqtau	Asia/Aqtobe	Asia/Atyrau	Asia/Oral	Asia/Qostanay	Asia/Qyzylorda
+Z	LA	Asia/Vientiane
+Z	LB	Asia/Beirut
+Z	LC	America/St_Lucia
+Z	LI	Europe/Vaduz
+Z	LK	Asia/Colombo
+Z	LR	Africa/Monrovia
+Z	LS	Africa/Maseru
+Z	LT	Europe/Vilnius
+Z	LU	Europe/Luxembourg
+Z	LV	Europe/Riga
+Z	LY	Africa/Tripoli
+Z	MA	Africa/Casablanca
+Z	MC	Europe/Monaco
+Z	MD	Europe/Chisinau
+Z	ME	Europe/Podgorica
+Z	MF	America/Marigot
+Z	MG	Indian/Antananarivo
+Z	MH	Pacific/Kwajalein	Pacific/Majuro
+Z	MK	Europe/Skopje
+Z	ML	Africa/Bamako
+Z	MM	Asia/Rangoon
+Z	MN	Asia/Hovd	Asia/Ulaanbaatar
+Z	MO	Asia/Macau
+Z	MP	Pacific/Saipan
+Z	MQ	America/Martinique
+Z	MR	Africa/Nouakchott
+Z	MS	America/Montserrat
+Z	MT	Europe/Malta
+Z	MU	Indian/Mauritius
+Z	MV	Indian/Maldives
+Z	MW	Africa/Blantyre
+Z	MX	America/Bahia_Banderas	America/Cancun	America/Chihuahua	America/Ciudad_Juarez	America/Hermosillo	America/Matamoros	America/Mazatlan	America/Merida	America/Mexico_City	America/Monterrey	America/Ojinaga	America/Tijuana
+Z	MY	Asia/Kuala_Lumpur	Asia/Kuching
+Z	MZ	Africa/Maputo
+Z	NA	Africa/Windhoek
+Z	NC	Pacific/Noumea
+Z	NE	Africa/Niamey
+Z	NF	Pacific/Norfolk
+Z	NG	Africa/Lagos
+Z	NI	America/Managua
+Z	NL	Europe/Amsterdam
+Z	NO	Europe/Oslo
+Z	NP	Asia/Katmandu
+Z	NR	Pacific/Nauru
+Z	NU	Pacific/Niue
+Z	NZ	Pacific/Auckland	Pacific/Chatham
+Z	OM	Asia/Muscat
+Z	PA	America/Panama
+Z	PE	America/Lima
+Z	PF	Pacific/Gambier	Pacific/Marquesas	Pacific/Tahiti
+Z	PG	Pacific/Bougainville	Pacific/Port_Moresby
+Z	PH	Asia/Manila
+Z	PK	Asia/Karachi
+Z	PL	Europe/Warsaw
+Z	PM	America/Miquelon
+Z	PN	Pacific/Pitcairn
+Z	PR	America/Puerto_Rico
+Z	PS	Asia/Gaza	Asia/Hebron
+Z	PT	Atlantic/Azores	Atlantic/Madeira	Europe/Lisbon
+Z	PW	Pacific/Palau
+Z	PY	America/Asuncion
+Z	QA	Asia/Qatar
+Z	RE	Indian/Reunion
+Z	RO	Europe/Bucharest
+Z	RS	Europe/Belgrade
+Z	RU	Asia/Anadyr	Asia/Barnaul	Asia/Chita	Asia/Irkutsk	Asia/Kamchatka	Asia/Khandyga	Asia/Krasnoyarsk	Asia/Magadan	Asia/Novokuznetsk	Asia/Novosibirsk	Asia/Omsk	Asia/Sakhalin	Asia/Srednekolymsk	Asia/Tomsk	Asia/Ust-Nera	Asia/Vladivostok	Asia/Yakutsk	Asia/Yekaterinburg	Europe/Astrakhan	Europe/Kaliningrad	Europe/Kirov	Europe/Moscow	Europe/Samara	Europe/Saratov	Europe/Ulyanovsk	Europe/Volgograd
+Z	RW	Africa/Kigali
+Z	SA	Asia/Riyadh
+Z	SB	Pacific/Guadalcanal
+Z	SC	Indian/Mahe
+Z	SD	Africa/Khartoum
+Z	SE	Europe/Stockholm
+Z	SG	Asia/Singapore
+Z	SH	Atlantic/St_Helena
+Z	SI	Europe/Ljubljana
+Z	SJ	Arctic/Longyearbyen
+Z	SK	Europe/Bratislava
+Z	SL	Africa/Freetown
+Z	SM	Europe/San_Marino
+Z	SN	Africa/Dakar
+Z	SO	Africa/Mogadishu
+Z	SR	America/Paramaribo
+Z	SS	Africa/Juba
+Z	ST	Africa/Sao_Tome
+Z	SV	America/El_Salvador
+Z	SX	America/Lower_Princes
+Z	SY	Asia/Damascus
+Z	SZ	Africa/Mbabane
+Z	TC	America/Grand_Turk
+Z	TD	Africa/Ndjamena
+Z	TF	Indian/Kerguelen
+Z	TG	Africa/Lome
+Z	TH	Asia/Bangkok
+Z	TJ	Asia/Dushanbe
+Z	TK	Pacific/Fakaofo
+Z	TL	Asia/Dili
+Z	TM	Asia/Ashgabat
+Z	TN	Africa/Tunis
+Z	TO	Pacific/Tongatapu
+Z	TR	Europe/Istanbul
+Z	TT	America/Port_of_Spain
+Z	TV	Pacific/Funafuti
+Z	TW	Asia/Taipei
+Z	TZ	Africa/Dar_es_Salaam
+Z	UA	Europe/Kiev	Europe/Simferopol
+Z	UG	Africa/Kampala
+Z	UM	Pacific/Midway	Pacific/Wake
+Z	US	America/Adak	America/Anchorage	America/Boise	America/Chicago	America/Denver	America/Detroit	America/Indiana/Knox	America/Indiana/Marengo	America/Indiana/Petersburg	America/Indiana/Tell_City	America/Indiana/Vevay	America/Indiana/Vincennes	America/Indiana/Winamac	America/Indianapolis	America/Juneau	America/Kentucky/Monticello	America/Los_Angeles	America/Louisville	America/Menominee	America/Metlakatla	America/New_York	America/Nome	America/North_Dakota/Beulah	America/North_Dakota/Center	America/North_Dakota/New_Salem	America/Phoenix	America/Sitka	America/Yakutat	Pacific/Honolulu
+Z	UY	America/Montevideo
+Z	UZ	Asia/Samarkand	Asia/Tashkent
+Z	VA	Europe/Vatican
+Z	VC	America/St_Vincent
+Z	VE	America/Caracas
+Z	VG	America/Tortola
+Z	VI	America/St_Thomas
+Z	VN	Asia/Saigon
+Z	VU	Pacific/Efate
+Z	WF	Pacific/Wallis
+Z	WS	Pacific/Apia
+Z	YE	Asia/Aden
+Z	YT	Indian/Mayotte
+Z	ZA	Africa/Johannesburg
+Z	ZM	Africa/Lusaka
+Z	ZW	Africa/Harare
+R	001	gregory
+R	AE	gregory	islamic-umalqura	islamic	islamic-civil	islamic-tbla
+R	AF	persian	gregory	islamic	islamic-civil	islamic-tbla
+R	AL	gregory	islamic-civil	islamic-tbla
+R	AZ	gregory	islamic-civil	islamic-tbla
+R	BD	gregory	islamic	islamic-civil	islamic-tbla
+R	BH	gregory	islamic-umalqura	islamic	islamic-civil	islamic-tbla
+R	CN	gregory	chinese
+R	CX	gregory	chinese
+R	DJ	gregory	islamic	islamic-civil	islamic-tbla
+R	DZ	gregory	islamic	islamic-civil	islamic-tbla
+R	EG	gregory	coptic	islamic	islamic-civil	islamic-tbla
+R	EH	gregory	islamic	islamic-civil	islamic-tbla
+R	ER	gregory	islamic	islamic-civil	islamic-tbla
+R	ET	gregory	ethiopic
+R	HK	gregory	chinese
+R	ID	gregory	islamic	islamic-civil	islamic-tbla
+R	IL	gregory	hebrew	islamic	islamic-civil	islamic-tbla
+R	IN	gregory	indian
+R	IQ	gregory	islamic	islamic-civil	islamic-tbla
+R	IR	persian	gregory	islamic	islamic-civil	islamic-tbla
+R	JO	gregory	islamic	islamic-civil	islamic-tbla
+R	JP	gregory	japanese
+R	KM	gregory	islamic	islamic-civil	islamic-tbla
+R	KR	gregory	dangi
+R	KW	gregory	islamic-umalqura	islamic	islamic-civil	islamic-tbla
+R	LB	gregory	islamic	islamic-civil	islamic-tbla
+R	LY	gregory	islamic	islamic-civil	islamic-tbla
+R	MA	gregory	islamic	islamic-civil	islamic-tbla
+R	MO	gregory	chinese
+R	MR	gregory	islamic	islamic-civil	islamic-tbla
+R	MV	gregory	islamic-civil	islamic-tbla
+R	MY	gregory	islamic	islamic-civil	islamic-tbla
+R	NE	gregory	islamic	islamic-civil	islamic-tbla
+R	OM	gregory	islamic	islamic-civil	islamic-tbla
+R	PK	gregory	islamic	islamic-civil	islamic-tbla
+R	PS	gregory	islamic	islamic-civil	islamic-tbla
+R	QA	gregory	islamic-umalqura	islamic	islamic-civil	islamic-tbla
+R	SA	gregory	islamic-umalqura	islamic	islamic-rgsa
+R	SD	gregory	islamic	islamic-civil	islamic-tbla
+R	SG	gregory	chinese
+R	SY	gregory	islamic	islamic-civil	islamic-tbla
+R	TD	gregory	islamic	islamic-civil	islamic-tbla
+R	TH	buddhist	gregory
+R	TJ	gregory	islamic-civil	islamic-tbla
+R	TM	gregory	islamic-civil	islamic-tbla
+R	TN	gregory	islamic	islamic-civil	islamic-tbla
+R	TR	gregory	islamic-civil	islamic-tbla
+R	TW	gregory	roc	chinese
+R	UZ	gregory	islamic-civil	islamic-tbla
+R	XK	gregory	islamic-civil	islamic-tbla
+R	YE	gregory	islamic	islamic-civil	islamic-tbla
 M	Africa/Abidjan	GMT		
 M	Africa/Accra	GMT		
 M	Africa/Addis_Ababa	Africa_Eastern		

@@ -30,6 +30,7 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [Calendar](#calendar)
   * [calendar](#calendar-1)
   * [numeric_date](#numeric_date)
+  * [numeric_date_parts](#numeric_date_parts)
   * [clock](#clock)
   * [date_with_time](#date_with_time)
   * [duration_unit](#duration_unit)
@@ -37,6 +38,9 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [hour_cycle](#hour_cycle)
   * [time_widths](#time_widths)
   * [numbering_system](#numbering_system)
+  * [supported](#supported)
+  * [preferred_calendars](#preferred_calendars)
+  * [region_zones](#region_zones)
 * [8. Display names](#8-display-names)
   * [NameKind](#namekind)
   * [display_name](#display_name)
@@ -166,6 +170,10 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 
 * `pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> Option<String>`: a Gregorian date as `toLocaleDateString(tag)` writes it with no options, converted to the locale's `calendar`, in CLDR's pattern for it and the locale's digits: `9/10/2024` in `en`, `10.9.2024` in `de`, `۱۴۰۳/۶/۲۰` in `fa`. `None` when `calendar` is.
 
+### numeric_date_parts
+
+* `pub fn numeric_date_parts(tag: &str, year: i64, month: u32, day: u32) -> Option<Vec<(&'static str, String)>>`: [`numeric_date`](#numeric_date) in the parts `formatToParts` gives, each with its type: `year`, `month`, `day`, `era` or `literal`. `None` when `calendar` is.
+
 ### clock
 
 * `pub fn clock(tag: &str, hour: u32, minute: u32, second: u32) -> String`: a time as `toLocaleTimeString(tag)` writes it with no options, on the 12-hour or 24-hour clock CLDR gives the locale's region: `7:37:20 PM` in `en`, `19:37:20` in `de`.
@@ -193,6 +201,18 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 ### numbering_system
 
 * `pub fn numbering_system(tag: &str) -> &'static str`: the numbering system the locale writes numbers in, `arab` in `ar-EG` and `latn` in a locale whose digits are ASCII.
+
+### supported
+
+* `pub fn supported(tag: &str) -> bool`: whether CLDR holds the locale, by itself or a locale it falls back to other than the root, as `supportedLocalesOf` answers: `true` for `en-US`, `false` for `xx`.
+
+### preferred_calendars
+
+* `pub fn preferred_calendars(region: &str) -> &'static [&'static str]`: the calendars CLDR says the region prefers, most preferred first, by their BCP 47 names, as `Intl.Locale.prototype.getCalendars` lists them: `["gregory", "islamic-umalqura", "islamic", "islamic-rgsa"]` for `SA`. A region with none of its own has the world's, `["gregory"]`.
+
+### region_zones
+
+* `pub fn region_zones(region: &str) -> &'static [&'static str]`: the zones the tz database's `zone.tab` gives the region, by their canonical names and sorted, as `Intl.Locale.prototype.getTimeZones` lists them: `["Europe/Berlin", "Europe/Busingen"]` for `DE`. Empty for a region with none.
 
 ## 8. Display names
 

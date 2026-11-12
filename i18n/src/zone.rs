@@ -1,6 +1,6 @@
 //! Time zone names as `Date.prototype.toString` writes them: ICU's long specific name in the system locale, such as `Central European Summer Time`.
 //!
-//! `data/zones.txt` is written by `datagen --zones` from a cldr-json release. One record per line, fields separated by tabs, tagged by the first field:
+//! `data/zones.txt` is written by `datagen --zones` from a cldr-json release and a tz database `zone.tab`. One record per line, fields separated by tabs, tagged by the first field:
 //!
 //! - `V version`: the CLDR release.
 //! - `K zone aliases…`: a zone as CLDR names it and the other names of the same zone.
@@ -18,6 +18,8 @@
 //! - `C locale calendar date abbreviated narrow hms Hms am pm`: the pattern a date in a calendar other than the Gregorian is written in, the abbreviated and narrow names of the era its dates fall in and the calendar's own time patterns and day period markers, which ICU writes a time in when the date is in that calendar.
 //! - `U locale width unit plural pattern`: a duration unit's pattern, `{0} hours`, at a width and a plural form.
 //! - `T locale separator`: the separator between hours, minutes and seconds.
+//! - `R region calendars…`: the calendars a region prefers, most preferred first, by their BCP 47 names.
+//! - `Z region zones…`: the zones a region holds, by their canonical names, from the tz database's `zone.tab`.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -63,6 +65,8 @@ struct Zones {
   periods: HashMap<&'static str, Vec<Period>>,
   golden: HashMap<&'static str, &'static str>,
   locales: HashMap<&'static str, Names>,
+  calendars: HashMap<&'static str, Vec<&'static str>>,
+  regions: HashMap<&'static str, Vec<&'static str>>,
 }
 
 fn bound(text: &str, open: f64) -> f64 {
@@ -109,6 +113,12 @@ fn zones() -> &'static Zones {
         "T" => zones.locales.entry(f[1]).or_default().time_separator = Some(f[2]),
         "N" => {
           zones.locales.entry(f[1]).or_default().names.insert(f[2], (f[3], f[4]));
+        }
+        "R" => {
+          zones.calendars.insert(f[1], f[2..].to_vec());
+        }
+        "Z" => {
+          zones.regions.insert(f[1], f[2..].to_vec());
         }
         other => panic!("snapfire_i18n zone data: unknown record `{other}`"),
       }
@@ -250,23 +260,43 @@ pub fn calendar(tag: &str) -> Option<Calendar> {
   }
 }
 
+/// The calendars `region` prefers, most preferred first, by their BCP 47 names, as `Intl.Locale.prototype.getCalendars` lists them. A region with none of its own has the world's, `gregory`.
+pub fn preferred_calendars(region: &str) -> &'static [&'static str] {
+  let calendars = &zones().calendars;
+  calendars.get(region).or_else(|| calendars.get("001")).map_or(&[], Vec::as_slice)
+}
+
+/// The zones `region` holds by their canonical names, sorted, as `Intl.Locale.prototype.getTimeZones` lists them. Empty for a region the tz database gives none.
+pub fn region_zones(region: &str) -> &'static [&'static str] {
+  zones().regions.get(region).map_or(&[], Vec::as_slice)
+}
+
 /// `pattern` written out, a run of one ASCII letter replaced by what `field` gives for the letter and the run's length, quoted text unquoted and `''` a quote. A letter `field` gives nothing for is dropped.
 fn write_pattern(pattern: &str, field: impl Fn(char, usize) -> Option<String>) -> String {
-  let mut out = String::new();
+  pattern_parts(pattern, field).into_iter().map(|(_, text)| text).collect()
+}
+
+/// `pattern` written out as [`write_pattern`] writes it, in pieces: each field with the letter it was written for and each run of literal text with none.
+fn pattern_parts(pattern: &str, field: impl Fn(char, usize) -> Option<String>) -> Vec<(Option<char>, String)> {
+  let mut parts: Vec<(Option<char>, String)> = Vec::new();
+  let mut literal = |parts: &mut Vec<(Option<char>, String)>, c: char| match parts.last_mut() {
+    Some((None, text)) => text.push(c),
+    _ => parts.push((None, c.to_string())),
+  };
   let mut chars = pattern.chars().peekable();
   while let Some(c) = chars.next() {
     match c {
       '\'' => {
         if chars.peek() == Some(&'\'') {
           chars.next();
-          out.push('\'');
+          literal(&mut parts, '\'');
           continue;
         }
-        for quoted in chars.by_ref() {
+        while let Some(quoted) = chars.next() {
           if quoted == '\'' {
             break;
           }
-          out.push(quoted);
+          literal(&mut parts, quoted);
         }
       }
       c if c.is_ascii_alphabetic() => {
@@ -276,13 +306,13 @@ fn write_pattern(pattern: &str, field: impl Fn(char, usize) -> Option<String>) -
           width += 1;
         }
         if let Some(text) = field(c, width) {
-          out.push_str(&text);
+          parts.push((Some(c), text));
         }
       }
-      other => out.push(other),
+      other => literal(&mut parts, other),
     }
   }
-  out
+  parts
 }
 
 /// The Julian day number of a proleptic Gregorian date.
@@ -325,6 +355,11 @@ fn persian(year: i64, month: u32, day: u32) -> (i64, u32, u32) {
 
 /// `date.toLocaleDateString(tag)` with no options: the Gregorian date `year`, `month` and `day` written in the locale's calendar, `yMd` pattern and digits, a Gregorian year before 1 as its year before the common era, `9/10/2024` in English, `10.9.2024` in German and `۱۴۰۳/۶/۲۰` in Persian. A narrow no-break space is written as a space, as V8 writes it. `None` when [`calendar`] is.
 pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> Option<String> {
+  Some(numeric_date_parts(tag, year, month, day)?.into_iter().map(|(_, text)| text).collect())
+}
+
+/// [`numeric_date`] in the parts `Intl.DateTimeFormat.prototype.formatToParts` gives: each piece with its type, `year`, `month`, `day`, `era` or `literal`.
+pub fn numeric_date_parts(tag: &str, year: i64, month: u32, day: u32) -> Option<Vec<(&'static str, String)>> {
   let chain = chain(tag);
   let calendar = calendar(tag)?;
   let (pattern, era, (year, month, day)) = match calendar {
@@ -336,7 +371,7 @@ pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> Option<String
     }
   };
   let minus = crate::data::data().numbers[crate::locale::resolve(tag).numbers].minus;
-  let out = write_pattern(pattern, |c, width| match c {
+  let parts = pattern_parts(pattern, |c, width| match c {
     'y' if width == 2 => Some(format!("{:02}", year.rem_euclid(100))),
     'y' if year < 0 => Some(format!("{minus}{:0width$}", -year)),
     'y' => Some(format!("{year:0width$}")),
@@ -345,7 +380,16 @@ pub fn numeric_date(tag: &str, year: i64, month: u32, day: u32) -> Option<String
     'G' => era.map(|(abbreviated, narrow)| if width == 5 { narrow } else { abbreviated }.to_owned()),
     _ => None,
   });
-  Some(localized_digits(&chain, out).replace('\u{202f}', " "))
+  Some(parts.into_iter().map(|(letter, text)| {
+    let kind = match letter {
+      Some('y') => "year",
+      Some('M' | 'L') => "month",
+      Some('d') => "day",
+      Some('G') => "era",
+      _ => "literal",
+    };
+    (kind, localized_digits(&chain, text).replace('\u{202f}', " "))
+  }).collect())
 }
 
 /// `date.toLocaleTimeString(tag)` with no options: `hour`, `minute` and `second` on the clock the locale's region keeps, in the pattern of the locale's [`calendar`] and its digits, `7:37:20 PM` in English and `19:37:20` in German. A narrow no-break space is written as a space, as V8 writes it.
@@ -387,6 +431,11 @@ pub fn duration_unit(tag: &str, width: &str, unit: &str, plural: &str) -> Option
 /// The separator `tag` writes between hours, minutes and seconds, `:` in English and `.` in Finnish.
 pub fn time_separator(tag: &str) -> &'static str {
   chain(tag).iter().find_map(|names| names.time_separator).unwrap_or(":")
+}
+
+/// Whether CLDR holds the locale `tag` names, by itself or a locale it falls back to other than the root, as `Intl`'s `supportedLocalesOf` answers.
+pub fn supported(tag: &str) -> bool {
+  crate::locale::name(tag, &zones().locales).is_some_and(|name| !matches!(name, "root" | "und"))
 }
 
 /// The numbering system `tag` writes numbers in, as `Intl` names it: `arab` for `ar-EG`, `latn` for a locale whose digits are ASCII.

@@ -296,10 +296,12 @@ cargo run --release -p snapfire_i18n_datagen -- cldr i18n/data/cldr.txt
 
 Use the CLDR release the number formatter's data was built from, so the digits and the patterns agree.
 
-`data/zones.txt`, the zone names and the numeric date patterns, is written from the same cldr-json release with `--zones`. It also reads the `cldr-bcp47` package:
+`data/zones.txt`, the zone names and the numeric date patterns, is written from the same cldr-json release with `--zones`. It also reads the `cldr-bcp47` package and the `zone.tab` of a tz database release, which lists the zones of each region:
 
 ```sh
-cargo run --release -p snapfire_i18n_datagen -- --zones cldr i18n/data/zones.txt
+curl -LO https://data.iana.org/time-zones/releases/tzdata2026c.tar.gz
+mkdir tzdata && tar -xzf tzdata2026c.tar.gz -C tzdata
+cargo run --release -p snapfire_i18n_datagen -- --zones cldr tzdata/zone.tab i18n/data/zones.txt
 ```
 
 `data/names.txt`, the display names, is written from the same release with `--names`. It also reads the `cldr-localenames-full` package:

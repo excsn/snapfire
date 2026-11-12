@@ -1,6 +1,6 @@
-//! `snapfire_i18n_datagen --zones <cldr-json> <out>`: the numeric date and time patterns and the time zone names of the `cldr-dates-full`, `cldr-cal-persian-full`, `cldr-cal-buddhist-full`, `cldr-numbers-full`, `cldr-core` and `cldr-bcp47` packages, in the line format `snapfire_i18n`'s `src/zone.rs` describes.
+//! `snapfire_i18n_datagen --zones <cldr-json> <zone.tab> <out>`: the numeric date and time patterns and the time zone names of the `cldr-dates-full`, `cldr-cal-persian-full`, `cldr-cal-buddhist-full`, `cldr-numbers-full`, `cldr-core` and `cldr-bcp47` packages and the regions of a tz database `zone.tab`, in the line format `snapfire_i18n`'s `src/zone.rs` describes.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -96,7 +96,7 @@ fn text_at(node: Option<&Value>, path: &[&str]) -> String {
 
 const DURATION_UNITS: [&str; 10] = ["year", "month", "week", "day", "hour", "minute", "second", "millisecond", "microsecond", "nanosecond"];
 
-pub(crate) fn generate(root: &Path) -> Result<String, String> {
+pub(crate) fn generate(root: &Path, zone_tab: &Path) -> Result<String, String> {
   let core = root.join("cldr-core");
   let version = str_at(&read(&core.join("package.json"))?, &["version"]).ok_or("no cldr-core version")?.to_owned();
   let mut out = String::new();
@@ -114,6 +114,37 @@ pub(crate) fn generate(root: &Path) -> Result<String, String> {
     };
     let rest: Vec<&str> = names.into_iter().filter(|n| *n != target).collect();
     writeln!(out, "K\t{target}\t{}", rest.join("\t")).unwrap();
+  }
+  let mut alias_of = HashMap::new();
+  for info in keys.values() {
+    let Some(aliases) = str_at(info, &["_alias"]) else { continue };
+    let target = match str_at(info, &["_preferred"]) {
+      Some(preferred) => canonical(preferred).unwrap_or_default(),
+      None => aliases.split(' ').next().unwrap_or_default().to_owned(),
+    };
+    for name in aliases.split(' ') {
+      alias_of.insert(name.to_owned(), target.clone());
+    }
+  }
+  let tab = std::fs::read_to_string(zone_tab).map_err(|e| format!("read {}: {e}", zone_tab.display()))?;
+  let mut regions: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+  for line in tab.lines().filter(|l| !l.starts_with('#') && !l.is_empty()) {
+    let f: Vec<&str> = line.split('\t').collect();
+    let (Some(region), Some(zone)) = (f.first(), f.get(2)) else { return Err(format!("{}: `{line}` is not a zone line", zone_tab.display())) };
+    regions.entry(region).or_default().insert(alias_of.get(*zone).cloned().unwrap_or_else(|| (*zone).to_owned()));
+  }
+  for (region, zones) in &regions {
+    writeln!(out, "Z\t{region}\t{}", zones.iter().cloned().collect::<Vec<_>>().join("\t")).unwrap();
+  }
+  let preferred = read(&core.join("supplemental/calendarPreferenceData.json"))?;
+  let preferred = preferred.pointer("/supplemental/calendarPreferenceData").and_then(Value::as_object).ok_or("no calendar preferences")?;
+  for (region, list) in preferred {
+    let names: Vec<&str> = list.as_array().ok_or("a calendar preference that is not a list")?.iter().filter_map(Value::as_str).map(|name| match name {
+      "gregorian" => "gregory",
+      "ethiopic-amete-alem" => "ethioaa",
+      other => other,
+    }).collect();
+    writeln!(out, "R\t{region}\t{}", names.join("\t")).unwrap();
   }
 
   let meta = read(&core.join("supplemental/metaZones.json"))?;
