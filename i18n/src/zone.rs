@@ -279,7 +279,7 @@ fn write_pattern(pattern: &str, field: impl Fn(char, usize) -> Option<String>) -
 /// `pattern` written out as [`write_pattern`] writes it, in pieces: each field with the letter it was written for and each run of literal text with none.
 fn pattern_parts(pattern: &str, field: impl Fn(char, usize) -> Option<String>) -> Vec<(Option<char>, String)> {
   let mut parts: Vec<(Option<char>, String)> = Vec::new();
-  let mut literal = |parts: &mut Vec<(Option<char>, String)>, c: char| match parts.last_mut() {
+  let literal = |parts: &mut Vec<(Option<char>, String)>, c: char| match parts.last_mut() {
     Some((None, text)) => text.push(c),
     _ => parts.push((None, c.to_string())),
   };
