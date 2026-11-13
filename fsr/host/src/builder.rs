@@ -15,9 +15,10 @@ pub struct HostBuilder {
   /// The trace collector, when one was installed. Served under development.
   pub(crate) traces: Option<trace::Traces>,
   pub(crate) artifact: Artifact,
-  /// The shell plan's routes, intercepts, constants, theme and sheets. Its
-  /// other rows are the app's.
+  /// The shell plan's routes, intercepts, themes and sheets. Its other rows
+  /// are the app's.
   pub(crate) shell_plan: Manifest,
+  pub(crate) shell_theme: Option<snapfire_fsr_ir::PreparedBody>,
   pub(crate) server_modules: ServerModules,
   pub(crate) loader: Option<Loader>,
   pub(crate) app: Option<AppBuilder>,
@@ -625,8 +626,7 @@ impl HostBuilder {
 
     let (mut sheets, attributed) = route_sheets(&manifest.sheets, config.bundle.as_ref(), served_bundle(&config));
     let shell_module = config.document.shell.clone();
-    let shell_consts = (!manifest.consts.is_empty()).then_some(&manifest.consts);
-    let shell_theme = manifest.theme.clone().map(|body| snapfire_fsr_ir::PreparedBody::new(body, shell_consts));
+    let shell_theme = self.shell_theme.take();
     let mut themes: HashMap<String, (String, bool)> = manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))).collect();
     let mut app = self.app.take().expect("the builder holds its app until build");
     let mut taken: Vec<String> = manifest.routes.iter().map(|r| r.pattern.clone()).collect();

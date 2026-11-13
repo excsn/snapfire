@@ -581,15 +581,17 @@ impl Host {
     }
     let mut manifest = snapfire_fsr_plan::Manifest::from_text(&artifact.plan).map_err(BindError::from)?;
     let server_modules = ServerModules::of(&manifest);
+    let shell_consts = (!manifest.consts.is_empty()).then_some(&manifest.consts);
+    let shell_theme = manifest.theme.take().map(|body| snapfire_fsr_ir::PreparedBody::new(body, shell_consts));
     let shell_plan = snapfire_fsr_plan::Manifest::new(manifest.routes.clone())
       .with_intercepts(manifest.intercepts.clone())
-      .with_consts(manifest.consts.clone())
-      .with_theme(manifest.theme.take(), std::mem::take(&mut manifest.themes))
+      .with_theme(None, std::mem::take(&mut manifest.themes))
       .with_sheets(std::mem::take(&mut manifest.sheets));
     let app = App::from_plan(manifest)?;
     Ok(HostBuilder {
       artifact,
       shell_plan,
+      shell_theme,
       server_modules,
       loader: None,
       traces: None,
