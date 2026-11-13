@@ -326,7 +326,7 @@ fn page_host(
   if let Some(cache) = config.cache.as_mut() {
     cache.data = None;
   }
-  let artifact = snapfire_fsr_host::Artifact::new(config, built.manifest.to_json(), Some((**contract).clone()));
+  let artifact = snapfire_fsr_host::Artifact::new(config, built.manifest.to_sexpr(), Some((**contract).clone()));
   let host = Host::from_artifact(artifact)
     .and_then(|builder| {
       let mut builder = builder.services_over(transport);
