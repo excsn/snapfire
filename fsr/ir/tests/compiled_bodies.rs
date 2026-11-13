@@ -111,3 +111,21 @@ fn a_bodys_plan_follows_the_constants_it_reaches_and_no_others() {
   assert_ne!(plan_hash(&body, Some(&consts("a", 2, "x"))), base, "a constant reached through another");
   assert_eq!(plan_hash(&body, Some(&consts("a", 1, "y"))), base, "a constant the body cannot reach");
 }
+
+#[test]
+fn bodies_hashed_against_one_table_of_constants_get_the_plan_hash_each_would_alone() {
+  use snapfire_fsr_ir::native::{plan_hash, plan_hash_with, ConstHashes};
+  let consts: snapfire_fsr_ir::ast::Consts = [
+    ("m#rows".to_owned(), Expr::Array(vec![Entry::Item(Expr::Const("m#limit".to_owned()))])),
+    ("m#limit".to_owned(), Expr::Lit(Lit::Int(3i64.into()))),
+    ("m#other".to_owned(), Expr::Lit(Lit::Str("x".into()))),
+  ]
+  .into_iter()
+  .collect();
+  let table = ConstHashes::new(&consts);
+  for name in ["m#rows", "m#limit", "m#other", "m#missing"] {
+    let body: Body = vec![Stmt::Return(Expr::Const(name.to_owned()))];
+    assert_eq!(plan_hash_with(&body, Some(&table)), plan_hash(&body, Some(&consts)), "{name}");
+  }
+  assert_eq!(plan_hash_with(&object(), None), plan_hash(&object(), None));
+}

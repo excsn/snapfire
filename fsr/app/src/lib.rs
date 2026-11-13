@@ -700,7 +700,8 @@ impl AppBuilder {
   /// Every lowered row of `parsed` beside the ones this builder holds.
   fn add_rows(&mut self, mut parsed: snapfire_fsr_plan::Manifest) {
     let consts = (!parsed.consts.is_empty()).then_some(&parsed.consts);
-    let prepared = |body: &Option<snapfire_fsr_ir::Body>| body.clone().map(|body| snapfire_fsr_ir::PreparedBody::new(body, consts));
+    let table = consts.map(snapfire_fsr_ir::native::ConstHashes::new);
+    let prepared = |body: &Option<snapfire_fsr_ir::Body>| body.clone().map(|body| snapfire_fsr_ir::PreparedBody::with_consts(body, table.as_ref()));
     self.declared_actions.extend(parsed.action_ids());
     self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.body).map(|body| (row.id.clone(), body))));
     self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.meta).map(|meta| (row.id.clone(), meta))));
@@ -728,7 +729,7 @@ impl AppBuilder {
     }
     for row in &parsed.handlers {
       match &row.body {
-        Some(body) => self.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), snapfire_fsr_ir::PreparedBody::new(body.clone(), consts))),
+        Some(body) => self.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), snapfire_fsr_ir::PreparedBody::with_consts(body.clone(), table.as_ref()))),
         None => self.declared_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone())),
       }
     }

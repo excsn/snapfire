@@ -642,6 +642,8 @@ How `Interpreter::run_with` runs a body. Root re-export.
 * `pub type NativeBody = fn(&mut Frame<'_>) -> Result<Value, Fail>`
 * `pub struct Native { pub source: &'static str, pub plan: u64, pub body: NativeBody }`: one entry of the `BODIES` list a build writes. `source` is the row it was written for and `plan` the `plan_hash` it was written from.
 * `plan_hash(body: &Body, consts: Option<&Consts>) -> u64`: xxh3 over the body as plan text and each constant it reaches, directly or through another constant.
+* `plan_hash_with(body: &Body, consts: Option<&ConstHashes<'_>>) -> u64`: `plan_hash` against a table every body of one plan can share. It gives the value `plan_hash` gives.
+* `pub struct ConstHashes<'a>`: a plan's constants, each digested the first time a body reaches it. `ConstHashes::new(consts: &'a Consts) -> Self`. Not `Sync`.
 * `emit(name: &str, body: &Body, consts: Option<&Consts>) -> Option<String>`: the source of `pub fn <name>(f: &mut <root>::Frame<'_>) -> Result<<root>::Value, <root>::Fail>`, with `<root>` the path `snapfire_fsr_ir::native`.
 * `emit_or_why(name: &str, body: &Body, consts: Option<&Consts>) -> Result<String, String>`: the same. The `Err` names the first statement or expression not written.
 * `emit_in(root: &str, name: &str, body: &Body, consts: Option<&Consts>) -> Result<String, String>`: the same, written against a re-export of this module at `root`, such as `snapfire_fsr_host::bodies`.

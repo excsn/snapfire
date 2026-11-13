@@ -21,7 +21,12 @@ pub struct Native {
 
 /// What identifies a plan's body and the module functions it can call, so code written from one runs only for that one. It hashes the body and each constant the body reaches, directly or through another constant, as the plan file spells them on one line.
 pub fn plan_hash(body: &Body, consts: Option<&Consts>) -> u64 {
-  use crate::sexpr::{expr_to_sx, inline, stmt_to_sx};
+  plan_hash_with(body, consts.map(ConstHashes::new).as_ref())
+}
+
+/// [`plan_hash`] against a table of the plan's constants that every body of the plan can share.
+pub fn plan_hash_with(body: &Body, consts: Option<&ConstHashes<'_>>) -> u64 {
+  use crate::sexpr::{inline, stmt_to_sx};
   let mut hasher = xxhash_rust::xxh3::Xxh3::new();
   for stmt in body {
     hasher.update(inline(&stmt_to_sx(stmt)).as_bytes());
@@ -34,25 +39,53 @@ pub fn plan_hash(body: &Body, consts: Option<&Consts>) -> u64 {
         pending.push(name.clone());
       }
     });
-    let mut reached = std::collections::BTreeSet::new();
+    let mut reached = std::collections::BTreeMap::new();
     while let Some(name) = pending.pop() {
-      if let Some(value) = consts.get(&name).filter(|_| !reached.contains(&name)) {
-        value.visit(&mut |expr| {
-          if let Expr::Const(name) = expr {
-            pending.push(name.clone());
-          }
-        });
-        reached.insert(name);
+      if reached.contains_key(&name) {
+        continue;
+      }
+      if let Some((digest, names)) = consts.entry(&name) {
+        pending.extend(names);
+        reached.insert(name, digest);
       }
     }
     hasher.update(b"\0consts");
-    for name in reached {
+    for (name, digest) in reached {
       hasher.update(name.as_bytes());
       hasher.update(b"\0");
-      hasher.update(inline(&expr_to_sx(&consts[&name])).as_bytes());
+      hasher.update(&digest.to_le_bytes());
     }
   }
   hasher.digest()
+}
+
+/// A plan's constants, each with its digest and the constants it names,
+/// worked out the first time a body reaches it.
+pub struct ConstHashes<'a> {
+  consts: &'a Consts,
+  known: std::cell::RefCell<HashMap<&'a str, (u64, Vec<String>)>>,
+}
+
+impl<'a> ConstHashes<'a> {
+  pub fn new(consts: &'a Consts) -> Self {
+    Self { consts, known: std::cell::RefCell::new(HashMap::new()) }
+  }
+
+  fn entry(&self, name: &str) -> Option<(u64, Vec<String>)> {
+    if let Some(found) = self.known.borrow().get(name) {
+      return Some(found.clone());
+    }
+    let (key, value) = self.consts.get_key_value(name)?;
+    let mut names = Vec::new();
+    value.visit(&mut |expr| {
+      if let Expr::Const(name) = expr {
+        names.push(name.clone());
+      }
+    });
+    let digest = xxhash_rust::xxh3::xxh3_64(crate::sexpr::inline(&crate::sexpr::expr_to_sx(value)).as_bytes());
+    self.known.borrow_mut().insert(key.as_str(), (digest, names.clone()));
+    Some((digest, names))
+  }
 }
 
 /// What generated code runs against: the interpreter's environment for one run of a body.

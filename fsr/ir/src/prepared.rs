@@ -6,7 +6,7 @@ use snapfire_fsr_runtime::RequestCtx;
 use crate::ast::{Body, Consts};
 use crate::compiled::Program;
 use crate::interp::{Fail, Interpreter, Outcome, Prepared};
-use crate::native::{plan_hash, Native, NativeBody};
+use crate::native::{plan_hash_with, ConstHashes, Native, NativeBody};
 
 /// A lowered body as the host runs it, whatever row it answers: its [`Program`] built once, the plan a compiled body must have been written from and, in a production build, that compiled body.
 #[derive(Clone)]
@@ -20,7 +20,12 @@ pub struct PreparedBody {
 impl PreparedBody {
   /// `body` read with `consts`, the constants of the plan it came from.
   pub fn new(body: Body, consts: Option<&Consts>) -> Self {
-    let plan = plan_hash(&body, consts);
+    Self::with_consts(body, consts.map(ConstHashes::new).as_ref())
+  }
+
+  /// [`Self::new`] against a table of the plan's constants that every body of the plan can share.
+  pub fn with_consts(body: Body, consts: Option<&ConstHashes<'_>>) -> Self {
+    let plan = plan_hash_with(&body, consts);
     let program = Program::of(&body).map(Arc::new);
     Self { body: Arc::new(body), program, plan, native: None }
   }
