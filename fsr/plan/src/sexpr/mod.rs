@@ -162,7 +162,7 @@ fn component_from_items(items: Vec<Sx>, version: u32) -> Res<ComponentEntry> {
     sections.push(form("owner", vec![sym("react".to_owned())]));
   }
   let head = read_all(&heads, head_row_from_sx)?;
-  Ok(ComponentEntry { module: as_sym(&module)?, body: component_from_sections(&sections)?, head })
+  Ok(ComponentEntry { module: as_sym(&module)?, body: component_from_sections(sections)?, head })
 }
 
 pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {

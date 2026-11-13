@@ -213,19 +213,29 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
   })
 }
 
-pub fn component_from_sx(sx: &Sx) -> Res<Component> {
-  let items = sx.as_list()?;
+pub fn component_from_sx(sx: Sx) -> Res<Component> {
   if sx.head() != Some("component") {
+    sx.as_list()?;
     return Err(SexprError::shape("a component is `(component ...)`"));
   }
-  component_from_sections(&items[1..])
+  let Sx::List(mut items) = sx else { unreachable!("a form with a head is a list") };
+  items.remove(0);
+  component_from_sections(items)
 }
 
-pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
+pub fn component_from_sections(items: Vec<Sx>) -> Res<Component> {
   let mut out = Component::new(Owner::Fsr, Vec::new(), Tmpl::Fragment(Vec::new()));
   let mut owned = false;
   let mut rendered = false;
   for section in items {
+    if section.head() == Some("render") {
+      let Sx::List(inner) = section else { unreachable!("a form with a head is a list") };
+      let (head, mut rest) = into_form(inner, "a component section starts with a symbol")?;
+      exactly(&rest, &head, 1)?;
+      out.render = tmpl_from_sx(next(&mut rest))?;
+      rendered = true;
+      continue;
+    }
     let inner = section.as_list()?;
     match section.head() {
       Some("owner") => {
@@ -273,10 +283,6 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
         }
       }
       Some("body") => out.body = body_from_sx(&inner[1..])?,
-      Some("render") => {
-        out.render = tmpl_from_sx(&args(inner, "render", 1)?[0])?;
-        rendered = true;
-      }
       Some("on") => {
         let a = at_least(inner, "on", 1)?;
         out.handlers.push(Handler { event: sym_of(&a[0])?, body: body_from_sx(&a[1..])? });

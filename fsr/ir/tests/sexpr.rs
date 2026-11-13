@@ -339,14 +339,14 @@ proptest! {
   #[test]
   fn a_template_survives(t in tmpl()) {
     let sx = tmpl_to_sx(&t);
-    prop_assert_eq!(tmpl_from_sx(&sx).map_err(|err| TestCaseError::fail(err.to_string()))?, t);
+    prop_assert_eq!(tmpl_from_sx(sx).map_err(|err| TestCaseError::fail(err.to_string()))?, t);
   }
 
   #[test]
   fn a_template_survives_the_text(t in tmpl()) {
     let text = print(std::slice::from_ref(&tmpl_to_sx(&t)));
     let forms = parse(&text).map_err(|err| TestCaseError::fail(format!("{err}\n{text}")))?;
-    prop_assert_eq!(tmpl_from_sx(&forms[0]).map_err(|err| TestCaseError::fail(err.to_string()))?, t);
+    prop_assert_eq!(tmpl_from_sx(forms.into_iter().next().unwrap()).map_err(|err| TestCaseError::fail(err.to_string()))?, t);
   }
 
   #[test]
@@ -359,7 +359,7 @@ proptest! {
   fn a_component_survives_the_text(c in component()) {
     let text = print(std::slice::from_ref(&component_to_sx(&c)));
     let forms = parse(&text).map_err(|err| TestCaseError::fail(format!("{err}\n{text}")))?;
-    prop_assert_eq!(component_from_sx(&forms[0]).map_err(|err| TestCaseError::fail(err.to_string()))?, c);
+    prop_assert_eq!(component_from_sx(forms.into_iter().next().unwrap()).map_err(|err| TestCaseError::fail(err.to_string()))?, c);
   }
 
   /// Reading an arbitrary tree as a typed term either works or errors; it may
@@ -367,9 +367,9 @@ proptest! {
   #[test]
   fn reading_an_arbitrary_form_never_panics(form in sx()) {
     let _ = expr_from_sx(&form);
-    let _ = tmpl_from_sx(&form);
+    let _ = tmpl_from_sx(form.clone());
     let _ = stmt_from_sx(&form);
-    let _ = component_from_sx(&form);
+    let _ = component_from_sx(form);
   }
 }
 
@@ -448,10 +448,10 @@ fn malformed_templates_and_statements_are_refused() {
   ];
   for (src, want) in bad_tmpl {
     let form = &parse(src).expect("lexes")[0];
-    let err = tmpl_from_sx(form).expect_err(&format!("`{src}` must not read")).to_string();
+    let err = tmpl_from_sx(form.clone()).expect_err(&format!("`{src}` must not read")).to_string();
     assert!(err.contains(want), "`{src}`: wanted `{want}`, got `{err}`");
   }
-  assert!(tmpl_from_sx(&Sx::Sym("bare".to_owned())).unwrap_err().to_string().contains("text is quoted"));
+  assert!(tmpl_from_sx(Sx::Sym("bare".to_owned())).unwrap_err().to_string().contains("text is quoted"));
 
   let bad_stmt: &[(&str, &str)] = &[
     ("(nope)", "not a statement form"),
@@ -475,15 +475,15 @@ fn every_component_names_its_owner() {
     let component = Component::new(owner, Vec::new(), Tmpl::Text("x".to_owned()));
     let text = print(std::slice::from_ref(&component_to_sx(&component)));
     assert!(text.contains(&format!("(owner {})", owner.as_str())), "{text}");
-    assert_eq!(component_from_sx(&parse(&text).unwrap()[0]).unwrap(), component);
+    assert_eq!(component_from_sx(parse(&text).unwrap().remove(0)).unwrap(), component);
   }
-  let err = component_from_sx(&parse("(component (render \"x\"))").unwrap()[0]).unwrap_err().to_string();
+  let err = component_from_sx(parse("(component (render \"x\"))").unwrap().remove(0)).unwrap_err().to_string();
   assert!(err.contains("`(owner ...)`"), "{err}");
 }
 
 #[test]
 fn a_component_written_before_owners_reads_by_its_old_tags() {
-  let read = |text: &str| component_from_sx(&parse(text).unwrap()[0]).unwrap().owner;
+  let read = |text: &str| component_from_sx(parse(text).unwrap().remove(0)).unwrap().owner;
   assert_eq!(read("(component (static) (render \"x\"))"), snapfire_fsr_ir::Owner::Fsr);
   assert_eq!(read("(component (tree) (render \"x\"))"), snapfire_fsr_ir::Owner::React, "a tree root was React's, and tree() is gone");
   assert_eq!(read("(component (vue) (render \"x\"))"), snapfire_fsr_ir::Owner::Vue);
@@ -501,7 +501,7 @@ fn malformed_components_are_refused() {
   ];
   for (src, want) in cases {
     let form = &parse(src).expect("lexes")[0];
-    let err = component_from_sx(form).expect_err(&format!("`{src}` must not read")).to_string();
+    let err = component_from_sx(form.clone()).expect_err(&format!("`{src}` must not read")).to_string();
     assert!(err.contains(want), "`{src}`: wanted `{want}`, got `{err}`");
   }
 }
@@ -534,7 +534,7 @@ proptest! {
     }
     let src = String::from_utf8_lossy(&bytes).into_owned();
     if let Ok(forms) = parse(&src) {
-      for form in &forms {
+      for form in forms {
         let _ = component_from_sx(form);
       }
     }
@@ -547,7 +547,7 @@ proptest! {
     let cut = if text.is_empty() { 0 } else { cut % text.len() };
     let src: String = text.chars().take(cut).collect();
     if let Ok(forms) = parse(&src) {
-      for form in &forms {
+      for form in forms {
         let _ = component_from_sx(form);
       }
     }
@@ -560,14 +560,14 @@ fn a_form_without_a_symbol_head_is_refused() {
   let form = &parse("((a) b)").expect("lexes")[0];
   for err in [
     expr_from_sx(form).unwrap_err().to_string(),
-    tmpl_from_sx(form).unwrap_err().to_string(),
+    tmpl_from_sx(form.clone()).unwrap_err().to_string(),
     stmt_from_sx(form).unwrap_err().to_string(),
   ] {
     assert!(err.contains("starts with a symbol"), "{err}");
   }
   let err = expr_from_sx(&parse("(obj ((a) 1))").unwrap()[0]).unwrap_err().to_string();
   assert!(err.contains("an entry starts with a symbol"), "{err}");
-  let err = component_from_sx(&parse("(component ((a)) (render \"x\"))").unwrap()[0]).unwrap_err().to_string();
+  let err = component_from_sx(parse("(component ((a)) (render \"x\"))").unwrap().remove(0)).unwrap_err().to_string();
   assert!(err.contains("a component section starts with a symbol"), "{err}");
 }
 
@@ -578,7 +578,7 @@ fn a_term_of_the_wrong_kind_is_refused() {
   assert!(err.contains("expected a symbol, found a string"), "{err}");
   let err = expr_from_sx(&parse("(fn x 1)").unwrap()[0]).unwrap_err().to_string();
   assert!(err.contains("expected a list, found a symbol"), "{err}");
-  let err = tmpl_from_sx(&parse("(baked \"open\" 1 \"x\")").unwrap()[0]).unwrap_err().to_string();
+  let err = tmpl_from_sx(parse("(baked \"open\" 1 \"x\")").unwrap().remove(0)).unwrap_err().to_string();
   assert!(err.contains("expected a string or `nil`, found a symbol"), "{err}");
   let err = expr_from_sx(&parse("(call a b (x))").unwrap()[0]).unwrap_err().to_string();
   assert!(err.contains("a named argument is `(name expr)`"), "{err}");
@@ -807,6 +807,6 @@ fn exact(t: &Tmpl, path: &str) {
 #[test]
 fn a_read_template_holds_its_attributes_and_children_in_vectors_no_longer_than_they_are() {
   let text = r#"(<> (el pre ((class "hl-code")) (el code () (el span ((data-line "")) (el span ((class "hl-source hl-rust")) "fn") " " (el span ((class "hl-entity")) "main")))))"#;
-  let tmpl = tmpl_from_sx(&parse(text).unwrap()[0]).unwrap();
+  let tmpl = tmpl_from_sx(parse(text).unwrap().remove(0)).unwrap();
   exact(&tmpl, "");
 }

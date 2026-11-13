@@ -431,15 +431,66 @@ pub(super) fn str_of(sx: &Sx) -> Res<String> {
   }
 }
 
-pub(super) fn opt_of(sx: &Sx) -> Res<Option<String>> {
+pub(super) fn u32_of(sx: &Sx) -> Res<u32> {
+  sx.as_sym()?.parse().map_err(|_| SexprError::shape("expected a number"))
+}
+
+/// A form's terms after its head symbol, taken by value, with the head.
+pub(super) fn into_form(items: Vec<Sx>, headless: &str) -> Res<(String, std::vec::IntoIter<Sx>)> {
+  let mut rest = items.into_iter();
+  match rest.next() {
+    Some(Sx::Sym(head)) => Ok((head, rest)),
+    _ => Err(SexprError::shape(headless)),
+  }
+}
+
+pub(super) fn exactly(rest: &std::vec::IntoIter<Sx>, head: &str, n: usize) -> Res<()> {
+  if rest.len() != n {
+    return Err(SexprError::shape(format!("`{head}` takes {n} terms, found {}", rest.len())));
+  }
+  Ok(())
+}
+
+pub(super) fn no_fewer(rest: &std::vec::IntoIter<Sx>, head: &str, n: usize) -> Res<()> {
+  if rest.len() < n {
+    return Err(SexprError::shape(format!("`{head}` takes at least {n} terms, found {}", rest.len())));
+  }
+  Ok(())
+}
+
+/// The next term of a form whose length was already checked.
+pub(super) fn next(rest: &mut std::vec::IntoIter<Sx>) -> Sx {
+  rest.next().expect("the form's length was checked")
+}
+
+pub(super) fn into_sym(sx: Sx) -> Res<String> {
+  match sx {
+    Sx::Sym(s) => Ok(s),
+    other => Err(SexprError::shape(format!("expected a symbol, found {}", other.kind()))),
+  }
+}
+
+pub(super) fn into_str(sx: Sx) -> Res<String> {
+  match sx {
+    Sx::Str(s) => Ok(s),
+    other => Err(SexprError::shape(format!("expected a string, found {}", other.kind()))),
+  }
+}
+
+pub(super) fn into_opt(sx: Sx) -> Res<Option<String>> {
   match sx {
     Sx::Sym(s) if s == "nil" => Ok(None),
-    Sx::Str(s) => Ok(Some(s.clone())),
+    Sx::Str(s) => Ok(Some(s)),
     other => Err(SexprError::shape(format!("expected a string or `nil`, found {}", other.kind()))),
   }
 }
 
-pub(super) fn u32_of(sx: &Sx) -> Res<u32> {
-  sx.as_sym()?.parse().map_err(|_| SexprError::shape("expected a number"))
+/// [`super::read_all`] over terms taken by value, each dropped once read.
+pub(super) fn read_each<T>(items: impl ExactSizeIterator<Item = Sx>, mut read: impl FnMut(Sx) -> Res<T>) -> Res<Vec<T>> {
+  let mut out = Vec::with_capacity(items.len());
+  for item in items {
+    out.push(read(item)?);
+  }
+  Ok(out)
 }
 

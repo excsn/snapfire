@@ -142,6 +142,7 @@ impl<'a> Parser<'a> {
         None => return Err(SexprError::at(line, "the file ends inside a quoted term")),
         Some(&b) if b == quote => {
           self.pos += 1;
+          out.shrink_to_fit();
           return Ok(out);
         }
         Some(b'\\') => {

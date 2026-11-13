@@ -341,7 +341,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
       let a = args(items, head, 2)?;
       Expr::WriteStore(str_of(&a[0])?, boxed(&a[1])?)
     }
-    "markup" => Expr::Markup(std::sync::Arc::new(super::tmpl::tmpl_from_sx(&args(items, head, 1)?[0])?)),
+    "markup" => Expr::Markup(std::sync::Arc::new(super::tmpl::tmpl_from_sx(args(items, head, 1)?[0].clone())?)),
     other => match builtin_of(other) {
       Some(name) => Expr::Builtin {
         name,

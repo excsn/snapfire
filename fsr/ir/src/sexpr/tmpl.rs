@@ -80,111 +80,122 @@ pub fn tmpl_to_sx(tmpl: &Tmpl) -> Sx {
   }
 }
 
-pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
+pub fn tmpl_from_sx(sx: Sx) -> Res<Tmpl> {
   let items = match sx {
-    Sx::Str(s) => return Ok(Tmpl::Text(s.clone())),
-    Sx::Interp(inner) => return Ok(Tmpl::Expr(expr_from_sx(inner)?)),
+    Sx::Str(s) => return Ok(Tmpl::Text(s)),
+    Sx::Interp(inner) => return Ok(Tmpl::Expr(expr_from_sx(&inner)?)),
     Sx::Sym(s) => {
       return Err(SexprError::shape(format!("`{s}` is not a template; text is quoted")))
     }
     Sx::List(items) => items,
   };
-  let head = sx.head().ok_or_else(|| SexprError::shape("a template form starts with a symbol"))?;
+  let (head, mut rest) = into_form(items, "a template form starts with a symbol")?;
+  let head = head.as_str();
   Ok(match head {
     "el" => {
-      let a = at_least(items, head, 2)?;
+      no_fewer(&rest, head, 2)?;
       Tmpl::Element {
-        tag: sym_of(&a[0])?,
-        attrs: read_all(a[1].as_list()?, entry_from_sx)?,
-        children: read_all(&a[2..], tmpl_from_sx)?,
+        tag: into_sym(next(&mut rest))?,
+        attrs: read_all(next(&mut rest).as_list()?, entry_from_sx)?,
+        children: read_each(rest, tmpl_from_sx)?,
       }
     }
-    "<>" => Tmpl::Fragment(read_all(&items[1..], tmpl_from_sx)?),
+    "<>" => Tmpl::Fragment(read_each(rest, tmpl_from_sx)?),
     "if" => {
-      let a = at_least(items, head, 2)?;
-      if a.len() > 3 {
+      no_fewer(&rest, head, 2)?;
+      if rest.len() > 3 {
         return Err(SexprError::shape("a template `if` takes a condition, a branch and at most one else"));
       }
       Tmpl::If {
-        cond: expr_from_sx(&a[0])?,
-        then: Box::new(tmpl_from_sx(&a[1])?),
-        r#else: a.get(2).map(tmpl_from_sx).transpose()?.map(Box::new),
+        cond: expr_from_sx(&next(&mut rest))?,
+        then: Box::new(tmpl_from_sx(next(&mut rest))?),
+        r#else: rest.next().map(tmpl_from_sx).transpose()?.map(Box::new),
       }
     }
     "for" => {
-      let a = args(items, head, 3)?;
+      exactly(&rest, head, 3)?;
       Tmpl::For {
-        params: read_all(a[0].as_list()?, sym_of)?,
-        over: expr_from_sx(&a[1])?,
-        body: Box::new(tmpl_from_sx(&a[2])?),
+        params: read_all(next(&mut rest).as_list()?, sym_of)?,
+        over: expr_from_sx(&next(&mut rest))?,
+        body: Box::new(tmpl_from_sx(next(&mut rest))?),
       }
     }
     "let" => {
-      let a = args(items, head, 3)?;
+      exactly(&rest, head, 3)?;
       Tmpl::Let {
-        name: sym_of(&a[0])?,
-        expr: expr_from_sx(&a[1])?,
-        then: Box::new(tmpl_from_sx(&a[2])?),
+        name: into_sym(next(&mut rest))?,
+        expr: expr_from_sx(&next(&mut rest))?,
+        then: Box::new(tmpl_from_sx(next(&mut rest))?),
       }
     }
     "comp" | "keyed-comp" => {
-      let a = at_least(items, head, 3)?;
+      no_fewer(&rest, head, 3)?;
       Tmpl::Component {
-        module: sym_of(&a[0])?,
-        id: u32_of(&a[1])?,
-        props: read_all(a[2].as_list()?, entry_from_sx)?,
-        children: read_all(&a[3..], tmpl_from_sx)?,
+        module: into_sym(next(&mut rest))?,
+        id: u32_of(&next(&mut rest))?,
+        props: read_all(next(&mut rest).as_list()?, entry_from_sx)?,
+        children: read_each(rest, tmpl_from_sx)?,
         keyed: head == "keyed-comp",
       }
     }
     "island" => {
-      let a = at_least(items, head, 5)?;
+      no_fewer(&rest, head, 5)?;
       Tmpl::Island {
-        module: sym_of(&a[0])?,
-        id: u32_of(&a[1])?,
-        when: opt_of(&a[2])?,
-        mode: opt_of(&a[3])?,
-        props: read_all(a[4].as_list()?, entry_from_sx)?,
-        children: read_all(&a[5..], tmpl_from_sx)?,
+        module: into_sym(next(&mut rest))?,
+        id: u32_of(&next(&mut rest))?,
+        when: into_opt(next(&mut rest))?,
+        mode: into_opt(next(&mut rest))?,
+        props: read_all(next(&mut rest).as_list()?, entry_from_sx)?,
+        children: read_each(rest, tmpl_from_sx)?,
         define: false,
       }
     }
     "define-island" => {
-      let a = at_least(items, head, 3)?;
+      no_fewer(&rest, head, 3)?;
       Tmpl::Island {
-        module: sym_of(&a[0])?,
-        id: u32_of(&a[1])?,
-        when: opt_of(&a[2])?,
+        module: into_sym(next(&mut rest))?,
+        id: u32_of(&next(&mut rest))?,
+        when: into_opt(next(&mut rest))?,
         mode: None,
         props: Vec::new(),
-        children: read_all(&a[3..], tmpl_from_sx)?,
+        children: read_each(rest, tmpl_from_sx)?,
         define: true,
       }
     }
-    "slot" => Tmpl::Slot(sym_of(&args(items, head, 1)?[0])?),
-    "marker" => Tmpl::Marker(str_of(&args(items, head, 1)?[0])?),
+    "slot" => {
+      exactly(&rest, head, 1)?;
+      Tmpl::Slot(into_sym(next(&mut rest))?)
+    }
+    "marker" => {
+      exactly(&rest, head, 1)?;
+      Tmpl::Marker(into_str(next(&mut rest))?)
+    }
     "outlet" | "outlet-hydrated" => {
-      let name = str_of(&args(items, head, 1)?[0])?;
+      exactly(&rest, head, 1)?;
+      let name = into_str(next(&mut rest))?;
       if !snapfire_fsr_core::is_place_name(&name) {
         return Err(SexprError::shape(format!("`{name}` is not a place name")));
       }
       Tmpl::Outlet { name, hydrated: head == "outlet-hydrated" }
     }
     "place" => {
-      let a = at_least(items, head, 1)?;
-      let target = str_of(&a[0])?;
+      no_fewer(&rest, head, 1)?;
+      let target = into_str(next(&mut rest))?;
       if snapfire_fsr_core::Place::parse(&target).is_none() {
         return Err(SexprError::shape(format!("`{target}` is not a place a `place` form can write to")));
       }
-      Tmpl::Place { target, children: read_all(&a[1..], tmpl_from_sx)? }
+      Tmpl::Place { target, children: read_each(rest, tmpl_from_sx)? }
     }
-    "html" => Tmpl::Html(expr_from_sx(&args(items, head, 1)?[0])?),
+    "html" => {
+      exactly(&rest, head, 1)?;
+      Tmpl::Html(expr_from_sx(&next(&mut rest))?)
+    }
     "baked" => {
-      let a = at_least(items, head, 2)?;
+      no_fewer(&rest, head, 2)?;
       Tmpl::Baked {
-        open: str_of(&a[0])?,
-        tag: opt_of(&a[1])?,
-        children: read_all(&a[2..], tmpl_from_sx)?,
+        open: into_str(next(&mut rest))?,
+        tag: into_opt(next(&mut rest))?,
+        children: read_each(rest, tmpl_from_sx)?,
       }
     }
     other => return Err(SexprError::shape(format!("`{other}` is not a template form"))),

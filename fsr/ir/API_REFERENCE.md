@@ -484,7 +484,7 @@ Every `_to_sx` and `_from_sx` pair round-trips: `parse(print(to(x))) == to(x)` a
 ### tmpl_to_sx
 
 * `pub fn tmpl_to_sx(tmpl: &Tmpl) -> Sx`
-* `pub fn tmpl_from_sx(sx: &Sx) -> Result<Tmpl, SexprError>`
+* `pub fn tmpl_from_sx(sx: Sx) -> Result<Tmpl, SexprError>`: takes the tree by value and moves its strings into the template.
 
 ### stmt_to_sx
 
@@ -494,12 +494,12 @@ Every `_to_sx` and `_from_sx` pair round-trips: `parse(print(to(x))) == to(x)` a
 ### component_to_sx
 
 * `pub fn component_to_sx(component: &Component) -> Sx`
-* `pub fn component_from_sx(sx: &Sx) -> Result<Component, SexprError>`
+* `pub fn component_from_sx(sx: Sx) -> Result<Component, SexprError>`
 
 ### component_sections
 
 * `pub fn component_sections(component: &Component) -> Vec<Sx>`: the sections without the `component` head.
-* `pub fn component_from_sections(sections: &[Sx]) -> Result<Component, SexprError>`
+* `pub fn component_from_sections(sections: Vec<Sx>) -> Result<Component, SexprError>`: each section is dropped once read.
 * A component's sections open with `(owner ...)`. The legacy sections `(static)`, `(tree)` and `(vue)` read as `Fsr`, `React` and `Vue`.
 
 ## 4. The Interpreter
