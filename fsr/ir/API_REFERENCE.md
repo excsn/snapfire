@@ -1081,7 +1081,8 @@ A `file` path resolves against `Ambient.files`, confined to its roots. Without o
 
 ### Reads
 
-* `Param(name)` and `Query(name)`: `Value::Str`. `Value::Null` when absent.
+* `Param(name)` and `Query(name)`: `Value::Str`. `Value::Undefined` when absent.
+* `Store(key)` and `Context(id)`: `Value::Null` when missing.
 * `ParamsAll` and `QueryAll`: the route's params and the request's query, each as an object.
 * `Session(key)`: reads the draft, so a body sees its own earlier writes. `Value::Null` when absent.
 * `Identity(path)`: walks `{ subject, claims }` from the session's identity. `Value::Null` when anonymous or when a step is missing.
@@ -1098,31 +1099,31 @@ A `file` path resolves against `Ambient.files`, confined to its roots. Without o
 
 ### Truthiness
 
-* `Null`, `false`, integer and float zero and the empty string are false. Every other value is true, including an empty `Seq` or `Map`.
-* `Coalesce` substitutes on `Null` only.
+* `Null`, `Undefined`, `false`, zero, NaN and the empty string are false. Every other value is true, including an empty `Seq` or `Map`.
+* `Coalesce` substitutes on `Null` and `Undefined`.
 * `Logic` returns the deciding operand.
 
 ### Operators
 
-* `Arith` on two `Int`s stays `Int`. Integer overflow and division by zero are `Internal`.
+* `Arith` on two `Int`s stays `Int`, except `Div`, which is `Int` when exact and `F64` otherwise, so dividing by zero gives an infinity or NaN. Overflow, `Rem` or `Quot` by zero and a `Pow` out of range are `Internal`.
 * `Add` with a `Str` on either side concatenates the other operand as `String(x)` writes it.
-* `Add` with a `Seq` on either side and no `Map` concatenates both sides as text. An array is written as `join(",")` writes it, with a null or undefined item empty.
+* `Add` with a `Seq` or `Map` on either side concatenates both sides as `String(x)` writes them, an object as `[object Object]`. An array is written as `join(",")` writes it, with a null or undefined item empty.
 * `Arith` on any other pair of numbers, strings, booleans and `Null` reads both through `ToNumber` and yields `F64`. `Null` is 0, a boolean 0 or 1 and a string its numeric literal, empty as 0 and anything else as NaN.
-* `Arith` with an array or an object operand is `Internal`.
+* Any other `Arith` reads an array or an object operand as `Number(String(x))`.
 * `Compare` orders two numbers of any representation by value, two `Str` by code unit and two `Bool` as 0 and 1.
 * `Eq` and `Ne` between values of different kinds are false and true.
 * An ordering between other scalars reads both through `ToNumber`, so `"2" < 10` is true and anything against NaN is false.
-* A comparison involving an array or an object is `Internal`.
+* An ordering with an array or an object compares their `String(x)`. `Eq` between two arrays or two objects is identity.
 * `Template` concatenates the string form of each part.
-* `Field` on a non-map is `Value::Null`.
-* `Index` takes a `Map` with a `Str` key or a number, read under `interp::number_key`. It takes a `Seq` with an `Int`, `UInt` or integral `F64` index. An index out of range reads `Value::Null`.
-* `Index` on `Null` is `Null`. Any other target is `Internal`.
+* `Field` on a non-map is `Value::Undefined`.
+* `Index` takes a `Map` with a `Str` key or a number, read under `interp::number_key`. It takes a `Seq` with an `Int`, `UInt` or integral `F64` index. An index out of range reads `Value::Undefined`. A string takes a numeric index (one UTF-16 unit) or `length`.
+* `Index` on any other target is `Value::Undefined`. `Field` and `Index` never fail.
 
 ### Conversions
 
-* `Str` writes `Null` as `null`, booleans, integers and strings as themselves, integral floats without a fraction and the infinities as `Infinity` and `-Infinity`. A collection is `Internal`.
-* `Num` is `Number(x)`: `F64` from integers, floats, booleans, `Null` and strings, an unparseable string as NaN. A collection is `Internal`.
-* `BigInt` gives an `Int` from integers, integral floats, booleans and parseable strings. A fractional float or an unparseable string is `Invalid`.
+* `Str` writes `Null` as `null`, booleans, integers and strings as themselves, integral floats without a fraction and the infinities as `Infinity` and `-Infinity`. `Undefined` is `undefined`, an array its items joined by `,`, an object `[object Object]`, an error `name: message` and a regex `/source/flags`.
+* `Num` is `Number(x)`: `F64` from integers, floats, booleans, `Null` and strings, an unparseable string as NaN. A collection is read as `Number(String(x))`.
+* `BigInt` gives an `Int` from integers, integral floats up to 2^53, booleans and parseable strings. An unparseable string is `Invalid`. A fractional or larger float is `Internal`.
 * A number writes as `String(n)` does: the fewest digits that read back, the closest of those with a tie to the even one. From 1e21 up and below 1e-6 it uses exponent form, `1e+21` and `1.5e-7`.
 
 ### Builtins
@@ -1133,7 +1134,7 @@ Collection expressions:
 * `Reduce` applies `(acc, item, index, array)` from `init`.
 * The array is passed only to a lambda naming more than two parameters.
 * A non-`Seq` operand is `Internal`.
-* `Find` yields `Value::Null` when nothing matches.
+* `Find` yields `Value::Undefined` when nothing matches.
 * `FlatMap` spreads a `Seq` result one level and keeps any other.
 * `Sort` merges stably. A comparator's answer is read as a number, NaN and a non-number as 0. With no comparator each item is compared as `String(x)` by UTF-16 code units, so `[10, 9, 1]` sorts to `[1, 10, 9]`.
 * `Entries` yields a `Seq` of two-element `Seq` pairs in insertion order. `Keys` and `Values` likewise. All three require a `Map`.
@@ -1161,7 +1162,7 @@ Strings:
 * `CharCodeAt` is that code unit as a number, NaN past either end.
 * `CodePointAt` is the code point starting there, a lone surrogate as its unit and null past either end.
 * `Radix` is `x.toString(radix)` for a radix from 2 to 36. A non-number is written as `String(x)`. A radix outside 2 to 36 is `Internal`.
-* `Radix` with a radix other than 10 is `Internal` for a number with a fraction. So is a number past 2^53 in a radix that is not a power of 2.
+* `Radix` writes a fraction in another radix as V8 does. `Radix(bytes, encoding)` writes bytes in that encoding.
 
 Objects and arrays:
 
@@ -1186,7 +1187,7 @@ Errors, types and logging:
 
 * `IsError(x, name)` with `name` `Error` is `x instanceof Error`: an object whose `name` is one of the error constructors' names and whose `message` is a string. With another `name` it is whether `x.name` is that name.
 * `Throw` fails the render with `String(message)`.
-* `TypeOf` is `typeof`, with null answered `"undefined"` and a handler or an action `"function"`.
+* `TypeOf` is `typeof`: null is `"object"`, a handler, an action or a component `"function"` and a symbol `"symbol"`.
 * `IsNaN` is the global `isNaN`.
 * `ParseInt` reads `String(s)` as `parseInt` does. Leading white space and a sign are skipped. A radix of 0 or none reads 10. It reads 16 after `0x`. A radix outside 2 to 36 is NaN. NaN when there are no digits.
 * `ParseFloat` reads `String(s)` as `parseFloat` does. Leading white space is skipped. It reads the longest signed decimal literal at the start, with an optional fraction and exponent, or `Infinity`. NaN when there is none.
@@ -1199,6 +1200,7 @@ Responses and requests:
 * `Response` takes a body and an init.
 * A `Str` body is sent as UTF-8 with `text/plain;charset=UTF-8` unless the init's headers name a type. A `Bytes` or `Uint8Array` body is sent as its bytes. `Null` or `Undefined` sends nothing.
 * The init's `status` must lie in 200 to 599 and is 200 when absent. Its `headers` is an object of strings or an array of `[name, value]` pairs.
+* A body with status 204, 205 or 304 is `Internal`. The init's `statusText` is kept. One holding a line break or a character past U+00FF is `Internal`.
 * `ResponseJson` writes its value as `Json` does with `application/json`.
 * `ResponseRedirect` takes a path or an absolute URL and a status among 301, 302, 303, 307 and 308, 302 when absent. It sets `location`.
 * `RedirectTo` is `redirect(to)`: a 303 whose target must be a path on this origin as `RedirectHandle::check` takes it, else `Invalid`.
@@ -1228,6 +1230,160 @@ Regular expressions, each over a value holding `jsregex::PATTERN` and `jsregex::
 * `MatchAll` is each match with its groups. It is `Internal` without `g`.
 * `Search` is the UTF-16 index of the first match, -1 for none.
 
+Every builtin, by variant:
+
+| Variant | Meaning |
+|---|---|
+| `Round` | `Math.round(x)`, half rounding up. |
+| `Floor` | `Math.floor(x)`. |
+| `Ceil` | `Math.ceil(x)`. |
+| `Abs` | `Math.abs(x)`. |
+| `Min` | `Math.min(...xs)`. |
+| `Max` | `Math.max(...xs)`. |
+| `ToFixed` | `x.toFixed(digits)`. More than 100 digits is a `RangeError`. |
+| `Repeat` | `s.repeat(n)`. A negative count repeats nothing. |
+| `Join` | `a.join(sep)`, `,` by default, a null or undefined item empty. |
+| `Trim` | `s.trim()`; `trimStart()` with `"start"` and `trimEnd()` with `"end"`. |
+| `Upper` | `s.toUpperCase()` by Unicode's default mapping. |
+| `Lower` | `s.toLowerCase()` by Unicode's default mapping. |
+| `Includes` | `s.includes(t)` on a string. `a.includes(v)` on an array by strict equality, with NaN finding NaN. |
+| `StartsWith` | `s.startsWith(search, position?)`. |
+| `EndsWith` | `s.endsWith(search)`. |
+| `Split` | `s.split(sep, limit?)`, at most `limit` pieces, read as `ToUint32`. An empty separator splits into characters and fails on one outside the Basic Multilingual Plane: JavaScript splits that into UTF-16 code units, which a Rust `String` cannot hold a half of. |
+| `Replace` | `s.replace(from, to)`, the first occurrence only, with `$` in `to` carrying JavaScript's substitutions. |
+| `EncodeUriComponent` | `encodeURIComponent(String(s))`. |
+| `DecodeUriComponent` | `decodeURIComponent(s)`, throwing a `URIError` on an escape that is not two hex digits or bytes that are not UTF-8. |
+| `LocaleNumber` | `n.toLocaleString("en-US")`: the integer part grouped by `,`. |
+| `Range` | `Array.from({ length: n })`: the integers `0..n`. |
+| `Omit` | An object without the named keys: the rest of a destructuring. |
+| `Slice` | `x.slice(start, end)` of an array or a string; a string's indices count UTF-16 code units. |
+| `At` | `x.at(i)`, a negative index counting from the end. |
+| `IndexOf` | `x.indexOf(v, from)` of an array by strict equality and of a string by its text. |
+| `Concat` | `a.concat(...items)`: an array item spread one level, anything else appended; for a string, the items as text. |
+| `Reverse` | A reversed copy, `toReversed()`. |
+| `PadStart` | `s.padStart(length, fill)`. |
+| `PadEnd` | `s.padEnd(length, fill)`. |
+| `Substring` | `s.substring(start, end)`. |
+| `Json` | `JSON.stringify(v, null, indent)`. |
+| `JsonParse` | `JSON.parse(s)`. |
+| `Pow` | `Math.pow(a, b)`. |
+| `Sqrt` | `Math.sqrt(n)`. |
+| `Trunc` | `Math.trunc(n)`. |
+| `Sign` | `Math.sign(n)`. |
+| `MinOf` | `Math.min(...items)` over one array; `Infinity` when it is empty. |
+| `MaxOf` | `Math.max(...items)` over one array; `-Infinity` when it is empty. |
+| `DateMs` | `new Date(x)` as milliseconds since the epoch: a number as it is, an ISO 8601 string parsed, anything else NaN. |
+| `DatePart` | A UTC part of a date's milliseconds, named by the second argument: `year`, `month` (from 0), `date`, `day` (0 is Sunday), `hours`, `minutes`, `seconds` or `milliseconds`. |
+| `IsoString` | `date.toISOString()` of milliseconds since the epoch. |
+| `FromEntries` | `Object.fromEntries(pairs)` and `new Map(pairs)`: each key as `String(key)`. |
+| `Unique` | `new Set(items)`: the items without repeats, first occurrence kept. |
+| `HasKey` | `map.has(key)` over an object a `Map` lowered to and `key in x`: an object's own key, an array's index. |
+| `ClassNames` | `clsx(...)` and `classnames(...)` over its arguments as one array: each non-empty string and non-zero number, an array's items in turn and an object's keys whose values are truthy, joined by a space. |
+| `TypeOf` | `typeof x`: `"string"`, `"number"`, `"boolean"`, `"function"` for a handler or an action and `"object"` for null, an object or an array and `"undefined"` for undefined. |
+| `IsArray` | `Array.isArray(x)`. |
+| `IsError` | `x instanceof Error` or one of its subclasses, `(x, name)`: whether `x` is an object whose `name` is an error constructor's name and whose `message` is a string; with `name` other than `Error`, whether `x.name` is that name. |
+| `WriteBack` | `([value, last, ...], [index, ...])`: what a function that writes fields of its parameters answers: its value, each written parameter's last value and those parameters' positions. The call that applies it answers `value` and writes each `last` to the argument at `index` when that argument is a variable or a path of fields and indexes from one, as JavaScript's caller sees an object it passed changed. |
+| `Log` | `console.log(...)` and its kin on a render path: the first argument names the method (`log`, `info`, `debug`, `warn` or `error`) and the rest are written as `console.log` writes them, as a `tracing` event under the target `fsr::console` at that level; the value is null. |
+| `LogOf` | `Builtin::Log` with the values to write as one array in the second argument: `console.log(...items)`. |
+| `Throw` | `throw Error(message)` on a render path: the render fails with `String(message)`, as a component that throws fails React's server render. A second argument is what a `catch` around it binds, the `Error` itself. |
+| `ComponentRef` | A component named as a value, `icon={Star}`: its module, which a tag read from the value renders. |
+| `IsElement` | `isValidElement(x)`: whether `x` is a markup value. |
+| `CloneElement` | `cloneElement(element, props)`. |
+| `FormEncode` | `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded. |
+| `FormGet` | `new URLSearchParams(x).get(key)` over the string `FormEncode` wrote: the first value under `key`, null for none. |
+| `FormHas` | `.has(key)` over the same string: whether any value sits under `key`. |
+| `FormGetAll` | `.getAll(key)` over the same string: every value under `key`, in order. |
+| `FormEntries` | `.entries()` over the same string: each pair as `[key, value]`, in order. |
+| `ClassOf` | The class an instance of a class the build lowered was made by, `file#Class`, from its `$c`; null for any other value. A method call dispatches on it. |
+| `CallMethod` | `x.m(args)` with `x` an instance: the method `m` of the nearest class on `x`'s chain that declares it, called with `x` and then `args`. The arguments are `x`, the name and `args`. |
+| `GetMember` | `x.g` with `x` an instance: the getter `g` of the nearest class on `x`'s chain that declares one, called with `x`, else `x`'s own field `g`. |
+| `FormSet` | `.set(key, value)` over the same string: the string with the first value under `key` replaced and the rest removed; the pair appended when there is none. |
+| `FormAppend` | `.append(key, value)` over the same string: the string with the pair added at the end. |
+| `FormDelete` | `.delete(key)` over the same string: the string without any value under `key`. |
+| `UrlParse` | `new URL(url, base)`: the href, parsed against `base` when given and normalised as the URL standard does; an invalid URL fails as `new URL` throws. |
+| `Response` | `new Response(body, init)`: a response of `body`, a string, bytes or nothing, with the `status` and `headers` `init` gives. |
+| `ResponseJson` | `Response.json(value, init)`: `value` written as JSON, typed `application/json`. |
+| `ResponseRedirect` | `Response.redirect(url, status)`: a redirect to `url`, a path or an absolute URL, with `status` one of 301, 302, 303, 307 and 308, 302 when absent. |
+| `RedirectTo` | `redirect(to)` from `@snapfire/fsr`: a 303 to `to`, which must be a path on this origin. |
+| `RequestNew` | `new Request(url)`: a request for `url`, which middleware hands to `next`. |
+| `ResponseMember` | A member of a response: `status` or `ok`, by the name in the second argument. |
+| `ResponseHeaderGet` | `response.headers.get(name)` or, with `"has"` as the third argument, `.has(name)`. |
+| `ResponseHeaderSet` | `response.headers.set(name, value)`, `.append(name, value)` or `.delete(name)`: the response with its headers changed, the operation in the second argument. |
+| `Uint8Array` | `new Uint8Array(source)`: the bytes of an array of numbers, each taken modulo 256; for a length, that many zeros. |
+| `UrlPart` | `url.pathname` and the other parts of a href: `href`, `origin`, `protocol`, `username`, `password`, `host`, `hostname`, `port`, `pathname`, `search` and `hash`, each as `URL` reads it. |
+| `UrlSet` | `url.pathname = value` and the other settable parts: the href with that part replaced as `URL`'s setter replaces it. |
+| `RegexTest` | `re.test(s)`. |
+| `Match` | `s.match(re)`: the first match and its groups, every match with `g`, null for none. |
+| `MatchAll` | `s.matchAll(re)`: each match with its groups. |
+| `Search` | `s.search(re)`: the UTF-16 index of the first match, -1 for none. |
+| `ReplaceAll` | `s.replaceAll(from, to)` with a string `from`. |
+| `Checked` | A checkbox's `v-model`: whether an array model holds the box's value by Vue's loose equality, else whether the model is truthy. |
+| `LooseMatch` | A radio's or an option's `v-model`: whether an array model holds the value, else whether the two are equal as text. |
+| `LooseEq` | `a == b`, JavaScript's loose equality. |
+| `HeapOn` | Turns on a body that writes objects: from here it reads its own copy of what requests share. |
+| `Overwrite` | Makes the object or array behind the first argument hold what the second says, keeping its identity. |
+| `CopyDeep` | Its argument with every object and array in it a new one. |
+| `MapKey` | The text a `Map` keeps a key under: an object or an array by its identity. |
+| `MapOf` | `new Map(pairs)`: the pairs as an object, each key as `Builtin::MapKey` reads it. |
+| `AsMap` | Its argument, an object, marked as a `Map`, which it converts and serializes as. |
+| `AsSet` | Its argument, an array, marked as a `Set`. |
+| `AsError` | Its argument, an object of a `name` and a `message`, marked as an `Error`. |
+| `Is` | Whether its first argument is what the second names: `error` for an `Error`, `view` for a typed array. |
+| `UrlTry` | `URL.parse(text, base?)`: the URL, null for text no URL parses from. |
+| `SymbolKeys` | The symbols an object holds fields under, `Object.getOwnPropertySymbols`. |
+| `SymbolNew` | `Symbol(description?)`: a symbol no other equals. |
+| `SymbolDescription` | A symbol's `description`, `undefined` for one made with none. |
+| `SymbolKeyFor` | `Symbol.keyFor(symbol)`: the key `Symbol.for` registered it under, `undefined` for any other symbol. |
+| `RegExpEscape` | `RegExp.escape(text)`: the text with each character a pattern would read as syntax escaped, as ECMA-262's `EncodeForRegExpEscape` writes it. |
+| `TypedNew` | `new <element>Array(source)`: a typed array of the element named, `Int16`, from a length, an array or another typed array. |
+| `TypedLike` | Its second argument, an array, as a typed array of the first one's element type; any other first argument answers the array. |
+| `TypedField` | A typed array's `byteLength`, `byteOffset` or `BYTES_PER_ELEMENT`. With an element named, that element's `BYTES_PER_ELEMENT`. |
+| `AsOpaque` | Its argument, an object or the bytes of a buffer, marked as one of the platform's whose fields JavaScript does not enumerate. |
+| `IsNaN` | The global `isNaN(x)`: whether `Number(x)` is NaN. |
+| `IsNullish` | `x == null`: whether `x` is null or undefined. |
+| `ParseInt` | `parseInt(s, radix)` over `String(s)`: a radix of 0 or none reads 10 (16 after `0x`); one outside 2 to 36 is NaN. |
+| `ParseFloat` | `parseFloat(s)` over `String(s)`: the longest decimal literal or `Infinity` after leading whitespace, NaN when there is none. |
+| `Substr` | `s.substr(start, length)` over `String(s)`: a negative start counts from the end, a missing length runs to the end, in UTF-16 code units. |
+| `IsWellFormed` | `s.isWellFormed()`: true, since a string the value model holds has no lone surrogate. |
+| `ToWellFormed` | `s.toWellFormed()`: `String(s)`, since a string the value model holds has no lone surrogate. |
+| `Exec` | `re.exec(s)`: the first match and its groups, null for none. A regular expression with `g` or `y` is an error, since `exec` advances its `lastIndex` and a value holds none. |
+| `UtcString` | `date.toUTCString()` of a time in milliseconds: `Thu, 01 Jan 1970 00:00:00 GMT`, `Invalid Date` past the range a date holds. |
+| `EncodeUri` | The global `encodeURI(s)`: `encodeURIComponent` leaving the URI's reserved characters `;/?:@&=+$,#` as they stand. |
+| `DecodeUri` | The global `decodeURI(s)`: `decodeURIComponent` leaving an escape of a reserved character `;/?:@&=+$,#` as it stands. |
+| `SameValue` | `Object.is(a, b)`: strict equality, with NaN equal to itself and 0 unequal to -0. |
+| `FromCharCode` | `String.fromCharCode(...codes)`: each argument's `ToUint16` as a UTF-16 code unit. |
+| `FromCodePoint` | `String.fromCodePoint(...points)`: each argument a code point from 0 to 0x10FFFF, an error otherwise. |
+| `DateUtc` | `Date.UTC(year, month, ...)`: milliseconds since the epoch for the UTC calendar fields, a year from 0 to 99 read as 1900 to 1999, NaN when any field is NaN or the time is out of range. |
+| `ToPrecision` | `n.toPrecision(p)`: `p` significant digits, in exponent form when the exponent is below -6 or at least `p`; `String(n)` when `p` is absent. |
+| `ToExponential` | `n.toExponential(d)`: one digit, `d` after the point and the exponent; as many digits as `String(n)` holds when `d` is absent. |
+| `Normalize` | `s.normalize(form)`: the string in Unicode normalization form `NFC`, `NFD`, `NFKC` or `NFKD`, NFC when absent. |
+| `ToSpliced` | `items.toSpliced(start, deleteCount, ...rest)` as `(to-spliced items start deleteCount rest)`: a copy with `deleteCount` items from `start` replaced by the array `rest`; an undefined `deleteCount` runs to the end. |
+| `ArrayWith` | `items.with(index, value)`: a copy with `index` set, negative counting from the end, an error outside the array. |
+| `Fill` | `items.fill(value, start, end)` on a fresh array: a copy with the positions from `start` to `end` set to `value`. |
+| `CopyWithin` | `items.copyWithin(target, start, end)` on a fresh array: a copy with the items from `start` to `end` copied to `target`. |
+| `Iterate` | `(iterate "entries" x)`, `"keys"` or `"values"`: `x.entries()`, `x.keys()` or `x.values()` of an array or a `Map` as an array, an array's keys being its indices. |
+| `Spread` | `(spread "name" args)`: the builtin named by its plan atom applied to the items of `args`, for a call that spreads an array into a builtin, `Math.max(...xs)` or `s.concat(...parts)`. |
+| `Splice` | `items.splice(start, deleteCount, ...items)` on an array a body holds: `[after, removed]`, the array with the change made and the items it took out. The arguments are `Builtin::ToSpliced`'s. |
+| `ExecFrom` | `re.exec(s)` as JavaScript runs it against `re`'s `lastIndex`: `[match, re]`, the match or null and the expression with the `lastIndex` it leaves. Only a global or sticky expression reads and moves it. |
+| `TestFrom` | `re.test(s)` the same way: `[matched, re]`. |
+| `Tagged` | `(tagged "tag" payload)`: a value the model carries as a tagged variant, such as a registered symbol or raw JSON text. |
+| `TaggedPayload` | `(tagged-payload value "tag")`: the payload of a variant with that tag, else `undefined`. |
+| `IsTagged` | `(is-tagged value "tag")`: whether the value is a variant with that tag. |
+| `ElementOf` | `(element-of "Int8" n)`: `n` as an element of the typed array named, wrapped, clamped or rounded as that array stores it. A `BigInt64` or `BigUint64` element is a BigInt. |
+| `ViewGet` | `(view-get bytes "Uint16" offset little)`: the value a `DataView` reads at `offset` of an array of bytes, big-endian unless `little`. |
+| `ViewSet` | `(view-set bytes "Uint16" offset value little)`: the bytes with `value` written at `offset` as a `DataView` writes it. |
+| `Segments` | `(segments input granularity at?)`: `Intl.Segmenter`'s `segment(input)` at `"grapheme"`, `"word"` or `"sentence"` granularity as ICU segments it, each `{ segment, index, input }` with `isWordLike` for a word; with `at`, `containing(at)`. |
+| `Settle` | `(settle value)`: what `await` reads from a promise `Promise.withResolvers()` made, an object holding `$deferred`: its value once resolved, its reason thrown once rejected. Any other value is itself. |
+| `LastIndexOf` | `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text. |
+| `CharAt` | `s.charAt(i)`: the UTF-16 code unit at `i` as a string, empty past either end. |
+| `CharCodeAt` | `s.charCodeAt(i)`: the UTF-16 code unit at `i`, NaN past either end. |
+| `Math` | A `Math` function V8 computes in its own code: the first argument names it (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p` or `cbrt`) and the rest are its arguments, computed as `jsmath` does. |
+| `CodePointAt` | `s.codePointAt(i)`: the code point starting at UTF-16 index `i`, a lone surrogate as its unit, null past either end. |
+| `Radix` | `x.toString(radix)`: a number's digits in a radix from 2 to 36, anything else as `String(x)`. In a radix other than 10 a number with a fraction is an error. So is one past 2^53 in a radix that is not a power of 2, since engines print their digits differently. |
+| `Graphemes` | `new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(s)`: each extended grapheme cluster of `s` as `{ segment, index, input }`, `index` a UTF-16 offset. With an index as the second argument, `.containing(i)`: the cluster holding UTF-16 index `i`, null past either end. |
+| `SetAt` | `x[key] = value` on a local, as a copy: an array with the index set (its length appends) or an object with `String(key)` set. A key on an array that is not an index or lies past its length is an error, since the value model holds no sparse array. |
+| `Emit` | `emit(kind, value)`: hands `value` to the step's host as an emitted value of `kind`, with the path of the component whose render or handler evaluated it; null. Only a step in server mode, a terminal's, emits; anywhere else it does nothing. |
+
 ### Calls
 
 * Arguments evaluate in order. An argument whose value is `Value::Null` is omitted from the `ValueMap` sent.
@@ -1253,7 +1409,7 @@ Regular expressions, each over a value holding `jsregex::PATTERN` and `jsregex::
 
 * A run of consecutive `Let` statements in one block, none of which reads a name bound earlier in the run, is evaluated together when at least two of them contain a `Call`.
 * Each `Let` in the run evaluates over a snapshot of the current scope and draft.
-* Any other statement is evaluated in sequence, as is any `Let` that reads an earlier name in the run.
+* Any other statement is evaluated in sequence, as is any `Let` that reads an earlier name in the run. A `Let` that makes a function value ends the run.
 
 ## 9. Regular Expressions and Math
 
@@ -1264,6 +1420,7 @@ Regular expressions, each over a value holding `jsregex::PATTERN` and `jsregex::
 * `is_match(&self, subject: &str) -> Result<bool, String>`
 * `first(&self, subject: &str) -> Result<Option<Found>, String>`
 * `all(&self, subject: &str) -> Result<Vec<Found>, String>`
+* `at(&self, subject: &str, from: usize) -> Result<Option<Found>, String>`: the first match at or after UTF-16 index `from`. With `y` it must start at `from`.
 * Backreferences, lookaround, named groups and the `u` and `v` flags are supported.
 * Without `u` or `v`, a subject holding a character past U+FFFF is matched as UTF-16 code units. A match that would split a surrogate pair is an error.
 
@@ -1282,12 +1439,13 @@ One match as byte ranges into the subject.
 ### jsregex functions
 
 * `PATTERN = "$regex"` and `FLAGS = "$flags"`: the fields of a regular expression value.
+* `LAST_INDEX = "lastIndex"`: the field a `g` or `y` expression reads and advances, 0 when `value` makes it.
 * `MAX_PATTERN: usize = 1024`: the longest pattern compiled, in characters.
 * `MAX_INPUT: usize = 1 << 20`: the longest subject matched, in bytes. A longer subject is `Internal`.
 * `value(pattern: &str, flags: &str) -> Value`: a regular expression as a value.
 * `of(value: &Value) -> Option<(&str, &str)>`: the source and flags of a regular expression value.
 * `compiled(pattern: &str, flags: &str) -> Result<Arc<JsRegex>, String>`: the compiled expression, cached by source and flags. The error names what is refused.
-* `compiled` refuses the `y` flag, a pattern longer than `MAX_PATTERN` and an unbounded quantifier over a group with an alternative made only of repeating atoms, such as `(a+)+` or `(\s*\w+)*`.
+* `compiled` refuses a flag outside `dgimsuvy`, a pattern longer than `MAX_PATTERN` and an unbounded quantifier over a group with an alternative made only of repeating atoms, such as `(a+)+` or `(\s*\w+)*`.
 * `utf16_index(s: &str, byte: usize) -> usize`: a UTF-8 byte offset as a UTF-16 index.
 * `expand(out: &mut String, replacement: &str, subject: &str, found: &Found)`: writes `replace`'s replacement string for one match.
 
@@ -1298,7 +1456,7 @@ One match as byte ranges into the subject.
 * `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p` and `cbrt`: ports of the LLVM libc double-precision functions, along the fused multiply-add path.
 * `sinh`, `cosh`, `asinh`, `acosh` and `atanh`: the fdlibm algorithms over them.
 * Every function but `atan` and `atan2` is correctly rounded. `atan` and `atan2` match Chrome on ARM and may differ in the last bit from Chrome on x86-64 without FMA.
-* `Math.pow` and `Math.tanh` are not provided.
+* `Math.pow` is not provided. `tanh(x: f64) -> f64` and `f16round(x: f64) -> f64` are.
 
 ## 10. Runtime Adapters
 
@@ -1374,8 +1532,9 @@ Translated components rendered in Rust. Implements `snapfire_fsr_runtime::Evalua
 * `interpreter(&self) -> &Interpreter`
 * `modules(&self) -> Vec<String>`: every module id, sorted.
 * `evaluate` on a module it does not hold is an `EvalError`: `not a lowered component`.
-* A root component whose render is whole is a `Client` node with `rendered: true` and the rendered nodes as children.
-* A root component whose render is not whole is a `Client` node with `rendered: false` and its slot regions as children.
+* A root component nothing hydrates is its rendered nodes alone: one node or a `Node::Seq` of them.
+* A root component a framework hydrates whose render is whole is a `Client` node with `rendered: true` and the rendered nodes as children.
+* A root component a framework hydrates is a `Client` node with `rendered: false` when its render is not whole or when it reads a store key a deferred segment has not seeded.
 * `evaluate` splits the markup at each `SLOT_MARK` and places a `Node::Slot` there.
 
 ## 11. The Host
@@ -1458,7 +1617,7 @@ Re-exported from `snapfire_fsr_core::ext`, with `FailureKind`.
 * `with_call(self, call: impl Into<String>) -> Fail`
 * `with_thrown(self, value: Value) -> Fail`
 * A guard yields its named kind. A service error keeps its kind.
-* `Num` and `BigInt` of unparseable input are `Invalid`.
+* `BigInt` of an unparseable string is `Invalid`.
 * Type mismatches, unbound names, overflow and structural misuse are `Internal`.
 
 ### SexprError
