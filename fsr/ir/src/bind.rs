@@ -429,7 +429,7 @@ pub struct IrEvaluator {
 
 impl IrEvaluator {
   pub fn new(components: impl IntoIterator<Item = (String, Component)>) -> Self {
-    let components = components.into_iter().map(|(module, component)| (module, Arc::new(crate::render::prepare(&component)))).collect();
+    let components = components.into_iter().map(|(module, component)| (module, Arc::new(crate::render::prepared(component)))).collect();
     Self { components: Arc::new(components), interpreter: Interpreter::default() }
   }
 

@@ -893,13 +893,19 @@ pub fn inline_styles(component: &Component) -> Vec<Option<String>> {
 /// when a component is put into a [`Components`] library and an element it
 /// cannot bake is left exactly as it was.
 pub fn prepare(component: &Component) -> Component {
-  let mut body = component.body.clone();
-  for stmt in &mut body {
+  prepared(component.clone())
+}
+
+/// [`prepare`] for a component the caller hands over.
+pub fn prepared(mut component: Component) -> Component {
+  for stmt in &mut component.body {
     if let Stmt::Let { expr, .. } = stmt {
       fold_expr(expr);
     }
   }
-  Component { body, render: prepare_tmpl(&component.render), state: component.state.clone(), stores: component.stores.clone(), handlers: component.handlers.clone(), owner: component.owner, shadow: component.shadow, scope: component.scope.clone() }
+  let render = std::mem::replace(&mut component.render, Tmpl::Fragment(Vec::new()));
+  component.render = prepare_tmpl(render);
+  component
 }
 
 /// The attribute marking an element whose inner markup is recorded as a hoisted chunk and its id.

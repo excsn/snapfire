@@ -58,51 +58,48 @@ pub(super) fn is_unitless(name: &str) -> bool {
 }
 
 /// `tmpl` with its literal open tags baked and every constant expression folded.
-pub(super) fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
+pub(super) fn prepare_tmpl(tmpl: Tmpl) -> Tmpl {
+  let all = |children: Vec<Tmpl>| children.into_iter().map(prepare_tmpl).collect::<Vec<_>>();
+  let fold = |mut expr: crate::ast::Expr| {
+    fold_expr(&mut expr);
+    expr
+  };
   match tmpl {
-    Tmpl::Element { tag, attrs, children } if tag == CHOSEN_TAG || tag == BOUNDARY_TAG || tag == SUSPENSE_TAG => {
-      let mut attrs = attrs.clone();
+    Tmpl::Element { tag, mut attrs, children } if tag == CHOSEN_TAG || tag == BOUNDARY_TAG || tag == SUSPENSE_TAG => {
       fold_entries(&mut attrs);
-      Tmpl::Element { tag: tag.clone(), attrs, children: children.iter().map(prepare_tmpl).collect() }
+      Tmpl::Element { tag, attrs, children: all(children) }
     }
     Tmpl::Element { tag, attrs, children } => {
-      let children: Vec<Tmpl> = children.iter().map(prepare_tmpl).collect();
-      match baked_open(tag, attrs) {
-        Some(open) => Tmpl::Baked { open, tag: Some(tag.clone()), children },
+      let children = all(children);
+      match baked_open(&tag, &attrs) {
+        Some(open) => Tmpl::Baked { open, tag: Some(tag), children },
         None => {
-          let mut attrs = baked_attrs(tag, attrs);
+          let mut attrs = baked_attrs(&tag, &attrs);
           fold_entries(&mut attrs);
-          Tmpl::Element { tag: tag.clone(), attrs, children }
+          Tmpl::Element { tag, attrs, children }
         }
       }
     }
-    Tmpl::Expr(expr) => Tmpl::Expr(folded(expr)),
-    Tmpl::Html(expr) => Tmpl::Html(folded(expr)),
-    Tmpl::Fragment(children) => Tmpl::Fragment(children.iter().map(prepare_tmpl).collect()),
-    Tmpl::If { cond, then, r#else } => Tmpl::If { cond: folded(cond), then: Box::new(prepare_tmpl(then)), r#else: r#else.as_ref().map(|other| Box::new(prepare_tmpl(other))) },
-    Tmpl::For { over, params, body } => Tmpl::For { over: folded(over), params: params.clone(), body: Box::new(prepare_tmpl(body)) },
-    Tmpl::Let { name, expr, then } => Tmpl::Let { name: name.clone(), expr: folded(expr), then: Box::new(prepare_tmpl(then)) },
-    Tmpl::Component { module, props, children, id, keyed } => {
-      let mut props = props.clone();
+    Tmpl::Expr(expr) => Tmpl::Expr(fold(expr)),
+    Tmpl::Html(expr) => Tmpl::Html(fold(expr)),
+    Tmpl::Fragment(children) => Tmpl::Fragment(all(children)),
+    Tmpl::If { cond, then, r#else } => Tmpl::If { cond: fold(cond), then: Box::new(prepare_tmpl(*then)), r#else: r#else.map(|other| Box::new(prepare_tmpl(*other))) },
+    Tmpl::For { over, params, body } => Tmpl::For { over: fold(over), params, body: Box::new(prepare_tmpl(*body)) },
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr: fold(expr), then: Box::new(prepare_tmpl(*then)) },
+    Tmpl::Component { module, mut props, children, id, keyed } => {
       fold_entries(&mut props);
-      Tmpl::Component { module: module.clone(), props, children: children.iter().map(prepare_tmpl).collect(), id: *id, keyed: *keyed }
+      Tmpl::Component { module, props, children: all(children), id, keyed }
     }
-    Tmpl::Island { module, props, children, when, mode, id, define } => {
-      let mut props = props.clone();
+    Tmpl::Island { module, mut props, children, when, mode, id, define } => {
       fold_entries(&mut props);
-      Tmpl::Island { module: module.clone(), props, children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id, define: *define }
+      Tmpl::Island { module, props, children: all(children), when, mode, id, define }
     }
-    Tmpl::Baked { open, tag, children } => Tmpl::Baked { open: open.clone(), tag: tag.clone(), children: children.iter().map(prepare_tmpl).collect() },
-    Tmpl::Place { target, children } => Tmpl::Place { target: target.clone(), children: children.iter().map(prepare_tmpl).collect() },
-    Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => tmpl.clone(),
+    Tmpl::Baked { open, tag, children } => Tmpl::Baked { open, tag, children: all(children) },
+    Tmpl::Place { target, children } => Tmpl::Place { target, children: all(children) },
+    other @ (Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. }) => other,
   }
 }
 
-pub(super) fn folded(expr: &crate::ast::Expr) -> crate::ast::Expr {
-  let mut expr = expr.clone();
-  fold_expr(&mut expr);
-  expr
-}
 
 pub(super) fn fold_entries(entries: &mut [Entry]) {
   for entry in entries {
@@ -138,15 +135,15 @@ pub(super) fn fold_expr(expr: &mut crate::ast::Expr) {
   match expr {
     Expr::Lit(lit) => *expr = Expr::Folded(lit_value(lit).frozen()),
     Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Locales | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
-    Expr::Markup(tmpl) => *tmpl = Arc::new(prepare_tmpl(tmpl)),
+    Expr::Markup(tmpl) => *tmpl = Arc::new(prepare_tmpl(Arc::unwrap_or_clone(std::mem::replace(tmpl, Arc::new(Tmpl::Fragment(Vec::new())))))),
     Expr::Lambda { body, .. } => body.visit_mut(&mut |e| {
       if let Expr::Markup(tmpl) = e {
-        *tmpl = Arc::new(prepare_tmpl(tmpl));
+        *tmpl = Arc::new(prepare_tmpl(Arc::unwrap_or_clone(std::mem::replace(tmpl, Arc::new(Tmpl::Fragment(Vec::new()))))));
       }
     }),
     Expr::Block(body) => crate::ast::body_visit_mut(body, &mut |e| {
       if let Expr::Markup(tmpl) = e {
-        *tmpl = Arc::new(prepare_tmpl(tmpl));
+        *tmpl = Arc::new(prepare_tmpl(Arc::unwrap_or_clone(std::mem::replace(tmpl, Arc::new(Tmpl::Fragment(Vec::new()))))));
       }
     }),
     // An object or array literal is a new object each time it is evaluated, so only what it holds folds.

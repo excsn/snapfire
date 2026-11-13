@@ -176,7 +176,7 @@ Names and literals:
 * `Var(String)`: the innermost binding. An unbound name is `Internal`.
 * `Const(String)`: a module-level constant from the plan's `consts`, `<file>#<name>`.
 * `Lit(Lit)`.
-* `Folded(Value)`: a value built once by `render::prepare`. Skipped by serde and never in a plan.
+* `Folded(Value)`: a value built once by `render::prepare`. Never in a plan.
 * `Object(Vec<Entry>)`: takes `Field`, `Computed`, `Spread` and `Baked` entries.
 * `Array(Vec<Entry>)`: takes `Item` and `Spread` entries.
 * A wrong entry kind in an `Object` or `Array` is `Internal`.
@@ -776,6 +776,7 @@ The handler a step runs. Root re-export. `Debug`, `Clone`, `PartialEq`, `Eq`, `#
 ### Render functions
 
 * `prepare(component: &Component) -> Component`: every element whose open tag is entirely literal becomes a `Tmpl::Baked`. It never bakes a `<title>`, `<meta>` or `<link>`. It never bakes a tag the sets of markup rules print differently.
+* `prepared(component: Component) -> Component`: `prepare` for a component the caller hands over.
 * `store_keys(component: &Component, library: &Components) -> Vec<String>`: every `Expr::Store` in the component and in the components it renders inline, sorted.
 * `rendered_store(store: &ValueMap, keys: &[String]) -> ValueMap`: the entries of `store` among `keys`.
 * `inline_styles(component: &Component) -> Vec<Option<String>>`: the content of every `<style>` the component renders, in the order written, as the server writes it under the component's markup. `None` for one whose content the render computes.
@@ -1366,7 +1367,7 @@ A translated `meta` describing the document from its loader's data. Implements `
 
 Translated components rendered in Rust. Implements `snapfire_fsr_runtime::Evaluator`.
 
-* `new(components: impl IntoIterator<Item = (String, Component)>) -> IrEvaluator`: each component goes through `render::prepare`.
+* `new(components: impl IntoIterator<Item = (String, Component)>) -> IrEvaluator`: each component goes through `render::prepared`.
 * `with_interpreter(self, interpreter: Interpreter) -> IrEvaluator`
 * `covers(&self, module: &ModuleId) -> bool`: whether it holds the module.
 * `components(&self) -> Arc<Components>`
