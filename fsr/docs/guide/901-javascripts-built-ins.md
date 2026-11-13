@@ -71,7 +71,25 @@ export async function load() {
 
 `Math.sin`, `Math.cbrt` and the other transcendental functions answer the correctly rounded result, as Chrome 158 does. Node v26 runs an older V8 whose results are one unit in the last place off for some arguments. The list marks the two members the test caught.
 
-fsr's locale data is CLDR 48.2.1 and node v26.8.1 ships CLDR 48.0. Where the two differ fsr follows its own data. `new Intl.Locale("az-Arab").getNumberingSystems()` answers `arabext` in fsr and `latn` in node.
+fsr's locale data is CLDR 48.2.1 with ICU 78, from ICU4X 2.3. Chrome 158 bundles ICU 78.2, which carries CLDR 48. node v26.8.1 ships CLDR 48.0. Where fsr and node differ fsr follows its own data. `new Intl.Locale("az-Arab").getNumberingSystems()` answers `arabext` in fsr and `latn` in node.
+
+A browser with other locale data can format the same value differently from fsr. Safari, Firefox and an older or newer Chrome each carry their own CLDR.
+
+### Moving to newer locale data
+
+`ir/Cargo.toml` holds the ICU4X crates at `~2.3`. ICU4X 2.4 carries CLDR 49, which Chrome does not ship yet. Under it `es-ES` ordinals for 1, 3, 21 and 23 answer `one` where Chrome answers `other`. Its `en-IN` times read `PM` where Chrome writes `pm`.
+
+Chrome moves to a new ICU when a commit titled `Roll ICU from 78.2 to ...` lands on [chromium/deps/icu](https://chromium.googlesource.com/chromium/deps/icu/+log/refs/heads/main). It reaches Chrome stable with the first milestone that branches after it. To see which CLDR a Chrome carries, run this in it:
+
+```js
+new Intl.PluralRules("es-ES", { type: "ordinal" }).select(1) // "other" on CLDR 48, "one" on CLDR 49
+```
+
+Once Chrome stable answers `one`:
+
+1. Raise the `icu_*` requirements in `ir/Cargo.toml` to the ICU4X release that carries Chrome's CLDR.
+2. Record `ir/tests/fixtures/intl_chrome.json` and `intl_chrome_currency.json` again in that Chrome.
+3. Run `cargo test -p snapfire_fsr_ir --test intl_browser`.
 
 ## Known limits
 
