@@ -69,6 +69,7 @@ Methods:
 
 * `pub fn builder(routes: Routes) -> AppBuilder`: from routes alone, with no plan file.
 * `pub fn from_manifest(manifest: &str) -> Result<AppBuilder, BindError>`: from the plan file's text, with every lowered row bound as the default.
+* `pub fn from_plan(manifest: snapfire_fsr_plan::Manifest) -> Result<AppBuilder, BindError>`: `from_manifest` for a plan already parsed. Its rows move into the builder.
   * A plan naming a `react`, `vue` or `svelte` major the renderer has no rules for is `BindError::React`, `Vue` or `Svelte`.
   * A lowered source's `meta` is registered as an `IrMeta` under the source id. Its `paths` is registered as an `IrPaths` under every route pattern whose plan names the source. Both apply only when the source binds as lowered.
 * `pub async fn invalidate(&self, plan_key: &str) -> usize`: drops every cached subtree under the plan `cache_key` and returns how many.
@@ -173,6 +174,7 @@ Routes and plan files:
 * `pub fn route_override(self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self`
 * `pub fn not_found(self, plan: impl IntoPlan) -> Self`: `Routes::not_found` on the builder's routes.
 * `pub fn mount_manifest(&mut self, manifest: &str) -> Result<(), BindError>`: adds every lowered row of another plan file: its routes and intercepts as plan-file entries, its sources with their metas and stores, its actions, components and handlers.
+* `pub fn mount_plan(&mut self, manifest: snapfire_fsr_plan::Manifest) -> Result<(), BindError>`: `mount_manifest` for a plan already parsed. Its rows move into the builder.
   * The ids are the file's, so a mounted site's arrive prefixed.
   * Its middleware and not-found tree are not added.
 
@@ -203,6 +205,8 @@ Routes from the plan file, from Rust or both. A pattern claimed twice is refused
 * `pub fn new() -> Self`
 * `pub fn from_manifest(source: &str) -> Result<Self, BindError>`: every route in the file, owned by `PlanFile`, with the file's not-found tree and its intercepts. Their sources count as declared.
 * `pub fn extend_manifest(&mut self, source: &str) -> Result<(), BindError>`: adds another plan file's routes and intercepts as plan-file entries. Its not-found tree is not added.
+* `pub fn from_plan(manifest: &snapfire_fsr_plan::Manifest) -> Result<Self, BindError>`: `from_manifest` for a plan already parsed.
+* `pub fn extend_plan(&mut self, manifest: &snapfire_fsr_plan::Manifest) -> Result<(), BindError>`: `extend_manifest` for a plan already parsed.
 * `pub fn add(self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self`: owned by `Rust`. A plan that fails to convert is kept as the error `build` returns.
 * `pub fn replace(self, pattern: impl Into<String>, plan: impl IntoPlan) -> Self`: owned by `RustOverride`, replacing the entry with that pattern.
 * `pub fn not_found(self, plan: impl IntoPlan) -> Self`: the tree for a path no route matches, replacing the plan file's. Its sources count as declared.

@@ -53,7 +53,7 @@ The plan file `fsr build` writes and a host reads at boot: routes, source rows, 
 
 The plan file in memory.
 
-* `pub struct Manifest`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct Manifest`. `Debug`, `Clone`, `PartialEq`.
 
 Fields. Each `Vec`, `BTreeMap` and `Option` field is absent from the file when empty or `None`, except `routes`.
 
@@ -133,7 +133,7 @@ Rewriting:
 
 ### RouteEntry
 
-* `pub struct RouteEntry { pub pattern: String, pub plan: Node }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct RouteEntry { pub pattern: String, pub plan: Node }`. `Debug`, `Clone`, `PartialEq`.
 
 ### under
 
@@ -149,7 +149,7 @@ Rewriting:
 
 The serialized form of a `PlanNode`.
 
-* `pub struct Node { pub id: u32, pub module: String, pub source: Option<String>, pub deferred: bool, pub fallback: Option<String>, pub error: Option<String>, pub error_kinds: Vec<(String, String)>, pub cache_key: Option<String>, pub children: Vec<Child>, pub keep: Vec<String> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct Node { pub id: u32, pub module: String, pub source: Option<String>, pub deferred: bool, pub fallback: Option<String>, pub error: Option<String>, pub error_kinds: Vec<(String, String)>, pub cache_key: Option<String>, pub children: Vec<Child>, pub keep: Vec<String> }`. `Debug`, `Clone`, `PartialEq`.
 * Each `Option` field is absent from the file when `None`, each `Vec` field when empty and `deferred` when false.
 * `module`, `fallback` and `error` are module ids, `path#export`. `Manifest::routes` refuses any other spelling.
 * `error_kinds` pairs a failure kind with the module that renders for it. It is `(error-kind <kind> <module>)` in the s-expression form.
@@ -159,15 +159,15 @@ The serialized form of a `PlanNode`.
 
 ### Child
 
-* `pub struct Child { pub slot: String, pub node: Node }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct Child { pub slot: String, pub node: Node }`. `Debug`, `Clone`, `PartialEq`.
 
 ## 4. Rows
 
 ### RowOwner
 
-Who answers a row. Serialized in snake case.
+Who answers a row.
 
-* `pub enum RowOwner { Lowered, Engine, Rust }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub enum RowOwner { Lowered, Engine, Rust }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 * `Lowered`: the row carries a body the host binds unless Rust overrides the name.
 * `Engine`: a JavaScript engine answers the row.
 * `Rust`: a declaration. The host refuses to start unless Rust answers it.
@@ -177,7 +177,7 @@ Who answers a row. Serialized in snake case.
 
 One data source.
 
-* `pub struct SourceEntry { pub id: String, pub owner: RowOwner, pub module: Option<String>, pub export: Option<String>, pub reason: Option<String>, pub body: Option<Body>, pub meta: Option<Body>, pub store: Option<Body>, pub defaults: Option<Body>, pub store_keys: Option<Vec<String>>, pub paths: Option<Body> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct SourceEntry { pub id: String, pub owner: RowOwner, pub module: Option<String>, pub export: Option<String>, pub reason: Option<String>, pub body: Option<Body>, pub meta: Option<Body>, pub store: Option<Body>, pub defaults: Option<Body>, pub store_keys: Option<Vec<String>>, pub paths: Option<Body> }`. `Debug`, `Clone`, `PartialEq`.
 * Each `Option` field is absent from the file when `None`.
 * `meta`: the loader module's `meta`, describing the document from this source's data.
 * `store`: the module's `store`, seeding the browser's store from this source's data.
@@ -196,18 +196,17 @@ One data source.
 
 One action.
 
-* `pub struct ActionEntry { pub id: String, pub owner: RowOwner, pub module: Option<String>, pub export: Option<String>, pub input: Option<String>, pub reason: Option<String>, pub body: Option<Body> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct ActionEntry { pub id: String, pub owner: RowOwner, pub module: Option<String>, pub export: Option<String>, pub input: Option<String>, pub reason: Option<String>, pub body: Option<Body> }`. `Debug`, `Clone`, `PartialEq`.
 * `lowered(id: impl Into<String>, module: impl Into<String>, body: Body) -> Self`
 * `rust(id: impl Into<String>) -> Self`
 * `with_input(self, input: impl Into<String>) -> Self`: the contract type a call's input is checked against before the body runs.
-* Deserializes from a row or from a bare string, which reads as `rust(id)`. A row with no `owner` reads as `Rust`.
 * A `Lowered` row read from a file must carry a body. `PlanError::NoBody` otherwise.
 
 ### HandlerEntry
 
 A request the host answers with a value instead of a document.
 
-* `pub struct HandlerEntry { pub id: String, pub method: String, pub pattern: String, pub owner: RowOwner, pub module: Option<String>, pub input: Option<String>, pub reason: Option<String>, pub body: Option<Body> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct HandlerEntry { pub id: String, pub method: String, pub pattern: String, pub owner: RowOwner, pub module: Option<String>, pub input: Option<String>, pub reason: Option<String>, pub body: Option<Body> }`. `Debug`, `Clone`, `PartialEq`.
 * `method` and `pattern` are what the host matches. `id` is `<route id>.<METHOD>`.
 * `input` names the type the body's input is checked against.
 * A row without a body is a declaration Rust must answer.
@@ -219,7 +218,7 @@ A request the host answers with a value instead of a document.
 
 A module lowered to a render tree.
 
-* `pub struct ComponentEntry { pub module: String, pub body: Component, pub head: Vec<HeadRow> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct ComponentEntry { pub module: String, pub body: Component, pub head: Vec<HeadRow> }`. `Debug`, `Clone`, `PartialEq`.
 * `body` is a `snapfire_fsr_ir::Component`. `body.owner` says what renders it in the browser and is written `(owner <word>)` first among the component's sections.
 * `head` is the head elements a page rendering the module carries, including those of every component it places. Absent from the file when empty.
 * In the s-expression form each head row is `(head <tag> "<name>" "<value>" ...)` after the component's sections.
@@ -228,13 +227,13 @@ A module lowered to a render tree.
 
 One head element.
 
-* `pub struct HeadRow { pub tag: String, pub attrs: Vec<(String, String)> }`: a tag and its attributes in the order written. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub struct HeadRow { pub tag: String, pub attrs: Vec<(String, String)> }`: a tag and its attributes in the order written. `Debug`, `Clone`, `PartialEq`, `Eq`.
 
 ### ClientEntry
 
 A module the build read and could not lower. The browser renders it.
 
-* `pub struct ClientEntry { pub module: String, pub at: String, pub message: String, pub hint: Option<String> }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub struct ClientEntry { pub module: String, pub at: String, pub message: String, pub hint: Option<String> }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
 * `at` is the `file:line:column` of the construct that decided it. It is the file alone when the module did not parse.
 * `message` is what the build said about it. `hint` is what it suggested, when it did.
 * In the s-expression form each is `(client <module> "<at>" "<message>")`, with the hint as a fourth string when there is one.
@@ -243,14 +242,14 @@ A module the build read and could not lower. The browser renders it.
 
 Head rows a module carries whatever renders it, such as a route directory's `opengraph-image` and `twitter-image`.
 
-* `pub struct ModuleHead { pub module: String, pub head: Vec<HeadRow> }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub struct ModuleHead { pub module: String, pub head: Vec<HeadRow> }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
 * In the s-expression form each is `(module-head <module> (head <tag> "<name>" "<value>" ...) ...)`.
 
 ### ModuleSheets
 
 The stylesheets a page rendering a layout, page, fallback or error module links.
 
-* `pub struct ModuleSheets { pub module: String, pub sheets: Vec<String> }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub struct ModuleSheets { pub module: String, pub sheets: Vec<String> }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
 * Each sheet is a path under the application's build output. It is a file the module reaches and imports for its effect. It can also be the sheet compiled beside a Vue or Svelte component the module reaches, such as `Card.vue.css`.
 * In the s-expression form each is `(module-sheets <module> "<path>" ...)`.
 
@@ -258,7 +257,7 @@ The stylesheets a page rendering a layout, page, fallback or error module links.
 
 A generated card image for one page.
 
-* `pub struct ImageEntry { pub pattern: String, pub module: String, pub source: Option<String>, pub width: u32, pub height: u32, pub content_type: String, pub page: String, pub card: String, pub hash: String, pub alt: Option<String>, pub images: Option<Body> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct ImageEntry { pub pattern: String, pub module: String, pub source: Option<String>, pub width: u32, pub height: u32, pub content_type: String, pub page: String, pub card: String, pub hash: String, pub alt: Option<String>, pub images: Option<Body> }`. `Debug`, `Clone`, `PartialEq`.
 * `pattern`: the page's pattern followed by `/<stem>.png` or `/<stem>.jpg`. With `images` set it ends `/<stem>/{__image}` instead.
 * `module`: the component that draws the image.
 * `source`: the data source whose data are its props. That is the image's own loader, else the page's or the layout's beside the image.
@@ -275,7 +274,7 @@ A generated card image for one page.
 
 A layout's or a page's `export const theme`.
 
-* `pub struct ThemeEntry { pub module: String, pub name: String, pub force: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub struct ThemeEntry { pub module: String, pub name: String, pub force: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
 * Down a route's `content` chain the deepest row wins. A forced row keeps every level below it. Of two forced rows the outer one wins.
 * `force` is written only when true.
 * In the s-expression form each is `(theme-of <module> "<name>")`, with `force` after the name when set. The `theme.ts` body is `(theme <stmt> ...)`.
@@ -284,7 +283,7 @@ A layout's or a page's `export const theme`.
 
 A store key the browser's `derive` computes and the keys it reads.
 
-* `pub struct DeriveEntry { pub key: String, pub sources: Vec<String>, pub body: Option<Expr>, pub at: Option<String>, pub why: Option<String> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct DeriveEntry { pub key: String, pub sources: Vec<String>, pub body: Option<Expr>, pub at: Option<String>, pub why: Option<String> }`. `Debug`, `Clone`, `PartialEq`.
 * `body` is the lowered compute, which reads each source key as `Expr::Store`. A host computes the key from it after the seeds merge.
 * `body` is `None` for a derive only the browser runs. `at` is then its `file:line:column` and `why` what kept it in the browser.
 * A host does not render a value for a browser-only key and holds the components that read it.

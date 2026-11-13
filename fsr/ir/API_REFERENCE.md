@@ -31,12 +31,16 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`body_reads_ambient`](#body_reads_ambient)
   * [`body_params_read`](#body_params_read)
   * [`media_sources`](#media_sources)
+  * [`read_by_host`](#read_by_host)
   * [`head_scripts`](#head_scripts)
   * [`HeadScript`](#headscript)
 * [3. The S-Expression Form](#3-the-s-expression-form)
   * [`Sx`](#sx)
   * [`parse`](#parse)
+  * [`forms`](#forms)
+  * [`Forms`](#forms-1)
   * [`print`](#print)
+  * [`read_all`](#read_all)
   * [`expr_to_sx`](#expr_to_sx)
   * [`tmpl_to_sx`](#tmpl_to_sx)
   * [`stmt_to_sx`](#stmt_to_sx)
@@ -54,6 +58,7 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`Frame`](#frame)
 * [5. Rendering](#5-rendering)
   * [`Components`](#components)
+  * [`bake_static_markup`](#bake_static_markup)
   * [`Rendered`](#rendered)
   * [`RenderedIsland`](#renderedisland)
   * [`RenderedPlace`](#renderedplace)
@@ -131,7 +136,7 @@ Every enum in this section is serialized externally tagged in `snake_case` unles
 
 ### Stmt
 
-One statement. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+One statement. `Debug`, `Clone`, `PartialEq`.
 
 * `Let { name: String, expr: Expr }`: binds `name` for the rest of the enclosing block.
 * `Set { name: String, expr: Expr }`: gives the nearest binding of `name` a new value. A name nothing has bound is `Internal`.
@@ -157,7 +162,7 @@ One statement. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
 
 ### Expr
 
-One expression. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+One expression. `Debug`, `Clone`, `PartialEq`.
 
 Request reads, each described in [Reads](#reads):
 
@@ -248,14 +253,14 @@ Queries:
 
 ### Builtin
 
-The pure functions a body may call by name. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`, `#[non_exhaustive]`.
+The pure functions a body may call by name. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
 
 * `pub enum Builtin { Round, Floor, Ceil, Abs, Min, Max, ToFixed, Repeat, Join, Trim, Upper, Lower, Includes, StartsWith, EndsWith, Split, Replace, EncodeUriComponent, DecodeUriComponent, LocaleNumber, Range, Omit, Slice, At, IndexOf, Concat, Reverse, PadStart, PadEnd, Substring, Json, JsonParse, Pow, Sqrt, Trunc, Sign, MinOf, MaxOf, DateMs, DatePart, IsoString, FromEntries, Unique, HasKey, ClassNames, TypeOf, IsArray, IsError, WriteBack, Log, LogOf, Throw, ComponentRef, IsElement, CloneElement, FormEncode, FormGet, FormHas, FormGetAll, FormEntries, ClassOf, CallMethod, GetMember, FormSet, FormAppend, FormDelete, UrlParse, Response, ResponseJson, ResponseRedirect, RedirectTo, RequestNew, ResponseMember, ResponseHeaderGet, ResponseHeaderSet, Uint8Array, UrlPart, UrlSet, RegexTest, Match, MatchAll, Search, ReplaceAll, Checked, LooseMatch, LooseEq, HeapOn, Overwrite, CopyDeep, MapKey, MapOf, AsMap, AsSet, AsError, Is, UrlTry, SymbolKeys, SymbolNew, SymbolDescription, SymbolKeyFor, RegExpEscape, TypedNew, TypedLike, TypedField, AsOpaque, IsNaN, IsNullish, ParseInt, ParseFloat, Substr, IsWellFormed, ToWellFormed, Exec, UtcString, EncodeUri, DecodeUri, SameValue, FromCharCode, FromCodePoint, DateUtc, ToPrecision, ToExponential, Normalize, ToSpliced, ArrayWith, Fill, CopyWithin, Iterate, Spread, Splice, ExecFrom, TestFrom, Tagged, TaggedPayload, IsTagged, ElementOf, ViewGet, ViewSet, Segments, Settle, LastIndexOf, CharAt, CharCodeAt, Math, CodePointAt, Radix, Graphemes, SetAt, Emit }`
 * `pub fn atom(self) -> &'static str`: the builtin's name in the plan, `from-char-code` for `FromCharCode`.
 
 ### Entry
 
-One member of an object literal, an array literal or an element's attributes. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+One member of an object literal, an array literal or an element's attributes. `Debug`, `Clone`, `PartialEq`.
 
 * `Field(String, Expr)`: an object member.
 * `Baked(String)`: attributes already printed, ` name="value"` text written as it stands. The plan spells it `(! "…")`.
@@ -265,12 +270,11 @@ One member of an object literal, an array literal or an element's attributes. `D
 
 ### Lit
 
-* `pub enum Lit { Null, Undefined, Bool(bool), Int(i128), Float(f64), Str(String) }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
-* `Int` serializes as a JSON number. A value outside `i64` and `u64` fails to serialize without serde_json's `arbitrary_precision` feature.
+* `pub enum Lit { Null, Undefined, Bool(bool), Int(i128), Float(f64), Str(String) }`. `Debug`, `Clone`, `PartialEq`.
 
 ### ArithOp
 
-* `pub enum ArithOp { Add, Sub, Mul, Div, Rem, Pow, Quot, BitAnd, BitOr, BitXor, Shl, Shr, UShr }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub enum ArithOp { Add, Sub, Mul, Div, Rem, Pow, Quot, BitAnd, BitOr, BitXor, Shl, Shr, UShr }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 * `Div`: two `Int`s give an `Int` when the division is exact and an `F64` otherwise. Dividing by zero gives an infinity or `NaN`.
 * `Pow`: `**`. An `Int` power of two `Int`s is computed as a `bigint` computes it.
 * `Quot`: `bigint` division. It truncates toward zero and fails on zero. The plan spells it `quot`.
@@ -280,19 +284,19 @@ One member of an object literal, an array literal or an element's attributes. `D
 
 ### CompareOp
 
-* `pub enum CompareOp { Eq, Ne, Lt, Le, Gt, Ge }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub enum CompareOp { Eq, Ne, Lt, Le, Gt, Ge }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 
 ### LogicOp
 
-* `pub enum LogicOp { And, Or }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub enum LogicOp { And, Or }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 
 ### Tmpl
 
-A translated component's tree. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+A translated component's tree. `Debug`, `Clone`, `PartialEq`.
 
 * `Text(String)`
 * `Expr(Expr)`
-* `Element { tag: String, attrs: Vec<Entry>, children: Vec<Tmpl> }`: attributes are `Entry::Field` in HTML spelling or `Entry::Spread` of a map in React's spelling, later entries winning. `attrs` and `children` are omitted from JSON when empty.
+* `Element { tag: String, attrs: Vec<Entry>, children: Vec<Tmpl> }`: attributes are `Entry::Field` in HTML spelling or `Entry::Spread` of a map in React's spelling, later entries winning.
 * `Fragment(Vec<Tmpl>)`
 * `If { cond: Expr, then: Box<Tmpl>, else: Option<Box<Tmpl>> }`
 * `For { over: Expr, params: Vec<String>, body: Box<Tmpl> }`
@@ -315,12 +319,11 @@ A translated component's tree. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Dese
 
 A translated component: `let`s run once with `$props` bound, then the tree.
 
-* `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub stores: Vec<(String, String)>, pub handlers: Vec<Handler>, pub owner: Owner, pub shadow: Option<ShadowRoot>, pub scope: Option<ScopedStyle> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub stores: Vec<(String, String)>, pub handlers: Vec<Handler>, pub owner: Owner, pub shadow: Option<ShadowRoot>, pub scope: Option<ScopedStyle> }`. `Debug`, `Clone`, `PartialEq`.
 * `state`: the body `let`s the browser can change, the `useState` and `useStore` bindings in order.
-* `stores`: the `useStore` bindings among `state`, each with the store key it reads. The plan writes `(stores (count "cart/count") ...)` and JSON `"stores": [["count", "cart/count"]]`.
+* `stores`: the `useStore` bindings among `state`, each with the store key it reads. The plan writes `(stores (count "cart/count") ...)`.
 * `handlers`: the component's event handlers, for an island in server mode.
-* `owner`: what renders the component in the browser. The plan writes `(owner fsr)`, `(owner react)`, `(owner vue)` or `(owner svelte)` and JSON `"owner": "fsr"`.
-* In JSON, a component with neither `owner` nor `hydrate` reads as `React`. `"hydrate": false` reads as `Fsr`, `true` and `"tree"` as `React` and `"vue"` as `Vue`.
+* `owner`: what renders the component in the browser. The plan writes `(owner fsr)`, `(owner react)`, `(owner vue)` or `(owner svelte)`.
 * `shadow`: the shadow root an element template declares, read by `ShadowRoot::take`. `None` for every other component.
 * `scope`: a Vue component's scoped style. `None` for every other component.
 * `new(owner: Owner, body: Body, render: Tmpl) -> Self`: no state, stores, handlers, shadow root or scope.
@@ -331,15 +334,15 @@ A translated component: `let`s run once with `$props` bound, then the tree.
 
 ### Handler
 
-* `pub struct Handler { pub event: String, pub body: Body }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
+* `pub struct Handler { pub event: String, pub body: Body }`. `Debug`, `Clone`, `PartialEq`.
 * The body runs with `$props`, `$state` and `$event` bound after the component's `let`s. It returns an object whose keys are the state names it sets.
 * An element binds a handler through an attribute `$on:<event>` holding its index.
 
 ### Owner
 
-What renders a component in the browser. Lowercase in JSON.
+What renders a component in the browser.
 
-* `pub enum Owner { Fsr, React, Vue, Svelte }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub enum Owner { Fsr, React, Vue, Svelte }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
 * `Fsr`: the server renders it and nothing renders it again.
 * `React`: a TSX component the React adapter hydrates.
 * `Vue`: a `.vue` file the Vue adapter hydrates.
@@ -352,17 +355,17 @@ What renders a component in the browser. Lowercase in JSON.
 
 The declarative shadow root the server writes around an element template.
 
-* `pub struct ShadowRoot { pub mode: ShadowMode, pub delegates_focus: bool, pub clonable: bool, pub serializable: bool }`. `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`. The default is an open root with no options.
+* `pub struct ShadowRoot { pub mode: ShadowMode, pub delegates_focus: bool, pub clonable: bool, pub serializable: bool }`. `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`. The default is an open root with no options.
 * `take(render: &mut Tmpl) -> Result<Option<ShadowRoot>, ShadowRootError>`: reads the root `<template>` of an element template as its shadow root and leaves that template's children as the render.
 * `take` treats as the root either the render itself or the only child of a root `Fragment`. `Ok(None)` when the root is anything else. A `<template shadowrootmode>` deeper in the tree is left alone.
 * `shadowrootmode` must be the literal string `open` or `closed`.
 * `shadowrootdelegatesfocus`, `shadowrootclonable` and `shadowrootserializable` must be literal booleans. A bare attribute is `true`.
 * `take` refuses any other attribute, a spread, a root `<template>` without `shadowrootmode` and a `<template shadowrootmode>` beside other root nodes or in a branch of a root `If`.
-* JSON is `{"mode": "closed", "delegates_focus": true}`, false options left out. The plan writes `(shadow closed delegatesfocus)` after `(owner ...)`, naming each option that is true.
+* The plan writes `(shadow closed delegatesfocus)` after `(owner ...)`, naming each option that is true.
 
 ### ShadowMode
 
-* `pub enum ShadowMode { Open, Closed }`. `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`. `Open` by default, lowercase in JSON.
+* `pub enum ShadowMode { Open, Closed }`. `Debug`, `Clone`, `Copy`, `Default`, `PartialEq`, `Eq`. `Open` by default.
 * `of(mode: &str) -> Option<ShadowMode>`: reads `open` or `closed`.
 * `as_str(self) -> &'static str`
 
@@ -370,11 +373,11 @@ The declarative shadow root the server writes around an element template.
 
 A Vue component's scoped style.
 
-* `pub struct ScopedStyle { pub id: String, pub slotted: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
+* `pub struct ScopedStyle { pub id: String, pub slotted: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`.
 * `id`: the `data-v-<hash>` attribute its rules select on. A `.vue` child placed in the component's slot content takes `id` on its root.
 * `slotted`: true when one of its rules is `:slotted()`.
 * `slotted_attr(&self) -> String`: `<id>-s`. With `slotted` set, the renderer writes it on every element of the content the component's slots render.
-* The plan writes `(scope "data-v-1a2b" slotted)` after `(owner ...)` and `(shadow ...)`, with `slotted` only when true. JSON is `"scope": {"id": "data-v-1a2b", "slotted": true}`, a false `slotted` left out.
+* The plan writes `(scope "data-v-1a2b" slotted)` after `(owner ...)` and `(shadow ...)`, with `slotted` only when true.
 
 ## 2. Tree Queries
 
@@ -417,6 +420,11 @@ Each takes a `&Tmpl` and answers a `Vec<String>` in the order written. A value c
 * `pub fn embed_players(tmpl: &Tmpl) -> Vec<String>`: the player URL of every `data-sf-embed` placeholder. For a computed id it is the URL's start.
 * `pub fn computed_embed_players(tmpl: &Tmpl) -> Vec<String>`: the start of the player URL of every embed placeholder whose id the render computes.
 
+### read_by_host
+
+* `pub fn ast::read_by_host(tag: &str, attrs: &[Entry]) -> bool`: true for `style`, `img`, `video`, `audio`, `source` and `track` and for an element carrying `data-sf-embed`, which the host reads out of a loaded plan.
+* `render::bake_static_markup` never prebuilds such an element.
+
 ### head_scripts
 
 * `pub fn head_scripts(body: &Body) -> Vec<HeadScript>`: every `{ tag: "script" }` object in a `meta` body.
@@ -448,9 +456,21 @@ Every `_to_sx` and `_from_sx` pair round-trips: `parse(print(to(x))) == to(x)` a
 * `\n`, `\r` and `\t` are those characters. Any other escape is the whole character after it, so `\é` is `é`.
 * A syntax error names its line.
 
+### forms
+
+* `pub fn forms(src: &str) -> Forms<'_>`: the top-level forms, read one at a time.
+
+### Forms
+
+* `pub struct Forms<'a>`: `Iterator<Item = Result<Sx, SexprError>>`. After an error it yields nothing more.
+
 ### print
 
 * `pub fn print(forms: &[Sx]) -> String`: one form per top-level line, wrapped at 100 columns and indented by two.
+
+### read_all
+
+* `pub fn read_all<T>(items: &[Sx], read: impl FnMut(&Sx) -> Result<T, SexprError>) -> Result<Vec<T>, SexprError>`: `read` over every item into a vector of exactly `items.len()`, stopping at the first error.
 
 ### expr_to_sx
 
@@ -621,7 +641,7 @@ How `Interpreter::run_with` runs a body. Root re-export.
 
 * `pub type NativeBody = fn(&mut Frame<'_>) -> Result<Value, Fail>`
 * `pub struct Native { pub source: &'static str, pub plan: u64, pub body: NativeBody }`: one entry of the `BODIES` list a build writes. `source` is the row it was written for and `plan` the `plan_hash` it was written from.
-* `plan_hash(body: &Body, consts: Option<&Consts>) -> u64`: xxh3 over the body and the module constants it can call.
+* `plan_hash(body: &Body, consts: Option<&Consts>) -> u64`: xxh3 over the body as plan text and each constant it reaches, directly or through another constant.
 * `emit(name: &str, body: &Body, consts: Option<&Consts>) -> Option<String>`: the source of `pub fn <name>(f: &mut <root>::Frame<'_>) -> Result<<root>::Value, <root>::Fail>`, with `<root>` the path `snapfire_fsr_ir::native`.
 * `emit_or_why(name: &str, body: &Body, consts: Option<&Consts>) -> Result<String, String>`: the same. The `Err` names the first statement or expression not written.
 * `emit_in(root: &str, name: &str, body: &Body, consts: Option<&Consts>) -> Result<String, String>`: the same, written against a re-export of this module at `root`, such as `snapfire_fsr_host::bodies`.
@@ -658,6 +678,12 @@ The module `snapfire_fsr_ir::render`.
 ### Components
 
 * `pub type Components = HashMap<String, Arc<Component>>`: translated components by module id.
+
+### bake_static_markup
+
+* `pub fn bake_static_markup(component: &mut Component)`: the render with its literal markup as `Tmpl::Marker` nodes. It renders byte for byte as before under every set of markup rules.
+* An element is prebuilt when its attributes are literal and every set of markup rules writes its open tag alike. Text is prebuilt when every set of rules escapes it alike and it sits between two prebuilt pieces.
+* Left as nodes: a component's root element, the children a component or an island is given, `svg`, `foreignObject`, `noscript`, a tag `baked_open` refuses and every element `ast::read_by_host` answers.
 
 ### Rendered
 
