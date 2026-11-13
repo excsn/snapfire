@@ -699,39 +699,55 @@ impl AppBuilder {
 
   /// Every lowered row of `parsed` beside the ones this builder holds.
   fn add_rows(&mut self, mut parsed: snapfire_fsr_plan::Manifest) {
+    use snapfire_fsr_plan::RowOwner;
     let consts = (!parsed.consts.is_empty()).then_some(&parsed.consts);
     let table = consts.map(snapfire_fsr_ir::native::ConstHashes::new);
-    let prepared = |body: &Option<snapfire_fsr_ir::Body>| body.clone().map(|body| snapfire_fsr_ir::PreparedBody::with_consts(body, table.as_ref()));
-    self.declared_actions.extend(parsed.action_ids());
-    self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.body).map(|body| (row.id.clone(), body))));
-    self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.meta).map(|meta| (row.id.clone(), meta))));
-    self.lowered_stores.extend(
-      parsed
-        .lowered_sources()
-        .filter(|row| row.store.is_some() || row.defaults.is_some())
-        .map(|row| (row.id.clone(), prepared(&row.store), prepared(&row.defaults), row.store_keys.clone())),
-    );
-    self.island_reads.extend(parsed.reads.clone());
-    self.derives.extend(parsed.derives.iter().cloned());
-    self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.paths).map(|paths| (row.id.clone(), paths))));
-    self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| prepared(&row.body).map(|body| (row.id.clone(), row.input.clone(), body))));
+    let prepared = |body: Option<snapfire_fsr_ir::Body>| body.map(|body| snapfire_fsr_ir::PreparedBody::with_consts(body, table.as_ref()));
+    self.declared_actions.extend(parsed.actions.iter().map(|row| row.id.clone()));
+    for row in parsed.sources.iter_mut().filter(|row| row.owner == RowOwner::Lowered) {
+      if let Some(body) = prepared(row.body.take()) {
+        self.lowered_sources.push((row.id.clone(), body));
+      }
+      if let Some(meta) = prepared(row.meta.take()) {
+        self.lowered_metas.push((row.id.clone(), meta));
+      }
+      if row.store.is_some() || row.defaults.is_some() {
+        self.lowered_stores.push((row.id.clone(), prepared(row.store.take()), prepared(row.defaults.take()), row.store_keys.take()));
+      }
+      if let Some(paths) = prepared(row.paths.take()) {
+        self.lowered_paths.push((row.id.clone(), paths));
+      }
+    }
+    self.island_reads.extend(std::mem::take(&mut parsed.reads));
+    self.derives.append(&mut parsed.derives);
+    for row in parsed.actions.iter_mut().filter(|row| row.owner == RowOwner::Lowered) {
+      if let Some(body) = prepared(row.body.take()) {
+        self.lowered_actions.push((row.id.clone(), row.input.clone(), body));
+      }
+    }
     let components = std::mem::take(&mut parsed.components);
     let component_heads: Vec<_> = components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())).collect();
     self.lowered_components.extend(components.into_iter().map(|row| (row.module, row.body)));
     self.lowered_heads.extend(component_heads);
-    self.lowered_heads.extend(parsed.heads.iter().map(|row| (row.module.clone(), row.head.clone())));
-    self.images.extend(parsed.images.iter().map(|entry| (entry.clone(), prepared(&entry.images))));
-    self.clients.extend(parsed.clients.iter().cloned());
-    if !parsed.consts.is_empty() {
-      let mut merged = self.consts.as_deref().cloned().unwrap_or_default();
-      merged.extend(parsed.consts.iter().map(|(k, v)| (k.clone(), v.clone())));
-      self.consts = Some(Arc::new(merged));
-    }
-    for row in &parsed.handlers {
-      match &row.body {
-        Some(body) => self.lowered_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone(), row.input.clone(), snapfire_fsr_ir::PreparedBody::with_consts(body.clone(), table.as_ref()))),
-        None => self.declared_handlers.push((row.id.clone(), row.method.clone(), row.pattern.clone())),
+    self.lowered_heads.extend(parsed.heads.drain(..).map(|row| (row.module, row.head)));
+    self.images.extend(parsed.images.iter().map(|entry| (entry.clone(), prepared(entry.images.clone()))));
+    self.clients.append(&mut parsed.clients);
+    for row in parsed.handlers.drain(..) {
+      match row.body {
+        Some(body) => self.lowered_handlers.push((row.id, row.method, row.pattern, row.input, snapfire_fsr_ir::PreparedBody::with_consts(body, table.as_ref()))),
+        None => self.declared_handlers.push((row.id, row.method, row.pattern)),
       }
+    }
+    drop(table);
+    if !parsed.consts.is_empty() {
+      let consts = std::mem::take(&mut parsed.consts);
+      self.consts = Some(match self.consts.take() {
+        None => Arc::new(consts),
+        Some(mut merged) => {
+          Arc::make_mut(&mut merged).extend(consts);
+          merged
+        }
+      });
     }
   }
 
