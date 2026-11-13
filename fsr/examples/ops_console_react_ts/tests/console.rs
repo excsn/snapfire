@@ -6,7 +6,7 @@ use futures::StreamExt;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::{Config, Host, RenderMode};
 use snapfire_fsr_runtime::{FailureKind, HttpResponse, SessionCell};
-use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_service::{MockTransport, Recording};
 use snapfire_fsr_session::MemorySessionStore;
 
 fn agent(id: i64, name: &str, region: &str, status: &str, queue: i64) -> Value {
@@ -37,9 +37,9 @@ fn job(id: i64, name: &str, seconds: i64) -> Value {
   Value::Map(map)
 }
 
-fn fleet() -> Arc<MockTransport> {
+fn fleet() -> Arc<Recording> {
   Arc::new(
-    MockTransport::new()
+    Recording::over(MockTransport::new()
       .returns("fleet.listAgents", Value::seq(vec![agent(1, "builder-eu-1", "eu", "up", 3), agent(3, "builder-us-1", "us", "down", 7)]))
       .returns("fleet.getAgent", agent(1, "builder-eu-1", "eu", "up", 3))
       .returns("fleet.listJobs", Value::seq(vec![job(11, "compile", 92)]))
@@ -47,7 +47,7 @@ fn fleet() -> Arc<MockTransport> {
       .returns("fleet.acknowledgeAlert", Value::seq(vec![alert(22, 1, "warn", "queue over 3")]))
       .returns("fleet.getVisits", visits(0))
       .returns("fleet.recordVisit", visits(1))
-      .returns("identity.authenticate", signed("alice", "admin")),
+      .returns("identity.authenticate", signed("alice", "admin"))),
   )
 }
 
@@ -70,7 +70,7 @@ fn signed(subject: &str, role: &str) -> Value {
 /// The stock host over the mocks. Sessions live in the identity service in
 /// `config/app.toml`; a canned transport cannot hold them, so these tests keep
 /// them in memory and `tests/identity.rs` drives the service itself.
-fn console(transport: Arc<MockTransport>) -> Host {
+fn console(transport: Arc<dyn snapfire_fsr_service::Transport>) -> Host {
   let store = Arc::new(MemorySessionStore::new(64));
   let mut config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
   if let Some(cache) = config.cache.as_mut() {

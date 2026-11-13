@@ -7,7 +7,7 @@ use shopping_react_ts::routes::about_plan;
 use snapfire_fsr_host::{Config, Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_core::{Value, ValueMap};
-use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_service::{MockTransport, Recording};
 
 fn product(id: i64, name: &str, price: i64, stock: i64) -> Value {
   let mut image = ValueMap::default();
@@ -66,7 +66,7 @@ fn storefront() -> snapfire_fsr_host::HostBuilder {
   Host::from_config(config).unwrap()
 }
 
-fn app_over(transport: Arc<MockTransport>) -> Host {
+fn app_over(transport: Arc<dyn snapfire_fsr_service::Transport>) -> Host {
   storefront()
     .route("/about", about_plan())
     .services_over(transport)
@@ -170,7 +170,7 @@ fn a_failing_call_degrades_to_the_error_component() {
 
 #[test]
 fn a_call_the_contract_rejects_never_reaches_the_backend() {
-  let transport = Arc::new(MockTransport::new().returns("shopping.getProduct", Value::Null).returns("inventory.getStock", stock(0)));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shopping.getProduct", Value::Null).returns("inventory.getStock", stock(0))));
   let app = app_over(transport.clone());
 
   let html = block_on(app.render_to_string("/product/notanumber", RenderMode::Html, SessionCell::default())).unwrap();
@@ -287,7 +287,7 @@ fn the_order_page_reads_the_placed_order_back() {
   order.insert("id".to_owned(), Value::int(5001i64));
   order.insert("total_cents".to_owned(), Value::int(4800i64));
   order.insert("lines".to_owned(), Value::seq(vec![Value::Map(line)]));
-  let transport = Arc::new(MockTransport::new().returns("shopping.getOrder", Value::Map(order)));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shopping.getOrder", Value::Map(order))));
   let app = app_over(transport.clone());
 
   let html = block_on(app.render_to_string("/order/5001", RenderMode::Html, SessionCell::default())).unwrap();
@@ -329,7 +329,7 @@ fn checkout_places_the_order_and_empties_the_cart() {
   order.insert("total_cents".to_owned(), Value::int(4800i64));
   order.insert("lines".to_owned(), Value::seq(vec![]));
 
-  let transport = Arc::new(MockTransport::new().returns("shopping.placeOrder", Value::Map(order)));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shopping.placeOrder", Value::Map(order))));
   let app = app_over(transport.clone());
   let session = SessionCell::default();
   hold(&session, 1, 2);
@@ -352,7 +352,7 @@ fn checkout_places_the_order_and_empties_the_cart() {
 fn checking_out_an_empty_cart_never_reaches_the_backend() {
   use snapfire_fsr_runtime::{FailureKind, SessionCell};
 
-  let transport = Arc::new(MockTransport::new());
+  let transport = Arc::new(Recording::over(MockTransport::new()));
   let app = app_over(transport.clone());
 
   let err = block_on(app.call_action(
@@ -526,10 +526,10 @@ fn the_layouts_store_seeds_the_cart_count_and_follows_the_session() {
 #[test]
 fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
   let transport = Arc::new(
-    MockTransport::new()
+    Recording::over(MockTransport::new()
       .returns("shopping.listProducts", Value::seq(vec![product(1, "Filament", 2400, 12)]))
       .returns("shopping.getProduct", product(1, "Nozzle", 1200, 3))
-      .returns("inventory.getStock", stock(1)),
+      .returns("inventory.getStock", stock(1))),
   );
   let app = app_over(transport.clone());
   let render = |path: &str| block_on(app.render_to_string(path, RenderMode::Html, SessionCell::default())).unwrap();
@@ -585,7 +585,7 @@ fn an_action_input_the_schema_rejects_never_reaches_the_body() {
 
 #[test]
 fn the_catalog_filters_by_the_query_string() {
-  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::seq(vec![])));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shopping.listProducts", Value::seq(vec![]))));
   let app = app_over(transport.clone());
 
   let catalog_calls = || transport.calls().into_iter().filter(|(_, args, _)| args.get("tag") != Some(&Value::str("snack"))).collect::<Vec<_>>();
@@ -632,13 +632,13 @@ fn a_soft_navigation_from_a_page_under_the_layout_opens_the_product_in_its_modal
 
 #[test]
 fn the_promo_slot_renders_beside_the_page_from_its_own_loader() {
-  let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", Value::seq(vec![{
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shopping.listProducts", Value::seq(vec![{
     let mut snack = product(8, "Crackers", 395, 3);
     if let Value::Map(map) = &mut snack {
       map.insert("tags".to_owned(), Value::seq(vec![Value::str("food"), Value::str("snack")]));
     }
     snack
-  }])));
+  }]))));
   let host = app_over(transport.clone());
   let html = block_on(host.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(html.contains("<sf-s data-sf-name=\"promo\"><!--sf-g:routes/slots/promo/page.tsx#default-->"), "the slot's segment sits in its region: {html}");

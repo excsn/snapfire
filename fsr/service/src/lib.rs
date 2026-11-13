@@ -42,4 +42,4 @@ pub use interceptor::{
 };
 pub use registry::{Services, ServicesBuilder};
 pub use rust::{Caller, ContractType, DeclaredService};
-pub use transport::{LocalTransport, MockTransport, Transport};
+pub use transport::{LocalTransport, MockTransport, Recorded, Recording, Transport};

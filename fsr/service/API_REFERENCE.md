@@ -36,6 +36,7 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [`Transport`](#transport)
   * [`LocalTransport`](#localtransport)
   * [`MockTransport`](#mocktransport)
+  * [`Recording`](#recording)
   * [`transport::unavailable`](#transportunavailable)
   * [`TransportOptions`](#transportoptions)
   * [`TransportError`](#transporterror)
@@ -429,14 +430,22 @@ In-process implementations, keyed `service.method`. `Default`.
 
 ### `MockTransport`
 
-Canned responses and a record of every call. `Default`.
+Canned responses. It keeps nothing per call, so a host serving `transport = "mock"` holds the same memory however many requests it answers. `Default`.
 
 * `pub fn new() -> Self`
 * `pub fn returns(self, path: impl Into<String>, value: Value) -> Self`
 * `pub fn fails(self, path: impl Into<String>, kind: FailureKind, message: impl Into<String>) -> Self`: `path` splits at the first `.` into the error's service and method.
-* `pub fn calls(&self) -> Vec<(String, ValueMap, ValueMap)>`: one `(path, args, metadata)` per call, in order.
+* A path with no canned response fails as `FailureKind::NotFound`.
+
+### `Recording`
+
+Any transport, with every call that reaches it kept in order. For tests: it keeps every call it sees.
+
+* `pub type Recorded = (String, ValueMap, ValueMap)`: `(path, args, metadata)` as the call reached the transport.
+* `pub fn over(inner: impl Transport + 'static) -> Self`: wraps `inner`, whose answer every call gets.
+* `pub fn calls(&self) -> Vec<Recorded>`: one per call, in order.
 * `pub fn last_metadata(&self, key: &str) -> Option<String>`: one string metadata entry of the most recent call.
-* A path with no canned response fails as `FailureKind::NotFound`. The call is recorded before the lookup.
+* Implements `Transport`. The call is recorded before `inner` answers it.
 
 ### `transport::unavailable`
 

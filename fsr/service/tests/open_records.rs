@@ -5,7 +5,7 @@ use parking_lot::Mutex;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 use snapfire_fsr_service::{
-  import, Call, Contract, Field, Freshness, Interceptor, Method, MockTransport, Next, Service, Services, Type,
+  import, Call, Contract, Field, Freshness, Interceptor, Method, MockTransport, Next, Recording, Service, Services, Type,
 };
 
 fn repo_document(closed: bool) -> String {
@@ -119,7 +119,7 @@ async fn an_answer_that_fails_the_contract_fails_the_call_for_every_interceptor_
       "github",
       Service::new().method("getRepo", Method::new(vec![Field::new("owner", Type::Str)], Type::named("Repo")).cached(Freshness::ttl("1m").shared())),
     );
-  let transport = Arc::new(MockTransport::new().returns("github.getRepo", github_answer()));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("github.getRepo", github_answer())));
   let outcomes = Arc::new(Outcomes::default());
   let services = Services::builder().contract(contract).intercept(outcomes.clone()).default_transport(transport.clone()).data_cache(10).build();
 

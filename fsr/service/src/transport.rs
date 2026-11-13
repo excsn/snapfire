@@ -56,18 +56,10 @@ impl Transport for LocalTransport {
   }
 }
 
-#[derive(Default)]
-struct Recorded {
-  calls: Vec<(String, ValueMap, ValueMap)>,
-}
-
-/// A transport is a block, so `mock` is a transport: the whole application
-/// runs against canned responses with no backend and no code change. It also
-/// records what the chain produced, which is how interceptors get tested.
+/// A transport is a block, so `mock` is a transport: the whole application runs against canned responses with no backend and no code change. It keeps nothing per call, so a host serving it holds the same memory however many requests it answers. Wrap it in [`Recording`] to see what the chain sent.
 #[derive(Default)]
 pub struct MockTransport {
   responses: IndexMap<String, Result<Value, ServiceError>>,
-  recorded: Mutex<Recorded>,
 }
 
 impl MockTransport {
@@ -87,24 +79,11 @@ impl MockTransport {
     self.responses.insert(path, Err(error));
     self
   }
-
-  pub fn calls(&self) -> Vec<(String, ValueMap, ValueMap)> {
-    self.recorded.lock().calls.clone()
-  }
-
-  pub fn last_metadata(&self, key: &str) -> Option<String> {
-    let calls = self.recorded.lock();
-    match calls.calls.last()?.2.get(key) {
-      Some(Value::Str(s)) => Some(s.to_string()),
-      _ => None,
-    }
-  }
 }
 
 impl Transport for MockTransport {
   fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
     let path = format!("{}.{}", call.service, call.method);
-    self.recorded.lock().calls.push((path.clone(), call.args.clone(), call.metadata.clone()));
     let response = match self.responses.get(&path) {
       Some(Ok(value)) => Ok(value.clone()),
       Some(Err(error)) => Err(error.clone()),
@@ -116,5 +95,39 @@ impl Transport for MockTransport {
       )),
     };
     Box::pin(ready(response))
+  }
+}
+
+/// One call as it reached the transport: `service.method`, its arguments and its metadata.
+pub type Recorded = (String, ValueMap, ValueMap);
+
+/// Any transport, with every call that reaches it kept in order: what the chain in front produced, after its interceptors ran. For tests, since it keeps every call it sees.
+pub struct Recording {
+  inner: Arc<dyn Transport>,
+  calls: Mutex<Vec<Recorded>>,
+}
+
+impl Recording {
+  pub fn over(inner: impl Transport + 'static) -> Self {
+    Self { inner: Arc::new(inner), calls: Mutex::new(Vec::new()) }
+  }
+
+  pub fn calls(&self) -> Vec<Recorded> {
+    self.calls.lock().clone()
+  }
+
+  /// The metadata value `key` the last call carried, when it is text.
+  pub fn last_metadata(&self, key: &str) -> Option<String> {
+    match self.calls.lock().last()?.2.get(key) {
+      Some(Value::Str(s)) => Some(s.to_string()),
+      _ => None,
+    }
+  }
+}
+
+impl Transport for Recording {
+  fn call(&self, call: Call) -> BoxFuture<'static, Result<Value, ServiceError>> {
+    self.calls.lock().push((format!("{}.{}", call.service, call.method), call.args.clone(), call.metadata.clone()));
+    self.inner.call(call)
   }
 }

@@ -1229,9 +1229,9 @@ let host = Host::from(".")?.shell(Arc::new(MyShell)).build()?;
 ```rust
 use snapfire_fsr_host::{Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
-use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_service::{MockTransport, Recording};
 
-let transport = Arc::new(MockTransport::new().returns("shopping.listProducts", products));
+let transport = Arc::new(Recording::over(MockTransport::new().returns("shopping.listProducts", products)));
 let host = Host::from(env!("CARGO_MANIFEST_DIR"))?.services_over(transport.clone()).build()?;
 
 let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await?;

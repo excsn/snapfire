@@ -25,7 +25,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 ## I want to call a service
 
 - **`snapfire_fsr_service::Services`**, the registry: contract, interceptor chain, one transport per service or a default. `bind` gives a request its handle.
-- **`HttpTransport`**, **`GrpcTransport`**, **`LocalTransport`**, **`MockTransport`**, the four transports: over the wire, over the wire in protobuf, in process by function, canned with a recording of every call.
+- **`HttpTransport`**, **`GrpcTransport`**, **`LocalTransport`**, **`MockTransport`**, the four transports: over the wire, over the wire in protobuf, in process by function and canned. **`Recording`** wraps any of them and keeps every call.
 - **`TraceInterceptor`**, **`IdentityInterceptor`**, **`CredentialInterceptor`**, the three that ship; `Interceptor` and `Next` to write another. `CredentialInterceptor::refreshing` with a **`Refresher`** renews an expired token before a call carries it.
 - **`Call`** and **`Credentials`**, what an interceptor sees, including the custody a body never does.
 
@@ -85,7 +85,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 ## I want to test
 
 - **`snapfire_fsr_lower::testing::lower_tests`**, a `*.test.ts` into steps; **`snapfire_fsr_cli::test::run`**, the replay.
-- **`MockTransport`** with `returns` and `calls`, for route tests over a host with no backend.
+- **`MockTransport`** with `returns`, wrapped in **`Recording`** for `calls`, for route tests over a host with no backend.
 - **`Host::render_to_string`**, **`Host::call_action`** and **`Host::handle`**, a route, an action or a whole request without a socket.
 
 ## I want the tools

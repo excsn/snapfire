@@ -6,7 +6,7 @@ use futures_util::future::BoxFuture;
 use parking_lot::Mutex;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, Identity, ServiceError};
-use snapfire_fsr_service::{Call, Contract, Field, Freshness, Method, MockTransport, NoCredentials, Service, Services, Transport, Type};
+use snapfire_fsr_service::{Call, Contract, Field, Freshness, Method, MockTransport, NoCredentials, Recording, Service, Services, Transport, Type};
 
 fn contract() -> Contract {
   Contract::new()
@@ -22,15 +22,15 @@ fn contract() -> Contract {
     .service("feed", Service::new().method("latest", Method::new(vec![], Type::Str).cached(Freshness::ttl("1s").stale("5s").shared())))
 }
 
-fn mock() -> Arc<MockTransport> {
+fn mock() -> Arc<Recording> {
   Arc::new(
-    MockTransport::new()
+    Recording::over(MockTransport::new()
       .returns("catalog.list", Value::seq(vec![Value::str("socks")]))
       .returns("catalog.mine", Value::seq(vec![Value::str("hat")]))
       .returns("catalog.secret", Value::str("s"))
       .returns("catalog.add", Value::Null)
       .returns("catalog.plain", Value::str("p"))
-      .returns("feed.latest", Value::str("now")),
+      .returns("feed.latest", Value::str("now"))),
   )
 }
 
@@ -46,7 +46,7 @@ fn bob() -> Option<Identity> {
   Some(Identity::new("bob".to_owned(), ValueMap::default()))
 }
 
-fn count(transport: &MockTransport, path: &str) -> usize {
+fn count(transport: &Recording, path: &str) -> usize {
   transport.calls().iter().filter(|(p, _, _)| p == path).count()
 }
 

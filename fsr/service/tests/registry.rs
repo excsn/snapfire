@@ -5,7 +5,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, Identity, RequestCtx, ServiceHandle};
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Field, IdentityInterceptor, LocalTransport, Method,
-  MockTransport, Services, TraceInterceptor, Type,
+  MockTransport, Recording, Services, TraceInterceptor, Type,
 };
 use snapfire_fsr_session::TokenCell;
 
@@ -54,7 +54,7 @@ fn an_unbound_handle_fails_rather_than_pretending() {
 
 #[test]
 fn the_contract_rejects_a_bad_call_before_the_transport_sees_it() {
-  let transport = Arc::new(MockTransport::new().returns("fleet.get", server("web-1", 0.5)));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("fleet.get", server("web-1", 0.5))));
   let services = Services::builder()
     .contract(contract())
     .default_transport(transport.clone())
@@ -86,7 +86,7 @@ fn a_backend_that_breaks_its_contract_is_an_internal_failure() {
 
 #[test]
 fn interceptors_attach_identity_and_the_token_without_application_code() {
-  let transport = Arc::new(MockTransport::new().returns("fleet.count", Value::Int(3)));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("fleet.count", Value::Int(3))));
   let services = Services::builder()
     .contract(contract())
     .intercept(Arc::new(TraceInterceptor::new()))
@@ -108,7 +108,7 @@ fn interceptors_attach_identity_and_the_token_without_application_code() {
 
 #[test]
 fn an_anonymous_request_attaches_neither() {
-  let transport = Arc::new(MockTransport::new().returns("fleet.count", Value::Int(3)));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("fleet.count", Value::Int(3))));
   let services = Services::builder()
     .contract(contract())
     .intercept(Arc::new(IdentityInterceptor::new()))
@@ -140,7 +140,7 @@ fn an_interceptor_can_short_circuit_the_chain() {
     }
   }
 
-  let transport = Arc::new(MockTransport::new().returns("fleet.count", Value::Int(3)));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("fleet.count", Value::Int(3))));
   let services = Services::builder()
     .contract(contract())
     .intercept(Arc::new(Deny))
@@ -155,7 +155,7 @@ fn an_interceptor_can_short_circuit_the_chain() {
 #[test]
 fn a_transport_is_per_service_with_a_fallback() {
   let fleet = Arc::new(MockTransport::new().returns("fleet.count", Value::Int(7)));
-  let fallback = Arc::new(MockTransport::new().returns("fleet.count", Value::Int(0)));
+  let fallback = Arc::new(Recording::over(MockTransport::new().returns("fleet.count", Value::Int(0))));
   let services = Services::builder()
     .contract(contract())
     .transport("fleet", fleet.clone())

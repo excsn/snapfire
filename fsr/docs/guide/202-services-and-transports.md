@@ -19,7 +19,7 @@ user_agent = "my-site"
 timeout = "5s"
 ```
 
-Two more transports exist for the cases where the network is not there. `LocalTransport` answers a service in process, method by method, which is how a Rust function can stand behind a name a body calls; an `impl` block marked `#[service]` is the same thing written once, the attribute deriving both the transport and the contract from the signatures. `MockTransport` answers with canned values and records every call, which the storefront's route tests run against, so an application can be tested with no backend at all. The registry treats all four transports the same way.
+Two more transports exist for the cases where the network is not there. `LocalTransport` answers a service in process, method by method, which is how a Rust function can stand behind a name a body calls; an `impl` block marked `#[service]` is the same thing written once, the attribute deriving both the transport and the contract from the signatures. `MockTransport` answers with canned values and keeps nothing per call, which the storefront's route tests run against, so an application can be tested with no backend at all. `Recording` wraps it or any other transport to keep every call that reaches it for a test to read. The registry treats all four transports the same way.
 
 ## The chain
 

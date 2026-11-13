@@ -8,7 +8,7 @@ use std::sync::Arc;
 use snapfire_fsr_core::Value;
 use snapfire_fsr_host::{Host, Loader, Mount, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
-use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_service::{MockTransport, Recording};
 
 fn dir(tag: &str) -> PathBuf {
   static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -78,10 +78,10 @@ fn shell() -> PathBuf {
 #[tokio::test]
 async fn a_drop_of_a_shared_tag_in_one_site_reaches_another_sites_cached_answer_and_a_prefixed_tag_does_not() {
   let transport = Arc::new(
-    MockTransport::new()
+    Recording::over(MockTransport::new()
       .returns("a:cat.list", Value::seq(vec![Value::str("socks")]))
       .returns("b:ledger.pay", Value::str("paid"))
-      .returns("b:ledger.touch", Value::str("touched")),
+      .returns("b:ledger.touch", Value::str("touched"))),
   );
   let a = site("a", A_PLAN, A_CONTRACT);
   let b = site("b", B_PLAN, B_CONTRACT);

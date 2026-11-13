@@ -919,13 +919,13 @@ use std::sync::Arc;
 
 use snapfire_fsr_core::Value;
 use snapfire_fsr_runtime::FailureKind;
-use snapfire_fsr_service::{MockTransport, Services};
+use snapfire_fsr_service::{MockTransport, Recording, Services};
 
-let transport = Arc::new(
+let transport = Arc::new(Recording::over(
   MockTransport::new()
     .returns("fleet.count", Value::Int(3))
     .fails("fleet.add", FailureKind::Conflict, "already exists"),
-);
+));
 
 let services = Services::builder()
   .contract(contract())
@@ -940,7 +940,7 @@ assert_eq!(transport.last_metadata("x-sf-subject").as_deref(), Some("alice"));
 assert!(transport.calls().iter().any(|(path, _, _)| path == "fleet.count"));
 ```
 
-`calls` returns one `(path, args, metadata)` triple per call in order, which is how an interceptor gets tested without a backend. A path with no canned response fails with `FailureKind::NotFound`. Asserting `calls().is_empty()` is how you prove a rejected call or a short circuit never reached the wire.
+`MockTransport` answers and keeps nothing. `Recording` wraps it or any other transport and keeps what reached it: `calls` returns one `(path, args, metadata)` triple per call in order, which is how an interceptor gets tested without a backend. A path with no canned response fails with `FailureKind::NotFound`. Asserting `calls().is_empty()` is how you prove a rejected call or a short circuit never reached the wire.
 
 ## Wiring the Layer into an Application
 

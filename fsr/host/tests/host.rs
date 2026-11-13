@@ -11,7 +11,7 @@ use http_body_util::BodyExt;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::{Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
-use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_service::{MockTransport, Recording};
 use snapfire_fsr_test_internal::body_of;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -175,9 +175,9 @@ fn rand_suffix() -> u128 {
   nanos * 1000 + u128::from(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 1000)
 }
 
-fn host() -> (Arc<Host>, Arc<MockTransport>) {
+fn host() -> (Arc<Host>, Arc<Recording>) {
   let transport =
-    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
+    Arc::new(Recording::over(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")]))));
   let host = Host::from(app_dir().join("app.toml"))
     .unwrap()
     .services_over(transport.clone())
@@ -1979,8 +1979,8 @@ name = "bob"
 password = "builder"
 "#;
 
-fn identified() -> (Arc<Host>, Arc<MockTransport>) {
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+fn identified() -> (Arc<Host>, Arc<Recording>) {
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")]))));
   let host = Host::from(identified_dir(USERS).join("app.toml"))
     .unwrap()
     .services_over(transport.clone())
@@ -2292,7 +2292,7 @@ fn formed() -> Arc<Host> {
   formed_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")]))))
 }
 
-fn formed_over(transport: Arc<MockTransport>) -> Arc<Host> {
+fn formed_over(transport: Arc<dyn snapfire_fsr_service::Transport>) -> Arc<Host> {
   let host = Host::from(formed_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -2887,9 +2887,9 @@ base_url = "http://127.0.0.1:1"
 #[tokio::test]
 async fn a_cached_method_answers_renders_from_memory_until_a_write_or_a_drop() {
   let transport = Arc::new(
-    MockTransport::new()
+    Recording::over(MockTransport::new()
       .returns("shop.list", Value::seq(vec![Value::str("socks")]))
-      .returns("shop.add", Value::Null),
+      .returns("shop.add", Value::Null)),
   );
   let host = Host::from(cached_dir().join("app.toml"))
     .unwrap()
@@ -3125,7 +3125,7 @@ fn site_dir() -> PathBuf {
 #[tokio::test]
 async fn a_site_serves_standalone_under_its_prefix_with_its_ids_prefixed() {
   let dir = site_dir();
-  let transport = Arc::new(MockTransport::new().returns("shop:shop.list", Value::seq(vec![Value::str("a")])));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shop:shop.list", Value::seq(vec![Value::str("a")]))));
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .services_over(transport.clone())
@@ -4235,7 +4235,7 @@ async fn a_warmed_load_answers_a_route_the_layout_keeps_dynamic() {
   assert_eq!(warmed["console.page"]["rows"][0], serde_json::json!("a"));
   assert!(warmed.get("console.layout").is_none(), "{warmed}");
 
-  let moved = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("moved on")])));
+  let moved = Arc::new(Recording::over(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("moved on")]))));
   let warm = Host::from(production(app_dir()).join("app.toml"))
     .unwrap()
     .services_over(moved.clone())
@@ -5135,7 +5135,7 @@ async fn a_method_a_route_does_not_export_is_answered_405_with_the_ones_it_does(
 
 #[tokio::test]
 async fn work_after_the_response_runs_once_its_body_is_read() {
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new())));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shop.list", Value::seq(Vec::new()))));
   let host = formed_over(transport.clone());
   let response = host.handle(Request::post("/later").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
@@ -7982,7 +7982,7 @@ async fn a_cookie_only_session_signs_in_with_the_record_sealed_in_the_cookie() {
   let dir = identified_dir(USERS);
   let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   std::fs::write(dir.join("app.toml"), toml.replace("ttl = \"10m\"", "ttl = \"10m\"\nstore = \"cookie\"")).unwrap();
-  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let transport = Arc::new(Recording::over(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")]))));
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(transport.clone()).build().unwrap();
 
   let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
@@ -8195,7 +8195,7 @@ mod token_refresh {
 
   #[tokio::test]
   async fn a_loaders_call_carries_the_token_the_provider_renewed() {
-    let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+    let transport = Arc::new(Recording::over(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")]))));
     let host = Host::from(identified_dir(USERS).join("app.toml")).unwrap().services_over(transport.clone()).identity(Arc::new(Expiring)).build().unwrap();
     let response = host.handle(Request::get("/auth/login?return_to=/who").body(Bytes::new()).unwrap()).await;
     let cookie = cookie_of(&response);
