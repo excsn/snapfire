@@ -16,7 +16,7 @@ pub fn print(forms: &[Sx]) -> String {
   out
 }
 
-pub(super) fn inline(form: &Sx) -> String {
+pub(crate) fn inline(form: &Sx) -> String {
   let mut out = String::new();
   write_inline(&mut out, form);
   out
@@ -50,10 +50,27 @@ pub(super) fn write_inline(out: &mut String, form: &Sx) {
   }
 }
 
+/// Whether `form` written on one line takes at most `budget` bytes. It stops
+/// as soon as the line is too long, so checking a large form costs no more
+/// than the budget.
+fn fits(form: &Sx, budget: &mut usize) -> bool {
+  let take = |n: usize, budget: &mut usize| match budget.checked_sub(n) {
+    Some(left) => {
+      *budget = left;
+      true
+    }
+    None => false,
+  };
+  match form {
+    Sx::Sym(_) | Sx::Str(_) => take(inline(form).len(), budget),
+    Sx::Interp(inner) => take(2, budget) && fits(inner, budget),
+    Sx::List(items) => take(2 + items.len().saturating_sub(1), budget) && items.iter().all(|item| fits(item, budget)),
+  }
+}
+
 pub(super) fn write_form(out: &mut String, form: &Sx, indent: usize) {
-  let flat = inline(form);
-  if indent + flat.len() <= WIDTH || matches!(form, Sx::Sym(_) | Sx::Str(_)) {
-    out.push_str(&flat);
+  if matches!(form, Sx::Sym(_) | Sx::Str(_)) || fits(form, &mut WIDTH.saturating_sub(indent)) {
+    write_inline(out, form);
     return;
   }
   match form {
@@ -69,9 +86,9 @@ pub(super) fn write_form(out: &mut String, form: &Sx, indent: usize) {
       let mut first = 1;
       if let Some(head) = items.first() {
         write_inline(out, head);
-        if let Some(next) = items.get(1) {
+        if let Some(next) = items.get(1).filter(|next| !matches!(next, Sx::List(_))) {
           let flat = inline(next);
-          if flat.len() <= 32 && !matches!(next, Sx::List(_)) {
+          if flat.len() <= 32 {
             out.push(' ');
             out.push_str(&flat);
             first = 2;
@@ -88,6 +105,6 @@ pub(super) fn write_form(out: &mut String, form: &Sx, indent: usize) {
       }
       out.push(')');
     }
-    _ => out.push_str(&flat),
+    _ => write_inline(out, form),
   }
 }
