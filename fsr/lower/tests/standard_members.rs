@@ -36,7 +36,7 @@ fn in_loader(body: &str) -> Answer {
 }
 
 fn in_component(body: &str, row: usize) -> Answer {
-  let dir = std::env::temp_dir().join(format!("standard_members_{}_{row}", std::process::id()));
+  let dir = snapfire_fsr_test_internal::scratch_root().join(format!("standard_members_{}_{row}", std::process::id()));
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), format!("export default function Page() {{\n  {body}\n  return <p>{{String(JSON.stringify(v))}}</p>;\n}}\n")).unwrap();
