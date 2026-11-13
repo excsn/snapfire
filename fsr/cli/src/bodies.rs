@@ -93,14 +93,12 @@ pub fn write(app: &Path, plan: &str, production: bool) -> Result<Option<PathBuf>
 mod tests {
   use super::*;
 
-  const PLAN: &str = r#"{
-    "version": 2,
-    "routes": [],
-    "sources": [
-      { "id": "catalog", "owner": "lowered", "module": "app/routes/index/page.loader.ts",
-        "body": [ { "return": { "object": [ { "field": [ "products", { "array": [] } ] } ] } } ] }
-    ]
-  }"#;
+  const PLAN: &str = r#"(plan 2)
+(source catalog
+  lowered
+  (module app/routes/index/page.loader.ts)
+  (body (ret (obj (products (arr))))))
+"#;
 
   #[test]
   fn a_production_build_writes_each_loader_with_the_plan_it_was_written_from() {
@@ -111,14 +109,9 @@ mod tests {
     assert!(text.contains(&format!("Native {{ source: \"catalog\", plan: {plan}, body: body_0 }}")), "{text}");
   }
 
-  const HANDLER_PLAN: &str = r#"{
-    "version": 2,
-    "routes": [],
-    "handlers": [
-      { "id": "api.products.GET", "method": "GET", "pattern": "/api/products", "owner": "lowered",
-        "body": [ { "return": { "object": [ { "field": [ "products", { "array": [] } ] } ] } } ] }
-    ]
-  }"#;
+  const HANDLER_PLAN: &str = r#"(plan 2)
+(handler api.products.GET GET /api/products lowered (body (ret (obj (products (arr))))))
+"#;
 
   #[test]
   fn a_production_build_writes_each_route_handler_with_the_plan_it_was_written_from() {
@@ -129,32 +122,22 @@ mod tests {
     assert!(text.contains(&format!("Native {{ source: \"api.products.GET\", plan: {plan}, body: body_0 }}")), "{text}");
   }
 
-  const EVERY_KIND: &str = r#"{
-    "version": 2,
-    "routes": [],
-    "sources": [
-      { "id": "catalog", "owner": "lowered", "module": "app/routes/index/page.loader.ts",
-        "body": [ { "return": { "object": [ { "field": [ "products", { "array": [] } ] } ] } } ],
-        "meta": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Catalog" } } ] } ] } } ],
-        "store": [ { "return": { "object": [ { "field": [ "cart", { "array": [] } ] } ] } } ],
-        "defaults": [ { "return": { "object": [ { "field": [ "theme", { "lit": { "str": "light" } } ] } ] } } ],
-        "paths": [ { "return": { "array": [] } } ] }
-    ],
-    "actions": [
-      { "id": "checkout", "owner": "lowered", "module": "app/routes/cart/actions.ts",
-        "body": [ { "return": { "lit": { "str": "order-1" } } } ] }
-    ],
-    "handlers": [
-      { "id": "api.products.GET", "method": "GET", "pattern": "/api/products", "owner": "lowered",
-        "body": [ { "return": { "lit": { "str": "products" } } } ] },
-      { "id": "api.ping.GET", "method": "GET", "pattern": "/api/ping", "owner": "lowered",
-        "body": [ { "return": { "lit": { "str": "products" } } } ] },
-      { "id": "api.ledger.GET", "method": "GET", "pattern": "/api/ledger", "owner": "lowered",
-        "body": [ { "return": { "call": { "service": "ledger", "method": "list", "args": [] } } } ] }
-    ],
-    "middleware": [ { "return": { "lit": { "str": "next" } } } ],
-    "theme": [ { "return": { "lit": { "str": "dark" } } } ]
-  }"#;
+  const EVERY_KIND: &str = r#"(plan 2)
+(middleware (ret "next"))
+(theme (ret "dark"))
+(source catalog
+  lowered
+  (module app/routes/index/page.loader.ts)
+  (body (ret (obj (products (arr)))))
+  (meta (ret (obj (title "Catalog"))))
+  (store (ret (obj (cart (arr)))))
+  (defaults (ret (obj (theme "light"))))
+  (paths (ret (arr))))
+(action checkout lowered (module app/routes/cart/actions.ts) (body (ret "order-1")))
+(handler api.products.GET GET /api/products lowered (body (ret "products")))
+(handler api.ping.GET GET /api/ping lowered (body (ret "products")))
+(handler api.ledger.GET GET /api/ledger lowered (body (ret (call ledger list))))
+"#;
 
   #[test]
   fn a_production_build_writes_every_kind_of_lowered_body() {

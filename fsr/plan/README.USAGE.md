@@ -57,7 +57,7 @@ fn main() -> Result<(), snapfire_fsr_plan::PlanError> {
 
 ## Reading a Plan File
 
-`from_text` reads a plan file in either form. Text that opens with `{` goes to `from_json` and anything else to `from_sexpr`, which reads the s-expressions `plan.sexp` holds. Both parse, check the version and refuse a `lowered` row with no body. Everything else is checked when the trees are built.
+`from_text` reads the s-expressions `plan.sexp` holds. It parses, checks the version and refuses a `lowered` row with no body. Everything else is checked when the trees are built.
 
 ```rust
 let text = std::fs::read_to_string("app/generated/plan.sexp")?;
@@ -201,17 +201,17 @@ A field a node does not have is left out.
 
 ## Format Versions
 
-`FORMAT_VERSION` is 7. Format 5 made every component carry its `head` rows and name its owner, such as `(owner fsr)` or `(owner vue)`. A component in an older file that names none reads as React's. Format 4 added a node's per-kind error modules and format 3 the `clients` rows, one per module the build could not lower, so a host can say at boot what the build said. Format 2 added the `sources` table and made actions rows. A format 1 file lists bare action ids that read as `rust` rows and has no sources. Every earlier format still reads.
+`FORMAT_VERSION` is 7. Format 5 made every component carry its `head` rows and name its owner, such as `(owner fsr)` or `(owner vue)`. A component in an older file that names none reads as React's. Format 4 added a node's per-kind error modules and format 3 the `clients` rows, one per module the build could not lower, so a host can say at boot what the build said. Format 2 added the `sources` table and made actions rows. Every earlier format still reads.
 
 ```rust
-let old = r#"{ "version": 1, "routes": [], "actions": ["cart.checkout"] }"#;
-let manifest = snapfire_fsr_plan::Manifest::from_json(old)?;
-assert_eq!(manifest.actions[0].owner, snapfire_fsr_plan::RowOwner::Rust);
+let old = "(plan 4)\n(component routes/page.tsx#default (render (el p () \"hi\")))\n";
+let manifest = snapfire_fsr_plan::Manifest::from_text(old)?;
+assert_eq!(manifest.components[0].body.owner, snapfire_fsr_ir::Owner::React);
 ```
 
 ## Error Handling
 
-`PlanError` is what `from_text`, `from_sexpr`, `from_json` and `routes` return. Every variant names where in the file it found the problem.
+`PlanError` is what `from_text`, `from_sexpr` and `routes` return. Every variant names where in the file it found the problem.
 
 ```rust
 use snapfire_fsr_plan::{Manifest, PlanError};

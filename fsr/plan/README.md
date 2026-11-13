@@ -39,9 +39,8 @@ println!("actions to bind: {:?}", plan.action_ids());
 
 | Problem | Piece |
 | --- | --- |
-| Read a plan file in either form | `Manifest::from_text` |
+| Read a plan file | `Manifest::from_text` |
 | Write one | `Manifest::to_sexpr` |
-| Read or write the JSON form | `Manifest::from_json`, `Manifest::to_json` |
 | Print one row the way the file holds it | `Manifest::view`, `Manifest::row_ids` |
 | Build one from routes | `Manifest::new`, `with_sources`, `with_actions`, `with_components` |
 | Turn a runtime tree into a file row | `Node::from_plan` |
@@ -50,4 +49,4 @@ println!("actions to bind: {:?}", plan.action_ids());
 | Pick out the rows that carry a body | `Manifest::lowered_sources`, `Manifest::lowered_actions`, `Manifest::lowered_handlers` |
 | Say who answers a row | `RowOwner`, `SourceEntry::lowered`, `SourceEntry::rust`, `ActionEntry::lowered`, `ActionEntry::rust` |
 | Name the type an action's input is checked against | `ActionEntry::with_input` |
-| Mount a plan as one site among several | `Manifest::namespaced` |
+| Mount a plan as one site among several | `Manifest::namespace`, `Manifest::namespaced` |

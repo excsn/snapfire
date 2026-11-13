@@ -30,6 +30,7 @@ The plan file `fsr build` writes and a host reads at boot: routes, source rows, 
 * [5. The S-Expression Form](#5-the-s-expression-form)
   * [`manifest_to_sx`](#manifest_to_sx)
   * [`manifest_from_sx`](#manifest_from_sx)
+  * [`manifest_from_forms`](#manifest_from_forms)
   * [`SOURCE_SECTIONS`](#source_sections)
 * [6. Error Handling](#6-error-handling)
   * [`PlanError`](#planerror)
@@ -96,11 +97,9 @@ Building:
 
 Reading and writing:
 
-* `from_text(source: &str) -> Result<Self, PlanError>`: reads either form. A file whose first non-blank character is `{` reads as JSON. Any other reads as s-expressions.
+* `from_text(source: &str) -> Result<Self, PlanError>`: reads a plan file, as `from_sexpr` does.
 * `from_sexpr(source: &str) -> Result<Self, PlanError>`: parses a `plan.sexp`, checks the version and refuses a `lowered` source or action row with no body.
 * `to_sexpr(&self) -> String`: the text of a `plan.sexp`, one form per top-level line, wrapped at 100 columns.
-* `from_json(source: &str) -> Result<Self, PlanError>`: the same checks over the JSON form.
-* `to_json(&self) -> String`: pretty-printed JSON, in field order. A plan holding a non-finite float round-trips only through `to_sexpr`.
 * `view(&self, id: &str, section: Option<&str>) -> Result<String, ViewError>`: one row printed as `to_sexpr` writes it. `id` is tried as a source id, an action id, a handler id, a component module and a derive key, in that order.
 * `view` with `section` set prints one of a source row's `SOURCE_SECTIONS` alone. On any other kind of row it is `ViewError::OneBody`.
 * `row_ids(&self) -> Vec<String>`: every id `view` answers: sources, actions, handlers, components and derives, each in file order.
@@ -125,6 +124,7 @@ Rewriting:
 
 * `visit_exprs_mut(&mut self, f: &mut dyn FnMut(&mut Expr))`: calls `f` on every expression in every source, action, handler, image, middleware and theme body, every component, every derive and every constant.
 * `namespaced(&self, name: &str, at: &str, shell: &str) -> Manifest`: the manifest as a site's artifact.
+* `namespace(&mut self, name: &str, at: &str, shell: &str)`: `namespaced` in place.
 * `namespaced` moves every route, intercept, handler and image pattern under `at` with `under`.
 * `namespaced` prefixes with `<name>:` every node module, source, fallback, error, cache key and `error_kinds` module. The document module `shell` is not prefixed.
 * `namespaced` prefixes every row's `id`, `module` and `input`, every image's `source` and `page`, every `reads` module and every constant's name.
@@ -178,7 +178,7 @@ Who answers a row. Serialized in snake case.
 One data source.
 
 * `pub struct SourceEntry { pub id: String, pub owner: RowOwner, pub module: Option<String>, pub export: Option<String>, pub reason: Option<String>, pub body: Option<Body>, pub meta: Option<Body>, pub store: Option<Body>, pub defaults: Option<Body>, pub store_keys: Option<Vec<String>>, pub paths: Option<Body> }`. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
-* Each `Option` field is absent from the file when `None`, as a JSON key and as a row section.
+* Each `Option` field is absent from the file when `None`.
 * `meta`: the loader module's `meta`, describing the document from this source's data.
 * `store`: the module's `store`, seeding the browser's store from this source's data.
 * `defaults`: the module's `defaults`, seeding the browser's store with values that a write the browser holds outranks.
@@ -277,7 +277,7 @@ A layout's or a page's `export const theme`.
 
 * `pub struct ThemeEntry { pub module: String, pub name: String, pub force: bool }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`.
 * Down a route's `content` chain the deepest row wins. A forced row keeps every level below it. Of two forced rows the outer one wins.
-* `force` is absent from JSON when false.
+* `force` is written only when true.
 * In the s-expression form each is `(theme-of <module> "<name>")`, with `force` after the name when set. The `theme.ts` body is `(theme <stmt> ...)`.
 
 ### DeriveEntry
@@ -304,6 +304,11 @@ The module `snapfire_fsr_plan::sexpr`. The syntax type `Sx` and the expression f
 * `pub fn manifest_from_sx(forms: &[Sx]) -> Result<Manifest, SexprError>`: the forms read back into a manifest, with no version check. `Manifest::from_sexpr` adds the version and body checks.
 * A file with no `(plan <version>)` form is an error.
 
+### manifest_from_forms
+
+* `pub fn manifest_from_forms(forms: impl IntoIterator<Item = Result<Sx, SexprError>>) -> Result<Manifest, SexprError>`: `manifest_from_sx` over forms as `snapfire_fsr_ir::sexpr::forms` yields them, each turned into its row before the next is read.
+* The first `Err` the forms yield is returned.
+
 ### SOURCE_SECTIONS
 
 * `pub const SOURCE_SECTIONS: [&str; 5] = ["body", "meta", "store", "defaults", "paths"]`: the sections `Manifest::view` prints from a source row.
@@ -315,7 +320,7 @@ The module `snapfire_fsr_plan::sexpr`. The syntax type `Sx` and the expression f
 Returned by every `Manifest` reader and tree conversion.
 
 * `pub enum PlanError`. `Debug`, `Clone`, `PartialEq`, `Eq`, `thiserror::Error`.
-* `Malformed(String)`: the file did not parse, with the parser's message. From `from_json` it is serde's message. From `from_sexpr` it is the s-expression parser's message or a form that is not a plan form.
+* `Malformed(String)`: the file did not parse, with the s-expression parser's message or a form that is not a plan form.
 * `Version { found: u32 }`: a version outside 1 to `FORMAT_VERSION`.
 * `NoBody { id: String }`: a `lowered` source or action row with no body.
 * `Module { at: String, module: String }`: a module that is not `path#export`. `at` is the pattern followed by the slot path, with `/fallback`, `/error` or `/error.<kind>` for those fields.

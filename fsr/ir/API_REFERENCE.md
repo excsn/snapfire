@@ -33,10 +33,7 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`media_sources`](#media_sources)
   * [`head_scripts`](#head_scripts)
   * [`HeadScript`](#headscript)
-* [3. The JSON Form](#3-the-json-form)
-  * [`from_json`](#from_json)
-  * [`to_json`](#to_json)
-* [4. The S-Expression Form](#4-the-s-expression-form)
+* [3. The S-Expression Form](#3-the-s-expression-form)
   * [`Sx`](#sx)
   * [`parse`](#parse)
   * [`print`](#print)
@@ -45,7 +42,7 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`stmt_to_sx`](#stmt_to_sx)
   * [`component_to_sx`](#component_to_sx)
   * [`component_sections`](#component_sections)
-* [5. The Interpreter](#5-the-interpreter)
+* [4. The Interpreter](#4-the-interpreter)
   * [`Interpreter`](#interpreter)
   * [`Outcome`](#outcome)
   * [`Clock`](#clock)
@@ -55,7 +52,7 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`native`](#native)
   * [`Read`](#read)
   * [`Frame`](#frame)
-* [6. Rendering](#6-rendering)
+* [5. Rendering](#5-rendering)
   * [`Components`](#components)
   * [`Rendered`](#rendered)
   * [`RenderedIsland`](#renderedisland)
@@ -72,13 +69,13 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [Attribute and tag names](#attribute-and-tag-names)
   * [Slot and context names](#slot-and-context-names)
   * [Limits](#limits)
-* [7. Frameworks](#7-frameworks)
+* [6. Frameworks](#6-frameworks)
   * [`Frameworks`](#frameworks)
   * [`ReactMajor`](#reactmajor)
   * [`VueMajor`](#vuemajor)
   * [`SvelteMajor`](#sveltemajor)
   * [Markup rules](#markup-rules)
-* [8. Extensions](#8-extensions)
+* [7. Extensions](#7-extensions)
   * [`Extensions`](#extensions)
   * [`Extension`](#extension)
   * [`Member`](#member)
@@ -87,7 +84,7 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`Catalogs`](#catalogs)
   * [Argument readers](#argument-readers)
   * [The standard library](#the-standard-library)
-* [9. Evaluation Rules](#9-evaluation-rules)
+* [8. Evaluation Rules](#8-evaluation-rules)
   * [Reads](#reads)
   * [Truthiness](#truthiness)
   * [Operators](#operators)
@@ -97,12 +94,12 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [Session writes](#session-writes)
   * [Guards](#guards)
   * [Parallel lets](#parallel-lets)
-* [10. Regular Expressions and Math](#10-regular-expressions-and-math)
+* [9. Regular Expressions and Math](#9-regular-expressions-and-math)
   * [`JsRegex`](#jsregex)
   * [`Found`](#found)
   * [`jsregex` functions](#jsregex-functions)
   * [`jsmath`](#jsmath)
-* [11. Runtime Adapters](#11-runtime-adapters)
+* [10. Runtime Adapters](#10-runtime-adapters)
   * [`PreparedBody`](#preparedbody)
   * [`IrSource`](#irsource)
   * [`IrPaths`](#irpaths)
@@ -110,14 +107,13 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`IrAction`](#iraction)
   * [`IrMeta`](#irmeta)
   * [`IrEvaluator`](#irevaluator)
-* [12. The Host](#12-the-host)
+* [11. The Host](#11-the-host)
   * [`Event`](#event)
   * [`Report`](#report)
   * [`Act`](#act)
   * [Host keys](#host-keys)
-* [13. Error Handling](#13-error-handling)
+* [12. Error Handling](#12-error-handling)
   * [`Fail`](#fail)
-  * [`ParseError`](#parseerror)
   * [`SexprError`](#sexprerror)
   * [`ShadowRootError`](#shadowrooterror)
 
@@ -139,16 +135,16 @@ One statement. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
 
 * `Let { name: String, expr: Expr }`: binds `name` for the rest of the enclosing block.
 * `Set { name: String, expr: Expr }`: gives the nearest binding of `name` a new value. A name nothing has bound is `Internal`.
-* `If { cond: Expr, then: Body, else: Body }`: `else` is omitted from JSON when empty.
+* `If { cond: Expr, then: Body, else: Body }`: `else` is omitted from the plan text when empty.
 * `ForOf { name: String, over: Expr, body: Body }`: `over` must evaluate to `Value::Seq`.
-* `While { cond: Expr, body: Body, step: Body }`: `step` runs after every pass, including one a `Continue` ends. A loop past `interp::MAX_PASSES` passes fails the step. `step` is omitted from JSON when empty.
+* `While { cond: Expr, body: Body, step: Body }`: `step` runs after every pass, including one a `Continue` ends. A loop past `interp::MAX_PASSES` passes fails the step. `step` is omitted from the plan text when empty.
 * `Return(Expr)`: ends the body, from any depth.
 * `Break`: leaves the nearest loop.
 * `Continue`: ends this pass of the nearest loop.
 * A `Break` or `Continue` that reaches a function's body or a block expression fails with `Internal`. The text forms are `(break)` and `(continue)`.
 * `Guard { cond: Expr, kind: String, message: Expr }`: fails the body with `kind` when `cond` is truthy. `kind` is a `FailureKind` name. `message` is evaluated only when the guard fires.
-* `SessionSet { key: String, path: Vec<Expr>, value: Expr }`: `path` is omitted from JSON when empty.
-* `SessionDelete { key: String, path: Vec<Expr> }`: `path` is omitted from JSON when empty.
+* `SessionSet { key: String, path: Vec<Expr>, value: Expr }`: `path` is omitted from the plan text when empty.
+* `SessionDelete { key: String, path: Vec<Expr> }`: `path` is omitted from the plan text when empty.
 * `SessionExtend { seconds: Expr }`: the session ends `seconds` from now once the body commits.
 * `Act { action: String, input: Expr }`: asks the host to dispatch `action` with `input`. Only a handler holds one. `island_step` collects it in `Stepped::acts`. A body that reaches one fails with `Internal`.
 * `Try { body: Body, name: Option<String>, handler: Option<Body>, finally: Body }`: `try`, `catch` and `finally`.
@@ -156,7 +152,7 @@ One statement. `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`.
 * `Try`'s `name` binds what was thrown. For a failure nothing threw, it binds `{ name, kind, message }`. `name` is the JavaScript error a message starting `TypeError: `, `RangeError: `, `SyntaxError: `, `ReferenceError: `, `EvalError: ` or `URIError: ` names, with that prefix taken off `message`, and `Error` otherwise.
 * `Try`'s `finally` runs on every way out of the other two. When it returns or fails, that replaces how they ended.
 * A deferred thrown for a Suspense boundary is not caught by `Try`.
-* `Try`'s `name`, `handler` and `finally` are omitted from JSON when absent or empty.
+* `Try`'s `name`, `handler` and `finally` are omitted from the plan text when absent or empty.
 * `Expr(Expr)`: evaluates for effect and discards the value.
 
 ### Expr
@@ -188,7 +184,7 @@ Operators:
 
 Calls:
 
-* `Call { service: String, method: String, args: Vec<(String, Expr)> }`: `await services.<service>.<method>(args)`. `args` defaults to empty in JSON.
+* `Call { service: String, method: String, args: Vec<(String, Expr)> }`: `await services.<service>.<method>(args)`.
 * `NativeCall { module: String, method: String, args: Vec<(String, Expr)>, sync: bool }`: `await native.<module>.<method>(args)`, the application's own Rust in this process. `args` defaults to empty and `sync` is omitted when false.
 * `Next(Box<Expr>)`: middleware's `next(request)`, run through `RequestCtx.next`. The request is `undefined` for the request as it came. Only the async evaluator runs it.
 * `After(Box<Expr>)`: `after(fn)`. The lambda is pushed onto `RequestCtx.after` with a copy of the environment it was evaluated in. Evaluates to `undefined`. A failure while the lambda runs is a warning under the target `fsr::after`.
@@ -433,17 +429,7 @@ Each takes a `&Tmpl` and answers a `Vec<String>` in the order written. A value c
 * `src`: set when it is a string literal or a parameter of an inlined helper given one.
 * `inline`: true when the row carries `children`.
 
-## 3. The JSON Form
-
-### from_json
-
-* `pub fn ast::from_json(text: &str) -> Result<Body, ParseError>`
-
-### to_json
-
-* `pub fn ast::to_json(body: &Body) -> String`: pretty-printed.
-
-## 4. The S-Expression Form
+## 3. The S-Expression Form
 
 The module `snapfire_fsr_ir::sexpr`. The plan's own forms are in `snapfire_fsr_plan::sexpr`.
 
@@ -493,7 +479,7 @@ Every `_to_sx` and `_from_sx` pair round-trips: `parse(print(to(x))) == to(x)` a
 * `pub fn component_from_sections(sections: &[Sx]) -> Result<Component, SexprError>`
 * A component's sections open with `(owner ...)`. The legacy sections `(static)`, `(tree)` and `(vue)` read as `Fsr`, `React` and `Vue`.
 
-## 5. The Interpreter
+## 4. The Interpreter
 
 ### Interpreter
 
@@ -665,7 +651,7 @@ A request read, as `Frame::request` takes it.
 * `builtin(&mut self, name: Builtin, values: Vec<Value>) -> Result<Value, Fail>`, `call(&mut self, key: &str, args: Vec<Value>) -> Result<Value, Fail>`, `heap_on(&mut self)`.
 * `length`, `key_count`, `keys`, `values`, `past_passes`, `not_an_array`.
 
-## 6. Rendering
+## 5. Rendering
 
 The module `snapfire_fsr_ir::render`.
 
@@ -853,7 +839,7 @@ Each mark is followed by its payload and a NUL in `Rendered::html`.
 * `interp::CONSOLE_TARGET = "fsr::console"`: the `tracing` target of `Builtin::Log`.
 * `interp::number_key(n: f64) -> String`: the string JavaScript makes of a number used as a key.
 
-## 7. Frameworks
+## 6. Frameworks
 
 ### Frameworks
 
@@ -927,7 +913,7 @@ Svelte's rules:
 * A value prints as `String(value)`. A void element closes with `/>`.
 * Entering a Svelte component from markup that is not Svelte's writes `<!--[-->` before it and `<!--]-->` after it. Every other marker is a `Tmpl::Marker`.
 
-## 8. Extensions
+## 7. Extensions
 
 ### Extensions
 

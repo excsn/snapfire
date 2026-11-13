@@ -33,27 +33,31 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-const PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
-    { "pattern": "/hello/{name}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/hello/page.tsx#default", "source": "hello", "cache_key": "routes/hello/page.tsx#default" } } ] } }
-  ],
-  "sources": [
-    { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] },
-    { "id": "hello", "owner": "lowered", "module": "routes/hello/page.loader.ts",
-      "body": [ { "return": { "object": [
-        { "field": [ "greeting", { "template": [ { "lit": { "str": "hi " } }, { "param": "name" }, { "lit": { "str": " via " } }, { "query": "from" } ] } ] },
-        { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
-  ],
-  "actions": [
-    { "id": "index.mark", "owner": "lowered", "module": "routes/index/actions.ts",
-      "body": [ { "session_set": { "key": "marked", "value": { "lit": { "bool": true } } } }, { "return": { "session": "marked" } } ] }
-  ]
-}"#;
+const PLAN: &str = r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(route |/hello/{name}|
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/hello/page.tsx#default
+        (source hello)
+        (cache-key routes/hello/page.tsx#default)))))
+(source index
+  lowered
+  (module routes/index/page.loader.ts)
+  (body (ret (obj (items (call shop list))))))
+(source hello
+  lowered
+  (module routes/hello/page.loader.ts)
+  (body
+    (ret (obj (greeting (concat "hi " (param name) " via " (query from))) (items (call shop list))))))
+(action index.mark
+  lowered
+  (module routes/index/actions.ts)
+  (body (session-set marked () #t) (ret (session marked))))
+"#;
 
 const SHOP_OPENAPI: &str = r#"{
   "openapi": "3.0.3",
@@ -94,7 +98,7 @@ fn app_dir() -> PathBuf {
   let dir = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-request-memory-{}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("generated")).unwrap();
   std::fs::create_dir_all(dir.join("clients")).unwrap();
-  let plan = snapfire_fsr_plan::Manifest::from_json(PLAN).unwrap().to_sexpr();
+  let plan = snapfire_fsr_plan::Manifest::from_text(PLAN).unwrap().to_sexpr();
   std::fs::write(dir.join("generated/plan.sexp"), plan).unwrap();
   std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
   std::fs::write(dir.join("clients/shop.mock.json"), r#"{"list": ["socks", "hat"]}"#).unwrap();

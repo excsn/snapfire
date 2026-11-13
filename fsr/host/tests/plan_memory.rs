@@ -52,7 +52,7 @@ fn dir(name: &str) -> PathBuf {
   dir
 }
 
-const PLAN: &str = r#"{"version":2,"routes":[{"pattern":"/","plan":{"id":0,"module":"shell#document","children":[{"slot":"content","node":{"id":1,"module":"routes/index/page.tsx#default"}}]}}],"sources":[],"actions":[],"handlers":[],"components":[]}"#;
+const PLAN: &str = "(plan 2)\n(route / (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default))))\n";
 
 /// A page whose body is `lines` lines of highlighted code, one element per
 /// token, the shape an MDX code block lowers to.
@@ -72,7 +72,7 @@ fn highlighted_page(lines: usize) -> String {
 fn app(root: &Path, lines: usize) -> String {
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
   std::fs::create_dir_all(root.join("app/dist")).unwrap();
-  let text = snapfire_fsr_plan::Manifest::from_json(PLAN).unwrap().to_sexpr() + &highlighted_page(lines);
+  let text = PLAN.to_owned() + &highlighted_page(lines);
   std::fs::write(root.join("app/generated/plan.sexp"), &text).unwrap();
   std::fs::write(
     root.join("app/dist/.snapfire-build.json"),

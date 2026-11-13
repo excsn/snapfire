@@ -130,11 +130,15 @@ fn the_cookie_file_lives_in_each_platforms_data_directory() {
 
 #[test]
 fn the_scheme_limits_name_every_route_that_streams() {
-  let manifest = snapfire_fsr_plan::Manifest::from_json(
-    r#"{ "version": 2, "routes": [
-      { "pattern": "/", "plan": { "id": 0, "module": "routes/page.tsx#default" } },
-      { "pattern": "/cart", "plan": { "id": 0, "module": "shell#document", "children": [
-        { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "deferred": true, "fallback": "routes/cart/loading.tsx#default" } } ] } } ] }"#,
+  let manifest = snapfire_fsr_plan::Manifest::from_text(
+    r#"(plan 2)
+(route / (node 0 routes/page.tsx#default))
+(route /cart
+  (node 0
+    shell#document
+    (slot content
+      (node 1 routes/cart/page.tsx#default (deferred) (fallback routes/cart/loading.tsx#default)))))
+"#,
   )
   .unwrap();
   let limits = desktop::scheme_limits(&manifest);

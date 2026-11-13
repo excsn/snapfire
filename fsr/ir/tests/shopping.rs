@@ -447,10 +447,11 @@ fn mixed_operands_coerce_as_javascript_coerces_them() {
 }
 
 #[test]
-fn every_body_round_trips_through_json() {
+fn every_body_round_trips_through_the_plan_text() {
+  use snapfire_fsr_ir::sexpr::{parse, print, stmt_from_sx, stmt_to_sx};
   for body in [catalog_loader(), product_loader(), cart_loader(), add_to_cart(), checkout()] {
-    let text = snapfire_fsr_ir::ast::to_json(&body);
-    let back = snapfire_fsr_ir::ast::from_json(&text).unwrap();
+    let text = print(&body.iter().map(stmt_to_sx).collect::<Vec<_>>());
+    let back = parse(&text).unwrap().iter().map(stmt_from_sx).collect::<Result<Vec<_>, _>>().unwrap();
     assert_eq!(back, body, "{text}");
   }
 }

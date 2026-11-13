@@ -37,9 +37,13 @@ fn fails(dir: &Path) -> BuildError {
   }
 }
 
-fn plan_json(dir: &Path) -> serde_json::Value {
-  let built = build(dir, &Options::default()).unwrap();
-  serde_json::from_str(&built.manifest.to_json()).unwrap()
+fn plan_of(dir: &Path) -> snapfire_fsr_plan::Manifest {
+  build(dir, &Options::default()).unwrap().manifest
+}
+
+/// The words of plan text, each symbol and string a word of its own.
+fn tokens(text: &str) -> std::collections::HashSet<&str> {
+  text.split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '"' | '|')).filter(|w| !w.is_empty()).collect()
 }
 
 const HANDLED: &str = "export default function Page() {\n  async function go(): Promise<void> {}\n  return <button onClick={() => void go()}>go</button>;\n}\n";
@@ -270,8 +274,8 @@ fn a_custom_element_with_a_template_under_elements_is_marked_where_it_is_placed(
   let page = "export default function Page({ rows }: { rows: number[] }) {\n  return <x-grid title=\"t\" rows={rows}>light</x-grid>;\n}\n";
   let dir = app(&[("routes/page.tsx", page), ("elements/x-grid.tsx", GRID)]);
   let built = build(&dir, &Options::default()).unwrap();
-  let json = built.manifest.to_json();
-  assert!(json.contains("\"$shadow\"") && json.contains("elements/x-grid.tsx#default"), "{json}");
+  let text = built.manifest.to_sexpr();
+  assert!(tokens(&text).contains("$shadow") && text.contains("elements/x-grid.tsx#default"), "{text}");
   let template = built.manifest.components.iter().find(|c| c.module == "elements/x-grid.tsx#default").expect("the template is lowered");
   assert_eq!(template.body.owner, snapfire_fsr_ir::Owner::Fsr, "an element template is static");
   std::fs::remove_dir_all(&dir).unwrap();
@@ -537,16 +541,16 @@ fn a_layouts_slots_directory_is_a_parallel_segment_beside_its_page() {
   ]);
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.slots.contains(&("layout.feed".to_owned(), "routes/slots/feed/page.tsx#default".to_owned())), "{}", built.report);
-  let plan = plan_json(&dir);
-  let layout = &plan["routes"][0]["plan"]["children"][0]["node"];
-  assert_eq!(layout["module"], "routes/layout.tsx#default");
-  assert_eq!(layout["children"][0]["slot"], "content");
-  assert_eq!(layout["children"][1]["slot"], "feed");
-  let feed = &layout["children"][1]["node"];
-  assert_eq!(feed["source"], "layout.feed");
-  assert_eq!(feed["deferred"], true);
-  assert_eq!(feed["fallback"], "routes/slots/feed/loading.tsx#default");
-  let ids: Vec<u64> = [&plan["routes"][0]["plan"], layout, &layout["children"][0]["node"], feed].iter().map(|n| n["id"].as_u64().unwrap()).collect();
+  let plan = plan_of(&dir);
+  let layout = &plan.routes[0].plan.children[0].node;
+  assert_eq!(layout.module, "routes/layout.tsx#default");
+  assert_eq!(layout.children[0].slot, "content");
+  assert_eq!(layout.children[1].slot, "feed");
+  let feed = &layout.children[1].node;
+  assert_eq!(feed.source.as_deref(), Some("layout.feed"));
+  assert!(feed.deferred);
+  assert_eq!(feed.fallback.as_deref(), Some("routes/slots/feed/loading.tsx#default"));
+  let ids: Vec<u32> = [&plan.routes[0].plan, layout, &layout.children[0].node, feed].iter().map(|n| n.id).collect();
   assert_eq!(ids, vec![0, 1, 2, 3], "ids run in tree order");
   assert!(built.files.iter().any(|(name, text)| name == "generated/client.ts" && text.contains("export type LayoutFeedProps")), "the slot's props type is generated");
   assert!(built.report.verbose().to_string().contains("slots     layout.feed"), "{}", built.report);
@@ -566,21 +570,21 @@ fn a_page_slot_variant_is_an_intercept_under_the_layout_declaring_the_slot() {
   ]);
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.intercepts.contains(&("/photo/{id} into modal".to_owned(), "routes/photo/[id]/page.modal.tsx#default".to_owned())), "{}", built.report);
-  let plan = plan_json(&dir);
-  assert_eq!(plan["intercepts"].as_array().unwrap().len(), 1);
-  let intercept = &plan["intercepts"][0];
-  assert_eq!(intercept["pattern"], "/photo/{id}");
-  let layout = &intercept["plan"]["children"][0]["node"];
-  assert_eq!(layout["module"], "routes/layout.tsx#default");
-  assert_eq!(layout["keep"], serde_json::json!(["content", "feed", "drawer"]), "the page and the other slots stay as the browser has them");
-  assert_eq!(layout["children"].as_array().unwrap().len(), 1);
-  assert_eq!(layout["children"][0]["slot"], "modal");
-  let variant = &layout["children"][0]["node"];
-  assert_eq!(variant["module"], "routes/photo/[id]/page.modal.tsx#default");
-  assert_eq!(variant["deferred"], true);
-  assert_eq!(variant["fallback"], "routes/photo/[id]/loading.modal.tsx#default", "a variant streams behind its own loading module, not the page's");
-  let route = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/photo/{id}").unwrap();
-  assert_eq!(route["plan"]["children"][0]["node"]["children"][0]["node"]["fallback"], "routes/photo/[id]/loading.tsx#default");
+  let plan = plan_of(&dir);
+  assert_eq!(plan.intercepts.len(), 1);
+  let intercept = &plan.intercepts[0];
+  assert_eq!(intercept.pattern, "/photo/{id}");
+  let layout = &intercept.plan.children[0].node;
+  assert_eq!(layout.module, "routes/layout.tsx#default");
+  assert_eq!(layout.keep, ["content", "feed", "drawer"], "the page and the other slots stay as the browser has them");
+  assert_eq!(layout.children.len(), 1);
+  assert_eq!(layout.children[0].slot, "modal");
+  let variant = &layout.children[0].node;
+  assert_eq!(variant.module, "routes/photo/[id]/page.modal.tsx#default");
+  assert!(variant.deferred);
+  assert_eq!(variant.fallback.as_deref(), Some("routes/photo/[id]/loading.modal.tsx#default"), "a variant streams behind its own loading module, not the page's");
+  let route = plan.routes.iter().find(|r| r.pattern == "/photo/{id}").unwrap();
+  assert_eq!(route.plan.children[0].node.children[0].node.fallback.as_deref(), Some("routes/photo/[id]/loading.tsx#default"));
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(!islands.contains("page.modal") && !islands.contains("loading.modal"), "a variant with no state is static, so nothing registers it: {islands}");
   assert!(built.report.components.iter().any(|(module, owner, detail)| module == "routes/photo/[id]/page.modal.tsx#default" && owner == "lowered" && detail == "static"), "{}", built.report);
@@ -610,14 +614,15 @@ fn route_files_written_in_javascript_are_read_like_their_typescript_forms() {
   let built = build(&dir, &Options::default()).unwrap();
   let patterns: Vec<&str> = built.report.routes.iter().map(|(p, _)| p.as_str()).collect();
   assert_eq!(patterns, ["/", "/about"], "{}", built.report);
-  let plan = plan_json(&dir);
-  let about = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/about").unwrap();
-  let layout = &about["plan"]["children"][0]["node"];
-  assert_eq!(layout["module"], "routes/layout.jsx#default");
-  assert_eq!(layout["children"][0]["node"]["module"], "routes/about/page.js#default");
-  assert_eq!(layout["children"][0]["node"]["fallback"], "routes/about/loading.jsx#default");
-  assert!(plan.to_string().contains("routes/error.js#default"), "{plan}");
-  assert!(plan.to_string().contains("routes/not-found.jsx#default"), "{plan}");
+  let plan = plan_of(&dir);
+  let about = plan.routes.iter().find(|r| r.pattern == "/about").unwrap();
+  let layout = &about.plan.children[0].node;
+  assert_eq!(layout.module, "routes/layout.jsx#default");
+  assert_eq!(layout.children[0].node.module, "routes/about/page.js#default");
+  assert_eq!(layout.children[0].node.fallback.as_deref(), Some("routes/about/loading.jsx#default"));
+  let text = plan.to_sexpr();
+  assert!(text.contains("routes/error.js#default"), "{text}");
+  assert!(text.contains("routes/not-found.jsx#default"), "{text}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -710,10 +715,10 @@ fn a_route_may_carry_a_variant_per_slot() {
   let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", PAGE), ("routes/photo/page.tsx", PAGE), ("routes/photo/page.modal.tsx", PAGE), ("routes/photo/page.drawer.tsx", PAGE)]);
   let built = build(&dir, &Options::default()).unwrap();
   assert_eq!(built.report.intercepts.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(), vec!["/photo into drawer", "/photo into modal"], "one entry per variant, in file order");
-  let plan = plan_json(&dir);
-  let slots: Vec<String> = plan["intercepts"].as_array().unwrap().iter().map(|e| e["plan"]["children"][0]["node"]["children"][0]["slot"].as_str().unwrap().to_owned()).collect();
+  let plan = plan_of(&dir);
+  let slots: Vec<String> = plan.intercepts.iter().map(|e| e.plan.children[0].node.children[0].slot.clone()).collect();
   assert_eq!(slots, vec!["drawer", "modal"]);
-  assert_eq!(plan["intercepts"][0]["plan"]["children"][0]["node"]["keep"], serde_json::json!(["content", "modal"]), "the other variant's slot is kept, and `feed` is no slot without a slots/ directory");
+  assert_eq!(plan.intercepts[0].plan.children[0].node.keep, ["content", "modal"], "the other variant's slot is kept, and `feed` is no slot without a slots/ directory");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -727,11 +732,15 @@ fn a_loaders_store_export_lowers_beside_its_meta() {
     ),
     ("routes/index/page.tsx", PAGE),
   ]);
-  let plan = plan_json(&dir);
-  let layout = plan["sources"].as_array().unwrap().iter().find(|s| s["id"] == "layout").expect("the layout is a source");
-  assert!(layout["meta"].is_array(), "{layout}");
-  let store = &layout["store"][0]["return"]["object"][0]["field"];
-  assert_eq!(store[0], "cart/count", "{layout}");
+  let plan = plan_of(&dir);
+  let layout = plan.sources.iter().find(|s| s.id == "layout").expect("the layout is a source");
+  assert!(layout.meta.is_some(), "{layout:?}");
+  let store = layout.store.as_deref().unwrap_or_default();
+  let first = match store.first() {
+    Some(snapfire_fsr_ir::Stmt::Return(snapfire_fsr_ir::Expr::Object(entries))) => entries.first(),
+    _ => None,
+  };
+  assert!(matches!(first, Some(snapfire_fsr_ir::Entry::Field(name, _)) if name == "cart/count"), "{layout:?}");
 }
 
 #[test]
@@ -745,11 +754,17 @@ fn a_page_loaders_paths_export_lowers_on_a_route_with_a_parameter_and_nowhere_el
       "import type { Ctx } from \"@snapfire/fsr/host\";\nexport async function load({ params }: Ctx<\"/blog/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => [{ slug: \"hello\" }, { slug: \"world\" }];\n",
     ),
   ]);
-  let plan = plan_json(&dir);
-  let post = plan["sources"].as_array().unwrap().iter().find(|s| s["id"] == "blog.$slug").expect("the post is a source");
-  let first = &post["paths"][0]["return"]["array"][0]["item"]["object"][0]["field"];
-  assert_eq!(first[0], "slug", "{post}");
-  assert_eq!(first[1]["lit"]["str"], "hello", "{post}");
+  let plan = plan_of(&dir);
+  let post = plan.sources.iter().find(|s| s.id == "blog.$slug").expect("the post is a source");
+  use snapfire_fsr_ir::{Entry, Expr, Lit, Stmt};
+  let first = match post.paths.as_deref().unwrap_or_default().first() {
+    Some(Stmt::Return(Expr::Array(items))) => match items.first() {
+      Some(Entry::Item(Expr::Object(fields))) => fields.first(),
+      _ => None,
+    },
+    _ => None,
+  };
+  assert!(matches!(first, Some(Entry::Field(name, Expr::Lit(Lit::Str(value)))) if name == "slug" && value == "hello"), "{post:?}");
   std::fs::remove_dir_all(&dir).unwrap();
 
   let dir = app(&[
@@ -804,19 +819,15 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   let mut options = Options::default();
   options.site = Some(snapfire_fsr_cli::SiteOptions::new("billing".to_owned(), "/billing".to_owned()).shell(None));
   let built = build(&dir, &options).unwrap();
-  let plan = built.manifest.to_json();
-  for expected in [
-    "\"pattern\": \"/billing\"",
-    "\"pattern\": \"/billing/api/ping\"",
-    "\"module\": \"shell#document\"",
-    "\"module\": \"billing:routes/layout.tsx#default\"",
-    "\"id\": \"billing:$root\"",
-    "\"id\": \"billing:$root.add\"",
-    "\"id\": \"billing:api.ping.GET\"",
-    "\"service\": \"billing:ledger\"",
-    "\"module\": \"billing:src/Tips.tsx#TipList\"",
-  ] {
-    assert!(plan.contains(expected), "missing {expected} in {plan}\n{}", built.report);
+  let manifest = &built.manifest;
+  assert!(manifest.routes.iter().any(|r| r.pattern == "/billing"), "{manifest:?}");
+  assert!(manifest.handlers.iter().any(|h| h.pattern == "/billing/api/ping" && h.id == "billing:api.ping.GET"), "{manifest:?}");
+  assert!(manifest.sources.iter().any(|s| s.id == "billing:$root"), "{manifest:?}");
+  assert!(manifest.actions.iter().any(|a| a.id == "billing:$root.add"), "{manifest:?}");
+  let plan = manifest.to_sexpr();
+  let words = tokens(&plan);
+  for expected in ["shell#document", "billing:routes/layout.tsx#default", "billing:ledger", "billing:src/Tips.tsx#TipList"] {
+    assert!(words.contains(expected), "missing {expected} in {plan}\n{}", built.report);
   }
   assert!(built.contract.services.contains_key("billing:ledger") && built.contract.types.contains_key("billing:Invoice"), "{:?}", built.contract.services.keys().collect::<Vec<_>>());
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
@@ -1177,8 +1188,9 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
   assert!(text.contains("extensions ext/fmt.ts#weight      lowered") && text.contains("browser   routes/index/page.island0.tsx#default"), "{text}");
   let page_row = text.lines().skip_while(|l| !l.starts_with("hoisted")).find(|l| l.split_whitespace().any(|w| w == "routes/index/page.tsx#default")).expect("a hoisted row for the page");
   assert!(page_row.trim_end().ends_with("routes/index/page.tsx#default      1 keyed placement"), "DEFECTS 1.168: the row names what the rewrite holds: {page_row:?}");
-  let plan = built.manifest.to_json();
-  assert!(plan.contains("\"ext\"") && plan.contains("\"intl\"") && plan.contains("\"time\""), "{plan}");
+  let plan = built.manifest.to_sexpr();
+  let words = tokens(&plan);
+  assert!(words.contains("ext") && words.contains("intl") && words.contains("time"), "{plan}");
   std::fs::remove_dir_all(&fine).unwrap();
 
   let reach = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", "import { id } from \"@snapfire/fsr/host\";\nexport default function Page() {\n  return <p>{id.new()}</p>;\n}\n")]);
@@ -1206,21 +1218,21 @@ fn a_page_tera_is_a_route_the_plan_names_and_nothing_lowers() {
     ("src/Tips.tsx", "import { useState } from \"react\";\nexport function TipList({ cents = 5 }: { cents?: number }) {\n  const [n, setN] = useState(cents);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n"),
   ]);
   let built = build(&dir, &Options::default()).unwrap();
-  let plan = plan_json(&dir);
-  let board = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/board").expect("the template is a route");
-  let leaf = &board["plan"]["children"][0]["node"]["children"][0]["node"];
-  assert_eq!(leaf["module"], "routes/board/page.tera#default", "{board}");
-  assert_eq!(leaf["source"], "board");
-  assert!(plan["components"].as_array().unwrap().iter().all(|c| !c["module"].as_str().unwrap().ends_with(".tera#default")), "no component is lowered for a template");
-  assert!(plan["actions"].as_array().unwrap().iter().any(|a| a["id"] == "board.poke"), "actions beside a template page lower as beside a page.tsx");
-  let wall = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/wall").unwrap();
-  assert_eq!(wall["plan"]["children"][0]["node"]["children"][0]["node"]["module"], "routes/wall/layout.tera#default", "a template layout wraps its pages");
+  let plan = plan_of(&dir);
+  let board = plan.routes.iter().find(|r| r.pattern == "/board").expect("the template is a route");
+  let leaf = &board.plan.children[0].node.children[0].node;
+  assert_eq!(leaf.module, "routes/board/page.tera#default", "{board:?}");
+  assert_eq!(leaf.source.as_deref(), Some("board"));
+  assert!(plan.components.iter().all(|c| !c.module.ends_with(".tera#default")), "no component is lowered for a template");
+  assert!(plan.actions.iter().any(|a| a.id == "board.poke"), "actions beside a template page lower as beside a page.tsx");
+  let wall = plan.routes.iter().find(|r| r.pattern == "/wall").unwrap();
+  assert_eq!(wall.plan.children[0].node.children[0].node.module, "routes/wall/layout.tera#default", "a template layout wraps its pages");
   let report = built.report.verbose().to_string();
   assert!(report.contains("routes/board/page.tera#default") && report.contains("template"), "{report}");
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).expect("the islands registry is written");
   assert!(!islands.contains(".tera"), "a template is never bundled: {islands}");
   assert!(islands.contains("src/Tips.tsx"), "an island a template places is registered: {islands}");
-  assert!(plan["components"].as_array().unwrap().iter().any(|c| c["module"] == "src/Tips.tsx#TipList"), "and lowered");
+  assert!(plan.components.iter().any(|c| c.module == "src/Tips.tsx#TipList"), "and lowered");
   std::fs::remove_dir_all(&dir).unwrap();
 
   let dir = app(&[
@@ -1395,11 +1407,10 @@ fn a_route_names_an_error_module_for_each_kind_it_declares() {
     ("routes/error.tsx", "export default function Failed() {\n  return <p>failed</p>;\n}\n"),
     ("routes/error.not-found.tsx", "export default function Missing() {\n  return <p>missing</p>;\n}\n"),
   ]);
-  let plan = plan_json(&dir);
-  let page = &plan["routes"][0]["plan"]["children"][0]["node"];
-  assert_eq!(page["error"], "routes/error.tsx#default");
-  assert_eq!(page["error_kinds"][0][0], "not_found");
-  assert_eq!(page["error_kinds"][0][1], "routes/error.not-found.tsx#default");
+  let plan = plan_of(&dir);
+  let page = &plan.routes[0].plan.children[0].node;
+  assert_eq!(page.error.as_deref(), Some("routes/error.tsx#default"));
+  assert_eq!(page.error_kinds[0], ("not_found".to_owned(), "routes/error.not-found.tsx#default".to_owned()));
   let sexpr = build(&dir, &Options::default()).unwrap().manifest.to_sexpr();
   assert!(
     sexpr.contains("(error-kind not_found routes/error.not-found.tsx#default)"),
@@ -1411,10 +1422,10 @@ fn a_route_names_an_error_module_for_each_kind_it_declares() {
 #[test]
 fn a_route_with_no_error_file_names_no_kinds() {
   let dir = app(&[("routes/page.tsx", PAGE)]);
-  let plan = plan_json(&dir);
-  let page = &plan["routes"][0]["plan"]["children"][0]["node"];
-  assert!(page.get("error").is_none(), "no error module: {page}");
-  assert!(page.get("error_kinds").is_none(), "and no kinds: {page}");
+  let plan = plan_of(&dir);
+  let page = &plan.routes[0].plan.children[0].node;
+  assert!(page.error.is_none(), "no error module: {page:?}");
+  assert!(page.error_kinds.is_empty(), "and no kinds: {page:?}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1427,9 +1438,8 @@ fn every_failure_kind_has_a_boundary_file_named_after_it() {
     ("routes/error.forbidden.tsx", "export default function Denied() {\n  return <p>denied</p>;\n}\n"),
     ("routes/error.bad-gateway.ts", "export default function Upstream() {\n  return null;\n}\n"),
   ]);
-  let plan = plan_json(&dir);
-  let page = &plan["routes"][0]["plan"]["children"][0]["node"];
-  let kinds: Vec<(String, String)> = page["error_kinds"].as_array().unwrap().iter().map(|k| (k[0].as_str().unwrap().to_owned(), k[1].as_str().unwrap().to_owned())).collect();
+  let plan = plan_of(&dir);
+  let kinds = plan.routes[0].plan.children[0].node.error_kinds.clone();
   assert_eq!(
     kinds,
     [
@@ -1467,13 +1477,13 @@ fn a_routes_own_boundary_owns_every_kind() {
     ("routes/deep/page.tsx", PAGE),
     ("routes/deep/error.tsx", "export default function Failed() {\n  return <p>deep</p>;\n}\n"),
   ]);
-  let plan = plan_json(&dir);
-  let route = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/deep").unwrap();
-  let page = &route["plan"]["children"][0]["node"];
-  assert_eq!(page["error"], "routes/deep/error.tsx#default");
+  let plan = plan_of(&dir);
+  let route = plan.routes.iter().find(|r| r.pattern == "/deep").unwrap();
+  let page = &route.plan.children[0].node;
+  assert_eq!(page.error.as_deref(), Some("routes/deep/error.tsx#default"));
   assert!(
-    page.get("error_kinds").is_none(),
-    "the root's not-found does not pair with a route's own error page: {page}"
+    page.error_kinds.is_empty(),
+    "the root's not-found does not pair with a route's own error page: {page:?}"
   );
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1589,9 +1599,9 @@ fn a_react_island_places_a_component_another_framework_mounts_through_foreign() 
   assert!(islands.contains("registerDeferredIsland(\"src/ui/Chart.vue#default\""), "the build registers what the island mounts by id: {islands}");
   let copy = generated(&built, ".fsr/bundle/src/ui/Panel.tsx").expect("the island's bundle copy");
   assert!(copy.contains("const Chart = __sfForeign(\"src/ui/Chart.vue#default\");") && !copy.contains("import Chart"), "{copy}");
-  let plan = serde_json::from_str::<serde_json::Value>(&built.manifest.to_json()).unwrap();
-  let render = plan["components"].as_array().unwrap().iter().find(|c| c["module"] == "src/ui/Panel.tsx#Panel").map(|c| c["body"]["render"].to_string()).unwrap();
-  assert!(render.contains("\"sf-s\"") && render.contains("data-sf-island") && !render.contains("Chart.vue"), "the server writes the empty region Mount fills: {render}");
+  let panel = built.manifest.components.iter().find(|c| c.module == "src/ui/Panel.tsx#Panel").unwrap();
+  let render = snapfire_fsr_ir::sexpr::print(&[snapfire_fsr_ir::sexpr::tmpl_to_sx(&panel.body.render)]);
+  assert!(tokens(&render).contains("sf-s") && render.contains("data-sf-island") && !render.contains("Chart.vue"), "the server writes the empty region Mount fills: {render}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1749,14 +1759,12 @@ fn a_file_the_entry_imports_by_its_compiled_name_is_compiled() {
 
 const SHELL: &str = "export default function Layout({ children }: { children: unknown }) {\n  return <div>{children}</div>;\n}\n";
 
-fn layouts_of(route: &serde_json::Value) -> Vec<String> {
+fn layouts_of(route: &snapfire_fsr_plan::RouteEntry) -> Vec<String> {
   let mut out = Vec::new();
-  let mut node = &route["plan"];
-  while let Some(child) = node["children"].get(0) {
-    node = &child["node"];
-    if let Some(module) = node["module"].as_str() {
-      out.push(module.to_owned());
-    }
+  let mut node = &route.plan;
+  while let Some(child) = node.children.first() {
+    node = &child.node;
+    out.push(node.module.clone());
   }
   out
 }
@@ -1783,8 +1791,8 @@ fn a_group_directory_adds_nothing_to_the_url_and_keeps_its_own_layout() {
   let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
   assert!(client.contains("export type MarketingAboutProps = Wire<Awaited<ReturnType<typeof import(\"../routes/(marketing)/about/page.loader\")[\"load\"]>>> & HostProps;"), "{client}");
 
-  let plan = plan_json(&dir);
-  let route = |pattern: &str| plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == pattern).cloned().unwrap_or_else(|| panic!("no {pattern} in {plan}"));
+  let plan = plan_of(&dir);
+  let route = |pattern: &str| plan.routes.iter().find(|r| r.pattern == pattern).cloned().unwrap_or_else(|| panic!("no {pattern} in {plan:?}"));
   assert_eq!(layouts_of(&route("/about")), ["routes/layout.tsx#default", "routes/(marketing)/layout.tsx#default", "routes/(marketing)/about/page.tsx#default"]);
   assert_eq!(layouts_of(&route("/dashboard/{id}")), ["routes/layout.tsx#default", "routes/(app)/layout.tsx#default", "routes/(app)/dashboard/[id]/page.tsx#default"]);
   std::fs::remove_dir_all(&dir).unwrap();
@@ -1878,8 +1886,8 @@ fn a_dotted_directory_is_a_route_at_that_name_and_its_id_cannot_meet_a_nested_on
     ("routes/robots/txt/route.ts", "export function GET() {\n  return { nested: true };\n}\n"),
     ("routes/.well-known/security.txt/route.ts", "export function GET() {\n  return new Response(\"Contact: mailto:a@b.example\\n\");\n}\n"),
   ]);
-  let plan = plan_json(&dir);
-  let handlers: Vec<(String, String)> = plan["handlers"].as_array().unwrap().iter().map(|h| (h["pattern"].as_str().unwrap().to_owned(), h["id"].as_str().unwrap().to_owned())).collect();
+  let plan = plan_of(&dir);
+  let handlers: Vec<(String, String)> = plan.handlers.iter().map(|h| (h.pattern.clone(), h.id.clone())).collect();
   for pattern in ["/robots.txt", "/robots/txt", "/.well-known/security.txt"] {
     assert!(handlers.iter().any(|(p, _)| p == pattern), "{pattern} in {handlers:?}");
   }

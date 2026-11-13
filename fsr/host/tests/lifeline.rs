@@ -26,7 +26,8 @@ fn a_host_stops_when_its_lifeline_closes() {
   let scratch = Scratch::new("host-lifeline");
   let dir = scratch.join("app");
   std::fs::create_dir_all(dir.join("generated")).unwrap();
-  let plan = snapfire_fsr_plan::Manifest::from_text(r#"{"version": 2, "routes": []}"#).unwrap();
+  let plan = snapfire_fsr_plan::Manifest::from_text(r#"(plan 2)
+"#).unwrap();
   std::fs::write(dir.join("generated/plan.sexp"), plan.to_sexpr()).unwrap();
   std::fs::write(dir.join("app.toml"), "[app]\ndir = \".\"\n\n[server]\nlisten = \"127.0.0.1:0\"\n").unwrap();
   let mut server = Command::new(std::env::current_exe().unwrap())

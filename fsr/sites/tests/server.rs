@@ -14,8 +14,10 @@ fn dir(name: &str) -> PathBuf {
 }
 
 fn application(root: &Path, config: &str) {
-  let plan = r#"{"version":2,"routes":[{"pattern":"/","plan":{"id":0,"module":"shell#document","children":[{"slot":"content","node":{"id":1,"module":"routes/page.tsx#default"}}]}}],"sources":[],"actions":[],"handlers":[],"components":[]}"#;
-  std::fs::write(root.join("app/generated/plan.sexp"), snapfire_fsr_plan::Manifest::from_json(plan).unwrap().to_sexpr()).unwrap();
+  let plan = r#"(plan 2)
+(route / (node 0 shell#document (slot content (node 1 routes/page.tsx#default))))
+"#;
+  std::fs::write(root.join("app/generated/plan.sexp"), snapfire_fsr_plan::Manifest::from_text(plan).unwrap().to_sexpr()).unwrap();
   std::fs::write(root.join("app.toml"), format!("[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"\n{config}")).unwrap();
 }
 

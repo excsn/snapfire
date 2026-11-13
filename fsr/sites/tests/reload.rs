@@ -14,20 +14,18 @@ fn dir(name: &str) -> PathBuf {
 }
 
 fn plan(routes: &str) -> String {
-  format!(r#"{{"version":2,"routes":[{routes}],"sources":[],"actions":[],"handlers":[],"components":[]}}"#)
+  format!("(plan 2)\n{routes}\n")
 }
 
 fn route(pattern: &str) -> String {
   let module = pattern.trim_matches('/').replace('/', "-");
   let module = if module.is_empty() { "index".to_owned() } else { module };
-  format!(
-    r#"{{"pattern":"{pattern}","plan":{{"id":0,"module":"shell#document","children":[{{"slot":"content","node":{{"id":1,"module":"routes/{module}/page.tsx#default"}}}}]}}}}"#
-  )
+  format!("(route {pattern} (node 0 shell#document (slot content (node 1 routes/{module}/page.tsx#default))))")
 }
 
 fn shell(root: &Path, routes: &str) {
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
-  let manifest = snapfire_fsr_plan::Manifest::from_json(&plan(routes)).unwrap();
+  let manifest = snapfire_fsr_plan::Manifest::from_text(&plan(routes)).unwrap();
   std::fs::write(root.join("app/generated/plan.sexp"), manifest.to_sexpr()).unwrap();
   std::fs::write(
     root.join("app.toml"),
@@ -38,7 +36,7 @@ fn shell(root: &Path, routes: &str) {
 
 fn site(at: &Path, routes: &str) {
   std::fs::create_dir_all(at.join("app/generated")).unwrap();
-  let manifest = snapfire_fsr_plan::Manifest::from_json(&plan(routes))
+  let manifest = snapfire_fsr_plan::Manifest::from_text(&plan(routes))
     .unwrap()
     .namespaced("billing", "/billing", "shell#document");
   std::fs::write(at.join("app/generated/plan.sexp"), manifest.to_sexpr()).unwrap();
@@ -71,9 +69,9 @@ fn a_sites_reload_takes_the_site_from_disk_and_leaves_the_shell_as_it_booted() {
   assert_eq!(host.report().sites.len(), 1);
 
   // Both trees move under the running process. Only the site's may be read.
-  let moved = snapfire_fsr_plan::Manifest::from_json(&plan(&format!("{},{}", route("/"), route("/shell-edit")))).unwrap();
+  let moved = snapfire_fsr_plan::Manifest::from_text(&plan(&format!("{}\n{}", route("/"), route("/shell-edit")))).unwrap();
   std::fs::write(root.join("app/generated/plan.sexp"), moved.to_sexpr()).unwrap();
-  site(&artifact, &format!("{},{}", route("/"), route("/invoices")));
+  site(&artifact, &format!("{}\n{}", route("/"), route("/invoices")));
 
   host.reload_sites().unwrap();
   let after = patterns(&host);
@@ -115,7 +113,7 @@ fn a_sites_reload_picks_up_a_version_the_table_moved_to() {
 
   site(
     &root.join("sites/billing/1.1.0"),
-    &format!("{},{}", route("/"), route("/plans")),
+    &format!("{}\n{}", route("/"), route("/plans")),
   );
   std::fs::write(
     root.join("app.toml"),

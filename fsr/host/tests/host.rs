@@ -15,117 +15,216 @@ use snapfire_fsr_service::{MockTransport, Recording};
 use snapfire_fsr_test_internal::body_of;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// The tests keep their plans as JSON literals, which read better inline than
-/// s-expressions do inside a Rust string; the host is handed the form a build
-/// writes.
-fn write_plan(dir: &std::path::Path, json: &str) {
-  let manifest = snapfire_fsr_plan::Manifest::from_text(json).expect("a plan");
-  std::fs::write(dir.join("generated/plan.sexp"), manifest.to_sexpr()).unwrap();
+fn write_plan(dir: &std::path::Path, text: &str) {
+  write_manifest(dir, &snapfire_fsr_plan::Manifest::from_text(text).expect("a plan"));
 }
 
-fn read_plan(dir: &std::path::Path) -> serde_json::Value {
+fn read_plan(dir: &std::path::Path) -> snapfire_fsr_plan::Manifest {
   let text = std::fs::read_to_string(dir.join("generated/plan.sexp")).unwrap();
-  serde_json::to_value(snapfire_fsr_plan::Manifest::from_text(&text).expect("a plan")).unwrap()
+  snapfire_fsr_plan::Manifest::from_text(&text).expect("a plan")
 }
 
-fn write_plan_value(dir: &std::path::Path, json: serde_json::Value) {
-  let manifest = snapfire_fsr_plan::Manifest::from_json(&json.to_string()).expect("a plan");
+fn write_manifest(dir: &std::path::Path, manifest: &snapfire_fsr_plan::Manifest) {
   std::fs::write(dir.join("generated/plan.sexp"), manifest.to_sexpr()).unwrap();
 }
 
-const PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
-    { "pattern": "/hello/{name}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/hello/page.tsx#default", "source": "hello", "cache_key": "routes/hello/page.tsx#default" } } ] } },
-    { "pattern": "/where", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/where/page.tsx#default", "source": "where" } } ] } },
-    { "pattern": "/feed", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/feed/page.tsx#default" } } ] } } ] } },
-    { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/feed/photo/page.tsx#default" } } ] } } ] } }
-    ,
-    { "pattern": "/deck", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "children": [
-          { "slot": "content", "node": { "id": 3, "module": "routes/deck/page.tsx#default" } } ] } } ] } } ] } },
-    { "pattern": "/deck/card/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "children": [
-          { "slot": "content", "node": { "id": 3, "module": "routes/deck/card/page.tsx#default" } } ] } } ] } } ] } },
-    { "pattern": "/missing", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "missing" } } ] } },
-    { "pattern": "/broken", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/console/layout.tsx#default", "source": "broken.layout", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/index/page.tsx#default", "source": "index" } } ] } } ] } },
-    { "pattern": "/console", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/console/layout.tsx#default", "source": "console.layout", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/console/page.tsx#default", "source": "console.page" } } ] } } ] } }
-  ],
-  "intercepts": [
-    { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "keep": ["content", "drawer"], "children": [
-        { "slot": "modal", "node": { "id": 2, "module": "routes/feed/photo/page.modal.tsx#default" } } ] } } ] } },
-    { "pattern": "/feed/photo/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/feed/layout.tsx#default", "keep": ["content", "modal"], "children": [
-        { "slot": "drawer", "node": { "id": 2, "module": "routes/feed/photo/page.drawer.tsx#default" } } ] } } ] } },
-    { "pattern": "/deck/card/{id}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "keep": ["side"], "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/deck/layout.tsx#default", "keep": ["content"], "children": [
-          { "slot": "peek", "node": { "id": 3, "module": "routes/deck/card/page.peek.tsx#default" } } ] } } ] } } ] } }
-  ],
-  "sources": [
-    { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] },
-    { "id": "hello", "owner": "lowered", "module": "routes/hello/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "greeting", { "template": [ { "lit": { "str": "hi " } }, { "param": "name" }, { "lit": { "str": " via " } }, { "query": "from" } ] } ] } ] } } ] },
-    { "id": "where", "owner": "lowered", "module": "routes/where/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "here", "path" ] } ] } } ] },
-    { "id": "console.layout", "owner": "lowered", "module": "routes/console/layout.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "density", { "coalesce": [ { "session": "density" }, { "lit": { "str": "cosy" } } ] } ] } ] } } ] },
-    { "id": "missing", "owner": "lowered", "module": "routes/missing/page.loader.ts",
-      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "not_found", "message": { "lit": { "str": "no such thing" } } } }, { "return": { "object": [] } } ] },
-    { "id": "broken.layout", "owner": "lowered", "module": "routes/broken/layout.loader.ts",
-      "body": [ { "guard": { "cond": { "lit": { "bool": true } }, "kind": "unavailable", "message": { "lit": { "str": "the frame is down" } } } }, { "return": { "object": [] } } ] },
-    { "id": "console.page", "owner": "lowered", "module": "routes/console/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "rows", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
-  ],
-  "handlers": [
-    { "id": "index.POST", "method": "POST", "pattern": "/bump", "owner": "lowered", "module": "routes/index/route.ts", "input": "Bump",
-      "body": [ { "return": { "object": [ { "field": [ "by", { "field": [ "input", "by" ] } ] } ] } } ] },
-    { "id": "robots.GET", "method": "GET", "pattern": "/robots.txt", "owner": "lowered", "module": "routes/robots.txt/route.ts",
-      "body": [ { "return": { "builtin": { "name": "response", "args": [ { "lit": { "str": "User-agent: *\nAllow: /\n" } }, { "object": [ { "field": [ "headers", { "object": [ { "field": [ "content-type", { "lit": { "str": "text/plain" } } ] } ] } ] } ] } ] } } } ] },
-    { "id": "pixel.GET", "method": "GET", "pattern": "/pixel", "owner": "lowered", "module": "routes/pixel/route.ts",
-      "body": [ { "return": { "builtin": { "name": "response", "args": [ { "builtin": { "name": "uint8_array", "args": [ { "array": [ { "item": { "lit": { "int": 71 } } }, { "item": { "lit": { "int": 73 } } }, { "item": { "lit": { "int": 70 } } } ] } ] } }, { "object": [ { "field": [ "headers", { "object": [ { "field": [ "content-type", { "lit": { "str": "image/gif" } } ] } ] } ] } ] } ] } } } ] },
-    { "id": "made.POST", "method": "POST", "pattern": "/made", "owner": "lowered", "module": "routes/made/route.ts",
-      "body": [ { "return": { "builtin": { "name": "response_json", "args": [ { "object": [ { "field": [ "id", { "lit": { "float": 7.0 } } ] } ] }, { "object": [ { "field": [ "status", { "lit": { "int": 201 } } ] } ] } ] } } } ] },
-    { "id": "counts.GET", "method": "GET", "pattern": "/counts", "owner": "lowered", "module": "routes/counts/route.ts",
-      "body": [ { "return": { "object": [ { "field": [ "none", { "lit": { "float": 0.0 } } ] }, { "field": [ "half", { "lit": { "float": 0.5 } } ] }, { "field": [ "big", { "lit": { "int": 9007199254740993 } } ] }, { "field": [ "$", { "lit": { "str": "x" } } ] }, { "field": [ "gone", { "lit": "undefined" } ] } ] } } ] },
-    { "id": "echo.POST", "method": "POST", "pattern": "/echo", "owner": "lowered", "module": "routes/echo/route.ts",
-      "body": [ { "return": "input" } ] },
-    { "id": "away.GET", "method": "GET", "pattern": "/away", "owner": "lowered", "module": "routes/away/route.ts",
-      "body": [ { "return": { "builtin": { "name": "response_redirect", "args": [ { "lit": { "str": "https://auth.example/authorize" } } ] } } } ] },
-    { "id": "done.POST", "method": "POST", "pattern": "/done", "owner": "lowered", "module": "routes/done/route.ts",
-      "body": [ { "return": { "builtin": { "name": "redirect_to", "args": [ { "lit": { "str": "/thanks" } } ] } } } ] },
-    { "id": "later.POST", "method": "POST", "pattern": "/later", "owner": "lowered", "module": "routes/later/route.ts",
-      "body": [ { "expr": { "after": { "lambda": { "params": [], "body": { "block": [ { "return": { "call": { "service": "shop", "method": "list", "args": [] } } } ] } } } } }, { "return": { "object": [ { "field": [ "ok", { "lit": { "bool": true } } ] } ] } } ] }
-  ],
-  "actions": [
-    { "id": "index.where", "owner": "lowered", "module": "routes/index/actions.ts",
-      "body": [ { "return": "locale" } ] },
-    { "id": "index.bump", "owner": "lowered", "module": "routes/index/actions.ts", "input": "Bump",
-      "body": [
-        { "session_set": { "key": "count", "value": { "arith": [ "add", { "coalesce": [ { "session": "count" }, { "lit": { "int": 0 } } ] }, { "field": [ "input", "by" ] } ] } } },
-        { "return": { "session": "count" } }
-      ] },
-    { "id": "index.stay", "owner": "lowered", "module": "routes/index/actions.ts",
-      "body": [ { "session_extend": { "seconds": { "lit": { "int": 7200 } } } }, { "return": "locale" } ] }
-  ]
-}"#;
+/// Statements as the plan file writes them, read as a body.
+fn body(statements: &str) -> snapfire_fsr_ir::Body {
+  snapfire_fsr_plan::Manifest::from_text(&format!("(plan 7)\n(middleware {statements})\n")).expect("a body").middleware.expect("the body")
+}
+
+/// An expression as the plan file writes it.
+fn expr(text: &str) -> snapfire_fsr_ir::Expr {
+  snapfire_fsr_plan::Manifest::from_text(&format!("(plan 7)\n(const x {text})\n")).expect("an expression").consts.remove("x").expect("the expression")
+}
+
+/// A `(component ...)` row as the plan file writes it.
+fn component(form: &str) -> snapfire_fsr_plan::ComponentEntry {
+  snapfire_fsr_plan::Manifest::from_text(&format!("(plan 7)\n{form}\n")).expect("a component").components.remove(0)
+}
+
+const PLAN: &str = r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(route |/hello/{name}|
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/hello/page.tsx#default
+        (source hello)
+        (cache-key routes/hello/page.tsx#default)))))
+(route /where
+  (node 0 shell#document (slot content (node 1 routes/where/page.tsx#default (source where)))))
+(route /feed
+  (node 0
+    shell#document
+    (slot content
+      (node 1 routes/feed/layout.tsx#default (slot content (node 2 routes/feed/page.tsx#default))))))
+(route |/feed/photo/{id}|
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/feed/layout.tsx#default
+        (slot content (node 2 routes/feed/photo/page.tsx#default))))))
+(route /deck
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/layout.tsx#default
+        (slot content
+          (node 2
+            routes/deck/layout.tsx#default
+            (slot content (node 3 routes/deck/page.tsx#default))))))))
+(route |/deck/card/{id}|
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/layout.tsx#default
+        (slot content
+          (node 2
+            routes/deck/layout.tsx#default
+            (slot content (node 3 routes/deck/card/page.tsx#default))))))))
+(route /missing
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source missing)))))
+(route /broken
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/console/layout.tsx#default
+        (source broken.layout)
+        (slot content (node 2 routes/index/page.tsx#default (source index)))))))
+(route /console
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/console/layout.tsx#default
+        (source console.layout)
+        (slot content (node 2 routes/console/page.tsx#default (source console.page)))))))
+(intercept |/feed/photo/{id}|
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/feed/layout.tsx#default
+        (keep content drawer)
+        (slot modal (node 2 routes/feed/photo/page.modal.tsx#default))))))
+(intercept |/feed/photo/{id}|
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/feed/layout.tsx#default
+        (keep content modal)
+        (slot drawer (node 2 routes/feed/photo/page.drawer.tsx#default))))))
+(intercept |/deck/card/{id}|
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/layout.tsx#default
+        (keep side)
+        (slot content
+          (node 2
+            routes/deck/layout.tsx#default
+            (keep content)
+            (slot peek (node 3 routes/deck/card/page.peek.tsx#default))))))))
+(source index
+  lowered
+  (module routes/index/page.loader.ts)
+  (body (ret (obj (items (call shop list))))))
+(source hello
+  lowered
+  (module routes/hello/page.loader.ts)
+  (body (ret (obj (greeting (concat "hi " (param name) " via " (query from)))))))
+(source where lowered (module routes/where/page.loader.ts) (body (ret (obj (here (path))))))
+(source console.layout
+  lowered
+  (module routes/console/layout.loader.ts)
+  (body (ret (obj (density (?? (session density) "cosy"))))))
+(source missing
+  lowered
+  (module routes/missing/page.loader.ts)
+  (body (guard #t not_found "no such thing") (ret (obj))))
+(source broken.layout
+  lowered
+  (module routes/broken/layout.loader.ts)
+  (body (guard #t unavailable "the frame is down") (ret (obj))))
+(source console.page
+  lowered
+  (module routes/console/page.loader.ts)
+  (body (ret (obj (rows (call shop list))))))
+(action index.where lowered (module routes/index/actions.ts) (body (ret (locale))))
+(action index.bump
+  lowered
+  (module routes/index/actions.ts)
+  (input Bump)
+  (body (session-set count () (+ (?? (session count) 0) (. (input) by))) (ret (session count))))
+(action index.stay
+  lowered
+  (module routes/index/actions.ts)
+  (body (session-extend 7200) (ret (locale))))
+(handler index.POST
+  POST
+  /bump
+  lowered
+  (module routes/index/route.ts)
+  (input Bump)
+  (body (ret (obj (by (. (input) by))))))
+(handler robots.GET
+  GET
+  /robots.txt
+  lowered
+  (module routes/robots.txt/route.ts)
+  (body
+    (ret (response "User-agent: *\nAllow: /\n" (obj (headers (obj (content-type "text/plain"))))))))
+(handler pixel.GET
+  GET
+  /pixel
+  lowered
+  (module routes/pixel/route.ts)
+  (body
+    (ret
+      (response
+        (uint8-array (arr (: 71) (: 73) (: 70)))
+        (obj (headers (obj (content-type "image/gif"))))))))
+(handler made.POST
+  POST
+  /made
+  lowered
+  (module routes/made/route.ts)
+  (body (ret (response-json (obj (id 7.0)) (obj (status 201))))))
+(handler counts.GET
+  GET
+  /counts
+  lowered
+  (module routes/counts/route.ts)
+  (body (ret (obj (none 0.0) (half 0.5) (big 9007199254740993) ($ "x") (gone undefined)))))
+(handler echo.POST POST /echo lowered (module routes/echo/route.ts) (body (ret (input))))
+(handler away.GET
+  GET
+  /away
+  lowered
+  (module routes/away/route.ts)
+  (body (ret (response-redirect "https://auth.example/authorize"))))
+(handler done.POST
+  POST
+  /done
+  lowered
+  (module routes/done/route.ts)
+  (body (ret (redirect-to "/thanks"))))
+(handler later.POST
+  POST
+  /later
+  lowered
+  (module routes/later/route.ts)
+  (body (do (after (fn () (block (ret (call shop list)))))) (ret (obj (ok #t)))))
+"#;
 
 const CONTRACT: &str = r#"{
   "types": { "Bump": { "record": { "fields": [ { "name": "by", "type": "i64" } ] } } },
@@ -1903,24 +2002,16 @@ fn a_bad_locales_section_refuses_to_start() {
   );
 }
 
-const WHO_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default" } } ] } },
-    { "pattern": "/login", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/login/page.tsx#default" } } ] } },
-    { "pattern": "/who", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/who/page.tsx#default", "source": "who" } } ] } }
-  ],
-  "sources": [
-    { "id": "who", "owner": "lowered", "module": "routes/who/page.loader.ts",
-      "body": [ { "return": { "object": [
-        { "field": [ "subject", { "coalesce": [ { "identity": [ "subject" ] }, { "lit": { "str": "anonymous" } } ] } ] },
-        { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
-  ],
-  "actions": []
-}"#;
+const WHO_PLAN: &str = r#"(plan 2)
+(route / (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default))))
+(route /login (node 0 shell#document (slot content (node 1 routes/login/page.tsx#default))))
+(route /who
+  (node 0 shell#document (slot content (node 1 routes/who/page.tsx#default (source who)))))
+(source who
+  lowered
+  (module routes/who/page.loader.ts)
+  (body (ret (obj (subject (?? (identity subject) "anonymous")) (items (call shop list))))))
+"#;
 
 const SHOP_OPENAPI: &str = r#"{
   "openapi": "3.0.3",
@@ -3101,10 +3192,10 @@ fn a_bundle_carrying_a_server_module_refuses_to_start() {
 
 fn site_dir() -> PathBuf {
   let dir = app_dir();
-  let manifest = snapfire_fsr_plan::Manifest::from_json(PLAN)
+  let manifest = snapfire_fsr_plan::Manifest::from_text(PLAN)
     .unwrap()
     .namespaced("shop", "/shop", "shell#document");
-  write_plan(&dir, &manifest.to_json());
+  write_manifest(&dir, &manifest);
   let contract = snapfire_fsr_service::Contract::from_json(CONTRACT)
     .unwrap()
     .namespaced("shop");
@@ -3220,7 +3311,7 @@ fn a_bad_site_section_refuses_to_start() {
   assert!(e.contains("site.name"), "{e}");
 }
 
-const SITE_MIDDLEWARE: &str = r#"[ { "let": { "name": "r", "expr": { "next": { "lit": "undefined" } } } }, { "set": { "name": "r", "expr": { "builtin": { "name": "response_header_set", "args": [ { "var": "r" }, { "lit": { "str": "set" } }, { "lit": { "str": "x-site" } }, { "lit": { "str": "shop" } } ] } } } }, { "return": { "var": "r" } } ]"#;
+const SITE_MIDDLEWARE: &str = r#"(let r (next undefined)) (set r (response-header-set r "set" "x-site" "shop")) (ret r)"#;
 
 /// What a middleware that goes on to the route answers once it has added `headers` to the route's response.
 async fn route_with(ctx: snapfire_fsr_runtime::RequestCtx, headers: Vec<(&'static str, String)>) -> Result<Value, snapfire_fsr_runtime::ActionError> {
@@ -3233,15 +3324,17 @@ async fn route_with(ctx: snapfire_fsr_runtime::RequestCtx, headers: Vec<(&'stati
   Ok(response.to_value())
 }
 
-const SHELL_LAYOUT: &str = r#"{ "module": "routes/layout.tsx#default", "body": { "render": { "element": { "tag": "main", "attrs": [ { "field": [ "class", { "lit": { "str": "shell" } } ] } ], "children": [ { "element": { "tag": "header", "children": [ { "text": "the shell" } ] } }, { "slot": "content" } ] } } } }"#;
+const SHELL_LAYOUT: &str = r#"(component routes/layout.tsx#default
+  (owner react)
+  (render (el main ((class "shell")) (el header () "the shell") (slot content))))"#;
 
 /// A shell over the fixture whose root layout renders in Rust, so a mounted
 /// site's pages land inside it.
 fn shell_dir() -> PathBuf {
   let dir = app_dir();
-  let mut json = read_plan(&dir);
-  json["components"] = serde_json::json!([serde_json::from_str::<serde_json::Value>(SHELL_LAYOUT).unwrap()]);
-  write_plan_value(&dir, json);
+  let mut plan = read_plan(&dir);
+  plan.components = vec![component(SHELL_LAYOUT)];
+  write_manifest(&dir, &plan);
   dir
 }
 
@@ -3274,9 +3367,9 @@ fn shell_with(site: &std::path::Path) -> Arc<Host> {
 #[tokio::test]
 async fn a_mounted_site_serves_under_the_shells_root_layout_with_its_own_middleware_head_and_clients() {
   let site = site_dir();
-  let mut json = read_plan(&site);
-  json["middleware"] = serde_json::from_str(SITE_MIDDLEWARE).unwrap();
-  write_plan_value(&site, json);
+  let mut plan = read_plan(&site);
+  plan.middleware = Some(body(SITE_MIDDLEWARE));
+  write_manifest(&site, &plan);
   let toml = std::fs::read_to_string(site.join("app.toml")).unwrap();
   std::fs::write(
     site.join("app.toml"),
@@ -3404,10 +3497,10 @@ async fn a_mounted_site_serves_under_the_shells_root_layout_with_its_own_middlew
 #[tokio::test]
 async fn a_mounted_sites_middleware_reads_the_constants_its_plan_declares() {
   let site = site_dir();
-  let mut json = read_plan(&site);
-  json["middleware"] = serde_json::from_str(&SITE_MIDDLEWARE.replace(r#"{ "lit": { "str": "shop" } }"#, r#"{ "const": "src/moved.ts#WHERE" }"#)).unwrap();
-  json["consts"] = serde_json::json!({ "src/moved.ts#WHERE": { "lit": { "str": "moved" } } });
-  write_plan_value(&site, json);
+  let mut plan = read_plan(&site);
+  plan.middleware = Some(body(&SITE_MIDDLEWARE.replace(r#""shop""#, "(const src/moved.ts#WHERE)")));
+  plan.consts = [("src/moved.ts#WHERE".to_owned(), expr(r#""moved""#))].into_iter().collect();
+  write_manifest(&site, &plan);
   let host = shell_with(&site);
 
   let response = host.handle(Request::get("/shop").body(Bytes::new()).unwrap()).await;
@@ -3428,10 +3521,10 @@ fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_
     .to_string();
   assert!(e.contains("site `billing`") && e.contains("is the site `shop`"), "{e}");
 
-  let mut json = read_plan(&site);
-  json["sources"][0]["owner"] = serde_json::Value::String("engine".to_owned());
-  json["sources"][0]["export"] = serde_json::Value::String("load".to_owned());
-  write_plan_value(&site, json);
+  let mut plan = read_plan(&site);
+  plan.sources[0].owner = snapfire_fsr_plan::RowOwner::Engine;
+  plan.sources[0].export = Some("load".to_owned());
+  write_manifest(&site, &plan);
   let mount = snapfire_fsr_host::Mount::new("shop", "dev", "-", false, snapfire_fsr_host::Loader::at(&site).load().unwrap());
   let e = Host::from(app_dir().join("app.toml"))
     .unwrap()
@@ -3453,21 +3546,20 @@ fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_
   assert!(e.contains("cannot mount sites"), "{e}");
 }
 
-const FILES_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
-    { "pattern": "/secret", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "secret" } } ] } }
-  ],
-  "sources": [
-    { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "text", { "ext": { "module": "file", "name": "read", "args": [ { "lit": { "str": "content/a.md" } } ] } } ] } ] } } ] },
-    { "id": "secret", "owner": "lowered", "module": "routes/secret/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "text", { "ext": { "module": "file", "name": "read", "args": [ { "lit": { "str": "app.toml" } } ] } } ] } ] } } ] }
-  ]
-}"#;
+const FILES_PLAN: &str = r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(route /secret
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source secret)))))
+(source index
+  lowered
+  (module routes/index/page.loader.ts)
+  (body (ret (obj (text (ext file read "content/a.md"))))))
+(source secret
+  lowered
+  (module routes/secret/page.loader.ts)
+  (body (ret (obj (text (ext file read "app.toml"))))))
+"#;
 
 #[tokio::test]
 async fn a_loader_reads_a_file_under_the_configured_roots_relative_to_the_app_and_nothing_outside() {
@@ -3489,20 +3581,14 @@ async fn a_loader_reads_a_file_under_the_configured_roots_relative_to_the_app_an
   assert!(refused.contains("no `[files] roots`"), "{refused}");
 }
 
-const EXT_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } }
-  ],
-  "sources": [
-    { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
-      "body": [ { "return": { "object": [
-        { "field": [ "label", { "ext": { "module": "fmt", "name": "pretty", "args": [ { "lit": { "float": 1234.5 } } ] } } ] },
-        { "field": [ "n", { "ext": { "module": "intl", "name": "number", "args": [ { "lit": { "float": 1234.5 } } ] } } ] }
-      ] } } ] }
-  ]
-}"#;
+const EXT_PLAN: &str = r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(source index
+  lowered
+  (module routes/index/page.loader.ts)
+  (body (ret (obj (label (ext fmt pretty 1234.5)) (n (ext intl number 1234.5))))))
+"#;
 
 #[tokio::test]
 async fn a_registered_native_pair_answers_a_lowered_body_and_an_unregistered_one_refuses_to_build() {
@@ -3565,14 +3651,25 @@ async fn a_keyed_title_and_template_read_the_catalog_of_the_request_locale() {
   std::fs::write(dir.join("app.toml"), toml).unwrap();
   write_plan(
     &dir,
-    r#"{ "version": 2, "routes": [
-      { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
-      { "pattern": "/named", "plan": { "id": 2, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 3, "module": "routes/index/page.tsx#default", "source": "named" } } ] } },
-      { "pattern": "/bare", "plan": { "id": 4, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 5, "module": "routes/index/page.tsx#default", "source": "bare" } } ] } } ],
-      "sources": [
-        { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "object": [] } } ] },
-        { "id": "named", "owner": "lowered", "module": "routes/named/page.loader.ts", "body": [ { "return": { "object": [] } } ], "meta": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Nozzle" } } ] } ] } } ] },
-        { "id": "bare", "owner": "lowered", "module": "routes/bare/page.loader.ts", "body": [ { "return": { "object": [] } } ], "meta": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Sign in" } } ] }, { "field": [ "absolute", { "lit": { "bool": true } } ] } ] } } ] } ] }"#,
+    r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(route /named
+  (node 2 shell#document (slot content (node 3 routes/index/page.tsx#default (source named)))))
+(route /bare
+  (node 4 shell#document (slot content (node 5 routes/index/page.tsx#default (source bare)))))
+(source index lowered (module routes/index/page.loader.ts) (body (ret (obj))))
+(source named
+  lowered
+  (module routes/named/page.loader.ts)
+  (body (ret (obj)))
+  (meta (ret (obj (title "Nozzle")))))
+(source bare
+  lowered
+  (module routes/bare/page.loader.ts)
+  (body (ret (obj)))
+  (meta (ret (obj (title "Sign in") (absolute #t)))))
+"#,
   );
   let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
   let render = |path: &'static str| async { host.render_to_string(path, RenderMode::Html, SessionCell::default()).await.unwrap() };
@@ -3604,11 +3701,18 @@ async fn catalogs_under_locales_reach_the_document_the_payload_and_t() {
   .unwrap();
   write_plan(
     &dir,
-    r#"{ "version": 2, "routes": [ { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } } ],
-      "sources": [ { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "object": [
-        { "field": [ "hi", { "ext": { "module": "i18n", "name": "t", "args": [ { "lit": { "str": "hello.world" } }, { "object": [ { "field": [ "name", { "lit": { "str": "Norm" } } ] } ] } ] } } ] },
-        { "field": [ "n", { "ext": { "module": "i18n", "name": "t", "args": [ { "lit": { "str": "items" } }, { "object": [ { "field": [ "count", { "lit": { "float": 2.0 } } ] } ] } ] } } ] }
-      ] } } ] } ] }"#,
+    r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(source index
+  lowered
+  (module routes/index/page.loader.ts)
+  (body
+    (ret
+      (obj
+        (hi (ext i18n t "hello.world" (obj (name "Norm"))))
+        (n (ext i18n t "items" (obj (count 2.0))))))))
+"#,
   );
   let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
   assert_eq!(host.report().catalogs, vec![("en".to_owned(), 4)]);
@@ -4364,7 +4468,7 @@ async fn a_source_reading_the_identity_is_warmed_for_anonymous_visitors_alone() 
 /// `listed` and left out entirely when that is empty.
 fn host_reading_host(listed: &[&str]) -> Arc<Host> {
   let dir = app_dir();
-  write_plan(&dir, &PLAN.replace(r#"{ "field": [ "here", "path" ] }"#, r#"{ "field": [ "here", "host" ] }"#));
+  write_plan(&dir, &PLAN.replace("(here (path))", "(here (host))"));
   if !listed.is_empty() {
     let quoted: Vec<String> = listed.iter().map(|h| format!("\"{h}\"")).collect();
     let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace(
@@ -4444,21 +4548,19 @@ fn host_with_origin(origin: Option<&str>) -> Arc<Host> {
     let toml = toml.replace("title = \"Test <app>\"", &format!("title = \"Test <app>\"\norigin = \"{origin}\""));
     std::fs::write(dir.join("app.toml"), toml).unwrap();
   }
-  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
+  let mut plan = snapfire_fsr_plan::Manifest::from_text(PLAN).unwrap();
   let link = |attrs: &[(&str, &str)]| {
-    let mut fields = vec![serde_json::json!({ "field": ["tag", { "lit": { "str": "link" } }] })];
-    for (k, v) in attrs {
-      fields.push(serde_json::json!({ "field": [k, { "lit": { "str": v } }] }));
-    }
-    serde_json::json!({ "item": { "object": fields } })
+    let fields: String = attrs.iter().map(|(k, v)| format!(" ({k} {v:?})")).collect();
+    format!("(: (obj (tag \"link\"){fields}))")
   };
-  json["sources"][0]["meta"] = serde_json::json!([{ "return": { "object": [{ "field": ["head", { "array": [
+  let links = [
     link(&[("rel", "canonical"), ("href", "/about")]),
     link(&[("rel", "alternate"), ("hreflang", "fr"), ("href", "/fr/about")]),
     link(&[("rel", "alternate"), ("hreflang", "de"), ("href", "https://de.example.org/about")]),
     link(&[("rel", "icon"), ("href", "/icon.png")]),
-  ] }] }] } }]);
-  write_plan_value(&dir, json);
+  ];
+  plan.sources[0].meta = Some(body(&format!("(ret (obj (head (arr {}))))", links.join(" "))));
+  write_manifest(&dir, &plan);
   let transport =
     Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
   Arc::new(
@@ -4583,11 +4685,9 @@ fn host_at(dir: &std::path::Path) -> Result<Host, snapfire_fsr_host::HostError> 
 #[tokio::test]
 async fn a_public_value_reaches_a_body_as_ctx_config() {
   let dir = app_dir_with("\n[public]\nanalytics_id = \"G-TEST-1\"\nrollout = 3\nbeta = true\n");
-  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
-  json["sources"][1]["body"] = serde_json::json!([{ "return": { "object": [
-    { "field": ["greeting", { "template": [ { "config": "analytics_id" }, { "lit": { "str": " " } }, { "config": "rollout" }, { "lit": { "str": " " } }, { "config": "beta" }, { "lit": { "str": " " } }, { "config": "missing" } ] } ] }
-  ] } }]);
-  write_plan_value(&dir, json);
+  let mut plan = snapfire_fsr_plan::Manifest::from_text(PLAN).unwrap();
+  plan.sources[1].body = Some(body(r#"(ret (obj (greeting (concat (config analytics_id) " " (config rollout) " " (config beta) " " (config missing)))))"#));
+  write_manifest(&dir, &plan);
   let host = host_at(&dir).unwrap();
   let html = host.render_to_string("/hello/x", RenderMode::Html, SessionCell::default()).await.unwrap();
   assert!(html.contains("G-TEST-1 3 true "), "{html}");
@@ -4728,27 +4828,33 @@ async fn the_longest_static_route_answers_whatever_order_the_roots_were_written_
   assert_eq!(response.status(), StatusCode::OK);
 }
 
-const SHELF_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/shelf", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "source": "shelf.layout", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/shelf/page.tsx#default", "source": "shelf.page" } },
-        { "slot": "side", "node": { "id": 3, "module": "routes/slots/side/page.tsx#default", "source": "shelf.side" } },
-        { "slot": "late", "node": { "id": 4, "module": "routes/slots/late/page.tsx#default", "source": "shelf.late", "deferred": true, "fallback": "routes/slots/late/loading.tsx#default" } } ] } } ] } }
-  ],
-  "sources": [
-    { "id": "shelf.layout", "owner": "lowered", "module": "routes/layout.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "name", { "lit": { "str": "The Shed" } } ] } ] } } ] },
-    { "id": "shelf.page", "owner": "lowered", "module": "routes/shelf/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "tools", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] },
-    { "id": "shelf.side", "owner": "lowered", "module": "routes/slots/side/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "who", { "lit": { "str": "Sam" } } ] } ] } } ] },
-    { "id": "shelf.late", "owner": "lowered", "module": "routes/slots/late/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "day", { "lit": { "str": "Monday" } } ] } ] } } ] }
-  ],
-  "actions": []
-}"#;
+const SHELF_PLAN: &str = r#"(plan 2)
+(route /shelf
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/layout.tsx#default
+        (source shelf.layout)
+        (slot content (node 2 routes/shelf/page.tsx#default (source shelf.page)))
+        (slot side (node 3 routes/slots/side/page.tsx#default (source shelf.side)))
+        (slot late
+          (node 4
+            routes/slots/late/page.tsx#default
+            (source shelf.late)
+            (deferred)
+            (fallback routes/slots/late/loading.tsx#default)))))))
+(source shelf.layout lowered (module routes/layout.loader.ts) (body (ret (obj (name "The Shed")))))
+(source shelf.page
+  lowered
+  (module routes/shelf/page.loader.ts)
+  (body (ret (obj (tools (call shop list))))))
+(source shelf.side lowered (module routes/slots/side/page.loader.ts) (body (ret (obj (who "Sam")))))
+(source shelf.late
+  lowered
+  (module routes/slots/late/page.loader.ts)
+  (body (ret (obj (day "Monday")))))
+"#;
 
 fn shelved() -> Arc<Host> {
   let dir = app_dir();
@@ -5365,35 +5471,36 @@ fn a_lowered_island_step_reaches_a_component_inside_it_by_address() {
   assert_eq!(number(carried.state.get("c1/x")), 5.0, "an addressed key passes the check and the render reads it");
 }
 
-const BLOG_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/blog", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/blog/page.tsx#default", "source": "blog" } } ] } },
-    { "pattern": "/blog/{slug}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/blog/post/page.tsx#default", "source": "post" } } ] } },
-    { "pattern": "/me/{slug}", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/me/page.tsx#default", "source": "mine" } } ] } }
-  ],
-  "sources": [
-    { "id": "blog", "owner": "lowered", "module": "routes/blog/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "posts", { "array": [ { "item": { "lit": { "str": "hello" } } }, { "item": { "lit": { "str": "world" } } } ] } ] } ] } } ] },
-    { "id": "post", "owner": "lowered", "module": "routes/blog/post/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "slug", { "param": "slug" } ] } ] } } ],
-      "paths": [ { "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "hello" } } ] } ] } }, { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "world" } } ] } ] } } ] } } ] },
-    { "id": "mine", "owner": "lowered", "module": "routes/me/page.loader.ts",
-      "body": [ { "return": { "object": [
-        { "field": [ "slug", { "param": "slug" } ] },
-        { "field": [ "who", { "coalesce": [ { "identity": [ "subject" ] }, { "lit": { "str": "anonymous" } } ] } ] } ] } } ],
-      "paths": [ { "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "a" } } ] } ] } } ] } } ] }
-  ],
-  "actions": [],
-  "components": [
-    { "module": "routes/blog/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "text": "blog" } ] } } } },
-    { "module": "routes/blog/post/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "text": "post " }, { "expr": { "field": [ { "var": "$props" }, "slug" ] } } ] } } } },
-    { "module": "routes/me/page.tsx#default", "body": { "render": { "element": { "tag": "p", "children": [ { "expr": { "field": [ { "var": "$props" }, "who" ] } }, { "text": " at " }, { "expr": { "field": [ { "var": "$props" }, "slug" ] } } ] } } } }
-  ]
-}"#;
+const BLOG_PLAN: &str = r#"(plan 2)
+(route /blog
+  (node 0 shell#document (slot content (node 1 routes/blog/page.tsx#default (source blog)))))
+(route |/blog/{slug}|
+  (node 0 shell#document (slot content (node 1 routes/blog/post/page.tsx#default (source post)))))
+(route |/me/{slug}|
+  (node 0 shell#document (slot content (node 1 routes/me/page.tsx#default (source mine)))))
+(source blog
+  lowered
+  (module routes/blog/page.loader.ts)
+  (body (ret (obj (posts (arr (: "hello") (: "world")))))))
+(source post
+  lowered
+  (module routes/blog/post/page.loader.ts)
+  (body (ret (obj (slug (param slug)))))
+  (paths (ret (arr (: (obj (slug "hello"))) (: (obj (slug "world")))))))
+(source mine
+  lowered
+  (module routes/me/page.loader.ts)
+  (body (ret (obj (slug (param slug)) (who (?? (identity subject) "anonymous")))))
+  (paths (ret (arr (: (obj (slug "a")))))))
+(component routes/blog/page.tsx#default (owner react) (render (el h1 () "blog")))
+(component
+  routes/blog/post/page.tsx#default
+  (owner react)
+  (render (el h1 () "post " {(. $props slug)})))
+(component routes/me/page.tsx#default
+  (owner react)
+  (render (el p () {(. $props who)} " at " {(. $props slug)})))
+"#;
 
 fn blog_dir() -> PathBuf {
   let dir = identified_dir(USERS);
@@ -5471,9 +5578,9 @@ async fn a_set_dropped_from_paths_leaves_no_file_behind() {
   assert!(out.join("blog/world/index.html").is_file());
   std::fs::write(out.join("blog/keep.txt"), "mine").unwrap();
 
-  let mut json: serde_json::Value = serde_json::from_str(BLOG_PLAN).unwrap();
-  json["sources"][1]["paths"] = serde_json::json!([{ "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "hello" } } ] } ] } } ] } }]);
-  write_plan_value(&dir, json);
+  let mut plan = snapfire_fsr_plan::Manifest::from_text(BLOG_PLAN).unwrap();
+  plan.sources[1].paths = Some(body(r#"(ret (arr (: (obj (slug "hello")))))"#));
+  write_manifest(&dir, &plan);
   let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   host.prerender(&out).await.unwrap();
   assert!(out.join("blog/hello/index.html").is_file());
@@ -5484,25 +5591,30 @@ async fn a_set_dropped_from_paths_leaves_no_file_behind() {
   let _ = std::fs::remove_dir_all(&out);
 }
 
-const CONSOLE_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/help", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
-        { "slot": "content", "node": { "id": 2, "module": "routes/help/page.tsx#default", "source": "help", "cache_key": "routes/help/page.tsx#default" } } ] } } ] } }
-  ],
-  "sources": [
-    { "id": "layout", "owner": "lowered", "module": "routes/layout.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "who", { "coalesce": [ { "session": "user" }, { "lit": { "str": "nobody" } } ] } ] } ] } } ] },
-    { "id": "help", "owner": "lowered", "module": "routes/help/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Help" } } ] } ] } } ] }
-  ],
-  "actions": [],
-  "components": [
-    { "module": "routes/layout.tsx#default", "body": { "render": { "element": { "tag": "div", "attrs": [ { "field": [ "data-who", { "field": [ { "var": "$props" }, "who" ] } ] } ], "children": [ { "slot": "content" } ] } } } },
-    { "module": "routes/help/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "title" ] } } ] } } } }
-  ]
-}"#;
+const CONSOLE_PLAN: &str = r#"(plan 2)
+(route /help
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/layout.tsx#default
+        (source layout)
+        (cache-key routes/layout.tsx#default)
+        (slot content
+          (node 2
+            routes/help/page.tsx#default
+            (source help)
+            (cache-key routes/help/page.tsx#default)))))))
+(source layout
+  lowered
+  (module routes/layout.loader.ts)
+  (body (ret (obj (who (?? (session user) "nobody"))))))
+(source help lowered (module routes/help/page.loader.ts) (body (ret (obj (title "Help")))))
+(component routes/layout.tsx#default
+  (owner react)
+  (render (el div ((data-who (. $props who))) (slot content))))
+(component routes/help/page.tsx#default (owner react) (render (el h1 () {(. $props title)})))
+"#;
 
 #[tokio::test]
 async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_serves_it() {
@@ -5527,9 +5639,10 @@ async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_
   let html = body_of(response).await;
   assert!(html.contains("<h1>Help from the build</h1>") && html.contains("data-who=\"nobody\""), "the page comes from the build's render inside the live layout: {html}");
 
-  let mut json: serde_json::Value = serde_json::from_str(CONSOLE_PLAN).unwrap();
-  json["components"][1]["body"]["render"]["element"]["tag"] = serde_json::json!("h2");
-  write_plan_value(&dir, json);
+  let mut plan = snapfire_fsr_plan::Manifest::from_text(CONSOLE_PLAN).unwrap();
+  let snapfire_fsr_ir::Tmpl::Element { tag, .. } = &mut plan.components[1].body.render else { panic!("the page renders an element") };
+  *tag = "h2".to_owned();
+  write_manifest(&dir, &plan);
   let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   assert_eq!(host.report().rendered, 0, "another build's renders are not read: {}", host.report());
   let html = body_of(host.handle(Request::get("/help").body(Bytes::new()).unwrap()).await).await;
@@ -5541,19 +5654,14 @@ async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_
   let _ = std::fs::remove_dir_all(&out);
 }
 
-const BOARD_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/board", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/board/page.tera#default", "source": "board" } } ] } }
-  ],
-  "sources": [
-    { "id": "board", "owner": "lowered", "module": "routes/board/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Board" } } ] }, { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] }
-  ],
-  "actions": [],
-  "components": []
-}"#;
+const BOARD_PLAN: &str = r#"(plan 2)
+(route /board
+  (node 0 shell#document (slot content (node 1 routes/board/page.tera#default (source board)))))
+(source board
+  lowered
+  (module routes/board/page.loader.ts)
+  (body (ret (obj (title "Board") (items (call shop list))))))
+"#;
 
 #[cfg(feature = "tera")]
 #[tokio::test]
@@ -5829,12 +5937,7 @@ mod reload_paths {
     let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
     let patterns = |host: &Host| host.report().app.routes.iter().map(|r| r.0.clone()).collect::<Vec<_>>();
     assert!(!patterns(&host).contains(&"/reread".to_owned()));
-    let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
-    json["routes"].as_array_mut().unwrap().push(serde_json::json!(
-      { "pattern": "/reread", "plan": { "id": 0, "module": "shell#document", "children": [
-        { "slot": "content", "node": { "id": 1, "module": "routes/feed/page.tsx#default" } } ] } }
-    ));
-    write_plan_value(&dir, json);
+    write_plan(&dir, &format!("{PLAN}(route /reread (node 0 shell#document (slot content (node 1 routes/feed/page.tsx#default))))\n"));
     host.reload().unwrap();
     assert!(patterns(&host).contains(&"/reread".to_owned()), "{:?}", patterns(&host));
   }
@@ -6040,17 +6143,15 @@ fn csp_host(policy: &str, dev: bool) -> Arc<Host> {
   )
 }
 
-const NONCE_PLAN: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/nonce", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/nonce/page.tsx#default", "cache_key": "routes/nonce/page.tsx#default" } } ] } }
-  ],
-  "sources": [], "actions": [],
-  "components": [
-    { "module": "routes/nonce/page.tsx#default", "body": { "render": { "element": { "tag": "script", "attrs": [ { "field": [ "nonce", { "field": [ { "var": "$props" }, "csp_nonce" ] } ] } ], "children": [ { "text": "window.counted = 1" } ] } } } }
-  ]
-}"#;
+const NONCE_PLAN: &str = r#"(plan 2)
+(route /nonce
+  (node 0
+    shell#document
+    (slot content (node 1 routes/nonce/page.tsx#default (cache-key routes/nonce/page.tsx#default)))))
+(component routes/nonce/page.tsx#default
+  (owner react)
+  (render (el script ((nonce (. $props csp_nonce))) "window.counted = 1")))
+"#;
 
 /// An application's own inline script carries the response's nonce: a fresh one per live response, named in that response's policy, which the development refresh script carries too. With a render cache too, since a memoized render would carry the nonce of the response it was made for.
 #[tokio::test]
@@ -6750,12 +6851,9 @@ async fn a_form_post_that_fails_gets_its_page_back_with_the_failure_on_it() {
   std::fs::write(dir.join("app.toml"), toml).unwrap();
 
   // A guard the input always trips, so the action fails rather than returning.
-  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
-  json["actions"][1]["body"] = serde_json::json!([
-    { "guard": { "cond": { "lit": { "bool": true } }, "kind": "invalid", "message": { "lit": { "str": "that is not a number" } } } },
-    { "return": { "lit": { "int": 0 } } }
-  ]);
-  write_plan_value(&dir, json);
+  let mut plan = snapfire_fsr_plan::Manifest::from_text(PLAN).unwrap();
+  plan.actions[1].body = Some(body(r#"(guard #t invalid "that is not a number") (ret 0)"#));
+  write_manifest(&dir, &plan);
   let host = host_at(&dir).unwrap();
 
   let opened = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
@@ -6824,12 +6922,9 @@ async fn a_form_caller_naming_json_gets_the_failure_as_json_rather_than_the_redi
   let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   toml = toml.replace("[session]\nkey = \"test-key\"", "[session]\ncsrf = \"always\"\nkey = \"test-key\"");
   std::fs::write(dir.join("app.toml"), toml).unwrap();
-  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
-  json["actions"][1]["body"] = serde_json::json!([
-    { "guard": { "cond": { "lit": { "bool": true } }, "kind": "invalid", "message": { "lit": { "str": "no" } } } },
-    { "return": { "lit": { "int": 0 } } }
-  ]);
-  write_plan_value(&dir, json);
+  let mut plan = snapfire_fsr_plan::Manifest::from_text(PLAN).unwrap();
+  plan.actions[1].body = Some(body(r#"(guard #t invalid "no") (ret 0)"#));
+  write_manifest(&dir, &plan);
   let host = host_at(&dir).unwrap();
 
   let opened = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
@@ -6866,12 +6961,9 @@ async fn a_form_caller_naming_json_gets_the_failure_as_json_rather_than_the_redi
 #[tokio::test]
 async fn a_json_caller_still_gets_the_failure_as_json() {
   let dir = app_dir();
-  let mut json: serde_json::Value = serde_json::from_str(PLAN).unwrap();
-  json["actions"][1]["body"] = serde_json::json!([
-    { "guard": { "cond": { "lit": { "bool": true } }, "kind": "invalid", "message": { "lit": { "str": "no" } } } },
-    { "return": { "lit": { "int": 0 } } }
-  ]);
-  write_plan_value(&dir, json);
+  let mut plan = snapfire_fsr_plan::Manifest::from_text(PLAN).unwrap();
+  plan.actions[1].body = Some(body(r#"(guard #t invalid "no") (ret 0)"#));
+  write_manifest(&dir, &plan);
   let host = host_at(&dir).unwrap();
 
   let response = host
@@ -7066,13 +7158,12 @@ async fn a_hashed_static_name_is_immutable_and_a_plain_one_revalidates() {
 #[tokio::test]
 async fn a_components_head_rows_reach_the_document_of_every_page_rendering_it() {
   let dir = app_dir();
-  let mut json = read_plan(&dir);
-  json["components"] = serde_json::json!([{
-    "module": "routes/index/page.tsx#default",
-    "body": { "render": { "element": { "tag": "section", "children": [ { "text": "the index" } ] } } },
-    "head": [{ "tag": "link", "attrs": [["rel", "preload"], ["as", "image"], ["imagesrcset", "/static/js/app/img/hero.0a1b2c3d.640.avif 640w"], ["imagesizes", "100vw"], ["fetchpriority", "high"]] }]
-  }]);
-  write_plan_value(&dir, json);
+  let mut plan = read_plan(&dir);
+  plan.components = vec![component(
+    r#"(component routes/index/page.tsx#default (owner react) (render (el section () "the index"))
+  (head link "rel" "preload" "as" "image" "imagesrcset" "/static/js/app/img/hero.0a1b2c3d.640.avif 640w" "imagesizes" "100vw" "fetchpriority" "high"))"#,
+  )];
+  write_manifest(&dir, &plan);
   let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])))).build().unwrap();
   let html = body_of(host.handle(Request::get("/").body(Bytes::new()).unwrap()).await).await;
   let head = html.split("</head>").next().unwrap();
@@ -7943,8 +8034,8 @@ async fn a_routes_own_stylesheets_are_linked_on_its_documents_alone() {
   std::fs::write(dir.join("dist/src/card.css"), ".card { color: red; }").unwrap();
   std::fs::write(dir.join("dist/src/ui/Card.vue.css"), ".card { color: red; }").unwrap();
   let mut plan = read_plan(&dir);
-  plan["sheets"] = serde_json::json!([{ "module": "routes/index/page.tsx#default", "sheets": ["src/card.css", "src/ui/Card.vue.css", "src/ui/Plain.vue.css"] }]);
-  write_plan_value(&dir, plan);
+  plan.sheets = vec![snapfire_fsr_plan::ModuleSheets { module: "routes/index/page.tsx#default".to_owned(), sheets: vec!["src/card.css".to_owned(), "src/ui/Card.vue.css".to_owned(), "src/ui/Plain.vue.css".to_owned()] }];
+  write_manifest(&dir, &plan);
   let host = tuned_host(&dir);
 
   let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
@@ -7964,12 +8055,10 @@ async fn a_routes_own_stylesheets_are_linked_on_its_documents_alone() {
 async fn a_body_reads_the_configured_locales_in_their_declared_order() {
   let dir = localised_dir();
   let mut plan = read_plan(&dir);
-  for source in plan["sources"].as_array_mut().unwrap() {
-    if source["id"] == "where" {
-      source["body"] = serde_json::json!([{ "return": { "object": [{ "field": ["tags", "locales"] }] } }]);
-    }
+  for source in plan.sources.iter_mut().filter(|source| source.id == "where") {
+    source.body = Some(body("(ret (obj (tags (locales))))"));
   }
-  write_plan_value(&dir, plan);
+  write_manifest(&dir, &plan);
   let host = tuned_host(&dir);
   for path in ["/where", "/fr_FR/where"] {
     let html = host.render_to_string(path, RenderMode::Html, SessionCell::default()).await.unwrap();

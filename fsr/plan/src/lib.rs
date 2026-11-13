@@ -691,25 +691,6 @@ impl Manifest {
     self
   }
 
-  pub fn from_json(source: &str) -> Result<Self, PlanError> {
-    let manifest: Manifest =
-      serde_json::from_str(source).map_err(|e| PlanError::Malformed(e.to_string()))?;
-    if !(OLDEST_READABLE..=FORMAT_VERSION).contains(&manifest.version) {
-      return Err(PlanError::Version { found: manifest.version });
-    }
-    for row in &manifest.sources {
-      if row.owner == RowOwner::Lowered && row.body.is_none() {
-        return Err(PlanError::NoBody { id: row.id.clone() });
-      }
-    }
-    for row in &manifest.actions {
-      if row.owner == RowOwner::Lowered && row.body.is_none() {
-        return Err(PlanError::NoBody { id: row.id.clone() });
-      }
-    }
-    Ok(manifest)
-  }
-
   /// The source rows that carry a body, which the host binds unless Rust
   /// overrides the name.
   pub fn lowered_sources(&self) -> impl Iterator<Item = &SourceEntry> {
@@ -722,10 +703,6 @@ impl Manifest {
 
   pub fn action_ids(&self) -> Vec<String> {
     self.actions.iter().map(|row| row.id.clone()).collect()
-  }
-
-  pub fn to_json(&self) -> String {
-    serde_json::to_string_pretty(self).expect("a manifest serializes")
   }
 
   /// The routes as the runtime wants them: a pattern and the plan it resolves
@@ -826,21 +803,15 @@ mod visit_tests {
 
   #[test]
   fn the_walk_reaches_the_expressions_of_every_kind_of_body() {
-    let call = |method: &str| format!(r#"{{ "native_call": {{ "module": "m", "method": "{method}" }} }}"#);
-    let text = format!(
-      r#"{{
-        "version": 2,
-        "routes": [],
-        "sources": [ {{ "id": "a", "owner": "lowered", "body": [ {{ "return": {} }} ], "meta": [ {{ "return": {} }} ] }} ],
-        "actions": [ {{ "id": "b", "owner": "lowered", "body": [ {{ "return": {} }} ] }} ],
-        "handlers": [ {{ "id": "c.GET", "method": "GET", "pattern": "/c", "owner": "lowered", "body": [ {{ "return": {} }} ] }} ],
-        "middleware": [ {{ "return": {} }} ],
-        "consts": {{ "k": {} }},
-        "derives": [ {{ "key": "d", "sources": [], "body": {} }} ]
-      }}"#,
-      call("source"), call("meta"), call("action"), call("handler"), call("middleware"), call("const"), call("derive")
-    );
-    let mut manifest = Manifest::from_json(&text).unwrap();
+    let text = "(plan 2)
+(middleware (ret (native m middleware)))
+(source a lowered (body (ret (native m source))) (meta (ret (native m meta))))
+(action b lowered (body (ret (native m action))))
+(handler c.GET GET /c lowered (body (ret (native m handler))))
+(const k (native m const))
+(derive \"d\" (sources) (native m derive))
+";
+    let mut manifest = Manifest::from_text(text).unwrap();
     let mut reached = Vec::new();
     manifest.visit_exprs_mut(&mut |e| {
       if let snapfire_fsr_ir::ast::Expr::NativeCall { method, .. } = e {
@@ -858,42 +829,47 @@ mod namespace_tests {
 
   #[test]
   fn every_id_carries_the_name_and_every_pattern_sits_under_at() {
-    let manifest = Manifest::from_json(r#"{
-      "version": 2,
-      "routes": [
-        { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-          { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
-            { "slot": "content", "node": { "id": 2, "module": "routes/index/page.tsx#default", "source": "index", "deferred": true, "fallback": "routes/index/loading.tsx#default", "error": "routes/error.tsx#default" } } ] } } ] } }
-      ],
-      "sources": [ { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "call": { "service": "ledger", "method": "list", "args": [] } } } ] } ],
-      "actions": [ { "id": "index.add", "owner": "lowered", "module": "routes/index/actions.ts", "input": "Add", "body": [ { "return": { "const": "src/content.ts#CHAPTERS" } } ] } ],
-      "handlers": [ { "id": "api.x.GET", "method": "GET", "pattern": "/api/x", "owner": "lowered", "module": "routes/api/x/route.ts", "body": [] } ],
-      "components": [ { "module": "routes/index/page.tsx#default", "body": { "render": { "island": { "module": "src/ui/Tips.tsx#TipList", "when": "load", "props": [], "children": [] } } } } ],
-      "consts": { "src/content.ts#CHAPTERS": { "array": [] } },
-      "middleware": [ { "return": { "call": { "service": "ledger", "method": "ping", "args": [] } } } ]
-    }"#).unwrap();
-    let json = manifest.namespaced("billing", "/billing", "shell#document").to_json();
-    for expected in [
-      "\"pattern\": \"/billing\"",
-      "\"module\": \"shell#document\"",
-      "\"module\": \"billing:routes/layout.tsx#default\"",
-      "\"source\": \"billing:layout\"",
-      "\"cache_key\": \"billing:routes/layout.tsx#default\"",
-      "\"fallback\": \"billing:routes/index/loading.tsx#default\"",
-      "\"error\": \"billing:routes/error.tsx#default\"",
-      "\"id\": \"billing:index\"",
-      "\"service\": \"billing:ledger\"",
-      "\"id\": \"billing:index.add\"",
-      "\"input\": \"billing:Add\"",
-      "\"pattern\": \"/billing/api/x\"",
-      "\"id\": \"billing:api.x.GET\"",
-      "\"module\": \"billing:src/ui/Tips.tsx#TipList\"",
-      "\"billing:src/content.ts#CHAPTERS\"",
-      "\"const\": \"billing:src/content.ts#CHAPTERS\"",
-    ] {
-      assert!(json.contains(expected), "missing {expected} in {json}");
+    let manifest = Manifest::from_text(
+      "(plan 2)
+(route /
+  (node 0 shell#document
+    (slot content
+      (node 1 routes/layout.tsx#default (source layout) (cache-key routes/layout.tsx#default)
+        (slot content
+          (node 2 routes/index/page.tsx#default (source index) (deferred)
+            (fallback routes/index/loading.tsx#default) (error routes/error.tsx#default)))))))
+(middleware (ret (call ledger ping)))
+(source index lowered (module routes/index/page.loader.ts) (body (ret (call ledger list))))
+(action index.add lowered (module routes/index/actions.ts) (input Add) (body (ret (const src/content.ts#CHAPTERS))))
+(handler api.x.GET GET /api/x lowered (module routes/api/x/route.ts) (body))
+(const src/content.ts#CHAPTERS (arr))
+(component routes/index/page.tsx#default (owner react) (render (island src/ui/Tips.tsx#TipList 0 \"load\" nil ())))
+",
+    )
+    .unwrap();
+    let named = manifest.namespaced("billing", "/billing", "shell#document");
+    let route = &named.routes[0];
+    assert_eq!(route.pattern, "/billing");
+    assert_eq!(route.plan.module, "shell#document");
+    let layout = &route.plan.children[0].node;
+    assert_eq!(layout.module, "billing:routes/layout.tsx#default");
+    assert_eq!(layout.source.as_deref(), Some("billing:layout"));
+    assert_eq!(layout.cache_key.as_deref(), Some("billing:routes/layout.tsx#default"));
+    let page = &layout.children[0].node;
+    assert_eq!(page.fallback.as_deref(), Some("billing:routes/index/loading.tsx#default"));
+    assert_eq!(page.error.as_deref(), Some("billing:routes/error.tsx#default"));
+    assert_eq!(named.sources[0].id, "billing:index");
+    assert_eq!(named.actions[0].id, "billing:index.add");
+    assert_eq!(named.actions[0].input.as_deref(), Some("billing:Add"));
+    assert_eq!(named.handlers[0].id, "billing:api.x.GET");
+    assert_eq!(named.handlers[0].pattern, "/billing/api/x");
+    assert!(matches!(&named.components[0].body.render, snapfire_fsr_ir::ast::Tmpl::Island { module, .. } if module == "billing:src/ui/Tips.tsx#TipList"));
+    assert!(named.consts.contains_key("billing:src/content.ts#CHAPTERS"));
+    let text = named.to_sexpr();
+    for expected in ["(call billing:ledger list)", "(call billing:ledger ping)", "(const billing:src/content.ts#CHAPTERS)"] {
+      assert!(text.contains(expected), "missing {expected} in {text}");
     }
-    assert!(!json.contains("\"service\": \"ledger\""), "{json}");
+    assert!(!text.contains("(call ledger"), "{text}");
     assert_eq!(under("/billing", "/"), "/billing");
     assert_eq!(under("/billing/", "/x/{id}"), "/billing/x/{id}");
   }

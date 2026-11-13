@@ -8,8 +8,10 @@ fn project(tag: &str, extra: &str) -> std::path::PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
   let root = snapfire_fsr_test_internal::scratch_root().join(format!("fsr-stock-{tag}-{}-{nanos}", std::process::id()));
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
-  let plan = r#"{"version":2,"routes":[{"pattern":"/","plan":{"id":0,"module":"shell#document","children":[]}}],"sources":[],"actions":[],"handlers":[],"components":[]}"#;
-  std::fs::write(root.join("app/generated/plan.sexp"), snapfire_fsr_plan::Manifest::from_json(plan).unwrap().to_sexpr()).unwrap();
+  let plan = r#"(plan 2)
+(route / (node 0 shell#document))
+"#;
+  std::fs::write(root.join("app/generated/plan.sexp"), snapfire_fsr_plan::Manifest::from_text(plan).unwrap().to_sexpr()).unwrap();
   std::fs::write(root.join("app.toml"), format!("[app]\ndir = \"app\"\n[document]\ntitle = \"t\"\n[session]\nkey = \"k\"\n{extra}")).unwrap();
   root
 }

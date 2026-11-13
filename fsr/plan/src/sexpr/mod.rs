@@ -402,13 +402,9 @@ impl Manifest {
     ids
   }
 
-  /// Reads a plan file of either form, told apart by its first term: a plan in
-  /// s-expressions opens with `(`, the JSON it replaced with `{`.
+  /// Reads a plan file.
   pub fn from_text(source: &str) -> Result<Self, crate::PlanError> {
-    match source.trim_start().as_bytes().first() {
-      Some(b'{') => Self::from_json(source),
-      _ => Self::from_sexpr(source),
-    }
+    Self::from_sexpr(source)
   }
 
   /// The manifest as the text of a `plan.sexp`.
@@ -416,8 +412,8 @@ impl Manifest {
     print(&manifest_to_sx(self))
   }
 
-  /// Reads a `plan.sexp`. The version window is the one [`Manifest::from_json`]
-  /// enforces, so a file from a newer build is refused rather than half read.
+  /// Reads a `plan.sexp`. A file outside the versions this build reads, a
+  /// newer build's among them, is refused rather than half read.
   pub fn from_sexpr(source: &str) -> Result<Self, crate::PlanError> {
     let manifest = manifest_from_forms(forms(source)).map_err(|e| crate::PlanError::Malformed(e.to_string()))?;
     if !(OLDEST_READABLE..=FORMAT_VERSION).contains(&manifest.version) {

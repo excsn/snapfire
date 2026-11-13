@@ -14,7 +14,8 @@ use snapfire_fsr_host::{Artifact, Config, Host, HostBuilder, HostError};
 use snapfire_fsr_tera::TeraEvaluator;
 
 /// No plan file: every route, source and action is bound in Rust.
-const EMPTY_PLAN: &str = r#"{"version":2,"routes":[]}"#;
+const EMPTY_PLAN: &str = r#"(plan 2)
+"#;
 
 fn templates() -> tera::Tera {
   let mut tera = tera::Tera::new();

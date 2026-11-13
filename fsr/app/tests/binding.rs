@@ -4,15 +4,10 @@ use snapfire_fsr::{App, BindError, Owner, Routes};
 use snapfire_fsr_core::{ModuleId, NodeId, PlanNode, SlotName, ValueMap};
 use snapfire_fsr_runtime::NullEvaluator;
 
-const MANIFEST: &str = r#"{
-  "version": 1,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "app#Catalog", "source": "catalog" } } ] } },
-    { "pattern": "/cart", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "app#Cart", "source": "cart" } } ] } }
-  ]
-}"#;
+const MANIFEST: &str = r#"(plan 1)
+(route / (node 0 shell#document (slot content (node 1 app#Catalog (source catalog)))))
+(route /cart (node 0 shell#document (slot content (node 1 app#Cart (source cart)))))
+"#;
 
 fn plan(module: &str) -> PlanNode {
   let content = PlanNode::new(NodeId(1), ModuleId::new("app", module));
@@ -113,7 +108,7 @@ fn routes_alone_build_without_a_plan_file() {
 #[test]
 fn a_bad_manifest_reports_itself_rather_than_panicking() {
   assert!(matches!(App::from_manifest("nonsense"), Err(BindError::Plan(_))));
-  assert!(matches!(App::from_manifest(r#"{"version":99,"routes":[]}"#), Err(BindError::Plan(_))));
+  assert!(matches!(App::from_manifest("(plan 99)\n"), Err(BindError::Plan(_))));
 }
 
 #[test]
@@ -167,20 +162,14 @@ fn a_plan_node_built_by_hand_is_still_accepted() {
   assert_eq!(app.report.routes, vec![("/raw".to_owned(), Owner::Rust)]);
 }
 
-const LOWERED: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "app#Catalog", "source": "catalog" } }
-  ],
-  "sources": [
-    { "id": "catalog", "owner": "lowered", "module": "app/routes/index/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "products", { "array": [] } ] } ] } } ] }
-  ],
-  "actions": [
-    { "id": "checkout", "owner": "lowered", "module": "app/routes/cart/actions.ts",
-      "body": [ { "return": { "lit": { "str": "order-1" } } } ] }
-  ]
-}"#;
+const LOWERED: &str = r#"(plan 2)
+(route / (node 0 app#Catalog (source catalog)))
+(source catalog
+  lowered
+  (module app/routes/index/page.loader.ts)
+  (body (ret (obj (products (arr))))))
+(action checkout lowered (module app/routes/cart/actions.ts) (body (ret "order-1")))
+"#;
 
 #[test]
 fn a_lowered_row_binds_itself_and_the_report_says_so() {
@@ -240,14 +229,9 @@ fn a_compiled_body_written_from_another_plan_leaves_the_source_interpreted() {
   assert!(printed.contains("products") && !printed.contains("compiled"), "{printed}");
 }
 
-const LOWERED_HANDLER: &str = r#"{
-  "version": 2,
-  "routes": [],
-  "handlers": [
-    { "id": "api.products.GET", "method": "GET", "pattern": "/api/products", "owner": "lowered",
-      "body": [ { "return": { "lit": { "str": "interpreted" } } } ] }
-  ]
-}"#;
+const LOWERED_HANDLER: &str = r#"(plan 2)
+(handler api.products.GET GET /api/products lowered (body (ret "interpreted")))
+"#;
 
 fn compiled_handler(_: &mut snapfire_fsr_ir::native::Frame<'_>) -> Result<snapfire_fsr_core::Value, snapfire_fsr_ir::Fail> {
   Ok(snapfire_fsr_core::Value::str("compiled"))
@@ -277,25 +261,16 @@ fn a_compiled_body_written_from_another_plan_leaves_the_route_handler_interprete
   assert_eq!(handler_with(|plan| plan ^ 1), snapfire_fsr_core::Value::str("interpreted"));
 }
 
-const LOWERED_EVERY_KIND: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/", "plan": { "id": 0, "module": "app#Catalog", "source": "catalog" } }
-  ],
-  "sources": [
-    { "id": "catalog", "owner": "lowered", "module": "app/routes/index/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "products", { "array": [] } ] } ] } } ] }
-  ],
-  "actions": [
-    { "id": "checkout", "owner": "lowered", "module": "app/routes/cart/actions.ts",
-      "body": [ { "return": { "lit": { "str": "order-1" } } } ] }
-  ],
-  "handlers": [
-    { "id": "api.products.GET", "method": "GET", "pattern": "/api/products", "owner": "lowered",
-      "body": [ { "return": { "lit": { "str": "interpreted" } } } ] }
-  ],
-  "middleware": [ { "return": { "lit": { "str": "next" } } } ]
-}"#;
+const LOWERED_EVERY_KIND: &str = r#"(plan 2)
+(route / (node 0 app#Catalog (source catalog)))
+(middleware (ret "next"))
+(source catalog
+  lowered
+  (module app/routes/index/page.loader.ts)
+  (body (ret (obj (products (arr))))))
+(action checkout lowered (module app/routes/cart/actions.ts) (body (ret "order-1")))
+(handler api.products.GET GET /api/products lowered (body (ret "interpreted")))
+"#;
 
 /// The app bound with a compiled body for each lowered row `compiled` names: `catalog`, `checkout`, `api.products.GET` or `middleware`.
 fn every_kind_with(compiled: &[&str]) -> snapfire_fsr::App {
@@ -379,22 +354,15 @@ fn an_action_override_that_names_nothing_refuses_to_start() {
   assert_eq!(err, BindError::ActionOverridesNothing { id: "checkout".into() });
 }
 
-const IDENTIFIED: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/about", "plan": { "id": 0, "module": "routes/about/page.tsx#default", "source": "about" } },
-    { "pattern": "/account", "plan": { "id": 0, "module": "routes/account/page.tsx#default", "source": "about" } }
-  ],
-  "sources": [
-    { "id": "about", "owner": "lowered", "module": "routes/about/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "About" } } ] } ] } } ] }
-  ],
-  "actions": [],
-  "components": [
-    { "module": "routes/about/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "title" ] } } ] } } } },
-    { "module": "routes/account/page.tsx#default", "body": { "render": { "element": { "tag": "p", "children": [ { "expr": { "field": [ { "field": [ { "var": "$props" }, "identity" ] }, "subject" ] } } ] } } } }
-  ]
-}"#;
+const IDENTIFIED: &str = r#"(plan 2)
+(route /about (node 0 routes/about/page.tsx#default (source about)))
+(route /account (node 0 routes/account/page.tsx#default (source about)))
+(source about lowered (module routes/about/page.loader.ts) (body (ret (obj (title "About")))))
+(component routes/about/page.tsx#default (owner react) (render (el h1 () {(. $props title)})))
+(component routes/account/page.tsx#default
+  (owner react)
+  (render (el p () {(. (. $props identity) subject)})))
+"#;
 
 #[test]
 fn a_page_reading_its_identity_prop_never_prerenders() {
@@ -402,23 +370,20 @@ fn a_page_reading_its_identity_prop_never_prerenders() {
   assert_eq!(app.report.prerenderable, vec!["/about".to_owned()], "{}", app.report);
 }
 
-const BEARER: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/posts", "plan": { "id": 0, "module": "routes/posts/page.tsx#default", "source": "posts" } },
-    { "pattern": "/cart", "plan": { "id": 0, "module": "routes/cart/page.tsx#default", "source": "cart" } },
-    { "pattern": "/faq", "plan": { "id": 0, "module": "routes/faq/page.tsx#default", "source": "faq" } }
-  ],
-  "sources": [
-    { "id": "posts", "owner": "lowered", "module": "routes/posts/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "posts", { "call": { "service": "cms", "method": "list", "args": [] } } ] } ] } } ] },
-    { "id": "cart", "owner": "lowered", "module": "routes/cart/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "who", { "identity": [ "subject" ] } ] }, { "field": [ "n", { "session": "count" } ] } ] } } ] },
-    { "id": "faq", "owner": "lowered", "module": "routes/faq/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "items", { "call": { "service": "docs", "method": "list", "args": [] } } ] } ] } } ] }
-  ],
-  "actions": []
-}"#;
+const BEARER: &str = r#"(plan 2)
+(route /posts (node 0 routes/posts/page.tsx#default (source posts)))
+(route /cart (node 0 routes/cart/page.tsx#default (source cart)))
+(route /faq (node 0 routes/faq/page.tsx#default (source faq)))
+(source posts
+  lowered
+  (module routes/posts/page.loader.ts)
+  (body (ret (obj (posts (call cms list))))))
+(source cart
+  lowered
+  (module routes/cart/page.loader.ts)
+  (body (ret (obj (who (identity subject)) (n (session count))))))
+(source faq lowered (module routes/faq/page.loader.ts) (body (ret (obj (items (call docs list))))))
+"#;
 
 #[test]
 fn a_route_whose_only_request_reads_are_the_identity_prerenders_for_anonymous_visitors() {
@@ -434,20 +399,18 @@ fn a_route_whose_only_request_reads_are_the_identity_prerenders_for_anonymous_vi
   assert!(app.report.prerenderable_anonymous.is_empty());
 }
 
-const CLOCKED: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/now", "plan": { "id": 0, "module": "routes/now/page.tsx#default", "source": "now" } },
-    { "pattern": "/label", "plan": { "id": 0, "module": "routes/label/page.tsx#default", "source": "label" } }
-  ],
-  "sources": [
-    { "id": "now", "owner": "lowered", "module": "routes/now/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "at", { "ext": { "module": "time", "name": "now", "args": [] } } ] }, { "field": [ "id", { "ext": { "module": "id", "name": "new", "args": [] } } ] } ] } } ] },
-    { "id": "label", "owner": "lowered", "module": "routes/label/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "n", { "ext": { "module": "intl", "name": "number", "args": [ { "lit": { "float": 3.5 } } ] } } ] } ] } } ] }
-  ],
-  "actions": []
-}"#;
+const CLOCKED: &str = r#"(plan 2)
+(route /now (node 0 routes/now/page.tsx#default (source now)))
+(route /label (node 0 routes/label/page.tsx#default (source label)))
+(source now
+  lowered
+  (module routes/now/page.loader.ts)
+  (body (ret (obj (at (ext time now)) (id (ext id new))))))
+(source label
+  lowered
+  (module routes/label/page.loader.ts)
+  (body (ret (obj (n (ext intl number 3.5))))))
+"#;
 
 /// A standard member that answers per call, the clock or a fresh id, is read at request time; a render member over constants is not.
 #[test]
@@ -459,25 +422,21 @@ fn a_loader_calling_a_body_member_of_the_standard_library_never_prerenders() {
   assert!(snapfire_fsr_ir::body_reads_request(&body), "the IR's own analysis agrees");
 }
 
-const BLOG: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/blog", "plan": { "id": 0, "module": "routes/blog/page.tsx#default", "source": "blog" } },
-    { "pattern": "/blog/{slug}", "plan": { "id": 0, "module": "routes/blog/post/page.tsx#default", "source": "post" } }
-  ],
-  "sources": [
-    { "id": "blog", "owner": "lowered", "module": "routes/blog/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "posts", { "array": [ { "item": { "lit": { "str": "hello" } } }, { "item": { "lit": { "str": "world" } } } ] } ] } ] } } ] },
-    { "id": "post", "owner": "lowered", "module": "routes/blog/post/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "slug", { "param": "slug" } ] } ] } } ],
-      "paths": [ { "return": { "array": [ { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "hello" } } ] } ] } }, { "item": { "object": [ { "field": [ "slug", { "lit": { "str": "world" } } ] } ] } } ] } } ] }
-  ],
-  "actions": [],
-  "components": [
-    { "module": "routes/blog/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "text": "blog" } ] } } } },
-    { "module": "routes/blog/post/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "slug" ] } } ] } } } }
-  ]
-}"#;
+const BLOG: &str = r#"(plan 2)
+(route /blog (node 0 routes/blog/page.tsx#default (source blog)))
+(route |/blog/{slug}| (node 0 routes/blog/post/page.tsx#default (source post)))
+(source blog
+  lowered
+  (module routes/blog/page.loader.ts)
+  (body (ret (obj (posts (arr (: "hello") (: "world")))))))
+(source post
+  lowered
+  (module routes/blog/post/page.loader.ts)
+  (body (ret (obj (slug (param slug)))))
+  (paths (ret (arr (: (obj (slug "hello"))) (: (obj (slug "world")))))))
+(component routes/blog/page.tsx#default (owner react) (render (el h1 () "blog")))
+(component routes/blog/post/page.tsx#default (owner react) (render (el h1 () {(. $props slug)})))
+"#;
 
 #[test]
 fn a_route_with_a_parameter_prerenders_when_its_loader_names_its_paths() {
@@ -487,7 +446,7 @@ fn a_route_with_a_parameter_prerenders_when_its_loader_names_its_paths() {
   assert!(app.paths.contains_key("/blog/{slug}"));
   assert_eq!(app.report.warmable, vec!["blog".to_owned()], "a source reading a parameter is rendered per set, never memoized by name");
 
-  let without = BLOG.replace(r#""paths": [ { "return""#, r#""unused": [ { "return""#);
+  let without = BLOG.replace("\n  (paths (ret (arr (: (obj (slug \"hello\"))) (: (obj (slug \"world\"))))))", "");
   let app = App::from_manifest(&without).unwrap().build().unwrap();
   assert_eq!(app.report.prerenderable, vec!["/blog".to_owned()], "a parameter with no paths stays live");
   assert!(app.report.paths.is_empty());
@@ -495,47 +454,59 @@ fn a_route_with_a_parameter_prerenders_when_its_loader_names_its_paths() {
 
 #[test]
 fn a_paths_body_reading_the_request_is_refused() {
-  let reading = BLOG.replace(r#"{ "field": [ "slug", { "lit": { "str": "world" } } ] }"#, r#"{ "field": [ "slug", { "session": "last" } ] }"#);
+  let reading = BLOG.replace(r#"(slug "world")"#, "(slug (session last))");
   let err = App::from_manifest(&reading).unwrap().build().err().expect("refused");
   assert!(matches!(err, BindError::PathsReadRequest { ref loader } if loader == "post"), "{err}");
 }
 
 #[test]
 fn paths_on_a_route_with_no_parameter_is_refused() {
-  let fixed = BLOG.replace(r#""pattern": "/blog/{slug}""#, r#""pattern": "/blog/post""#);
+  let fixed = BLOG.replace("|/blog/{slug}|", "/blog/post");
   let err = App::from_manifest(&fixed).unwrap().build().err().expect("refused");
   assert!(matches!(err, BindError::PathsWithoutParameter { ref loader, ref pattern } if loader == "post" && pattern == "/blog/post"), "{err}");
 }
 
-const CONSOLE: &str = r#"{
-  "version": 2,
-  "routes": [
-    { "pattern": "/help", "plan": { "id": 0, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/help/page.tsx#default", "source": "help", "cache_key": "routes/help/page.tsx#default" } } ] } },
-    { "pattern": "/cart", "plan": { "id": 0, "module": "routes/layout.tsx#default", "source": "layout", "cache_key": "routes/layout.tsx#default", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "cache_key": "routes/cart/page.tsx#default" } } ] } },
-    { "pattern": "/promo", "plan": { "id": 0, "module": "routes/promo/layout.tsx#default", "source": "promo", "cache_key": "routes/promo/layout.tsx#default", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "cache_key": "routes/cart/page.tsx#default" } } ] } }
-  ],
-  "sources": [
-    { "id": "layout", "owner": "lowered", "module": "routes/layout.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "who", { "session": "user" } ] } ] } } ],
-      "store": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 2 } } ] } ] } } ] },
-    { "id": "help", "owner": "lowered", "module": "routes/help/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Help" } } ] } ] } } ] },
-    { "id": "promo", "owner": "lowered", "module": "routes/promo/layout.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "n", { "lit": { "int": 1 } } ] } ] } } ],
-      "store": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 0 } } ] } ] } } ] }
-  ],
-  "actions": [],
-  "components": [
-    { "module": "routes/layout.tsx#default", "body": { "render": { "element": { "tag": "form", "attrs": [ { "field": [ "data-token", { "field": [ { "var": "$props" }, "csrf_token" ] } ] } ], "children": [ { "slot": "content" } ] } } } },
-    { "module": "routes/promo/layout.tsx#default", "body": { "render": { "element": { "tag": "div", "children": [ { "slot": "content" } ] } } } },
-    { "module": "routes/help/page.tsx#default", "body": { "render": { "element": { "tag": "h1", "children": [ { "expr": { "field": [ { "var": "$props" }, "title" ] } } ] } } } },
-    { "module": "routes/cart/page.tsx#default", "body": { "render": { "element": { "tag": "p", "children": [ { "component": { "module": "src/Badge.tsx#Badge" } } ] } } } },
-    { "module": "src/Badge.tsx#Badge", "body": { "render": { "element": { "tag": "b", "children": [ { "expr": { "store": "cart/count" } } ] } } } }
-  ]
-}"#;
+const CONSOLE: &str = r#"(plan 2)
+(route /help
+  (node 0
+    routes/layout.tsx#default
+    (source layout)
+    (cache-key routes/layout.tsx#default)
+    (slot content
+      (node 1 routes/help/page.tsx#default (source help) (cache-key routes/help/page.tsx#default)))))
+(route /cart
+  (node 0
+    routes/layout.tsx#default
+    (source layout)
+    (cache-key routes/layout.tsx#default)
+    (slot content (node 1 routes/cart/page.tsx#default (cache-key routes/cart/page.tsx#default)))))
+(route /promo
+  (node 0
+    routes/promo/layout.tsx#default
+    (source promo)
+    (cache-key routes/promo/layout.tsx#default)
+    (slot content (node 1 routes/cart/page.tsx#default (cache-key routes/cart/page.tsx#default)))))
+(source layout
+  lowered
+  (module routes/layout.loader.ts)
+  (body (ret (obj (who (session user)))))
+  (store (ret (obj (cart/count 2)))))
+(source help lowered (module routes/help/page.loader.ts) (body (ret (obj (title "Help")))))
+(source promo
+  lowered
+  (module routes/promo/layout.loader.ts)
+  (body (ret (obj (n 1))))
+  (store (ret (obj (cart/count 0)))))
+(component routes/layout.tsx#default
+  (owner react)
+  (render (el form ((data-token (. $props csrf_token))) (slot content))))
+(component routes/promo/layout.tsx#default (owner react) (render (el div () (slot content))))
+(component routes/help/page.tsx#default (owner react) (render (el h1 () {(. $props title)})))
+(component routes/cart/page.tsx#default
+  (owner react)
+  (render (el p () (comp src/Badge.tsx#Badge 0 ()))))
+(component src/Badge.tsx#Badge (owner react) (render (el b () {(store cart/count)})))
+"#;
 
 #[test]
 fn a_subtree_is_classed_by_what_it_reads_rather_than_by_its_route() {
@@ -576,7 +547,7 @@ fn a_build_renders_ahead_the_outermost_fixed_subtrees_of_a_route_it_cannot_write
 
 #[test]
 fn a_loader_with_defaults_and_no_store_seeds_its_keys() {
-  let manifest = CONSOLE.replacen(r#""store": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 2 } } ] } ] } } ] },"#, r#""defaults": [ { "return": { "object": [ { "field": [ "cart/count", { "lit": { "int": 2 } } ] } ] } } ] },"#, 1);
+  let manifest = CONSOLE.replacen("(store (ret (obj (cart/count 2))))", "(defaults (ret (obj (cart/count 2))))", 1);
   assert_ne!(manifest, CONSOLE);
   let app = App::from_manifest(&manifest).unwrap().build().unwrap();
   let seeds = app.runtime.stores.get("layout").expect("the layout's defaults are a store");
@@ -590,19 +561,18 @@ fn a_loader_with_defaults_and_no_store_seeds_its_keys() {
 
 #[test]
 fn a_page_the_build_could_not_lower_is_reported_at_boot_with_its_cause() {
-  let manifest = r#"{
-    "version": 3,
-    "routes": [
-      { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-        { "slot": "content", "node": { "id": 1, "module": "routes/page.tsx#default" } } ] } },
-      { "pattern": "/other", "plan": { "id": 0, "module": "shell#document", "children": [
-        { "slot": "content", "node": { "id": 1, "module": "routes/other/page.tsx#default" } } ] } }
-    ],
-    "clients": [
-      { "module": "routes/page.tsx#default", "at": "src/ui/Stars.tsx:2:17", "message": "`.slice()`, which is not a builtin", "hint": "the builtins are `map`, `filter`, ..." },
-      { "module": "routes/other/page.tsx#default", "at": "src/ui/Stars.tsx:2:17", "message": "`.slice()`, which is not a builtin", "hint": "the builtins are `map`, `filter`, ..." }
-    ]
-  }"#;
+  let manifest = r#"(plan 3)
+(route / (node 0 shell#document (slot content (node 1 routes/page.tsx#default))))
+(route /other (node 0 shell#document (slot content (node 1 routes/other/page.tsx#default))))
+(client routes/page.tsx#default
+  "src/ui/Stars.tsx:2:17"
+  "`.slice()`, which is not a builtin"
+  "the builtins are `map`, `filter`, ...")
+(client routes/other/page.tsx#default
+  "src/ui/Stars.tsx:2:17"
+  "`.slice()`, which is not a builtin"
+  "the builtins are `map`, `filter`, ...")
+"#;
   let app = App::from_manifest(manifest).unwrap().evaluator(|_: &ModuleId| true, Arc::new(NullEvaluator)).build().unwrap();
   assert_eq!(app.report.clients.len(), 2);
   let printed = app.report.to_string();

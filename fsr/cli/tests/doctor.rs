@@ -56,9 +56,14 @@ fn a_healthy_application_reports_nothing() {
 
 #[test]
 fn a_scheme_window_over_a_route_that_streams_is_reported() {
-  let plan = snapfire_fsr_plan::Manifest::from_json(
-    r#"{ "version": 2, "routes": [ { "pattern": "/cart", "plan": { "id": 0, "module": "shell#document", "children": [
-      { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "deferred": true, "fallback": "routes/cart/loading.tsx#default" } } ] } } ] }"#,
+  let plan = snapfire_fsr_plan::Manifest::from_text(
+    r#"(plan 2)
+(route /cart
+  (node 0
+    shell#document
+    (slot content
+      (node 1 routes/cart/page.tsx#default (deferred) (fallback routes/cart/loading.tsx#default)))))
+"#,
   )
   .unwrap()
   .to_sexpr();

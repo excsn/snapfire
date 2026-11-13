@@ -52,7 +52,6 @@ let Value::Map(data) = outcome.value else { unreachable!("a loader returns an ob
 | Problem | Piece |
 | --- | --- |
 | Build a body in Rust | `Stmt`, `Expr` and the `Expr` constructors |
-| Read or write a body as JSON | `ast::from_json`, `ast::to_json` |
 | Read or write a body as s-expressions | `sexpr::parse`, `sexpr::print`, `sexpr::stmt_from_sx` |
 | Run a body against a request | `Interpreter::run` |
 | Pin the clock a body reads | `Interpreter::with_clock` and `Clock` |

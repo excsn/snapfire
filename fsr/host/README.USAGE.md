@@ -60,7 +60,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * **Deployment** is three environment variables: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (unset by default). Each names an overlay file.
 * **Loader** is how an artifact is read: the path, the deployment, extra files and how a `.c5encval` secret decrypts. `Host::from` takes one in place of a path and keeps it, so `reload` reads the same way.
 * **Artifact** is what was read: the configuration, the plan and the contracts. A `Mount` carries one and `Host::from_artifact` builds over one made in memory.
-* **Plan file** is `generated/plan.sexp`, written by `fsr build`, with routes and lowered bodies. A `plan.json` from an older build still reads: the reader tells the two apart by the file's first term.
+* **Plan file** is `generated/plan.sexp`, written by `fsr build`, with routes and lowered bodies.
 * **Contracts** are `generated/contracts/*.json`, the same build's output, one file per client document plus `schemas.json`; the host merges them at boot, refusing a type or service two files define, then checks a lowered action's input against the result.
 * **Client** is a `[clients.<name>]` entry: a document and a base URL, imported into one service registry with a transport per client, HTTP for an OpenAPI document, gRPC for a `.proto` and a GraphQL post to `base_url` for a `.graphql`.
 * **Shell** is the evaluator for the document module every route's root node names, `shell#document` by default; the stock one emits the doctype, the head and the mount point.

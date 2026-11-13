@@ -400,52 +400,39 @@ fn a_plan_that_does_not_parse_names_no_format_it_was_not_written_in() {
   let sexpr = Manifest::from_sexpr("(plan 7)\n(route /").unwrap_err().to_string();
   assert!(sexpr.starts_with("the plan file does not parse: "), "{sexpr}");
   assert!(!sexpr.contains("JSON"), "{sexpr}");
-  let json = Manifest::from_json("{ \"version\": ").unwrap_err().to_string();
-  assert!(json.starts_with("the plan file does not parse: "), "{json}");
 }
 
 #[test]
-fn a_json_plan_still_reads_through_from_text() {
-  let mut manifest = every_manifest();
-  manifest.consts.retain(|_, expr| !matches!(expr, Expr::Lit(Lit::Float(f)) if !f.is_finite()));
-  let back = Manifest::from_text(&manifest.to_json()).expect("json still reads");
-  assert_eq!(manifest, back);
+fn every_kind_of_row_reads_back_through_from_text() {
+  let manifest = every_manifest();
   let back = Manifest::from_text(&manifest.to_sexpr()).expect("sexp reads");
   assert_eq!(manifest, back);
 }
 
-/// JSON has no term for a non-finite float, so `plan.json` wrote `null` and
-/// read back a type error. `plan.sexp` carries them.
 #[test]
-fn a_non_finite_float_survives_the_sexp_a_json_plan_could_not_carry() {
+fn a_non_finite_float_survives_the_round_trip() {
   let mut manifest = every_manifest();
   manifest.consts.clear();
   manifest.consts.insert("src/x.ts#inf".to_owned(), Expr::Lit(Lit::Float(f64::INFINITY)));
   assert_eq!(manifest, Manifest::from_sexpr(&manifest.to_sexpr()).expect("sexp reads"));
-  assert!(Manifest::from_json(&manifest.to_json()).is_err());
 }
 
 /// The example plans are build output, so a clean checkout has none. Each one
-/// that is there must survive the round trip byte for byte, whichever form the
-/// build that wrote it used.
+/// that is there must survive the round trip byte for byte.
 #[test]
 fn example_plans_round_trip() {
   let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../examples");
   for entry in std::fs::read_dir(root).expect("the examples directory") {
     let dir = entry.expect("a directory entry").path().join("app/generated");
-    for file in ["plan.sexp", "plan.json"] {
-      let path = dir.join(file);
-      let Ok(source) = std::fs::read_to_string(&path) else { continue };
-      let name = path.display();
-      let manifest = Manifest::from_text(&source).unwrap_or_else(|e| panic!("{name}: {e}"));
-      let text = manifest.to_sexpr();
-      let back = Manifest::from_sexpr(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
-      assert_eq!(manifest, back, "{name} did not survive the round trip");
-      assert_eq!(text, back.to_sexpr(), "{name} does not print the same twice");
-      if file == "plan.sexp" {
-        assert_eq!(source, text, "{name} is not what the printer writes");
-      }
-    }
+    let path = dir.join("plan.sexp");
+    let Ok(source) = std::fs::read_to_string(&path) else { continue };
+    let name = path.display();
+    let manifest = Manifest::from_text(&source).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let text = manifest.to_sexpr();
+    let back = Manifest::from_sexpr(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+    assert_eq!(manifest, back, "{name} did not survive the round trip");
+    assert_eq!(text, back.to_sexpr(), "{name} does not print the same twice");
+    assert_eq!(source, text, "{name} is not what the printer writes");
   }
 }
 
@@ -681,7 +668,7 @@ fn malformed_plans_are_refused() {
   }
 }
 
-/// A `lowered` row with no body is refused, the way the JSON reader refuses it.
+/// A `lowered` row with no body is refused.
 #[test]
 fn a_lowered_row_without_a_body_is_refused() {
   let err = Manifest::from_sexpr("(plan 2)\n(source index lowered)").unwrap_err().to_string();

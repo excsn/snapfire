@@ -24,34 +24,36 @@ fn write_plan(dir: &std::path::Path, manifest: &snapfire_fsr_plan::Manifest) {
   std::fs::write(dir.join("generated/plan.sexp"), manifest.to_sexpr()).unwrap();
 }
 
-const SHELL_PLAN: &str = r#"{ "version": 2, "routes": [
-  { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-    { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
-      { "slot": "content", "node": { "id": 2, "module": "routes/index/page.tsx#default" } } ] } } ] } } ] }"#;
+const SHELL_PLAN: &str = r#"(plan 2)
+(route /
+  (node 0
+    shell#document
+    (slot content
+      (node 1 routes/layout.tsx#default (slot content (node 2 routes/index/page.tsx#default))))))
+"#;
 
 /// Site a: a page whose loader reads a method cached under the shared tag.
-const A_PLAN: &str = r#"{ "version": 2, "routes": [
-  { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-    { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } } ],
-  "sources": [ { "id": "index", "owner": "lowered", "module": "routes/page.loader.ts",
-    "body": [ { "return": { "object": [ { "field": [ "items", { "call": { "service": "cat", "method": "list", "args": [] } } ] } ] } } ] } ] }"#;
+const A_PLAN: &str = r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(source index lowered (module routes/page.loader.ts) (body (ret (obj (items (call cat list))))))
+"#;
 const A_CONTRACT: &str = r#"{ "services": { "cat": { "methods": { "list": { "params": [], "returns": { "list": "str" },
   "cache": { "ttl": "5m", "scope": "shared", "tags": ["@catalog"] } } } } } }"#;
 
 /// Site b: one action drops the shared tag, the other a tag of its own.
-const B_PLAN: &str = r#"{ "version": 2, "routes": [
-  { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-    { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default" } } ] } } ],
-  "actions": [
-    { "id": "index.drop_shared", "owner": "lowered", "module": "routes/actions.ts", "body": [ { "return": { "call": { "service": "ledger", "method": "pay", "args": [] } } } ] },
-    { "id": "index.drop_own", "owner": "lowered", "module": "routes/actions.ts", "body": [ { "return": { "call": { "service": "ledger", "method": "touch", "args": [] } } } ] } ] }"#;
+const B_PLAN: &str = r#"(plan 2)
+(route / (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default))))
+(action index.drop_shared lowered (module routes/actions.ts) (body (ret (call ledger pay))))
+(action index.drop_own lowered (module routes/actions.ts) (body (ret (call ledger touch))))
+"#;
 const B_CONTRACT: &str = r#"{ "services": { "ledger": { "methods": {
   "pay": { "params": [], "returns": "str", "writes": ["@catalog"] },
   "touch": { "params": [], "returns": "str", "writes": ["catalog"] } } } } }"#;
 
 fn site(name: &str, plan: &str, contract: &str) -> PathBuf {
   let dir = dir(name);
-  let manifest = snapfire_fsr_plan::Manifest::from_json(plan).unwrap().namespaced(name, &format!("/{name}"), "shell#document");
+  let manifest = snapfire_fsr_plan::Manifest::from_text(plan).unwrap().namespaced(name, &format!("/{name}"), "shell#document");
   write_plan(&dir, &manifest);
   let contract = snapfire_fsr_service::Contract::from_json(contract).unwrap().namespaced(name);
   std::fs::write(dir.join(format!("generated/contracts/{name}.json")), contract.to_json()).unwrap();
@@ -65,7 +67,7 @@ fn site(name: &str, plan: &str, contract: &str) -> PathBuf {
 
 fn shell() -> PathBuf {
   let dir = dir("shell");
-  write_plan(&dir, &snapfire_fsr_plan::Manifest::from_json(SHELL_PLAN).unwrap());
+  write_plan(&dir, &snapfire_fsr_plan::Manifest::from_text(SHELL_PLAN).unwrap());
   std::fs::write(dir.join("generated/contracts/shell.json"), "{}").unwrap();
   std::fs::write(
     dir.join("app.toml"),

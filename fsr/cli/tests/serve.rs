@@ -17,11 +17,12 @@ fn dir(tag: &str) -> PathBuf {
 }
 
 fn plan(json: &str) -> snapfire_fsr_plan::Manifest {
-  snapfire_fsr_plan::Manifest::from_json(json).unwrap()
+  snapfire_fsr_plan::Manifest::from_text(json).unwrap()
 }
 
-const PAGE: &str = r#"{ "version": 2, "routes": [ { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-  { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default" } } ] } } ] }"#;
+const PAGE: &str = r#"(plan 2)
+(route / (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default))))
+"#;
 
 #[test]
 fn a_mount_given_for_the_run_puts_a_site_from_a_path_in_the_table_and_the_host_reloads_the_same_way() {

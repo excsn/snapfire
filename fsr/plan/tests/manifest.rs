@@ -25,7 +25,7 @@ fn a_plan_round_trips_through_the_file() {
     plan: Node::from_plan(&sample()),
   }]);
 
-  let back = Manifest::from_json(&manifest.to_json()).unwrap();
+  let back = Manifest::from_text(&manifest.to_sexpr()).unwrap();
   assert_eq!(back, manifest);
 
   let routes = back.routes().unwrap();
@@ -37,11 +37,11 @@ fn a_plan_round_trips_through_the_file() {
 #[test]
 fn absent_is_absent_rather_than_null() {
   let leaf = PlanNode::new(NodeId(0), ModuleId::new("shell", "document"));
-  let json = Manifest::new(vec![RouteEntry { pattern: "/".into(), plan: Node::from_plan(&leaf) }]).to_json();
+  let text = Manifest::new(vec![RouteEntry { pattern: "/".into(), plan: Node::from_plan(&leaf) }]).to_sexpr();
 
-  assert!(!json.contains("null"), "{json}");
-  assert!(!json.contains("deferred"), "a false flag is not written: {json}");
-  assert!(!json.contains("children"), "an empty child list is not written: {json}");
+  assert!(!text.contains("nil"), "{text}");
+  assert!(!text.contains("deferred"), "a false flag is not written: {text}");
+  assert!(!text.contains("slot"), "an empty child list is not written: {text}");
 }
 
 #[test]
@@ -64,57 +64,46 @@ fn the_file_names_every_source_and_module_a_host_must_bind() {
 
 #[test]
 fn a_version_the_runtime_does_not_know_is_refused() {
-  let json = r#"{"version":99,"routes":[]}"#;
-  assert_eq!(Manifest::from_json(json).unwrap_err(), PlanError::Version { found: 99 });
+  assert_eq!(Manifest::from_text("(plan 99)\n").unwrap_err(), PlanError::Version { found: 99 });
   assert_eq!(FORMAT_VERSION, 7);
 }
 
 #[test]
 fn a_malformed_module_id_names_itself_and_where_it_is() {
-  let json = r#"{"version":1,"routes":[{"pattern":"/x","plan":{"id":0,"module":"no-hash"}}]}"#;
-  let err = Manifest::from_json(json).unwrap().routes().unwrap_err();
+  let err = Manifest::from_text("(plan 2)\n(route /x (node 0 no-hash))\n").unwrap().routes().unwrap_err();
   assert_eq!(err, PlanError::Module { at: "/x".into(), module: "no-hash".into() });
   assert!(err.to_string().contains("`path#export`"));
 }
 
 #[test]
 fn a_duplicate_node_id_within_one_route_is_refused() {
-  let json = r#"{"version":1,"routes":[{"pattern":"/x","plan":{"id":0,"module":"a#b",
-    "children":[{"slot":"content","node":{"id":0,"module":"c#d"}}]}}]}"#;
-  let err = Manifest::from_json(json).unwrap().routes().unwrap_err();
+  let text = "(plan 2)\n(route /x (node 0 a#b (slot content (node 0 c#d))))\n";
+  let err = Manifest::from_text(text).unwrap().routes().unwrap_err();
   assert!(matches!(err, PlanError::DuplicateNode { id: 0, .. }), "{err}");
 }
 
 #[test]
 fn the_same_node_id_in_two_routes_is_fine() {
-  let json = r#"{"version":1,"routes":[
-    {"pattern":"/a","plan":{"id":0,"module":"a#b"}},
-    {"pattern":"/b","plan":{"id":0,"module":"c#d"}}]}"#;
-  assert_eq!(Manifest::from_json(json).unwrap().routes().unwrap().len(), 2);
+  let text = "(plan 2)\n(route /a (node 0 a#b))\n(route /b (node 0 c#d))\n";
+  assert_eq!(Manifest::from_text(text).unwrap().routes().unwrap().len(), 2);
 }
 
 #[test]
 fn two_children_in_one_slot_are_refused() {
-  let json = r#"{"version":1,"routes":[{"pattern":"/x","plan":{"id":0,"module":"a#b","children":[
-    {"slot":"content","node":{"id":1,"module":"c#d"}},
-    {"slot":"content","node":{"id":2,"module":"e#f"}}]}}]}"#;
-  let err = Manifest::from_json(json).unwrap().routes().unwrap_err();
+  let text = "(plan 2)\n(route /x (node 0 a#b (slot content (node 1 c#d)) (slot content (node 2 e#f))))\n";
+  let err = Manifest::from_text(text).unwrap().routes().unwrap_err();
   assert!(matches!(err, PlanError::DuplicateSlot { .. }), "{err}");
 }
 
 #[test]
 fn a_hand_written_file_reads_the_way_it_looks() {
-  let json = r#"{
-    "version": 1,
-    "routes": [
-      { "pattern": "/product/{id}",
-        "plan": { "id": 0, "module": "shell#document", "children": [
-          { "slot": "content",
-            "node": { "id": 1, "module": "app/main.tsx#Product", "source": "product" } }
-        ] } }
-    ]
-  }"#;
-  let routes = Manifest::from_json(json).unwrap().routes().unwrap();
+  let text = "(plan 2)
+(route |/product/{id}|
+  (node 0 shell#document
+    (slot content
+      (node 1 app/main.tsx#Product (source product)))))
+";
+  let routes = Manifest::from_text(text).unwrap().routes().unwrap();
   let (pattern, plan) = &routes[0];
 
   assert_eq!(pattern, "/product/{id}");
@@ -122,15 +111,6 @@ fn a_hand_written_file_reads_the_way_it_looks() {
   let (slot, child) = &plan.children[0];
   assert_eq!(slot.0, "content");
   assert_eq!(child.data_source, Some(DataSourceId("product".into())));
-}
-
-#[test]
-fn a_format_one_file_still_reads_with_bare_action_ids() {
-  let json = r#"{"version":1,"routes":[],"actions":["add_to_cart","checkout"]}"#;
-  let manifest = Manifest::from_json(json).unwrap();
-  assert_eq!(manifest.action_ids(), vec!["add_to_cart", "checkout"]);
-  assert!(manifest.actions.iter().all(|row| row.owner == snapfire_fsr_plan::RowOwner::Rust));
-  assert!(manifest.sources.is_empty());
 }
 
 #[test]
@@ -143,9 +123,9 @@ fn lowered_rows_round_trip_with_their_bodies() {
     .with_sources(vec![SourceEntry::lowered("catalog", "app/routes/index/page.loader.ts", body.clone()), SourceEntry::rust("pricing")])
     .with_actions(vec![ActionEntry::lowered("checkout", "app/routes/cart/actions.ts", body).with_input("Empty")]);
 
-  let json = manifest.to_json();
+  let text = manifest.to_sexpr();
   assert_eq!(manifest.version, FORMAT_VERSION);
-  let back = Manifest::from_json(&json).unwrap();
+  let back = Manifest::from_text(&text).unwrap();
   assert_eq!(back, manifest);
   assert_eq!(back.lowered_sources().count(), 1);
   assert_eq!(back.lowered_actions().count(), 1);
@@ -154,8 +134,7 @@ fn lowered_rows_round_trip_with_their_bodies() {
 
 #[test]
 fn a_lowered_row_without_a_body_is_refused() {
-  let json = r#"{"version":2,"routes":[],"sources":[{"id":"catalog","owner":"lowered"}]}"#;
-  let err = Manifest::from_json(json).unwrap_err();
+  let err = Manifest::from_text("(plan 2)\n(source catalog lowered)\n").unwrap_err();
   assert_eq!(err, PlanError::NoBody { id: "catalog".into() });
 }
 

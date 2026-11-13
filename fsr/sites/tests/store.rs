@@ -14,11 +14,13 @@ fn dir(name: &str) -> PathBuf {
   dir
 }
 
-const PLAN: &str = r#"{"version":2,"routes":[{"pattern":"/","plan":{"id":0,"module":"shell#document","children":[{"slot":"content","node":{"id":1,"module":"routes/index/page.tsx#default"}}]}}],"sources":[],"actions":[],"handlers":[],"components":[]}"#;
+const PLAN: &str = r#"(plan 2)
+(route / (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default))))
+"#;
 
 fn shell(root: &Path, sites: &str) {
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
-  let manifest = snapfire_fsr_plan::Manifest::from_json(PLAN).unwrap();
+  let manifest = snapfire_fsr_plan::Manifest::from_text(PLAN).unwrap();
   std::fs::write(root.join("app/generated/plan.sexp"), manifest.to_sexpr()).unwrap();
   std::fs::write(
     root.join("app.toml"),
@@ -31,7 +33,7 @@ fn shell(root: &Path, sites: &str) {
 fn packed(store: &Path, version: &str) {
   let at = dir("site");
   std::fs::create_dir_all(at.join("app/generated")).unwrap();
-  let manifest = snapfire_fsr_plan::Manifest::from_json(PLAN)
+  let manifest = snapfire_fsr_plan::Manifest::from_text(PLAN)
     .unwrap()
     .namespaced("billing", "/billing", "shell#document");
   std::fs::write(at.join("app/generated/plan.sexp"), manifest.to_sexpr()).unwrap();

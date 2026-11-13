@@ -368,8 +368,10 @@ fn checking_out_an_empty_cart_never_reaches_the_backend() {
 
 #[test]
 fn a_declared_action_nothing_answers_refuses_to_start() {
-  let manifest = r#"{"version":1,"routes":[{"pattern":"/","plan":{"id":0,"module":"shell#document"}}],
-    "actions":["never_bound"]}"#;
+  let manifest = r#"(plan 1)
+(route / (node 0 shell#document))
+(action never_bound rust)
+"#;
   let err = snapfire_fsr::App::from_manifest(manifest)
     .unwrap()
     .evaluator(|_: &snapfire_fsr_core::ModuleId| true, Arc::new(snapfire_fsr_runtime::NullEvaluator))

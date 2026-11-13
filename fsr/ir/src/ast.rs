@@ -1007,17 +1007,6 @@ pub enum LogicOp {
   Or,
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("malformed IR: {0}")]
-pub struct ParseError(#[from] serde_json::Error);
-
-pub fn from_json(text: &str) -> Result<Body, ParseError> {
-  Ok(serde_json::from_str(text)?)
-}
-
-pub fn to_json(body: &Body) -> String {
-  serde_json::to_string_pretty(body).expect("the IR serialises")
-}
 
 impl Expr {
   pub fn lit_str(s: impl Into<String>) -> Self {

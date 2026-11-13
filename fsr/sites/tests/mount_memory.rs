@@ -53,10 +53,8 @@ fn dir(name: &str) -> PathBuf {
   dir
 }
 
-const ROUTE: &str = r#"{"pattern":"/","plan":{"id":0,"module":"shell#document","children":[{"slot":"content","node":{"id":1,"module":"routes/index/page.tsx#default"}}]}}"#;
-
 fn plan() -> String {
-  format!(r#"{{"version":2,"routes":[{ROUTE}],"sources":[],"actions":[],"handlers":[],"components":[]}}"#)
+  "(plan 2)\n(route / (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default))))\n".to_owned()
 }
 
 /// A page whose body is `lines` lines of highlighted code, one element per
@@ -74,7 +72,7 @@ fn highlighted_page(lines: usize) -> String {
 
 fn shell(root: &Path) {
   std::fs::create_dir_all(root.join("app/generated")).unwrap();
-  let manifest = snapfire_fsr_plan::Manifest::from_json(&plan()).unwrap();
+  let manifest = snapfire_fsr_plan::Manifest::from_text(&plan()).unwrap();
   std::fs::write(root.join("app/generated/plan.sexp"), manifest.to_sexpr()).unwrap();
   std::fs::write(
     root.join("app.toml"),
@@ -88,7 +86,7 @@ fn shell(root: &Path) {
 fn site(at: &Path, lines: usize) -> String {
   std::fs::create_dir_all(at.join("app/generated")).unwrap();
   std::fs::create_dir_all(at.join("app/dist")).unwrap();
-  let manifest = snapfire_fsr_plan::Manifest::from_json(&plan()).unwrap().namespaced("billing", "/billing", "shell#document");
+  let manifest = snapfire_fsr_plan::Manifest::from_text(&plan()).unwrap().namespaced("billing", "/billing", "shell#document");
   let text = manifest.to_sexpr() + &highlighted_page(lines);
   std::fs::write(at.join("app/generated/plan.sexp"), &text).unwrap();
   std::fs::write(

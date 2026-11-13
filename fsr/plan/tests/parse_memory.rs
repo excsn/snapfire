@@ -36,7 +36,7 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOCATOR: Counting = Counting;
 
-const PLAN: &str = r#"{"version":2,"routes":[{"pattern":"/","plan":{"id":0,"module":"shell#document","children":[{"slot":"content","node":{"id":1,"module":"routes/index/page.tsx#default"}}]}}],"sources":[],"actions":[],"handlers":[],"components":[]}"#;
+const PLAN: &str = "(plan 2)\n(route / (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default))))\n";
 
 /// `pages` pages of `lines` lines of highlighted code each, one element per
 /// token, the shape an MDX code block lowers to.
@@ -57,7 +57,7 @@ fn highlighted_pages(pages: usize, lines: usize) -> String {
 
 #[test]
 fn reading_a_plan_peaks_within_a_quarter_of_the_manifest_it_keeps() {
-  let text = Manifest::from_json(PLAN).unwrap().to_sexpr() + &highlighted_pages(40, 100);
+  let text = PLAN.to_owned() + &highlighted_pages(40, 100);
   let base = LIVE.load(Relaxed);
   PEAK.store(base, Relaxed);
   let manifest = Manifest::from_text(&text).unwrap();

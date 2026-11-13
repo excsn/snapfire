@@ -23,33 +23,38 @@ fn dir(tag: &str) -> PathBuf {
   dir
 }
 
-const SHELL_PLAN: &str = r#"{ "version": 2, "routes": [
-  { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-    { "slot": "content", "node": { "id": 1, "module": "routes/layout.tsx#default", "children": [
-      { "slot": "content", "node": { "id": 2, "module": "routes/index/page.tsx#default", "source": "index" } } ] } } ] } } ],
-  "sources": [ { "id": "index", "owner": "lowered", "module": "routes/page.loader.ts",
-    "body": [ { "return": { "object": [ { "field": [ "items", { "call": { "service": "shop", "method": "list", "args": [] } } ] } ] } } ] } ] }"#;
+const SHELL_PLAN: &str = r#"(plan 2)
+(route /
+  (node 0
+    shell#document
+    (slot content
+      (node 1
+        routes/layout.tsx#default
+        (slot content (node 2 routes/index/page.tsx#default (source index)))))))
+(source index lowered (module routes/page.loader.ts) (body (ret (obj (items (call shop list))))))
+"#;
 const SHELL_CONTRACT: &str = r#"{ "services": { "shop": { "methods": { "list": { "params": [], "returns": { "list": "str" } } } } } }"#;
 
 /// A site whose index reads nothing and whose `/guarded` page fails with
 /// `conflict` for a visitor with no identity.
-const SITE_PLAN: &str = r#"{ "version": 2, "routes": [
-  { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
-    { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
-  { "pattern": "/guarded", "plan": { "id": 0, "module": "shell#document", "children": [
-    { "slot": "content", "node": { "id": 1, "module": "routes/guarded/page.tsx#default", "source": "guarded" } } ] } } ],
-  "sources": [
-    { "id": "index", "owner": "lowered", "module": "routes/page.loader.ts",
-      "body": [ { "return": { "object": [ { "field": [ "rows", { "call": { "service": "ledger", "method": "rows", "args": [] } } ] } ] } } ] },
-    { "id": "guarded", "owner": "lowered", "module": "routes/guarded/page.loader.ts",
-      "body": [
-        { "guard": { "cond": { "compare": [ "eq", { "coalesce": [ { "identity": [ "subject" ] }, { "lit": { "str": "" } } ] }, { "lit": { "str": "" } } ] }, "kind": "conflict", "message": { "lit": { "str": "no one is signed in" } } } },
-        { "return": { "object": [ { "field": [ "who", { "identity": [ "subject" ] } ] } ] } } ] } ] }"#;
+const SITE_PLAN: &str = r#"(plan 2)
+(route /
+  (node 0 shell#document (slot content (node 1 routes/index/page.tsx#default (source index)))))
+(route /guarded
+  (node 0 shell#document (slot content (node 1 routes/guarded/page.tsx#default (source guarded)))))
+(source index lowered (module routes/page.loader.ts) (body (ret (obj (rows (call ledger rows))))))
+(source guarded
+  lowered
+  (module routes/guarded/page.loader.ts)
+  (body
+    (guard (== (?? (identity subject) "") "") conflict "no one is signed in")
+    (ret (obj (who (identity subject))))))
+"#;
 const SITE_CONTRACT: &str = r#"{ "services": { "ledger": { "methods": { "rows": { "params": [], "returns": { "list": "str" } } } } } }"#;
 
 fn shell() -> PathBuf {
   let dir = dir("shell");
-  std::fs::write(dir.join("generated/plan.sexp"), snapfire_fsr_plan::Manifest::from_json(SHELL_PLAN).unwrap().to_sexpr()).unwrap();
+  std::fs::write(dir.join("generated/plan.sexp"), snapfire_fsr_plan::Manifest::from_text(SHELL_PLAN).unwrap().to_sexpr()).unwrap();
   std::fs::write(dir.join("generated/contracts/shell.json"), SHELL_CONTRACT).unwrap();
   std::fs::write(dir.join("app.toml"), "[app]\ndir = \".\"\n\n[server]\nlisten = \"127.0.0.1:0\"\n\n[session]\nkey = \"shell-key\"\n").unwrap();
   dir
@@ -57,7 +62,7 @@ fn shell() -> PathBuf {
 
 fn site(probe: &str) -> PathBuf {
   let dir = dir("site");
-  let manifest = snapfire_fsr_plan::Manifest::from_json(SITE_PLAN).unwrap().namespaced("billing", "/billing", "shell#document");
+  let manifest = snapfire_fsr_plan::Manifest::from_text(SITE_PLAN).unwrap().namespaced("billing", "/billing", "shell#document");
   std::fs::write(dir.join("generated/plan.sexp"), manifest.to_sexpr()).unwrap();
   let contract = snapfire_fsr_service::Contract::from_json(SITE_CONTRACT).unwrap().namespaced("billing");
   std::fs::write(dir.join("generated/contracts/billing.json"), contract.to_json()).unwrap();

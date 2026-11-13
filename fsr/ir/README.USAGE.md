@@ -15,7 +15,7 @@ How to write a body as IR, run it against a request, read and write its JSON for
   * [Writing the Session](#writing-the-session)
   * [Guarding Before Any Call](#guarding-before-any-call)
 * [Running a Body](#running-a-body)
-* [Reading and Writing the JSON Form](#reading-and-writing-the-json-form)
+* [Reading and Writing the Plan Text](#reading-and-writing-the-plan-text)
 * [Binding a Body to the Runtime](#binding-a-body-to-the-runtime)
 * [Pinning the Clock](#pinning-the-clock)
 * [Testing Against a Mock Service Layer](#testing-against-a-mock-service-layer)
@@ -167,23 +167,23 @@ let outcome = Interpreter::default().run(&body, &ctx, Some(input)).await?;
 assert_eq!(outcome.written, vec!["cart".to_owned()]);
 ```
 
-## Reading and Writing the JSON Form
+## Reading and Writing the Plan Text
 
-The plan file carries a body as JSON. Round trips are exact.
+The plan file carries a body as s-expressions, one form per statement. Round trips are exact.
 
 ```rust
-use snapfire_fsr_ir::ast::{from_json, to_json};
+use snapfire_fsr_ir::sexpr::{parse, print, stmt_from_sx, stmt_to_sx};
 
-let text = to_json(&body);
-let back = from_json(&text)?;
+let text = print(&body.iter().map(stmt_to_sx).collect::<Vec<_>>());
+let back = parse(&text)?.iter().map(stmt_from_sx).collect::<Result<Vec<_>, _>>()?;
 assert_eq!(back, body);
 ```
 
-The shape is serde's externally tagged form, one key per node kind in `snake_case`:
+A body that binds a service call and returns it under `products` prints as:
 
-```json
-[{"let": {"name": "catalog", "expr": {"call": {"service": "shopping", "method": "listProducts", "args": []}}}},
- {"return": {"object": [{"field": ["products", {"var": "catalog"}]}]}}]
+```text
+(let catalog (call shopping listProducts))
+(ret (obj (products catalog)))
 ```
 
 ## Binding a Body to the Runtime
@@ -299,4 +299,4 @@ match Interpreter::default().run(&body, &ctx, None).await {
 }
 ```
 
-`IrSource` maps a `Fail` onto `LoadError` with the source id and the message. `IrAction` maps it onto `ActionError` with the kind preserved. `ast::from_json` fails with `ParseError` wrapping the serde error.
+`IrSource` maps a `Fail` onto `LoadError` with the source id and the message. `IrAction` maps it onto `ActionError` with the kind preserved.
