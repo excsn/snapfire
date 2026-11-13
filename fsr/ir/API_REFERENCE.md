@@ -294,6 +294,8 @@ One member of an object literal, an array literal or an element's attributes. `D
 
 A translated component's tree. `Debug`, `Clone`, `PartialEq`.
 
+* `compact(&mut self)`: the tree's attributes, props and children trimmed to their lengths, all the way down.
+
 * `Text(String)`
 * `Expr(Expr)`
 * `Element { tag: String, attrs: Vec<Entry>, children: Vec<Tmpl> }`: attributes are `Entry::Field` in HTML spelling or `Entry::Spread` of a map in React's spelling, later entries winning.
@@ -322,6 +324,7 @@ A translated component: `let`s run once with `$props` bound, then the tree.
 * `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub stores: Vec<(String, String)>, pub handlers: Vec<Handler>, pub owner: Owner, pub shadow: Option<ShadowRoot>, pub scope: Option<ScopedStyle> }`. `Debug`, `Clone`, `PartialEq`.
 * `state`: the body `let`s the browser can change, the `useState` and `useStore` bindings in order.
 * `stores`: the `useStore` bindings among `state`, each with the store key it reads. The plan writes `(stores (count "cart/count") ...)`.
+* `compact(&mut self)`: every list the component holds trimmed to its length: its body, its tree's attributes, props and children and every expression's entries and arguments.
 * `handlers`: the component's event handlers, for an island in server mode.
 * `owner`: what renders the component in the browser. The plan writes `(owner fsr)`, `(owner react)`, `(owner vue)` or `(owner svelte)`.
 * `shadow`: the shadow root an element template declares, read by `ShadowRoot::take`. `None` for every other component.
