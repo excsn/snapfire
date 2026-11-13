@@ -91,7 +91,7 @@ pub fn route_meta(pattern: &str) -> String {
 
 /// `[public]` as the browser's `@snapfire/fsr/config` reads it: the values in the payload's tagged JSON, `<` escaped so the text cannot close the script.
 pub fn public_config(values: &snapfire_fsr_core::ValueMap) -> String {
-  let json = snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(values.clone())).to_string().replace('<', "\\u003c");
+  let json = snapfire_fsr_payload::script_json(&snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(values.clone())));
   format!("<script type=\"application/json\" id=\"sf-config\">{json}</script>")
 }
 

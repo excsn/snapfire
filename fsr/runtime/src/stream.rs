@@ -60,7 +60,7 @@ fn seed_script(contributions: &[Contribution], fragment: bool) -> String {
   format!(
     "<script type=\"application/json\" data-sf-store{}>{}</script>",
     if fragment { " data-sf-fragment" } else { "" },
-    contributions_to_json(contributions).to_string().replace('<', "\\u003c")
+    snapfire_fsr_payload::script_json(&contributions_to_json(contributions))
   )
 }
 
@@ -323,7 +323,7 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   first.push_str(&session.take_placed());
   first.push_str(&format!(
     "<script type=\"application/json\" data-sf-segments>{}</script>",
-    segments_to_json(&assembly.segments).to_string().replace('<', "\\u003c")
+    snapfire_fsr_payload::script_json(&segments_to_json(&assembly.segments))
   ));
   if !assembly.contributions.is_empty() {
     first.push_str(&seed_script(&assembly.contributions, false));
@@ -368,7 +368,7 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     let mut chunk = state.session.take_placed();
     chunk.push_str(&format!("<template data-sf-fill=\"{slot}\">{body}</template>"));
     if !data.is_empty() {
-      chunk.push_str(&format!("<script type=\"application/json\" data-sf-fill-data=\"{slot}\">{}</script>", Json::Object(data).to_string().replace('<', "\\u003c")));
+      chunk.push_str(&format!("<script type=\"application/json\" data-sf-fill-data=\"{slot}\">{}</script>", snapfire_fsr_payload::script_json(&Json::Object(data))));
     }
     chunk.push_str(&format!("<script>{}</script>", fill_call(slot)));
     Some((chunk, state))

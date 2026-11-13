@@ -14,9 +14,27 @@ fn escape_text(input: &str, out: &mut String) {
   }
 }
 
-/// `<` becomes < inside the JSON so `</script>` can never terminate the props tag.
-fn script_safe_json(json: &Json) -> String {
-  json.to_string().replace('<', "\\u003c")
+/// `json` as compact JSON with every `<` written `\u003c`, so `</script>`
+/// can never end the script element it sits in.
+pub fn script_json(json: &Json) -> String {
+  use serde::Serialize;
+  let mut out = Vec::with_capacity(256);
+  json.serialize(&mut serde_json::Serializer::with_formatter(&mut out, ScriptSafe)).expect("a JSON value serializes");
+  String::from_utf8(out).expect("JSON is UTF-8")
+}
+
+struct ScriptSafe;
+
+impl serde_json::ser::Formatter for ScriptSafe {
+  fn write_string_fragment<W: ?Sized + std::io::Write>(&mut self, writer: &mut W, fragment: &str) -> std::io::Result<()> {
+    let mut rest = fragment;
+    while let Some(at) = rest.find('<') {
+      writer.write_all(&rest.as_bytes()[..at])?;
+      writer.write_all(b"\\u003c")?;
+      rest = &rest[at + 1..];
+    }
+    writer.write_all(rest.as_bytes())
+  }
 }
 
 /// Island ids must be unique per response and a streamed response serializes
@@ -200,7 +218,7 @@ impl HtmlSession {
     if let Some(outer) = open.outer {
       self.island = outer;
     }
-    let props_json = script_safe_json(&value_to_json(&Value::Map(props.clone())));
+    let props_json = script_json(&value_to_json(&Value::Map(props.clone())));
     out.push_str(&format!("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i{}\">{props_json}</script>", open.id));
   }
 

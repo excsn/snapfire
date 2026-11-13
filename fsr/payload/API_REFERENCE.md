@@ -17,6 +17,7 @@ The encodings of SnapFire FSR: the lossless JSON pair, the HTML serializer and t
   * [OpenClient](#openclient)
   * [html_serialize](#html_serialize)
   * [escape_key](#escape_key)
+  * [script_json](#script_json)
   * [Emitted Markup](#emitted-markup)
 * [4. Row Protocol](#4-row-protocol)
   * [node_to_row_json](#node_to_row_json)
@@ -42,7 +43,7 @@ The wire format announced in a response's `V` line.
 
 Everything public is re-exported from the crate root.
 
-* `pub use html::{escape_key, html_serialize, HtmlSession, OpenClient};`
+* `pub use html::{escape_key, html_serialize, script_json, HtmlSession, OpenClient};`
 * `pub use json::{json_to_value, value_to_json, DecodeError};`
 * `pub use rows::{node_to_row_json, row_json_to_node, serialize_page};`
 
@@ -167,6 +168,10 @@ Serializes one tree with its placed content after it.
 ### escape_key
 
 * `pub fn escape_key(key: &str) -> String`: `key` with `%` written as `%25` and `-` written as `%2D`. The result never contains `--`.
+
+### script_json
+
+* `pub fn script_json(json: &serde_json::Value) -> String`: compact JSON as `serde_json::Value::to_string` writes it, with every `<` written `\u003c`, for the body of a `<script type="application/json">`.
 
 ### Emitted Markup
 
