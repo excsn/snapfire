@@ -21,7 +21,7 @@ pub mod wire;
 
 pub use actions::{ActionError, ActionHandler, ActionRegistry, FailureKind};
 pub use assembler::{
-  AssembleError, Assembly, Evaluators, Origin, PENDING_PROP, PendingResolution, Resolved, Runtime, RuntimeBuilder, assemble, assemble_under,
+  AssembleError, Assembly, Evaluators, Origin, PENDING_PROP, PendingResolution, Resolved, Runtime, RuntimeBuilder, assemble, assemble_shared, assemble_under, assemble_under_shared,
 };
 pub use cache::{CacheEntry, FibreCache, LoadCache, MemoryCache, MemoryLoadCache, NoCache, NoLoadCache, NodeCache, WarmLoads, WarmRenders};
 pub use ctx::{Address, AfterHandle, CsrfHandle, FAILURE_KEY, Identity, Locale, RedirectHandle, RequestCtx, SessionCell, unix_now, parse_query};

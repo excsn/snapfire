@@ -36,7 +36,9 @@ The request pipeline of SnapFire FSR: matching, resolution, data sources, evalua
   * [`subtree_shape`](#subtree_shape)
 * [6. Assembly](#6-assembly)
   * [`assemble`](#assemble)
+  * [`assemble_shared`](#assemble_shared)
   * [`assemble_under`](#assemble_under)
+  * [`assemble_under_shared`](#assemble_under_shared)
   * [`Origin`](#origin)
   * [`Assembly`](#assembly)
   * [`PendingResolution`](#pendingresolution)
@@ -417,6 +419,10 @@ Render memo key, composed per plan node that carries a `cache_key`:
 * No key is composed when the subtree holds a `deferred` descendant or a recorded load failure.
 * No key is composed for a `Dynamic` subtree that reads a CSP nonce or an action failure the context carries. A subtree with no reads entry counts as reading both.
 
+### assemble_shared
+
+* `pub async fn assemble_shared(runtime: &Arc<Runtime>, plan: &PlanNode, ctx: &RequestCtx, head: Arc<Head>) -> Result<Assembly, AssembleError>`: `assemble` with a head shared across requests.
+
 ### assemble_under
 
 ```rust
@@ -433,6 +439,10 @@ pub async fn assemble_under(
 * The nodes `origin` names load, seed, describe, take their segment key and take their `params` prop from `origin.ctx`, the document's request.
 * Every other node takes these from `ctx`, the navigation's request. Every node's `$path` and `$document` come from `ctx` too.
 
+
+### assemble_under_shared
+
+* `pub async fn assemble_under_shared(runtime: &Arc<Runtime>, plan: &PlanNode, ctx: &RequestCtx, head: Arc<Head>, origin: Origin) -> Result<Assembly, AssembleError>`: `assemble_under` with a head shared across requests.
 ### Origin
 
 * `pub struct Origin { pub ctx: RequestCtx, pub nodes: Vec<u32> }`: the document's request and the ids of the plan nodes that render under it. `#[non_exhaustive]`.

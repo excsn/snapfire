@@ -422,7 +422,7 @@ pub(crate) struct Session {
   pub(crate) runtime: Arc<Runtime>,
   pub(crate) ctx: RequestCtx,
   pub(crate) origin: Option<Origin>,
-  pub(crate) head: Head,
+  pub(crate) head: Arc<Head>,
   pub(crate) next_slot: AtomicU32,
   /// The document's metadata so far: the eager wave's and each resolution's as it lands.
   pub(crate) described: parking_lot::Mutex<Meta>,
@@ -1276,7 +1276,12 @@ pub async fn assemble(
   ctx: &RequestCtx,
   head: impl Into<Head>,
 ) -> Result<Assembly, AssembleError> {
-  assemble_in(runtime, plan, ctx, head.into(), None).await
+  assemble_in(runtime, plan, ctx, Arc::new(head.into()), None).await
+}
+
+/// [`assemble`] with a head the caller shares across requests.
+pub async fn assemble_shared(runtime: &Arc<Runtime>, plan: &PlanNode, ctx: &RequestCtx, head: Arc<Head>) -> Result<Assembly, AssembleError> {
+  assemble_in(runtime, plan, ctx, head, None).await
 }
 
 /// `assemble` for an intercepted render: the nodes `origin` names load, seed,
@@ -1289,26 +1294,31 @@ pub async fn assemble_under(
   head: impl Into<Head>,
   origin: Origin,
 ) -> Result<Assembly, AssembleError> {
-  assemble_in(runtime, plan, ctx, head.into(), Some(origin)).await
+  assemble_in(runtime, plan, ctx, Arc::new(head.into()), Some(origin)).await
+}
+
+/// [`assemble_under`] with a head the caller shares across requests.
+pub async fn assemble_under_shared(runtime: &Arc<Runtime>, plan: &PlanNode, ctx: &RequestCtx, head: Arc<Head>, origin: Origin) -> Result<Assembly, AssembleError> {
+  assemble_in(runtime, plan, ctx, head, Some(origin)).await
 }
 
 async fn assemble_in(
   runtime: &Arc<Runtime>,
   plan: &PlanNode,
   ctx: &RequestCtx,
-  head: Head,
+  head: Arc<Head>,
   origin: Option<Origin>,
 ) -> Result<Assembly, AssembleError> {
   let session = Arc::new(Session {
     runtime: Arc::clone(runtime),
     ctx: ctx.clone(),
     origin,
-    head: head.clone(),
+    head,
     next_slot: AtomicU32::new(1),
     described: parking_lot::Mutex::new(Meta::default()),
   });
   let (tree, pending, children, meta, contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
-  let head = session.head.clone();
+  let head = &session.head;
   let rows = head.rows(&meta);
   *session.described.lock() = meta.clone();
   let store = merge_contributions(&contributions, &runtime.slot_order);

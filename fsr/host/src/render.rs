@@ -329,11 +329,11 @@ impl Host {
           incoming,
           &visit.requested(),
           &visit.locale,
-          &t.head,
+          Arc::clone(&t.head),
         )
         .await;
     }
-    let mut head = localized.unwrap_or_else(|| t.head.clone());
+    let mut head = localized.unwrap_or_else(|| (*t.head).clone());
     let mut parts = vec![t.head.rest.clone()];
     parts.extend(extra);
     head.rest = snapfire_fsr_core::Node::Seq(parts);
@@ -351,7 +351,7 @@ impl Host {
         incoming,
         &visit.requested(),
         &visit.locale,
-        &head,
+        Arc::new(head),
       )
       .await
   }
@@ -366,7 +366,7 @@ impl Host {
     incoming: Incoming,
     path: &str,
     locale: &Locale,
-    head: &Head,
+    head: Arc<Head>,
   ) -> Result<Rendered, HostError> {
     let origin = incoming.intercept.as_ref().filter(|i| !i.kept.is_empty()).map(|i| (i.document.clone(), i.params.clone(), i.query.clone(), i.kept.clone()));
     let mut ctx = self.ctx(t, incoming, params, query, path, locale.clone());
@@ -379,9 +379,9 @@ impl Host {
         under.path = document;
         under.params = params;
         under.query = query;
-        assemble_under(&t.app.runtime, plan, &ctx, head, Origin::new(under, nodes)).await?
+        assemble_under_shared(&t.app.runtime, plan, &ctx, head, Origin::new(under, nodes)).await?
       }
-      None => assemble(&t.app.runtime, plan, &ctx, head).await?,
+      None => assemble_shared(&t.app.runtime, plan, &ctx, head).await?,
     };
     let failed = assembly.failed;
     let chunks: BoxStream<'static, String> = match mode {

@@ -361,7 +361,7 @@ impl Host {
                 Incoming::anonymous(SessionCell::default()),
                 &served,
                 &locale,
-                t.head_for(&locale.tag).as_ref().unwrap_or(&t.head),
+                t.head_for(&locale.tag).map(Arc::new).unwrap_or_else(|| Arc::clone(&t.head)),
               )
               .await?;
             if let Some(kind) = rendered.failed {
@@ -397,7 +397,7 @@ impl Host {
           for path in paths {
             let Some((_, params)) = self.plan_for(&t, &path) else { continue };
             let ctx = self.ctx(&t, Incoming::anonymous(SessionCell::default()), params, Params::new(), &path, locale.clone());
-            if let Err(e) = assemble(&t.app.runtime, subtree, &ctx, &t.head).await {
+            if let Err(e) = assemble_shared(&t.app.runtime, subtree, &ctx, Arc::clone(&t.head)).await {
               tracing::warn!(target: "fsr::cache", pattern = %pattern, module = %subtree.module, error = %e, "warm render failed");
             }
           }
@@ -539,7 +539,7 @@ impl Host {
     }
     let (plan, params) = self.plan_for(t, path).ok_or_else(|| format!("no route: {served}"))?;
     let rendered = self
-      .render_plan_with(t, &plan, params, Params::new(), mode, Incoming::anonymous(SessionCell::default()), served, locale, t.head_for(&locale.tag).as_ref().unwrap_or(&t.head))
+      .render_plan_with(t, &plan, params, Params::new(), mode, Incoming::anonymous(SessionCell::default()), served, locale, t.head_for(&locale.tag).map(Arc::new).unwrap_or_else(|| Arc::clone(&t.head)))
       .await
       .map_err(|e| e.to_string())?;
     if let Some(kind) = rendered.failed {

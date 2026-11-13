@@ -1236,7 +1236,7 @@ impl HostBuilder {
     Ok((
       Tables {
         app,
-        head,
+        head: Arc::new(head),
         title: config.document.title.clone(),
         title_template: config.document.title_template.clone(),
         public,

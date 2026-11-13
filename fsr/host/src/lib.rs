@@ -83,7 +83,7 @@ use snapfire_fsr_plan::{Child as PlanChild, Manifest, Node as PlanFileNode, Rout
 use snapfire_fsr_runtime::ActionHandler;
 use snapfire_fsr_runtime::{
   ActionError, Address, AssembleError, CsrfHandle, DataSource, Evaluator, FibreCache, Head, Identity, LoadError, Locale,
-  CacheEntry, Chunk, IslandEvent, Matcher, Metadata, NoCache, NodeCache, Origin, RequestCtx, Resolver, SessionCell, WarmLoads, WarmRenders, assemble, assemble_under, html_stream,
+  CacheEntry, Chunk, IslandEvent, Matcher, Metadata, NoCache, NodeCache, Origin, RequestCtx, Resolver, SessionCell, WarmLoads, WarmRenders, assemble_shared, assemble_under_shared, html_stream,
   parse_query, wire_stream,
 };
 use snapfire_fsr_service::{
@@ -378,7 +378,7 @@ pub type TopicRule = Arc<dyn Fn(&str, &SessionCell, Option<&Identity>) -> bool +
 /// mid-request changes nothing for that request.
 struct Tables {
   app: App,
-  head: Head,
+  head: Arc<Head>,
   /// `document.title` and `document.title_template` as configured; `head`
   /// carries their literals and a keyed one is read per request under its locale.
   title: config::Text,
@@ -494,7 +494,7 @@ impl Tables {
     if !self.title.is_keyed() && !self.title_template.as_ref().is_some_and(config::Text::is_keyed) {
       return None;
     }
-    let mut head = self.head.clone();
+    let mut head = (*self.head).clone();
     head.title = self.title.resolve(&self.catalogs, locale);
     head.template = self.title_template.as_ref().map(|template| template.resolve(&self.catalogs, locale));
     Some(head)
