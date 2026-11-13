@@ -822,7 +822,33 @@ fn hrefs_of(tmpl: &Tmpl) -> Vec<String> {
       }
     }
     Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => out.extend(hrefs_of(body)),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Marker(markup) => out.extend(anchor_hrefs(markup)),
+    Tmpl::Text(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+  }
+  out
+}
+
+/// [`hrefs_of`] for markup the build prebuilt. The renderer wrote it, so text
+/// never holds a raw `<`, every attribute is `name="value"` and a value never
+/// holds a raw `"` or `>`.
+fn anchor_hrefs(markup: &str) -> Vec<String> {
+  let mut out = Vec::new();
+  let mut rest = markup;
+  while let Some(at) = rest.find("<a") {
+    rest = &rest[at + 2..];
+    if !rest.starts_with([' ', '>']) {
+      continue;
+    }
+    let end = rest.find('>').unwrap_or(rest.len());
+    if let Some(start) = rest[..end].find(" href=\"") {
+      let value = &rest[start + 7..end];
+      let value = &value[..value.find('"').unwrap_or(value.len())];
+      let href = value.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'").replace("&amp;", "&");
+      if href.starts_with('/') && !href.starts_with("//") {
+        out.push(href.split(['?', '#']).next().unwrap_or(&href).to_owned());
+      }
+    }
+    rest = &rest[end..];
   }
   out
 }

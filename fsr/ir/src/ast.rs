@@ -1518,6 +1518,15 @@ pub struct HeadScript {
   pub inline: bool,
 }
 
+/// Whether the host reads this element out of a loaded plan: a `<style>` for
+/// [`crate::render::inline_styles`], a media element or an image for
+/// [`media_sources`] and [`image_sources`] and an embed placeholder for
+/// [`embed_players`]. The build never prebuilds such an element into markup.
+/// A new reader of the plan's templates adds what it reads here.
+pub fn read_by_host(tag: &str, attrs: &[Entry]) -> bool {
+  matches!(tag, "style" | "img" | "video" | "audio" | "source" | "track") || attrs.iter().any(|entry| matches!(entry, Entry::Field(name, _) if name == "data-sf-embed"))
+}
+
 /// The `src` of every `video`, `audio`, `source` and `track` in `tmpl` the
 /// build can read as a string or the start of a template, in the order written.
 pub fn media_sources(tmpl: &Tmpl) -> Vec<String> {

@@ -25,6 +25,7 @@ mod react19;
 mod svelte;
 mod vue;
 
+pub use bake::bake_static_markup;
 pub use markup::Frameworks;
 pub(crate) use markup::Markup;
 use react::is_custom_element;
@@ -33,6 +34,7 @@ pub use svelte::SvelteMajor;
 pub use vue::VueMajor;
 
 mod attrs;
+mod bake;
 mod children;
 mod prepare;
 mod slots;
@@ -1090,3 +1092,6 @@ mod island_tests;
 
 #[cfg(test)]
 mod markup_tests;
+
+#[cfg(test)]
+mod bake_tests;

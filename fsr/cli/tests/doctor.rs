@@ -513,6 +513,24 @@ fn a_cache_tag_only_one_side_names_is_reported() {
 
 const OPENAPI: &str = r#"{"openapi":"3.0.0","info":{"title":"ledger","version":"1"},"paths":{}}"#;
 
+#[test]
+fn a_link_inside_prebuilt_markup_is_checked_like_one_in_an_element() {
+  let plan = |markup: &str| {
+    format!("(plan 2)\n(route / (node 0 shell#document))\n(component routes/page.tsx#default\n  (render (<> (el div () (marker {markup:?})))))\n")
+  };
+  let of = |markup: &str| {
+    let dir = app("", &[("app/generated/plan.sexp", &plan(markup))]);
+    (findings(&dir), report(&dir))
+  };
+
+  let (found, out) = of("<p class=\"lead\"><a class=\"x\" href=\"/about?from=home&amp;x=1\">go</a> and <a href=\"/\">home</a></p>");
+  assert_eq!(found, vec!["links"], "{out}");
+  assert!(out.contains("/about") && !out.contains("from=home"), "{out}");
+
+  let (found, out) = of("<p><a href=\"https://example.com/about\">away</a><a href=\"//cdn.example.com/x\">cdn</a><area href=\"/nope\"></p>");
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+}
+
 /// A literal internal link against everything the deployment answers. Nothing
 /// here needs a crawler: the plan already holds the link and the routes.
 #[test]

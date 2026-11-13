@@ -993,7 +993,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       cards_file = Some(serde_json::to_string_pretty(&table).expect("a card table serializes") + "\n");
     }
   }
-  let plan_text = manifest.to_sexpr();
+  let plan_text = packaged_plan(&mut manifest);
   report.plan = Some(plan_text.len());
   let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
   files.extend(tailwind_file.map(|text| (tailwind::CLASSES_FILE.to_owned(), text)));
@@ -1209,4 +1209,22 @@ pub(crate) fn refuse_unrendered(set: &mut ComponentSet, rewritten: &[(String, St
     }
   }
   Ok(())
+}
+
+/// The plan file's text: the manifest with each component's literal markup
+/// prebuilt, which is what the host reads. `manifest` keeps the components as
+/// lowering left them for the rest of the build.
+fn packaged_plan(manifest: &mut Manifest) -> String {
+  let lowered = std::mem::take(&mut manifest.components);
+  manifest.components = lowered
+    .iter()
+    .map(|row| {
+      let mut row = row.clone();
+      snapfire_fsr_ir::render::bake_static_markup(&mut row.body);
+      row
+    })
+    .collect();
+  let text = manifest.to_sexpr();
+  manifest.components = lowered;
+  text
 }
