@@ -406,7 +406,7 @@ pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<Str
     Some(name) => slot_node(&tree, &segments, &fills, name)?,
   };
   let mut target = target.clone();
-  fill(&mut target, &fills);
+  fill(&mut target, &mut fills);
   let mut session = HtmlSession::new();
   let mut out = session.serialize(&target);
   out.push_str(&session.take_placed());
@@ -460,11 +460,11 @@ fn slot_node<'a>(node: &'a Node, info: &SegmentInfo, fills: &'a HashMap<u32, Nod
 }
 
 /// Replaces every `Pending` under `node` with what resolved for its slot, recursing into what it put there.
-fn fill(node: &mut Node, fills: &HashMap<u32, Node>) {
+fn fill(node: &mut Node, fills: &mut HashMap<u32, Node>) {
   match node {
     Node::Pending { slot, .. } => {
-      if let Some(resolved) = fills.get(&slot.0) {
-        *node = resolved.clone();
+      if let Some(resolved) = fills.remove(&slot.0) {
+        *node = resolved;
         fill(node, fills);
       }
     }
