@@ -45,7 +45,6 @@ icu_segmenter = "2"
 icu_locale = "2"
 writeable = "0.6"
 indexmap.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 sha2 = "0.11"

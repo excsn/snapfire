@@ -476,14 +476,9 @@ fn every_component_names_its_owner() {
     let text = print(std::slice::from_ref(&component_to_sx(&component)));
     assert!(text.contains(&format!("(owner {})", owner.as_str())), "{text}");
     assert_eq!(component_from_sx(&parse(&text).unwrap()[0]).unwrap(), component);
-    let json = serde_json::to_string(&component).unwrap();
-    assert!(json.contains(&format!("\"owner\":\"{}\"", owner.as_str())), "{json}");
-    assert_eq!(serde_json::from_str::<Component>(&json).unwrap(), component);
   }
   let err = component_from_sx(&parse("(component (render \"x\"))").unwrap()[0]).unwrap_err().to_string();
   assert!(err.contains("`(owner ...)`"), "{err}");
-  let unnamed = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"}}").unwrap();
-  assert_eq!(unnamed.owner, snapfire_fsr_ir::Owner::React, "a JSON plan written before owners left React's flag out");
 }
 
 #[test]
@@ -492,12 +487,6 @@ fn a_component_written_before_owners_reads_by_its_old_tags() {
   assert_eq!(read("(component (static) (render \"x\"))"), snapfire_fsr_ir::Owner::Fsr);
   assert_eq!(read("(component (tree) (render \"x\"))"), snapfire_fsr_ir::Owner::React, "a tree root was React's, and tree() is gone");
   assert_eq!(read("(component (vue) (render \"x\"))"), snapfire_fsr_ir::Owner::Vue);
-  let json = |flag: &str| serde_json::from_str::<Component>(&format!("{{\"render\":{{\"text\":\"x\"}},\"hydrate\":{flag}}}")).unwrap().owner;
-  assert_eq!(json("true"), snapfire_fsr_ir::Owner::React);
-  assert_eq!(json("false"), snapfire_fsr_ir::Owner::Fsr);
-  assert_eq!(json("\"tree\""), snapfire_fsr_ir::Owner::React);
-  let err = serde_json::from_str::<Component>("{\"render\":{\"text\":\"x\"},\"hydrate\":\"vine\"}").unwrap_err().to_string();
-  assert!(err.contains("boolean, \"tree\" or \"vue\""), "{err}");
 }
 
 #[test]

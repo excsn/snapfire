@@ -2,7 +2,6 @@
 //! its own format rather than serde on the runtime types, so the file can gain
 //! a field without the vocabulary crate gaining a dependency.
 
-use serde::{Deserialize, Deserializer, Serialize};
 use snapfire_fsr_core::{CacheKey, DataSourceId, ModuleId, NodeId, PlanNode, SlotName};
 use snapfire_fsr_ir::ast::Consts;
 use snapfire_fsr_ir::{Body, Component};
@@ -65,124 +64,100 @@ pub enum PlanError {
   EmptyPattern,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Manifest {
   pub version: u32,
   pub routes: Vec<RouteEntry>,
   /// One row per data source the build knows about. A row with a body is a
   /// default the host binds unless Rust overrides the name; a row without one
   /// is a declaration Rust must answer.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub sources: Vec<SourceEntry>,
   /// The actions the application expects to exist. Declared so an unanswered
   /// action is a boot error rather than a 404 at request time.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub actions: Vec<ActionEntry>,
   /// One row per module the build lowered to a render tree. The host renders
   /// these in Rust and the browser hydrates over the output; a module without
   /// a row mounts in the browser only.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub components: Vec<ComponentEntry>,
   /// One row per module the build read and could not lower, with the residue
   /// that decided it. The host prints these beside the rendered modules.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub clients: Vec<ClientEntry>,
   /// The module-level constants bodies read by name, `<file>#<name>`, held
   /// once however many bodies read them. `Expr::Const` names one.
-  #[serde(default, skip_serializing_if = "Consts::is_empty")]
   pub consts: Consts,
   /// The tree a host renders, with status 404, for a path no route matches.
   /// Absent, the host answers with a plain text line.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub not_found: Option<Node>,
   /// One row per HTTP method a `route.ts` exports: a request the host answers
   /// with a value rather than a document.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub handlers: Vec<HandlerEntry>,
   /// The lowered `middleware.ts`, run before every request that is not a
   /// static file.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub middleware: Option<Body>,
   /// One row per `page.<slot>.tsx`: the pattern of the route it belongs to
   /// and the tree a soft navigation renders into a live layout's slot.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub intercepts: Vec<RouteEntry>,
   /// The exact version of each vendored framework whose server markup the
   /// renderer matches, by package: `react` to `18.3.1`. Read from the vendor
   /// manifest at build.
-  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
   pub frameworks: std::collections::BTreeMap<String, String>,
   /// The store keys an island the server does not render reads, by module:
   /// what the first wave holds its mount on while one of them is pending.
-  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
   pub reads: std::collections::BTreeMap<String, Vec<String>>,
   /// One row per store key a module-level `derive` computes in the browser,
   /// in the order the browser files declare them.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub derives: Vec<DeriveEntry>,
   /// Head rows for a module the build knows from a file beside it rather than
   /// from lowering it: a route directory's `opengraph-image`. Merged with a
   /// component's own rows under the same module.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub heads: Vec<ModuleHead>,
   /// The stylesheets a page rendering a route segment's module links: each
   /// sheet a file the module reaches imports for its effect and each Vue or
   /// Svelte component it reaches, by the path its compiled sheet would have.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub sheets: Vec<ModuleSheets>,
   /// One row per generated card image: an `opengraph-image.tsx` or
   /// `twitter-image.tsx` beside a page, answered at its own URL.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub images: Vec<ImageEntry>,
   /// The lowered `theme.ts`: the document's theme and scheme for one request, run before the
   /// page with the route's own theme as its input.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub theme: Option<Body>,
   /// One row per layout or page whose `export const theme` names one.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub themes: Vec<ThemeEntry>,
 }
 
 /// A layout's or a page's `export const theme`. Down a route's layouts the deepest one wins,
 /// except that a forced theme keeps everything below it; of two forced ones the outer wins.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThemeEntry {
   pub module: String,
   pub name: String,
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub force: bool,
 }
 
 /// A card image a lowered component draws, answered at `pattern` with the
 /// data of `source` as its props.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImageEntry {
   /// The URL it answers, the page's pattern with the image's file name after it.
   pub pattern: String,
   /// The component that draws it.
   pub module: String,
   /// The page's data source, whose data are the component's props.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub source: Option<String>,
   pub width: u32,
   pub height: u32,
   /// `image/png` or `image/jpeg`.
   pub content_type: String,
   /// The page module whose head names the image.
-  #[serde(default)]
   pub page: String,
   /// `og` or `twitter`: which card's tags name it.
-  #[serde(default)]
   pub card: String,
   /// The component's hash, which the image's URL carries so a crawler fetches it again after a change.
-  #[serde(default)]
   pub hash: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub alt: Option<String>,
   /// The module's `images` (or `generateImageMetadata`), a function of the
   /// context returning `[{ id, alt, size, contentType }]`. With one, the
   /// pattern ends in `{__image}` and each id is its own image.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub images: Option<snapfire_fsr_ir::Body>,
 }
 
@@ -190,7 +165,7 @@ pub struct ImageEntry {
 pub const IMAGE_PARAM: &str = "__image";
 
 /// The head rows one module carries whatever renders it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleHead {
   pub module: String,
   pub head: Vec<HeadRow>,
@@ -198,7 +173,7 @@ pub struct ModuleHead {
 
 /// The stylesheets one route segment's module links, as paths under the
 /// application's build output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModuleSheets {
   pub module: String,
   pub sheets: Vec<String>,
@@ -207,35 +182,28 @@ pub struct ModuleSheets {
 /// A derived store key: what it is computed from and how. A row without a
 /// body is one the build could not lower, with where and why: the host holds
 /// every reader of the key rather than paint a value the browser replaces.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DeriveEntry {
   pub key: String,
   pub sources: Vec<String>,
   /// The compute, reading each source as `Expr::Store`.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub body: Option<snapfire_fsr_ir::ast::Expr>,
   /// `file:line:column` of the `derive` that did not lower.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub at: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub why: Option<String>,
 }
 
 /// A handler row: `method` and `pattern` are what the host matches, `id` is
 /// `<route id>.<METHOD>`. A row without a body is a declaration Rust answers.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HandlerEntry {
   pub id: String,
   pub method: String,
   pub pattern: String,
   pub owner: RowOwner,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub module: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub input: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub body: Option<Body>,
 }
 
@@ -254,21 +222,20 @@ impl HandlerEntry {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ComponentEntry {
   pub module: String,
   pub body: Component,
   /// Head elements a page rendering this module carries, the preload of a
   /// priority image among them. The build folds in the rows of every
   /// component the module places, so a plan node's module holds the set.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub head: Vec<HeadRow>,
 }
 
 /// One head element a component asks for: a tag and its attributes in the
 /// order written. A row is merged into the document's head by identity, so
 /// two pages placing one image preload it once.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadRow {
   pub tag: String,
   pub attrs: Vec<(String, String)>,
@@ -277,20 +244,18 @@ pub struct HeadRow {
 /// One row per module the build could not lower, so the host can say at
 /// boot what the build said: the module mounts in the browser, because of
 /// the residue at `at`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientEntry {
   pub module: String,
   /// `file:line:column`; the file alone when the module did not parse.
   pub at: String,
   pub message: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub hint: Option<String>,
 }
 
 /// Who a row says answers it. The host may replace `lowered` with a Rust
 /// override; `rust` is a declaration and nothing else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowOwner {
   Lowered,
   Engine,
@@ -307,33 +272,24 @@ impl RowOwner {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SourceEntry {
   pub id: String,
   pub owner: RowOwner,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub module: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub export: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub body: Option<Body>,
   /// The module's `meta`, describing the document from this source's data.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub meta: Option<Body>,
   /// The module's `store`, seeding the browser's store from this source's data.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub store: Option<Body>,
   /// The module's `defaults`, seeding the browser's store the way `store` does with values a write the browser holds outranks.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub defaults: Option<Body>,
   /// The keys `store` and `defaults` can return, inferred from their types at build: what the
   /// segment promises a first wave it is deferred from.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub store_keys: Option<Vec<String>>,
   /// The module's `paths`, naming the parameter sets a route with a parameter prerenders.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub paths: Option<Body>,
 }
 
@@ -379,20 +335,15 @@ impl SourceEntry {
   }
 }
 
-/// An action row. A format 1 file lists bare ids, which read as `rust` rows.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// An action row.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActionEntry {
   pub id: String,
   pub owner: RowOwner,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub module: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub export: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub input: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reason: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub body: Option<Body>,
 }
 
@@ -419,61 +370,7 @@ impl ActionEntry {
   }
 }
 
-#[derive(Deserialize)]
-struct ActionRow {
-  id: String,
-  #[serde(default = "rust_owner")]
-  owner: RowOwner,
-  #[serde(default)]
-  module: Option<String>,
-  #[serde(default)]
-  export: Option<String>,
-  #[serde(default)]
-  input: Option<String>,
-  #[serde(default)]
-  reason: Option<String>,
-  #[serde(default)]
-  body: Option<Body>,
-}
-
-fn rust_owner() -> RowOwner {
-  RowOwner::Rust
-}
-
-impl<'de> Deserialize<'de> for ActionEntry {
-  fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-    struct Visitor;
-
-    impl<'de> serde::de::Visitor<'de> for Visitor {
-      type Value = ActionEntry;
-
-      fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        f.write_str("an action id or an action row")
-      }
-
-      fn visit_str<E: serde::de::Error>(self, id: &str) -> Result<ActionEntry, E> {
-        Ok(ActionEntry::rust(id))
-      }
-
-      fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<ActionEntry, A::Error> {
-        let row = ActionRow::deserialize(serde::de::value::MapAccessDeserializer::new(map))?;
-        Ok(ActionEntry {
-          id: row.id,
-          owner: row.owner,
-          module: row.module,
-          export: row.export,
-          input: row.input,
-          reason: row.reason,
-          body: row.body,
-        })
-      }
-    }
-
-    deserializer.deserialize_any(Visitor)
-  }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RouteEntry {
   pub pattern: String,
   pub plan: Node,
@@ -481,30 +378,22 @@ pub struct RouteEntry {
 
 /// The serialized shape of a `PlanNode`. Optional fields are absent rather than
 /// null, so a plan for a leaf route reads as three keys.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Node {
   pub id: u32,
   pub module: String,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub source: Option<String>,
-  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub deferred: bool,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub fallback: Option<String>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
   /// One error module per failure kind, keyed by `FailureKind::as_str`.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub error_kinds: Vec<(String, String)>,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub cache_key: Option<String>,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub children: Vec<Child>,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub keep: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Child {
   pub slot: String,
   pub node: Node,

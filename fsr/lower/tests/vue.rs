@@ -270,8 +270,8 @@ fn a_lowered_component_is_marked_for_the_vue_adapter_with_its_state() {
   assert_eq!(component.owner, Owner::Vue);
   assert_eq!(component.state, vec!["held".to_owned(), "open".to_owned()]);
   assert!(set.foreign.is_empty(), "a lowered component is not foreign: {:?}", set.foreign);
-  let plan = serde_json::to_string(component).unwrap();
-  assert!(plan.contains("\"owner\":\"vue\""), "{plan}");
+  let plan = snapfire_fsr_ir::sexpr::print(&[snapfire_fsr_ir::sexpr::component_to_sx(component)]);
+  assert!(plan.contains("(owner vue)"), "{plan}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 
 /// A body is a statement list. A loader body ends in a `return` of an object;
 /// an action body may return anything or nothing.
@@ -8,17 +7,16 @@ pub type Body = Vec<Stmt>;
 /// one with `Expr::Const` rather than carrying its own copy.
 pub type Consts = std::collections::BTreeMap<String, Expr>;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
   Let { name: String, expr: Expr },
   /// `name = expr` where `name` is already bound: the nearest binding takes
   /// the value, so a write inside a branch or a loop outlives it.
   Set { name: String, expr: Expr },
-  If { cond: Expr, then: Body, #[serde(default, skip_serializing_if = "Vec::is_empty")] r#else: Body },
+  If { cond: Expr, then: Body, r#else: Body },
   ForOf { name: String, over: Expr, body: Body },
   /// `while (cond) body`, with `step` run after every pass, one a `Continue` ends included. A loop past `interp::MAX_PASSES` passes fails the step.
-  While { cond: Expr, body: Body, #[serde(default, skip_serializing_if = "Vec::is_empty")] step: Body },
+  While { cond: Expr, body: Body, step: Body },
   Return(Expr),
   /// Leaves the nearest `ForOf`.
   Break,
@@ -27,8 +25,8 @@ pub enum Stmt {
   /// `if (cond) fail(kind, message)`. The kind is a `FailureKind` name; the
   /// message is any expression, evaluated only when the guard fires.
   Guard { cond: Expr, kind: String, message: Expr },
-  SessionSet { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr>, value: Expr },
-  SessionDelete { key: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] path: Vec<Expr> },
+  SessionSet { key: String, path: Vec<Expr>, value: Expr },
+  SessionDelete { key: String, path: Vec<Expr> },
   /// `session.extend(seconds)`: the session ends `seconds` from now once the
   /// body commits. An action, a route handler or middleware holds one; the
   /// lowerer refuses it in a loader.
@@ -38,12 +36,11 @@ pub enum Stmt {
   /// handler holds one; a body cannot dispatch an action.
   Act { action: String, input: Expr },
   /// `try { body } catch (name) { handler } finally { finally }`. `handler` runs when `body` fails, whatever failed: a `throw`, a `fail`, a call or the interpreter. `name` binds what was thrown; for a failure nothing threw it binds `{ name, kind, message }`. `None` is a `try` with no `catch`. `finally` runs on every way out of the two; when it returns or fails, that replaces how they ended.
-  Try { body: Body, #[serde(default, skip_serializing_if = "Option::is_none")] name: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] handler: Option<Body>, #[serde(default, skip_serializing_if = "Vec::is_empty")] finally: Body },
+  Try { body: Body, name: Option<String>, handler: Option<Body>, finally: Body },
   Expr(Expr),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
   Param(String),
   Query(String),
@@ -90,7 +87,6 @@ pub enum Expr {
   Var(String),
   /// A literal or an object, array or template made only of literals, built
   /// once by `render::prepare` and cloned on each read. Never in a plan.
-  #[serde(skip)]
   Folded(snapfire_fsr_core::value::Value),
   /// A module-level `const` the build named rather than inlined, `<file>#<name>`.
   /// The plan's `consts` table holds it once however many bodies read it.
@@ -109,12 +105,12 @@ pub enum Expr {
   Template(Vec<Expr>),
   /// `await services.<service>.<method>(args)`. An argument whose value is
   /// `null` is omitted, the way an absent optional argument is in TypeScript.
-  Call { service: String, method: String, #[serde(default)] args: Vec<(String, Expr)> },
+  Call { service: String, method: String, args: Vec<(String, Expr)> },
   /// `await native.<module>.<method>(args)`: the application's own Rust,
   /// in this process. Shaped like `Call` and resolved through a different
   /// handle, since nothing crosses a wire and there is no contract to check
   /// it against.
-  NativeCall { module: String, method: String, #[serde(default)] args: Vec<(String, Expr)>, #[serde(default, skip_serializing_if = "std::ops::Not::not")] sync: bool },
+  NativeCall { module: String, method: String, args: Vec<(String, Expr)>, sync: bool },
   /// Middleware's `next(request)`: the rest of the chain run for `request`, `undefined` for the request as it came, answering the route's `Response`.
   Next(Box<Expr>),
   /// `after(fn)`: `fn`, a lambda, queued on the request's `after` to run once the response is written, over a copy of the scope it was called in. `undefined`.
@@ -180,8 +176,7 @@ pub enum Expr {
 
 /// The pure functions a component may call by name. Each is one JavaScript
 /// method or global with the same semantics for the value model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Builtin {
   Round,
@@ -480,15 +475,14 @@ impl Builtin {
 /// interpolated as text; `If`, `For` and `Let` are the JSX idioms for a
 /// ternary, `.map` and a block body; `Component` is another lowered component
 /// applied to props.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Tmpl {
   Text(String),
   Expr(Expr),
   /// Attributes are `Entry::Field` in HTML spelling or `Entry::Spread` of a map whose keys are React's spelling, later entries winning.
-  Element { tag: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] attrs: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  Element { tag: String, attrs: Vec<Entry>, children: Vec<Tmpl> },
   Fragment(Vec<Tmpl>),
-  If { cond: Expr, then: Box<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] r#else: Option<Box<Tmpl>> },
+  If { cond: Expr, then: Box<Tmpl>, r#else: Option<Box<Tmpl>> },
   For { over: Expr, params: Vec<String>, body: Box<Tmpl> },
   Let { name: String, expr: Expr, then: Box<Tmpl> },
   /// Props are `Entry::Field` or `Entry::Spread`; `children` render in the caller's scope wherever the callee places its `Slot`.
@@ -497,7 +491,7 @@ pub enum Tmpl {
   /// `keyed` says the placed component keys a hoist or a region somewhere
   /// below it, so the placement extends the key path by `id` on both halves:
   /// two placements of one component then key what it holds apart.
-  Component { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "is_zero")] id: u32, #[serde(default, skip_serializing_if = "is_false")] keyed: bool },
+  Component { module: String, props: Vec<Entry>, children: Vec<Tmpl>, id: u32, keyed: bool },
   /// A component placed as its own island: rendered like `Component`, then
   /// wrapped as a nested client node the browser mounts in its own root,
   /// `when` its hydration timing. `id` is the placement's index among the
@@ -507,7 +501,7 @@ pub enum Tmpl {
   /// than a component: the server renders `children` inside the marker as
   /// ordinary markup, the browser imports the module at the island's timing
   /// and the element upgrades itself.
-  Island { module: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] props: Vec<Entry>, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl>, #[serde(default, skip_serializing_if = "Option::is_none")] when: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] mode: Option<String>, #[serde(default, skip_serializing_if = "is_zero")] id: u32, #[serde(default, skip_serializing_if = "is_false")] define: bool },
+  Island { module: String, props: Vec<Entry>, children: Vec<Tmpl>, when: Option<String>, mode: Option<String>, id: u32, define: bool },
   /// The caller's children where the callee places `{children}`, named
   /// `content`; at a layout's root, the plan child of that name, so a
   /// `<Slot name="modal" />` names a second segment beside the page.
@@ -530,17 +524,9 @@ pub enum Tmpl {
   /// `children` written at `target` rather than in place, where the
   /// evaluator carries them as a `Node::Placed`: a Vue `<Teleport>`. The
   /// target is a `Place` spelling, `body` for the end of the body.
-  Place { target: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  Place { target: String, children: Vec<Tmpl> },
   /// Where the content a `Place` targeting `#name` holds is written: inside the element around it, whose id is `name`. Rendered in markup a framework hydrates it fails the render, unless `hydrated` says that framework's hydration keeps such content: a `<Place>` (each framework's client renders it so hydration leaves the element's children alone) or a Vue `<Teleport>` into an element of its own component. Never static.
-  Outlet { name: String, #[serde(default, skip_serializing_if = "is_false")] hydrated: bool },
-}
-
-fn is_false(b: &bool) -> bool {
-  !*b
-}
-
-fn is_zero(n: &u32) -> bool {
-  *n == 0
+  Outlet { name: String, hydrated: bool },
 }
 
 /// A lowered component: `let`s run once with `$props` bound, then the tree.
@@ -552,31 +538,23 @@ fn is_zero(n: &u32) -> bool {
 /// renders the component in the browser, if anything does. `shadow` is the
 /// shadow root an element template declares with its root
 /// `<template shadowrootmode>`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(try_from = "ComponentRepr")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Component {
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub body: Body,
   pub render: Tmpl,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub state: Vec<String>,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub stores: Vec<(String, String)>,
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub handlers: Vec<Handler>,
   pub owner: Owner,
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub shadow: Option<ShadowRoot>,
   /// The scoped style a Vue component carries, when it has one.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub scope: Option<ScopedStyle>,
 }
 
 /// A Vue component's scoped style: the attribute its rules select on and whether any rule is `:slotted()`, which Vue answers by stamping `<id>-s` on the content its slots render.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopedStyle {
   pub id: String,
-  #[serde(default, skip_serializing_if = "is_false")]
   pub slotted: bool,
 }
 
@@ -587,62 +565,17 @@ impl ScopedStyle {
   }
 }
 
-/// A component as a JSON plan spells it: `owner`, or in a plan written before
-/// owners the `hydrate` flag, `false` for nothing, `true` for React and
-/// `"tree"` or `"vue"`, left out for React.
-#[derive(Deserialize)]
-struct ComponentRepr {
-  #[serde(default)]
-  body: Body,
-  render: Tmpl,
-  #[serde(default)]
-  state: Vec<String>,
-  #[serde(default)]
-  stores: Vec<(String, String)>,
-  #[serde(default)]
-  handlers: Vec<Handler>,
-  #[serde(default)]
-  owner: Option<Owner>,
-  #[serde(default)]
-  hydrate: Option<serde_json::Value>,
-  #[serde(default)]
-  shadow: Option<ShadowRoot>,
-  #[serde(default)]
-  scope: Option<ScopedStyle>,
-}
-
-impl TryFrom<ComponentRepr> for Component {
-  type Error = String;
-
-  fn try_from(repr: ComponentRepr) -> Result<Self, String> {
-    let owner = match (repr.owner, repr.hydrate) {
-      (Some(owner), _) => owner,
-      (None, Some(serde_json::Value::Bool(true))) => Owner::React,
-      (None, Some(serde_json::Value::Bool(false))) => Owner::Fsr,
-      (None, Some(serde_json::Value::String(word))) if word == "tree" => Owner::React,
-      (None, Some(serde_json::Value::String(word))) => Owner::of(&word).ok_or_else(|| format!("`hydrate` is a boolean, \"tree\" or \"vue\", not \"{word}\""))?,
-      (None, Some(other)) => return Err(format!("`hydrate` is a boolean or a word, not {other}")),
-      (None, None) => Owner::React,
-    };
-    Ok(Component { body: repr.body, render: repr.render, state: repr.state, stores: repr.stores, handlers: repr.handlers, owner, shadow: repr.shadow, scope: repr.scope })
-  }
-}
-
 /// The declarative shadow root the server writes around an element template.
 /// The default is an open root with no options.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ShadowRoot {
   pub mode: ShadowMode,
-  #[serde(default, skip_serializing_if = "is_false")]
   pub delegates_focus: bool,
-  #[serde(default, skip_serializing_if = "is_false")]
   pub clonable: bool,
-  #[serde(default, skip_serializing_if = "is_false")]
   pub serializable: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ShadowMode {
   #[default]
   Open,
@@ -669,8 +602,7 @@ impl ShadowMode {
 /// What renders a component in the browser. `Fsr` is composition: the server
 /// renders it and nothing renders it again. `React`, `Vue` and `Svelte`
 /// hydrate the server's markup through their adapters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Owner {
   Fsr,
   React,
@@ -709,7 +641,7 @@ impl Owner {
 /// and `$event` bound and returns an object whose keys are the state names
 /// it sets. `element` is the attribute marker's id, so the renderer can bind
 /// it to its element.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Handler {
   pub event: String,
   pub body: Body,
@@ -943,8 +875,7 @@ impl Entry {
   }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Entry {
   Field(String, Expr),
   /// Attributes already printed, ` name="value"` text written as it stands: what a prepared element carries for the literal attributes every markup prints the same way and what a lowerer writes for an attribute its framework prints verbatim. The plan spells it `(! "…")`.
@@ -955,8 +886,7 @@ pub enum Entry {
   Spread(Expr),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Lit {
   Null,
   Undefined,
@@ -966,8 +896,7 @@ pub enum Lit {
   Str(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArithOp {
   Add,
   Sub,
@@ -989,8 +918,7 @@ pub enum ArithOp {
   UShr,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
   Eq,
   Ne,
@@ -1000,8 +928,7 @@ pub enum CompareOp {
   Ge,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogicOp {
   And,
   Or,
