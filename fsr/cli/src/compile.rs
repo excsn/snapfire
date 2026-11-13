@@ -952,13 +952,16 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   manifest.derives = derives;
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
-  let (manifest, contract, contracts) = match &options.site {
+  let mut manifest = manifest;
+  if let Some(site) = &options.site {
+    manifest.namespace(&site.name, &site.at, &options.shell);
+  }
+  let (contract, contracts) = match &options.site {
     Some(site) => (
-      manifest.namespaced(&site.name, &site.at, &options.shell),
       contract.namespaced(&site.name),
       contracts.into_iter().map(|(rel, c)| (rel, c.namespaced(&site.name))).collect(),
     ),
-    None => (manifest, contract, contracts),
+    None => (contract, contracts),
   };
 
   resolver.scan(&app.join(&sections.dirs.images), &sections.dirs.images);

@@ -7,6 +7,7 @@ use snapfire_fsr_core::{CacheKey, DataSourceId, ModuleId, NodeId, PlanNode, Slot
 use snapfire_fsr_ir::ast::Consts;
 use snapfire_fsr_ir::{Body, Component};
 
+mod namespace;
 pub mod sexpr;
 
 /// Format 2 adds the `sources` table and makes actions rows. A format 1 file,
@@ -795,66 +796,6 @@ pub fn under(at: &str, pattern: &str) -> String {
   }
 }
 
-fn prefix_str(value: &mut serde_json::Value, prefix: &str) {
-  if let serde_json::Value::String(s) = value {
-    if !s.starts_with(prefix) {
-      *s = format!("{prefix}{s}");
-    }
-  }
-}
-
-/// Every reference a body can make outside itself: a service by name, an
-/// island or a component by module, a module-level constant by name.
-fn namespace_body(value: &mut serde_json::Value, prefix: &str) {
-  match value {
-    serde_json::Value::Object(map) => {
-      if let Some(call) = map.get_mut("call") {
-        if let Some(service) = call.get_mut("service") {
-          prefix_str(service, prefix);
-        }
-      }
-      if let Some(name) = map.get_mut("const") {
-        prefix_str(name, prefix);
-      }
-      for key in ["island", "component"] {
-        if let Some(placed) = map.get_mut(key) {
-          if let Some(module) = placed.get_mut("module") {
-            prefix_str(module, prefix);
-          }
-        }
-      }
-      for child in map.values_mut() {
-        namespace_body(child, prefix);
-      }
-    }
-    serde_json::Value::Array(items) => items.iter_mut().for_each(|i| namespace_body(i, prefix)),
-    _ => {}
-  }
-}
-
-fn namespace_node(node: &mut serde_json::Value, prefix: &str, shell: &str) {
-  if let Some(module) = node.get_mut("module") {
-    if module.as_str() != Some(shell) {
-      prefix_str(module, prefix);
-    }
-  }
-  for key in ["source", "fallback", "error", "cache_key"] {
-    if let Some(value) = node.get_mut(key) {
-      prefix_str(value, prefix);
-    }
-  }
-  for pair in node.get_mut("error_kinds").and_then(|k| k.as_array_mut()).into_iter().flatten() {
-    if let Some(module) = pair.get_mut(1) {
-      prefix_str(module, prefix);
-    }
-  }
-  for child in node.get_mut("children").and_then(|c| c.as_array_mut()).into_iter().flatten() {
-    if let Some(inner) = child.get_mut("node") {
-      namespace_node(inner, prefix, shell);
-    }
-  }
-}
-
 impl Manifest {
   /// Calls `f` on every expression the plan holds, to change it: each row's bodies, every component, the constants, the middleware and the theme.
   pub fn visit_exprs_mut(&mut self, f: &mut dyn FnMut(&mut snapfire_fsr_ir::ast::Expr)) {
@@ -876,89 +817,6 @@ impl Manifest {
     for expr in self.derives.iter_mut().filter_map(|row| row.body.as_mut()).chain(self.consts.values_mut()) {
       expr.visit_mut(f);
     }
-  }
-
-  /// The manifest as a site's artifact: every id prefixed `<name>:` and every
-  /// pattern under `at`, so two sites can carry the same files. The document
-  /// module `shell` stays the host's. Inputs name types and are prefixed the
-  /// way `Contract::namespaced` prefixes them.
-  pub fn namespaced(&self, name: &str, at: &str, shell: &str) -> Manifest {
-    let prefix = format!("{name}:");
-    let mut json = serde_json::to_value(self).expect("a manifest serializes");
-    for key in ["routes", "intercepts"] {
-      for entry in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
-        if let Some(pattern) = entry.get("pattern").and_then(|p| p.as_str()).map(str::to_owned) {
-          entry["pattern"] = serde_json::Value::String(under(at, &pattern));
-        }
-        if let Some(plan) = entry.get_mut("plan") {
-          namespace_node(plan, &prefix, shell);
-        }
-      }
-    }
-    if let Some(not_found) = json.get_mut("not_found") {
-      if !not_found.is_null() {
-        namespace_node(not_found, &prefix, shell);
-      }
-    }
-    for row in json.get_mut("images").and_then(|r| r.as_array_mut()).into_iter().flatten() {
-      for field in ["module", "source", "page"] {
-        if let Some(value) = row.get_mut(field) {
-          prefix_str(value, &prefix);
-        }
-      }
-      if let Some(body) = row.get_mut("images") {
-        namespace_body(body, &prefix);
-      }
-      if let Some(pattern) = row.get("pattern").and_then(|p| p.as_str()).map(str::to_owned) {
-        row["pattern"] = serde_json::Value::String(under(at, &pattern));
-      }
-    }
-    for key in ["sources", "actions", "handlers", "components", "clients", "heads", "sheets", "themes"] {
-      for row in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
-        for field in ["id", "module", "input"] {
-          if let Some(value) = row.get_mut(field) {
-            prefix_str(value, &prefix);
-          }
-        }
-        if key == "handlers" {
-          if let Some(pattern) = row.get("pattern").and_then(|p| p.as_str()).map(str::to_owned) {
-            row["pattern"] = serde_json::Value::String(under(at, &pattern));
-          }
-        }
-        for field in ["body", "meta", "store", "defaults", "paths"] {
-          if let Some(body) = row.get_mut(field) {
-            namespace_body(body, &prefix);
-          }
-        }
-      }
-    }
-    if let Some(middleware) = json.get_mut("middleware") {
-      namespace_body(middleware, &prefix);
-    }
-    if let Some(theme) = json.get_mut("theme") {
-      namespace_body(theme, &prefix);
-    }
-    for row in json.get_mut("derives").and_then(|r| r.as_array_mut()).into_iter().flatten() {
-      if let Some(body) = row.get_mut("body") {
-        namespace_body(body, &prefix);
-      }
-    }
-    if let Some(reads) = json.get_mut("reads").and_then(|r| r.as_object_mut()) {
-      let taken = std::mem::take(reads);
-      *reads = taken.into_iter().map(|(module, keys)| (if module.starts_with(&prefix) { module } else { format!("{prefix}{module}") }, keys)).collect();
-    }
-    if let Some(consts) = json.get_mut("consts").and_then(|c| c.as_object_mut()) {
-      let taken = std::mem::take(consts);
-      *consts = taken
-        .into_iter()
-        .map(|(name, mut value)| {
-          namespace_body(&mut value, &prefix);
-          let name = if name.starts_with(&prefix) { name } else { format!("{prefix}{name}") };
-          (name, value)
-        })
-        .collect();
-    }
-    serde_json::from_value(json).expect("a namespaced manifest deserializes")
   }
 }
 
