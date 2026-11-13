@@ -53,7 +53,7 @@ impl std::fmt::Display for Need {
   }
 }
 
-/// Whether this build of the host holds `feature`. A name the host does not define is never held.
+/// Whether this build of the host holds `feature`. A name the host does not define is never held. `grpc` and `graphql` are the service crate's, since a contract is imported and called there, so another crate turning them on counts.
 pub fn built(feature: &str) -> bool {
   match feature {
     "auth" => cfg!(feature = "auth"),
@@ -61,8 +61,8 @@ pub fn built(feature: &str) -> bool {
     "passkey" => cfg!(feature = "passkey"),
     "tera" => cfg!(feature = "tera"),
     "tls" => cfg!(feature = "tls"),
-    "grpc" => cfg!(feature = "grpc"),
-    "graphql" => cfg!(feature = "graphql"),
+    "grpc" => snapfire_fsr_service::GRPC,
+    "graphql" => snapfire_fsr_service::GRAPHQL,
     "http" => cfg!(feature = "http"),
     "share_cards" => cfg!(feature = "share_cards"),
     "tz_compiled" => cfg!(feature = "tz_compiled"),

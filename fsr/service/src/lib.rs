@@ -43,3 +43,9 @@ pub use interceptor::{
 pub use registry::{Services, ServicesBuilder};
 pub use rust::{Caller, ContractType, DeclaredService};
 pub use transport::{LocalTransport, MockTransport, Recorded, Recording, Transport};
+
+/// Whether this build imports `.proto` contracts and calls them over gRPC: the `grpc` feature.
+pub const GRPC: bool = cfg!(feature = "grpc");
+
+/// Whether this build imports `.graphql` contracts and calls them: the `graphql` feature.
+pub const GRAPHQL: bool = cfg!(feature = "graphql");
