@@ -294,9 +294,12 @@ pub struct Host {
   /// again. Absent when the host was built from an artifact in memory.
   loader: Option<Loader>,
   /// What `reload_sites` rebuilds from: the shell's own artifact as it was
-  /// when the process booted, never reread. Absent when the builder carried
-  /// something a rebuild from the artifact alone cannot reproduce.
+  /// when the process booted, never reread. Held only with a `sites_mounter`
+  /// and when `rebuildable`.
   shell_inputs: Option<Arc<Artifact>>,
+  /// Whether the builder carried nothing a rebuild from the artifact alone
+  /// cannot reproduce.
+  rebuildable: bool,
   /// Whether the builder was given a `Mount` by hand, which a reread of the
   /// shell's artifact would drop.
   mounted: bool,

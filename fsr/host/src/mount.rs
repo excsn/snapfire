@@ -492,7 +492,7 @@ impl Host {
     let loader = self.loader.as_ref().ok_or_else(|| {
       refuse("the host was built from an artifact in memory, so there is nothing to reread; `HostBuilder::reloader` names how to rebuild")
     })?;
-    if self.shell_inputs.is_none() {
+    if !self.rebuildable {
       return Err(refuse(
         "the host was built with more than a configuration, so rereading the artifact cannot rebuild it; `HostBuilder::reloader` names how",
       ));

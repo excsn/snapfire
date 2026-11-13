@@ -430,7 +430,7 @@ impl HostBuilder {
       && chosen_codec.is_none()
       && chosen_ring.is_none()
       && !self.hand_built;
-    let shell_inputs = rebuildable.then(|| Arc::new(self.artifact.clone()));
+    let shell_inputs = (rebuildable && sites_mounter.is_some()).then(|| Arc::new(self.artifact.clone()));
     let loader = self.loader.take();
     let mounted = !self.mounts.is_empty();
     let store = self.store.take();
@@ -555,6 +555,7 @@ impl HostBuilder {
       reloader,
       loader,
       shell_inputs,
+      rebuildable,
       mounted,
       sites_mounter,
       #[cfg(feature = "sites_reload")]
