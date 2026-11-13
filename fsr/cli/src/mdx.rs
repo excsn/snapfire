@@ -183,7 +183,8 @@ mod built {
       for file in files {
         let rel = format!("{dir}/{file}");
         let source = std::fs::read_to_string(app.join(&rel)).map_err(|e| BuildError::Io(app.join(&rel), e))?;
-        let options = options(&rel, &installed.settings, installed.class_attr, Target::Lowered).map_err(|message| BuildError::Mdx { file: rel.clone(), message })?;
+        let mut options = options(&rel, &installed.settings, installed.class_attr, Target::Lowered).map_err(|message| BuildError::Mdx { file: rel.clone(), message })?;
+        options.highlight = false;
         let converted = snapfire_fsr_mdx::convert(&source, &options).map_err(|e| BuildError::Mdx { file: rel.clone(), message: e.to_string() })?;
         let slug = file.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(&file);
         let specifier = format!("../{rel}");
