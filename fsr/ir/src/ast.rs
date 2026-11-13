@@ -659,6 +659,26 @@ impl Component {
 }
 
 impl Component {
+  /// Every list the component holds trimmed to its length: its body, its
+  /// tree's attributes, props and children and every expression's entries and
+  /// arguments.
+  pub fn compact(&mut self) {
+    self.body.shrink_to_fit();
+    self.state.shrink_to_fit();
+    self.stores.shrink_to_fit();
+    self.handlers.shrink_to_fit();
+    self.render.compact();
+    self.visit_mut(&mut |expr| match expr {
+      Expr::Identity(names) => names.shrink_to_fit(),
+      Expr::Object(entries) | Expr::Array(entries) => entries.shrink_to_fit(),
+      Expr::Template(parts) | Expr::Apply { args: parts, .. } | Expr::Builtin { args: parts, .. } | Expr::Ext { args: parts, .. } => parts.shrink_to_fit(),
+      Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.shrink_to_fit(),
+      Expr::Block(body) => body.shrink_to_fit(),
+      Expr::Markup(tmpl) => std::sync::Arc::make_mut(tmpl).compact(),
+      _ => {}
+    });
+  }
+
   /// Calls `f` on every expression in the body and the tree.
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     body_visit(&self.body, f);
@@ -784,6 +804,31 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
 }
 
 impl Tmpl {
+  /// The tree's attributes, props and children trimmed to their lengths, all
+  /// the way down. Expressions are left as they are.
+  pub fn compact(&mut self) {
+    match self {
+      Tmpl::Element { attrs, children, .. } | Tmpl::Component { props: attrs, children, .. } | Tmpl::Island { props: attrs, children, .. } => {
+        attrs.shrink_to_fit();
+        children.shrink_to_fit();
+        children.iter_mut().for_each(Tmpl::compact);
+      }
+      Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => {
+        children.shrink_to_fit();
+        children.iter_mut().for_each(Tmpl::compact);
+      }
+      Tmpl::If { then, r#else, .. } => {
+        then.compact();
+        if let Some(other) = r#else {
+          other.compact();
+        }
+      }
+      Tmpl::For { body, .. } => body.compact(),
+      Tmpl::Let { then, .. } => then.compact(),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => {}
+    }
+  }
+
   /// Calls `f` on every expression in the tree, in tree order.
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     let entries = |entries: &[Entry], f: &mut dyn FnMut(&Expr)| {

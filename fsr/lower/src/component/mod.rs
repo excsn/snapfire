@@ -1070,13 +1070,14 @@ impl ComponentSet {
         result
       }),
     };
-    let component = match result {
+    let mut component = match result {
       Ok(component) => component,
       Err(error) => {
         self.failed.insert(module.to_owned(), error.clone());
         return Err(error);
       }
     };
+    component.compact();
     self.components.push((module.to_owned(), component));
     if self.cyclic && self.resolving.is_empty() {
       self.settle();
