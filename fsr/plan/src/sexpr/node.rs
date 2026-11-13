@@ -1,6 +1,6 @@
 //! A route's plan tree: a node, its optional parts and the slots beneath it.
 
-use snapfire_fsr_ir::sexpr::Sx;
+use snapfire_fsr_ir::sexpr::{read_all, Sx};
 
 use super::shape::*;
 use super::shape::Res;
@@ -64,7 +64,7 @@ pub(super) fn node_from_sx(sx: &Sx) -> Res<Node> {
         node.error_kinds.push((as_sym(&inner[1])?, as_sym(&inner[2])?));
       }
       "cache-key" => node.cache_key = Some(one()?),
-      "keep" => node.keep = inner[1..].iter().map(as_sym).collect::<Res<_>>()?,
+      "keep" => node.keep = read_all(&inner[1..], as_sym)?,
       "slot" => {
         if inner.len() != 3 {
           return Err(err("a slot is `(slot name node)`"));

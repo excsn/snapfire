@@ -5,7 +5,7 @@ use crate::ast::Tmpl;
 use super::atoms::*;
 use super::expr::{entry_from_sx, entry_to_sx, expr_from_sx, expr_to_sx};
 use super::syntax::Sx;
-use super::{Res, SexprError};
+use super::{read_all, Res, SexprError};
 
 pub(super) fn opt_sx(value: &Option<String>) -> Sx {
   match value {
@@ -95,11 +95,11 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
       let a = at_least(items, head, 2)?;
       Tmpl::Element {
         tag: sym_of(&a[0])?,
-        attrs: a[1].as_list()?.iter().map(entry_from_sx).collect::<Res<_>>()?,
-        children: a[2..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        attrs: read_all(a[1].as_list()?, entry_from_sx)?,
+        children: read_all(&a[2..], tmpl_from_sx)?,
       }
     }
-    "<>" => Tmpl::Fragment(items[1..].iter().map(tmpl_from_sx).collect::<Res<_>>()?),
+    "<>" => Tmpl::Fragment(read_all(&items[1..], tmpl_from_sx)?),
     "if" => {
       let a = at_least(items, head, 2)?;
       if a.len() > 3 {
@@ -114,7 +114,7 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
     "for" => {
       let a = args(items, head, 3)?;
       Tmpl::For {
-        params: a[0].as_list()?.iter().map(sym_of).collect::<Res<_>>()?,
+        params: read_all(a[0].as_list()?, sym_of)?,
         over: expr_from_sx(&a[1])?,
         body: Box::new(tmpl_from_sx(&a[2])?),
       }
@@ -132,8 +132,8 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
       Tmpl::Component {
         module: sym_of(&a[0])?,
         id: u32_of(&a[1])?,
-        props: a[2].as_list()?.iter().map(entry_from_sx).collect::<Res<_>>()?,
-        children: a[3..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        props: read_all(a[2].as_list()?, entry_from_sx)?,
+        children: read_all(&a[3..], tmpl_from_sx)?,
         keyed: head == "keyed-comp",
       }
     }
@@ -144,8 +144,8 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
         id: u32_of(&a[1])?,
         when: opt_of(&a[2])?,
         mode: opt_of(&a[3])?,
-        props: a[4].as_list()?.iter().map(entry_from_sx).collect::<Res<_>>()?,
-        children: a[5..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        props: read_all(a[4].as_list()?, entry_from_sx)?,
+        children: read_all(&a[5..], tmpl_from_sx)?,
         define: false,
       }
     }
@@ -157,7 +157,7 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
         when: opt_of(&a[2])?,
         mode: None,
         props: Vec::new(),
-        children: a[3..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        children: read_all(&a[3..], tmpl_from_sx)?,
         define: true,
       }
     }
@@ -176,7 +176,7 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
       if snapfire_fsr_core::Place::parse(&target).is_none() {
         return Err(SexprError::shape(format!("`{target}` is not a place a `place` form can write to")));
       }
-      Tmpl::Place { target, children: a[1..].iter().map(tmpl_from_sx).collect::<Res<_>>()? }
+      Tmpl::Place { target, children: read_all(&a[1..], tmpl_from_sx)? }
     }
     "html" => Tmpl::Html(expr_from_sx(&args(items, head, 1)?[0])?),
     "baked" => {
@@ -184,7 +184,7 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
       Tmpl::Baked {
         open: str_of(&a[0])?,
         tag: opt_of(&a[1])?,
-        children: a[2..].iter().map(tmpl_from_sx).collect::<Res<_>>()?,
+        children: read_all(&a[2..], tmpl_from_sx)?,
       }
     }
     other => return Err(SexprError::shape(format!("`{other}` is not a template form"))),

@@ -4,7 +4,7 @@ use crate::ast::{Entry, Expr, Lit, LogicOp};
 
 use super::atoms::*;
 use super::syntax::Sx;
-use super::{Res, SexprError};
+use super::{read_all, Res, SexprError};
 
 pub fn expr_to_sx(expr: &Expr) -> Sx {
   let one = |head: &str, e: &Expr| form(head, vec![expr_to_sx(e)]);
@@ -166,7 +166,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "context" => Expr::Context(str_of(&args(items, head, 1)?[0])?),
     "const" => Expr::Const(sym_of(&args(items, head, 1)?[0])?),
     "config" => Expr::Config(sym_of(&args(items, head, 1)?[0])?),
-    "identity" => Expr::Identity(items[1..].iter().map(sym_of).collect::<Res<_>>()?),
+    "identity" => Expr::Identity(read_all(&items[1..], sym_of)?),
     "locale" => {
       args(items, head, 0)?;
       Expr::Locale
@@ -203,8 +203,8 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
       args(items, head, 0)?;
       Expr::Now
     }
-    "obj" => Expr::Object(items[1..].iter().map(entry_from_sx).collect::<Res<_>>()?),
-    "arr" => Expr::Array(items[1..].iter().map(entry_from_sx).collect::<Res<_>>()?),
+    "obj" => Expr::Object(read_all(&items[1..], entry_from_sx)?),
+    "arr" => Expr::Array(read_all(&items[1..], entry_from_sx)?),
     "." => {
       let a = args(items, head, 2)?;
       Expr::Field(boxed(&a[0])?, sym_of(&a[1])?)
@@ -230,7 +230,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
       let a = args(items, head, 3)?;
       Expr::Ternary(boxed(&a[0])?, boxed(&a[1])?, boxed(&a[2])?)
     }
-    "concat" => Expr::Template(items[1..].iter().map(expr_from_sx).collect::<Res<_>>()?),
+    "concat" => Expr::Template(read_all(&items[1..], expr_from_sx)?),
     "call" => {
       let a = at_least(items, head, 2)?;
       Expr::Call { service: sym_of(&a[0])?, method: sym_of(&a[1])?, args: named_args_from(&a[2..])? }
@@ -249,7 +249,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "fn" => {
       let a = args(items, head, 2)?;
       Expr::Lambda {
-        params: a[0].as_list()?.iter().map(sym_of).collect::<Res<_>>()?,
+        params: read_all(a[0].as_list()?, sym_of)?,
         body: boxed(&a[1])?,
       }
     }
@@ -259,15 +259,15 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     }
     "apply" => {
       let a = at_least(items, head, 1)?;
-      Expr::Apply { f: boxed(&a[0])?, args: a[1..].iter().map(expr_from_sx).collect::<Res<_>>()? }
+      Expr::Apply { f: boxed(&a[0])?, args: read_all(&a[1..], expr_from_sx)? }
     }
-    "block" => Expr::Block(items[1..].iter().map(crate::sexpr::body::stmt_from_sx).collect::<Res<_>>()?),
+    "block" => Expr::Block(read_all(&items[1..], crate::sexpr::body::stmt_from_sx)?),
     "ext" => {
       let a = at_least(items, head, 2)?;
       Expr::Ext {
         module: sym_of(&a[0])?,
         name: sym_of(&a[1])?,
-        args: a[2..].iter().map(expr_from_sx).collect::<Res<_>>()?,
+        args: read_all(&a[2..], expr_from_sx)?,
       }
     }
     "map" => {
@@ -345,7 +345,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     other => match builtin_of(other) {
       Some(name) => Expr::Builtin {
         name,
-        args: items[1..].iter().map(expr_from_sx).collect::<Res<_>>()?,
+        args: read_all(&items[1..], expr_from_sx)?,
       },
       None => return Err(SexprError::shape(format!("`{other}` is not an expression form"))),
     },

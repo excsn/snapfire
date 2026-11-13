@@ -16,7 +16,7 @@ mod tmpl;
 
 pub use body::{component_from_sections, component_from_sx, component_sections, component_to_sx, stmt_from_sx, stmt_to_sx};
 pub use expr::{expr_from_sx, expr_to_sx};
-pub use parse::parse;
+pub use parse::{forms, parse, Forms};
 pub use print::print;
 pub use syntax::Sx;
 pub use tmpl::{tmpl_from_sx, tmpl_to_sx};
@@ -40,3 +40,15 @@ impl SexprError {
 }
 
 type Res<T> = Result<T, SexprError>;
+
+/// `read` over every item, stopping at the first error, into a vector exactly
+/// `items.len()` long. Collecting into a `Result` loses the length, so that
+/// vector starts at four and doubles, which for a plan's one-child elements
+/// is most of the memory its tree holds.
+pub fn read_all<T>(items: &[Sx], mut read: impl FnMut(&Sx) -> Result<T, SexprError>) -> Result<Vec<T>, SexprError> {
+  let mut out = Vec::with_capacity(items.len());
+  for item in items {
+    out.push(read(item)?);
+  }
+  Ok(out)
+}

@@ -799,3 +799,25 @@ fn nesting_up_to_the_bound_still_reads() {
   let over = format!("{}{}", "(".repeat(257), ")".repeat(257));
   assert!(parse(&over).is_err(), "257 deep must not");
 }
+
+fn exact(t: &Tmpl, path: &str) {
+  match t {
+    Tmpl::Element { tag, attrs, children } => {
+      assert_eq!(attrs.capacity(), attrs.len(), "{path}/{tag} attrs");
+      assert_eq!(children.capacity(), children.len(), "{path}/{tag} children");
+      children.iter().for_each(|c| exact(c, &format!("{path}/{tag}")));
+    }
+    Tmpl::Fragment(children) => {
+      assert_eq!(children.capacity(), children.len(), "{path}/<> children");
+      children.iter().for_each(|c| exact(c, &format!("{path}/<>")));
+    }
+    _ => {}
+  }
+}
+
+#[test]
+fn a_read_template_holds_its_attributes_and_children_in_vectors_no_longer_than_they_are() {
+  let text = r#"(<> (el pre ((class "hl-code")) (el code () (el span ((data-line "")) (el span ((class "hl-source hl-rust")) "fn") " " (el span ((class "hl-entity")) "main")))))"#;
+  let tmpl = tmpl_from_sx(&parse(text).unwrap()[0]).unwrap();
+  exact(&tmpl, "");
+}

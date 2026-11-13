@@ -6,7 +6,7 @@ mod rows;
 mod shape;
 
 use snapfire_fsr_ir::ast::Consts;
-use snapfire_fsr_ir::sexpr::{expr_from_sx, expr_to_sx, parse, print, stmt_to_sx, Sx};
+use snapfire_fsr_ir::sexpr::{expr_from_sx, expr_to_sx, forms, print, read_all, stmt_to_sx, Sx};
 use snapfire_fsr_ir::sexpr::component_from_sections;
 use snapfire_fsr_ir::sexpr::component_sections;
 
@@ -147,7 +147,31 @@ pub enum ViewError {
   Absent { id: String, section: String, present: String },
 }
 
+/// A `(component module section ...)` form's items, the leading symbol
+/// included. `version` is the plan's, which decides the owner of a component
+/// that names none.
+fn component_from_items(items: Vec<Sx>, version: u32) -> Res<ComponentEntry> {
+  if items.len() < 2 {
+    return Err(err("a component needs a module id"));
+  }
+  let mut items = items.into_iter().skip(1);
+  let module = items.next().expect("checked above");
+  let (heads, mut sections): (Vec<Sx>, Vec<Sx>) = items.partition(|s| head_of(s).ok().as_deref() == Some("head"));
+  let named = sections.iter().any(|s| matches!(head_of(s).ok().as_deref(), Some("owner" | "static" | "tree" | "vue")));
+  if !named && version < crate::OWNERS_NAMED {
+    sections.push(form("owner", vec![sym("react".to_owned())]));
+  }
+  let head = read_all(&heads, head_row_from_sx)?;
+  Ok(ComponentEntry { module: as_sym(&module)?, body: component_from_sections(&sections)?, head })
+}
+
 pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
+  manifest_from_forms(forms.iter().cloned().map(Ok))
+}
+
+/// [`manifest_from_sx`] over forms as a reader yields them. Each form is
+/// turned into its row and dropped before the next is read.
+pub fn manifest_from_forms(forms: impl IntoIterator<Item = Res<Sx>>) -> Res<Manifest> {
   let mut manifest = Manifest {
     version: 0,
     routes: Vec::new(),
@@ -171,6 +195,13 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
   };
   let mut versioned = false;
   for sx in forms {
+    let sx = sx?;
+    if head_of(&sx)? == "component" {
+      let Sx::List(items) = sx else { unreachable!("head_of accepts only a list") };
+      manifest.components.push(component_from_items(items, manifest.version)?);
+      continue;
+    }
+    let sx = &sx;
     let items = as_list(sx)?;
     match head_of(sx)?.as_str() {
       "plan" => {
@@ -189,7 +220,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         if items.len() < 2 {
           return Err(err("reads are `(reads module key ...)`"));
         }
-        manifest.reads.insert(as_sym(&items[1])?, items[2..].iter().map(as_sym).collect::<Res<Vec<_>>>()?);
+        manifest.reads.insert(as_sym(&items[1])?, read_all(&items[2..], as_sym)?);
       }
       "route" | "intercept" => {
         if items.len() != 3 {
@@ -230,23 +261,6 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         }
         manifest.consts.insert(as_sym(&items[1])?, expr_from_sx(&items[2])?);
       }
-      "component" => {
-        if items.len() < 2 {
-          return Err(err("a component needs a module id"));
-        }
-        let (heads, sections): (Vec<&Sx>, Vec<&Sx>) = items[2..].iter().partition(|s| head_of(s).ok().as_deref() == Some("head"));
-        let mut sections: Vec<Sx> = sections.into_iter().cloned().collect();
-        let named = sections.iter().any(|s| matches!(head_of(s).ok().as_deref(), Some("owner" | "static" | "tree" | "vue")));
-        if !named && manifest.version < crate::OWNERS_NAMED {
-          sections.push(form("owner", vec![sym("react".to_owned())]));
-        }
-        let head = heads.into_iter().map(head_row_from_sx).collect::<Res<Vec<_>>>()?;
-        manifest.components.push(ComponentEntry {
-          module: as_sym(&items[1])?,
-          body: component_from_sections(&sections)?,
-          head,
-        });
-      }
       "derive" => {
         if items.len() != 4 {
           return Err(err("a derive is `(derive \"key\" (sources \"key\" ...) expr)` or ends in `(browser \"at\" \"why\")`"));
@@ -255,7 +269,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         if head_of(&items[2])? != "sources" {
           return Err(err("a derive's second term is `(sources \"key\" ...)`"));
         }
-        let sources = sources[1..].iter().map(as_sym).collect::<Res<Vec<_>>>()?;
+        let sources = read_all(&sources[1..], as_sym)?;
         let (body, at, why) = match head_of(&items[3]).ok().as_deref() {
           Some("browser") => {
             let terms = as_list(&items[3])?;
@@ -272,13 +286,13 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         if items.len() < 3 {
           return Err(err("a module head is `(module-head module (head ...) ...)`"));
         }
-        manifest.heads.push(crate::ModuleHead { module: as_sym(&items[1])?, head: items[2..].iter().map(head_row_from_sx).collect::<Res<Vec<_>>>()? });
+        manifest.heads.push(crate::ModuleHead { module: as_sym(&items[1])?, head: read_all(&items[2..], head_row_from_sx)? });
       }
       "module-sheets" => {
         if items.len() < 3 {
           return Err(err("a module's sheets are `(module-sheets module \"path\" ...)`"));
         }
-        manifest.sheets.push(crate::ModuleSheets { module: as_sym(&items[1])?, sheets: items[2..].iter().map(as_sym).collect::<Res<Vec<_>>>()? });
+        manifest.sheets.push(crate::ModuleSheets { module: as_sym(&items[1])?, sheets: read_all(&items[2..], as_sym)? });
       }
       "image" => {
         if items.len() < 3 {
@@ -300,7 +314,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
               entry.hash = as_sym(hash)?;
             }
             ("alt", [alt]) => entry.alt = Some(as_sym(alt)?),
-            ("images", body) => entry.images = Some(body.iter().map(snapfire_fsr_ir::sexpr::stmt_from_sx).collect::<Res<Vec<_>>>()?),
+            ("images", body) => entry.images = Some(read_all(body, snapfire_fsr_ir::sexpr::stmt_from_sx)?),
             (other, _) => return Err(err(format!("`{other}` is not a section of an image"))),
           }
         }
@@ -405,9 +419,7 @@ impl Manifest {
   /// Reads a `plan.sexp`. The version window is the one [`Manifest::from_json`]
   /// enforces, so a file from a newer build is refused rather than half read.
   pub fn from_sexpr(source: &str) -> Result<Self, crate::PlanError> {
-    let forms = parse(source).map_err(|e| crate::PlanError::Malformed(e.to_string()))?;
-    let manifest =
-      manifest_from_sx(&forms).map_err(|e| crate::PlanError::Malformed(e.to_string()))?;
+    let manifest = manifest_from_forms(forms(source)).map_err(|e| crate::PlanError::Malformed(e.to_string()))?;
     if !(OLDEST_READABLE..=FORMAT_VERSION).contains(&manifest.version) {
       return Err(crate::PlanError::Version { found: manifest.version });
     }

@@ -6,7 +6,7 @@ use super::atoms::*;
 use super::expr::{expr_from_sx, expr_to_sx};
 use super::tmpl::{tmpl_from_sx, tmpl_to_sx};
 use super::syntax::Sx;
-use super::{Res, SexprError};
+use super::{read_all, Res, SexprError};
 
 pub(super) fn body_to_sx(body: &Body) -> Vec<Sx> {
   body.iter().map(stmt_to_sx).collect()
@@ -174,7 +174,7 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
       let a = args(items, head, 3)?;
       Stmt::SessionSet {
         key: sym_of(&a[0])?,
-        path: a[1].as_list()?.iter().map(expr_from_sx).collect::<Res<_>>()?,
+        path: read_all(a[1].as_list()?, expr_from_sx)?,
         value: expr_from_sx(&a[2])?,
       }
     }
@@ -182,7 +182,7 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
       let a = args(items, head, 2)?;
       Stmt::SessionDelete {
         key: sym_of(&a[0])?,
-        path: a[1].as_list()?.iter().map(expr_from_sx).collect::<Res<_>>()?,
+        path: read_all(a[1].as_list()?, expr_from_sx)?,
       }
     }
     "session-extend" => Stmt::SessionExtend { seconds: expr_from_sx(&args(items, head, 1)?[0])? },
@@ -263,7 +263,7 @@ pub fn component_from_sections(items: &[Sx]) -> Res<Component> {
         }
         out.scope = Some(ScopedStyle { id: str_of(&a[0])?, slotted });
       }
-      Some("state") => out.state = inner[1..].iter().map(sym_of).collect::<Res<_>>()?,
+      Some("state") => out.state = read_all(&inner[1..], sym_of)?,
       Some("stores") => {
         for binding in &inner[1..] {
           match binding.as_list()? {

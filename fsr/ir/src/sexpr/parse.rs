@@ -17,14 +17,35 @@ const MAX_DEPTH: usize = 256;
 
 /// Every top-level form in `src`.
 pub fn parse(src: &str) -> Res<Vec<Sx>> {
-  let mut p = Parser { src: src.as_bytes(), pos: 0, line: 1, depth: 0 };
-  let mut out = Vec::new();
-  loop {
-    p.skip_trivia();
-    if p.pos >= p.src.len() {
-      return Ok(out);
+  forms(src).collect()
+}
+
+/// The top-level forms in `src`, read one at a time. After an error it
+/// yields nothing more.
+pub fn forms(src: &str) -> Forms<'_> {
+  Forms { parser: Parser { src: src.as_bytes(), pos: 0, line: 1, depth: 0 }, done: false }
+}
+
+pub struct Forms<'a> {
+  parser: Parser<'a>,
+  done: bool,
+}
+
+impl Iterator for Forms<'_> {
+  type Item = Res<Sx>;
+
+  fn next(&mut self) -> Option<Res<Sx>> {
+    if self.done {
+      return None;
     }
-    out.push(p.form()?);
+    self.parser.skip_trivia();
+    if self.parser.pos >= self.parser.src.len() {
+      self.done = true;
+      return None;
+    }
+    let form = self.parser.form();
+    self.done = form.is_err();
+    Some(form)
   }
 }
 

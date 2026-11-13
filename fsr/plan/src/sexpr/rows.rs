@@ -1,7 +1,7 @@
 //! The source, action and handler rows, each a head, its fixed terms and
 //! whatever tagged sections it carries.
 
-use snapfire_fsr_ir::sexpr::Sx;
+use snapfire_fsr_ir::sexpr::{read_all, Sx};
 use super::shape::Res;
 
 use super::shape::*;
@@ -76,7 +76,7 @@ pub(super) fn source_from_sx(items: &[Sx]) -> Res<SourceEntry> {
       "meta" => row.meta = Some(body_of(&values)?),
       "store" => row.store = Some(body_of(&values)?),
       "defaults" => row.defaults = Some(body_of(&values)?),
-      "store-keys" => row.store_keys = Some(values.iter().map(as_sym).collect::<Res<Vec<_>>>()?),
+      "store-keys" => row.store_keys = Some(read_all(&values, as_sym)?),
       "paths" => row.paths = Some(body_of(&values)?),
       other => return Err(err(format!("`{other}` is not a source section"))),
     }
