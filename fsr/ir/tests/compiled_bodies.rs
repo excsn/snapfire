@@ -92,3 +92,22 @@ fn a_prepared_body_carries_the_plan_a_compiled_body_is_matched_by() {
   assert!(!prepared.is_compiled());
   assert!(prepared.with_native(compiled).is_compiled());
 }
+
+#[test]
+fn a_bodys_plan_follows_the_constants_it_reaches_and_no_others() {
+  use snapfire_fsr_ir::native::plan_hash;
+  let body: Body = vec![Stmt::Return(Expr::Const("m#rows".to_owned()))];
+  let consts = |rows: &str, limit: i64, other: &str| -> snapfire_fsr_ir::ast::Consts {
+    [
+      ("m#rows".to_owned(), Expr::Array(vec![Entry::Item(Expr::Lit(Lit::Str(rows.into()))), Entry::Item(Expr::Const("m#limit".to_owned()))])),
+      ("m#limit".to_owned(), Expr::Lit(Lit::Int(limit.into()))),
+      ("m#other".to_owned(), Expr::Lit(Lit::Str(other.into()))),
+    ]
+    .into_iter()
+    .collect()
+  };
+  let base = plan_hash(&body, Some(&consts("a", 1, "x")));
+  assert_ne!(plan_hash(&body, Some(&consts("b", 1, "x"))), base, "a constant the body names");
+  assert_ne!(plan_hash(&body, Some(&consts("a", 2, "x"))), base, "a constant reached through another");
+  assert_eq!(plan_hash(&body, Some(&consts("a", 1, "y"))), base, "a constant the body cannot reach");
+}

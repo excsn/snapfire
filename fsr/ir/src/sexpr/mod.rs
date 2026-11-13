@@ -18,6 +18,7 @@ pub use body::{component_from_sections, component_from_sx, component_sections, c
 pub use expr::{expr_from_sx, expr_to_sx};
 pub use parse::{forms, parse, Forms};
 pub use print::print;
+pub(crate) use print::inline;
 pub use syntax::Sx;
 pub use tmpl::{tmpl_from_sx, tmpl_to_sx};
 

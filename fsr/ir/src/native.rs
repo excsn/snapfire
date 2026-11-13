@@ -19,12 +19,38 @@ pub struct Native {
   pub body: NativeBody,
 }
 
-/// What identifies a plan's body and the module functions it can call, so code written from one runs only for that one.
+/// What identifies a plan's body and the module functions it can call, so code written from one runs only for that one. It hashes the body and each constant the body reaches, directly or through another constant, as the plan file spells them on one line.
 pub fn plan_hash(body: &Body, consts: Option<&Consts>) -> u64 {
+  use crate::sexpr::{expr_to_sx, inline, stmt_to_sx};
   let mut hasher = xxhash_rust::xxh3::Xxh3::new();
-  hasher.update(&serde_json::to_vec(body).expect("a body serializes"));
+  for stmt in body {
+    hasher.update(inline(&stmt_to_sx(stmt)).as_bytes());
+    hasher.update(b"\n");
+  }
   if let Some(consts) = consts {
-    hasher.update(&serde_json::to_vec(consts).expect("constants serialize"));
+    let mut pending: Vec<String> = Vec::new();
+    crate::ast::body_visit(body, &mut |expr| {
+      if let Expr::Const(name) = expr {
+        pending.push(name.clone());
+      }
+    });
+    let mut reached = std::collections::BTreeSet::new();
+    while let Some(name) = pending.pop() {
+      if let Some(value) = consts.get(&name).filter(|_| !reached.contains(&name)) {
+        value.visit(&mut |expr| {
+          if let Expr::Const(name) = expr {
+            pending.push(name.clone());
+          }
+        });
+        reached.insert(name);
+      }
+    }
+    hasher.update(b"\0consts");
+    for name in reached {
+      hasher.update(name.as_bytes());
+      hasher.update(b"\0");
+      hasher.update(inline(&expr_to_sx(&consts[&name])).as_bytes());
+    }
   }
   hasher.digest()
 }
