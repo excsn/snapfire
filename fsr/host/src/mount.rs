@@ -391,17 +391,14 @@ pub(crate) fn graft(shell: &Manifest, site: &mut Manifest, shell_module: &str) {
 /// and `app/<path>.ts` bundles to `dist/<path>.js`; any such output in the
 /// build facts or any output importing one, is a leak. No facts file means
 /// no bundle to check.
-pub(crate) fn leaks(config: &Config, plan: &str) -> Result<(), HostError> {
+pub(crate) fn leaks(config: &Config, server: &ServerModules) -> Result<(), HostError> {
   let facts = config.app.join("dist/.snapfire-build.json");
   let Ok(text) = std::fs::read_to_string(&facts) else {
     return Ok(());
   };
   let json: serde_json::Value =
     serde_json::from_str(&text).map_err(|e| HostError::Config(facts.clone(), e.to_string()))?;
-  let manifest = Manifest::from_text(plan)
-    .map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
-  let plan = serde_json::to_value(&manifest).expect("a manifest serializes");
-  let found = leaked_outputs(&plan, &json);
+  let found = leaked_outputs(server, &json);
   if found.is_empty() {
     Ok(())
   } else {
@@ -417,24 +414,35 @@ pub(crate) fn server_output(module: &str) -> String {
   format!("{stem}.js")
 }
 
-/// Every bundle output that is a server module or imports one, each with
-/// the reason.
-pub(crate) fn leaked_outputs(plan: &serde_json::Value, facts: &serde_json::Value) -> Vec<String> {
-  let mut server: std::collections::BTreeMap<String, String> = Default::default();
-  for (table, what) in [
-    ("sources", "a loader"),
-    ("actions", "an actions module"),
-    ("handlers", "a route handler"),
-  ] {
-    for row in plan[table].as_array().into_iter().flatten() {
-      if let Some(module) = row["module"].as_str() {
+/// The bundle output each server module of a plan compiles to, with what the
+/// module is: a loader, an actions module, a route handler or the middleware.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ServerModules(std::collections::BTreeMap<String, String>);
+
+impl ServerModules {
+  pub(crate) fn of(manifest: &Manifest) -> Self {
+    let mut server = std::collections::BTreeMap::new();
+    let rows = [
+      ("a loader", manifest.sources.iter().map(|row| row.module.as_deref()).collect::<Vec<_>>()),
+      ("an actions module", manifest.actions.iter().map(|row| row.module.as_deref()).collect()),
+      ("a route handler", manifest.handlers.iter().map(|row| row.module.as_deref()).collect()),
+    ];
+    for (what, modules) in rows {
+      for module in modules.into_iter().flatten() {
         server.insert(server_output(module), format!("{what}, {module}"));
       }
     }
+    if manifest.middleware.is_some() {
+      server.insert("middleware.js".to_owned(), "the middleware, middleware.ts".to_owned());
+    }
+    Self(server)
   }
-  if !plan["middleware"].is_null() {
-    server.insert("middleware.js".to_owned(), "the middleware, middleware.ts".to_owned());
-  }
+}
+
+/// Every bundle output that is a server module or imports one, each with
+/// the reason.
+pub(crate) fn leaked_outputs(server: &ServerModules, facts: &serde_json::Value) -> Vec<String> {
+  let server = &server.0;
   let mut found = Vec::new();
   for output in facts["outputs"]
     .as_array()

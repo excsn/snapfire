@@ -15,6 +15,10 @@ pub struct HostBuilder {
   /// The trace collector, when one was installed. Served under development.
   pub(crate) traces: Option<trace::Traces>,
   pub(crate) artifact: Artifact,
+  /// The shell plan's routes, intercepts, constants, theme and sheets. Its
+  /// other rows are the app's.
+  pub(crate) shell_plan: Manifest,
+  pub(crate) server_modules: ServerModules,
   pub(crate) loader: Option<Loader>,
   pub(crate) app: Option<AppBuilder>,
   pub(crate) services: Option<Arc<Services>>,
@@ -584,6 +588,7 @@ impl HostBuilder {
       return Err(e);
     }
     let Artifact { config, plan, contract: mut own_contract } = self.artifact;
+    let manifest = self.shell_plan;
 
     config.session_ttl()?;
     if !matches!(config.session.store.as_str(), "memory" | "service" | "cookie") {
@@ -592,7 +597,7 @@ impl HostBuilder {
         config.session.store.clone(),
       ));
     }
-    leaks(&config, &plan)?;
+    leaks(&config, &self.server_modules)?;
 
     let mut service_rows = Vec::new();
     let mut bearer_rows: Vec<(String, String)> = Vec::new();
@@ -618,8 +623,6 @@ impl HostBuilder {
       rust_transports.push((rust.name, rust.transport));
     }
 
-    let manifest =
-      Manifest::from_text(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
     let (mut sheets, attributed) = route_sheets(&manifest.sheets, config.bundle.as_ref(), served_bundle(&config));
     let shell_module = config.document.shell.clone();
     let shell_consts = (!manifest.consts.is_empty()).then_some(&manifest.consts);
@@ -667,9 +670,9 @@ impl HostBuilder {
       false => Vec::new(),
     };
     let mut hashed_names: Vec<(String, HashMap<String, String>)> = served_bundle(&config).map(hashed_names_of).into_iter().collect();
-    let mounted: Vec<(String, PathBuf)> = self.mounts.iter().map(|mount| (mount.artifact.plan.clone(), mount.artifact.config.app.clone())).collect();
+    let mut mounted: Vec<(String, PathBuf)> = Vec::with_capacity(self.mounts.len());
     let site_apps: Vec<(String, PathBuf)> = self.mounts.iter().map(|mount| (mount.name.clone(), mount.artifact.config.app.clone())).collect();
-    for mount in std::mem::take(&mut self.mounts) {
+    for mut mount in std::mem::take(&mut self.mounts) {
       let site = mount.artifact.config.site.clone().ok_or_else(|| {
         HostError::Mount(
           mount.name.clone(),
@@ -694,6 +697,7 @@ impl HostBuilder {
       }
       let mut site_manifest =
         Manifest::from_text(&mount.artifact.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+      mounted.push((std::mem::take(&mut mount.artifact.plan), mount.artifact.config.app.clone()));
       let engine_rows: Vec<String> = site_manifest
         .sources
         .iter()
@@ -723,7 +727,7 @@ impl HostBuilder {
           ),
         ));
       }
-      leaks(&mount.artifact.config, &mount.artifact.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+      leaks(&mount.artifact.config, &ServerModules::of(&site_manifest)).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       let site_consts = (!site_manifest.consts.is_empty()).then_some(&site_manifest.consts);
       let prepared = |body: Option<snapfire_fsr_ir::Body>| body.map(|body| snapfire_fsr_ir::PreparedBody::new(body, site_consts));
       let bodies = (prepared(site_manifest.middleware.take()), prepared(site_manifest.theme.take()));
@@ -732,9 +736,8 @@ impl HostBuilder {
       graft(&manifest, &mut site_manifest, &shell_module);
       site_manifest.not_found = None;
       taken.extend(site_manifest.routes.iter().map(|r| r.pattern.clone()));
-      app
-        .mount_manifest(&site_manifest.to_json())
-        .map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
+      let site_sheet_rows = std::mem::take(&mut site_manifest.sheets);
+      app.mount_plan(site_manifest).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       if let Some(site_contract) = &mount.artifact.contract {
         contract
           .merge(site_contract.clone(), &format!("site {}", mount.name))
@@ -790,7 +793,7 @@ impl HostBuilder {
         ignored,
       });
       let site_bundle = served_under(mount.artifact.config.bundle.as_ref(), config.dev());
-      let (site_sheets, site_attributed) = route_sheets(&site_manifest.sheets, mount.artifact.config.bundle.as_ref(), site_bundle);
+      let (site_sheets, site_attributed) = route_sheets(&site_sheet_rows, mount.artifact.config.bundle.as_ref(), site_bundle);
       sheets.extend(site_sheets);
       hashed_names.extend(site_bundle.map(hashed_names_of));
       probes.extend(site.probe.iter().cloned().map(|probe| (mount.name.clone(), probe)));

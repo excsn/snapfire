@@ -22,7 +22,11 @@ impl Routes {
   }
 
   pub fn from_manifest(source: &str) -> Result<Self, BindError> {
-    let manifest = Manifest::from_text(source)?;
+    Self::from_plan(&Manifest::from_text(source)?)
+  }
+
+  /// [`Routes::from_manifest`] for a plan already parsed.
+  pub fn from_plan(manifest: &Manifest) -> Result<Self, BindError> {
     let entries = manifest
       .routes()?
       .into_iter()
@@ -37,7 +41,11 @@ impl Routes {
   /// entries, the way a mounted site's join a shell's. Its not-found tree is
   /// left aside: one application answers the unmatched path.
   pub fn extend_manifest(&mut self, source: &str) -> Result<(), BindError> {
-    let manifest = Manifest::from_text(source)?;
+    self.extend_plan(&Manifest::from_text(source)?)
+  }
+
+  /// [`Routes::extend_manifest`] for a plan already parsed.
+  pub fn extend_plan(&mut self, manifest: &Manifest) -> Result<(), BindError> {
     self.entries.extend(manifest.routes()?.into_iter().map(|(pattern, plan)| (pattern, plan, Owner::PlanFile)));
     self.intercepts.extend(manifest.intercepts()?);
     Ok(())

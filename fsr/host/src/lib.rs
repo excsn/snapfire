@@ -579,9 +579,18 @@ impl Host {
         "`server.render` is gone: every page renders on the server and every island in the browser, so take the line out".to_owned(),
       ));
     }
-    let app = App::from_manifest(&artifact.plan)?;
+    let mut manifest = snapfire_fsr_plan::Manifest::from_text(&artifact.plan).map_err(BindError::from)?;
+    let server_modules = ServerModules::of(&manifest);
+    let shell_plan = snapfire_fsr_plan::Manifest::new(manifest.routes.clone())
+      .with_intercepts(manifest.intercepts.clone())
+      .with_consts(manifest.consts.clone())
+      .with_theme(manifest.theme.take(), std::mem::take(&mut manifest.themes))
+      .with_sheets(std::mem::take(&mut manifest.sheets));
+    let app = App::from_plan(manifest)?;
     Ok(HostBuilder {
       artifact,
+      shell_plan,
+      server_modules,
       loader: None,
       traces: None,
       app: Some(app),

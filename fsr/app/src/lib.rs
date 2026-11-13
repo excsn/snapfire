@@ -657,11 +657,15 @@ impl App {
   /// in the file is bound here as a default; Rust takes a name back with
   /// `source_override` or `action_override`.
   pub fn from_manifest(manifest: &str) -> Result<AppBuilder, BindError> {
-    let parsed = snapfire_fsr_plan::Manifest::from_text(manifest)?;
-    let mut builder = Self::builder(Routes::from_manifest(manifest)?);
-    builder.add_rows(&parsed);
+    Self::from_plan(snapfire_fsr_plan::Manifest::from_text(manifest)?)
+  }
+
+  /// [`App::from_manifest`] for a plan already parsed. The rows move into the
+  /// builder, so the plan is held once.
+  pub fn from_plan(mut parsed: snapfire_fsr_plan::Manifest) -> Result<AppBuilder, BindError> {
+    let mut builder = Self::builder(Routes::from_plan(&parsed)?);
     let consts = (!parsed.consts.is_empty()).then_some(&parsed.consts);
-    builder.lowered_middleware = parsed.middleware.clone().map(|body| snapfire_fsr_ir::PreparedBody::new(body, consts));
+    builder.lowered_middleware = parsed.middleware.take().map(|body| snapfire_fsr_ir::PreparedBody::new(body, consts));
     if let Some(version) = parsed.frameworks.get("react") {
       builder.frameworks.react = Some(snapfire_fsr_ir::ReactMajor::of(version).ok_or_else(|| BindError::React { version: version.clone() })?);
     }
@@ -671,6 +675,7 @@ impl App {
     if let Some(version) = parsed.frameworks.get("svelte") {
       builder.frameworks.svelte = Some(snapfire_fsr_ir::SvelteMajor::of(version).ok_or_else(|| BindError::Svelte { version: version.clone() })?);
     }
+    builder.add_rows(parsed);
     Ok(builder)
   }
 }
@@ -681,14 +686,19 @@ impl AppBuilder {
   /// ids already prefixed so nothing collides. Its middleware and not-found
   /// tree are the caller's to place.
   pub fn mount_manifest(&mut self, manifest: &str) -> Result<(), BindError> {
-    let parsed = snapfire_fsr_plan::Manifest::from_text(manifest)?;
-    self.routes.extend_manifest(manifest)?;
-    self.add_rows(&parsed);
+    self.mount_plan(snapfire_fsr_plan::Manifest::from_text(manifest)?)
+  }
+
+  /// [`AppBuilder::mount_manifest`] for a plan already parsed. The rows move
+  /// into the builder, so the plan is held once.
+  pub fn mount_plan(&mut self, manifest: snapfire_fsr_plan::Manifest) -> Result<(), BindError> {
+    self.routes.extend_plan(&manifest)?;
+    self.add_rows(manifest);
     Ok(())
   }
 
   /// Every lowered row of `parsed` beside the ones this builder holds.
-  fn add_rows(&mut self, parsed: &snapfire_fsr_plan::Manifest) {
+  fn add_rows(&mut self, mut parsed: snapfire_fsr_plan::Manifest) {
     let consts = (!parsed.consts.is_empty()).then_some(&parsed.consts);
     let prepared = |body: &Option<snapfire_fsr_ir::Body>| body.clone().map(|body| snapfire_fsr_ir::PreparedBody::new(body, consts));
     self.declared_actions.extend(parsed.action_ids());
@@ -704,8 +714,10 @@ impl AppBuilder {
     self.derives.extend(parsed.derives.iter().cloned());
     self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| prepared(&row.paths).map(|paths| (row.id.clone(), paths))));
     self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| prepared(&row.body).map(|body| (row.id.clone(), row.input.clone(), body))));
-    self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
-    self.lowered_heads.extend(parsed.components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())));
+    let components = std::mem::take(&mut parsed.components);
+    let component_heads: Vec<_> = components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())).collect();
+    self.lowered_components.extend(components.into_iter().map(|row| (row.module, row.body)));
+    self.lowered_heads.extend(component_heads);
     self.lowered_heads.extend(parsed.heads.iter().map(|row| (row.module.clone(), row.head.clone())));
     self.images.extend(parsed.images.iter().map(|entry| (entry.clone(), prepared(&entry.images))));
     self.clients.extend(parsed.clients.iter().cloned());
