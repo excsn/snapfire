@@ -44,6 +44,7 @@ The `fsr` binary and the library behind it: the commands, the build, the generat
   * [Plugins](#plugins)
   * [tailwind](#tailwind)
   * [assets](#assets)
+  * [intl](#intl)
 * [3. Discovered Files](#3-discovered-files)
   * [Clients](#clients)
   * [Schemas](#schemas)
@@ -209,7 +210,7 @@ Feature `web` (on by default) adds `fsr prerender`, `fsr bundle`, `fsr census`, 
 * `fsr build <app dir> [--shell <module id>] [--slot <name>] [--public-path <prefix>] [--snapfirec <path>] [--strict] [--verbose] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
 * Runs the `[build] before` programs, then `emit`, then the `[build] after` programs, each through `dev::run_programs`.
 * Prints the report to stdout.
-* Writes `generated/plan.sexp`, `generated/contracts/<client>.json` per document, `generated/contracts/schemas.json`, `generated/uploads.d.ts`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/host.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, each under `<app dir>`.
+* Writes `generated/plan.sexp`, `generated/locale.data`, `generated/contracts/<client>.json` per document, `generated/contracts/schemas.json`, `generated/uploads.d.ts`, `generated/native.d.ts`, `generated/services.d.ts`, `generated/elements.d.ts`, `generated/host.ts`, `generated/islands.ts`, `generated/client.ts`, `tsconfig.json` and `tsconfig.build.json`, each under `<app dir>`.
 * Then bundles the browser modules into `<app dir>/dist/` with `snapfirec`.
 * `--public-path` defaults to `/static/js/app`. For a site it defaults to `<at>/static/js/app`.
 * `--snapfirec` defaults to `$SNAPFIREC`, else `snapfirec` beside this binary, else `PATH`.
@@ -294,6 +295,7 @@ Feature `web` (on by default) adds `fsr prerender`, `fsr bundle`, `fsr census`, 
 * `fsr test <app dir> [filter] [--specs-only | --rust-only] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
 * `test::run(app: &Path, options: &Options, typecheck: &Typecheck, filter: Option<&str>) -> Result<Summary, BuildError>`: builds, then typechecks the application with its tests when `typecheck.enabled`.
 * Then runs every `*.test.ts` body test through the interpreter and every `*.spec.ts` and `*.spec.tsx` page spec in QuickJS over linkedom.
+* A run formats from every locale's data: it calls `IntlData::uninstall` first and the host a spec loads a route through is built with `HostBuilder::every_locale`.
 * Before the build it fetches the declarations the application lacks, as `emit` does. One still missing is `BuildError::Types` naming it.
 * A type error is `BuildError::Typecheck` with the checker's diagnostics. Nothing runs then.
 * `filter` keeps the tests whose name or file holds it, specs and Rust tests alike.
@@ -531,7 +533,8 @@ Crate-root constants: `PLAN_FILE = "generated/plan.sexp"`, `CONTRACTS_DIR = "gen
 
 ### Built
 
-* `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)>, pub defaults: SessionDefaults, pub browser_routes: Vec<String>, pub browser_files: Vec<String>, pub missing_declarations: Vec<String>, pub added: Vec<String>, pub composition_files: Vec<(String, Vec<String>)>, pub assets: AssetsManifest }`, `#[non_exhaustive]`.
+* `pub struct Built { pub manifest: Manifest, pub contract: Contract, pub report: Report, pub files: Vec<(String, String)>, pub data: Vec<(String, Vec<u8>)>, pub defaults: SessionDefaults, pub browser_routes: Vec<String>, pub browser_files: Vec<String>, pub missing_declarations: Vec<String>, pub added: Vec<String>, pub composition_files: Vec<(String, Vec<String>)>, pub assets: AssetsManifest }`, `#[non_exhaustive]`.
+* `data` pairs a path relative to the app with bytes: `generated/locale.data`. Empty for a site.
 * `defaults` are the session defaults every body was lowered with.
 * `browser_routes` are the route modules the browser mounts, as files relative to the app: every route module that is not `static`.
 * `browser_files` are the files the browser loads, which the bundle and `fsr test` compile.
@@ -551,11 +554,11 @@ Crate-root constants: `PLAN_FILE = "generated/plan.sexp"`, `CONTRACTS_DIR = "gen
 
 ### write
 
-* `pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError>`: removes every `*.json` under `generated/contracts/`, the `.fsr/bundle/` directory and a `generated/foreign.d.ts`, then writes every entry of `built.files` under `app`. Returns the paths written.
+* `pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError>`: removes every `*.json` under `generated/contracts/`, the `.fsr/bundle/` directory and a `generated/foreign.d.ts`, then writes every entry of `built.files` and of `built.data` under `app`. An entry of `data` already holding the same bytes is left as it is. Returns the paths written.
 
 ### write_generated
 
-* `pub fn write_generated(app: &Path, built: &Built) -> Result<(), BuildError>`: writes only the `generated/` entries of `built.files`.
+* `pub fn write_generated(app: &Path, built: &Built) -> Result<(), BuildError>`: writes only the `generated/` entries of `built.files`, then every entry of `built.data`.
 
 ### write_overlay
 
@@ -614,6 +617,7 @@ What `build` found, in the order the report prints it.
 * `tailwind`: set when a stylesheet under `styles/` imports Tailwind. The number of classes the plan renders, then each module with a class value the build cannot list, with that value.
 * `mdx`: what converting an `.mdx` or `.md` file left out, as file, line, column and why.
 * `theme_warnings`: a named theme setting `--breakpoint-*` or `--container-*`, one line each.
+* `locales`: each locale the code names as a literal that `[locales]` does not cover, with the listed locales and the default the server formats it in.
 * `unchecked`: each vendored React, Vue or Svelte newer than the latest release its renderer was checked against, as package, version and that release.
 * `shadowed`: each framework package a site vendors at another version than its shell's contract pins, as package, site version and shell version.
 * `plan`: the plan file's size in bytes.
@@ -703,6 +707,19 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Derived, BuildError>`: writes every hashed original, variant, hashed face and referenced font file the manifest names that is not under `out` already. Each source is decoded once.
 * A file already there is kept. `emit` and the dev loop run `derive` after the bundle, under `<app>/dist`.
 * `pub struct Derived { pub written: Vec<PathBuf>, pub kept: usize }`.
+
+### intl
+
+The locale data a build writes for the host.
+
+* `pub const intl::DATA_FILE: &str = "generated/locale.data"`
+* `pub fn intl::cut_of(app: &Path, plan: &str) -> Cut`: what the application's `[locales]` and plan call for, `snapfire_fsr_host::locale::cut` with `intl_data::compiled_source()` as its source. An application whose configuration does not load is cut as one with no `[locales]`.
+* `pub fn intl::data(cut: &Cut, written: Option<Vec<u8>>) -> Result<Vec<u8>, BuildError>`: the bytes of `DATA_FILE` for `cut`.
+  * `written`, what the last build left, is returned as it is when `IntlData::cut_of` reads the same cut from it.
+  * The ICU4X data holds each listed locale and the locales it falls back to, with no descendants. The word dictionaries `cjdict`, `burmesedict`, `khmerdict`, `laodict` and `thaidict` are in when `cut.words`.
+  * A list `Locales::new` refuses and a cut ICU4X cannot export are each `BuildError::Configuration` naming `[locales]`.
+* `pub fn intl::unlisted(cut: &Cut, plan: &str) -> Vec<String>`: the locales `intl_data::named_locales` reads from the plan that no locale of `cut` covers.
+* `build` writes the file for an application and none for a site. With `unlisted = "error"` a non-empty `intl::unlisted` is `BuildError::UnlistedLocales`.
 
 ## 3. Discovered Files
 
@@ -1256,6 +1273,7 @@ Files and configuration:
 
 * `Io(PathBuf, std::io::Error)`
 * `Configuration(String)`: the configuration does not load.
+* `UnlistedLocales { named: Vec<String>, listed: Vec<String> }`: the code names locales `[locales]` does not cover and `unlisted = "error"` refuses that.
 * `Manifest(PathBuf, String)`: a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.
 * `Doctor(doctor::Report)`: what `fsr doctor` found before a bundle. Displays as the report.
 

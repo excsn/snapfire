@@ -90,7 +90,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
 * **Client** is a document under `clients/`, `<name>.openapi.json`, `<name>.proto` or `<name>.graphql`, imported as the service `<name>`; the host reaches the first over HTTP, the second over gRPC and the third by posting each operation to the endpoint.
 * **Schema** is a TypeScript module under `schemas/` whose exported interfaces become contract types; one named `Session` types `ctx.session`.
-* **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `host.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by `fsr build` and `fsr dev`. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
+* **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `locale.data`, `services.d.ts`, `host.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by `fsr build` and `fsr dev`. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
 * **Vendor** is `vendor/`, committed: the runtime modules the browser loads, one directory per package, written by `fsr add` from esm.sh and named in `importmap.json`.
 * **Types** is `types/`, gitignored: the declarations of every package the import map names, one directory per package, written by `fsr types` and path-mapped by the generated tsconfig. Never served, never load-bearing.
 * **Layout** is where those live: `vendor/`, `types/`, `importmap.json` and `/static/js/vendor` by default; a site serves its vendor tree under its own prefix and an `xwpm.wmf` in the app names its own.
@@ -1763,6 +1763,24 @@ supported = ["en_US", "fr_FR"]
 default = "en_US"
 remember = true
 ```
+
+The same list is what the server formats in. `fsr build` cuts the locale data to it and writes `generated/locale.data`, about 0.9 MB for one locale, which the host reads at boot. A host refuses to start without the file or with one cut for another list, so build again after changing `[locales]`:
+
+```toml
+[locales]
+supported = ["en_US", "fr_FR"]
+formats = ["de"]              # formatted in, never a path prefix
+unlisted = "error"            # "fallback" when absent
+dictionaries = true           # keeps Intl.Segmenter's word dictionaries; the build adds them itself when a body splits words
+```
+
+A formatter given a tag takes the longest listed tag the tag is or shortens to: with `en` listed, `en-AU` formats as `en`. A tag no listed locale covers formats in the default locale under `unlisted = "fallback"`, where the browser, which has every locale, writes it in the tag's own. The build names each such tag it finds written in the code:
+
+```
+warning   `de` is named in the code and is not in [locales] (en-US, fr-FR); the server formats it as en-US and a browser as de
+```
+
+Under `unlisted = "error"` the build stops at one written in the code and one computed at run time throws a `RangeError`. `fsr test` formats from every locale's data, since a spec stands in for a browser.
 
 A loader, an action, a handler and the middleware read `ctx.locale`. A component reads `useLocale()` from `@snapfire/fsr/client/react`, which the build lowers, so the server renders the same value the browser hydrates against. An action runs in the locale of the document that called it. A link is served exactly as written; nothing prefixes a URL the application did not write.
 

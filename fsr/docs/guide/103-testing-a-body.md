@@ -30,7 +30,7 @@ describe("the cart loader", () => {
 });
 ```
 
-`ctx()` takes what the request would have carried: `session`, `services`, `input`, `params`, `query`, `identity`, `locale`. A service method is a plain function of its arguments, a value when the arguments do not matter or a mock function. The route in the type argument makes `params` type-check; the input type, `ctx<AddToCart>`, does the same for an action.
+`ctx()` takes what the request would have carried: `session`, `services`, `input`, `params`, `query`, `identity`, `locale`. A test formats under any `locale` it is given: `fsr test` reads every locale's data, where a deployed host reads only the locales `[locales]` lists (chapter 100). A service method is a plain function of its arguments, a value when the arguments do not matter or a mock function. The route in the type argument makes `params` type-check; the input type, `ctx<AddToCart>`, does the same for an action.
 
 A body under test is the body the build lowered, taken from the plan the runner built first rather than lowered again on its own, so whatever the build follows a test follows too: a module constant under `src/` a loader imports, a helper declared at module level, the plan's own constants. `load`, `meta`, `store` and `paths` come from a page loader, `meta` and `store` over `{ data }` and `paths()` against the `ctx(...)` bound above it, since a `paths` body may call a service. A call to one of them is a statement of its own, `const sets = paths()`, not an expression inside another call, because the runner replays statements.
 
