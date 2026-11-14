@@ -130,7 +130,7 @@ The ops console picks its language from the settings drawer, whose loader hands 
 
 ### The locales a formatter writes in
 
-The server formats numbers, dates, lists and names in the locales `[locales] supported` lists and in no other. `fsr build` cuts the locale data down to those locales and the host reads nothing else, so a server for one locale carries about 0.6 MB of locale data where every locale takes about 20 MB. Without a `[locales]` section the one locale is `en`.
+The server formats numbers, dates, lists and names in the locales `[locales] supported` lists and in no other. `fsr build` cuts the locale data down to those locales and the host reads nothing else, so a server for one locale carries about 0.9 MB of locale data where every locale takes about 19 MB. Without a `[locales]` section the one locale is `en`.
 
 A formatter given a tag takes the longest listed tag that the tag is or shortens to. With `en` and `fr_FR` listed, `en-AU` formats as `en`. To format as Australian English, list `en-AU`.
 
@@ -155,7 +155,7 @@ unlisted = "error"        # "fallback" when absent
 
 `fsr test` formats from every locale's data, since a spec stands in for a browser, which has them all.
 
-`Intl.Segmenter` splits words by dictionaries of about 2 MB, which the build adds to the locale data when a body splits words. `dictionaries = true` adds them for a host whose mounted sites split words and whose own pages do not.
+`Intl.Segmenter` splits words by dictionaries, which the build adds to the locale data when a body splits words. `dictionaries = true` adds them for a host whose mounted sites split words and whose own pages do not.
 
 ## Host and origin
 

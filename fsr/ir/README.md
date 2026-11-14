@@ -20,7 +20,7 @@ Most applications never depend on this crate. `fsr` and the FSR host use it for 
 snapfire_fsr_ir = "0"
 ```
 
-`intl_compiled` builds every locale's data into the crate, about 20 MB, which the `intl` functions format from when a program installs none. Without it a program installs the data a build cut for its locales, through `IntlData::install`, before it formats anything.
+`intl_compiled` builds every locale's data into the crate, about 19 MB, which the `intl` functions format from when a program installs none. Without it a program installs the data a build cut for its locales, through `IntlData::install`, before it formats anything.
 
 `tz_compiled` and `tz_system` choose where `Date`'s local time reads its zone rules.
 

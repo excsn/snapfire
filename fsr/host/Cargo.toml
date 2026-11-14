@@ -22,7 +22,7 @@ tz_compiled = ["snapfire_fsr_ir/tz_compiled", "snapfire_time/tz_compiled"]
 # The host's own zoneinfo under `/usr/share/zoneinfo`, read when a zone is
 # first used.
 tz_system = ["snapfire_fsr_ir/tz_system", "snapfire_time/tz_system"]
-# Every locale's data built into the binary, about 20 MB, which a host formats
+# Every locale's data built into the binary, about 19 MB, which a host formats
 # from when its application has no `generated/locale.data`. Off, a host formats
 # only from the file `fsr build` cut for the application's locales.
 intl_compiled = ["snapfire_fsr_ir/intl_compiled"]
