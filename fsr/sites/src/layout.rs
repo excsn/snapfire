@@ -248,8 +248,11 @@ fn place_named(config: &Config, origin: &str, base: bool, placer: &mut Placer, l
   placer.place(format!("{APP}/{contracts}"), Source::Path(config.resolve(&config.server.contracts)), false, origin)?;
   if base {
     layer.contracts = contracts;
+    // A site's build writes no locale data: its shell's is what the host formats from.
     let data = snapfire_fsr_host::locale::DATA_FILE;
-    placer.place(format!("{APP}/{data}"), Source::Path(config.resolve(data)), false, origin)?;
+    if config.resolve(data).is_file() {
+      placer.place(format!("{APP}/{data}"), Source::Path(config.resolve(data)), false, origin)?;
+    }
   }
 
   if let Some(prerender) = &config.server.prerender {

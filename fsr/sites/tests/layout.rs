@@ -452,3 +452,14 @@ fn an_overlay_that_does_not_load_stops_the_layout_and_is_named() {
   assert!(e.contains("broken.toml"), "{e}");
 }
 
+#[test]
+fn the_locale_data_is_placed_when_the_build_wrote_it_and_left_out_when_it_did_not() {
+  let built = project("locale-data", "");
+  write(&built.join("app/generated/locale.data"), "data");
+  let (_, laid_built) = laid(&built);
+  assert!(laid_built.places.iter().any(|p| p.to == "app/generated/locale.data"), "{:?}", laid_built.places.iter().map(|p| &p.to).collect::<Vec<_>>());
+
+  let site = project("no-locale-data", "");
+  let (_, laid_site) = laid(&site);
+  assert!(!laid_site.places.iter().any(|p| p.to.ends_with("locale.data")), "a site's build writes no locale data, so its tree names none: {:?}", laid_site.places.iter().map(|p| &p.to).collect::<Vec<_>>());
+}
