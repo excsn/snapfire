@@ -1,6 +1,6 @@
 # API Reference: snapfire_i18n
 
-Currency, percent and relative-time formatting from embedded CLDR data. Time zone names from embedded CLDR data. Case mapping under a locale from embedded Unicode data.
+Currency, percent and relative-time formatting and time zone names from CLDR data, embedded or read from bytes the caller holds. Case mapping under a locale from embedded Unicode data.
 
 ## Contents
 
@@ -45,7 +45,9 @@ Currency, percent and relative-time formatting from embedded CLDR data. Time zon
   * [NameKind](#namekind)
   * [display_name](#display_name)
   * [has_display_names](#has_display_names)
-* [9. Error handling](#9-error-handling)
+* [9. Data](#9-data)
+  * [Data](#data)
+* [10. Error handling](#10-error-handling)
   * [Error](#error)
 
 ## 1. Locales
@@ -54,7 +56,7 @@ Every constructor takes a BCP 47 tag as `&str`. `_` separates subtags as `-` doe
 
 ### cldr_version
 
-* `pub fn cldr_version() -> &'static str`: the CLDR release the data was generated from, `"48.2.1"`.
+* `pub fn cldr_version() -> &'static str`: the CLDR release the embedded data was generated from, `"48.2.1"`. Takes the `embedded` feature.
 
 ## 2. Signs
 
@@ -216,7 +218,7 @@ What a zone observes, from a time zone database the caller holds. Zones are IANA
 
 ## 8. Display names
 
-The names `Intl.DisplayNames` writes, embedded with the `display_names` feature, on by default.
+The names `Intl.DisplayNames` writes, embedded with the `display_names` feature, on by default, which turns `embedded` on.
 
 ### NameKind
 
@@ -232,10 +234,30 @@ The names `Intl.DisplayNames` writes, embedded with the `display_names` feature,
 
 * `pub fn has_display_names() -> bool`: whether the build holds the display names.
 
-## 9. Error handling
+## 9. Data
+
+### Data
+
+`#[derive(Clone, Copy)]`, implements `Debug`. The CLDR records a call formats from. The bytes are read in place.
+
+* `pub fn embedded() -> Data`: every locale's data, built into the crate. Takes the `embedded` feature. The display names are held with the `display_names` feature.
+* `pub fn from_static(bytes: &'static [u8]) -> Result<Data, Error>`: the data `bytes` hold, as `trimmed` wrote them. `Error::NotData` for other bytes.
+* `pub fn trimmed(&self, locales: &[&str]) -> Vec<u8>`: the bytes of data holding the records of `locales`, of each locale they fall back to and of the root locale. Records that belong to no locale are kept: currency digits, zone and metazone tables and region tables.
+* `pub fn cldr_version(&self) -> &'static str`: the CLDR release the data was generated from.
+* `pub fn has_display_names(&self) -> bool`: whether the data holds the display names.
+* `pub fn currency(&self, tag: &str, code: &str, display: Display) -> Result<Currency, Error>`: `Currency::new` from this data.
+* `pub fn percent(&self, tag: &str) -> Percent`: `Percent::new` from this data.
+* `pub fn relative(&self, tag: &str, unit: Unit, width: Width) -> Relative`: `Relative::new` from this data.
+* `pub fn preferred_calendars(&self, region: &str) -> Vec<&'static str>` and `pub fn region_zones(&self, region: &str) -> Vec<&'static str>`: the functions of the same names from this data, as vectors.
+* `in_daylight`, `zone_name`, `short_zone_name`, `calendar`, `numeric_date`, `numeric_date_parts`, `clock`, `date_with_time`, `duration_unit`, `time_separator`, `hour_cycle`, `time_widths`, `numbering_system`, `supported` and `display_name`: methods with the signatures of the functions of the same names, reading this data.
+
+Every function of sections 3 to 5, 7 and 8 that reads CLDR data reads `Data::embedded()` and takes the `embedded` feature: `Currency::new`, `Percent::new`, `Relative::new` and the free functions.
+
+## 10. Error handling
 
 ### Error
 
 `#[derive(Debug, Clone, PartialEq, Eq)]`, `#[non_exhaustive]`, implements `std::error::Error`.
 
 * `Error::NotACurrency(String)`: a currency code that is not three ASCII letters. Displays as `` `dollars` is not a currency code ``.
+* `Error::NotData`: bytes that are not this crate's data in the format this version reads.

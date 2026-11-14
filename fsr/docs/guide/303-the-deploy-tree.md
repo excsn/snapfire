@@ -18,7 +18,7 @@ dist/
     app.toml               and the environment files beside it
     bundle.toml            written by the bundle, the paths that moved
   app/
-    generated/             plan.sexp and contracts/, read at boot
+    generated/             plan.sexp, locale.data and contracts/, read at boot
     clients/               the service documents, imported at boot
     locales/               the message catalogs
     routes/, templates/    each .tera template, at its path under the app
@@ -83,6 +83,7 @@ serve/static/icons               serves /static/icons
 serve/static/css                 serves /static/css
 app/generated/contracts          read by the host
 app/generated/plan.sexp          read by the host
+app/generated/locale.data        read by the host
 app/importmap.json               read by the host
 config                           read by the host
 config/bundle.toml               read by the host

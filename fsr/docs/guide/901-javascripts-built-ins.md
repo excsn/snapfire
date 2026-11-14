@@ -75,6 +75,12 @@ fsr's locale data is CLDR 48.2.1 with ICU 78, from ICU4X 2.3. Chrome 158 bundles
 
 A browser with other locale data can format the same value differently from fsr. Safari, Firefox and an older or newer Chrome each carry their own CLDR.
 
+### Where the locale data is
+
+`ir/data/icu.postcard` is every locale's ICU4X data, the 72 kinds of it the `intl` functions load. snapfire_i18n holds the rest: currency, percent and relative-time patterns, zone names and display names. `fsr build` cuts both to the locales `[locales] supported` lists and writes them as `generated/locale.data`, which the host reads at boot. A host refuses to start without the file, or with a file cut for other locales or by another ICU4X release.
+
+`fsr`, `fsr test` and a terminal program format from every locale's data, built in through the `intl_compiled` feature of `snapfire_fsr_ir`. A host built with `snapfire_fsr_host`'s `intl_compiled` feature starts without a file and formats from every locale's data.
+
 ### Moving to newer locale data
 
 `ir/Cargo.toml` holds the ICU4X crates at `~2.3`. ICU4X 2.4 carries CLDR 49, which Chrome does not ship yet. Under it `es-ES` ordinals for 1, 3, 21 and 23 answer `one` where Chrome answers `other`. Its `en-IN` times read `PM` where Chrome writes `pm`.
@@ -87,9 +93,16 @@ new Intl.PluralRules("es-ES", { type: "ordinal" }).select(1) // "other" on CLDR 
 
 Once Chrome stable answers `one`:
 
-1. Raise the `icu_*` requirements in `ir/Cargo.toml` to the ICU4X release that carries Chrome's CLDR.
-2. Record `ir/tests/fixtures/intl_chrome.json` and `intl_chrome_currency.json` again in that Chrome.
-3. Run `cargo test -p snapfire_fsr_ir --test intl_browser`.
+1. Raise the `icu_*` requirements in `ir/Cargo.toml` and `cli/Cargo.toml` to the ICU4X release that carries Chrome's CLDR and set `ICU` in `ir/src/intl_data.rs` to it.
+2. Write `ir/data/icu.postcard` again with that release's `icu4x-datagen`, from a release build of a test that links every `intl` function:
+
+   ```sh
+   cargo test -p snapfire_fsr_ir --release --test std --no-run
+   icu4x-datagen --markers-for-bin target/release/deps/std-<hash> --locales full --format blob --deduplication none \
+     --segmenter-models cjdict burmesedict khmerdict laodict thaidict --out ir/data/icu.postcard --overwrite
+   ```
+3. Record `ir/tests/fixtures/intl_chrome.json` and `intl_chrome_currency.json` again in that Chrome.
+4. Run `cargo test -p snapfire_fsr_ir --test intl_browser`.
 
 ## Known limits
 

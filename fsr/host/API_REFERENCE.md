@@ -477,7 +477,8 @@ The bundle's own facts, read from `dist/.snapfire-build.json`.
 
 `[locales]`.
 
-* `pub struct locale::LocalesSection { pub supported: Vec<String>, pub default: Option<String>, pub order: Vec<String>, pub remember: bool, pub cookie: String }`, `#[non_exhaustive]`.
+* `pub struct locale::LocalesSection { pub supported: Vec<String>, pub default: Option<String>, pub order: Vec<String>, pub remember: bool, pub cookie: String, pub unlisted: Unlisted, pub dictionaries: bool, pub formats: Vec<String> }`, `#[non_exhaustive]`.
+* `pub enum locale::Unlisted { Fallback, Error }`: `[locales] unlisted`, `fallback` when absent. `Into<snapfire_fsr_ir::locales::Unlisted>`.
 * `LocalesSection::new(supported: Vec<String>) -> Self`: every other field at its default.
 * `supported`: at least one tag of letters, digits, `_` and `-`, spelled as the application uses it.
 * `default`: one of `supported`, the first when absent.
@@ -749,6 +750,7 @@ A built application as the host reads it.
 * `codec(self, codec: Arc<dyn CookieCodec>) -> Self`: the cookie codec, in place of `HmacCodec` over the configuration's keys. `key` and `previous_keys` then feed only a `derived` scheme. A builder given one cannot be rebuilt by a sites reload.
 * `keyring(self, ring: Arc<Keyring>) -> Self`: the ring the stock codec and a `derived` scheme sign with, in place of one built from `key` and `previous_keys`. A reload leaves it alone. A builder given one cannot be rebuilt by a sites reload.
 * `http2(self, on: bool) -> Self`: overrides `server.http2`.
+* `every_locale(self) -> Self`: the host formats from every locale's data, built in by `intl_compiled`, and leaves `generated/locale.data` unread.
 * `topics<F>(self, rule: F) -> Self where F: Fn(&str, &SessionCell, Option<&Identity>) -> bool + Send + Sync + 'static`: who may follow which topic on `/_sf/live` and `/_sf/socket`.
   * Asked once per topic when a stream opens, with the session the request's cookie names.
   * One refused topic refuses the whole stream with 403 naming it.
@@ -1130,6 +1132,11 @@ A site's artifact as a host mounts it.
 * `from_accept_language(&self, header: &str) -> Option<&str>`: the nearest supported locale of the header's tags by descending weight. `*` is ignored.
 * `from_cookie(&self, header: &str) -> Option<&str>`: the supported locale the cookie names.
 * `resolve(&self, path: &str, cookie: Option<&str>, accept_language: Option<&str>) -> Resolution`: the sources in `order`, the first that answers. The default when none does.
+* `pub const locale::DATA_FILE: &str = "generated/locale.data"`: where a build writes the locale data and the host reads it, relative to the application.
+* `pub fn locale::cut(section: Option<&LocalesSection>, plan: &str) -> snapfire_fsr_ir::intl_data::Cut`: what an application's locale data is cut for. The locales are `supported` then `formats` as BCP 47 tags, `en` alone without a section. The word dictionaries are in when `plan` splits words or `dictionaries` is set.
+* `pub fn locale::install_data(config: &Config, plan: &str) -> Result<(), String>`: installs the data at `DATA_FILE` as what the program formats from. `Host::build` calls it.
+  * A file that is not locale data, one another ICU4X release wrote and one cut for other locales, another default, another `unlisted` or without the word dictionaries the plan calls for are each refused.
+  * No file is refused unless the host is built with `intl_compiled`.
 * `pub fn locale::load_catalogs(app: &Path, default: &str) -> Result<Catalogs, String>`: the catalogs under `<app>/locales/*.toml`, one file per locale named by its tag.
   * Tables nest: `[cart]` then `empty = "…"` is the key `cart.empty`.
   * A string, number or boolean is kept as text. Any other value is refused, naming the file and the key.

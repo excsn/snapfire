@@ -22,7 +22,11 @@ It has no dependencies.
 snapfire_i18n = "0"
 ```
 
-`display_names`, on by default, embeds the names `Intl.DisplayNames` writes, about 5.9 MB. Without it every display name is `None`.
+`embedded`, on by default, builds every locale's data into the crate, about 4.4 MB. The crate's own functions read it. Without it a program reads the bytes it holds through `Data::from_static`.
+
+`display_names`, on by default, embeds the names `Intl.DisplayNames` writes, about 8 MB. Without it every display name is `None`.
+
+The data is read in place. Nothing is parsed or held on the heap when a program starts or formats its first value.
 
 ## What to reach for
 
@@ -40,6 +44,7 @@ snapfire_i18n = "0"
 | `Pacific Daylight Time` for a zone and an instant | `in_daylight`, `zone_name` |
 | `9/10/2024`, `7:37:20 PM` and `9/10/2024, 7:37:20 PM` with no options, in the Gregorian, Persian or Buddhist calendar | `numeric_date`, `clock`, `date_with_time` |
 | `United Kingdom`, `American English`, `Euro` | `display_name`, with the `display_names` feature |
+| The data of a few locales in a file, 155 KB for `en` alone | `Data::trimmed`, `Data::from_static` |
 
 ## License
 

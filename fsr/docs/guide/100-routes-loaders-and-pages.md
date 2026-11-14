@@ -128,6 +128,35 @@ export async function load({ locale, locales }: Ctx) {
 
 The ops console picks its language from the settings drawer, whose loader hands `locales` to the picker: a document load with a prefix for each and the host remembers the choice in a cookie.
 
+### The locales a formatter writes in
+
+The server formats numbers, dates, lists and names in the locales `[locales] supported` lists and in no other. `fsr build` cuts the locale data down to those locales and the host reads nothing else, so a server for one locale carries about 0.6 MB of locale data where every locale takes about 20 MB. Without a `[locales]` section the one locale is `en`.
+
+A formatter given a tag takes the longest listed tag that the tag is or shortens to. With `en` and `fr_FR` listed, `en-AU` formats as `en`. To format as Australian English, list `en-AU`.
+
+```ts
+new Intl.NumberFormat("en-AU").resolvedOptions().locale  // "en" on the server
+```
+
+A tag no listed locale covers formats in the default locale, as a browser formats in its own default when it has no data for a tag. The browser has every locale, so it writes that value differently from the server. The build names each such tag it finds written in the code:
+
+```
+warning   `de` is named in the code and is not in [locales] (en, fr-FR); the server formats it as en and a browser as de
+```
+
+`formats` lists locales the application formats in and serves no pages in, such as the locale of an invoice. `unlisted = "error"` makes a tag outside both lists a refusal. The build stops at one written in the code and one computed at run time throws a `RangeError`:
+
+```toml
+[locales]
+supported = ["en", "fr_FR"]
+formats = ["de"]          # formatted in, never a path prefix
+unlisted = "error"        # "fallback" when absent
+```
+
+`fsr test` formats from every locale's data, since a spec stands in for a browser, which has them all.
+
+`Intl.Segmenter` splits words by dictionaries of about 2 MB, which the build adds to the locale data when a body splits words. `dictionaries = true` adds them for a host whose mounted sites split words and whose own pages do not.
+
 ## Host and origin
 
 `ctx.host` is the host the request named, for a deployment that answers on more than one and has to tell them apart: an absolute URL in a `rel=canonical`, a tenant read off the domain. It is `string | null`. It is null until `[server] hosts` lists the hosts, which chapter 200 covers along with what the server in front has to do for the value to mean anything.

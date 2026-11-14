@@ -19,6 +19,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
 * [Writing a Date With No Options](#writing-a-date-with-no-options)
 * [Reading What a Formatter Resolves](#reading-what-a-formatter-resolves)
 * [Naming a Language, a Region or a Currency](#naming-a-language-a-region-or-a-currency)
+* [Cutting the Data to a Few Locales](#cutting-the-data-to-a-few-locales)
 * [Regenerating the Data](#regenerating-the-data)
 * [Error Handling](#error-handling)
 
@@ -38,6 +39,7 @@ How to write currency amounts, percentages and relative times with snapfire_i18n
 * **Plural**: the CLDR plural category the locale's rules give the number.
 * **Literal**: a word for a nearby offset, such as "yesterday", which `numeric: "auto"` writes instead of a number.
 * **Metazone**: CLDR's group of zones that share a name over a period, such as `Europe_Central`.
+* **Data**: the CLDR records the crate formats from. `Data::embedded()` holds every locale and is what the crate's own functions read. Every function is also a method on `Data`.
 * **Zone rules**: the offsets and daylight saving a zone observes, which the caller supplies through `ZoneRules`.
 * **Case mapping**: upper or lower case as Unicode defines it, changed for a few languages. Turkish, Azerbaijani, Lithuanian and Greek have their own rules. Every other tag maps as Unicode's default does.
 
@@ -284,7 +286,46 @@ Leave the feature out to drop the data. Every name is then `None`:
 snapfire_i18n = { version = "0", default-features = false }
 ```
 
+## Cutting the Data to a Few Locales
+
+`Data::trimmed` writes the records of the locales it is given and of the locales they fall back to. `en` alone is about 155 KB and five locales about 430 KB, against 12 MB for every locale:
+
+```rust
+use snapfire_i18n::Data;
+
+let bytes = Data::embedded().trimmed(&["en-GB", "fr"]);
+std::fs::write("locale.table", bytes)?;
+```
+
+A program built without the `embedded` feature reads the file and formats through the `Data` it gives. The bytes live for as long as the program does:
+
+```toml
+[dependencies]
+snapfire_i18n = { version = "0", default-features = false }
+```
+
+```rust
+use snapfire_i18n::{Data, Display, NameKind, Sign};
+
+let bytes: &'static [u8] = Box::leak(std::fs::read("locale.table")?.into_boxed_slice());
+let data = Data::from_static(bytes)?;
+
+let price = data.currency("en-GB", "GBP", Display::Symbol)?;
+assert_eq!(price.format("1,234.50", Sign::None), "£1,234.50");
+assert_eq!(data.display_name("en-GB", NameKind::Region, "US", "long", false).as_deref(), Some("United States"));
+```
+
+A locale the data was not cut for reads the root locale's records, as a tag CLDR does not know does:
+
+```rust
+assert!(data.supported("fr-CA"));
+assert!(!data.supported("de"));
+```
+
 ## Regenerating the Data
+
+`build.rs` compiles the text files under `data/` into the tables the crate embeds, so a regenerated file takes effect at the next build.
+
 
 `data/cldr.txt` is written by the `datagen` crate beside this one from a cldr-json release. It reads the `cldr-core`, `cldr-numbers-full` and `cldr-dates-full` packages:
 
@@ -322,7 +363,7 @@ Use the Unicode release of the Rust toolchain that builds the crate, since the d
 
 ## Error Handling
 
-`Currency::new` is the only call that fails. Its `Error::NotACurrency` holds the code that is not three ASCII letters:
+`Currency::new` and `Data::currency` fail with `Error::NotACurrency`, which holds the code that is not three ASCII letters. `Data::from_static` fails with `Error::NotData` for bytes `Data::trimmed` did not write:
 
 ```rust
 use snapfire_i18n::{Currency, Display, Error};

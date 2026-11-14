@@ -29,6 +29,7 @@ Serving with hyper or axum needs no feature.
 | `client_readable` | on | The readable build of the browser client, beside the minified one. Off, the binary is about 215 KiB smaller and `/static/js/fsr` always answers with the minified build |
 | `tz_compiled` | on | The IANA time zone database compiled into the binary, which `Date`'s local time reads. About 240 KiB. Every host answers the same, slim containers included |
 | `tz_system` | off | The host's own zoneinfo under `/usr/share/zoneinfo`, read when a zone is first used. With both on, `[time] zones` picks one. With neither, a local-time read fails naming both features |
+| `intl_compiled` | off | Every locale's data built into the binary, about 20 MB. A host with it starts without `generated/locale.data` and formats from every locale's data. Off, a host formats only from the file `fsr build` cut for the application's locales and refuses to start without it |
 | `client_source_maps` | off | Source maps for the browser client, with its TypeScript inlined. Devtools then show the client's source. About 1.3 MB |
 | `actix` | off | `actix::handle` and `actix::serve`, for serving the host from actix |
 | `ws` | off | `/_sf/socket`, a WebSocket per topic. `HostBuilder::socket` answers what a page sends and the reply goes out as store rows |

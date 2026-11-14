@@ -117,10 +117,18 @@ The translated form of FSR's server TypeScript, its two text forms, the interpre
   * [`Report`](#report)
   * [`Act`](#act)
   * [Host keys](#host-keys)
-* [12. Error Handling](#12-error-handling)
+* [12. Locale Data](#12-locale-data)
+  * [`Locales`](#locales)
+  * [`IntlData`](#intldata)
+  * [`Cut`](#cut)
+  * [`intl_data` functions](#intl_data-functions)
+* [13. Error Handling](#13-error-handling)
   * [`Fail`](#fail)
   * [`SexprError`](#sexprerror)
   * [`ShadowRootError`](#shadowrooterror)
+  * [`LocalesError`](#localeserror)
+  * [`Refused`](#refused)
+  * [`IntlDataError`](#intldataerror)
 
 ## 1. The Tree
 
@@ -1602,7 +1610,49 @@ What a terminal handler asks its terminal for, the action its `Stmt::Act` names.
 * `PROCESS = "$process"`: a process a block spawned, `{ "$process": id }`.
 * `TERMINAL_OUTPUT = "$terminal"`: the id `PROCESS` names for the terminal's own output, which reports `Resize`.
 
-## 12. Error Handling
+## 12. Locale Data
+
+### Locales
+
+`locales::Locales`. `Debug`, `Clone`. An application's listed locales, its default among them and what a tag outside them gets.
+
+* `pub enum locales::Unlisted { Fallback, Error }`. `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`.
+* `Locales::new<T: AsRef<str>>(listed: &[T], default: &str, unlisted: Unlisted) -> Result<Locales, LocalesError>`: tags are matched whatever their case. A listed tag carries no extension.
+* `resolve(&self, tag: &str) -> Result<Locale, Refused>`: the longest listed tag that `tag` is or truncates to, subtag by subtag from the right. A shorter tag does not match a longer listed one. With none, the default under `Fallback` and `Refused::Unlisted` under `Error`. The result carries `tag`'s Unicode extension.
+
+### IntlData
+
+`intl_data::IntlData`. `Debug`. The ICU4X and snapfire_i18n data a program formats from.
+
+* `pub const intl_data::ICU: &str = "2.3"`: the ICU4X release whose data the crate reads.
+* `pub const intl_data::COMPILED_ICU: &[u8]`: every locale's ICU4X data. Takes the `intl_compiled` feature.
+* `IntlData::packed(icu: &[u8], tables: &[u8], cut: &Cut) -> Vec<u8>`: the bytes `from_static` reads, from an ICU4X blob and a snapfire_i18n table both cut for `cut`.
+* `IntlData::packed_from_compiled(cut: &Cut) -> Vec<u8>`: `packed` with every locale's ICU4X data and `cut`'s locales of snapfire_i18n's. Takes `intl_compiled`.
+* `IntlData::cut_of(bytes: &[u8]) -> Result<Cut, IntlDataError>`: what `bytes` say they were cut for. The data is not read.
+* `IntlData::from_static(bytes: &'static [u8]) -> Result<IntlData, IntlDataError>`
+* `IntlData::compiled() -> &'static IntlData`: every locale's data, cut for nothing. Takes `intl_compiled`.
+* `install(self)`: makes this the data the program formats from, in place of what it installed before. The data is kept for as long as the program runs.
+* `IntlData::uninstall()`: drops what the program installed.
+* `IntlData::current() -> Result<&'static IntlData, Fail>`: what the program installed last, else `compiled()`. A `Fail` in a program that installed none and is built without `intl_compiled`.
+* `cut(&self) -> Option<&Cut>`: `None` for data holding every locale.
+* `locale(&self, what: &str, tag: &str) -> Result<Locale, Fail>`: the locale `tag` formats in. `tag` itself for data cut for nothing, else `Locales::resolve` over the cut's locales. A `RangeError` naming `what` for a tag the cut refuses.
+* `splits_words(&self) -> bool`: whether the data holds the dictionaries `Intl.Segmenter` splits words by.
+
+### Cut
+
+`intl_data::Cut`. `Debug`, `Clone`, `PartialEq`, `Eq`, `#[non_exhaustive]`.
+
+* `pub struct Cut { pub locales: Vec<String>, pub default: String, pub unlisted: Unlisted, pub words: bool, pub source: String }`: the BCP 47 tags data was cut for, the default among them, what a tag outside them gets, whether the word dictionaries are held and what names the data the cut was taken from.
+* `Cut::new(locales: Vec<String>, default: String, unlisted: Unlisted) -> Cut`: no word dictionaries and an empty `source`.
+* `words(self, words: bool) -> Cut`, `source(self, source: impl Into<String>) -> Cut`
+
+### `intl_data` functions
+
+* `pub fn intl_data::compiled_source() -> &'static str`: what names the data built into the crate, from the ICU4X release, a hash of `COMPILED_ICU` and the CLDR release of snapfire_i18n. Takes `intl_compiled`.
+* `pub fn intl_data::splits_words(text: &str) -> bool`: whether the plan `text` splits words with `Intl.Segmenter`. True for a plan that does not parse and for a granularity the plan computes.
+* `pub fn intl_data::named_locales(text: &str) -> Vec<String>`: the locale tags the plan `text` gives an `intl` function as a literal, each once, in the order met.
+
+## 13. Error Handling
 
 ### Fail
 
@@ -1636,3 +1686,29 @@ Returned by `ShadowRoot::take`. Root re-export. `Debug`, `Clone`, `PartialEq`, `
 * `Attribute { name: String }`: an attribute the parser would drop with the template, named as the template wrote it, such as `key` or `dangerouslySetInnerHTML`.
 * `Spread`: a spread on the root `<template>`.
 * `NotAlone`: a `<template shadowrootmode>` beside other root nodes or in a branch of a root `If`.
+
+### LocalesError
+
+`#[derive(Debug, Clone, PartialEq, Eq)]`, `#[non_exhaustive]`, implements `std::error::Error`.
+
+* `Empty`: no locale is listed.
+* `Malformed(String)`: a listed tag or the default is not a locale.
+* `Extension(String)`: a listed tag carries an extension.
+* `DefaultUnlisted(String)`: the default is not one of the listed locales.
+
+### Refused
+
+`#[derive(Debug, Clone, Copy, PartialEq, Eq)]`, `#[non_exhaustive]`, implements `std::error::Error`.
+
+* `Malformed`: the tag is not a locale.
+* `Unlisted`: no listed locale covers the tag.
+
+### IntlDataError
+
+`#[derive(Debug, Clone, PartialEq, Eq)]`, `#[non_exhaustive]`, implements `std::error::Error`.
+
+* `NotData`: the bytes are not locale data this version reads.
+* `Icu(String)`: the data is another ICU4X release's, named.
+* `Blob(String)`: the ICU4X data does not load.
+* `Tables(String)`: the snapfire_i18n data does not load.
+* `Locales(LocalesError)`: the locales the data says it was cut for are not a list.

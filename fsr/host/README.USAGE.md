@@ -172,6 +172,9 @@ capacity = 500                    # entries per policy; cache.capacity when abse
 supported = ["en_US", "fr_FR"]
 default = "en_US"                 # served unprefixed; the first supported one when absent
 remember = true                   # write the cookie when a prefix chose the locale
+unlisted = "fallback"             # the default: a locale outside `supported` formats in the default; "error" refuses it
+dictionaries = false              # the default; true keeps the word dictionaries of Intl.Segmenter in the locale data
+formats = ["de"]                  # optional: locales formatted in beside `supported`, which serve no pages
 
 [auth]                            # optional: without it there is no login and no /auth/ route
 provider = "file"                 # the accounts in config/auth.toml; "service" asks a client; "oidc" an issuer; "passkey" passkeys; or several as [[auth.methods]]
