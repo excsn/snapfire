@@ -23,13 +23,88 @@ pub struct LocalesSection {
   pub remember: bool,
   #[serde(default = "default_cookie")]
   pub cookie: String,
+  /// What a formatter gets when code names a locale outside `supported`: `fallback` formats in the default locale, as a browser formats in its own default. `error` refuses with a `RangeError`.
+  #[serde(default)]
+  pub unlisted: Unlisted,
+  /// Whether the locale data holds the dictionaries `Intl.Segmenter` splits words by when the application's own plan does not split words, for a host whose mounted sites do.
+  #[serde(default)]
+  pub dictionaries: bool,
+  /// Locales the application formats in and serves no pages in: the locale data holds them beside `supported`.
+  #[serde(default)]
+  pub formats: Vec<String>,
 }
 
 impl LocalesSection {
   /// `supported` with every other key at the value an absent one takes.
   pub fn new(supported: Vec<String>) -> Self {
-    Self { supported, default: None, order: default_order(), remember: false, cookie: default_cookie() }
+    Self { supported, default: None, order: default_order(), remember: false, cookie: default_cookie(), unlisted: Unlisted::default(), dictionaries: false, formats: Vec::new() }
   }
+}
+
+/// `[locales] unlisted`.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Unlisted {
+  #[default]
+  Fallback,
+  Error,
+}
+
+impl From<Unlisted> for snapfire_fsr_ir::locales::Unlisted {
+  fn from(unlisted: Unlisted) -> Self {
+    match unlisted {
+      Unlisted::Fallback => Self::Fallback,
+      Unlisted::Error => Self::Error,
+    }
+  }
+}
+
+/// Where a build writes the locale data and the host reads it, relative to the application.
+pub const DATA_FILE: &str = "generated/locale.data";
+
+/// What the locale data of an application is cut for: the locales `section` lists under `supported` and `formats` as BCP 47 tags, `en` alone without one. The word dictionaries are in when `plan` splits words or the section asks for them.
+pub fn cut(section: Option<&LocalesSection>, plan: &str) -> snapfire_fsr_ir::intl_data::Cut {
+  use snapfire_fsr_ir::intl_data::{splits_words, Cut};
+  let bcp47 = |tag: &String| tag.replace('_', "-");
+  match section {
+    Some(section) => {
+      let mut locales: Vec<String> = section.supported.iter().map(bcp47).collect();
+      let default = section.default.as_ref().map(bcp47).or_else(|| locales.first().cloned()).unwrap_or_else(|| "en".to_owned());
+      for tag in section.formats.iter().map(bcp47) {
+        if !locales.contains(&tag) {
+          locales.push(tag);
+        }
+      }
+      Cut::new(locales, default, section.unlisted.into()).words(section.dictionaries || splits_words(plan))
+    }
+    None => Cut::new(vec!["en".to_owned()], "en".to_owned(), Unlisted::default().into()).words(splits_words(plan)),
+  }
+}
+
+/// Makes the locale data `fsr build` wrote for the application what this program formats from. A host built with `intl_compiled` formats from every locale's data when the application has no file.
+pub fn install_data(config: &crate::Config, plan: &str) -> Result<(), String> {
+  use snapfire_fsr_ir::intl_data::IntlData;
+  let path = config.resolve(DATA_FILE);
+  let bytes = match std::fs::read(&path) {
+    Ok(bytes) => bytes,
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound && cfg!(feature = "intl_compiled") => return Ok(()),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(format!("no locale data at {}, which `fsr build` writes and this host formats numbers, dates and names from", path.display())),
+    Err(e) => return Err(format!("{}: {e}", path.display())),
+  };
+  let wanted = cut(config.locales.as_ref(), plan);
+  let held = IntlData::cut_of(&bytes).map_err(|e| format!("{}: {e}; `fsr build` writes it again", path.display()))?;
+  if (&held.locales, &held.default, held.unlisted, held.words) != (&wanted.locales, &wanted.default, wanted.unlisted, wanted.words) {
+    let described = |cut: &snapfire_fsr_ir::intl_data::Cut| {
+      let unlisted = match cut.unlisted {
+        snapfire_fsr_ir::locales::Unlisted::Fallback => "fallback",
+        snapfire_fsr_ir::locales::Unlisted::Error => "error",
+      };
+      format!("{} (default {}, unlisted = \"{unlisted}\"{})", cut.locales.join(", "), cut.default, if cut.words { ", with word dictionaries" } else { "" })
+    };
+    return Err(format!("{} was cut for the locales {} and the application now calls for {}; `fsr build` writes it again", path.display(), described(&held), described(&wanted)));
+  }
+  IntlData::from_static(Box::leak(bytes.into_boxed_slice())).map_err(|e| format!("{}: {e}", path.display()))?.install();
+  Ok(())
 }
 
 fn default_order() -> Vec<String> {
@@ -283,6 +358,9 @@ mod tests {
       order: default_order(),
       remember: true,
       cookie: default_cookie(),
+      unlisted: Unlisted::default(),
+      dictionaries: false,
+      formats: Vec::new(),
     })
     .unwrap()
   }
@@ -355,6 +433,9 @@ mod tests {
       order: default_order(),
       remember: false,
       cookie: default_cookie(),
+      unlisted: Unlisted::default(),
+      dictionaries: false,
+      formats: Vec::new(),
     };
     assert!(
       bad(LocalesSection {

@@ -620,6 +620,7 @@ impl Host {
       socket_handler: None,
       mounts: Vec::new(),
       http2: None,
+      every_locale: false,
       hand_built: false,
       pending: None,
     })

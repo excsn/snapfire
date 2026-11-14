@@ -34,6 +34,7 @@ pub mod bundle;
 #[cfg(feature = "web")]
 pub mod census;
 pub mod install;
+pub mod intl;
 pub mod ir;
 pub mod typecheck;
 pub mod types;
@@ -93,6 +94,8 @@ pub enum BuildError {
   Io(PathBuf, std::io::Error),
   #[error("the configuration does not load: {0}")]
   Configuration(String),
+  #[error("the code names the locale{} {}, not in `[locales]` ({}), and `unlisted = \"error\"` refuses that; add {} to `supported` or to `formats`", if named.len() == 1 { "" } else { "s" }, named.join(", "), listed.join(", "), if named.len() == 1 { "it" } else { "them" })]
+  UnlistedLocales { named: Vec<String>, listed: Vec<String> },
   #[error("no `routes/` directory under {0}")]
   NoRoutes(PathBuf),
   #[error("{path}: `{name}` is not a route segment; use a name of letters, digits, `-`, `_` and `.`, `[param]`, `[...rest]` or `(group)`")]
@@ -373,6 +376,8 @@ pub struct Report {
   pub mdx: Vec<(String, usize, usize, String)>,
   /// A named theme setting a token the stylesheet reads at build, one line each.
   pub theme_warnings: Vec<String>,
+  /// Each locale the code names that `[locales]` does not list, with the listed locales and the default the server formats it in.
+  pub locales: Vec<(String, Vec<String>, String)>,
   /// A vendored framework newer than the latest release its renderer was checked against: the
   /// package, its version and that release.
   pub unchecked: Vec<(String, String, String)>,
@@ -477,6 +482,9 @@ impl Report {
     }
     for warning in &self.theme_warnings {
       writeln!(f, "{:<9} {warning}", "warning")?;
+    }
+    for (tag, listed, default) in &self.locales {
+      writeln!(f, "{:<9} `{tag}` is named in the code and is not in [locales] ({}); the server formats it as {default} and a browser as {tag}", "warning", listed.join(", "))?;
     }
     for (package, own, served) in &self.shadowed {
       writeln!(f, "{:<9} the site's own {package}@{own} is unused, its shell serves {served}; `fsr add` of {package}@{served} in the site drops it", "warning")?;
@@ -825,6 +833,8 @@ pub struct Built {
   pub contract: Contract,
   pub report: Report,
   pub files: Vec<(String, String)>,
+  /// The generated files that are not text: the locale data.
+  pub data: Vec<(String, Vec<u8>)>,
   /// The session defaults every body was lowered with, so a test lowers its target the same way.
   pub defaults: SessionDefaults,
   /// The route modules the browser mounts, as files, which is all of `routes/` a bundle compiles.
@@ -959,6 +969,7 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
     std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
     written.push(path);
   }
+  written.extend(write_data(app, built)?);
   written.extend(types::refresh_embedded(app)?);
   Ok(written)
 }
@@ -997,7 +1008,25 @@ pub fn write_generated(app: &Path, built: &Built) -> Result<(), BuildError> {
     }
     std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
   }
+  write_data(app, built)?;
   Ok(())
+}
+
+/// Writes the generated files of `built` that are not text and returns their paths. A file that already holds the same bytes is left as it is.
+fn write_data(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
+  let mut written = Vec::new();
+  for (rel, content) in &built.data {
+    let path = app.join(rel);
+    if std::fs::read(&path).is_ok_and(|held| held == *content) {
+      continue;
+    }
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+    }
+    std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
+    written.push(path);
+  }
+  Ok(written)
 }
 
 /// Writes only the bundle overlay of `built`: the sources the build rewrote

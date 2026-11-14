@@ -70,6 +70,7 @@ pub fn built(feature: &str) -> bool {
     "ws" => cfg!(feature = "ws"),
     "actix" => cfg!(feature = "actix"),
     "sites_reload" => cfg!(feature = "sites_reload"),
+    "intl_compiled" => cfg!(feature = "intl_compiled"),
     _ => false,
   }
 }

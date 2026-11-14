@@ -8,6 +8,7 @@ pub mod compiled;
 pub mod ext;
 pub mod host;
 pub mod interp;
+pub mod intl_data;
 pub mod jsmath;
 pub mod jsregex;
 pub mod locales;

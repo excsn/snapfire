@@ -19,4 +19,5 @@ snapfire_fsr_ir.workspace = true
 thiserror = "2"
 
 [dev-dependencies]
+snapfire_fsr_ir = { workspace = true, features = ["intl_compiled"] }
 proptest = "1"

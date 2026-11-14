@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_fsr_ir"
 version = "0.21.2"
-include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
+include = ["/src/**/*.rs", "/data/icu.postcard", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "The lowered form of a loader or action body for SnapFire FSR, and the interpreter that runs it over the value model."
 keywords = ["snapfire", "fsr", "interpreter", "typescript", "lowering"]
 categories = ["web-programming", "compilers"]
@@ -18,6 +18,10 @@ readme = "README.md"
 # host turns one on; a build with neither fails each local-time read by name.
 tz_compiled = ["snapfire_time/tz_compiled"]
 tz_system = ["snapfire_time/tz_system"]
+# Every locale's data built into the crate, which `IntlData::current` falls
+# back to when a program installs none. A host serving a built application
+# installs the data its build wrote and leaves this off.
+intl_compiled = ["snapfire_i18n/embedded", "snapfire_i18n/display_names"]
 
 [dependencies]
 memchr = "2"
@@ -27,7 +31,7 @@ parking_lot = "0.13"
 regress = { version = "0.12", default-features = false, features = ["std", "utf16"] }
 snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
-snapfire_i18n = { path = "../../i18n", version = "0.1.0" }
+snapfire_i18n = { path = "../../i18n", version = "0.1.0", default-features = false }
 snapfire_time = { path = "../../time", version = "0.1.0", default-features = false }
 form_urlencoded = "1"
 url = "2"
@@ -35,15 +39,18 @@ fixed_decimal = { version = "0.7", features = ["ryu"] }
 futures-util = "0.3"
 getrandom = "0.3"
 # ICU4X 2.3 carries CLDR 48, the data Chrome's ICU 78 ships. docs/guide/901-javascripts-built-ins.md says when to move.
-icu_calendar = "~2.3"
-icu_collator = "~2.3"
-icu_datetime = "~2.3"
-icu_decimal = "~2.3"
-icu_list = "~2.3"
+icu_calendar = { version = "~2.3", default-features = false, features = ["serde"] }
+icu_collator = { version = "~2.3", default-features = false, features = ["serde"] }
+icu_datetime = { version = "~2.3", default-features = false, features = ["serde"] }
+icu_decimal = { version = "~2.3", default-features = false, features = ["serde"] }
+icu_list = { version = "~2.3", default-features = false, features = ["serde"] }
 icu_locale_core = "~2.3"
-icu_plurals = "~2.3"
-icu_segmenter = "~2.3"
-icu_locale = "~2.3"
+icu_plurals = { version = "~2.3", default-features = false, features = ["serde"] }
+icu_segmenter = { version = "~2.3", default-features = false, features = ["serde"] }
+icu_locale = { version = "~2.3", default-features = false, features = ["serde"] }
+icu_provider = { version = "~2.3", features = ["deserialize_postcard_1", "sync"] }
+icu_provider_adapters = "~2.3"
+icu_provider_blob = { version = "~2.3", features = ["alloc"] }
 writeable = "0.6"
 indexmap.workspace = true
 serde_json.workspace = true
@@ -59,6 +66,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 yaml-rust2 = "0.13"
 
 [dev-dependencies]
+snapfire_fsr_ir = { path = ".", features = ["intl_compiled"] }
 snapfire_time = { path = "../../time", version = "0.1.0", features = ["tz_compiled"] }
 snapfire_fsr_test_internal = { path = "../test_internal" }
 arbitrary = { version = "1", features = ["derive"] }

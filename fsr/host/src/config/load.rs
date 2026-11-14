@@ -360,7 +360,7 @@ impl Config {
     let locales: Option<LocalesSection> =
       if store.path_exists("locales") || !store.key_paths_with_prefix(Some("locales")).is_empty() {
         let mut json = serde_json::Map::new();
-        for key in ["supported", "default", "order", "remember", "cookie"] {
+        for key in ["supported", "default", "order", "remember", "cookie", "unlisted", "dictionaries", "formats"] {
           if let Some(value) = store.get(&format!("locales.{key}")) {
             json.insert(key.to_owned(), to_json(&value));
           }

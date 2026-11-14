@@ -995,6 +995,18 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   let plan_text = packaged_plan(&mut manifest);
   report.plan = Some(plan_text.len());
+  let data = match &options.site {
+    None => {
+      let cut = crate::intl::cut_of(app, &plan_text);
+      let unlisted = crate::intl::unlisted(&cut, &plan_text);
+      if !unlisted.is_empty() && cut.unlisted == snapfire_fsr_ir::locales::Unlisted::Error {
+        return Err(BuildError::UnlistedLocales { named: unlisted, listed: cut.locales.clone() });
+      }
+      report.locales = unlisted.into_iter().map(|tag| (tag, cut.locales.clone(), cut.default.clone())).collect();
+      vec![(crate::intl::DATA_FILE.to_owned(), crate::intl::data(&cut, std::fs::read(app.join(crate::intl::DATA_FILE)).ok())?)]
+    }
+    Some(_) => Vec::new(),
+  };
   let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
   files.extend(tailwind_file.map(|text| (tailwind::CLASSES_FILE.to_owned(), text)));
   files.extend(cards_file.map(|text| (tailwind::CARDS_FILE.to_owned(), text)));
@@ -1077,7 +1089,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let missing_declarations = declarations.missing();
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
   public_claimed(app, routes.iter().chain(&handler_routes).map(|r| r.pattern.as_str()).chain(manifest.images.iter().map(|i| i.pattern.as_str())))?;
-  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, browser_files, missing_declarations, added: generated_files, composition_files, assets: assets_manifest, resolver })
+  Ok(Built { manifest, contract, report, files, data, defaults, browser_routes: browser_route_files, browser_files, missing_declarations, added: generated_files, composition_files, assets: assets_manifest, resolver })
 }
 
 /// The files the browser loads by name: every island the registry mounts and

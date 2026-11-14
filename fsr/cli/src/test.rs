@@ -89,6 +89,7 @@ impl fmt::Display for Summary {
 /// fetched first and the generated types are this build's, as `fsr build`
 /// does.
 pub fn run(app: &Path, options: &Options, typecheck: &crate::typecheck::Typecheck, filter: Option<&str>) -> Result<Summary, BuildError> {
+  snapfire_fsr_ir::intl_data::IntlData::uninstall();
   // The specs run in an engine whose JavaScript stack is sized for a thread of this native stack, whatever thread calls this.
   std::thread::scope(|scope| {
     std::thread::Builder::new()

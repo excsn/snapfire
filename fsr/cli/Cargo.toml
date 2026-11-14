@@ -81,7 +81,14 @@ snapfire_fsr_engine = { workspace = true, optional = true }
 snapfire_fsr_host = { workspace = true, features = ["auth", "oidc", "passkey"] }
 
 snapfire_fsr_sites = { workspace = true, features = ["http"] }
-snapfire_fsr_ir.workspace = true
+snapfire_fsr_ir = { workspace = true, features = ["intl_compiled"] }
+snapfire_i18n = { path = "../../i18n", version = "0.1.0" }
+# What cuts an application's locale data out of every locale's, at `fsr build`.
+icu = { version = "~2.3", default-features = false, features = ["datagen"] }
+icu_provider = { version = "~2.3", features = ["export", "deserialize_postcard_1", "sync"] }
+icu_provider_blob = { version = "~2.3", features = ["alloc", "export"] }
+icu_provider_export = { version = "~2.3", features = ["blob_exporter"] }
+icu_provider_registry = "~2.3"
 snapfire_fsr_lower.workspace = true
 snapfire_fsr_migrate.workspace = true
 snapfire_fsr_mdx = { workspace = true, optional = true }

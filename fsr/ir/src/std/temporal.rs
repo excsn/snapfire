@@ -111,7 +111,7 @@ fn locale_string(ambient: &Ambient, kind: Kind, value: &str, args: &[Value]) -> 
       };
       let at = field(Kind::ZonedDateTime, &zoned, "epochMilliseconds")?;
       let source = snapfire_time::source().map_err(|e| Fail::internal(e.to_string()))?;
-      format!("{text} {}", snapfire_i18n::short_zone_name(&tag, &id, at, &super::intl::Zones(source)))
+      format!("{text} {}", crate::intl_data::IntlData::current()?.tables().short_zone_name(&tag, &id, at, &super::intl::Zones(source)))
     }
   };
   Ok(Value::str(written))

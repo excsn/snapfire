@@ -264,6 +264,10 @@ pub(super) fn message_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fa
   })
 }
 
+fn segmenter_data(e: impl std::fmt::Debug) -> Fail {
+  Fail::internal(format!("Intl.Segmenter: {e:?}"))
+}
+
 /// The builtins JavaScript's standard library added beside the first set, apart from [`builtin`] so its frame stays the size a render nested deep on a small stack can afford.
 #[inline(never)]
 fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
@@ -285,7 +289,12 @@ fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       };
       let (breaks, words): (Vec<usize>, Vec<bool>) = match granularity {
         "word" => {
-          let mut iter = icu_segmenter::WordSegmenter::new_dictionary(Default::default()).segment_str(input);
+          let intl = crate::intl_data::IntlData::current()?;
+          if !intl.splits_words() {
+            return Err(Fail::internal("Intl.Segmenter: the application's locale data holds no word dictionaries, which a build leaves out when its plan splits no words; set `[locales] dictionaries = true` and build again"));
+          }
+          let segmenter = icu_segmenter::WordSegmenter::try_new_dictionary_with_buffer_provider(intl.icu(), Default::default()).map_err(segmenter_data)?;
+          let mut iter = segmenter.as_borrowed().segment_str(input);
           let mut breaks = Vec::new();
           let mut words = Vec::new();
           while let Some(at) = iter.next() {
@@ -294,8 +303,8 @@ fn builtin_js(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
           }
           (breaks, words)
         }
-        "sentence" => (icu_segmenter::SentenceSegmenter::new(Default::default()).segment_str(input).collect(), Vec::new()),
-        "grapheme" => (icu_segmenter::GraphemeClusterSegmenter::new().segment_str(input).collect(), Vec::new()),
+        "sentence" => (icu_segmenter::SentenceSegmenter::try_new_with_buffer_provider(crate::intl_data::IntlData::current()?.icu(), Default::default()).map_err(segmenter_data)?.as_borrowed().segment_str(input).collect(), Vec::new()),
+        "grapheme" => (icu_segmenter::GraphemeClusterSegmenter::try_new_with_buffer_provider(crate::intl_data::IntlData::current()?.icu()).map_err(segmenter_data)?.as_borrowed().segment_str(input).collect(), Vec::new()),
         other => return Err(Fail::internal(format!("RangeError: Value {other} out of range for Intl.Segmenter options property granularity"))),
       };
       let mut segments = Vec::new();

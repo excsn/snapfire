@@ -22,6 +22,10 @@ tz_compiled = ["snapfire_fsr_ir/tz_compiled", "snapfire_time/tz_compiled"]
 # The host's own zoneinfo under `/usr/share/zoneinfo`, read when a zone is
 # first used.
 tz_system = ["snapfire_fsr_ir/tz_system", "snapfire_time/tz_system"]
+# Every locale's data built into the binary, about 20 MB, which a host formats
+# from when its application has no `generated/locale.data`. Off, a host formats
+# only from the file `fsr build` cut for the application's locales.
+intl_compiled = ["snapfire_fsr_ir/intl_compiled"]
 # The readable client build, beside the minified one the binary always carries.
 # Off, the binary is about 215 KiB smaller and serves minified whatever
 # `document.client` says.
@@ -120,7 +124,7 @@ actix-web = { version = "4", default-features = false, features = ["http2", "mac
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["handshake"] }
 snapfire_fsr_test_internal = { path = "../test_internal" }
 # The tests sign in, so they build the host with every sign-in method.
-snapfire_fsr_host = { path = ".", features = ["auth", "oidc", "passkey", "share_cards", "http"] }
+snapfire_fsr_host = { path = ".", features = ["auth", "oidc", "passkey", "share_cards", "http", "intl_compiled"] }
 snapfire_fsr_macros.workspace = true
 jsonschema = { version = "0", default-features = false }
 proptest = "1"

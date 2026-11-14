@@ -329,7 +329,7 @@ fn page_host(
   let artifact = snapfire_fsr_host::Artifact::new(config, built.manifest.to_sexpr(), Some((**contract).clone()));
   let host = Host::from_artifact(artifact)
     .and_then(|builder| {
-      let mut builder = builder.services_over(transport);
+      let mut builder = builder.services_over(transport).every_locale();
       for name in natives {
         builder = builder.extension(name.clone(), snapfire_fsr_ir::Reach::Render, browser_half(name.clone()));
       }

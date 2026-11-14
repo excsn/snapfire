@@ -44,6 +44,7 @@ pub struct HostBuilder {
   pub(crate) mounts: Vec<Mount>,
   /// Overrides `server.http2` for a host built in Rust.
   pub(crate) http2: Option<bool>,
+  pub(crate) every_locale: bool,
   /// Whether a route, source, action, handler, evaluator, extension, native
   /// module or `#[service]` was registered on the builder, which a rebuild
   /// from the artifact alone would drop.
@@ -170,6 +171,12 @@ impl HostBuilder {
   /// `server.http2` also sets. The listener carries no TLS, so this is h2c.
   pub fn http2(mut self, on: bool) -> Self {
     self.http2 = Some(on);
+    self
+  }
+
+  /// Formats from every locale's data, which the `intl_compiled` feature builds in. The application's `generated/locale.data` is left unread. For a program that stands in for a browser, as a test runner does.
+  pub fn every_locale(mut self) -> Self {
+    self.every_locale = true;
     self
   }
 
@@ -590,6 +597,10 @@ impl HostBuilder {
       return Err(e);
     }
     let Artifact { config, plan, contract: mut own_contract } = self.artifact;
+    match self.every_locale {
+      true => snapfire_fsr_ir::intl_data::IntlData::uninstall(),
+      false => locale::install_data(&config, &plan).map_err(|e| HostError::Config(config.root.clone(), e))?,
+    }
     let manifest = self.shell_plan;
 
     config.session_ttl()?;

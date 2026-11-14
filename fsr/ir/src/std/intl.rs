@@ -18,10 +18,49 @@ use icu_list::ListFormatter;
 use icu_locale_core::{locale, Locale};
 use icu_plurals::{PluralCategory, PluralOperands, PluralRules};
 use snapfire_fsr_core::Value;
-use snapfire_i18n::{Currency, Display, Percent, Plural, Relative, Sign, Unit, Width};
+use snapfire_i18n::{Display, Plural, Sign, Unit, Width};
 
 use crate::ext::{number, option, text, text_opt, Ambient, Extensions, Reach};
 use crate::interp::Fail;
+use crate::intl_data::IntlData;
+
+fn intl() -> Result<&'static IntlData, Fail> {
+  IntlData::current()
+}
+
+/// A list's width as the part of a [`made`] key that tells widths apart.
+fn list_width(length: ListLength) -> u64 {
+  match length {
+    ListLength::Short => 1,
+    ListLength::Narrow => 2,
+    _ => 0,
+  }
+}
+
+/// How many formatters a thread keeps before it starts over.
+const MADE_LIMIT: usize = 64;
+
+/// The formatter `make` builds for `locale` and `options`, built once for each thread and kept. `options` tells apart every set of options a formatter of this type is built with.
+fn made<T: 'static>(locale: &Locale, options: u64, make: impl FnOnce(&'static IntlData) -> Result<T, Fail>) -> Result<std::rc::Rc<T>, Fail> {
+  type Key = (std::any::TypeId, u64, Locale, u64);
+  thread_local! {
+    static MADE: std::cell::RefCell<std::collections::HashMap<Key, std::rc::Rc<dyn std::any::Any>>> = std::cell::RefCell::default();
+  }
+  let intl = intl()?;
+  let key: Key = (std::any::TypeId::of::<T>(), intl.id(), locale.clone(), options);
+  if let Some(held) = MADE.with(|made| made.borrow().get(&key).cloned()).and_then(|held| held.downcast::<T>().ok()) {
+    return Ok(held);
+  }
+  let formatter = std::rc::Rc::new(make(intl)?);
+  MADE.with(|made| {
+    let mut made = made.borrow_mut();
+    if made.len() >= MADE_LIMIT {
+      made.clear();
+    }
+    made.insert(key, formatter.clone());
+  });
+  Ok(formatter)
+}
 
 pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.number", Reach::Render, number_fn);
@@ -47,7 +86,7 @@ pub fn register(extensions: &mut Extensions) {
     for tag in given {
       let canonical: Locale = tag.parse().map_err(|_| Fail::internal(format!("RangeError: Incorrect locale information provided: {tag}")))?;
       let canonical = canonical.to_string();
-      if snapfire_i18n::supported(&canonical) && !out.iter().any(|v| matches!(v, Value::Str(s) if s.as_str() == canonical)) {
+      if intl()?.tables().supported(&canonical) && !out.iter().any(|v| matches!(v, Value::Str(s) if s.as_str() == canonical)) {
         out.push(Value::str(canonical));
       }
     }
@@ -81,12 +120,13 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.numericParts", Reach::Render, |ambient, args| {
     let what = "intl.numericParts";
     let tag = named_locale(what, args, 1)?.map_or_else(|| ambient.bcp47().to_owned(), str::to_owned);
+    let tag = intl()?.locale(what, &tag)?.to_string();
     let local = number(what, args, 0)?;
     if local.is_nan() {
       return Err(Fail::internal("RangeError: Invalid time value"));
     }
     let (y, m, d) = super::time::civil_from_ms(local);
-    let parts = snapfire_i18n::numeric_date_parts(&tag, y, m, d).ok_or_else(|| Fail::internal(format!("{what}: the parts of a date in the calendar `{tag}` names")))?;
+    let parts = intl()?.tables().numeric_date_parts(&tag, y, m, d).ok_or_else(|| Fail::internal(format!("{what}: the parts of a date in the calendar `{tag}` names")))?;
     Ok(Value::seq(parts.into_iter().map(|(kind, value)| {
       let mut map = snapfire_fsr_core::ValueMap::default();
       map.insert("type".to_owned(), Value::str(kind));
@@ -125,16 +165,17 @@ fn named_locale<'a>(what: &str, args: &'a [Value], i: usize) -> Result<Option<&'
 }
 
 fn locale_of(ambient: &Ambient) -> Locale {
-  ambient.bcp47().parse().unwrap_or_else(|_| locale!("en"))
+  let tag = ambient.bcp47();
+  intl().ok().and_then(|intl| intl.locale("the request's locale", &tag).ok()).or_else(|| tag.parse().ok()).unwrap_or_else(|| locale!("en"))
 }
 
 /// The locale an options object names under `locale`, else the ambient one. A list of locales names its first; an empty list is the ambient one. A locale written in the code formats the same everywhere, which is what the author asked for by writing it.
 fn locale_for(what: &str, ambient: &Ambient, options: Option<&Value>) -> Result<Locale, Fail> {
   match options {
     Some(Value::Map(map)) => match map.get("locale") {
-      Some(Value::Str(tag)) => tag.as_str().parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale"))),
+      Some(Value::Str(tag)) => intl()?.locale(what, tag.as_str()),
       Some(Value::Seq(tags)) => match tags.first() {
-        Some(Value::Str(tag)) => tag.as_str().parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale"))),
+        Some(Value::Str(tag)) => intl()?.locale(what, tag.as_str()),
         None => Ok(locale_of(ambient)),
         Some(other) => Err(Fail::internal(format!("TypeError: {what}: a locale wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
       },
@@ -224,12 +265,18 @@ fn number_fn(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(other) => return Err(Fail::internal(format!("{what}: `useGrouping` is true, false, auto, always or min2, got {}", snapfire_fsr_core::ext::kind_name(other)))),
   });
   let locale = locale_for(what, ambient, args.get(1))?;
-  let formatter = DecimalFormatter::try_new((&locale).into(), options).map_err(|e| data(what, e))?;
+  let grouping = match options.grouping_strategy {
+    Some(GroupingStrategy::Never) => 2,
+    Some(GroupingStrategy::Always) => 3,
+    Some(GroupingStrategy::Min2) => 4,
+    _ => 1,
+  };
+  let formatter = made(&locale, grouping, |intl| DecimalFormatter::try_new_with_buffer_provider(intl.icu(), (&locale).into(), options).map_err(|e| data(what, e)))?;
   if !percent {
     return Ok(Value::str(formatter.format(&d).to_string()));
   }
   let (digits, sign) = unsigned(&formatter, &d);
-  Ok(Value::str(Percent::new(&locale.to_string()).format(&digits, sign)))
+  Ok(Value::str(intl()?.tables().percent(&locale.to_string()).format(&digits, sign)))
 }
 
 /// The absolute value of `d` in the formatter's digits with the sign it was written with.
@@ -263,7 +310,7 @@ fn currency(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(other) => return Err(Fail::internal(format!("{what}: `display` wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
   };
   let locale = locale_for(what, ambient, args.get(2))?;
-  let currency = Currency::new(&locale.to_string(), &code, display).map_err(|e| Fail::internal(format!("{what}: {e}")))?;
+  let currency = intl()?.tables().currency(&locale.to_string(), &code, display).map_err(|e| Fail::internal(format!("{what}: {e}")))?;
   let own = i16::from(currency.digits());
   let (min, max) = match (digits(what, args, 2, "minimumFractionDigits")?, digits(what, args, 2, "maximumFractionDigits")?) {
     (None, None) => (own, own),
@@ -272,7 +319,7 @@ fn currency(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     (Some(min), Some(max)) => (min, max.max(min)),
   };
   round(&mut d, min, max);
-  let formatter = DecimalFormatter::try_new((&locale).into(), Default::default()).map_err(|e| data(what, e))?;
+  let formatter = made(&locale, 0, |intl| DecimalFormatter::try_new_with_buffer_provider(intl.icu(), (&locale).into(), Default::default()).map_err(|e| data(what, e)))?;
   let (digits, sign) = unsigned(&formatter, &d);
   Ok(Value::str(currency.format(&digits, sign)))
 }
@@ -290,7 +337,8 @@ pub(super) fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   };
   let (y, m, d) = super::time::civil_from_ms(ms);
   let date = Date::try_new_iso(y as i32, m as u8, d as u8).map_err(|e| data(what, e))?;
-  let prefs = locale_for(what, ambient, args.get(1))?.into();
+  let locale = locale_for(what, ambient, args.get(1))?;
+  let prefs = (&locale).into();
   let part = |name: &str| -> Result<Option<String>, Fail> {
     let Some(Value::Map(options)) = args.get(1) else { return Ok(None) };
     match options.get(name) {
@@ -302,9 +350,9 @@ pub(super) fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let (weekday, year, month, day) = (part("weekday")?, part("year")?, part("month")?, part("day")?);
   let parts = weekday.is_some() || year.is_some() || month.is_some() || day.is_some();
   if let Some(time_style) = part("timeStyle")? {
-    let precision = match time_style.as_str() {
-      "short" => TimePrecision::Minute,
-      "medium" => TimePrecision::Second,
+    let (precision, timed) = match time_style.as_str() {
+      "short" => (TimePrecision::Minute, 16),
+      "medium" => (TimePrecision::Second, 32),
       other => return Err(Fail::internal(format!("{what}: `timeStyle: \"{other}\"` is not read; short and medium are, since long and full name the time zone"))),
     };
     if parts {
@@ -315,11 +363,11 @@ pub(super) fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     let at = DateTime { date, time };
     let date_style = part("style")?;
     let out = match date_style.as_deref() {
-      None => DateTimeFormatter::try_new(prefs, T::medium().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
-      Some("short") => DateTimeFormatter::try_new(prefs, YMDT::short().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
-      Some("medium") => DateTimeFormatter::try_new(prefs, YMDT::medium().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
-      Some("long") => DateTimeFormatter::try_new(prefs, YMDT::long().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
-      Some("full") => DateTimeFormatter::try_new(prefs, YMDET::long().with_time_precision(precision)).map_err(|e| data(what, e))?.format(&at).parts_out(),
+      None => made(&locale, timed + 2, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, T::medium().with_time_precision(precision)).map_err(|e| data(what, e)))?.format(&at).parts_out(),
+      Some("short") => made(&locale, timed + 1, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, YMDT::short().with_time_precision(precision)).map_err(|e| data(what, e)))?.format(&at).parts_out(),
+      Some("medium") => made(&locale, timed + 2, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, YMDT::medium().with_time_precision(precision)).map_err(|e| data(what, e)))?.format(&at).parts_out(),
+      Some("long") => made(&locale, timed + 3, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, YMDT::long().with_time_precision(precision)).map_err(|e| data(what, e)))?.format(&at).parts_out(),
+      Some("full") => made(&locale, timed + 3, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, YMDET::long().with_time_precision(precision)).map_err(|e| data(what, e)))?.format(&at).parts_out(),
       Some(other) => return Err(Fail::internal(format!("{what}: `{other}` is not a style; short, medium, long or full"))),
     };
     // Chrome writes an ordinary space where CLDR 42 and later put U+202F before the day period.
@@ -336,9 +384,9 @@ pub(super) fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   macro_rules! format_with {
     ($set:ident, $length:expr) => {
       match $length {
-        Length::Long => DateTimeFormatter::try_new(prefs, $set::long()).map_err(|e| data(what, e))?.format(&date).parts_out(),
-        Length::Medium => DateTimeFormatter::try_new(prefs, $set::medium()).map_err(|e| data(what, e))?.format(&date).parts_out(),
-        Length::Short => DateTimeFormatter::try_new(prefs, $set::short()).map_err(|e| data(what, e))?.format(&date).parts_out(),
+        Length::Long => made(&locale, 3, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, $set::long()).map_err(|e| data(what, e)))?.format(&date).parts_out(),
+        Length::Medium => made(&locale, 2, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, $set::medium()).map_err(|e| data(what, e)))?.format(&date).parts_out(),
+        Length::Short => made(&locale, 1, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), prefs, $set::short()).map_err(|e| data(what, e)))?.format(&date).parts_out(),
       }
     };
   }
@@ -420,22 +468,25 @@ pub(super) fn numeric_written(what: &str, local: f64, tag: &str, mode: &str) -> 
   if local.is_nan() {
     return Ok("Invalid Date".to_owned());
   }
-  let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("RangeError: {what}: `{tag}` is not a locale")))?;
+  tag.parse::<Locale>().map_err(|_| Fail::internal(format!("RangeError: {what}: `{tag}` is not a locale")))?;
+  let locale = intl()?.locale(what, tag)?;
+  let tag = &locale.to_string();
   let (y, m, d) = super::time::civil_from_ms(local);
   let (h, min, s, _) = super::time::clock_from_ms(local);
-  let clock = || snapfire_i18n::clock(tag, h as u32, min as u32, s as u32);
+  let tables = intl()?.tables();
+  let clock = || tables.clock(tag, h as u32, min as u32, s as u32);
   if mode == "time" {
     return Ok(clock());
   }
-  let out = match snapfire_i18n::numeric_date(tag, y, m, d) {
-    Some(written) if mode == "both" => snapfire_i18n::date_with_time(tag, &written, &clock()),
+  let out = match intl()?.tables().numeric_date(tag, y, m, d) {
+    Some(written) if mode == "both" => intl()?.tables().date_with_time(tag, &written, &clock()),
     Some(written) => written,
     None => {
       let date = Date::try_new_iso(y as i32, m as u8, d as u8).map_err(|e| data(what, e))?;
       let time = Time::try_new(h as u8, min as u8, s as u8, 0).map_err(|e| data(what, e))?;
       match mode {
-        "both" => DateTimeFormatter::try_new(locale.into(), YMDT::short().with_year_style(YearStyle::Full).with_time_precision(TimePrecision::Second)).map_err(|e| data(what, e))?.format(&DateTime { date, time }).to_string(),
-        _ => DateTimeFormatter::try_new(locale.into(), YMD::short().with_year_style(YearStyle::Full)).map_err(|e| data(what, e))?.format(&date).to_string(),
+        "both" => made(&locale, 64, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), (&locale).into(), YMDT::short().with_year_style(YearStyle::Full).with_time_precision(TimePrecision::Second)).map_err(|e| data(what, e)))?.format(&DateTime { date, time }).to_string(),
+        _ => made(&locale, 64, |intl| DateTimeFormatter::try_new_with_buffer_provider(intl.icu(), (&locale).into(), YMD::short().with_year_style(YearStyle::Full)).map_err(|e| data(what, e)))?.format(&date).to_string(),
       }
     }
   };
@@ -468,8 +519,10 @@ fn local_parts(ms: f64, now: f64) -> Result<Option<(f64, i32, String)>, Fail> {
     Err(snapfire_time::Error::UnknownZone(_)) => 0,
     Err(e) => return Err(Fail::internal(e.to_string())),
   };
-  let daylight = snapfire_i18n::in_daylight(zone, snapfire_time::equivalent_time(ms), &rules);
-  let name = snapfire_i18n::zone_name(&system_locale(), zone, daylight, now, &rules);
+  let daylight = intl()?.tables().in_daylight(zone, snapfire_time::equivalent_time(ms), &rules);
+  let system = system_locale();
+  let system = intl()?.locale("Date", &system).map_or(system, |locale| locale.to_string());
+  let name = intl()?.tables().zone_name(&system, zone, daylight, now, &rules);
   Ok(Some((ms.floor() + f64::from(offset) * 1000.0, offset, name)))
 }
 
@@ -511,17 +564,17 @@ fn plural(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let what = "intl.plural";
   let locale = locale_for(what, ambient, args.get(1))?;
   let rules = match string_option(what, args, 1, "type")?.as_deref() {
-    None | Some("cardinal") => PluralRules::try_new_cardinal(locale.into()),
-    Some("ordinal") => PluralRules::try_new_ordinal(locale.into()),
+    None | Some("cardinal") => made(&locale, 0, |intl| PluralRules::try_new_cardinal_with_buffer_provider(intl.icu(), (&locale).into()).map_err(|e| data(what, e))),
+    Some("ordinal") => made(&locale, 1, |intl| PluralRules::try_new_ordinal_with_buffer_provider(intl.icu(), (&locale).into()).map_err(|e| data(what, e))),
     Some(other) => return Err(Fail::internal(format!("{what}: `type` is cardinal or ordinal, got `{other}`"))),
-  }
-  .map_err(|e| data(what, e))?;
+  }?;
   Ok(Value::str(select(&rules, args.first().unwrap_or(&Value::Null))?))
 }
 
 /// The cardinal plural category of `n` under the ambient locale.
 pub fn category(ambient: &Ambient, n: &Value) -> Result<String, Fail> {
-  let rules = PluralRules::try_new_cardinal(locale_of(ambient).into()).map_err(|e| data("intl.plural", e))?;
+  let locale = locale_of(ambient);
+  let rules = made(&locale, 0, |intl| PluralRules::try_new_cardinal_with_buffer_provider(intl.icu(), (&locale).into()).map_err(|e| data("intl.plural", e)))?;
   select(&rules, n)
 }
 
@@ -569,14 +622,14 @@ fn list(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(other) => return Err(Fail::internal(format!("{what}: `style` is long, short or narrow, got `{other}`"))),
   };
   let locale = locale_for(what, ambient, options)?;
-  let made = ListFormatterOptions::default().with_length(length);
+  let wide = ListFormatterOptions::default().with_length(length);
+  let width = list_width(length);
   let formatter = match read("type")?.as_deref() {
-    None | Some("conjunction") => ListFormatter::try_new_and(locale.into(), made),
-    Some("disjunction") => ListFormatter::try_new_or(locale.into(), made),
-    Some("unit") => ListFormatter::try_new_unit(locale.into(), made),
+    None | Some("conjunction") => made(&locale, width, |intl| ListFormatter::try_new_and_with_buffer_provider(intl.icu(), (&locale).into(), wide).map_err(|e| data(what, e))),
+    Some("disjunction") => made(&locale, 4 + width, |intl| ListFormatter::try_new_or_with_buffer_provider(intl.icu(), (&locale).into(), wide).map_err(|e| data(what, e))),
+    Some("unit") => made(&locale, 8 + width, |intl| ListFormatter::try_new_unit_with_buffer_provider(intl.icu(), (&locale).into(), wide).map_err(|e| data(what, e))),
     Some(other) => return Err(Fail::internal(format!("{what}: `type` is conjunction, disjunction or unit, got `{other}`"))),
-  }
-  .map_err(|e| data(what, e))?;
+  }?;
   Ok(Value::str(formatter.format(items.iter().map(String::as_str)).parts_out()))
 }
 
@@ -605,6 +658,7 @@ fn compare(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let a = text(what, args, 0)?;
   let b = text(what, args, 1)?;
   let collator = collator(what, ambient, args, 2)?;
+  let collator = collator.as_borrowed();
   Ok(Value::F64(match collator.compare(&a, &b) {
     std::cmp::Ordering::Less => -1.0,
     std::cmp::Ordering::Equal => 0.0,
@@ -613,27 +667,47 @@ fn compare(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
 }
 
 /// The collator `new Intl.Collator(locale, options)` makes, from the options at `args[at]`. A locale's own defaults stand where an option is not given: Thai ignores punctuation and Danish and Maltese sort capitals first.
-fn collator(what: &str, ambient: &Ambient, args: &[Value], at: usize) -> Result<icu_collator::CollatorBorrowed<'static>, Fail> {
+fn collator(what: &str, ambient: &Ambient, args: &[Value], at: usize) -> Result<std::rc::Rc<Collator>, Fail> {
   let locale = locale_for(what, ambient, args.get(at))?;
-  let mut prefs: CollatorPreferences = locale.into();
+  let mut prefs: CollatorPreferences = (&locale).into();
+  let mut key = 0u64;
   match option(what, args, at, "numeric")? {
     None => {}
-    Some(Value::Bool(numeric)) => prefs.numeric_ordering = Some(if *numeric { CollationNumericOrdering::True } else { CollationNumericOrdering::False }),
+    Some(Value::Bool(numeric)) => {
+      key |= if *numeric { 1 } else { 2 };
+      prefs.numeric_ordering = Some(if *numeric { CollationNumericOrdering::True } else { CollationNumericOrdering::False });
+    }
     Some(other) => return Err(Fail::internal(format!("{what}: `numeric` wants a boolean, got {}", snapfire_fsr_core::ext::kind_name(other)))),
   }
   match string_option(what, args, at, "caseFirst")?.as_deref() {
     None => {}
-    Some("upper") => prefs.case_first = Some(CollationCaseFirst::Upper),
-    Some("lower") => prefs.case_first = Some(CollationCaseFirst::Lower),
-    Some("false") => prefs.case_first = Some(CollationCaseFirst::False),
+    Some("upper") => {
+      key |= 4;
+      prefs.case_first = Some(CollationCaseFirst::Upper);
+    }
+    Some("lower") => {
+      key |= 8;
+      prefs.case_first = Some(CollationCaseFirst::Lower);
+    }
+    Some("false") => {
+      key |= 12;
+      prefs.case_first = Some(CollationCaseFirst::False);
+    }
     Some(other) => return Err(Fail::internal(format!("RangeError: {what}: `caseFirst` is upper, lower or false, got `{other}`"))),
   }
   let mut options = CollatorOptions::default();
   match string_option(what, args, at, "sensitivity")?.as_deref() {
     None | Some("variant") => {}
-    Some("base") => options.strength = Some(Strength::Primary),
-    Some("accent") => options.strength = Some(Strength::Secondary),
+    Some("base") => {
+      key |= 16;
+      options.strength = Some(Strength::Primary);
+    }
+    Some("accent") => {
+      key |= 32;
+      options.strength = Some(Strength::Secondary);
+    }
     Some("case") => {
+      key |= 48;
       options.strength = Some(Strength::Primary);
       options.case_level = Some(CaseLevel::On);
     }
@@ -641,10 +715,13 @@ fn collator(what: &str, ambient: &Ambient, args: &[Value], at: usize) -> Result<
   }
   match option(what, args, at, "ignorePunctuation")? {
     None => {}
-    Some(Value::Bool(ignore)) => options.alternate_handling = Some(if *ignore { AlternateHandling::Shifted } else { AlternateHandling::NonIgnorable }),
+    Some(Value::Bool(ignore)) => {
+      key |= if *ignore { 64 } else { 128 };
+      options.alternate_handling = Some(if *ignore { AlternateHandling::Shifted } else { AlternateHandling::NonIgnorable });
+    }
     Some(other) => return Err(Fail::internal(format!("{what}: `ignorePunctuation` wants a boolean, got {}", snapfire_fsr_core::ext::kind_name(other)))),
   }
-  Collator::try_new(prefs, options).map_err(|e| data(what, e))
+  made(&locale, key, |intl| Collator::try_new_with_buffer_provider(intl.icu(), prefs, options).map_err(|e| data(what, e)))
 }
 
 /// `intl.relative(value, unit, { locale?, numeric?, style? })`: the phrase `new Intl.RelativeTimeFormat(locale, options).format(value, unit)` writes. `unit` is `second`, `minute`, `hour`, `day`, `week`, `month`, `quarter` or `year`, singular or plural; `numeric` is `always` (the default) or `auto`, which writes "yesterday" where the locale has a word; `style` is `long` (the default), `short` or `narrow`.
@@ -706,7 +783,7 @@ fn relative_written(ambient: &Ambient, args: &[Value]) -> Result<(String, Option
   };
   let locale = locale_for(what, ambient, args.get(2))?;
   let tag = locale.to_string();
-  let relative = Relative::new(&tag, unit, width);
+  let relative = intl()?.tables().relative(&tag, unit, width);
   let past = value.sign() == fixed_decimal::Sign::Negative;
   value.set_sign(fixed_decimal::Sign::None);
   let whole = value.absolute.magnitude_range() == (0..=0);
@@ -716,7 +793,7 @@ fn relative_written(ambient: &Ambient, args: &[Value]) -> Result<(String, Option
       return Ok((word.to_owned(), None));
     }
   }
-  let rules = PluralRules::try_new_cardinal((&locale).into()).map_err(|e| data(what, e))?;
+  let rules = made(&locale, 0, |intl| PluralRules::try_new_cardinal_with_buffer_provider(intl.icu(), (&locale).into()).map_err(|e| data(what, e)))?;
   let plural = match rules.category_for(PluralOperands::from(&value)) {
     PluralCategory::Zero => Plural::Zero,
     PluralCategory::One => Plural::One,
@@ -729,7 +806,7 @@ fn relative_written(ambient: &Ambient, args: &[Value]) -> Result<(String, Option
     (true, digit @ (0 | 1)) => Some(digit),
     _ => None,
   };
-  let formatter = DecimalFormatter::try_new((&locale).into(), Default::default()).map_err(|e| data(what, e))?;
+  let formatter = made(&locale, 0, |intl| DecimalFormatter::try_new_with_buffer_provider(intl.icu(), (&locale).into(), Default::default()).map_err(|e| data(what, e)))?;
   let formatted = formatter.format(&value);
   let mut sink = Collector { parts: Vec::new(), current: None };
   let _ = writeable::Writeable::write_to_parts(&formatted, &mut sink);
@@ -842,7 +919,7 @@ fn number_parts(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let written = text(what, args, 0)?;
   let style = text(what, args, 1)?;
   let locale = locale_for(what, ambient, args.get(2))?;
-  let probe = DecimalFormatter::try_new((&locale).into(), DecimalFormatterOptions::default()).map_err(|e| data(what, e))?;
+  let probe = made(&locale, 0, |intl| DecimalFormatter::try_new_with_buffer_provider(intl.icu(), (&locale).into(), DecimalFormatterOptions::default()).map_err(|e| data(what, e)))?;
   let mut sample = Decimal::from(12345);
   sample.multiply_pow10(-1);
   PARTS.with(|parts| *parts.borrow_mut() = Some(Vec::new()));
@@ -900,24 +977,26 @@ fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let tag = text(what, args, 0)?;
   let op = text(what, args, 1)?;
   let mut locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("RangeError: Incorrect locale information provided")))?;
-  icu_locale::LocaleCanonicalizer::new_extended().canonicalize(&mut locale);
+  let intl = intl()?;
+  icu_locale::LocaleCanonicalizer::try_new_extended_with_buffer_provider(intl.icu()).map_err(|e| data(what, e))?.canonicalize(&mut locale);
+  let expander = icu_locale::LocaleExpander::try_new_extended_with_buffer_provider(intl.icu()).map_err(|e| data(what, e))?;
   let keyword = |key: &str| key.parse().ok().and_then(|k| locale.extensions.unicode.keywords.get(&k)).map(|v| v.to_string()).filter(|v| !v.is_empty());
   let list = |items: Vec<String>| Value::Seq(items.into_iter().map(Value::str).collect::<Vec<_>>().into());
   let maximized = || {
     let mut id = locale.id.clone();
-    icu_locale::LocaleExpander::new_extended().maximize(&mut id);
+    expander.maximize(&mut id);
     id
   };
   match op {
     "canonical" => Ok(Value::str(locale.to_string())),
     "getCalendars" => Ok(list(match keyword("ca") {
       Some(calendar) => vec![calendar],
-      None => snapfire_i18n::preferred_calendars(maximized().region.as_ref().map_or("001", |r| r.as_str())).iter().map(|c| (*c).to_owned()).collect(),
+      None => intl.tables().preferred_calendars(maximized().region.as_ref().map_or("001", |r| r.as_str())).iter().map(|c| (*c).to_owned()).collect(),
     })),
-    "getHourCycles" => Ok(list(vec![keyword("hc").unwrap_or_else(|| snapfire_i18n::hour_cycle(&locale.to_string()).to_owned())])),
-    "getNumberingSystems" => Ok(list(vec![keyword("nu").unwrap_or_else(|| snapfire_i18n::numbering_system(&locale.to_string()).to_owned())])),
+    "getHourCycles" => Ok(list(vec![keyword("hc").unwrap_or_else(|| intl.tables().hour_cycle(&locale.to_string()).to_owned())])),
+    "getNumberingSystems" => Ok(list(vec![keyword("nu").unwrap_or_else(|| intl.tables().numbering_system(&locale.to_string()).to_owned())])),
     "getTextInfo" => {
-      let direction = match icu_locale::LocaleDirectionality::new_extended().get(&locale.id) {
+      let direction = match icu_locale::LocaleDirectionality::try_new_extended_with_buffer_provider(intl.icu()).map_err(|e| data(what, e))?.get(&locale.id) {
         Some(icu_locale::Direction::RightToLeft) => "rtl",
         _ => "ltr",
       };
@@ -926,13 +1005,13 @@ fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
       Ok(Value::Map(map))
     }
     "getTimeZones" => Ok(match locale.id.region {
-      Some(region) => list(snapfire_i18n::region_zones(region.as_str()).iter().map(|z| (*z).to_owned()).collect()),
+      Some(region) => list(intl.tables().region_zones(region.as_str()).iter().map(|z| (*z).to_owned()).collect()),
       None => Value::Undefined,
     }),
     "getWeekInfo" => {
       let mut regional = locale.clone();
       regional.id = maximized();
-      let week = icu_calendar::week::WeekInformation::try_new((&regional).into()).map_err(|e| data(what, e))?;
+      let week = icu_calendar::week::WeekInformation::try_new_with_buffer_provider(intl.icu(), (&regional).into()).map_err(|e| data(what, e))?;
       let mut weekend: Vec<f64> = week.weekend().map(|day| f64::from(day as u8)).collect();
       weekend.sort_by(f64::total_cmp);
       let mut map = snapfire_fsr_core::ValueMap::default();
@@ -941,7 +1020,6 @@ fn locale_op(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
       Ok(Value::Map(map))
     }
     "maximize" | "minimize" => {
-      let expander = icu_locale::LocaleExpander::new_extended();
       if op == "maximize" { expander.maximize(&mut locale.id) } else { expander.minimize(&mut locale.id) };
       Ok(Value::str(locale.to_string()))
     }
@@ -990,8 +1068,8 @@ pub(super) fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail>
   };
   let locale = locale_for(what, ambient, args.get(1))?;
   let tag = locale.to_string();
-  let numbers = DecimalFormatter::try_new((&locale).into(), DecimalFormatterOptions::default()).map_err(|e| data(what, e))?;
-  let plurals = PluralRules::try_new_cardinal((&locale).into()).map_err(|e| data(what, e))?;
+  let numbers = made(&locale, 0, |intl| DecimalFormatter::try_new_with_buffer_provider(intl.icu(), (&locale).into(), DecimalFormatterOptions::default()).map_err(|e| data(what, e)))?;
+  let plurals = made(&locale, 0, |intl| PluralRules::try_new_cardinal_with_buffer_provider(intl.icu(), (&locale).into()).map_err(|e| data(what, e)))?;
   let unit_width = if style == "digital" { "short" } else { style.as_str() };
   let written = |unit: &str, n: f64| -> Result<String, Fail> {
     let decimal = Decimal::try_from_f64(n, FloatPrecision::RoundTrip).map_err(|e| Fail::internal(format!("{what}: {e:?}")))?;
@@ -1003,7 +1081,7 @@ pub(super) fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail>
       PluralCategory::Many => "many",
       PluralCategory::Other => "other",
     };
-    let pattern = snapfire_i18n::duration_unit(&tag, unit_width, unit, plural).ok_or_else(|| Fail::internal(format!("{what}: no `{unit}` pattern for {tag}")))?;
+    let pattern = intl()?.tables().duration_unit(&tag, unit_width, unit, plural).ok_or_else(|| Fail::internal(format!("{what}: no `{unit}` pattern for {tag}")))?;
     Ok(pattern.replace("{0}", &numbers.format(&decimal).to_string()))
   };
   let mut items = Vec::new();
@@ -1016,7 +1094,7 @@ pub(super) fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail>
   }
   if style == "digital" {
     let below = amount("milliseconds") * 1e6 + amount("microseconds") * 1e3 + amount("nanoseconds");
-    let separator = snapfire_i18n::time_separator(&tag);
+    let separator = intl()?.tables().time_separator(&tag);
     let mut clock = format!("{}{separator}{:02}{separator}{:02}", amount("hours"), amount("minutes"), amount("seconds"));
     if below != 0.0 {
       let fraction = format!("{:09}", below as u64);
@@ -1036,12 +1114,13 @@ pub(super) fn duration(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail>
     "narrow" => ListLength::Narrow,
     _ => ListLength::Short,
   };
-  let list = ListFormatter::try_new_unit((&locale).into(), ListFormatterOptions::default().with_length(length)).map_err(|e| data(what, e))?;
+  let list = made(&locale, 8 + list_width(length), |intl| ListFormatter::try_new_unit_with_buffer_provider(intl.icu(), (&locale).into(), ListFormatterOptions::default().with_length(length)).map_err(|e| data(what, e)))?;
   Ok(Value::str(list.format(items.iter().map(String::as_str)).to_string()))
 }
 
 /// `intl.resolvedOptions(formatter, options)`: what `resolvedOptions()` reports for an `Intl.DateTimeFormat` or an `Intl.NumberFormat` made with `options`, its locale under `locale` and a date formatter's zone under `timeZone`, with every default the options leave out and in the order node reports them.
 fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let tables = intl()?.tables();
   let what = "intl.resolvedOptions";
   let formatter = text(what, args, 0)?;
   let options = args.get(1);
@@ -1057,14 +1136,14 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let mut out = snapfire_fsr_core::ValueMap::default();
   out.insert("locale".to_owned(), Value::str(tag.as_str()));
   if formatter == "DateTimeFormat" {
-    let calendar = word("calendar").unwrap_or_else(|| match snapfire_i18n::calendar(&tag) {
+    let calendar = word("calendar").unwrap_or_else(|| match tables.calendar(&tag) {
       Some(snapfire_i18n::Calendar::Persian) => "persian".to_owned(),
       Some(snapfire_i18n::Calendar::Buddhist) => "buddhist".to_owned(),
       Some(snapfire_i18n::Calendar::Gregorian) => "gregory".to_owned(),
       None => tag.split("-u-").nth(1).and_then(|keys| keys.split('-').skip_while(|k| *k != "ca").nth(1)).unwrap_or("gregory").to_owned(),
     });
     out.insert("calendar".to_owned(), Value::str(calendar));
-    out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+    out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| tables.numbering_system(&tag).to_owned())));
     if let Some(zone) = given("timeZone") {
       out.insert("timeZone".to_owned(), zone);
     }
@@ -1072,10 +1151,10 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     let styled = given("dateStyle").is_some() || given("timeStyle").is_some();
     let hour = given("hour").is_some();
     let cycle = match (word("hourCycle"), given("hour12")) {
-      (_, Some(Value::Bool(true))) => if snapfire_i18n::hour_cycle(&tag) == "h11" { "h11" } else { "h12" }.to_owned(),
-      (_, Some(Value::Bool(false))) => if snapfire_i18n::hour_cycle(&tag) == "h24" { "h24" } else { "h23" }.to_owned(),
+      (_, Some(Value::Bool(true))) => if tables.hour_cycle(&tag) == "h11" { "h11" } else { "h12" }.to_owned(),
+      (_, Some(Value::Bool(false))) => if tables.hour_cycle(&tag) == "h24" { "h24" } else { "h23" }.to_owned(),
       (Some(cycle), _) => cycle,
-      _ => snapfire_i18n::hour_cycle(&tag).to_owned(),
+      _ => tables.hour_cycle(&tag).to_owned(),
     };
     if hour || given("timeStyle").is_some() {
       out.insert("hourCycle".to_owned(), Value::str(cycle.as_str()));
@@ -1086,7 +1165,7 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
         out.insert(field.to_owned(), Value::str("numeric"));
       }
     }
-    let widths = snapfire_i18n::time_widths(&tag, &cycle, given("minute").is_some(), given("second").is_some());
+    let widths = tables.time_widths(&tag, &cycle, given("minute").is_some(), given("second").is_some());
     for (field, at) in FIELDS.iter().zip(0..) {
       let Some(value) = given(field) else { continue };
       let value = match (hour, at) {
@@ -1107,7 +1186,7 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let text_or = |key: &str, default: &str| Value::str(word(key).unwrap_or_else(|| default.to_owned()));
   match formatter {
     "Collator" => {
-      let resolved = collator(what, ambient, args, 1)?.resolved_options();
+      let resolved = collator(what, ambient, args, 1)?.as_borrowed().resolved_options();
       let keyword = |key: &str| tag.split("-u-").nth(1).and_then(|keys| keys.split('-').skip_while(|k| *k != key).nth(1)).map(str::to_owned);
       out.insert("usage".to_owned(), text_or("usage", "sort"));
       out.insert("sensitivity".to_owned(), text_or("sensitivity", "variant"));
@@ -1144,12 +1223,12 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     "RelativeTimeFormat" => {
       out.insert("style".to_owned(), text_or("style", "long"));
       out.insert("numeric".to_owned(), text_or("numeric", "always"));
-      out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+      out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| tables.numbering_system(&tag).to_owned())));
       return Ok(Value::Map(out));
     }
     "DurationFormat" => {
       const UNITS: [&str; 10] = ["years", "months", "weeks", "days", "hours", "minutes", "seconds", "milliseconds", "microseconds", "nanoseconds"];
-      out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+      out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| tables.numbering_system(&tag).to_owned())));
       let style = word("style").unwrap_or_else(|| "short".to_owned());
       out.insert("style".to_owned(), Value::str(style.as_str()));
       for (unit, at) in UNITS.iter().zip(0..) {
@@ -1184,7 +1263,7 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
         }
       }
       let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
-      let rules = if ordinal { PluralRules::try_new_ordinal((&locale).into()) } else { PluralRules::try_new_cardinal((&locale).into()) }.map_err(|e| data(what, e))?;
+      let rules = made(&locale, u64::from(ordinal), |intl| if ordinal { PluralRules::try_new_ordinal_with_buffer_provider(intl.icu(), (&locale).into()) } else { PluralRules::try_new_cardinal_with_buffer_provider(intl.icu(), (&locale).into()) }.map_err(|e| data(what, e)))?;
       let order = [PluralCategory::Zero, PluralCategory::One, PluralCategory::Two, PluralCategory::Few, PluralCategory::Many, PluralCategory::Other];
       let held: Vec<PluralCategory> = rules.categories().collect();
       let categories = order.iter().filter(|c| held.contains(c)).map(|c| Value::str(format!("{c:?}").to_ascii_lowercase())).collect::<Vec<_>>();
@@ -1204,7 +1283,7 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(Value::F32(n)) => Some(f64::from(n)),
     _ => None,
   };
-  out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| snapfire_i18n::numbering_system(&tag).to_owned())));
+  out.insert("numberingSystem".to_owned(), Value::str(word("numberingSystem").unwrap_or_else(|| tables.numbering_system(&tag).to_owned())));
   let style = word("style").unwrap_or_else(|| "decimal".to_owned());
   out.insert("style".to_owned(), Value::str(style.as_str()));
   let compact = word("notation").as_deref() == Some("compact");
@@ -1212,7 +1291,7 @@ fn resolved_options(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   match style.as_str() {
     "currency" => {
       let code = word("currency").ok_or_else(|| Fail::internal("TypeError: Currency code is required with currency style."))?;
-      let digits = snapfire_i18n::Currency::new(&tag, &code, snapfire_i18n::Display::Symbol).map_or(2, |c| c.digits());
+      let digits = tables.currency(&tag, &code, snapfire_i18n::Display::Symbol).map_or(2, |c| c.digits());
       (low, high) = (f64::from(digits), f64::from(digits));
       out.insert("currency".to_owned(), Value::str(code.to_uppercase()));
       out.insert("currencyDisplay".to_owned(), Value::str(word("currencyDisplay").unwrap_or_else(|| "symbol".to_owned())));
@@ -1284,7 +1363,7 @@ fn display_names(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let locale = locale_for(what, ambient, args.get(1))?;
   let style = read("style").unwrap_or_else(|| "long".to_owned());
   let standard = read("languageDisplay").as_deref() == Some("standard");
-  match snapfire_i18n::display_name(&locale.to_string(), kind, code, &style, standard) {
+  match intl()?.tables().display_name(&locale.to_string(), kind, code, &style, standard) {
     Some(name) => Ok(Value::str(name)),
     None if read("fallback").as_deref() == Some("none") => Ok(Value::Undefined),
     None => Ok(Value::str(code)),
