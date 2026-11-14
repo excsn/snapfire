@@ -10,6 +10,7 @@ pub mod host;
 pub mod interp;
 pub mod jsmath;
 pub mod jsregex;
+pub mod locales;
 pub mod native;
 pub mod prepared;
 pub mod std;
