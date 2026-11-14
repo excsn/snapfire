@@ -1217,18 +1217,22 @@ impl<'a> Lowerer<'a> {
         let items = Expr::Map(Box::new(Expr::Var(held.clone())), Box::new(Expr::Lambda { params: vec![item], body: Box::new(item_text) }));
         let joined = Expr::Builtin { name: Builtin::Join, args: vec![items, Expr::lit_str(",")] };
         let scalar = Expr::Ternary(Box::new(numeric(Expr::Var(held.clone()))), Box::new(number), Box::new(Expr::Str(Box::new(Expr::Var(held.clone())))));
-        // A `Date` the build could not see is one: in a body it is written in this machine's zone, as node writes it; on a render path the viewer's zone is not the server's, so the server writes it in UTC.
-        let ms = Expr::Builtin { name: Builtin::TaggedPayload, args: vec![Expr::Var(held.clone()), Expr::lit_str(snapfire_fsr_ir::render::typed::DATE)] };
-        let locale = match call.arguments.first() {
-          Some(a) => self.expr(crate::syntax::arg_expr(a))?,
-          None => Expr::Lit(Lit::Undefined),
-        };
-        let date = if self.on_render_path() && !self.reaches(Reach::Terminal) {
-          Expr::Ext { module: "intl".to_owned(), name: "numeric".to_owned(), args: vec![ms.clone(), locale, Expr::lit_str("both")] }
+        let scalar = if self.never_a_date(member.object()) {
+          scalar
         } else {
-          Expr::Ext { module: "intl".to_owned(), name: "localDate".to_owned(), args: vec![ms.clone(), locale, Expr::Lit(Lit::Bool(true))] }
+          // A `Date` the build could not see is one: in a body it is written in this machine's zone, as node writes it; on a render path the viewer's zone is not the server's, so the server writes it in UTC.
+          let ms = Expr::Builtin { name: Builtin::TaggedPayload, args: vec![Expr::Var(held.clone()), Expr::lit_str(snapfire_fsr_ir::render::typed::DATE)] };
+          let locale = match call.arguments.first() {
+            Some(a) => self.expr(crate::syntax::arg_expr(a))?,
+            None => Expr::Lit(Lit::Undefined),
+          };
+          let date = if self.on_render_path() && !self.reaches(Reach::Terminal) {
+            Expr::Ext { module: "intl".to_owned(), name: "numeric".to_owned(), args: vec![ms.clone(), locale, Expr::lit_str("both")] }
+          } else {
+            Expr::Ext { module: "intl".to_owned(), name: "localDate".to_owned(), args: vec![ms.clone(), locale, Expr::Lit(Lit::Bool(true))] }
+          };
+          Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![ms] }), Box::new(scalar), Box::new(date))
         };
-        let scalar = Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsNullish, args: vec![ms] }), Box::new(scalar), Box::new(date));
         let formatted = Expr::Block(vec![Stmt::Let { name: held.clone(), expr: *target }, Stmt::Return(Expr::Ternary(Box::new(Expr::Builtin { name: Builtin::IsArray, args: vec![Expr::Var(held)] }), Box::new(joined), Box::new(scalar)))]);
         Ok(self.candidate(call.span, formatted))
       }

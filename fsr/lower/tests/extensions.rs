@@ -254,3 +254,17 @@ fn log_members_lower_to_extension_calls_with_the_message_and_the_fields() {
   let Stmt::Expr(second) = &body[1] else { panic!("{body:?}") };
   assert_eq!(exts(second), vec!["log.warn/1"]);
 }
+
+#[test]
+fn a_helper_writing_a_number_with_to_locale_string_is_called_on_a_render_path() {
+  let dir = app(
+    "money",
+    &[
+      ("routes/a/page.tsx", "function money(cents: number): string {\n  const sign = cents < 0 ? \"-\" : \"\";\n  return `${sign}$${(Math.abs(cents) / 100).toLocaleString(\"en-US\", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;\n}\nexport default function A() {\n  return <p>{money(123456)}</p>;\n}\n"),
+      ("routes/b/page.tsx", "function size(n: number): string {\n  return (n * 2).toLocaleString();\n}\nexport default function B() {\n  return <p>{size(21)} {Math.round(2.5).toLocaleString()} {(-3).toLocaleString()}</p>;\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/a/page.tsx#default").unwrap();
+  set.lower("routes/b/page.tsx#default").unwrap();
+}

@@ -414,6 +414,22 @@ let m = m_expr.as_member_expression().expect("matched as a member");
     format!("$d{}", self.temps)
   }
 
+  /// Whether `e` is written as something that is never a `Date`: arithmetic, a comparison, a literal or a call of `Math`, `Number`, `parseFloat`, `parseInt` or `String`.
+  pub(crate) fn never_a_date(&self, e: &js::Expression) -> bool {
+    let global = |name: &str| !self.scope.iter().any(|(n, _)| n == name);
+    match e {
+      js::Expression::ParenthesizedExpression(p) => self.never_a_date(&p.expression),
+      js::Expression::TSAsExpression(a) => self.never_a_date(&a.expression),
+      js::Expression::TSNonNullExpression(a) => self.never_a_date(&a.expression),
+      js::Expression::BinaryExpression(_) | js::Expression::UnaryExpression(_) | js::Expression::UpdateExpression(_) | js::Expression::NumericLiteral(_) | js::Expression::StringLiteral(_) | js::Expression::TemplateLiteral(_) | js::Expression::BigIntLiteral(_) | js::Expression::BooleanLiteral(_) => true,
+      js::Expression::CallExpression(call) => match &call.callee {
+        js::Expression::Identifier(id) => matches!(id.name.as_str(), "Number" | "parseFloat" | "parseInt" | "String") && global(id.name.as_str()),
+        callee => callee.as_member_expression().is_some_and(|m| matches!(m.object(), js::Expression::Identifier(id) if id.name.as_str() == "Math" && global("Math"))),
+      },
+      _ => false,
+    }
+  }
+
   /// The kind `e` holds: a `new Map(...)`, `new Set(...)`, `new Date(...)` or bigint written in place, a name noted as bound to one or a prop whose kind is known.
   pub(crate) fn kind_of(&self, e: &js::Expression) -> Option<Kind> {
     match e {
