@@ -7,37 +7,41 @@
 mod case;
 mod currency;
 mod data;
+#[cfg(feature = "embedded")]
+mod embedded;
 mod locale;
 mod names;
 mod pattern;
 mod percent;
 mod relative;
+mod table;
 mod zone;
 
 pub use case::{lower_case, unicode_version, upper_case};
+pub use data::Data;
+#[cfg(feature = "embedded")]
+pub use embedded::{calendar, cldr_version, clock, date_with_time, display_name, duration_unit, has_display_names, hour_cycle, in_daylight, numbering_system, numeric_date, numeric_date_parts, preferred_calendars, region_zones, short_zone_name, supported, time_separator, time_widths, zone_name};
 pub use currency::{Currency, Display};
 pub use pattern::Sign;
 pub use percent::Percent;
 pub use relative::{Plural, Relative, Unit, Width};
-pub use names::{display_name, has_display_names, NameKind};
-pub use zone::{calendar, clock, date_with_time, duration_unit, hour_cycle, in_daylight, numbering_system, numeric_date, numeric_date_parts, preferred_calendars, region_zones, short_zone_name, supported, time_separator, time_widths, zone_name, Calendar, ZoneRules};
-
-/// The CLDR release the embedded data was generated from.
-pub fn cldr_version() -> &'static str {
-  data::data().version
-}
+pub use names::NameKind;
+pub use zone::{Calendar, ZoneRules};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Error {
   /// A currency code that is not three ASCII letters.
   NotACurrency(String),
+  /// Bytes that are not this crate's data in the format this version reads.
+  NotData,
 }
 
 impl std::fmt::Display for Error {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       Error::NotACurrency(code) => write!(f, "`{code}` is not a currency code"),
+      Error::NotData => write!(f, "the bytes are not snapfire_i18n data this version reads"),
     }
   }
 }

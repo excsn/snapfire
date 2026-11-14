@@ -1,8 +1,6 @@
 //! Which CLDR locale a BCP 47 tag reads its data from.
 
-use std::collections::HashMap;
-
-use crate::data::{Data, Locale, data};
+use crate::data::{fields, Data};
 
 /// The language, script and region subtags of `tag`, cased as CLDR names its locales. Anything after the region, a variant or an extension, is ignored. `_` separates as `-` does.
 pub(crate) fn subtags(tag: &str) -> (String, Option<String>, Option<String>) {
@@ -24,14 +22,35 @@ pub(crate) fn subtags(tag: &str) -> (String, Option<String>, Option<String>) {
   (language, script, region)
 }
 
-/// The data of the most specific CLDR locale `tag` falls back to: language, script and region, then language and region, language and script, the language alone and last the root locale. A tag CLDR names as another locale's child, such as `zh-TW` for `zh-Hant`, reads its parent's data.
-pub(crate) fn resolve(tag: &str) -> &'static Locale {
-  let data = data();
-  candidates(tag).iter().find_map(|name| found(data, name)).unwrap_or_else(|| &data.locales["und"])
+/// The ids of a locale's numbers, currency symbols and relative-time fields.
+pub(crate) struct Locale {
+  pub numbers: &'static str,
+  pub symbols: &'static str,
+  pub relative: &'static str,
+}
+
+impl Data {
+  /// The data of the most specific CLDR locale `tag` falls back to: language, script and region, then language and region, language and script, the language alone and last the root locale. A tag CLDR names as another locale's child, such as `zh-TW` for `zh-Hant`, reads its parent's data.
+  pub(crate) fn resolve(&self, tag: &str) -> Locale {
+    let [numbers, symbols, relative] = fields(self.formats_of(tag).unwrap_or(""));
+    Locale { numbers, symbols, relative }
+  }
+
+  /// The ids of the CLDR locale `tag` reads its formats from, the root locale's when it has none nearer.
+  pub(crate) fn formats_of(&self, tag: &str) -> Option<&'static str> {
+    let found = |name: &str| self.get(&["cL", name]).or_else(|| self.get(&["cA", name]).and_then(|to| self.get(&["cL", to])));
+    candidates(tag).iter().find_map(|name| found(name)).or_else(|| self.get(&["cL", "und"]))
+  }
+
+  /// The most specific locale holding zone records that `tag` reads, following the same fallback as [`Data::resolve`].
+  pub(crate) fn named(&self, tag: &str) -> Option<&'static str> {
+    let held = |name: &str| self.get(&["zE", name]);
+    candidates(tag).iter().find_map(|name| held(name).or_else(|| self.get(&["cA", name]).and_then(held)))
+  }
 }
 
 /// The CLDR locale names `tag` may read, most specific first: language, script and region, then language and region, language and script and the language alone.
-fn candidates(tag: &str) -> Vec<String> {
+pub(crate) fn candidates(tag: &str) -> Vec<String> {
   let (language, script, region) = subtags(tag);
   let mut candidates = Vec::with_capacity(4);
   if let (Some(script), Some(region)) = (&script, &region) {
@@ -45,16 +64,6 @@ fn candidates(tag: &str) -> Vec<String> {
   }
   candidates.push(language);
   candidates
-}
-
-/// The most specific locale among `known` that `tag` reads, following the same fallback as [`resolve`].
-pub(crate) fn name<V>(tag: &str, known: &'static HashMap<&'static str, V>) -> Option<&'static str> {
-  let aliases = &data().aliases;
-  candidates(tag).iter().find_map(|name| known.get_key_value(name.as_str()).or_else(|| aliases.get(name.as_str()).and_then(|to| known.get_key_value(to))).map(|(k, _)| *k))
-}
-
-fn found(data: &'static Data, name: &str) -> Option<&'static Locale> {
-  data.locales.get(name).or_else(|| data.aliases.get(name).and_then(|to| data.locales.get(to)))
 }
 
 #[cfg(test)]

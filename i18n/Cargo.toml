@@ -1,7 +1,7 @@
 [package]
 name = "snapfire_i18n"
 version = "0.1.0"
-include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE", "/data/**"]
+include = ["/src/**/*.rs", "/build.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE", "/data/**"]
 description = "Currency, percent and relative-time formatting and time zone names from CLDR data and case mapping under a locale, with no dependencies"
 keywords = ["snapfire", "i18n", "cldr", "currency", "intl"]
 categories = ["internationalization", "localization"]
@@ -14,10 +14,14 @@ homepage = "https://github.com/excsn/snapfire/tree/main/i18n"
 readme = "README.md"
 
 [features]
-default = ["display_names"]
+default = ["embedded", "display_names"]
+# Every locale's data built into the crate, about 4 MB, which the crate's own
+# functions and `Data::embedded` read. Without it a caller reads the bytes it
+# holds with `Data::from_static`.
+embedded = []
 # The names of languages, regions, scripts, currencies, calendars and date
 # fields `Intl.DisplayNames` writes, about 5.9 MB of CLDR data.
-display_names = []
+display_names = ["embedded"]
 
 [dependencies]
 
