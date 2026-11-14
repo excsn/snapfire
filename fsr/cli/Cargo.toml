@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_cli"
-version = "0.25.1"
+version = "0.26.0"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/embedded/**", "/templates/**", "/LICENSE"]
 description = "fsr, the CLI for a SnapFire FSR application: scaffolds, runs in development, tests, lints, builds the plan file and writes the deploy tree."
 keywords = ["snapfire", "fsr", "build-tool", "typescript", "cli"]
@@ -82,7 +82,7 @@ snapfire_fsr_host = { workspace = true, features = ["auth", "oidc", "passkey"] }
 
 snapfire_fsr_sites = { workspace = true, features = ["http"] }
 snapfire_fsr_ir = { workspace = true, features = ["intl_compiled"] }
-snapfire_i18n = { path = "../../i18n", version = "0.1.0" }
+snapfire_i18n = { path = "../../i18n", version = "0.2.0" }
 # What cuts an application's locale data out of every locale's, at `fsr build`.
 icu = { version = "~2.3", default-features = false, features = ["datagen"] }
 icu_provider = { version = "~2.3", features = ["export", "deserialize_postcard_1", "sync"] }

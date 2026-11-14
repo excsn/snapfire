@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_i18n"
-version = "0.1.0"
+version = "0.2.0"
 include = ["/src/**/*.rs", "/build.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE", "/data/**"]
 description = "Currency, percent and relative-time formatting and time zone names from CLDR data and case mapping under a locale, with no dependencies"
 keywords = ["snapfire", "i18n", "cldr", "currency", "intl"]

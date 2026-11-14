@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_ir"
-version = "0.21.2"
+version = "0.22.0"
 include = ["/src/**/*.rs", "/data/icu.postcard", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "The lowered form of a loader or action body for SnapFire FSR, and the interpreter that runs it over the value model."
 keywords = ["snapfire", "fsr", "interpreter", "typescript", "lowering"]
@@ -31,7 +31,7 @@ parking_lot = "0.13"
 regress = { version = "0.12", default-features = false, features = ["std", "utf16"] }
 snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
-snapfire_i18n = { path = "../../i18n", version = "0.1.0", default-features = false }
+snapfire_i18n = { path = "../../i18n", version = "0.2.0", default-features = false }
 snapfire_time = { path = "../../time", version = "0.1.0", default-features = false }
 form_urlencoded = "1"
 url = "2"

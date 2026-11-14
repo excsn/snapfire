@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_payload"
-version = "0.11.2"
+version = "0.12.0"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/LICENSE"]
 description = "Payload encodings for SnapFire FSR: the JSON pair and the HTML serializer."
 keywords = ["snapfire", "fsr", "serialization", "streaming", "wire"]

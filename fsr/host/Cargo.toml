@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_host"
-version = "0.25.1"
+version = "0.26.0"
 include = ["/src/**/*.rs", "/Cargo.toml", "/README.md", "/README.USAGE.md", "/API_REFERENCE.md", "/embedded/**", "/LICENSE"]
 description = "The stock host for SnapFire FSR: an app.toml, a plan file and a contract become a tower service over http types, served by hyper or mounted anywhere."
 keywords = ["snapfire", "fsr", "http-server", "ssr", "tower"]
